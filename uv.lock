@@ -1633,13 +1633,13 @@ wheels = [
 [[package]]
 name = "hypothesis"
 version = "6.152.6"
-source = { registry = "https://pypi.org/simple" }
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f0/09/f5219c8fd75ff1f270a6f691df651c206e9316b9d0ce2cbd8b6f82844e1e/hypothesis-6.152.6.tar.gz", hash = "sha256:4a3f21e9a7349a17616626e9010f04360b02e6bf8ff15fdc7c53e76d5517c1e8", size = 467945, upload-time = "2026-05-11T13:12:59.888Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/f0/09/f5219c8fd75ff1f270a6f691df651c206e9316b9d0ce2cbd8b6f82844e1e/hypothesis-6.152.6.tar.gz", hash = "sha256:4a3f21e9a7349a17616626e9010f04360b02e6bf8ff15fdc7c53e76d5517c1e8", size = 467945, upload-time = "2026-05-11T13:12:59.888Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/1c/ed568eca3a963dc3e447b01961ae653e0d6f107c2cfd77b3f2b1a5cfc520/hypothesis-6.152.6-py3-none-any.whl", hash = "sha256:b20ffc532e5f2901229348d10ed7cb37fd9723ebf4799df663d2dce1cdce4e32", size = 533724, upload-time = "2026-05-11T13:12:56.182Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5f/1c/ed568eca3a963dc3e447b01961ae653e0d6f107c2cfd77b3f2b1a5cfc520/hypothesis-6.152.6-py3-none-any.whl", hash = "sha256:b20ffc532e5f2901229348d10ed7cb37fd9723ebf4799df663d2dce1cdce4e32", size = 533724, upload-time = "2026-05-11T13:12:56.182Z" },
 ]
 
 [[package]]
@@ -4428,7 +4428,7 @@ requires-dist = [
     { name = "instructor", specifier = ">=1.5.0" },
     { name = "json-repair", specifier = ">=0.59.7" },
     { name = "langchain", marker = "extra == 'langgraph'", specifier = ">=1.0,<2" },
-    { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=1.1.0" },
+    { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=1.1.10" },
     { name = "langgraph-checkpoint-postgres", marker = "extra == 'langgraph'", specifier = ">=3.0.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "markitdown", extras = ["docx", "pptx", "xlsx", "outlook"], marker = "extra == 'attachment'", specifier = ">=0.0.2" },
@@ -4459,7 +4459,7 @@ requires-dist = [
     { name = "ratatoskr", extras = ["inference-core"], marker = "extra == 'ml'" },
     { name = "redis", specifier = ">=7.1.0" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.8.0" },
-    { name = "scrapegraphai", marker = "extra == 'scraper-ai'", specifier = ">=1.76.0" },
+    { name = "scrapegraphai", marker = "extra == 'scraper-ai'", specifier = ">=2.1.1" },
     { name = "scrapling", specifier = ">=0.4.8" },
     { name = "sentence-transformers", marker = "extra == 'inference-core'", specifier = ">=5.2.2" },
     { name = "sentry-sdk", extras = ["fastapi", "loguru"], marker = "extra == 'monitoring'", specifier = ">=2.0.0" },
@@ -4911,7 +4911,7 @@ wheels = [
 
 [[package]]
 name = "scrapegraphai"
-version = "1.76.0"
+version = "2.1.1"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
     { name = "async-timeout" },
@@ -4938,9 +4938,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "undetected-playwright" },
 ]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/1f/32/101897629bb0a18b80c96d4eec963b3fc32b01ca77010e41fd0529d269dc/scrapegraphai-1.76.0.tar.gz", hash = "sha256:6ece4c05e7905d05e9cab95791d7e18a93c37aeea6f42f495559581d5a6bafa6", size = 3165020, upload-time = "2026-04-09T09:41:05.229Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/7f/28/046c824329ba87c6f827ceca938d6c382c6b4ef18f7f59df0a7babdedf90/scrapegraphai-2.1.1.tar.gz", hash = "sha256:d9d9d586eb7c7fdeba727fac7e18cf97de252b0d166d7fa3b5e8f943f9df3172", size = 3184335, upload-time = "2026-05-10T13:56:15.647Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/66/04/4924ce0225133d6bfc390c0234bd0e81c6ccb3aeb9c8651f47cd34fefca6/scrapegraphai-1.76.0-py3-none-any.whl", hash = "sha256:bb749e6443d58fd87b21dd808098c4e5fe1ca61c93456494daf0f44b15a7c2bf", size = 187960, upload-time = "2026-04-09T09:41:03.146Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/3e/fa/3d3ac07517b0ee43284fbc0cb6f9f64daf54e9e15a1993a1420f321cdf6c/scrapegraphai-2.1.1-py3-none-any.whl", hash = "sha256:61b6086dda9e657f4d3a2183b87e23d961b127aef428139e61d8e21c5a2e2d13", size = 188817, upload-time = "2026-05-10T13:56:14.088Z" },
 ]
 
 [[package]]
