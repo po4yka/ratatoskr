@@ -262,7 +262,7 @@ push = [
 # Monitoring and observability
 monitoring = [
   "prometheus_client>=0.25.0",
-  "sentry-sdk[fastapi,loguru]>=2.0.0",
+  "sentry-sdk[fastapi,loguru]>=2.60.0",
 ]
 
 # MCP (Model Context Protocol) server for AI agent integrations
