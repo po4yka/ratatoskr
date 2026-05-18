@@ -274,7 +274,7 @@ mcp = [
 langgraph = [
   "langchain>=1.0,<2",
   "langgraph>=1.1.10",
-  "langgraph-checkpoint-postgres>=3.0.0",
+  "langgraph-checkpoint-postgres>=3.1.0",
   "psycopg[binary]>=3.0",
 ]
 
