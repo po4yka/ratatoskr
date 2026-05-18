@@ -251,7 +251,7 @@ scheduler = [
 
 # Gemini embedding provider (google-genai SDK)
 gemini = [
-  "google-genai>=1.0.0",
+  "google-genai>=2.4.0",
 ]
 
 # Push notifications (Firebase Cloud Messaging / APNS)
