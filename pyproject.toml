@@ -162,9 +162,9 @@ dependencies = [
   "curl_cffi>=0.15.0",
   "trafilatura>=2.0.0",
   "spacy>=3.8.11,<4",
-  "json-repair>=0.59.7",
+  "json-repair>=0.59.10",
   "tenacity>=8.2.0",
-  "openai>=2.36.0",
+  "openai>=2.37.0",
   "instructor>=1.5.0",
   "loguru>=0.7.3",
   "orjson>=3.11.9",
@@ -190,9 +190,9 @@ attachment = [
 # stealth path fails with `ModuleNotFoundError: No module named 'patchright'`
 # and the chain loses its anti-bot fallback on JS-heavy / Cloudflare sites.
 browser_scraper = [
-  "playwright>=1.40",
+  "playwright>=1.60.0",
   "patchright>=1.40",
-  "crawlee[beautifulsoup,playwright]>=1.4.0",
+  "crawlee[beautifulsoup,playwright]>=1.7.0",
 ]
 
 # LLM-driven last-resort scraper (lazy-imported; only fires when all other providers fail)
@@ -202,8 +202,8 @@ scraper_ai = [
 
 # Shared inference stack used by both api (semantic search) and ml (training/backfill)
 inference_core = [
-  "qdrant-client>=1.12.0",
-  "sentence-transformers>=5.2.2",  # semantic embedding generation
+  "qdrant-client>=1.18.0",
+  "sentence-transformers>=5.5.0",  # semantic embedding generation
 ]
 
 # Mobile REST API dependencies (FastAPI, JWT auth, vector search client)
@@ -211,12 +211,12 @@ api = [
   "ratatoskr[inference_core]",
   "ratatoskr[browser_scraper]",
   "fastapi>=0.128.0",
-  "uvicorn[standard]>=0.40.0",
+  "uvicorn[standard]>=0.47.0",
   "starlette>=0.50.0",
-  "sse-starlette>=3.4.1",
+  "sse-starlette>=3.4.4",
   "pyjwt>=2.12.0",
   "cryptography>=48.0.0",
-  "python-multipart>=0.0.28",
+  "python-multipart>=0.0.29",
   "defusedxml>=0.7.1",
   "argon2-cffi>=23.1.0",
 ]
@@ -224,8 +224,8 @@ api = [
 # Machine learning dependencies (embeddings, vector search, transformers)
 ml = [
   "ratatoskr[inference_core]",
-  "torch>=2.10.0",
-  "transformers>=5.8.0",
+  "torch>=2.12.0",
+  "transformers>=5.8.1",
   "scikit-learn>=1.8.0",
 ]
 
@@ -304,7 +304,7 @@ otel = [
 dev = [
     "bandit>=1.7.9",
     "fakeredis>=2.33.0",
-    "hypothesis>=6.152.5",
+    "hypothesis>=6.152.7",
     "isort>=7.0.0",
     "mypy>=1.19.1",
     "openapi-spec-validator>=0.7.2",
@@ -314,7 +314,7 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-benchmark>=5.0.0",
     "respx>=0.22.0",
-    "ruff>=0.14.14",
+    "ruff>=0.15.13",
     # app.tasks.* (digest scheduler etc.) imports taskiq unconditionally; the
     # `scheduler` extra is required to import those modules. Pulling the same
     # pins into dev so unit/integration tests under tests/tasks/, tests/observability/,

@@ -56,7 +56,7 @@ browserforge==1.2.4
     # via
     #   crawlee
     #   ratatoskr
-cachetools==7.1.1
+cachetools==7.1.2
     # via crawlee
 catalogue==2.0.10
     # via
@@ -82,7 +82,7 @@ charset-normalizer==3.4.7
     #   htmldate
     #   requests
     #   trafilatura
-click==8.3.3
+click==8.4.0
     # via
     #   browserforge
     #   typer
@@ -104,7 +104,7 @@ confection==1.3.3
     #   weasel
 courlan==1.3.2
     # via trafilatura
-crawlee==1.6.3
+crawlee==1.7.0
     # via ratatoskr
 cryptography==48.0.0
     # via
@@ -118,7 +118,7 @@ cuda-bindings==13.2.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
 cuda-pathfinder==1.5.4 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via cuda-bindings
-cuda-toolkit==13.0.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+cuda-toolkit==13.2.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
 curl-cffi==0.15.0
     # via ratatoskr
@@ -144,7 +144,7 @@ filelock==3.29.0
     #   huggingface-hub
     #   tldextract
     #   torch
-fonttools==4.62.1
+fonttools==4.63.0
     # via weasyprint
 frozenlist==1.8.0
     # via
@@ -168,7 +168,7 @@ h11==0.16.0
     #   uvicorn
 h2==4.3.0
     # via httpx
-hf-xet==1.4.3 ; platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
+hf-xet==1.5.0 ; platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
     # via huggingface-hub
 hpack==4.1.0
     # via h2
@@ -190,14 +190,14 @@ httpx==0.28.1
     #   weasel
 httpx-sse==0.4.3
     # via mcp
-huggingface-hub==1.13.0
+huggingface-hub==1.15.0
     # via
     #   sentence-transformers
     #   tokenizers
     #   transformers
 hyperframe==6.1.0
     # via h2
-idna==3.13
+idna==3.15
     # via
     #   anyio
     #   httpx
@@ -213,13 +213,13 @@ jinja2==3.1.6
     #   instructor
     #   spacy
     #   torch
-jiter==0.13.0
+jiter==0.14.0
     # via
     #   instructor
     #   openai
 joblib==1.5.3
     # via scikit-learn
-json-repair==0.59.7
+json-repair==0.59.10
     # via ratatoskr
 jsonschema==4.26.0
     # via mcp
@@ -241,7 +241,7 @@ lxml-html-clean==0.4.4
     # via lxml
 mako==1.3.12
     # via alembic
-markdown-it-py==4.0.0
+markdown-it-py==4.2.0
     # via rich
 markupsafe==3.0.3
     # via
@@ -253,7 +253,7 @@ mdurl==0.1.2
     # via markdown-it-py
 more-itertools==11.0.2
     # via crawlee
-mpmath==1.3.0
+mpmath==1.4.1
     # via sympy
 multidict==6.7.1
     # via
@@ -266,7 +266,7 @@ murmurhash==1.0.15
     #   thinc
 networkx==3.6.1
     # via torch
-numpy==2.4.4
+numpy==2.4.5
     # via
     #   blis
     #   qdrant-client
@@ -276,17 +276,17 @@ numpy==2.4.4
     #   spacy
     #   thinc
     #   transformers
-nvidia-cublas==13.1.0.3 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+nvidia-cublas==13.4.1.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via nvidia-cudnn-cu13
-nvidia-cudnn-cu13==9.19.0.56 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+nvidia-cudnn-cu13==9.22.0.52 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-cusparselt-cu13==0.8.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+nvidia-cusparselt-cu13==0.9.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-nccl-cu13==2.28.9 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+nvidia-nccl-cu13==2.30.4 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-nvidia-nvshmem-cu13==3.4.5 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+nvidia-nvshmem-cu13==3.6.5 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
-openai==2.36.0
+openai==2.37.0
     # via
     #   instructor
     #   ratatoskr
@@ -306,7 +306,7 @@ patchright==1.59.1
     # via ratatoskr
 pillow==12.2.0
     # via weasyprint
-playwright==1.59.0
+playwright==1.60.0
     # via
     #   crawlee
     #   ratatoskr
@@ -316,7 +316,7 @@ preshed==3.0.13
     # via
     #   spacy
     #   thinc
-propcache==0.4.1
+propcache==0.5.2
     # via
     #   aiohttp
     #   yarl
@@ -380,7 +380,7 @@ python-dotenv==1.2.2
     # via
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.28
+python-multipart==0.0.29
     # via
     #   mcp
     #   ratatoskr
@@ -396,7 +396,7 @@ pyyaml==6.0.3
     #   ratatoskr
     #   transformers
     #   uvicorn
-qdrant-client==1.17.1
+qdrant-client==1.18.0
     # via ratatoskr
 redis==7.4.0
     # via
@@ -406,11 +406,11 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
-regex==2026.4.4
+regex==2026.5.9
     # via
     #   dateparser
     #   transformers
-requests==2.33.1
+requests==2.34.2
     # via
     #   instructor
     #   requests-file
@@ -442,7 +442,7 @@ scipy==1.17.1
     #   sentence-transformers
 scrapling==0.4.8
     # via ratatoskr
-sentence-transformers==5.4.1
+sentence-transformers==5.5.0
     # via ratatoskr
 setuptools==81.0.0
     # via
@@ -455,7 +455,7 @@ six==1.17.0
     # via
     #   html5lib
     #   python-dateutil
-smart-open==7.6.0
+smart-open==7.6.1
     # via weasel
 sniffio==1.3.1
     # via openai
@@ -476,7 +476,7 @@ srsly==2.5.3
     #   spacy
     #   thinc
     #   weasel
-sse-starlette==3.4.1
+sse-starlette==3.4.4
     # via mcp
 starlette==1.0.0
     # via
@@ -516,9 +516,9 @@ tld==0.13.2
     #   scrapling
 tldextract==5.3.1
     # via crawlee
-tokenizers==0.22.2
+tokenizers==0.23.1
     # via transformers
-torch==2.11.0
+torch==2.12.0
     # via
     #   ratatoskr
     #   sentence-transformers
@@ -531,11 +531,11 @@ tqdm==4.67.3
     #   transformers
 trafilatura==2.0.0
     # via ratatoskr
-transformers==5.8.0
+transformers==5.8.1
     # via
     #   ratatoskr
     #   sentence-transformers
-triton==3.6.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+triton==3.7.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'
     # via torch
 typer==0.25.1
     # via
@@ -579,7 +579,7 @@ urllib3==2.7.0
     #   qdrant-client
     #   requests
     #   trafilatura
-uvicorn==0.46.0
+uvicorn==0.47.0
     # via
     #   mcp
     #   ratatoskr
@@ -594,7 +594,7 @@ wasabi==1.1.3
     #   spacy
     #   thinc
     #   weasel
-watchfiles==1.1.1
+watchfiles==1.2.0
     # via uvicorn
 weasel==1.0.0
     # via spacy
