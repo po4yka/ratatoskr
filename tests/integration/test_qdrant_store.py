@@ -216,6 +216,22 @@ def test_get_indexed_summary_ids_filters_by_user_id(store: QdrantVectorStore) ->
     assert 22 not in ids_1001
 
 
+@pytest.mark.integration
+def test_get_indexed_repository_ids_returns_inserted(store: QdrantVectorStore) -> None:
+    store.upsert_notes(
+        [_vec(0.1), _vec(0.2)],
+        [
+            {"entity_type": "repository", "repository_id": 101, "user_id": 1001},
+            {"entity_type": "repository", "repository_id": 102, "user_id": 1002},
+        ],
+    )
+
+    ids_1001 = store.get_indexed_repository_ids(user_id=1001)
+
+    assert 101 in ids_1001
+    assert 102 not in ids_1001
+
+
 # ---------------------------------------------------------------------------
 # count + reset
 # ---------------------------------------------------------------------------

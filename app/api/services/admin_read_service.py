@@ -22,9 +22,11 @@ from app.api.services.system_maintenance_service import SystemMaintenanceService
 from app.adapters.llm.usage_budget import LLMUsageSnapshot, evaluate_aggregate_budget
 from app.core.time_utils import UTC
 from app.db.session import Database  # noqa: TC001  # used at runtime in __init__ signature
+from app.infrastructure.embedding.embedding_service import DEFAULT_MODELS
 from app.infrastructure.persistence.repositories.admin_read_repository import (
     AdminReadRepositoryAdapter,
 )
+from app.infrastructure.vector.reconciliation import VectorIndexReconciler
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -137,6 +139,16 @@ class AdminReadService:
             return_exceptions=True,
         )
         scraper_config = build_scraper_diagnostics(load_config(allow_stub_telegram=True))
+        cfg = load_config(allow_stub_telegram=True)
+        vector_store = _runtime_vector_store(request)
+        vector_report = await VectorIndexReconciler(
+            database=self._db,
+            vector_store=vector_store,
+            expected_summary_models=_expected_embedding_models(cfg),
+            expected_repository_models=_expected_embedding_models(cfg),
+            expected_model_version="1.0",
+            scan_limit=cfg.vector_reconcile.batch_size,
+        ).inspect(now=now)
         scraper_providers = _merge_scraper_provider_status(
             scraper_config=scraper_config,
             persisted=list(persisted["scraper_providers"]),
@@ -180,7 +192,7 @@ class AdminReadService:
             llm_providers=llm_providers,
             queue_backlog=DiagnosticsQueueBacklog.model_validate(persisted["queue_backlog"]),
             vector_indexing_lag=DiagnosticsVectorIndexLag.model_validate(
-                persisted["vector_indexing_lag"]
+                vector_report.to_diagnostics()
             ),
             latest_sync_failures=[
                 DiagnosticsSyncFailure.model_validate(item)
@@ -265,6 +277,22 @@ def _component_from_health(value: object, *, checked_at: _dt.datetime) -> Diagno
         checked_at=checked_at,
         details=details,
     )
+
+
+def _runtime_vector_store(request: Request | None) -> Any | None:
+    try:
+        from app.di.api import resolve_api_runtime
+
+        runtime = resolve_api_runtime(request)
+    except Exception:
+        return None
+    return getattr(getattr(runtime, "search", None), "vector_store", None)
+
+
+def _expected_embedding_models(cfg: Any) -> set[str]:
+    if getattr(cfg.embedding, "provider", "local") == "gemini":
+        return {str(cfg.embedding.gemini_model)}
+    return set(DEFAULT_MODELS.values())
 
 
 def _merge_scraper_provider_status(

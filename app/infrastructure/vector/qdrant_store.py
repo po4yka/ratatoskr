@@ -22,6 +22,7 @@ from qdrant_client.models import (
 )
 
 from app.core.logging_utils import get_logger
+from app.observability.metrics import record_vector_write
 from app.infrastructure.vector.point_ids import str_to_uuid as _str_to_uuid
 from app.infrastructure.vector.protocol import VectorStoreError
 from app.infrastructure.vector.qdrant_schemas import QdrantQueryFilters
@@ -309,6 +310,7 @@ class QdrantVectorStore:
             )
         except Exception as exc:
             logger.error("vector_upsert_failed", extra={"count": len(vectors), "error": str(exc)})
+            record_vector_write(operation="upsert", status="failed")
             if self._required:
                 raise VectorStoreError(str(exc)) from exc
             self._available = False
@@ -356,6 +358,7 @@ class QdrantVectorStore:
                 "vector_replace_failed",
                 extra={"request_id": request_id, "count": len(vectors), "error": str(exc)},
             )
+            record_vector_write(operation="replace", status="failed")
             if self._required:
                 raise VectorStoreError(str(exc)) from exc
             self._available = False
@@ -447,6 +450,7 @@ class QdrantVectorStore:
             logger.error(
                 "vector_delete_failed", extra={"request_id": request_id, "error": str(exc)}
             )
+            record_vector_write(operation="delete", status="failed")
             if self._required:
                 raise VectorStoreError(str(exc)) from exc
             self._available = False
@@ -500,6 +504,49 @@ class QdrantVectorStore:
             return summary_ids
         except Exception as exc:
             logger.error("vector_get_indexed_summary_ids_failed", extra={"error": str(exc)})
+            if self._required:
+                raise VectorStoreError(str(exc)) from exc
+            return set()
+
+    def get_indexed_repository_ids(
+        self, *, user_id: int | None = None, limit: int | None = 5000
+    ) -> set[int]:
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            return set()
+
+        scroll_filter = Filter(
+            must=[
+                FieldCondition(key="environment", match=MatchValue(value=self._environment)),
+                FieldCondition(key="user_scope", match=MatchValue(value=self._user_scope)),
+                FieldCondition(key="entity_type", match=MatchValue(value="repository")),
+                *(
+                    [FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+                    if user_id is not None
+                    else []
+                ),
+            ]
+        )
+        try:
+            records, _ = self._client.scroll(
+                collection_name=self._collection_name,
+                scroll_filter=scroll_filter,
+                limit=limit or 5000,
+                with_payload=["repository_id"],
+                with_vectors=False,
+            )
+            repository_ids: set[int] = set()
+            for record in records:
+                raw = (record.payload or {}).get("repository_id")
+                try:
+                    if raw is not None:
+                        repository_ids.add(int(raw))
+                except (TypeError, ValueError):
+                    continue
+            return repository_ids
+        except Exception as exc:
+            logger.error("vector_get_indexed_repository_ids_failed", extra={"error": str(exc)})
             if self._required:
                 raise VectorStoreError(str(exc)) from exc
             return set()

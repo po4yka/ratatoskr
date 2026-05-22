@@ -320,6 +320,20 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    VECTOR_INDEXING_LAG = Gauge(
+        "ratatoskr_vector_indexing_lag",
+        "Vector indexing reconciliation lag and drift counts",
+        ["metric"],
+        registry=REGISTRY,
+    )
+
+    VECTOR_WRITES_TOTAL = Counter(
+        "ratatoskr_vector_writes_total",
+        "Vector store write attempts by operation and status",
+        ["operation", "status"],
+        registry=REGISTRY,
+    )
+
     OPENROUTER_STREAM_FALLBACK = Counter(
         "ratatoskr_openrouter_stream_fallback_total",
         "OpenRouter SSE stream fallbacks to non-streaming.",
@@ -378,6 +392,8 @@ else:
     AGGREGATION_COST_USD = None
     SCHEDULER_JOB_CHRONIC_FAILURES = None
     ADMIN_DIAGNOSTICS_REQUESTS = None
+    VECTOR_INDEXING_LAG = None
+    VECTOR_WRITES_TOTAL = None
     OPENROUTER_STREAM_FALLBACK = None
     OPENROUTER_PER_MODEL_TIMEOUT = None
     OPENROUTER_PER_MODEL_LATENCY = None
@@ -901,3 +917,28 @@ def record_scraper_attempt_latency(*, provider: str, latency_seconds: float) -> 
     if latency_seconds < 0:
         return
     SCRAPER_ATTEMPT_LATENCY_SECONDS.labels(provider=provider).observe(latency_seconds)
+
+
+def record_vector_index_lag(report: dict[str, Any]) -> None:
+    """Record vector reconciliation gauges from a diagnostics report."""
+    if not PROMETHEUS_AVAILABLE or VECTOR_INDEXING_LAG is None:
+        return
+    for metric in (
+        "lag_seconds",
+        "missing_summary_vectors",
+        "missing_repository_vectors",
+        "stale_embedding_model_count",
+        "missing_embeddings",
+        "stale_embeddings",
+    ):
+        value = report.get(metric)
+        if value is None:
+            continue
+        VECTOR_INDEXING_LAG.labels(metric=metric).set(float(value))
+
+
+def record_vector_write(*, operation: str, status: str) -> None:
+    """Record a vector-store write outcome."""
+    if not PROMETHEUS_AVAILABLE or VECTOR_WRITES_TOTAL is None:
+        return
+    VECTOR_WRITES_TOTAL.labels(operation=operation, status=status).inc()

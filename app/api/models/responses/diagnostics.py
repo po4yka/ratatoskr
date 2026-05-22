@@ -47,8 +47,19 @@ class DiagnosticsVectorIndexLag(BaseModel):
     missing_embeddings: int = 0
     stale_embeddings: int = 0
     pending_embeddings: int = 0
+    expected_summaries: int = 0
+    expected_repositories: int = 0
+    indexed_points: int | None = None
+    indexed_summaries: int | None = None
+    indexed_repositories: int | None = None
+    missing_summary_vectors: int = 0
+    missing_repository_vectors: int = 0
+    stale_embedding_model_count: int = 0
+    lag_seconds: float = 0.0
+    vector_store_available: bool = False
     oldest_unindexed_summary_updated_at: datetime | None = None
     latest_indexed_at: datetime | None = None
+    details: dict[str, object] = Field(default_factory=dict)
 
 
 class DiagnosticsSyncFailure(BaseModel):
