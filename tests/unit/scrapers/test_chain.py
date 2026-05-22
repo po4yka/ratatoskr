@@ -224,7 +224,9 @@ async def test_chain_returns_aggregated_error_when_all_providers_fail() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chain_blocks_unsafe_url_before_provider_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_chain_blocks_unsafe_url_before_provider_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     provider = _FakeProvider("primary", _ok_result("should not be called"))
     monkeypatch.setattr(
         "app.adapters.content.scraper.chain.is_url_safe",

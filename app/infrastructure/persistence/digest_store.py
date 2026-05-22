@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
@@ -651,7 +651,9 @@ class DigestStore:
             if fetch_interval_seconds is not None:
                 source_subscription.cadence_seconds = fetch_interval_seconds
             if max_items_per_run is not None or retry_policy is not None:
-                metadata = dict(source.metadata_json or {})
+                metadata = (
+                    dict(source.metadata_json) if isinstance(source.metadata_json, dict) else {}
+                )
                 controls = dict(metadata.get("controls") or {})
                 if max_items_per_run is not None:
                     controls["max_items_per_run"] = max_items_per_run
@@ -951,7 +953,7 @@ class DigestStore:
             session.add(source)
             await session.flush()
 
-        metadata = dict(source.metadata_json or {})
+        metadata = dict(source.metadata_json) if isinstance(source.metadata_json, dict) else {}
         controls = metadata.get("controls")
         source.url = f"https://t.me/{channel.username}"
         source.title = channel.title
@@ -977,7 +979,7 @@ class DigestStore:
         if subscription is None:
             session.add(Subscription(user_id=user_id, source_id=source.id, is_active=True))
             await session.flush()
-        return source
+        return cast("Source", source)
 
 
 def _coerce_positive_int(value: Any) -> int | None:

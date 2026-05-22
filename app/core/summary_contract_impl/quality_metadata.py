@@ -165,9 +165,12 @@ def merge_summary_quality_metadata(
         )
 
     seen: set[str] = set()
-    quality["validation_warnings"] = [
-        warning for warning in warnings if not (warning in seen or seen.add(warning))
-    ]
+    deduped_warnings: list[str] = []
+    for warning in warnings:
+        if warning not in seen:
+            seen.add(warning)
+            deduped_warnings.append(warning)
+    quality["validation_warnings"] = deduped_warnings
     summary[SUMMARY_QUALITY_KEY] = quality
     return summary
 

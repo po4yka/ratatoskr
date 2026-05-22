@@ -19,7 +19,9 @@ _MINIMAL_ENV = {
     "ALLOWED_USER_IDS": "999",
     "ALLOWED_CLIENT_IDS": "test-client",
     "OPENROUTER_API_KEY": "sk-test",
+    "FIRECRAWL_API_KEY": "",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+    "GITHUB_TOKEN_ENCRYPTION_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 }
 
 
@@ -69,7 +71,7 @@ class TestProductionRedisValidation(unittest.TestCase):
         with unittest.mock.patch.dict(
             os.environ,
             {**_MINIMAL_ENV, "APP_ENV": "development", "REDIS_ENABLED": "false"},
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             settings = Settings(allow_stub_telegram=True)
@@ -81,7 +83,7 @@ class TestProductionRedisValidation(unittest.TestCase):
         with unittest.mock.patch.dict(
             os.environ,
             {**_MINIMAL_ENV, "APP_ENV": "production", "REDIS_ENABLED": "false"},
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             with pytest.raises(RuntimeError, match="REDIS_ENABLED=true"):
@@ -97,7 +99,7 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "REDIS_ENABLED": "true",
                 "REDIS_REQUIRED": "false",
             },
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             with pytest.raises(RuntimeError, match="REDIS_REQUIRED=true"):
@@ -113,7 +115,7 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "REDIS_ENABLED": "true",
                 "REDIS_REQUIRED": "true",
             },
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             settings = Settings(allow_stub_telegram=True)
@@ -130,7 +132,7 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "REDIS_ENABLED": "false",
                 "RATE_LIMIT_REDIS_OVERRIDE": "true",
             },
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             settings = Settings(allow_stub_telegram=True)
@@ -149,7 +151,7 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "REDIS_ENABLED": "true",
                 "REDIS_REQUIRED": "false",
             },
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             with pytest.raises(RuntimeError, match="REDIS_REQUIRED=true"):
@@ -166,7 +168,7 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "REDIS_ENABLED": "true",
                 "REDIS_REQUIRED": "true",
             },
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             settings = Settings(allow_stub_telegram=True)
@@ -182,7 +184,7 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "APP_ENV": "staging",
                 "REDIS_ENABLED": "false",
             },
-            clear=False,
+            clear=True,
         ):
             clear_config_cache()
             settings = Settings(allow_stub_telegram=True)

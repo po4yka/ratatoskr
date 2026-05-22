@@ -93,9 +93,7 @@ def is_ip_blocked(ip_str: str, *, allow_private_networks: bool | None = None) ->
     return any(ip_obj in network for network in LOCAL_DEV_OVERRIDABLE_NETWORKS)
 
 
-def is_url_safe(
-    url: str, *, allow_private_networks: bool | None = None
-) -> tuple[bool, str | None]:
+def is_url_safe(url: str, *, allow_private_networks: bool | None = None) -> tuple[bool, str | None]:
     """Check whether *url* resolves to a public (non-internal) IP.
 
     Returns ``(True, None)`` when safe, or ``(False, reason)`` when blocked.

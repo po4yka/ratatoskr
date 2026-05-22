@@ -551,9 +551,7 @@ async def test_apply_advances_server_version_on_mutation(db, sync_user, sync_sum
 
 
 @pytest.mark.asyncio
-async def test_delta_valid_session_with_matching_etag_returns_304(
-    db, sync_user, summary_factory
-):
+async def test_delta_valid_session_with_matching_etag_returns_304(db, sync_user, summary_factory):
     await summary_factory(user=sync_user)
 
     svc = _make_svc(db)

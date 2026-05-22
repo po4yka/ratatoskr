@@ -23,7 +23,9 @@ class FakeSummaryReadModelUseCase:
                 "topic_tags": ["contracts"],
                 "entities": {"people": ["Alice"], "organizations": ["Acme"], "locations": []},
                 "estimated_reading_time_min": 4,
-                "key_stats": [{"label": "Contracts", "value": 3, "unit": "checks", "source_excerpt": "source"}],
+                "key_stats": [
+                    {"label": "Contracts", "value": 3, "unit": "checks", "source_excerpt": "source"}
+                ],
                 "metadata": {"title": "Backend Contract", "domain": "example.com"},
                 "confidence": 0.87,
                 "hallucination_risk": "med",
@@ -84,12 +86,16 @@ class FakeSummaryReadModelUseCase:
         }
 
     async def get_user_summaries(self, **_kwargs: Any) -> tuple[list[dict[str, Any]], int, int]:
-        return [
-            {
-                **self.summary,
-                "request": self.request,
-            }
-        ], 1, 1
+        return (
+            [
+                {
+                    **self.summary,
+                    "request": self.request,
+                }
+            ],
+            1,
+            1,
+        )
 
 
 def test_summary_detail_quality_exposes_safe_fields_only() -> None:

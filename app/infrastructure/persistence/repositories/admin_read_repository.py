@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import case, desc, func, or_, select
 
@@ -776,7 +776,7 @@ class AdminReadRepositoryAdapter:
         last_24h: dt.datetime,
         last_7d: dt.datetime,
     ) -> dict[str, Any]:
-        models = {
+        models: dict[str, Any] = {
             "requests": Request,
             "summaries": Summary,
             "crawl_results": CrawlResult,
@@ -790,12 +790,13 @@ class AdminReadRepositoryAdapter:
             created_at = getattr(model, "created_at", None)
             if created_at is None:
                 continue
+            model_id = cast("Any", model).id
             created_last_24h[name] = int(
-                await session.scalar(select(func.count(model.id)).where(created_at >= last_24h))
+                await session.scalar(select(func.count(model_id)).where(created_at >= last_24h))
                 or 0
             )
             created_last_7d[name] = int(
-                await session.scalar(select(func.count(model.id)).where(created_at >= last_7d)) or 0
+                await session.scalar(select(func.count(model_id)).where(created_at >= last_7d)) or 0
             )
         return {
             "created_last_24h": created_last_24h,

@@ -54,7 +54,10 @@ def test_openapi_request_paths_reference_typed_success_envelopes() -> None:
             "get",
             "/v1/requests/{request_id}/status",
         ): "#/components/schemas/RequestStatusSuccessResponse",
-        ("post", "/v1/requests/{request_id}/retry"): "#/components/schemas/RetryRequestSuccessResponse",
+        (
+            "post",
+            "/v1/requests/{request_id}/retry",
+        ): "#/components/schemas/RetryRequestSuccessResponse",
     }
     for (method, path), expected_ref in expected_refs.items():
         response_schema = spec["paths"][path][method]["responses"]["200"]["content"][

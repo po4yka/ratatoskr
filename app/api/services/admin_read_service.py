@@ -6,11 +6,12 @@ import asyncio
 import datetime as _dt
 import re
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.api.dependencies.database import get_session_manager
 from app.api.models.responses.diagnostics import (
     DiagnosticsComponent,
+    HealthStatus,
     DiagnosticsProviderStatus,
     DiagnosticsQueueBacklog,
     DiagnosticsResponse,
@@ -51,9 +52,15 @@ _diagnostics_cache = _DiagnosticsCache()
 class AdminReadService:
     """Owns admin dashboards and audit log read models."""
 
-    def __init__(self, session_manager: Database | None = None) -> None:
+    def __init__(
+        self,
+        session_manager: Database | None = None,
+        *,
+        vector_store: Any | None = None,
+    ) -> None:
         self._db = session_manager or get_session_manager()
         self._admin_repo = AdminReadRepositoryAdapter(self._db)
+        self._vector_store = vector_store
 
     async def list_users(self) -> dict[str, Any]:
         return await self._admin_repo.async_list_users()
@@ -132,18 +139,18 @@ class AdminReadService:
         persisted = await self._admin_repo.async_diagnostics_snapshot(since=since, now=now)
         db_info = await SystemMaintenanceService(database=self._db).get_db_info()
 
-        db_status, redis_status, qdrant_status = await asyncio.gather(
+        health_results = await asyncio.gather(
             health._check_database(include_details=False, request=request),
             health._check_redis(),
             health._check_vector_store(request),
             return_exceptions=True,
         )
+        db_status, redis_status, qdrant_status = health_results
         scraper_config = build_scraper_diagnostics(load_config(allow_stub_telegram=True))
         cfg = load_config(allow_stub_telegram=True)
-        vector_store = _runtime_vector_store(request)
         vector_report = await VectorIndexReconciler(
             database=self._db,
-            vector_store=vector_store,
+            vector_store=self._vector_store,
             expected_summary_models=_expected_embedding_models(cfg),
             expected_repository_models=_expected_embedding_models(cfg),
             expected_model_version="1.0",
@@ -184,6 +191,7 @@ class AdminReadService:
             "github": DiagnosticsComponent.model_validate(integration_health["github"]),
         }
         storage_activity = persisted["storage_activity"]
+        table_counts = db_info.get("table_counts")
         return DiagnosticsResponse(
             generated_at=now,
             cache_ttl_seconds=_DIAGNOSTICS_CACHE_TTL_SECONDS,
@@ -202,7 +210,9 @@ class AdminReadService:
                 database_size_mb=_safe_float(db_info.get("database_size_mb")),
                 table_counts={
                     str(name): int(count)
-                    for name, count in (db_info.get("table_counts") or {}).items()
+                    for name, count in (
+                        table_counts.items() if isinstance(table_counts, dict) else ()
+                    )
                     if isinstance(count, int) and count >= 0
                 },
                 created_last_24h=storage_activity["created_last_24h"],
@@ -233,10 +243,10 @@ def clear_diagnostics_cache() -> None:
     _diagnostics_cache.cached_at = 0.0
 
 
-def _status(value: object) -> str:
+def _status(value: object) -> HealthStatus:
     text = str(value or "unknown")
     if text in {"healthy", "degraded", "unhealthy", "disabled", "unavailable"}:
-        return text
+        return cast("HealthStatus", text)
     if text == "timeout":
         return "unhealthy"
     return "unknown"
@@ -277,16 +287,6 @@ def _component_from_health(value: object, *, checked_at: _dt.datetime) -> Diagno
         checked_at=checked_at,
         details=details,
     )
-
-
-def _runtime_vector_store(request: Request | None) -> Any | None:
-    try:
-        from app.di.api import resolve_api_runtime
-
-        runtime = resolve_api_runtime(request)
-    except Exception:
-        return None
-    return getattr(getattr(runtime, "search", None), "vector_store", None)
 
 
 def _expected_embedding_models(cfg: Any) -> set[str]:
@@ -336,6 +336,8 @@ def _merge_scraper_provider_status(
 
 def _safe_float(value: object) -> float | None:
     if value is None:
+        return None
+    if not isinstance(value, str | int | float):
         return None
     try:
         return float(value)

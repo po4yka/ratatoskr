@@ -322,6 +322,8 @@ dev = [
     # fresh `uv sync` without needing `--extra scheduler`.
     "taskiq>=0.12.4,<0.13.0",
     "taskiq-redis>=1.0.0,<2.0.0",
+    "types-python-dateutil>=2.9.0.20250822",
+    "types-PyYAML>=6.0.12.20250915",
 ]
 
 [tool.uv]

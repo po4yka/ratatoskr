@@ -67,7 +67,7 @@ def _candidate_paths(path: str | Path | None) -> tuple[Path, ...]:
 
 def _read_yaml(path: Path) -> dict[str, Any]:
     try:
-        import yaml  # type: ignore[import-untyped]
+        import yaml
 
         raw = path.read_text(encoding="utf-8")
         loaded = yaml.safe_load(raw) or {}

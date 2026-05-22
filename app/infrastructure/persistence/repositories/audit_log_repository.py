@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import redact_for_logging
@@ -32,8 +31,6 @@ class AuditLogRepositoryAdapter:
                 event=event_type,
                 details_json=prepare_json_payload(redact_for_logging(details)),
             )
-            add_result = session.add(log)
-            if inspect.isawaitable(add_result):
-                await add_result
+            session.add(log)
             await session.flush()
             return log.id

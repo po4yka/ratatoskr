@@ -4,7 +4,7 @@ import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
 
@@ -617,10 +617,7 @@ class ConfigHelper:
         secret-login (the validator at settings.py:331 still rejects empty
         allowlists in real production loads).
         """
-        return cast(
-            "tuple[int, ...]",
-            load_config(allow_stub_telegram=True).telegram.allowed_user_ids,
-        )
+        return load_config(allow_stub_telegram=True).telegram.allowed_user_ids
 
     @staticmethod
     def is_user_allowed(user_id: int, *, fail_open_when_empty: bool = False) -> bool:

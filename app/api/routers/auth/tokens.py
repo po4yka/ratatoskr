@@ -8,7 +8,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import jwt
 
@@ -126,7 +126,7 @@ def create_token(
     else:
         raise ValueError(f"Invalid token type: {token_type}")
 
-    return cast("str", jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM))
+    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
 
 
 def create_access_token(
@@ -227,7 +227,7 @@ def decode_token(token: str, expected_type: str | None = None) -> dict[str, Any]
     if expected_type and payload.get("type") != expected_type:
         raise TokenWrongTypeError(expected=expected_type, received=payload.get("type", "unknown"))
 
-    return cast("dict[str, Any]", payload)
+    return payload
 
 
 def validate_client_id(client_id: str | None) -> None:

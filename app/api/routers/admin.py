@@ -59,6 +59,14 @@ def _resolve_llm_budget(request: Any) -> Any | None:
     return None
 
 
+def _resolve_vector_store(request: Any) -> Any | None:
+    from app.di.api import resolve_api_runtime
+
+    with contextlib.suppress(RuntimeError):
+        return resolve_api_runtime(request).search.vector_store
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 1. GET /users -- List all users with stats
 # ---------------------------------------------------------------------------
@@ -181,7 +189,7 @@ async def diagnostics(
 
     audit = build_async_audit_sink(_resolve_db(request))
     audit("INFO", "admin.diagnostics", {"user_id": user_id})
-    service = AdminReadService(_resolve_db(request))
+    service = AdminReadService(_resolve_db(request), vector_store=_resolve_vector_store(request))
     response = success_response(await service.diagnostics(request=request))
     record_admin_diagnostics_request("success")
     return response

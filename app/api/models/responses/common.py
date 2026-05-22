@@ -199,7 +199,7 @@ class SuccessResponse(BaseModel):
     """Standard success response wrapper."""
 
     success: bool = True
-    data: dict[str, Any]
+    data: Any
     meta: MetaInfo = Field(default_factory=MetaInfo)
 
 

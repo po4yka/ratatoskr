@@ -58,6 +58,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_request_processing_jobs_updated_at", table_name="request_processing_jobs")
-    op.drop_index("ix_request_processing_jobs_lease_expires_at", table_name="request_processing_jobs")
+    op.drop_index(
+        "ix_request_processing_jobs_lease_expires_at", table_name="request_processing_jobs"
+    )
     op.drop_index("ix_request_processing_jobs_status_retry", table_name="request_processing_jobs")
     op.drop_table("request_processing_jobs")

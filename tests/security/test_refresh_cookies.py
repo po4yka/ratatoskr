@@ -27,7 +27,10 @@ def test_refresh_cookie_persistent_attributes_are_exact() -> None:
 
     set_refresh_cookie(response, "refresh-token")
 
-    assert _set_cookie_header(response) == "ratatoskr_refresh_token=refresh-token; HttpOnly; Max-Age=2592000; Path=/v1/auth; SameSite=strict; Secure"
+    assert (
+        _set_cookie_header(response)
+        == "ratatoskr_refresh_token=refresh-token; HttpOnly; Max-Age=2592000; Path=/v1/auth; SameSite=strict; Secure"
+    )
 
 
 def test_refresh_cookie_session_attributes_are_exact() -> None:
@@ -35,7 +38,10 @@ def test_refresh_cookie_session_attributes_are_exact() -> None:
 
     set_refresh_cookie(response, "refresh-token", max_age=None)
 
-    assert _set_cookie_header(response) == "ratatoskr_refresh_token=refresh-token; HttpOnly; Path=/v1/auth; SameSite=strict; Secure"
+    assert (
+        _set_cookie_header(response)
+        == "ratatoskr_refresh_token=refresh-token; HttpOnly; Path=/v1/auth; SameSite=strict; Secure"
+    )
 
 
 def test_refresh_cookie_clear_matches_set_cookie_security_attributes() -> None:

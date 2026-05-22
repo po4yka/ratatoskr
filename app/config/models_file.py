@@ -94,7 +94,7 @@ def load_models_yaml(path: str | Path | None = None) -> dict[str, str]:
         return {}
 
     try:
-        import yaml  # type: ignore[import-untyped]
+        import yaml
 
         raw = config_path.read_text(encoding="utf-8")
         data = yaml.safe_load(raw)

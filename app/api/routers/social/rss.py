@@ -33,7 +33,7 @@ async def _require_feed_subscription(repo: Any, *, user_id: int, feed_id: int) -
     subscription = await repo.async_get_subscription_by_feed(user_id=user_id, feed_id=feed_id)
     if subscription is None:
         raise ResourceNotFoundError("Feed", feed_id)
-    return subscription
+    return dict(subscription)
 
 
 # --- Subscription endpoints ---
