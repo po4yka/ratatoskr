@@ -1046,6 +1046,42 @@
         ]
       }
     },
+    "/v1/auth/github/sync": {
+      "post": {
+        "tags": [
+          "auth-github"
+        ],
+        "summary": "Trigger Sync",
+        "description": "Trigger a best-effort sync for the authenticated user's GitHub integration.",
+        "operationId": "trigger_sync_v1_auth_github_sync_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubSyncResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/auth/github": {
       "delete": {
         "tags": [
@@ -6126,6 +6162,126 @@
         }
       }
     },
+    "/v1/signals/sources/{source_id}/controls": {
+      "patch": {
+        "tags": [
+          "Signals"
+        ],
+        "summary": "Update Source Controls",
+        "operationId": "update_source_controls_v1_signals_sources__source_id__controls_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceControlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Source Controls V1 Signals Sources  Source Id  Controls Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/signals/sources/{source_id}/retry": {
+      "post": {
+        "tags": [
+          "Signals"
+        ],
+        "summary": "Retry Source",
+        "operationId": "retry_source_v1_signals_sources__source_id__retry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Retry Source V1 Signals Sources  Source Id  Retry Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/signals/{signal_id}/feedback": {
       "post": {
         "tags": [
@@ -7376,6 +7532,132 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Resolve Channel V1 Digest Channels Resolve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/digest/channels/{username}/controls": {
+      "patch": {
+        "tags": [
+          "Digest"
+        ],
+        "summary": "Update Channel Controls",
+        "description": "Update per-channel ingestion controls.",
+        "operationId": "update_channel_controls_v1_digest_channels__username__controls_patch",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 32,
+              "title": "Username"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelControlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Channel Controls V1 Digest Channels  Username  Controls Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/digest/channels/{username}/retry": {
+      "post": {
+        "tags": [
+          "Digest"
+        ],
+        "summary": "Retry Channel",
+        "description": "Reactivate a subscribed channel and clear its source backoff.",
+        "operationId": "retry_channel_v1_digest_channels__username__retry_post",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 32,
+              "title": "Username"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Retry Channel V1 Digest Channels  Username  Retry Post"
                 }
               }
             }
@@ -12935,6 +13217,62 @@
         "title": "ChangePasswordRequest",
         "description": "Request body for owner-only password change."
       },
+      "ChannelControlRequest": {
+        "properties": {
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "fetch_interval_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 604800.0,
+                "minimum": 300.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetch Interval Seconds"
+          },
+          "max_items_per_run": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Items Per Run"
+          },
+          "retry_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Policy"
+          }
+        },
+        "type": "object",
+        "title": "ChannelControlRequest",
+        "description": "Request to update per-channel ingestion controls."
+      },
       "CollectionCreateRequest": {
         "properties": {
           "name": {
@@ -14139,6 +14477,7 @@
             "enum": [
               "rss",
               "github",
+              "source",
               "request",
               "import",
               "vector"
@@ -14248,6 +14587,74 @@
             "title": "Pending Embeddings",
             "default": 0
           },
+          "expected_summaries": {
+            "type": "integer",
+            "title": "Expected Summaries",
+            "default": 0
+          },
+          "expected_repositories": {
+            "type": "integer",
+            "title": "Expected Repositories",
+            "default": 0
+          },
+          "indexed_points": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed Points"
+          },
+          "indexed_summaries": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed Summaries"
+          },
+          "indexed_repositories": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed Repositories"
+          },
+          "missing_summary_vectors": {
+            "type": "integer",
+            "title": "Missing Summary Vectors",
+            "default": 0
+          },
+          "missing_repository_vectors": {
+            "type": "integer",
+            "title": "Missing Repository Vectors",
+            "default": 0
+          },
+          "stale_embedding_model_count": {
+            "type": "integer",
+            "title": "Stale Embedding Model Count",
+            "default": 0
+          },
+          "lag_seconds": {
+            "type": "number",
+            "title": "Lag Seconds",
+            "default": 0.0
+          },
+          "vector_store_available": {
+            "type": "boolean",
+            "title": "Vector Store Available",
+            "default": false
+          },
           "oldest_unindexed_summary_updated_at": {
             "anyOf": [
               {
@@ -14271,6 +14678,11 @@
               }
             ],
             "title": "Latest Indexed At"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
           }
         },
         "type": "object",
@@ -14397,6 +14809,20 @@
           "repo_count"
         ],
         "title": "GitHubStatusResponse"
+      },
+      "GitHubSyncResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "queued",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "GitHubSyncResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -15416,6 +15842,61 @@
           "is_active"
         ],
         "title": "SourceActiveRequest"
+      },
+      "SourceControlRequest": {
+        "properties": {
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "fetch_interval_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 604800.0,
+                "minimum": 300.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetch Interval Seconds"
+          },
+          "max_items_per_run": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Items Per Run"
+          },
+          "retry_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Policy"
+          }
+        },
+        "type": "object",
+        "title": "SourceControlRequest"
       },
       "SubmitFeedbackRequest": {
         "properties": {
@@ -17317,6 +17798,38 @@
             ],
             "default": null,
             "title": "Imageurl"
+          },
+          "sourceCoverage": {
+            "default": "unknown",
+            "enum": [
+              "full",
+              "partial",
+              "abstract_only",
+              "transcript_missing",
+              "unknown"
+            ],
+            "title": "Sourcecoverage",
+            "type": "string"
+          },
+          "repairAttempted": {
+            "default": false,
+            "title": "Repairattempted",
+            "type": "boolean"
+          },
+          "repairSucceeded": {
+            "default": false,
+            "title": "Repairsucceeded",
+            "type": "boolean"
+          },
+          "promptInjectionSuspected": {
+            "default": false,
+            "title": "Promptinjectionsuspected",
+            "type": "boolean"
+          },
+          "validationWarningCount": {
+            "default": 0,
+            "title": "Validationwarningcount",
+            "type": "integer"
           }
         },
         "required": [
@@ -17441,6 +17954,38 @@
             ],
             "default": null,
             "title": "Imageurl"
+          },
+          "sourceCoverage": {
+            "default": "unknown",
+            "enum": [
+              "full",
+              "partial",
+              "abstract_only",
+              "transcript_missing",
+              "unknown"
+            ],
+            "title": "Sourcecoverage",
+            "type": "string"
+          },
+          "repairAttempted": {
+            "default": false,
+            "title": "Repairattempted",
+            "type": "boolean"
+          },
+          "repairSucceeded": {
+            "default": false,
+            "title": "Repairsucceeded",
+            "type": "boolean"
+          },
+          "promptInjectionSuspected": {
+            "default": false,
+            "title": "Promptinjectionsuspected",
+            "type": "boolean"
+          },
+          "validationWarningCount": {
+            "default": 0,
+            "title": "Validationwarningcount",
+            "type": "integer"
           }
         },
         "required": [

@@ -95,6 +95,14 @@ def _safe_summary_quality(raw: Any) -> SummaryDetailQuality:
     )
 
 
+def _safe_compact_summary_quality(json_payload: dict[str, Any]) -> SummaryDetailQuality:
+    quality = {
+        **ensure_mapping(json_payload.get("quality")),
+        **ensure_mapping(json_payload.get("summary_quality")),
+    }
+    return _safe_summary_quality(quality)
+
+
 def _get_summary_use_case() -> SummaryReadModelUseCase:
     """Build the summary read-model use case for API handlers."""
     return get_summary_read_model_use_case()
@@ -124,6 +132,7 @@ def _build_summary_compact(summary_dict: dict[str, Any]) -> SummaryCompact:
     request_id, input_url, normalized_url = _extract_request_fields(summary_dict)
     json_payload = ensure_mapping(summary_dict.get("json_payload"))
     metadata = ensure_mapping(json_payload.get("metadata"))
+    quality = _safe_compact_summary_quality(json_payload)
     return SummaryCompact(
         id=summary_dict.get("id"),
         request_id=request_id,
@@ -143,6 +152,11 @@ def _build_summary_compact(summary_dict: dict[str, Any]) -> SummaryCompact:
             json_payload.get("hallucination_risk", "unknown")
         ),
         image_url=metadata.get("image") or metadata.get("og:image") or metadata.get("ogImage"),
+        source_coverage=quality.source_coverage,
+        repair_attempted=quality.repair_attempted,
+        repair_succeeded=quality.repair_succeeded,
+        prompt_injection_suspected=quality.prompt_injection_suspected,
+        validation_warning_count=len(quality.validation_warnings),
     )
 
 

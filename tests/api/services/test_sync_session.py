@@ -54,14 +54,15 @@ def mock_session_manager():
 @pytest.fixture
 def sync_service(mock_config, mock_session_manager):
     """Create SyncService instance with mocked dependencies."""
-    service = SyncService(mock_config, mock_session_manager)
-    # Mock the repositories
-    service._user_repo = MagicMock()
-    service._request_repo = MagicMock()
-    service._summary_repo = MagicMock()
-    service._crawl_repo = MagicMock()
-    service._llm_repo = MagicMock()
-    return service
+    return SyncService(
+        mock_config,
+        mock_session_manager,
+        user_repository=MagicMock(),
+        request_repository=MagicMock(),
+        summary_repository=MagicMock(),
+        crawl_result_repository=MagicMock(),
+        llm_repository=MagicMock(),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -273,7 +274,9 @@ class TestStartSession:
     @pytest.mark.asyncio
     async def test_start_session_success(self, sync_service, mock_config):
         """Test starting a new session successfully."""
-        with patch.object(sync_service, "_store_session", new_callable=AsyncMock) as mock_store:
+        with patch.object(
+            sync_service._facade, "_store_session", new_callable=AsyncMock
+        ) as mock_store:
             result = await sync_service.start_session(
                 user_id=123, client_id="test-client", limit=100
             )
@@ -293,7 +296,9 @@ class TestStartSession:
     @pytest.mark.asyncio
     async def test_start_session_with_none_limit(self, sync_service):
         """Test starting session with None limit uses default."""
-        with patch.object(sync_service, "_store_session", new_callable=AsyncMock) as mock_store:
+        with patch.object(
+            sync_service._facade, "_store_session", new_callable=AsyncMock
+        ) as mock_store:
             result = await sync_service.start_session(
                 user_id=123, client_id="test-client", limit=None
             )

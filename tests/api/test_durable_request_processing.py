@@ -17,6 +17,7 @@ from app.api.background.progress_events import ProgressEventRecord
 from app.api.background_tasks import process_url_request
 from app.api.models.requests import SubmitURLRequest
 from app.api.routers.content.requests import submit_request
+from app.api.routers.content.streams import stream_request
 from app.application.dto.request_workflow import RequestCreatedDTO
 from app.core.time_utils import UTC
 from app.db.models import RequestProcessingJob
@@ -165,6 +166,27 @@ class FakeProcessor:
         self._repo.request_status = ("success", None)
 
 
+class ProgressWritingProcessor(FakeProcessor):
+    def __init__(
+        self,
+        repo: FakeJobRepository,
+        publisher: BackgroundProgressPublisher,
+    ) -> None:
+        super().__init__(repo)
+        self._publisher = publisher
+
+    async def execute_request(self, request_id: int, *, correlation_id: str | None = None) -> None:
+        await super().execute_request(request_id, correlation_id=correlation_id)
+        await self._publisher.publish(
+            request_id=request_id,
+            status="PROCESSING",
+            stage="SUMMARIZATION",
+            message="Summarizing content...",
+            progress=0.5,
+            correlation_id=correlation_id,
+        )
+
+
 class FakeProgressEventRepository:
     def __init__(self) -> None:
         self.appended: list[dict[str, Any]] = []
@@ -213,6 +235,64 @@ class FakeRequestService:
             input_url=input_url,
             normalized_url=input_url,
         )
+
+
+class FakeStreamRequestService:
+    async def get_request_by_id(self, user_id: int, request_id: int) -> dict[str, int]:
+        return {"user_id": user_id, "request_id": request_id}
+
+
+class FakeStreamRequest:
+    async def is_disconnected(self) -> bool:
+        return False
+
+
+class FakeReplayProgressEventRepository:
+    def __init__(self) -> None:
+        self.sequence_lookups: list[dict[str, Any]] = []
+        self.list_calls: list[dict[str, Any]] = []
+        self.events = [
+            ProgressEventRecord(
+                event_id="event-2",
+                request_id=42,
+                sequence=2,
+                kind="stage",
+                stage="summarizing",
+                status="running",
+                message="Summarizing content...",
+                progress=0.5,
+                payload={"step": "summarize"},
+                created_at="2026-05-21T00:00:02Z",
+                correlation_id="cid-replay",
+            ),
+            ProgressEventRecord(
+                event_id="event-3",
+                request_id=42,
+                sequence=3,
+                kind="done",
+                stage="completed",
+                status="succeeded",
+                message="Summary ready",
+                progress=1.0,
+                payload={"summary_id": 99},
+                created_at="2026-05-21T00:00:03Z",
+                correlation_id="cid-replay",
+            ),
+        ]
+
+    async def sequence_for_event_id(self, *, request_id: int, event_id: str) -> int | None:
+        self.sequence_lookups.append({"request_id": request_id, "event_id": event_id})
+        return 1 if event_id == "event-1" else None
+
+    async def list_after_sequence(
+        self,
+        *,
+        request_id: int,
+        sequence: int,
+        limit: int = 100,
+    ) -> list[ProgressEventRecord]:
+        self.list_calls.append({"request_id": request_id, "sequence": sequence, "limit": limit})
+        return [event for event in self.events if event.sequence > sequence]
 
 
 def _queue(repo: FakeJobRepository, processor: FakeProcessor) -> DurableRequestProcessingQueue:
@@ -327,6 +407,29 @@ async def test_worker_processes_job_successfully() -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_processing_persists_progress_events() -> None:
+    event_repo = FakeProgressEventRepository()
+    redis = FakeRedis()
+    publisher = BackgroundProgressPublisher(
+        redis=redis,
+        logger=SimpleNamespace(
+            warning=lambda *args, **kwargs: None, debug=lambda *args, **kwargs: None
+        ),
+        progress_event_repo=event_repo,
+    )
+    repo = FakeJobRepository()
+    repo.leased.append(LeasedRequestJob(1, 42, 1, 3, "cid-worker-progress"))
+    queue = _queue(repo, ProgressWritingProcessor(repo, publisher))
+
+    assert await queue.run_once() is True
+
+    assert repo.succeeded == [1]
+    assert event_repo.appended[0]["request_id"] == 42
+    assert event_repo.appended[0]["stage"] == "summarizing"
+    assert event_repo.appended[0]["correlation_id"] == "cid-worker-progress"
+
+
+@pytest.mark.asyncio
 async def test_startup_reconciliation_requeues_crashed_running_job() -> None:
     repo = FakeJobRepository()
     repo.requeue_count = 1
@@ -422,3 +525,42 @@ async def test_background_progress_publisher_persists_event_and_publishes_same_s
     assert channel == "processing:request:42"
     assert '"event_id":"event-1"' in payload
     assert '"sequence":1' in payload
+
+
+@pytest.mark.asyncio
+async def test_sse_replay_honors_since_sequence_and_last_event_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def capture_event_source_response(event_generator: Any) -> Any:
+        captured["event_generator"] = event_generator
+        return SimpleNamespace(kind="captured-sse-response")
+
+    monkeypatch.setattr(
+        "app.api.routers.content.streams._event_source_response",
+        capture_event_source_response,
+    )
+    repo = FakeReplayProgressEventRepository()
+
+    response = await stream_request(
+        request_id=42,
+        fastapi_request=FakeStreamRequest(),  # type: ignore[arg-type]
+        since_sequence=0,
+        last_event_id="event-1",
+        user={"user_id": 7},
+        request_service=FakeStreamRequestService(),  # type: ignore[arg-type]
+        progress_event_repo=repo,
+    )
+
+    assert response.kind == "captured-sse-response"
+    events = []
+    async for event in captured["event_generator"]:
+        events.append(event)
+
+    assert repo.sequence_lookups == [{"request_id": 42, "event_id": "event-1"}]
+    assert repo.list_calls[0] == {"request_id": 42, "sequence": 1, "limit": 100}
+    assert [event["id"] for event in events] == ["event-2", "event-3"]
+    assert [event["event"] for event in events] == ["stage", "done"]
+    assert '"sequence":2' in events[0]["data"]
+    assert '"summary_id":99' in events[1]["data"]

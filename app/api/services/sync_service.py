@@ -4,15 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.api.models.responses import (
-    DeltaSyncResponseData,
-    FullSyncResponseData,
-    PaginationInfo,
-    SyncApplyItemResult,
-    SyncApplyResponseData,
-    SyncEntityEnvelope,
-    SyncSessionData,
-)
 from app.api.services.sync import (
     FallbackSyncSessionStore,
     InMemorySyncSessionStore,
@@ -41,6 +32,14 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from app.api.models.requests import SyncApplyItem
+    from app.api.models.responses import (
+        DeltaSyncResponseData,
+        FullSyncResponseData,
+        SyncApplyItemResult,
+        SyncApplyResponseData,
+        SyncEntityEnvelope,
+        SyncSessionData,
+    )
     from app.api.services.sync.collector import SyncAuxReadPort
     from app.api.services.sync.session_store import SyncSessionStorePort
 
@@ -81,7 +80,13 @@ class _NullSyncAuxReadPort:
 
 
 class SyncService:
-    """Sync protocol service implementing sessions, retrieval, and apply."""
+    """Public sync service import path.
+
+    SyncFacade is the authoritative coordinator for session, full, delta,
+    apply, and idempotency behavior. This class keeps the long-standing
+    ``app.api.services.sync_service.SyncService`` import stable for DI,
+    routers, and tests while delegating protocol behavior to SyncFacade.
+    """
 
     def __init__(
         self,
@@ -143,15 +148,6 @@ class SyncService:
         )
         self._sync_sessions = self._fallback_store._sessions
 
-        # In-memory dedup cache for /v1/sync/apply idempotency. Key is
-        # (session_id, idempotency_key); value is (cached_at_monotonic,
-        # response). TTL keeps the cache from growing unbounded; cross-worker
-        # dedup needs Redis (out of scope for this in-memory implementation —
-        # documented as a follow-up). Survives only while this SyncService
-        # instance lives.
-        self._apply_dedup_cache: dict[tuple[str, str], tuple[float, SyncApplyResponseData]] = {}
-        self._apply_dedup_ttl_sec: float = 300.0
-
     @property
     def _redis_warning_logged(self) -> bool:
         return getattr(self._session_store, "_redis_warning_logged", False)
@@ -183,32 +179,7 @@ class SyncService:
     async def start_session(
         self, *, user_id: int, client_id: str | None, limit: int | None
     ) -> SyncSessionData:
-        import uuid
-        from datetime import datetime, timedelta
-
-        from app.core.time_utils import UTC
-
-        resolved = self._resolve_limit(limit)
-        session_id = f"sync-{uuid.uuid4().hex[:16]}"
-        now = datetime.now(UTC)
-        expires_at = now + timedelta(hours=self.cfg.sync.expiry_hours)
-        payload = {
-            "session_id": session_id,
-            "user_id": user_id,
-            "client_id": client_id,
-            "chunk_limit": resolved,
-            "created_at": now.isoformat().replace("+00:00", "Z"),
-            "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
-            "next_since": 0,
-        }
-        await self._store_session(payload)
-        return SyncSessionData(
-            session_id=session_id,
-            expires_at=str(payload["expires_at"]),
-            default_limit=self.cfg.sync.default_limit,
-            max_limit=self.cfg.sync.max_limit,
-            last_issued_since=0,
-        )
+        return await self._facade.start_session(user_id=user_id, client_id=client_id, limit=limit)
 
     def _coerce_iso(self, dt_value: Any) -> str:
         return self._serializer._coerce_iso(dt_value)
@@ -247,39 +218,7 @@ class SyncService:
         return await self._aux_read_port.get_summary_tags_for_user(user_id)
 
     async def _collect_records(self, user_id: int) -> list[SyncEntityEnvelope]:
-        records: list[SyncEntityEnvelope] = []
-
-        user = await self._user_repo.async_get_user_by_telegram_id(user_id)
-        if user:
-            records.append(self._serialize_user(user))
-
-        requests = await self._request_repo.async_get_all_for_user(user_id)
-        for request in requests:
-            records.append(self._serialize_request(request))
-
-        summaries = await self._summary_repo.async_get_all_for_user(user_id)
-        for summary in summaries:
-            records.append(self._serialize_summary(summary))
-
-        crawl_results = await self._crawl_repo.async_get_all_for_user(user_id)
-        for crawl in crawl_results:
-            records.append(self._serialize_crawl_result(crawl))
-
-        llm_calls = await self._llm_repo.async_get_all_for_user(user_id)
-        for call in llm_calls:
-            records.append(self._serialize_llm_call(call))
-
-        for highlight in await self._get_highlights_for_user(user_id):
-            records.append(self._serialize_highlight(highlight))
-
-        for tag in await self._get_tags_for_user(user_id):
-            records.append(self._serialize_tag(tag))
-
-        for st in await self._get_summary_tags_for_user(user_id):
-            records.append(self._serialize_summary_tag(st))
-
-        records.sort(key=lambda r: (r.server_version, str(r.id)))
-        return records
+        return await self._collector.collect_records(user_id)
 
     def _paginate_records(
         self, records: Iterable[SyncEntityEnvelope], since: int, limit: int
@@ -289,22 +228,23 @@ class SyncService:
     async def get_full(
         self, *, session_id: str, user_id: int, client_id: str | None, limit: int | None
     ) -> FullSyncResponseData:
-        session = await self._load_session(session_id, user_id, client_id)
-        resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
-        records = await self._collect_records(user_id)
-        page, has_more, next_since = self._paginate_records(records, since=0, limit=resolved_limit)
-        return self._build_full(session_id, page, has_more, next_since, resolved_limit)
+        return await self._facade.get_full(
+            session_id=session_id,
+            user_id=user_id,
+            client_id=client_id,
+            limit=limit,
+        )
 
     async def get_delta(
         self, *, session_id: str, user_id: int, client_id: str | None, since: int, limit: int | None
     ) -> DeltaSyncResponseData:
-        session = await self._load_session(session_id, user_id, client_id)
-        resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
-        records = await self._collect_records(user_id)
-        page, has_more, next_since = self._paginate_records(
-            records, since=since, limit=resolved_limit
+        return await self._facade.get_delta(
+            session_id=session_id,
+            user_id=user_id,
+            client_id=client_id,
+            since=since,
+            limit=limit,
         )
-        return self._build_delta(session_id, since, page, has_more, next_since, resolved_limit)
 
     def _build_full(
         self,
@@ -314,19 +254,7 @@ class SyncService:
         next_since: int | None,
         limit: int,
     ) -> FullSyncResponseData:
-        pagination = PaginationInfo(
-            total=len(records),
-            limit=limit,
-            offset=0,
-            has_more=has_more,
-        )
-        return FullSyncResponseData(
-            session_id=session_id,
-            has_more=has_more,
-            next_since=next_since,
-            items=records,
-            pagination=pagination,
-        )
+        return self._facade._build_full(session_id, records, has_more, next_since, limit)
 
     def _build_delta(
         self,
@@ -337,18 +265,7 @@ class SyncService:
         next_since: int | None,
         limit: int,
     ) -> DeltaSyncResponseData:
-        _ = limit
-        created = [rec for rec in records if not rec.deleted_at]
-        deleted = [rec for rec in records if rec.deleted_at]
-        return DeltaSyncResponseData(
-            session_id=session_id,
-            since=since,
-            has_more=has_more,
-            next_since=next_since,
-            created=created,
-            updated=[],
-            deleted=deleted,
-        )
+        return self._facade._build_delta(session_id, since, records, has_more, next_since, limit)
 
     async def apply_changes(
         self,
@@ -359,60 +276,20 @@ class SyncService:
         changes: list[SyncApplyItem],
         idempotency_key: str | None = None,
     ) -> SyncApplyResponseData:
-        # Idempotent re-apply: if the client provided a key and the same
-        # (session_id, key) pair was applied within the TTL, return the
-        # cached response and skip re-running the changes. Lets the client
-        # safely retry after a network failure without risking double-apply.
-        cache_hit = self._lookup_apply_dedup_cache(session_id, idempotency_key)
-        if cache_hit is not None:
-            return cache_hit
-
-        await self._load_session(session_id, user_id, client_id)
-        results: list[SyncApplyItemResult] = []
-        for change in changes:
-            if change.entity_type != "summary":
-                results.append(
-                    SyncApplyItemResult(
-                        entity_type=change.entity_type,
-                        id=change.id,
-                        status="invalid",
-                        error_code="UNSUPPORTED_ENTITY",
-                    )
-                )
-                continue
-            results.append(await self._apply_summary_change(change, user_id))
-
-        conflicts_list = [r for r in results if r.status == "conflict"]
-        response = SyncApplyResponseData(
+        return await self._facade.apply_changes(
             session_id=session_id,
-            results=results,
-            conflicts=conflicts_list or None,
-            has_more=None,
+            user_id=user_id,
+            client_id=client_id,
+            changes=changes,
+            idempotency_key=idempotency_key,
         )
-        self._store_apply_dedup_cache(session_id, idempotency_key, response)
-        return response
 
     def _lookup_apply_dedup_cache(
         self, session_id: str, idempotency_key: str | None
     ) -> SyncApplyResponseData | None:
         if not idempotency_key:
             return None
-        import time as _time
-
-        now = _time.monotonic()
-        # Drop any expired entries on read so the cache stays bounded under
-        # adversarial input (lots of unique keys with no retries).
-        expired = [
-            k
-            for k, (ts, _) in self._apply_dedup_cache.items()
-            if now - ts > self._apply_dedup_ttl_sec
-        ]
-        for k in expired:
-            del self._apply_dedup_cache[k]
-        entry = self._apply_dedup_cache.get((session_id, idempotency_key))
-        if entry is None:
-            return None
-        return entry[1]
+        return self._facade._lookup_apply_dedup_cache(session_id, idempotency_key)
 
     def _store_apply_dedup_cache(
         self,
@@ -420,16 +297,9 @@ class SyncService:
         idempotency_key: str | None,
         response: SyncApplyResponseData,
     ) -> None:
-        if not idempotency_key:
-            return
-        import time as _time
-
-        self._apply_dedup_cache[(session_id, idempotency_key)] = (_time.monotonic(), response)
+        self._facade._store_apply_dedup_cache(session_id, idempotency_key, response)
 
     async def _apply_summary_change(
         self, change: SyncApplyItem, user_id: int
     ) -> SyncApplyItemResult:
-        return await SyncApplyService(
-            summary_repository=self._summary_repo,
-            serializer=self._serializer,
-        ).apply_summary_change(change, user_id)
+        return await self._apply_service.apply_summary_change(change, user_id)

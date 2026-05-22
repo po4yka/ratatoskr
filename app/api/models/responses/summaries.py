@@ -37,6 +37,19 @@ class SummaryCompact(BaseModel):
         serialization_alias="hallucinationRisk", description="Assessed hallucination risk level"
     )
     image_url: str | None = Field(default=None, serialization_alias="imageUrl")
+    source_coverage: Literal[
+        "full",
+        "partial",
+        "abstract_only",
+        "transcript_missing",
+        "unknown",
+    ] = Field(default="unknown", serialization_alias="sourceCoverage")
+    repair_attempted: bool = Field(default=False, serialization_alias="repairAttempted")
+    repair_succeeded: bool = Field(default=False, serialization_alias="repairSucceeded")
+    prompt_injection_suspected: bool = Field(
+        default=False, serialization_alias="promptInjectionSuspected"
+    )
+    validation_warning_count: int = Field(default=0, serialization_alias="validationWarningCount")
 
 
 class SummaryDetailEntities(BaseModel):

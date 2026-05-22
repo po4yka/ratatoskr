@@ -48,14 +48,15 @@ def mock_session_manager():
 @pytest.fixture
 def sync_service(mock_config, mock_session_manager):
     """Create SyncService instance with mocked dependencies."""
-    service = SyncService(mock_config, mock_session_manager)
-    # Mock the repositories
-    service._user_repo = MagicMock()
-    service._request_repo = MagicMock()
-    service._summary_repo = MagicMock()
-    service._crawl_repo = MagicMock()
-    service._llm_repo = MagicMock()
-    return service
+    return SyncService(
+        mock_config,
+        mock_session_manager,
+        user_repository=MagicMock(),
+        request_repository=MagicMock(),
+        summary_repository=MagicMock(),
+        crawl_result_repository=MagicMock(),
+        llm_repository=MagicMock(),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -217,10 +218,13 @@ class TestGetFull:
         }
 
         with patch.object(
-            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+            sync_service._facade,
+            "_load_session",
+            new_callable=AsyncMock,
+            return_value=session_payload,
         ):
             with patch.object(
-                sync_service, "_collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_records", new_callable=AsyncMock
             ) as mock_collect:
                 mock_collect.return_value = [
                     make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 6)
@@ -248,10 +252,13 @@ class TestGetFull:
         }
 
         with patch.object(
-            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+            sync_service._facade,
+            "_load_session",
+            new_callable=AsyncMock,
+            return_value=session_payload,
         ):
             with patch.object(
-                sync_service, "_collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_records", new_callable=AsyncMock
             ) as mock_collect:
                 # 200+ records to ensure pagination with limit=100
                 mock_collect.return_value = [
@@ -284,10 +291,13 @@ class TestGetDelta:
         }
 
         with patch.object(
-            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+            sync_service._facade,
+            "_load_session",
+            new_callable=AsyncMock,
+            return_value=session_payload,
         ):
             with patch.object(
-                sync_service, "_collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_records", new_callable=AsyncMock
             ) as mock_collect:
                 mock_collect.return_value = [
                     make_sync_envelope(entity_id=i, server_version=i, deleted_at=None)
@@ -321,10 +331,13 @@ class TestGetDelta:
         }
 
         with patch.object(
-            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+            sync_service._facade,
+            "_load_session",
+            new_callable=AsyncMock,
+            return_value=session_payload,
         ):
             with patch.object(
-                sync_service, "_collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_records", new_callable=AsyncMock
             ) as mock_collect:
                 deleted_time = now.isoformat() + "Z"
                 mock_collect.return_value = [
@@ -372,7 +385,10 @@ class TestApplyChanges:
         ]
 
         with patch.object(
-            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+            sync_service._facade,
+            "_load_session",
+            new_callable=AsyncMock,
+            return_value=session_payload,
         ):
             result = await sync_service.apply_changes(
                 session_id="test-session", user_id=123, client_id="test-client", changes=changes
@@ -411,7 +427,10 @@ class TestApplyChanges:
         sync_service._summary_repo.async_apply_sync_change = AsyncMock(return_value=6)
 
         with patch.object(
-            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+            sync_service._facade,
+            "_load_session",
+            new_callable=AsyncMock,
+            return_value=session_payload,
         ):
             result = await sync_service.apply_changes(
                 session_id="test-session", user_id=123, client_id="test-client", changes=changes
@@ -453,7 +472,10 @@ class TestApplyChanges:
         )
 
         with patch.object(
-            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+            sync_service._facade,
+            "_load_session",
+            new_callable=AsyncMock,
+            return_value=session_payload,
         ):
             result = await sync_service.apply_changes(
                 session_id="test-session", user_id=123, client_id="test-client", changes=changes

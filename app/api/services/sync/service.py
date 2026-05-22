@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+import time as _time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -28,6 +29,13 @@ if TYPE_CHECKING:
 
 
 class SyncFacade:
+    """Authoritative sync protocol coordinator.
+
+    ``app.api.services.sync_service.SyncService`` is the stable public import
+    path used by routers and older tests. This class owns session, full, delta,
+    apply, and apply-idempotency behavior; the public wrapper delegates here.
+    """
+
     def __init__(
         self,
         *,
@@ -50,6 +58,8 @@ class SyncFacade:
         self._summary_repo = summary_repository
         self._crawl_repo = crawl_result_repository
         self._llm_repo = llm_repository
+        self._apply_dedup_cache: dict[tuple[str, str], tuple[float, SyncApplyResponseData]] = {}
+        self._apply_dedup_ttl_sec: float = 300.0
 
     async def get_max_server_version(self, user_id: int) -> int:
         import asyncio
@@ -134,19 +144,7 @@ class SyncFacade:
             since=0,
             limit=resolved_limit,
         )
-        pagination = PaginationInfo(
-            total=len(page),
-            limit=resolved_limit,
-            offset=0,
-            has_more=has_more,
-        )
-        return FullSyncResponseData(
-            session_id=session_id,
-            has_more=has_more,
-            next_since=next_since,
-            items=page,
-            pagination=pagination,
-        )
+        return self._build_full(session_id, page, has_more, next_since, resolved_limit)
 
     async def get_delta(
         self,
@@ -165,21 +163,21 @@ class SyncFacade:
             since=since,
             limit=resolved_limit,
         )
-        created = [rec for rec in page if not rec.deleted_at]
-        deleted = [rec for rec in page if rec.deleted_at]
-        return DeltaSyncResponseData(
-            session_id=session_id,
-            since=since,
-            has_more=has_more,
-            next_since=next_since,
-            created=created,
-            updated=[],
-            deleted=deleted,
-        )
+        return self._build_delta(session_id, since, page, has_more, next_since, resolved_limit)
 
     async def apply_changes(
-        self, *, session_id: str, user_id: int, client_id: str | None, changes: list[Any]
+        self,
+        *,
+        session_id: str,
+        user_id: int,
+        client_id: str | None,
+        changes: list[Any],
+        idempotency_key: str | None = None,
     ) -> SyncApplyResponseData:
+        cache_hit = self._lookup_apply_dedup_cache(session_id, idempotency_key)
+        if cache_hit is not None:
+            return cache_hit
+
         await self._load_session(session_id, user_id, client_id)
         results: list[SyncApplyItemResult] = []
         for change in changes:
@@ -196,9 +194,87 @@ class SyncFacade:
             results.append(await self._apply_service.apply_summary_change(change, user_id))
 
         conflicts_list = [r for r in results if r.status == "conflict"]
-        return SyncApplyResponseData(
+        response = SyncApplyResponseData(
             session_id=session_id,
             results=results,
             conflicts=conflicts_list or None,
             has_more=None,
         )
+        self._store_apply_dedup_cache(session_id, idempotency_key, response)
+        return response
+
+    def _build_full(
+        self,
+        session_id: str,
+        records: list[Any],
+        has_more: bool,
+        next_since: int | None,
+        limit: int,
+    ) -> FullSyncResponseData:
+        pagination = PaginationInfo(
+            total=len(records),
+            limit=limit,
+            offset=0,
+            has_more=has_more,
+        )
+        return FullSyncResponseData(
+            session_id=session_id,
+            has_more=has_more,
+            next_since=next_since,
+            items=records,
+            pagination=pagination,
+        )
+
+    def _build_delta(
+        self,
+        session_id: str,
+        since: int,
+        records: list[Any],
+        has_more: bool,
+        next_since: int | None,
+        limit: int,
+    ) -> DeltaSyncResponseData:
+        _ = limit
+        created = [rec for rec in records if not rec.deleted_at]
+        deleted = [rec for rec in records if rec.deleted_at]
+        return DeltaSyncResponseData(
+            session_id=session_id,
+            since=since,
+            has_more=has_more,
+            next_since=next_since,
+            created=created,
+            updated=[],
+            deleted=deleted,
+        )
+
+    def _lookup_apply_dedup_cache(
+        self,
+        session_id: str,
+        idempotency_key: str | None,
+    ) -> SyncApplyResponseData | None:
+        if not idempotency_key:
+            return None
+
+        now = _time.monotonic()
+        expired = [
+            key
+            for key, (cached_at, _) in self._apply_dedup_cache.items()
+            if now - cached_at > self._apply_dedup_ttl_sec
+        ]
+        for key in expired:
+            del self._apply_dedup_cache[key]
+
+        entry = self._apply_dedup_cache.get((session_id, idempotency_key))
+        if entry is None:
+            return None
+        return entry[1]
+
+    def _store_apply_dedup_cache(
+        self,
+        session_id: str,
+        idempotency_key: str | None,
+        response: SyncApplyResponseData,
+    ) -> None:
+        if not idempotency_key:
+            return
+        self._apply_dedup_cache[(session_id, idempotency_key)] = (_time.monotonic(), response)

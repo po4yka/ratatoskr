@@ -393,6 +393,59 @@ async def test_apply_idempotent_reapply_returns_cached_response(db, sync_user, s
     )
 
 
+@pytest.mark.asyncio
+async def test_service_apply_idempotency_key_returns_cached_response(
+    db,
+    sync_user,
+    sync_summary,
+):
+    """Direct SyncService calls must honor the same idempotency contract as the route."""
+    svc = _make_svc(db)
+    user_ctx = _user_ctx(sync_user)
+
+    session = await svc.start_session(
+        user_id=user_ctx["user_id"],
+        client_id=user_ctx["client_id"],
+        limit=None,
+    )
+    changes = [
+        SyncApplyItem(
+            entity_type="summary",
+            id=str(sync_summary.id),
+            action="update",
+            last_seen_version=sync_summary.server_version,
+            payload={"is_read": True},
+        )
+    ]
+
+    first = await svc.apply_changes(
+        session_id=session.session_id,
+        user_id=user_ctx["user_id"],
+        client_id=user_ctx["client_id"],
+        changes=changes,
+        idempotency_key="direct-service-retry-key-test-42",
+    )
+    second = await svc.apply_changes(
+        session_id=session.session_id,
+        user_id=user_ctx["user_id"],
+        client_id=user_ctx["client_id"],
+        changes=changes,
+        idempotency_key="direct-service-retry-key-test-42",
+    )
+
+    assert first == second
+
+    from sqlalchemy import select as _select
+
+    from app.db.models import Summary
+
+    async with db.session() as session_obj:
+        row = await session_obj.scalar(_select(Summary).where(Summary.id == sync_summary.id))
+    assert row is not None
+    assert row.is_read is True
+    assert row.server_version == first.results[0].server_version
+
+
 # ---------------------------------------------------------------------------
 # Scenario 5: Apply with conflict - stale last_seen_version
 # ---------------------------------------------------------------------------
