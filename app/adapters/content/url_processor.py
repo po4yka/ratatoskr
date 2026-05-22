@@ -32,6 +32,7 @@ from app.core.logging_utils import get_logger, redact_url_for_logging
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from app.adapters.content.platform_extraction import PlatformExtractionRouter
     from app.adapters.content.scraper.protocol import ContentScraperProtocol
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
@@ -87,6 +88,7 @@ class URLProcessor:
         user_repo: UserRepositoryPort | None = None,
         related_reads_service: RelatedReadsService | None = None,
         stream_coordinator_factory: Callable[..., Any] | None = None,
+        platform_router: PlatformExtractionRouter | None = None,
     ) -> None:
         self.cfg = cfg
         self.db = db
@@ -119,6 +121,7 @@ class URLProcessor:
             audit_func=audit_func,
             sem=sem,
             quality_llm_client=openrouter,
+            platform_router=platform_router,
         )
         self.content_chunker = ContentChunker(
             cfg=cfg,

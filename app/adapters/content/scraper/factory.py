@@ -2,21 +2,125 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.scraper.chain import ContentScraperChain
 from app.adapters.content.scraper.diagnostics import build_scraper_diagnostics
-from app.adapters.content.scraper.runtime_tuning import BROWSER_PROVIDERS
 from app.config.scraper import profile_retry_budget, profile_timeout_multiplier
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from app.adapters.content.scraper.protocol import ContentScraperProtocol
     from app.config import AppConfig
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ScraperProviderDescriptor:
+    """Static registration data for one scraper provider."""
+
+    name: str
+    enabled: Callable[[AppConfig], bool]
+    build: Callable[
+        [AppConfig, Callable[[str, str, dict[str, Any]], None] | None],
+        ContentScraperProtocol | None,
+    ]
+    requires_browser: bool = False
+    diagnostics_metadata: Mapping[str, Any] | None = None
+
+
+SCRAPER_PROVIDER_DESCRIPTORS: tuple[ScraperProviderDescriptor, ...] = (
+    ScraperProviderDescriptor(
+        name="scrapling",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "scrapling_enabled", True)),
+        build=lambda cfg, _audit: _build_scrapling(cfg.scraper),
+        diagnostics_metadata={
+            "dependency_modules": ("scrapling", "trafilatura"),
+            "kind": "in_process",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="defuddle",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "defuddle_enabled", True)),
+        build=lambda cfg, _audit: _build_defuddle(cfg.scraper),
+        diagnostics_metadata={
+            "dependency_modules": ("httpx", "yaml"),
+            "kind": "sidecar",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="firecrawl",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "firecrawl_self_hosted_enabled", False)),
+        build=lambda cfg, audit: _build_firecrawl(cfg, audit),
+        diagnostics_metadata={
+            "dependency_modules": ("httpx",),
+            "kind": "self_hosted",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="playwright",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "playwright_enabled", True)),
+        build=lambda cfg, _audit: _build_playwright(cfg.scraper),
+        requires_browser=True,
+        diagnostics_metadata={
+            "dependency_modules": ("playwright",),
+            "kind": "browser",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="crawlee",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "crawlee_enabled", True)),
+        build=lambda cfg, _audit: _build_crawlee(cfg.scraper),
+        requires_browser=True,
+        diagnostics_metadata={
+            "dependency_modules": ("crawlee",),
+            "kind": "browser",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="direct_html",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "direct_html_enabled", True)),
+        build=lambda cfg, _audit: _build_direct_html(cfg.scraper),
+        diagnostics_metadata={
+            "dependency_modules": ("httpx",),
+            "kind": "direct",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="direct_pdf",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "direct_pdf_enabled", True)),
+        build=lambda cfg, _audit: _build_direct_pdf(cfg.scraper),
+        diagnostics_metadata={
+            "dependency_modules": ("fitz",),
+            "kind": "direct",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="crawl4ai",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "crawl4ai_enabled", True)),
+        build=lambda cfg, audit: _build_crawl4ai(cfg.scraper, audit),
+        diagnostics_metadata={
+            "dependency_modules": ("httpx",),
+            "kind": "sidecar",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="scrapegraph_ai",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "scrapegraph_enabled", True)),
+        build=lambda cfg, _audit: _build_scrapegraph(cfg),
+        diagnostics_metadata={
+            "dependency_modules": ("scrapegraphai",),
+            "kind": "llm_fallback",
+        },
+    ),
+)
+SCRAPER_PROVIDER_DESCRIPTOR_BY_NAME: dict[str, ScraperProviderDescriptor] = {
+    descriptor.name: descriptor for descriptor in SCRAPER_PROVIDER_DESCRIPTORS
+}
 
 
 class ContentScraperFactory:
@@ -47,32 +151,27 @@ class ContentScraperFactory:
             else list(scraper_cfg.provider_order)
         )
 
-        builder_map = {
-            "scrapling": lambda: _build_scrapling(scraper_cfg),
-            "defuddle": lambda: _build_defuddle(scraper_cfg),
-            "firecrawl": lambda: _build_firecrawl(cfg, audit),
-            "playwright": lambda: _build_playwright(scraper_cfg),
-            "crawlee": lambda: _build_crawlee(scraper_cfg),
-            "direct_html": lambda: _build_direct_html(scraper_cfg),
-            "direct_pdf": lambda: _build_direct_pdf(scraper_cfg),
-            "crawl4ai": lambda: _build_crawl4ai(scraper_cfg, audit),
-            "scrapegraph_ai": lambda: _build_scrapegraph(cfg),
-        }
-
         for name in provider_order:
-            if not scraper_cfg.browser_enabled and name in BROWSER_PROVIDERS:
+            descriptor = SCRAPER_PROVIDER_DESCRIPTOR_BY_NAME.get(name)
+            if descriptor is None:
+                logger.warning("scraper_unknown_provider", extra={"provider": name})
+                continue
+
+            if not scraper_cfg.browser_enabled and descriptor.requires_browser:
                 logger.info(
                     "scraper_provider_skipped_browser_disabled",
                     extra={"provider": name},
                 )
                 continue
 
-            builder = builder_map.get(name)
-            if builder is None:
-                logger.warning("scraper_unknown_provider", extra={"provider": name})
+            if not descriptor.enabled(cfg):
+                logger.info(
+                    "scraper_provider_skipped_disabled",
+                    extra={"provider": name},
+                )
                 continue
 
-            provider = builder()  # type: ignore[no-untyped-call, unused-ignore]
+            provider = descriptor.build(cfg, audit)
             if provider is not None:
                 providers.append(provider)
                 logger.info("scraper_provider_registered", extra={"provider": name})

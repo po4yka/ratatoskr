@@ -17,6 +17,7 @@ from app.di.repositories import (
     build_summary_repository,
     build_user_repository,
 )
+from app.di.platform_extractors import build_registered_platform_router
 from app.di.types import CoreDependencies
 
 if TYPE_CHECKING:
@@ -222,6 +223,15 @@ def build_url_processor(
         user_repo=user_repository,
         related_reads_service=related_reads_service,
         stream_coordinator_factory=SummaryDraftStreamCoordinator,
+        platform_router=build_registered_platform_router(
+            cfg=cfg,
+            db=db,
+            scraper=firecrawl,
+            response_formatter=response_formatter,
+            audit_func=audit_func,
+            sem=sem,
+            quality_llm_client=openrouter,
+        ),
     )
 
 

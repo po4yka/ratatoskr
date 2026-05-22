@@ -6,9 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.adapters.content.scraper.factory import ContentScraperFactory
+from app.adapters.content.scraper.factory import (
+    SCRAPER_PROVIDER_DESCRIPTORS,
+    ContentScraperFactory,
+)
 from app.config import FirecrawlConfig
-from app.config.scraper import ScraperConfig
+from app.config.scraper import SCRAPER_PROVIDER_TOKENS, ScraperConfig
 from tests.conftest import make_test_app_config
 from tests.helpers.scraper_helpers import _MockProvider
 
@@ -20,12 +23,22 @@ from tests.helpers.scraper_helpers import _MockProvider
 class TestContentScraperFactory:
     """Tests for the factory that builds a scraper chain from config."""
 
+    def test_static_descriptors_cover_config_tokens_and_metadata(self) -> None:
+        descriptor_names = {descriptor.name for descriptor in SCRAPER_PROVIDER_DESCRIPTORS}
+
+        assert descriptor_names == SCRAPER_PROVIDER_TOKENS
+        assert all(descriptor.diagnostics_metadata for descriptor in SCRAPER_PROVIDER_DESCRIPTORS)
+        assert {
+            descriptor.name for descriptor in SCRAPER_PROVIDER_DESCRIPTORS if descriptor.requires_browser
+        } == {"playwright", "crawlee"}
+
     def test_default_config_creates_chain_with_seven_providers_when_firecrawl_disabled(
         self,
     ):
         """Default config (firecrawl self-hosted off) yields a 7-rung chain.
 
-        The 8th rung activates only when FIRECRAWL_SELF_HOSTED_ENABLED=true.
+        Firecrawl activates only when FIRECRAWL_SELF_HOSTED_ENABLED=true, and
+        scrapegraph_ai activates only when SCRAPER_SCRAPEGRAPH_ENABLED=true.
         """
         cfg = make_test_app_config(scraper=ScraperConfig())
 
@@ -61,15 +74,14 @@ class TestContentScraperFactory:
             "playwright",
             "crawlee",
             "direct_html",
-            "scrapegraph_ai",
         ]
-        # firecrawl builder was called but returned None (self-hosted disabled)
-        mock_firecrawl.assert_called_once()
+        mock_firecrawl.assert_not_called()
+        mock_scrapegraph.assert_not_called()
 
-    def test_default_config_creates_chain_with_all_eight_providers_when_firecrawl_enabled(
+    def test_default_config_creates_chain_with_eight_providers_when_firecrawl_enabled(
         self,
     ):
-        """When FIRECRAWL_SELF_HOSTED_ENABLED=true, all 8 providers appear in the chain.
+        """When FIRECRAWL_SELF_HOSTED_ENABLED=true, firecrawl appears in the chain.
 
         The factory registers firecrawl (builder key 'firecrawl') but the provider's
         provider_name is 'firecrawl_self_hosted' because _build_firecrawl always sets
@@ -117,9 +129,9 @@ class TestContentScraperFactory:
             "playwright",
             "crawlee",
             "direct_html",
-            "scrapegraph_ai",
         ]
         mock_firecrawl.assert_called_once()
+        mock_scrapegraph.assert_not_called()
 
     def test_scrapling_disabled_skipped(self):
         """When scrapling_enabled=False, the scrapling provider is skipped."""
@@ -195,6 +207,30 @@ class TestContentScraperFactory:
         names = [p.provider_name for p in chain.providers]
         assert "crawlee" not in names
         assert "direct_html" in names
+
+    def test_scrapegraph_included_when_enabled_and_ordered(self):
+        scraper_cfg = ScraperConfig(
+            scrapegraph_enabled=True,
+            provider_order=["direct_html", "scrapegraph_ai"],
+        )
+        cfg = make_test_app_config(scraper=scraper_cfg)
+
+        with (
+            patch(
+                "app.adapters.content.scraper.factory._build_direct_html",
+                return_value=_MockProvider(name="direct_html"),
+            ),
+            patch(
+                "app.adapters.content.scraper.factory._build_scrapegraph",
+                return_value=_MockProvider(name="scrapegraph_ai"),
+            ),
+        ):
+            chain = ContentScraperFactory.create_from_config(cfg)
+
+        assert [p.provider_name for p in chain.providers] == [
+            "direct_html",
+            "scrapegraph_ai",
+        ]
 
     def test_firecrawl_self_hosted_enabled_included(self):
         """When firecrawl_self_hosted_enabled=True, firecrawl is in the chain."""
@@ -336,6 +372,29 @@ class TestContentScraperFactory:
         cfg = make_test_app_config(scraper=scraper_cfg)
 
         with pytest.raises(RuntimeError, match="SCRAPER_FORCE_PROVIDER='playwright'"):
+            ContentScraperFactory.create_from_config(cfg)
+
+    def test_unknown_provider_in_order_is_skipped(self):
+        scraper_cfg = ScraperConfig(provider_order=["direct_html"]).model_copy(
+            update={"provider_order": ["unknown_provider", "direct_html"]}
+        )
+        cfg = make_test_app_config(scraper=scraper_cfg)
+
+        with patch(
+            "app.adapters.content.scraper.factory._build_direct_html",
+            return_value=_MockProvider(name="direct_html"),
+        ):
+            chain = ContentScraperFactory.create_from_config(cfg)
+
+        assert [p.provider_name for p in chain.providers] == ["direct_html"]
+
+    def test_force_unknown_provider_raises_runtime_error(self):
+        scraper_cfg = ScraperConfig(provider_order=["direct_html"]).model_copy(
+            update={"force_provider": "unknown_provider"}
+        )
+        cfg = make_test_app_config(scraper=scraper_cfg)
+
+        with pytest.raises(RuntimeError, match="SCRAPER_FORCE_PROVIDER='unknown_provider'"):
             ContentScraperFactory.create_from_config(cfg)
 
     def test_scraper_disabled_returns_disabled_provider(self):

@@ -18,10 +18,6 @@ EXCLUDED_GLOBS = [
     # Taskiq tasks are runtime entrypoints (analogous to CLI/bootstrap); each
     # task constructs its own LLM/embedding clients from the loaded settings.
     "!app/tasks/**",
-    # content_extractor.py constructs QdrantVectorStore inside a lazy
-    # try-block based on cfg.vector_store; TODO: move construction into
-    # app.di.shared.build_qdrant_vector_store and inject the instance.
-    "!app/adapters/content/content_extractor.py",
 ]
 PATTERNS = [
     "DatabaseSessionManager(",

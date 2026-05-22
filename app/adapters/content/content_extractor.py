@@ -95,6 +95,7 @@ class ContentExtractor(
         audit_func: Callable[[str, str, dict[str, Any]], None],
         sem: Callable[[], Any],
         quality_llm_client: LLMClientProtocol | None = None,
+        platform_router: PlatformExtractionRouter | None = None,
     ) -> None:
         self.cfg = cfg
         self.db = db
@@ -114,7 +115,7 @@ class ContentExtractor(
             audit_func=audit_func,
             route_version=URL_ROUTE_VERSION,
         )
-        self._platform_router: PlatformExtractionRouter | None = None
+        self._platform_router = platform_router or PlatformExtractionRouter()
 
     async def clear_cache(self) -> int:
         """Clear the extraction cache."""
@@ -124,155 +125,7 @@ class ContentExtractor(
         return bool(getattr(self.cfg.runtime, "aggregation_article_media_enabled", True))
 
     def _get_platform_router(self) -> PlatformExtractionRouter:
-        if self._platform_router is not None:
-            return self._platform_router
-
-        from app.adapters.academic.url_patterns import is_academic_paper_url
-        from app.adapters.github.url_patterns import is_github_repo_url
-        from app.core.urls.meta import is_instagram_url, is_threads_url
-        from app.core.urls.twitter import is_twitter_url
-        from app.core.urls.youtube import is_youtube_url
-
-        router = PlatformExtractionRouter()
-        # GitHub must be registered before the generic scraper chain so that
-        # repo URLs short-circuit the fallback path.
-        router.register(
-            predicate=is_github_repo_url,
-            factory=self._build_github_platform_extractor,
-        )
-        # Academic paper hosts (arXiv, SSRN, NBER, OSF, ResearchGate, RePEc)
-        # are domain-specific and disjoint from the other platform predicates,
-        # so ordering relative to youtube/twitter/meta is not load-bearing —
-        # they're grouped with github here for readability.
-        router.register(
-            predicate=is_academic_paper_url,
-            factory=self._build_academic_platform_extractor,
-        )
-        router.register(
-            predicate=is_youtube_url,
-            factory=self._build_youtube_platform_extractor,
-        )
-        router.register(
-            predicate=lambda normalized_url: (
-                bool(self.cfg.twitter.enabled) and is_twitter_url(normalized_url)
-            ),
-            factory=self._build_twitter_platform_extractor,
-        )
-        router.register(
-            predicate=lambda normalized_url: (
-                bool(getattr(self.cfg.runtime, "aggregation_meta_extractors_enabled", True))
-                and (is_threads_url(normalized_url) or is_instagram_url(normalized_url))
-            ),
-            factory=self._build_meta_platform_extractor,
-        )
-        self._platform_router = router
-        return router
-
-    def _build_youtube_platform_extractor(self) -> Any:
-        from app.adapters.youtube.platform_extractor import YouTubePlatformExtractor
-        from app.infrastructure.persistence.repositories.video_download_repository import (
-            VideoDownloadRepositoryAdapter,
-        )
-
-        return YouTubePlatformExtractor(
-            cfg=self.cfg,
-            db=self.db,
-            response_formatter=self.response_formatter,
-            audit_func=self._audit,
-            lifecycle=self._platform_request_lifecycle,
-            request_repo=self.message_persistence.request_repo,
-            video_repo=VideoDownloadRepositoryAdapter(self.db),
-        )
-
-    def _build_twitter_platform_extractor(self) -> Any:
-        from app.adapters.twitter.platform_extractor import TwitterPlatformExtractor
-
-        return TwitterPlatformExtractor(
-            cfg=self.cfg,
-            db=self.db,
-            firecrawl=self.scraper,
-            response_formatter=self.response_formatter,
-            message_persistence=self.message_persistence,
-            firecrawl_sem=self._sem,
-            schedule_crawl_persistence=self._schedule_crawl_persistence,
-            lifecycle=self._platform_request_lifecycle,
-        )
-
-    def _build_meta_platform_extractor(self) -> Any:
-        from app.adapters.meta.platform_extractor import MetaPlatformExtractor
-
-        return MetaPlatformExtractor(
-            cfg=self.cfg,
-            scraper=self.scraper,
-            firecrawl_sem=self._sem,
-            lifecycle=self._platform_request_lifecycle,
-        )
-
-    def _build_academic_platform_extractor(self) -> Any:
-        from app.adapters.academic.platform_extractor import AcademicPlatformExtractor
-
-        return AcademicPlatformExtractor(
-            cfg=self.cfg,
-            scraper=self.scraper,
-            firecrawl_sem=self._sem,
-            lifecycle=self._platform_request_lifecycle,
-        )
-
-    def _build_github_platform_extractor(self) -> Any:
-        from app.adapters.github.platform_extractor import GitHubPlatformExtractor
-        from app.agents.repo_analysis_agent import RepoAnalysisAgent
-        from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
-        from app.infrastructure.embedding.embedding_factory import create_embedding_service
-        from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
-
-        llm_client = self._quality_llm_client
-        if llm_client is None:
-            raise RuntimeError(
-                "GitHubPlatformExtractor requires an LLM client "
-                "(quality_llm_client was not provided to ContentExtractor)"
-            )
-
-        embedding_service = create_embedding_service(self.cfg.embedding)
-
-        try:
-            from app.core.embedding_space import resolve_embedding_space_identifier
-            from app.infrastructure.vector.qdrant_store import QdrantVectorStore
-
-            qdrant_store: Any = QdrantVectorStore(
-                url=self.cfg.vector_store.url,
-                api_key=self.cfg.vector_store.api_key,
-                environment=self.cfg.vector_store.environment,
-                user_scope=self.cfg.vector_store.user_scope,
-                collection_version=self.cfg.vector_store.collection_version,
-                embedding_space=resolve_embedding_space_identifier(self.cfg.embedding),
-                required=False,
-                connection_timeout=self.cfg.vector_store.connection_timeout,
-            )
-            if not qdrant_store.available:
-                qdrant_store = None
-        except Exception:
-            logger.debug("qdrant_store_unavailable_for_github", exc_info=True)
-            qdrant_store = None
-
-        embedding_gen = RepositoryEmbeddingGenerator(
-            embedding_service=embedding_service,
-            qdrant_store=qdrant_store,
-            db=self.db,
-            environment=self.cfg.vector_store.environment,
-            user_scope=self.cfg.vector_store.user_scope,
-        )
-        agent = RepoAnalysisAgent(llm_service=llm_client)
-        analyze_use_case = AnalyzeRepositoryUseCase(
-            db=self.db,
-            agent=agent,
-            embedding_gen=embedding_gen,
-        )
-
-        return GitHubPlatformExtractor(
-            db=self.db,
-            github_config=self.cfg.github,
-            analyze_use_case=analyze_use_case,
-        )
+        return self._platform_router
 
     async def extract_content_pure(
         self,
@@ -281,9 +134,6 @@ class ContentExtractor(
         request_id: int | None = None,
     ) -> tuple[str, str, dict[str, Any]]:
         """Pure extraction method without message dependencies."""
-        from app.core.urls.twitter import is_twitter_url
-        from app.core.urls.youtube import is_youtube_url
-
         normalized_url = normalize_url(url)
         platform_result = await self._get_platform_router().extract(
             PlatformExtractionRequest(

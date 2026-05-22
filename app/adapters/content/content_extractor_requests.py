@@ -20,6 +20,84 @@ from app.core.logging_utils import get_logger
 logger = get_logger(__name__)
 
 
+def schedule_crawl_persistence_task(
+    *,
+    cfg: Any,
+    message_persistence: MessagePersistence,
+    req_id: int,
+    crawl: Any,
+    correlation_id: str | None,
+) -> asyncio.Task[None] | None:
+    """Run crawl persistence off the network path."""
+    try:
+        task = asyncio.create_task(
+            persist_crawl_result(cfg, message_persistence, req_id, crawl, correlation_id)
+        )
+
+        def _log_err(t: asyncio.Task[Any]) -> None:
+            if not t.cancelled() and t.exception():
+                logger.error(
+                    "persist_crawl_error",
+                    extra={"cid": correlation_id, "error": str(t.exception())},
+                )
+                try:
+                    from app.observability.metrics import (
+                        EXTRACTION_FAILURES,
+                        PROMETHEUS_AVAILABLE,
+                    )
+
+                    if PROMETHEUS_AVAILABLE:
+                        EXTRACTION_FAILURES.labels(
+                            stage="persist_crawl",
+                            component="background_task",
+                            reason_code="exception",
+                            retryable="false",
+                        ).inc()
+                except Exception:
+                    pass
+
+        task.add_done_callback(_log_err)
+        return task
+    except RuntimeError:
+        return None
+
+
+async def persist_crawl_result(
+    cfg: Any,
+    message_persistence: MessagePersistence,
+    req_id: int,
+    crawl: Any,
+    correlation_id: str | None,
+) -> None:
+    """Persist crawl result; exceptions propagate so task callbacks can log and meter them."""
+    try:
+        retain_raw = bool(
+            getattr(
+                getattr(cfg, "retention", None),
+                "persist_raw_extracted_content",
+                True,
+            )
+        )
+        await message_persistence.crawl_repo.async_insert_crawl_result(
+            request_id=req_id,
+            success=crawl.response_success,
+            markdown=crawl.content_markdown if retain_raw else None,
+            html=crawl.content_html if retain_raw else None,
+            error=crawl.error_text,
+            metadata_json=crawl.metadata_json if retain_raw else _metadata_without_raw(crawl),
+            source_url=crawl.source_url,
+            http_status=crawl.http_status,
+            status=crawl.status,
+            endpoint=crawl.endpoint,
+            latency_ms=crawl.latency_ms,
+            correlation_id=crawl.correlation_id,
+            options_json=crawl.options_json,
+        )
+    except Exception as e:
+        raise_if_cancelled(e)
+        raise
+
+
 class ContentExtractorRequestsMixin:
     """Request creation/dedupe and persistence primitives."""
 
@@ -32,66 +110,25 @@ class ContentExtractorRequestsMixin:
         self, req_id: int, crawl: Any, correlation_id: str | None
     ) -> asyncio.Task[None] | None:
         """Run crawl persistence off the network path."""
-        try:
-            task = asyncio.create_task(self._persist_crawl_result(req_id, crawl, correlation_id))
-
-            def _log_err(t: asyncio.Task[Any]) -> None:
-                if not t.cancelled() and t.exception():
-                    logger.error(
-                        "persist_crawl_error",
-                        extra={"cid": correlation_id, "error": str(t.exception())},
-                    )
-                    try:
-                        from app.observability.metrics import (
-                            EXTRACTION_FAILURES,
-                            PROMETHEUS_AVAILABLE,
-                        )
-
-                        if PROMETHEUS_AVAILABLE:
-                            EXTRACTION_FAILURES.labels(
-                                stage="persist_crawl",
-                                component="background_task",
-                                reason_code="exception",
-                                retryable="false",
-                            ).inc()
-                    except Exception:
-                        pass
-
-            task.add_done_callback(_log_err)
-            return task
-        except RuntimeError:
-            return None
+        return schedule_crawl_persistence_task(
+            cfg=self.cfg,
+            message_persistence=self.message_persistence,
+            req_id=req_id,
+            crawl=crawl,
+            correlation_id=correlation_id,
+        )
 
     async def _persist_crawl_result(
         self, req_id: int, crawl: Any, correlation_id: str | None
     ) -> None:
         """Persist crawl result; exceptions propagate so the task callback can log and meter them."""
-        try:
-            retain_raw = bool(
-                getattr(
-                    getattr(self.cfg, "retention", None),
-                    "persist_raw_extracted_content",
-                    True,
-                )
-            )
-            await self.message_persistence.crawl_repo.async_insert_crawl_result(
-                request_id=req_id,
-                success=crawl.response_success,
-                markdown=crawl.content_markdown if retain_raw else None,
-                html=crawl.content_html if retain_raw else None,
-                error=crawl.error_text,
-                metadata_json=crawl.metadata_json if retain_raw else _metadata_without_raw(crawl),
-                source_url=crawl.source_url,
-                http_status=crawl.http_status,
-                status=crawl.status,
-                endpoint=crawl.endpoint,
-                latency_ms=crawl.latency_ms,
-                correlation_id=crawl.correlation_id,
-                options_json=crawl.options_json,
-            )
-        except Exception as e:
-            raise_if_cancelled(e)
-            raise  # let _log_err callback see the exception for logging and metrics
+        await persist_crawl_result(
+            self.cfg,
+            self.message_persistence,
+            req_id,
+            crawl,
+            correlation_id,
+        )
 
     async def _handle_request_dedupe_or_create(
         self, message: Any, url_text: str, norm: str, dedupe: str, correlation_id: str | None

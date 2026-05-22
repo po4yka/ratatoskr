@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.adapters.content.content_extractor import ContentExtractionResult, ContentExtractor
-from app.adapters.content.platform_extraction.models import PlatformExtractionResult
+from app.adapters.content.platform_extraction.models import (
+    PlatformExtractionRequest,
+    PlatformExtractionResult,
+)
+from app.adapters.content.platform_extraction.router import PlatformExtractionRouter
 from app.application.dto.aggregation import NormalizedSourceDocument
 
 if TYPE_CHECKING:
@@ -66,7 +70,16 @@ def _dummy_cfg(
     )
 
 
-def _make_extractor() -> ContentExtractor:
+class _FakePlatformExtractor:
+    def __init__(self, result: PlatformExtractionResult) -> None:
+        self.result = result
+        self.extract = AsyncMock(return_value=result)
+
+    def supports(self, normalized_url: str) -> bool:
+        return True
+
+
+def _make_extractor(platform_router: PlatformExtractionRouter | None = None) -> ContentExtractor:
     firecrawl_scrape_mock = AsyncMock(
         return_value=SimpleNamespace(
             status="ok",
@@ -94,6 +107,7 @@ def _make_extractor() -> ContentExtractor:
         ),
         audit_func=lambda *args, **kwargs: None,
         sem=_dummy_sem,
+        platform_router=platform_router,
     )
 
 
@@ -101,6 +115,7 @@ def _make_extractor_with_cfg(
     *,
     aggregation_meta_extractors_enabled: bool = True,
     aggregation_article_media_enabled: bool = True,
+    platform_router: PlatformExtractionRouter | None = None,
 ) -> ContentExtractor:
     firecrawl_scrape_mock = AsyncMock(
         return_value=SimpleNamespace(
@@ -132,7 +147,77 @@ def _make_extractor_with_cfg(
         ),
         audit_func=lambda *args, **kwargs: None,
         sem=_dummy_sem,
+        platform_router=platform_router,
     )
+
+
+def _router_for(url: str, extractor: _FakePlatformExtractor) -> PlatformExtractionRouter:
+    router = PlatformExtractionRouter()
+    router.register(predicate=lambda normalized_url: normalized_url == url, factory=lambda: extractor)
+    return router
+
+
+@pytest.mark.asyncio
+async def test_extract_content_pure_uses_registered_fake_extractor() -> None:
+    fake_result = PlatformExtractionResult(
+        platform="fake",
+        request_id=123,
+        content_text="fake body",
+        content_source="fake-source",
+        detected_lang="en",
+        title="Fake",
+        metadata={"source": "fake"},
+    )
+    fake_extractor = _FakePlatformExtractor(fake_result)
+    extractor = _make_extractor(
+        platform_router=_router_for("https://fake.example/item", fake_extractor)
+    )
+
+    content_text, content_source, metadata = await extractor.extract_content_pure(
+        "https://fake.example/item",
+        correlation_id="cid-fake",
+        request_id=123,
+    )
+
+    assert content_text == "fake body"
+    assert content_source == "fake-source"
+    assert metadata["source"] == "fake"
+    fake_extractor.extract.assert_awaited_once()
+    request = fake_extractor.extract.await_args.args[0]
+    assert isinstance(request, PlatformExtractionRequest)
+    assert request.normalized_url == "https://fake.example/item"
+    extractor.firecrawl.scrape_markdown.assert_not_awaited()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_extract_content_pure_accepts_prebuilt_platform_router() -> None:
+    fake_result = PlatformExtractionResult(
+        platform="prebuilt",
+        request_id=124,
+        content_text="prebuilt body",
+        content_source="prebuilt-source",
+        detected_lang="en",
+        metadata={"source": "prebuilt"},
+    )
+    fake_extractor = _FakePlatformExtractor(fake_result)
+    router = PlatformExtractionRouter()
+    router.register(
+        predicate=lambda normalized_url: normalized_url == "https://router.example/item",
+        factory=lambda: fake_extractor,
+    )
+    extractor = _make_extractor(platform_router=router)
+
+    content_text, content_source, metadata = await extractor.extract_content_pure(
+        "https://router.example/item",
+        correlation_id="cid-router",
+        request_id=124,
+    )
+
+    assert content_text == "prebuilt body"
+    assert content_source == "prebuilt-source"
+    assert metadata["source"] == "prebuilt"
+    fake_extractor.extract.assert_awaited_once()
+    extractor.firecrawl.scrape_markdown.assert_not_awaited()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -229,21 +314,22 @@ async def test_extract_content_pure_passes_normalized_url_to_generic_scraper() -
 
 @pytest.mark.asyncio
 async def test_extract_content_pure_routes_meta_urls_through_platform_router() -> None:
-    extractor = cast("Any", _make_extractor())
-    meta_extractor = MagicMock()
-    meta_extractor.supports.return_value = True
-    meta_extractor.extract = AsyncMock(
-        return_value=PlatformExtractionResult(
-            platform="meta",
-            request_id=77,
-            content_text="threads body",
-            content_source="markdown",
-            detected_lang="en",
-            title="Threads",
-            metadata={"source": "meta", "platform_surface": "threads_post"},
-        )
+    meta_result = PlatformExtractionResult(
+        platform="meta",
+        request_id=77,
+        content_text="threads body",
+        content_source="markdown",
+        detected_lang="en",
+        title="Threads",
+        metadata={"source": "meta", "platform_surface": "threads_post"},
     )
-    extractor._build_meta_platform_extractor = MagicMock(return_value=meta_extractor)
+    meta_extractor = _FakePlatformExtractor(meta_result)
+    router = PlatformExtractionRouter()
+    router.register(
+        predicate=lambda normalized_url: normalized_url.startswith("https://www.threads.net/"),
+        factory=lambda: meta_extractor,
+    )
+    extractor = _make_extractor(platform_router=router)
 
     content_text, content_source, metadata = await extractor.extract_content_pure(
         "https://www.threads.net/@user/post/C8abc123",
@@ -255,13 +341,29 @@ async def test_extract_content_pure_routes_meta_urls_through_platform_router() -
     assert content_source == "markdown"
     assert metadata["source"] == "meta"
     assert metadata["platform_surface"] == "threads_post"
-    extractor._build_meta_platform_extractor.assert_called_once()
+    meta_extractor.extract.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_extract_content_pure_skips_meta_router_when_feature_flag_disabled() -> None:
-    extractor = cast("Any", _make_extractor_with_cfg(aggregation_meta_extractors_enabled=False))
-    extractor._build_meta_platform_extractor = MagicMock()
+    meta_extractor = _FakePlatformExtractor(
+        PlatformExtractionResult(
+            platform="meta",
+            request_id=77,
+            content_text="threads body",
+            content_source="markdown",
+            detected_lang="en",
+        )
+    )
+    router = PlatformExtractionRouter()
+    router.register(predicate=lambda _normalized_url: False, factory=lambda: meta_extractor)
+    extractor = cast(
+        "Any",
+        _make_extractor_with_cfg(
+            aggregation_meta_extractors_enabled=False,
+            platform_router=router,
+        ),
+    )
     extractor.firecrawl.scrape_markdown = AsyncMock(
         return_value=SimpleNamespace(
             status="ok",
@@ -295,7 +397,7 @@ async def test_extract_content_pure_skips_meta_router_when_feature_flag_disabled
 
     assert "Generic fallback body" in content_text
     assert content_source == "markdown"
-    extractor._build_meta_platform_extractor.assert_not_called()
+    meta_extractor.extract.assert_not_awaited()
     assert "normalized_source_document" in metadata
 
 
