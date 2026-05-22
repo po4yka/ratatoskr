@@ -101,6 +101,10 @@ def _validate_url_input_basics(url: str) -> None:
         if url_lower.startswith(f"{dangerous_scheme}:"):
             msg = f"URL scheme '{dangerous_scheme}' is not allowed"
             raise ValueError(msg)
+    parsed_scheme = urlparse(url).scheme.lower()
+    if parsed_scheme and parsed_scheme not in _ALLOWED_SCHEMES:
+        msg = f"URL scheme '{parsed_scheme}' is not allowed"
+        raise ValueError(msg)
     if "\x00" in url:
         msg = "URL contains null bytes"
         raise ValueError(msg)
