@@ -118,6 +118,7 @@ class SourceType(StrEnum):
     TUTORIAL = "tutorial"
     REFERENCE = "reference"
     PDF = "pdf"
+    UNKNOWN = "unknown"
 
 
 class TemporalFreshness(StrEnum):
@@ -126,6 +127,16 @@ class TemporalFreshness(StrEnum):
     BREAKING = "breaking"
     RECENT = "recent"
     EVERGREEN = "evergreen"
+    UNKNOWN = "unknown"
+
+
+class HallucinationRisk(StrEnum):
+    """Factual uncertainty classification."""
+
+    LOW = "low"
+    MED = "med"
+    HIGH = "high"
+    UNKNOWN = "unknown"
 
 
 class QualityAssessment(BaseModel):
@@ -133,6 +144,7 @@ class QualityAssessment(BaseModel):
     emotional_tone: str | None = None
     missing_perspectives: list[str] = Field(default_factory=list)
     evidence_quality: str | None = None
+    prompt_injection_suspected: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -172,8 +184,8 @@ class SummaryModel(BaseModel):
     questions_answered: list[QuestionAnswer] = Field(default_factory=list)
     categories: list[str] = Field(default_factory=list)
     topic_taxonomy: list[TopicTaxonomy] = Field(default_factory=list)
-    hallucination_risk: str = Field(default="low")  # low/med/high
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    hallucination_risk: HallucinationRisk = Field(default=HallucinationRisk.UNKNOWN)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     forwarded_post_extras: ForwardedPostExtras | None = None
     key_points_to_remember: list[str] = Field(default_factory=list)
     insights: Insights = Field(default_factory=Insights)
@@ -316,30 +328,48 @@ class SummaryModel(BaseModel):
     @field_validator("hallucination_risk", mode="before")
     @classmethod
     def constrain_hallucination_risk(cls, v: Any) -> str:
-        val = str(v).strip().lower() if v is not None else "low"
-        return val if val in {"low", "med", "high"} else "low"
+        if v is None or str(v).strip() == "":
+            logger.warning("summary_hallucination_risk_missing")
+            return "unknown"
+        val = str(v).strip().lower()
+        if val == "medium":
+            return "med"
+        if val in {"low", "med", "high", "unknown"}:
+            return val
+        logger.warning("summary_hallucination_risk_invalid", extra={"value": str(v)})
+        return "unknown"
 
     @field_validator("confidence", mode="before")
     @classmethod
     def clamp_confidence(cls, v: Any) -> float:
-        if v is None:
-            return 1.0
+        if v is None or str(v).strip() == "":
+            logger.warning("summary_confidence_missing")
+            return 0.0
         try:
             val = float(v)
         except (TypeError, ValueError):
-            return 1.0
+            logger.warning("summary_confidence_invalid", extra={"value": str(v)})
+            return 0.0
+        if val < 0.0 or val > 1.0:
+            logger.warning("summary_confidence_invalid", extra={"value": str(v)})
         return max(0.0, min(1.0, val))
 
     @field_validator("source_type", mode="before")
     @classmethod
     def default_source_type(cls, v: Any) -> str:
         valid = {m.value for m in SourceType}
-        val = str(v).strip().lower() if v is not None else SourceType.BLOG
-        return val if val in valid else SourceType.BLOG
+        val = str(v).strip().lower() if v is not None else SourceType.UNKNOWN
+        if val in valid:
+            return val
+        logger.warning("summary_source_type_invalid", extra={"value": str(v)})
+        return SourceType.UNKNOWN
 
     @field_validator("temporal_freshness", mode="before")
     @classmethod
     def default_temporal_freshness(cls, v: Any) -> str:
         valid = {m.value for m in TemporalFreshness}
-        val = str(v).strip().lower() if v is not None else TemporalFreshness.EVERGREEN
-        return val if val in valid else TemporalFreshness.EVERGREEN
+        val = str(v).strip().lower() if v is not None else TemporalFreshness.UNKNOWN
+        if val in valid:
+            return val
+        logger.warning("summary_temporal_freshness_invalid", extra={"value": str(v)})
+        return TemporalFreshness.UNKNOWN

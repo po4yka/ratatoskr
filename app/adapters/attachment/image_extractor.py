@@ -6,11 +6,12 @@ import base64
 import io
 from dataclasses import dataclass
 from pathlib import Path
-
-from PIL import Image
-from PIL.Image import Resampling
+from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 logger = get_logger(__name__)
 
@@ -22,6 +23,16 @@ FORMAT_TO_MIME = {
     "WEBP": "image/webp",
     "GIF": "image/gif",
 }
+
+
+def _load_pillow() -> tuple[Any, Any]:
+    try:
+        from PIL import Image
+        from PIL.Image import Resampling
+    except ModuleNotFoundError as exc:
+        msg = "Pillow is required for image extraction. Install the `attachment` extra."
+        raise ValueError(msg) from exc
+    return Image, Resampling
 
 
 @dataclass(frozen=True)
@@ -57,8 +68,9 @@ class ImageExtractor:
             msg = f"Image file not found: {file_path}"
             raise ValueError(msg)
 
+        pillow_image, resampling = _load_pillow()
         try:
-            img: Image.Image = Image.open(file_path)
+            img: Image.Image = pillow_image.open(file_path)
         except Exception as exc:
             msg = f"Cannot open image file: {exc}"
             raise ValueError(msg) from exc
@@ -74,7 +86,7 @@ class ImageExtractor:
             ratio = min(max_dimension / width, max_dimension / height)
             new_width = int(width * ratio)
             new_height = int(height * ratio)
-            img = img.resize((new_width, new_height), Resampling.LANCZOS)
+            img = img.resize((new_width, new_height), resampling.LANCZOS)
             width, height = new_width, new_height
             logger.debug(
                 "image_resized",
@@ -126,8 +138,9 @@ class ImageExtractor:
         Returns:
             ImageContent with base64 data URI and metadata.
         """
+        pillow_image, resampling = _load_pillow()
         try:
-            img: Image.Image = Image.open(io.BytesIO(data))
+            img: Image.Image = pillow_image.open(io.BytesIO(data))
         except Exception as exc:
             msg = f"Cannot open image from bytes: {exc}"
             raise ValueError(msg) from exc
@@ -137,7 +150,7 @@ class ImageExtractor:
             ratio = min(max_dimension / width, max_dimension / height)
             new_width = int(width * ratio)
             new_height = int(height * ratio)
-            img = img.resize((new_width, new_height), Resampling.LANCZOS)
+            img = img.resize((new_width, new_height), resampling.LANCZOS)
             width, height = new_width, new_height
 
         if img.mode != "RGB":

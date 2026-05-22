@@ -118,13 +118,13 @@ class SummaryBlocksPresenter:
             combined_lines.append(f"📁 {t('categories', _l)}: " + ", ".join(categories[:10]))
             combined_lines.append("")
 
-        confidence = shaped.get("confidence", 1.0)
+        confidence = shaped.get("confidence", 0.0)
         low_confidence = isinstance(confidence, (int, float)) and confidence < 1.0
-        risk = str(shaped.get("hallucination_risk", "low"))
+        risk = str(shaped.get("hallucination_risk", "unknown"))
         if low_confidence:
             combined_lines.append(f"🎯 {t('confidence', _l)}: {confidence:.1%}")
         if risk != "low":
-            risk_emoji = "⚠️" if risk == "med" else "🚨"
+            risk_emoji = "🚨" if risk == "high" else "⚠️"
             combined_lines.append(f"{risk_emoji} {t('hallucination_risk', _l)}: {risk}")
         if low_confidence or risk != "low":
             combined_lines.append("")

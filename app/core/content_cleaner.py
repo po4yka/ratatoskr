@@ -9,6 +9,51 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class PromptInjectionDetection:
+    """Lightweight prompt-injection signal derived from untrusted source text."""
+
+    suspected: bool
+    matched_patterns: tuple[str, ...] = ()
+
+
+_PROMPT_INJECTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "ignore_previous_instructions",
+        re.compile(
+            r"\b(?:ignore|disregard|forget|override)\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+"
+            r"(?:instructions|rules|directions|system\s+message)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "reveal_system_prompt",
+        re.compile(
+            r"\b(?:print|reveal|show|display|dump|repeat|output)\s+(?:your\s+)?"
+            r"(?:system|developer)\s+(?:prompt|message|instructions|rules)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "exfiltrate_secrets",
+        re.compile(
+            r"\b(?:exfiltrate|leak|send|print|reveal|dump|steal)\s+(?:the\s+)?"
+            r"(?:api\s+)?(?:keys?|tokens?|secrets?|credentials?)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "return_exact_json",
+        re.compile(
+            r"\b(?:return|output|respond\s+with)\s+(?:this\s+)?exact\s+json\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
 
 
 def clean_content_for_llm(text: str) -> str:
@@ -30,6 +75,48 @@ def clean_content_for_llm(text: str) -> str:
     text = _truncate_after_comments(text)
 
     return text.strip()
+
+
+def detect_prompt_injection_patterns(text: str) -> PromptInjectionDetection:
+    """Detect obvious prompt-injection instructions in untrusted source content."""
+    if not text or not text.strip():
+        return PromptInjectionDetection(False)
+
+    matches = tuple(label for label, pattern in _PROMPT_INJECTION_PATTERNS if pattern.search(text))
+    return PromptInjectionDetection(bool(matches), matches)
+
+
+def apply_prompt_injection_metadata(
+    summary: dict[str, Any],
+    detection: PromptInjectionDetection,
+) -> dict[str, Any]:
+    """Expose deterministic prompt-injection metadata on a shaped summary payload."""
+    quality = summary.get("quality")
+    if not isinstance(quality, dict):
+        quality = {}
+        summary["quality"] = quality
+    quality["prompt_injection_suspected"] = detection.suspected
+
+    if not detection.suspected:
+        return summary
+
+    insights = summary.get("insights")
+    if not isinstance(insights, dict):
+        insights = {}
+        summary["insights"] = insights
+
+    critique = insights.get("critique")
+    if not isinstance(critique, list):
+        critique = []
+        insights["critique"] = critique
+
+    note = (
+        "Potential prompt-injection instructions were detected in the source content "
+        f"({', '.join(detection.matched_patterns)}). They were treated as untrusted data."
+    )
+    if note not in critique:
+        critique.append(note)
+    return summary
 
 
 def _collapse_whitespace(text: str) -> str:

@@ -13,7 +13,11 @@ from app.core.logging_utils import get_logger
 from app.core.summary_contract import validate_and_shape_summary
 from app.core.token_utils import count_tokens
 
-from .summary_request_factory import detect_content_type_hint, log_llm_content_validation
+from .summary_request_factory import (
+    build_summary_user_prompt,
+    log_llm_content_validation,
+    mark_prompt_injection_metadata,
+)
 
 if TYPE_CHECKING:
     from .summarization_models import EnsureSummaryPayloadRequest, PureSummaryRequest
@@ -77,15 +81,11 @@ class PureSummaryService:
             )
 
         content_for_summary = clean_content_for_llm(content_for_summary)
-        content_hint = detect_content_type_hint(content_for_summary)
-        user_content = (
-            "Analyze the following content and output ONLY a valid JSON object that matches the system contract exactly. "
-            f"Respond in {'Russian' if request.chosen_lang == LANG_RU else 'English'}. "
-            "Do NOT include any text outside the JSON.\n\n"
+        user_content = build_summary_user_prompt(
+            content_for_summary=content_for_summary,
+            chosen_lang=request.chosen_lang,
+            feedback_instructions=request.feedback_instructions,
         )
-        if request.feedback_instructions:
-            user_content += f"{request.feedback_instructions}\n\n"
-        user_content += f"{content_hint}CONTENT START\n{content_for_summary}\nCONTENT END"
 
         log_llm_content_validation(
             cfg=self._runtime.cfg,
@@ -115,6 +115,7 @@ class PureSummaryService:
 
         return await self._summarize_with_instructor(
             messages=messages,
+            source_content=content_for_summary,
             max_tokens=max_tokens,
             model_override=model_override,
             correlation_id=request.correlation_id,
@@ -124,6 +125,7 @@ class PureSummaryService:
         self,
         messages: list[dict[str, Any]],
         *,
+        source_content: str,
         max_tokens: int | None,
         model_override: str | None,
         correlation_id: str | None,
@@ -147,7 +149,7 @@ class PureSummaryService:
             )
             raise ValueError(f"Instructor LLM call failed: {exc}") from exc
 
-        summary = result.parsed.model_dump()
+        summary = mark_prompt_injection_metadata(result.parsed.model_dump(), source_content)
         logger.info(
             "summarize_pure_success",
             extra={
@@ -186,6 +188,7 @@ class PureSummaryService:
             request.correlation_id,
             request.chosen_lang,
         )
+        shaped = mark_prompt_injection_metadata(shaped, request.content_text)
         self._runtime.insights_generator.update_last_summary(shaped)
         return shaped
 

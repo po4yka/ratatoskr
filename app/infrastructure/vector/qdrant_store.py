@@ -148,6 +148,7 @@ class QdrantVectorStore:
                 url=self._url,
                 api_key=self._api_key,
                 timeout=int(self._connection_timeout),
+                check_compatibility=False,
             )
             client.get_collections()  # probe / auth check
 

@@ -262,9 +262,9 @@ def build_card_sections(
 
         confidence = summary_shaped.get("confidence")
         try:
-            conf_val = float(confidence) if confidence is not None else 1.0
+            conf_val = float(confidence) if confidence is not None else 0.0
         except (ValueError, TypeError):
-            conf_val = 1.0
+            conf_val = 0.0
         if conf_val < 1.0:
             model_parts.append(f"{int(conf_val * 100)}%")
 

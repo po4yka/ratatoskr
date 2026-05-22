@@ -22,6 +22,7 @@ from app.utils.progress_message_updater import ProgressMessageUpdater
 from app.utils.typing_indicator import typing_indicator
 
 from .summarization_models import InteractiveSummaryRequest, InteractiveSummaryResult
+from .summary_request_factory import mark_prompt_injection_metadata
 
 if TYPE_CHECKING:
     from .pure_summary_service import PureSummaryService
@@ -62,13 +63,14 @@ class _InteractiveSummaryCallbacks:
         self._runtime.insights_generator.update_last_summary(summary)
 
     async def ensure_summary(self, summary: dict[str, Any]) -> dict[str, Any]:
-        return await self._runtime.metadata_helper.ensure_summary_metadata(
+        shaped = await self._runtime.metadata_helper.ensure_summary_metadata(
             summary,
             self._request.req_id,
             self._request.content_text,
             self._request.correlation_id,
             self._request.chosen_lang,
         )
+        return mark_prompt_injection_metadata(shaped, self._request.content_text)
 
     async def on_completion(self, llm_result: Any, attempt: Any) -> None:
         await self._runtime.response_formatter.send_llm_completion_notification(

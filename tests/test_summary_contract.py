@@ -1,6 +1,18 @@
+import logging
 import unittest
 
 from app.core.summary_contract import validate_and_shape_summary
+
+
+def _minimal_summary_payload(**overrides):
+    payload = {
+        "summary_250": "Short summary.",
+        "summary_1000": "Longer summary with enough detail.",
+        "tldr": "Longer summary with enough detail and context.",
+        "key_ideas": ["idea"],
+    }
+    payload.update(overrides)
+    return payload
 
 
 class TestSummaryContract(unittest.TestCase):
@@ -138,3 +150,50 @@ class TestSummaryContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_invalid_confidence_string_defaults_to_conservative_value(caplog):
+    with caplog.at_level(logging.WARNING, logger="app.core.summary_contract_impl.summary_shaper"):
+        out = validate_and_shape_summary(_minimal_summary_payload(confidence="very sure"))
+
+    assert out["confidence"] == 0.0
+    assert out["hallucination_risk"] == "unknown"
+    assert "summary_confidence_invalid" in caplog.messages
+    assert "summary_hallucination_risk_missing" in caplog.messages
+
+
+def test_missing_confidence_defaults_to_conservative_value(caplog):
+    with caplog.at_level(logging.WARNING, logger="app.core.summary_contract_impl.summary_shaper"):
+        out = validate_and_shape_summary(_minimal_summary_payload(hallucination_risk="high"))
+
+    assert out["confidence"] == 0.0
+    assert out["hallucination_risk"] == "high"
+    assert "summary_confidence_missing" in caplog.messages
+
+
+def test_invalid_hallucination_risk_defaults_to_unknown(caplog):
+    with caplog.at_level(logging.WARNING, logger="app.core.summary_contract_impl.summary_shaper"):
+        out = validate_and_shape_summary(
+            _minimal_summary_payload(confidence=0.8, hallucination_risk="definitely no risk")
+        )
+
+    assert out["confidence"] == 0.8
+    assert out["hallucination_risk"] == "unknown"
+    assert "summary_hallucination_risk_invalid" in caplog.messages
+
+
+def test_invalid_source_type_and_freshness_warn_and_become_unknown(caplog):
+    with caplog.at_level(logging.WARNING, logger="app.core.summary_contract_impl.summary_shaper"):
+        out = validate_and_shape_summary(
+            _minimal_summary_payload(
+                confidence=0.7,
+                hallucination_risk="med",
+                source_type="marketing-blast",
+                temporal_freshness="someday",
+            )
+        )
+
+    assert out["source_type"] == "unknown"
+    assert out["temporal_freshness"] == "unknown"
+    assert "summary_source_type_invalid" in caplog.messages
+    assert "summary_temporal_freshness_invalid" in caplog.messages

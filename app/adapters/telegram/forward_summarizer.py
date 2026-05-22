@@ -12,7 +12,10 @@ from app.adapters.content.llm_response_workflow import (
     LLMSummaryPersistenceSettings,
     LLMWorkflowNotifications,
 )
-from app.core.lang import LANG_RU
+from app.adapters.content.summary_request_factory import (
+    build_summary_user_prompt,
+    mark_prompt_injection_metadata,
+)
 from app.core.logging_utils import get_logger
 from app.utils.typing_indicator import typing_indicator
 
@@ -104,9 +107,9 @@ class ForwardSummarizer:
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": (
-                    f"Summarize the following message to the specified JSON schema. "
-                    f"Respond in {'Russian' if chosen_lang == LANG_RU else 'English'}.\n\n{prompt}"
+                "content": build_summary_user_prompt(
+                    content_for_summary=prompt,
+                    chosen_lang=chosen_lang,
                 ),
             },
         ]
@@ -218,6 +221,9 @@ class ForwardSummarizer:
             is_read=True,
         )
 
+        async def _ensure_summary(summary: dict[str, Any]) -> dict[str, Any]:
+            return mark_prompt_injection_metadata(summary, prompt)
+
         try:
             async with typing_indicator(self.response_formatter, message, action="typing"):
                 return await self._workflow.execute_summary_workflow(
@@ -229,6 +235,7 @@ class ForwardSummarizer:
                     repair_context=repair_context,
                     requests=requests,
                     notifications=notifications,
+                    ensure_summary=_ensure_summary,
                 )
         finally:
             if stream_coordinator is not None:

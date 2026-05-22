@@ -204,6 +204,7 @@ def shape_quality(raw: Any) -> dict[str, Any]:
         "emotional_tone": None,
         "missing_perspectives": [],
         "evidence_quality": None,
+        "prompt_injection_suspected": False,
     }
 
     if not isinstance(raw, dict):
@@ -219,11 +220,13 @@ def shape_quality(raw: Any) -> dict[str, Any]:
     shaped["evidence_quality"] = evidence if evidence else None
 
     shaped["missing_perspectives"] = clean_string_list(raw.get("missing_perspectives"))
+    shaped["prompt_injection_suspected"] = bool(raw.get("prompt_injection_suspected"))
 
     return shaped
 
 
 def shape_extended_summary_fields(payload: SummaryJSON) -> None:
+    normalize_uncertainty_and_classification(payload)
     payload["insights"] = shape_insights(payload.get("insights"))
     payload["quality"] = shape_quality(payload.get("quality"))
     payload["extractive_quotes"] = [
@@ -251,6 +254,59 @@ def shape_extended_summary_fields(payload: SummaryJSON) -> None:
         if str(item).strip()
     ]
     payload["topic_taxonomy"] = shape_topic_taxonomy(payload.get("topic_taxonomy") or [])
+
+
+def normalize_uncertainty_and_classification(payload: SummaryJSON) -> None:
+    """Normalize optional model-quality metadata without optimistic fallbacks."""
+    confidence = payload.get("confidence")
+    if confidence is None or str(confidence).strip() == "":
+        logger.warning("summary_confidence_missing")
+        payload["confidence"] = 0.0
+    else:
+        try:
+            confidence_value = float(confidence)
+        except (TypeError, ValueError):
+            logger.warning("summary_confidence_invalid", extra={"value": str(confidence)})
+            payload["confidence"] = 0.0
+        else:
+            if confidence_value < 0.0 or confidence_value > 1.0:
+                logger.warning("summary_confidence_invalid", extra={"value": str(confidence)})
+            payload["confidence"] = max(0.0, min(1.0, confidence_value))
+
+    risk = payload.get("hallucination_risk")
+    if risk is None or str(risk).strip() == "":
+        logger.warning("summary_hallucination_risk_missing")
+        payload["hallucination_risk"] = "unknown"
+    else:
+        risk_value = str(risk).strip().lower()
+        if risk_value == "medium":
+            risk_value = "med"
+        if risk_value not in {"low", "med", "high", "unknown"}:
+            logger.warning("summary_hallucination_risk_invalid", extra={"value": str(risk)})
+            risk_value = "unknown"
+        payload["hallucination_risk"] = risk_value
+
+    source_type = payload.get("source_type")
+    valid_source_types = {"news", "blog", "research", "opinion", "tutorial", "reference", "pdf"}
+    if source_type is None or str(source_type).strip() == "":
+        payload["source_type"] = "unknown"
+    else:
+        source_value = str(source_type).strip().lower()
+        if source_value not in valid_source_types:
+            logger.warning("summary_source_type_invalid", extra={"value": str(source_type)})
+            source_value = "unknown"
+        payload["source_type"] = source_value
+
+    freshness = payload.get("temporal_freshness")
+    valid_freshness = {"breaking", "recent", "evergreen"}
+    if freshness is None or str(freshness).strip() == "":
+        payload["temporal_freshness"] = "unknown"
+    else:
+        freshness_value = str(freshness).strip().lower()
+        if freshness_value not in valid_freshness:
+            logger.warning("summary_temporal_freshness_invalid", extra={"value": str(freshness)})
+            freshness_value = "unknown"
+        payload["temporal_freshness"] = freshness_value
 
 
 def shape_questions_answered(raw_items: list[Any]) -> list[dict[str, str]]:
