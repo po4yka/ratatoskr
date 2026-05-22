@@ -145,6 +145,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         logger.info("database_initialized", extra={"database": "postgresql"})
 
+        from app.adapters.external.formatting.export_temp_files import cleanup_stale_export_files
+
+        cleanup_stale_export_files()
         await runtime.durable_request_queue.reconcile_startup()
         if runtime.cfg.background.durable_worker_enabled:
             durable_worker = await runtime.durable_request_queue.start()

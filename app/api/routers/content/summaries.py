@@ -528,11 +528,11 @@ async def export_summary(
     use_case: SummaryReadModelUseCase = Depends(_get_summary_use_case),
 ) -> Any:
     """Export a summary as PDF, Markdown, or HTML."""
-    import os
-
     from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
 
     from app.adapters.external.formatting.export_formatter import ExportFormatter
+    from app.adapters.external.formatting.export_temp_files import cleanup_export_file
     from app.api.dependencies.database import get_session_manager
 
     summary = await use_case.get_summary_by_id_for_user(
@@ -558,17 +558,11 @@ async def export_summary(
     }
     media_type = media_type_map.get(format, "application/octet-stream")
 
-    def _cleanup(path: str) -> None:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-
     return FileResponse(
         path=file_path,
         filename=filename,
         media_type=media_type,
-        background=None,
+        background=BackgroundTask(cleanup_export_file, file_path),
     )
 
 

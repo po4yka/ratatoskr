@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import os
-import tempfile
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +15,8 @@ from app.infrastructure.persistence.repositories.request_repository import (
 from app.infrastructure.persistence.repositories.summary_repository import (
     SummaryRepositoryAdapter,
 )
+
+from .export_temp_files import cleanup_export_file, named_export_temp_file
 
 if TYPE_CHECKING:
     from app.db.session import Database
@@ -127,32 +127,21 @@ class ExportFormatter:
             content = self._generate_markdown(data)
             filename = self._generate_filename(data, "md")
 
-            # Write to temp file (cannot use context manager: need delete=False)
-            fd = tempfile.NamedTemporaryFile(  # noqa: SIM115
-                mode="w",
-                suffix=".md",
-                delete=False,
-                encoding="utf-8",
-            )
+            fd_name: str | None = None
             try:
-                fd.write(content)
-                fd.close()
+                with named_export_temp_file(mode="w", suffix=".md", encoding="utf-8") as fd:
+                    fd.write(content)
+                    fd_name = fd.name
             except Exception:
-                fd.close()
-                try:
-                    os.unlink(fd.name)
-                except OSError as cleanup_err:
-                    logger.debug(
-                        "export_markdown_temp_cleanup_failed",
-                        extra={"path": fd.name, "error": str(cleanup_err)},
-                    )
+                if fd_name is not None:
+                    cleanup_export_file(fd_name)
                 raise
 
             logger.info(
                 "export_markdown_generated",
                 extra={"filename": filename, "cid": correlation_id},
             )
-            return fd.name, filename
+            return fd_name, filename
 
         except Exception as e:
             logger.exception(
@@ -170,32 +159,21 @@ class ExportFormatter:
             content = self._generate_html(data)
             filename = self._generate_filename(data, "html")
 
-            # Write to temp file (cannot use context manager: need delete=False)
-            fd = tempfile.NamedTemporaryFile(  # noqa: SIM115
-                mode="w",
-                suffix=".html",
-                delete=False,
-                encoding="utf-8",
-            )
+            fd_name: str | None = None
             try:
-                fd.write(content)
-                fd.close()
+                with named_export_temp_file(mode="w", suffix=".html", encoding="utf-8") as fd:
+                    fd.write(content)
+                    fd_name = fd.name
             except Exception:
-                fd.close()
-                try:
-                    os.unlink(fd.name)
-                except OSError as cleanup_err:
-                    logger.debug(
-                        "export_html_temp_cleanup_failed",
-                        extra={"path": fd.name, "error": str(cleanup_err)},
-                    )
+                if fd_name is not None:
+                    cleanup_export_file(fd_name)
                 raise
 
             logger.info(
                 "export_html_generated",
                 extra={"filename": filename, "cid": correlation_id},
             )
-            return fd.name, filename
+            return fd_name, filename
 
         except Exception as e:
             logger.exception("export_html_failed", extra={"error": str(e), "cid": correlation_id})
@@ -219,29 +197,20 @@ class ExportFormatter:
             try:
                 from weasyprint import HTML
 
-                pdf_file = tempfile.NamedTemporaryFile(  # noqa: SIM115
-                    suffix=".pdf",
-                    delete=False,
-                )
-                pdf_file.close()
+                with named_export_temp_file(mode="wb", suffix=".pdf", encoding=None) as pdf_file:
+                    pdf_file_name = pdf_file.name
 
                 try:
-                    HTML(string=html_content).write_pdf(pdf_file.name)
+                    HTML(string=html_content).write_pdf(pdf_file_name)
                 except Exception:
-                    try:
-                        os.unlink(pdf_file.name)
-                    except OSError as cleanup_err:
-                        logger.debug(
-                            "export_pdf_temp_cleanup_failed",
-                            extra={"path": pdf_file.name, "error": str(cleanup_err)},
-                        )
+                    cleanup_export_file(pdf_file_name)
                     raise
 
                 logger.info(
                     "export_pdf_generated_weasyprint",
                     extra={"filename": filename, "cid": correlation_id},
                 )
-                return pdf_file.name, filename
+                return pdf_file_name, filename
 
             except ImportError:
                 # WeasyPrint not available, return HTML with note
@@ -256,24 +225,14 @@ class ExportFormatter:
                     "Note: PDF generation requires weasyprint. "
                     "Use browser print to save as PDF.</p></body>",
                 )
-                fd = tempfile.NamedTemporaryFile(  # noqa: SIM115
-                    mode="w",
-                    suffix=".html",
-                    delete=False,
-                    encoding="utf-8",
-                )
+                fd_name: str | None = None
                 try:
-                    fd.write(html_content_with_note)
-                    fd.close()
+                    with named_export_temp_file(mode="w", suffix=".html", encoding="utf-8") as fd:
+                        fd.write(html_content_with_note)
+                        fd_name = fd.name
                 except Exception:
-                    fd.close()
-                    try:
-                        os.unlink(fd.name)
-                    except OSError as cleanup_err:
-                        logger.debug(
-                            "export_pdf_fallback_temp_cleanup_failed",
-                            extra={"path": fd.name, "error": str(cleanup_err)},
-                        )
+                    if fd_name is not None:
+                        cleanup_export_file(fd_name)
                     raise
 
                 # Change extension to indicate it's not a real PDF
@@ -282,7 +241,7 @@ class ExportFormatter:
                     "export_pdf_fallback_html",
                     extra={"filename": html_filename, "cid": correlation_id},
                 )
-                return fd.name, html_filename
+                return fd_name, html_filename
 
         except Exception as e:
             logger.exception("export_pdf_failed", extra={"error": str(e), "cid": correlation_id})
