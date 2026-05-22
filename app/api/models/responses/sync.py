@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from .common import PaginationInfo
 
@@ -19,6 +19,8 @@ class SyncSessionData(BaseModel):
 
 
 class SyncEntityEnvelope(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     entity_type: str
     id: int | str
     server_version: int

@@ -2,84 +2,54 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.api.models.responses import SyncApplyItemResult
-from app.core.time_utils import UTC
+
+from .adapters import SyncEntityAdapter, SyncEntityAdapterContext, default_sync_entity_adapters
 
 if TYPE_CHECKING:
     from .serializer import SyncEnvelopeSerializer
 
 
 class SyncApplyService:
-    def __init__(self, *, summary_repository: Any, serializer: SyncEnvelopeSerializer) -> None:
+    def __init__(
+        self,
+        *,
+        summary_repository: Any,
+        serializer: SyncEnvelopeSerializer,
+        user_repository: Any = None,
+        request_repository: Any = None,
+        crawl_result_repository: Any = None,
+        llm_repository: Any = None,
+        aux_read_port: Any = None,
+        adapters: tuple[SyncEntityAdapter, ...] | None = None,
+    ) -> None:
         self._summary_repo = summary_repository
         self._serializer = serializer
+        self._adapters = {
+            adapter.entity_type: adapter for adapter in adapters or default_sync_entity_adapters()
+        }
+        self._context = SyncEntityAdapterContext(
+            user_repository=user_repository,
+            request_repository=request_repository,
+            summary_repository=self._summary_repo,
+            crawl_result_repository=crawl_result_repository,
+            llm_repository=llm_repository,
+            aux_read_port=aux_read_port,
+            serializer=self._serializer,
+        )
+
+    async def apply_change(self, change: Any, user_id: int) -> SyncApplyItemResult:
+        adapter = self._adapters.get(change.entity_type)
+        if adapter is None or adapter.apply_change is None:
+            return SyncApplyItemResult(
+                entity_type=change.entity_type,
+                id=change.id,
+                status="invalid",
+                error_code="UNSUPPORTED_ENTITY",
+            )
+        return await adapter.apply(self._context, change, user_id)
 
     async def apply_summary_change(self, change: Any, user_id: int) -> SyncApplyItemResult:
-        try:
-            summary_id = int(change.id)
-        except (ValueError, TypeError):
-            return SyncApplyItemResult(
-                entity_type=change.entity_type,
-                id=change.id,
-                status="invalid",
-                error_code="INVALID_ID",
-            )
-
-        summary = await self._summary_repo.async_get_summary_for_sync_apply(summary_id, user_id)
-        if not summary:
-            return SyncApplyItemResult(
-                entity_type=change.entity_type,
-                id=change.id,
-                status="invalid",
-                error_code="NOT_FOUND",
-            )
-
-        current_version = int(summary.get("server_version") or 0)
-        if change.last_seen_version < current_version:
-            snapshot = self._serializer.serialize_summary(summary)
-            return SyncApplyItemResult(
-                entity_type=change.entity_type,
-                id=change.id,
-                status="conflict",
-                server_version=current_version,
-                server_snapshot=snapshot,
-                error_code="CONFLICT_VERSION",
-            )
-
-        payload = change.payload or {}
-        allowed_fields = {"is_read"}
-        invalid_fields = [field for field in payload if field not in allowed_fields]
-        if invalid_fields:
-            return SyncApplyItemResult(
-                entity_type=change.entity_type,
-                id=change.id,
-                status="invalid",
-                error_code="INVALID_FIELDS",
-                server_version=current_version,
-            )
-
-        is_deleted = None
-        deleted_at = None
-        is_read = None
-        if change.action == "delete":
-            is_deleted = True
-            deleted_at = datetime.now(UTC)
-        elif "is_read" in payload:
-            is_read = bool(payload["is_read"])
-
-        new_version = await self._summary_repo.async_apply_sync_change(
-            summary_id,
-            is_deleted=is_deleted,
-            deleted_at=deleted_at,
-            is_read=is_read,
-        )
-
-        return SyncApplyItemResult(
-            entity_type=change.entity_type,
-            id=change.id,
-            status="applied",
-            server_version=new_version,
-        )
+        return await self.apply_change(change, user_id)

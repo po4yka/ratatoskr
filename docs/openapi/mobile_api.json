@@ -16030,14 +16030,8 @@
         "properties": {
           "entity_type": {
             "type": "string",
-            "enum": [
-              "summary",
-              "request",
-              "preference",
-              "stat",
-              "crawl_result",
-              "llm_call"
-            ],
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Entity Type"
           },
           "id": {

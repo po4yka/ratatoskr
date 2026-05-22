@@ -313,6 +313,38 @@ async def test_sync_router_handlers_emit_snake_case_wire_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_apply_route_forwards_idempotency_key() -> None:
+    item = SyncEntityEnvelope(
+        entity_type="summary",
+        id=42,
+        server_version=7,
+        updated_at="2026-05-21T00:00:00Z",
+    )
+    svc = _FakeSyncService(item)
+
+    response = await apply_changes(
+        payload=SyncApplyRequest(
+            session_id="sync-session-abc",
+            idempotency_key="route-retry-key",
+            changes=[
+                SyncApplyItem(
+                    entity_type="summary",
+                    id=42,
+                    action="update",
+                    last_seen_version=7,
+                    payload={"is_read": True},
+                )
+            ],
+        ),
+        user={"user_id": 123, "client_id": "test-client"},
+        svc=svc,
+    )
+
+    assert response["data"]["results"][0]["status"] == "applied"
+    assert svc.idempotency_keys == ["route-retry-key"]
+
+
+@pytest.mark.asyncio
 async def test_delta_valid_session_with_matching_etag_returns_304_without_db() -> None:
     item = SyncEntityEnvelope(
         entity_type="summary",
@@ -407,6 +439,7 @@ class _FakeSyncService:
     def __init__(self, item: SyncEntityEnvelope) -> None:
         self.item = item
         self.cfg = SimpleNamespace(sync=SimpleNamespace(default_limit=50))
+        self.idempotency_keys: list[str | None] = []
 
     async def start_session(
         self, *, user_id: int, client_id: str | None, limit: int | None
@@ -471,7 +504,8 @@ class _FakeSyncService:
         changes: list[object],
         idempotency_key: str | None = None,
     ) -> SyncApplyResponseData:
-        _ = user_id, client_id, changes, idempotency_key
+        _ = user_id, client_id, changes
+        self.idempotency_keys.append(idempotency_key)
         return SyncApplyResponseData(
             session_id=session_id,
             results=[_success_item("summary", 42, 7)],

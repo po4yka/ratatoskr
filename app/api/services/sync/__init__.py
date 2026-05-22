@@ -1,5 +1,6 @@
 """Sync service collaborators."""
 
+from .adapters import SyncEntityAdapter, SyncEntityAdapterContext
 from .apply import SyncApplyService
 from .collector import SyncAuxReadPort, SyncRecordCollector
 from .serializer import SyncEnvelopeSerializer
@@ -17,6 +18,8 @@ __all__ = [
     "RedisSyncSessionStore",
     "SyncApplyService",
     "SyncAuxReadPort",
+    "SyncEntityAdapter",
+    "SyncEntityAdapterContext",
     "SyncEnvelopeSerializer",
     "SyncFacade",
     "SyncRecordCollector",

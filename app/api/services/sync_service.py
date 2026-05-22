@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     )
     from app.api.services.sync.collector import SyncAuxReadPort
     from app.api.services.sync.session_store import SyncSessionStorePort
+    from app.api.services.sync.adapters import SyncEntityAdapter
 
 else:
 
@@ -103,6 +104,7 @@ class SyncService:
         record_collector: SyncRecordCollector | None = None,
         envelope_serializer: SyncEnvelopeSerializer | None = None,
         apply_service: SyncApplyService | None = None,
+        entity_adapters: Iterable[SyncEntityAdapter] | None = None,
     ) -> None:
         self.cfg = cfg
         self._session_manager = session_manager
@@ -113,6 +115,7 @@ class SyncService:
         self._llm_repo = llm_repository or _NullRepository()
 
         self._serializer = envelope_serializer or SyncEnvelopeSerializer()
+        self._entity_adapters = tuple(entity_adapters) if entity_adapters is not None else None
         self._fallback_store = InMemorySyncSessionStore()
         self._session_store = session_store or FallbackSyncSessionStore(
             redis_store=RedisSyncSessionStore(
@@ -130,10 +133,17 @@ class SyncService:
             llm_repository=self._llm_repo,
             aux_read_port=self._aux_read_port,
             serializer=self._serializer,
+            adapters=self._entity_adapters,
         )
         self._apply_service = apply_service or SyncApplyService(
+            user_repository=self._user_repo,
+            request_repository=self._request_repo,
             summary_repository=self._summary_repo,
+            crawl_result_repository=self._crawl_repo,
+            llm_repository=self._llm_repo,
+            aux_read_port=self._aux_read_port,
             serializer=self._serializer,
+            adapters=self._entity_adapters,
         )
         self._facade = SyncFacade(
             cfg=cfg,

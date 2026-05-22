@@ -231,3 +231,24 @@ class SyncEnvelopeSerializer:
             updated_at=self._coerce_iso(st.get("created_at")),
             summary_tag=payload,
         )
+
+    def serialize_stat(self, stat: dict[str, Any]) -> SyncEntityEnvelope:
+        payload = None
+        if not stat.get("is_deleted"):
+            payload = {
+                "id": stat.get("id"),
+                "scope": stat.get("scope"),
+                "name": stat.get("name"),
+                "value": stat.get("value"),
+                "metadata": stat.get("metadata_json") or stat.get("metadata"),
+                "created_at": self._coerce_iso(stat.get("created_at")),
+                "updated_at": self._coerce_iso(stat.get("updated_at")),
+            }
+        return SyncEntityEnvelope(
+            entity_type="stat",
+            id=stat.get("id"),
+            server_version=int(stat.get("server_version") or 0),
+            updated_at=self._coerce_iso(stat.get("updated_at")),
+            deleted_at=self._deleted_at(stat),
+            stat=payload,
+        )

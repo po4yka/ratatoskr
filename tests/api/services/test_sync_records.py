@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.api.models.responses import SyncEntityEnvelope
+from app.api.services.sync import SyncEntityAdapter, SyncEntityAdapterContext
 from app.api.services.sync_service import SyncService
 from app.core.time_utils import UTC
 
@@ -152,6 +153,61 @@ class TestCollectRecords:
         records = await sync_service._collect_records(123)
 
         assert len(records) == 0
+
+    @pytest.mark.asyncio
+    async def test_fake_sync_entity_adapter_collects_and_serializes(
+        self, mock_config, mock_session_manager
+    ):
+        """A new entity type can be added through an adapter without changing collector code."""
+
+        async def collect_fake(
+            context: SyncEntityAdapterContext,
+            user_id: int,
+        ) -> list[dict[str, object]]:
+            _ = context
+            return [
+                {
+                    "id": f"fake-{user_id}",
+                    "server_version": 9,
+                    "updated_at": "2026-05-21T00:00:00Z",
+                    "payload": {"name": "Fake"},
+                }
+            ]
+
+        def serialize_fake(_serializer, row: dict[str, object]) -> SyncEntityEnvelope:
+            return SyncEntityEnvelope(
+                entity_type="fake",
+                id=str(row["id"]),
+                server_version=int(row["server_version"]),
+                updated_at=str(row["updated_at"]),
+                fake=row["payload"],
+            )
+
+        async def max_fake(
+            context: SyncEntityAdapterContext,
+            user_id: int,
+        ) -> int:
+            _ = context, user_id
+            return 9
+
+        fake_adapter = SyncEntityAdapter(
+            entity_type="fake",
+            collect_records=collect_fake,
+            serialize_record=serialize_fake,
+            max_server_version=max_fake,
+        )
+        service = SyncService(
+            mock_config,
+            mock_session_manager,
+            entity_adapters=(fake_adapter,),
+        )
+
+        records = await service._collect_records(123)
+
+        assert len(records) == 1
+        assert records[0].entity_type == "fake"
+        assert records[0].model_dump()["fake"] == {"name": "Fake"}
+        assert await service.get_max_server_version(123) == 9
 
 
 class TestPaginateRecords:
@@ -487,6 +543,88 @@ class TestApplyChanges:
             assert result.results[0].error_code == "CONFLICT_VERSION"
             assert result.conflicts is not None
             assert len(result.conflicts) == 1
+
+    @pytest.mark.asyncio
+    async def test_apply_changes_fake_adapter_honors_idempotency_key(
+        self,
+        mock_config,
+        mock_session_manager,
+    ):
+        """Direct service retries with the same idempotency key must not reapply adapters."""
+        from app.api.models.requests import SyncApplyItem
+        from app.api.models.responses import SyncApplyItemResult
+
+        calls = 0
+
+        async def collect_empty(
+            context: SyncEntityAdapterContext,
+            user_id: int,
+        ) -> list[dict[str, object]]:
+            _ = context, user_id
+            return []
+
+        def serialize_fake(_serializer, row: dict[str, object]) -> SyncEntityEnvelope:
+            return SyncEntityEnvelope(
+                entity_type="fake",
+                id=str(row["id"]),
+                server_version=int(row["server_version"]),
+                updated_at=str(row["updated_at"]),
+            )
+
+        async def apply_fake(
+            context: SyncEntityAdapterContext,
+            change: SyncApplyItem,
+            user_id: int,
+        ) -> SyncApplyItemResult:
+            nonlocal calls
+            _ = context, user_id
+            calls += 1
+            return SyncApplyItemResult(
+                entity_type=change.entity_type,
+                id=change.id,
+                status="applied",
+                server_version=11,
+            )
+
+        fake_adapter = SyncEntityAdapter(
+            entity_type="fake",
+            collect_records=collect_empty,
+            serialize_record=serialize_fake,
+            apply_change=apply_fake,
+        )
+        service = SyncService(
+            mock_config,
+            mock_session_manager,
+            entity_adapters=(fake_adapter,),
+        )
+        session = await service.start_session(user_id=123, client_id="test-client", limit=None)
+        changes = [
+            SyncApplyItem(
+                entity_type="fake",
+                id="fake-1",
+                action="update",
+                last_seen_version=1,
+                payload={"value": True},
+            )
+        ]
+
+        first = await service.apply_changes(
+            session_id=session.session_id,
+            user_id=123,
+            client_id="test-client",
+            changes=changes,
+            idempotency_key="fake-key",
+        )
+        second = await service.apply_changes(
+            session_id=session.session_id,
+            user_id=123,
+            client_id="test-client",
+            changes=changes,
+            idempotency_key="fake-key",
+        )
+
+        assert first == second
+        assert calls == 1
 
 
 class TestApplySummaryChange:

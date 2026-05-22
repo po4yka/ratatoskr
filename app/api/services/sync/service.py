@@ -62,16 +62,7 @@ class SyncFacade:
         self._apply_dedup_ttl_sec: float = 300.0
 
     async def get_max_server_version(self, user_id: int) -> int:
-        import asyncio
-
-        versions = await asyncio.gather(
-            self._user_repo.async_get_max_server_version(user_id),
-            self._request_repo.async_get_max_server_version(user_id),
-            self._summary_repo.async_get_max_server_version(user_id),
-            self._crawl_repo.async_get_max_server_version(user_id),
-            self._llm_repo.async_get_max_server_version(user_id),
-        )
-        return cast("int", max((v for v in versions if v is not None), default=0))
+        return await self._collector.get_max_server_version(user_id)
 
     async def validate_session(
         self, session_id: str, user_id: int, client_id: str | None
@@ -181,17 +172,7 @@ class SyncFacade:
         await self._load_session(session_id, user_id, client_id)
         results: list[SyncApplyItemResult] = []
         for change in changes:
-            if change.entity_type != "summary":
-                results.append(
-                    SyncApplyItemResult(
-                        entity_type=change.entity_type,
-                        id=change.id,
-                        status="invalid",
-                        error_code="UNSUPPORTED_ENTITY",
-                    )
-                )
-                continue
-            results.append(await self._apply_service.apply_summary_change(change, user_id))
+            results.append(await self._apply_service.apply_change(change, user_id))
 
         conflicts_list = [r for r in results if r.status == "conflict"]
         response = SyncApplyResponseData(

@@ -70,7 +70,7 @@ class SyncSessionRequest(BaseModel):
 class SyncApplyItem(BaseModel):
     """Single change to upload during sync."""
 
-    entity_type: Literal["summary", "request", "preference", "stat", "crawl_result", "llm_call"]
+    entity_type: str = Field(min_length=1, max_length=64)
     id: int | str = Field(description="Server-side identifier for the entity")
     action: Literal["update", "delete"]
     last_seen_version: int = Field(ge=0)
