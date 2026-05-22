@@ -24,6 +24,23 @@ class RssSignalIngester:
     def is_enabled(self) -> bool:
         return True
 
+    def source_identity(self) -> IngestedSource:
+        url = str(self.feed.get("url") or "")
+        source_kind = "substack" if is_substack_url(url) else "rss"
+        return IngestedSource(
+            kind=source_kind,
+            external_id=url,
+            url=url,
+            title=self.feed.get("title"),
+            description=self.feed.get("description"),
+            site_url=self.feed.get("site_url"),
+            metadata={
+                "etag": self.feed.get("etag"),
+                "last_modified": self.feed.get("last_modified"),
+                "legacy_rss_feed_id": self.feed.get("id"),
+            },
+        )
+
     async def fetch(self) -> SourceFetchResult:
         result = self.fetcher(
             str(self.feed.get("url") or ""),
@@ -33,18 +50,17 @@ class RssSignalIngester:
         return self.normalize_result(result)
 
     def normalize_result(self, result: FeedResult) -> SourceFetchResult:
-        url = str(self.feed.get("url") or "")
-        source_kind = "substack" if is_substack_url(url) else "rss"
         metadata = {
             "etag": result.etag or self.feed.get("etag"),
             "last_modified": result.last_modified or self.feed.get("last_modified"),
             "legacy_rss_feed_id": self.feed.get("id"),
         }
+        identity = self.source_identity()
         return SourceFetchResult(
             source=IngestedSource(
-                kind=source_kind,
-                external_id=url,
-                url=url,
+                kind=identity.kind,
+                external_id=identity.external_id,
+                url=identity.url,
                 title=result.title or self.feed.get("title"),
                 description=result.description or self.feed.get("description"),
                 site_url=result.site_url or self.feed.get("site_url"),

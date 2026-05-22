@@ -11,6 +11,7 @@ from app.api.models.responses import success_response
 from app.api.models.signals import (  # noqa: TC001
     SignalFeedbackRequest,
     SourceActiveRequest,
+    SourceControlRequest,
     TopicPreferenceRequest,
 )
 from app.api.routers.auth import get_current_user
@@ -98,6 +99,38 @@ async def set_source_active(
     if not updated:
         raise HTTPException(status_code=404, detail="Source not found")
     return success_response({"updated": True, "is_active": body.is_active})
+
+
+@router.patch("/sources/{source_id}/controls")
+async def update_source_controls(
+    source_id: int,
+    body: SourceControlRequest,
+    repo: SignalSourceRepositoryPort = Depends(get_signal_source_repository),
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    updated = await repo.async_update_user_source_controls(
+        user_id=_user_id(user),
+        source_id=source_id,
+        is_active=body.is_active,
+        fetch_interval_seconds=body.fetch_interval_seconds,
+        max_items_per_run=body.max_items_per_run,
+        retry_policy=body.retry_policy,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return success_response({"updated": True})
+
+
+@router.post("/sources/{source_id}/retry")
+async def retry_source(
+    source_id: int,
+    repo: SignalSourceRepositoryPort = Depends(get_signal_source_repository),
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    updated = await repo.async_retry_user_source(user_id=_user_id(user), source_id=source_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return success_response({"queued": True})
 
 
 @router.post("/{signal_id}/feedback")

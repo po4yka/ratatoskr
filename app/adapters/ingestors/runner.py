@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.application.ports.source_ingestors import AuthSourceError, SourceIngester
@@ -58,10 +59,30 @@ class SourceIngestionRunner:
         items = 0
         errors = 0
         skipped = len(self._ingesters) - len(enabled_ingesters)
+        now = datetime.now(UTC)
 
         for ingester in enabled_ingesters:
             source_id: int | None = None
             try:
+                identity = ingester.source_identity()
+                source = await self._repository.async_upsert_source(
+                    kind=identity.kind,
+                    external_id=identity.external_id,
+                    url=identity.url,
+                    title=identity.title,
+                    description=identity.description,
+                    site_url=identity.site_url,
+                    metadata=identity.metadata,
+                )
+                source_id = int(source["id"])
+                for user_id in self._subscriber_user_ids:
+                    await self._repository.async_subscribe(user_id=user_id, source_id=source_id)
+
+                run_state = await self._repository.async_get_source_run_state(source_id)
+                if not _source_due(run_state, now=now):
+                    skipped += 1
+                    continue
+
                 result = await ingester.fetch()
                 source = await self._repository.async_upsert_source(
                     kind=result.source.kind,
@@ -74,12 +95,11 @@ class SourceIngestionRunner:
                 )
                 source_id = int(source["id"])
                 sources += 1
-                for user_id in self._subscriber_user_ids:
-                    await self._repository.async_subscribe(user_id=user_id, source_id=source_id)
                 if result.not_modified:
                     await self._repository.async_record_source_fetch_success(source_id)
                     continue
-                for item in result.items:
+                max_items_per_run = _max_items_per_run(run_state)
+                for item in result.items[:max_items_per_run]:
                     await self._repository.async_upsert_feed_item(
                         source_id=source_id,
                         external_id=item.external_id,
@@ -117,3 +137,23 @@ class SourceIngestionRunner:
             errors=errors,
             skipped=skipped,
         ).to_dict()
+
+
+def _source_due(run_state: dict | None, *, now: datetime) -> bool:
+    if run_state is None:
+        return True
+    if not run_state.get("is_active"):
+        return False
+    if not run_state.get("active_subscription"):
+        return False
+    backoff_until = run_state.get("backoff_until")
+    return not isinstance(backoff_until, datetime) or backoff_until <= now
+
+
+def _max_items_per_run(run_state: dict | None) -> int:
+    if run_state is None:
+        return 500
+    value = run_state.get("max_items_per_run")
+    if value is None:
+        return 500
+    return max(1, min(int(value), 500))

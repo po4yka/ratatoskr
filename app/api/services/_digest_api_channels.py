@@ -88,6 +88,42 @@ class DigestChannelService:
             raise ValidationError(f"Not subscribed to @{username}.")
         return {"status": status, "username": username}
 
+    def update_channel_controls(
+        self,
+        user_id: int,
+        raw_username: str,
+        *,
+        is_active: bool | None = None,
+        fetch_interval_seconds: int | None = None,
+        max_items_per_run: int | None = None,
+        retry_policy: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        require_enabled(self._cfg)
+        username, error = parse_channel_input(raw_username)
+        if error:
+            raise ValidationError(error)
+        updated = self._store.update_channel_controls(
+            user_id=user_id,
+            username=username,
+            is_active=is_active,
+            fetch_interval_seconds=fetch_interval_seconds,
+            max_items_per_run=max_items_per_run,
+            retry_policy=retry_policy,
+        )
+        if not updated:
+            raise ValidationError(f"Not subscribed to @{username}.")
+        return {"status": "updated", "username": username}
+
+    def retry_channel(self, user_id: int, raw_username: str) -> dict[str, object]:
+        require_enabled(self._cfg)
+        username, error = parse_channel_input(raw_username)
+        if error:
+            raise ValidationError(error)
+        updated = self._store.retry_channel(user_id=user_id, username=username)
+        if not updated:
+            raise ValidationError(f"Not subscribed to @{username}.")
+        return {"status": "queued", "username": username}
+
     async def resolve_channel(self, user_id: int, raw_username: str) -> ResolveChannelResponse:
         require_enabled(self._cfg)
         username, error = parse_channel_input(raw_username)

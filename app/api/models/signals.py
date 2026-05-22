@@ -17,3 +17,10 @@ class TopicPreferenceRequest(BaseModel):
 
 class SourceActiveRequest(BaseModel):
     is_active: bool
+
+
+class SourceControlRequest(BaseModel):
+    is_active: bool | None = None
+    fetch_interval_seconds: int | None = Field(default=None, ge=300, le=604800)
+    max_items_per_run: int | None = Field(default=None, ge=1, le=500)
+    retry_policy: dict[str, object] | None = None

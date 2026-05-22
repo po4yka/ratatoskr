@@ -15,6 +15,7 @@ from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     BulkCategoryRequest,
     BulkUnsubscribeRequest,
     CategoryRequest,
+    ChannelControlRequest,
     ResolveChannelRequest,
     SubscribeRequest,
     UpdatePreferenceRequest,
@@ -74,6 +75,34 @@ async def resolve_channel(
 ) -> dict[str, Any]:
     """Resolve a channel username and return metadata preview."""
     data = await digest_facade.resolve_channel(user["user_id"], body.channel_username)
+    return success_response(data)
+
+
+@router.patch("/channels/{username}/controls")
+def update_channel_controls(
+    body: ChannelControlRequest,
+    username: str = Path(..., min_length=5, max_length=32),
+    user: dict[str, Any] = Depends(get_webapp_user),
+    digest_facade: DigestFacade = Depends(get_digest_facade),
+) -> dict[str, Any]:
+    """Update per-channel ingestion controls."""
+    data = digest_facade.update_channel_controls(
+        user["user_id"],
+        username,
+        **body.model_dump(exclude_none=True),
+    )
+    return success_response(data)
+
+
+@router.post("/channels/{username}/retry")
+async def retry_channel(
+    username: str = Path(..., min_length=5, max_length=32),
+    user: dict[str, Any] = Depends(get_webapp_user),
+    digest_facade: DigestFacade = Depends(get_digest_facade),
+) -> dict[str, Any]:
+    """Reactivate a subscribed channel and clear its source backoff."""
+    await AuthService.require_owner(user)  # type: ignore[arg-type]
+    data = digest_facade.retry_channel(user["user_id"], username)
     return success_response(data)
 
 

@@ -35,6 +35,20 @@ class SignalSourceRepositoryAdapter:
     ) -> dict[str, Any]:
         async with self._database.transaction() as session:
             now = _utcnow()
+            existing = await session.scalar(
+                select(Source).where(Source.kind == kind, Source.external_id == external_id)
+            )
+            if existing is not None:
+                existing.url = url
+                existing.title = title
+                existing.description = description
+                existing.site_url = site_url
+                existing.metadata_json = _merge_preserving_controls(
+                    existing.metadata_json, metadata
+                )
+                existing.updated_at = now
+                return model_to_dict(existing) or {}
+
             stmt = insert(Source).values(
                 kind=kind,
                 external_id=external_id,
@@ -50,7 +64,6 @@ class SignalSourceRepositoryAdapter:
                 "title": stmt.excluded.title,
                 "description": stmt.excluded.description,
                 "site_url": stmt.excluded.site_url,
-                "metadata_json": stmt.excluded.metadata_json,
                 "updated_at": now,
             }
             source = await session.scalar(
@@ -171,6 +184,108 @@ class SignalSourceRepositoryAdapter:
                 .returning(Source.id)
             )
             return updated_id is not None
+
+    async def async_update_user_source_controls(
+        self,
+        *,
+        user_id: int,
+        source_id: int,
+        is_active: bool | None = None,
+        fetch_interval_seconds: int | None = None,
+        max_items_per_run: int | None = None,
+        retry_policy: dict[str, Any] | None = None,
+    ) -> bool:
+        """Update source/subscription controls when the user can see the source."""
+        async with self._database.transaction() as session:
+            row = (
+                await session.execute(
+                    select(Source, Subscription).where(
+                        Source.id == source_id,
+                        Subscription.source_id == Source.id,
+                        Subscription.user_id == user_id,
+                    )
+                )
+            ).first()
+            if row is None:
+                return False
+
+            source, subscription = row
+            metadata = dict(source.metadata_json or {})
+            controls = dict(metadata.get("controls") or {})
+
+            if is_active is not None:
+                source.is_active = is_active
+                subscription.is_active = is_active
+                if is_active:
+                    subscription.next_fetch_at = None
+            if fetch_interval_seconds is not None:
+                value = max(300, min(int(fetch_interval_seconds), 604800))
+                subscription.cadence_seconds = value
+                controls["fetch_interval_seconds"] = value
+            if max_items_per_run is not None:
+                controls["max_items_per_run"] = max(1, min(int(max_items_per_run), 500))
+            if retry_policy is not None:
+                controls["retry_policy"] = retry_policy
+
+            metadata["controls"] = controls
+            source.metadata_json = metadata
+            now = _utcnow()
+            source.updated_at = now
+            subscription.updated_at = now
+            return True
+
+    async def async_retry_user_source(self, *, user_id: int, source_id: int) -> bool:
+        """Reactivate a visible source and clear subscription backoff."""
+        async with self._database.transaction() as session:
+            row = (
+                await session.execute(
+                    select(Source, Subscription).where(
+                        Source.id == source_id,
+                        Subscription.source_id == Source.id,
+                        Subscription.user_id == user_id,
+                    )
+                )
+            ).first()
+            if row is None:
+                return False
+            source, subscription = row
+            now = _utcnow()
+            source.is_active = True
+            source.updated_at = now
+            subscription.is_active = True
+            subscription.next_fetch_at = None
+            subscription.updated_at = now
+            return True
+
+    async def async_get_source_run_state(self, source_id: int) -> dict[str, Any] | None:
+        """Return persisted scheduler controls for a source."""
+        async with self._database.session() as session:
+            row = (
+                await session.execute(
+                    select(Source, Subscription)
+                    .outerjoin(Subscription, Subscription.source_id == Source.id)
+                    .where(Source.id == source_id)
+                    .order_by(Subscription.next_fetch_at.asc().nulls_first())
+                    .limit(1)
+                )
+            ).first()
+            if row is None:
+                return None
+            source, subscription = row
+            metadata = dict(source.metadata_json or {})
+            controls = dict(metadata.get("controls") or {})
+            return {
+                "source_id": source.id,
+                "is_active": source.is_active,
+                "active_subscription": bool(subscription is not None and subscription.is_active),
+                "backoff_until": subscription.next_fetch_at if subscription is not None else None,
+                "fetch_interval_seconds": (
+                    subscription.cadence_seconds if subscription is not None else None
+                )
+                or controls.get("fetch_interval_seconds"),
+                "max_items_per_run": controls.get("max_items_per_run"),
+                "retry_policy": controls.get("retry_policy"),
+            }
 
     async def async_record_source_fetch_success(self, source_id: int) -> None:
         now = _utcnow()
@@ -491,10 +606,21 @@ class SignalSourceRepositoryAdapter:
                     "last_error": source.last_error,
                     "last_fetched_at": source.last_fetched_at,
                     "last_successful_at": source.last_successful_at,
+                    "last_failure_at": source.updated_at
+                    if source.last_error or int(source.fetch_error_count or 0) > 0
+                    else None,
                     "subscription_id": subscription.id,
                     "subscription_active": subscription.is_active,
                     "cadence_seconds": subscription.cadence_seconds,
                     "next_fetch_at": subscription.next_fetch_at,
+                    "backoff_until": subscription.next_fetch_at,
+                    "fetch_interval_seconds": subscription.cadence_seconds,
+                    "max_items_per_run": (source.metadata_json or {})
+                    .get("controls", {})
+                    .get("max_items_per_run"),
+                    "retry_policy": (source.metadata_json or {})
+                    .get("controls", {})
+                    .get("retry_policy"),
                 }
                 for subscription, source in rows
             ]
@@ -691,3 +817,13 @@ class SignalSourceRepositoryAdapter:
             data["feed_item"] = data.get("feed_item_id")
             data["topic"] = data.get("topic_id")
         return data
+
+
+def _merge_preserving_controls(
+    current_metadata: Any,
+    incoming_metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    incoming = dict(incoming_metadata or {})
+    if isinstance(current_metadata, dict) and "controls" in current_metadata:
+        incoming.setdefault("controls", current_metadata["controls"])
+    return incoming or None

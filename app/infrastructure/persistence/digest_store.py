@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from sqlalchemy import func, select, update
@@ -73,6 +73,17 @@ class DigestStore:
 
     def list_active_subscriptions(self, user_id: int) -> list[Any]:
         return _run_sync(self.async_list_active_subscriptions(user_id))
+
+    async def async_list_fetchable_subscriptions(self, user_id: int) -> list[ChannelSubscription]:
+        subscriptions = await self.async_list_active_subscriptions(user_id)
+        fetchable: list[ChannelSubscription] = []
+        for subscription in subscriptions:
+            run_state = await self.async_get_channel_run_state(
+                user_id=user_id, channel=subscription.channel
+            )
+            if _channel_source_due(run_state):
+                fetchable.append(subscription)
+        return fetchable
 
     async def async_count_active_subscriptions(self, user_id: int) -> int:
         async with self._database().session() as session:
@@ -556,6 +567,172 @@ class DigestStore:
             )
         )
 
+    async def async_get_channel_run_state(
+        self,
+        *,
+        user_id: int,
+        channel: Any,
+    ) -> dict[str, Any]:
+        async with self._database().transaction() as session:
+            source = await self._ensure_channel_source(
+                session=session,
+                user_id=user_id,
+                channel=channel,
+            )
+            subscription = await session.scalar(
+                select(Subscription).where(
+                    Subscription.user_id == user_id,
+                    Subscription.source_id == source.id,
+                )
+            )
+            metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
+            controls = (
+                metadata.get("controls") if isinstance(metadata.get("controls"), dict) else {}
+            )
+            return {
+                "is_active": bool(source.is_active and channel.is_active),
+                "active_subscription": bool(subscription and subscription.is_active),
+                "backoff_until": subscription.next_fetch_at if subscription else None,
+                "fetch_interval_seconds": subscription.cadence_seconds if subscription else None,
+                "max_items_per_run": _coerce_positive_int(controls.get("max_items_per_run")),
+                "retry_policy": controls.get("retry_policy"),
+            }
+
+    async def async_update_channel_controls(
+        self,
+        *,
+        user_id: int,
+        username: str,
+        is_active: bool | None = None,
+        fetch_interval_seconds: int | None = None,
+        max_items_per_run: int | None = None,
+        retry_policy: dict[str, Any] | None = None,
+    ) -> bool:
+        async with self._database().transaction() as session:
+            subscription = await session.scalar(
+                select(ChannelSubscription)
+                .join(Channel)
+                .where(
+                    ChannelSubscription.user_id == user_id,
+                    Channel.username == username,
+                )
+            )
+            if subscription is None:
+                return False
+
+            channel = await session.get(Channel, subscription.channel_id)
+            if channel is None:
+                return False
+
+            source = await self._ensure_channel_source(
+                session=session,
+                user_id=user_id,
+                channel=channel,
+            )
+            source_subscription = await session.scalar(
+                select(Subscription).where(
+                    Subscription.user_id == user_id,
+                    Subscription.source_id == source.id,
+                )
+            )
+            if source_subscription is None:
+                source_subscription = Subscription(user_id=user_id, source_id=source.id)
+                session.add(source_subscription)
+
+            now = utc_now()
+            if is_active is not None:
+                channel.is_active = is_active
+                subscription.is_active = is_active
+                source.is_active = is_active
+                source_subscription.is_active = is_active
+                if is_active:
+                    source_subscription.next_fetch_at = None
+
+            if fetch_interval_seconds is not None:
+                source_subscription.cadence_seconds = fetch_interval_seconds
+            if max_items_per_run is not None or retry_policy is not None:
+                metadata = dict(source.metadata_json or {})
+                controls = dict(metadata.get("controls") or {})
+                if max_items_per_run is not None:
+                    controls["max_items_per_run"] = max_items_per_run
+                if retry_policy is not None:
+                    controls["retry_policy"] = retry_policy
+                if fetch_interval_seconds is not None:
+                    controls["fetch_interval_seconds"] = fetch_interval_seconds
+                metadata["controls"] = controls
+                source.metadata_json = metadata
+
+            channel.updated_at = now
+            subscription.updated_at = now
+            source.updated_at = now
+            source_subscription.updated_at = now
+            return True
+
+    def update_channel_controls(
+        self,
+        *,
+        user_id: int,
+        username: str,
+        is_active: bool | None = None,
+        fetch_interval_seconds: int | None = None,
+        max_items_per_run: int | None = None,
+        retry_policy: dict[str, Any] | None = None,
+    ) -> bool:
+        return _run_sync(
+            self.async_update_channel_controls(
+                user_id=user_id,
+                username=username,
+                is_active=is_active,
+                fetch_interval_seconds=fetch_interval_seconds,
+                max_items_per_run=max_items_per_run,
+                retry_policy=retry_policy,
+            )
+        )
+
+    async def async_retry_channel(self, *, user_id: int, username: str) -> bool:
+        async with self._database().transaction() as session:
+            subscription = await session.scalar(
+                select(ChannelSubscription)
+                .join(Channel)
+                .where(
+                    ChannelSubscription.user_id == user_id,
+                    Channel.username == username,
+                )
+            )
+            if subscription is None:
+                return False
+            channel = await session.get(Channel, subscription.channel_id)
+            if channel is None:
+                return False
+            source = await self._ensure_channel_source(
+                session=session,
+                user_id=user_id,
+                channel=channel,
+            )
+            source_subscription = await session.scalar(
+                select(Subscription).where(
+                    Subscription.user_id == user_id,
+                    Subscription.source_id == source.id,
+                )
+            )
+            if source_subscription is None:
+                source_subscription = Subscription(user_id=user_id, source_id=source.id)
+                session.add(source_subscription)
+            now = utc_now()
+            channel.is_active = True
+            subscription.is_active = True
+            source.is_active = True
+            source_subscription.is_active = True
+            source_subscription.next_fetch_at = None
+            channel.updated_at = now
+            subscription.updated_at = now
+            source.updated_at = now
+            source_subscription.updated_at = now
+            return True
+
+    def retry_channel(self, *, user_id: int, username: str) -> bool:
+        return _run_sync(self.async_retry_channel(user_id=user_id, username=username))
+
     async def async_update_channel_fetch_success(self, channel: Any) -> None:
         now = utc_now()
         async with self._database().transaction() as session:
@@ -578,15 +755,34 @@ class DigestStore:
     ) -> bool:
         new_count = channel.fetch_error_count + 1
         disable: bool = bool(new_count >= max_errors)
+        now = utc_now()
         values: dict[str, Any] = {
             "fetch_error_count": Channel.fetch_error_count + 1,
             "last_error": error,
-            "updated_at": utc_now(),
+            "updated_at": now,
         }
         if disable:
             values["is_active"] = False
         async with self._database().transaction() as session:
             await session.execute(update(Channel).where(Channel.id == channel.id).values(**values))
+            source = await session.scalar(
+                select(Source).where(
+                    Source.kind == "telegram_channel",
+                    Source.external_id == channel.username,
+                )
+            )
+            if source is not None:
+                source.fetch_error_count = (source.fetch_error_count or 0) + 1
+                source.last_error = error
+                source.updated_at = now
+                if disable:
+                    source.is_active = False
+                backoff_seconds = 300 * (2 ** max(0, new_count - 1))
+                await session.execute(
+                    update(Subscription)
+                    .where(Subscription.source_id == source.id)
+                    .values(next_fetch_at=now + timedelta(seconds=backoff_seconds), updated_at=now)
+                )
         return disable
 
     def record_channel_fetch_error(self, channel: Any, error: str, *, max_errors: int) -> bool:
@@ -733,3 +929,69 @@ class DigestStore:
 
     def get_users_with_subscriptions(self) -> list[int]:
         return _run_sync(self.async_get_users_with_subscriptions())
+
+    async def _ensure_channel_source(
+        self,
+        *,
+        session: Any,
+        user_id: int,
+        channel: Any,
+    ) -> Source:
+        persistent_channel = await session.get(Channel, channel.id)
+        if persistent_channel is not None:
+            channel = persistent_channel
+        source = await session.scalar(
+            select(Source).where(
+                Source.kind == "telegram_channel",
+                Source.external_id == channel.username,
+            )
+        )
+        if source is None:
+            source = Source(kind="telegram_channel", external_id=channel.username)
+            session.add(source)
+            await session.flush()
+
+        metadata = dict(source.metadata_json or {})
+        controls = metadata.get("controls")
+        source.url = f"https://t.me/{channel.username}"
+        source.title = channel.title
+        source.description = channel.description
+        source.is_active = channel.is_active
+        source.fetch_error_count = channel.fetch_error_count
+        source.last_error = channel.last_error
+        source.last_fetched_at = channel.last_fetched_at
+        source.legacy_channel_id = channel.id
+        source.metadata_json = {
+            "channel_id": channel.channel_id,
+            "member_count": channel.member_count,
+            **({"controls": controls} if isinstance(controls, dict) else {}),
+        }
+        source.updated_at = _utcnow()
+
+        subscription = await session.scalar(
+            select(Subscription).where(
+                Subscription.user_id == user_id,
+                Subscription.source_id == source.id,
+            )
+        )
+        if subscription is None:
+            session.add(Subscription(user_id=user_id, source_id=source.id, is_active=True))
+            await session.flush()
+        return source
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if coerced > 0 else None
+
+
+def _channel_source_due(run_state: dict[str, Any]) -> bool:
+    if not run_state.get("is_active", True):
+        return False
+    if not run_state.get("active_subscription", True):
+        return False
+    backoff_until = run_state.get("backoff_until")
+    return not isinstance(backoff_until, datetime) or backoff_until <= utc_now()

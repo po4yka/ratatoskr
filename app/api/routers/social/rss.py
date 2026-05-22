@@ -17,6 +17,7 @@ from app.core.logging_utils import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter()
+MAX_FETCH_ERRORS = 10
 
 
 def _get_rss_repo() -> Any:
@@ -201,6 +202,11 @@ async def refresh_feed(
             last_modified=feed.get("last_modified"),
         )
     except Exception as exc:
+        await repo.async_record_feed_fetch_error(
+            feed_id=feed_id,
+            error=str(exc),
+            max_fetch_errors=MAX_FETCH_ERRORS,
+        )
         raise ValidationError(f"Feed fetch failed: {exc}") from exc
 
     if result.not_modified:

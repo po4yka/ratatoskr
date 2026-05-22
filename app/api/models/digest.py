@@ -27,6 +27,15 @@ class SubscribeRequest(BaseModel):
     channel_username: str = Field(..., min_length=5, max_length=32)
 
 
+class ChannelControlRequest(BaseModel):
+    """Request to update per-channel ingestion controls."""
+
+    is_active: bool | None = None
+    fetch_interval_seconds: int | None = Field(None, ge=300, le=604800)
+    max_items_per_run: int | None = Field(None, ge=1, le=500)
+    retry_policy: dict[str, object] | None = None
+
+
 class ResolveChannelRequest(BaseModel):
     """Request to resolve/preview a channel before subscribing."""
 

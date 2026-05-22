@@ -203,6 +203,23 @@ async def test_no_active_integrations_returns_empty_summary(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_sync_disabled_does_not_query_integrations(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _sync_body
+
+    db = MagicMock()
+    db.session.side_effect = AssertionError("disabled sync should not query the database")
+
+    result = await _sync_body(_build_cfg(sync_enabled=False), db)
+
+    assert result.users_processed == 0
+    assert result.errors_per_user == {}
+
+
+@pytest.mark.asyncio
 async def test_sync_imports_new_starred_repos(monkeypatch):
     """3 new starred items → 3 Repository rows created; analyze called 3 times."""
     _stub_taskiq(monkeypatch)
@@ -574,6 +591,11 @@ async def test_one_user_failure_does_not_break_others(monkeypatch):
     session_cm.execute = AsyncMock(return_value=execute_result)
     db = MagicMock()
     db.session = MagicMock(return_value=session_cm)
+    txn_cm = AsyncMock()
+    txn_cm.__aenter__ = AsyncMock(return_value=txn_cm)
+    txn_cm.__aexit__ = AsyncMock(return_value=False)
+    txn_cm.get = AsyncMock(return_value=MagicMock(last_sync_cursor=None))
+    db.transaction = MagicMock(return_value=txn_cm)
 
     calls = []
 
@@ -590,6 +612,27 @@ async def test_one_user_failure_does_not_break_others(monkeypatch):
     assert 1 in result.errors_per_user
     assert 2 not in result.errors_per_user
     assert calls == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_integration_during_backoff(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _github_sync_error_payload, _sync_all
+
+    integration = _make_integration(user_id=7)
+    integration.last_sync_cursor = _github_sync_error_payload(
+        error="rate_limit reset=9999999999",
+        failure_count=1,
+        backoff_until=datetime(2027, 1, 1, tzinfo=UTC),
+    )
+
+    result = await _sync_all([integration], cfg=_build_cfg(), db=MagicMock(), bot=None)
+
+    assert result.users_processed == 1
+    assert result.errors_per_user == {7: "backoff_active"}
 
 
 # ---------------------------------------------------------------------------

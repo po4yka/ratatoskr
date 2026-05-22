@@ -79,6 +79,15 @@ class RedditIngester:
     def is_enabled(self) -> bool:
         return self.enabled
 
+    def source_identity(self) -> IngestedSource:
+        return IngestedSource(
+            kind="reddit",
+            external_id=f"reddit:{self.subreddit}:{self.listing}",
+            url=f"https://www.reddit.com/r/{self.subreddit}/{self.listing}/",
+            title=f"r/{self.subreddit} {self.listing}",
+            metadata={"listing": self.listing, "free_tier_guard": "public-json"},
+        )
+
     async def fetch(self) -> SourceFetchResult:
         self.rate_budget.acquire()
         url = f"{self.base_url}/r/{self.subreddit}/{self.listing}.json?limit={self.limit}"
@@ -102,13 +111,7 @@ class RedditIngester:
             if isinstance(child, dict) and isinstance(child.get("data"), dict)
         ]
         return SourceFetchResult(
-            source=IngestedSource(
-                kind="reddit",
-                external_id=f"reddit:{self.subreddit}:{self.listing}",
-                url=f"https://www.reddit.com/r/{self.subreddit}/{self.listing}/",
-                title=f"r/{self.subreddit} {self.listing}",
-                metadata={"listing": self.listing, "free_tier_guard": "public-json"},
-            ),
+            source=self.source_identity(),
             items=items,
         )
 

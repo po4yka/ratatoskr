@@ -43,6 +43,17 @@ class DigestAPIService:
     def unsubscribe_channel(self, user_id: int, raw_username: str) -> dict[str, str]:
         return self._channels.unsubscribe_channel(user_id, raw_username)
 
+    def update_channel_controls(
+        self,
+        user_id: int,
+        raw_username: str,
+        **fields: Any,
+    ) -> dict[str, object]:
+        return self._channels.update_channel_controls(user_id, raw_username, **fields)
+
+    def retry_channel(self, user_id: int, raw_username: str) -> dict[str, object]:
+        return self._channels.retry_channel(user_id, raw_username)
+
     async def resolve_channel(self, user_id: int, raw_username: str) -> ResolveChannelResponse:
         return await self._channels.resolve_channel(user_id, raw_username)
 

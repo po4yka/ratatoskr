@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.rss.feed_fetcher import fetch_feed
 from app.adapters.rss.signal_ingester import RssSignalIngester
 from app.adapters.rss.substack import is_substack_url
 from app.core.logging_utils import get_logger
+from app.core.time_utils import UTC
 from app.infrastructure.persistence.repositories.rss_feed_repository import (
     RSSFeedRepositoryAdapter,
 )
@@ -204,6 +206,10 @@ async def poll_all_feeds(db: Database) -> dict:
                     "legacy_rss_feed_id": feed.get("id"),
                 },
             )
+            run_state = await signal_repo.async_get_source_run_state(int(signal_source["id"]))
+            if not _legacy_rss_source_due(run_state):
+                stats["skipped"] += 1
+                continue
             ingester = RssSignalIngester(feed, fetcher=fetch_feed)
             result = await ingester.fetch()
             signal_source = await signal_repo.async_upsert_source(
@@ -222,10 +228,11 @@ async def poll_all_feeds(db: Database) -> dict:
                 continue
 
             # Store new items
+            max_items_per_run = _max_items_per_run(run_state)
             created_items = await _create_feed_items(
                 repo,
                 feed_id=int(feed["id"]),
-                item_results=list(result.items),
+                item_results=list(result.items)[:max_items_per_run],
             )
             created_item_ids = [int(item["id"]) for item, _item_result in created_items]
             new_item_ids.extend(created_item_ids)
@@ -281,3 +288,21 @@ async def poll_all_feeds(db: Database) -> dict:
     stats["new_item_ids"] = new_item_ids
     logger.info("rss_poll_complete", extra={k: v for k, v in stats.items() if k != "new_item_ids"})
     return stats
+
+
+def _legacy_rss_source_due(run_state: dict[str, Any] | None) -> bool:
+    if run_state is None:
+        return True
+    if not run_state.get("is_active"):
+        return False
+    backoff_until = run_state.get("backoff_until")
+    return not isinstance(backoff_until, datetime) or backoff_until <= datetime.now(UTC)
+
+
+def _max_items_per_run(run_state: dict[str, Any] | None) -> int:
+    if run_state is None:
+        return 100
+    value = run_state.get("max_items_per_run")
+    if value is None:
+        return 100
+    return max(1, min(int(value), 500))

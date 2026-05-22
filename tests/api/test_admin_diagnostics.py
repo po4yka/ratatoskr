@@ -18,6 +18,7 @@ from app.db.models import (
     RSSFeed,
     Request,
     RequestProcessingJob,
+    Source,
     Summary,
     User,
     UserGitHubIntegration,
@@ -120,6 +121,14 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
                     errors_json=["import failed password=secret-import"],
                     updated_at=now,
                 ),
+                Source(
+                    kind="reddit",
+                    external_id="reddit:python:hot",
+                    title="r/python hot",
+                    fetch_error_count=1,
+                    last_error="reddit failed token=secret-source",
+                    updated_at=now,
+                ),
             ]
         )
         summary_request = Request(type="url", status="completed", user_id=owner.telegram_user_id)
@@ -148,12 +157,14 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
     assert any(item["provider"] == "direct_html" for item in data["scraper_providers"])
     assert any(item["source"] == "rss" for item in data["latest_sync_failures"])
     assert any(item["source"] == "github" for item in data["latest_sync_failures"])
+    assert any(item["source"] == "source" for item in data["latest_sync_failures"])
     serialized = response.text
     assert "secret-token" not in serialized
     assert "secret-key" not in serialized
     assert "raw prompt secret" not in serialized
     assert "raw model output" not in serialized
     assert "raw-url-token" not in serialized
+    assert "secret-source" not in serialized
 
 
 def test_admin_diagnostics_openapi_contract(client: TestClient) -> None:

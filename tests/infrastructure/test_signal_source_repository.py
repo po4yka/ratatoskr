@@ -255,6 +255,82 @@ async def test_signal_repository_records_source_backoff_and_circuit_breaker(
 
 
 @pytest.mark.asyncio
+async def test_signal_repository_updates_controls_and_manual_retry(
+    database: Database,
+    repo: SignalSourceRepositoryAdapter,
+) -> None:
+    await _user(database, 1001, "owner")
+    await _user(database, 2002, "other")
+    source = await repo.async_upsert_source(kind="rss", external_id="https://example.com/feed.xml")
+    await repo.async_subscribe(user_id=1001, source_id=source["id"])
+
+    updated = await repo.async_update_user_source_controls(
+        user_id=1001,
+        source_id=source["id"],
+        is_active=False,
+        fetch_interval_seconds=900,
+        max_items_per_run=7,
+        retry_policy={"max_errors": 3, "base_backoff_seconds": 120},
+    )
+    other_updated = await repo.async_update_user_source_controls(
+        user_id=2002,
+        source_id=source["id"],
+        is_active=True,
+    )
+    state = await repo.async_get_source_run_state(source["id"])
+    health = await repo.async_list_source_health(user_id=1001)
+
+    assert updated is True
+    assert other_updated is False
+    assert state is not None
+    assert state["is_active"] is False
+    assert state["fetch_interval_seconds"] == 900
+    assert state["max_items_per_run"] == 7
+    assert state["retry_policy"] == {"max_errors": 3, "base_backoff_seconds": 120}
+    assert health[0]["fetch_interval_seconds"] == 900
+    assert health[0]["max_items_per_run"] == 7
+
+    retried = await repo.async_retry_user_source(user_id=1001, source_id=source["id"])
+    retry_state = await repo.async_get_source_run_state(source["id"])
+
+    assert retried is True
+    assert retry_state is not None
+    assert retry_state["is_active"] is True
+    assert retry_state["backoff_until"] is None
+
+
+@pytest.mark.asyncio
+async def test_signal_repository_upsert_preserves_source_controls(
+    database: Database,
+    repo: SignalSourceRepositoryAdapter,
+) -> None:
+    await _user(database, 1001, "owner")
+    source = await repo.async_upsert_source(kind="rss", external_id="https://example.com/feed.xml")
+    await repo.async_subscribe(user_id=1001, source_id=source["id"])
+    await repo.async_update_user_source_controls(
+        user_id=1001,
+        source_id=source["id"],
+        max_items_per_run=7,
+        retry_policy={"max_errors": 3},
+    )
+
+    await repo.async_upsert_source(
+        kind="rss",
+        external_id="https://example.com/feed.xml",
+        title="Updated",
+        metadata={"etag": "next"},
+    )
+    state = await repo.async_get_source_run_state(source["id"])
+    updated = await repo.async_get_source(source["id"])
+
+    assert state is not None
+    assert state["max_items_per_run"] == 7
+    assert state["retry_policy"] == {"max_errors": 3}
+    assert updated is not None
+    assert updated["metadata_json"]["etag"] == "next"
+
+
+@pytest.mark.asyncio
 async def test_signal_repository_updates_feedback_and_hides_source(
     database: Database,
     repo: SignalSourceRepositoryAdapter,

@@ -46,6 +46,24 @@ class SignalSourceRepositoryPort(Protocol):
     ) -> bool:
         """Enable or disable a source if the user is subscribed to it."""
 
+    async def async_update_user_source_controls(
+        self,
+        *,
+        user_id: int,
+        source_id: int,
+        is_active: bool | None = None,
+        fetch_interval_seconds: int | None = None,
+        max_items_per_run: int | None = None,
+        retry_policy: dict[str, Any] | None = None,
+    ) -> bool:
+        """Update operational controls for a source visible to a user."""
+
+    async def async_retry_user_source(self, *, user_id: int, source_id: int) -> bool:
+        """Clear backoff for a source visible to a user so the scheduler can retry."""
+
+    async def async_get_source_run_state(self, source_id: int) -> dict[str, Any] | None:
+        """Return scheduler state used to decide whether a source can be fetched now."""
+
     async def async_record_source_fetch_success(self, source_id: int) -> None:
         """Reset source health after a successful fetch."""
 

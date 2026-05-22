@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -91,6 +92,17 @@ async def _sync_body(
 ) -> SyncSummary:
     """Core sync logic — separated for direct testability."""
     correlation_id = f"github-sync-{uuid4()}"
+    if not cfg.github.sync_enabled:
+        logger.info("github_sync_disabled", extra={"cid": correlation_id})
+        return SyncSummary(
+            users_processed=0,
+            repos_imported=0,
+            repos_updated=0,
+            repos_unstarred=0,
+            llm_calls_made=0,
+            llm_calls_deferred=0,
+        )
+
     logger.info("github_sync_starting", extra={"cid": correlation_id})
 
     async with db.session() as session:
@@ -137,6 +149,11 @@ async def _sync_all(
 
     for integration in integrations:
         users_processed += 1
+        state = _github_sync_state(integration)
+        backoff_until = state.get("backoff_until")
+        if isinstance(backoff_until, datetime) and backoff_until > datetime.now(UTC):
+            errors_per_user[integration.user_id] = "backoff_active"
+            continue
 
         try:
             (
@@ -169,6 +186,10 @@ async def _sync_all(
                 row = await session.get(UserGitHubIntegration, integration.id)
                 if row is not None:
                     row.status = GitHubIntegrationStatus.NEEDS_REAUTH
+                    row.last_sync_cursor = _github_sync_error_payload(
+                        error=str(exc),
+                        failure_count=_github_failure_count(row) + 1,
+                    )
             await _notify_needs_reauth(
                 integration=integration,
                 bot=bot,
@@ -186,6 +207,14 @@ async def _sync_all(
                 },
             )
             errors_per_user[integration.user_id] = f"rate_limit reset={exc.reset_epoch}"
+            await _record_github_sync_error(
+                db,
+                integration_id=integration.id,
+                error=f"rate_limit reset={exc.reset_epoch}",
+                backoff_until=datetime.fromtimestamp(exc.reset_epoch, tz=UTC)
+                if exc.reset_epoch is not None
+                else None,
+            )
 
         except Exception as exc:
             logger.exception(
@@ -193,6 +222,11 @@ async def _sync_all(
                 extra={"cid": correlation_id, "user_id": integration.user_id, "error": str(exc)},
             )
             errors_per_user[integration.user_id] = str(exc)
+            await _record_github_sync_error(
+                db,
+                integration_id=integration.id,
+                error=str(exc),
+            )
 
     summary = SyncSummary(
         users_processed=users_processed,
@@ -414,6 +448,7 @@ async def _sync_one_integration(
             integ_row = await session.get(UserGitHubIntegration, integration.id)
             if integ_row is not None:
                 integ_row.last_synced_at = now
+                integ_row.last_sync_cursor = None
                 if is_first_sync:
                     integ_row.last_full_sync_at = now
 
@@ -438,6 +473,70 @@ async def _sync_one_integration(
         repos_unstarred,
         llm_calls_made[0],
         llm_calls_deferred[0],
+    )
+
+
+async def _record_github_sync_error(
+    db: Database,
+    *,
+    integration_id: int,
+    error: str,
+    backoff_until: datetime | None = None,
+) -> None:
+    async with db.transaction() as session:
+        row = await session.get(UserGitHubIntegration, integration_id)
+        if row is None:
+            return
+        row.last_sync_cursor = _github_sync_error_payload(
+            error=error,
+            failure_count=_github_failure_count(row) + 1,
+            backoff_until=backoff_until,
+        )
+
+
+def _github_failure_count(integration: UserGitHubIntegration) -> int:
+    state = _github_sync_state(integration)
+    try:
+        return int(state.get("failure_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _github_sync_state(integration: UserGitHubIntegration) -> dict[str, Any]:
+    raw = getattr(integration, "last_sync_cursor", None)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("kind") != "github_sync_state":
+        return {}
+    parsed = dict(data)
+    backoff_until = parsed.get("backoff_until")
+    if isinstance(backoff_until, str):
+        try:
+            parsed["backoff_until"] = datetime.fromisoformat(backoff_until)
+        except ValueError:
+            parsed["backoff_until"] = None
+    return parsed
+
+
+def _github_sync_error_payload(
+    *,
+    error: str,
+    failure_count: int,
+    backoff_until: datetime | None = None,
+) -> str:
+    if backoff_until is None:
+        backoff_until = datetime.now(UTC) + timedelta(minutes=min(60, 5 * max(1, failure_count)))
+    return json.dumps(
+        {
+            "kind": "github_sync_state",
+            "last_error": error[:500],
+            "failure_count": failure_count,
+            "backoff_until": backoff_until.isoformat(),
+        }
     )
 
 

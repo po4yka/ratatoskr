@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from app.application.ports.source_ingestors import IngestedSource
+
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -35,6 +37,14 @@ class TwitterIngester:
 
     def is_enabled(self) -> bool:
         return self.config.enabled and self.config.ack_cost
+
+    def source_identity(self) -> IngestedSource:
+        return IngestedSource(
+            kind="twitter",
+            external_id="twitter:configured",
+            title="X/Twitter configured sources",
+            metadata={"queries": list(self.config.queries)},
+        )
 
     async def fetch(self) -> SourceFetchResult:
         if not self.config.ack_cost:

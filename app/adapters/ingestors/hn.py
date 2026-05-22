@@ -50,6 +50,15 @@ class HackerNewsIngester:
     def is_enabled(self) -> bool:
         return self.enabled
 
+    def source_identity(self) -> IngestedSource:
+        return IngestedSource(
+            kind="hacker_news",
+            external_id=f"hn:{self.feed}",
+            url=f"https://news.ycombinator.com/{self.feed if self.feed != 'newest' else 'new'}",
+            title=f"Hacker News {self.feed}",
+            metadata={"api": "firebase", "feed": self.feed},
+        )
+
     async def fetch(self) -> SourceFetchResult:
         ids = self._get_json(f"{self.base_url}/{_FEEDS[self.feed]}.json")
         if not isinstance(ids, list):
@@ -63,13 +72,7 @@ class HackerNewsIngester:
             items.append(self._normalize_item(raw))
 
         return SourceFetchResult(
-            source=IngestedSource(
-                kind="hacker_news",
-                external_id=f"hn:{self.feed}",
-                url=f"https://news.ycombinator.com/{self.feed if self.feed != 'newest' else 'new'}",
-                title=f"Hacker News {self.feed}",
-                metadata={"api": "firebase", "feed": self.feed},
-            ),
+            source=self.source_identity(),
             items=items,
         )
 

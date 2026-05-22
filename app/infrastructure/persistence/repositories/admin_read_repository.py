@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,7 @@ from app.db.models import (
     RSSFeed,
     Request,
     RequestProcessingJob,
+    Source,
     Summary,
     SummaryEmbedding,
     Tag,
@@ -644,23 +646,69 @@ class AdminReadRepositoryAdapter:
                 select(
                     UserGitHubIntegration.id,
                     UserGitHubIntegration.status,
+                    UserGitHubIntegration.last_sync_cursor,
                     UserGitHubIntegration.updated_at,
                 )
-                .where(UserGitHubIntegration.status != "active")
+                .where(
+                    or_(
+                        UserGitHubIntegration.status != "active",
+                        UserGitHubIntegration.last_sync_cursor.like(
+                            '%"kind": "github_sync_state"%'
+                        ),
+                    )
+                )
                 .order_by(UserGitHubIntegration.updated_at.desc())
                 .limit(limit)
             )
         ).all()
-        for integration_id, status, updated_at in github_rows:
+        for integration_id, status, last_sync_cursor, updated_at in github_rows:
+            state = _parse_github_sync_state(last_sync_cursor)
+            message = state.get("last_error") or f"GitHub integration status is {status}"
             failures.append(
                 {
                     "source": "github",
                     "event_id": f"github-integration:{integration_id}",
                     "error_code": f"GITHUB_{str(status).upper()}",
-                    "message": f"GitHub integration status is {status}",
+                    "message": _redact_message(str(message)),
                     "occurred_at": updated_at,
                     "retryable": status == "needs_reauth",
-                    "details": {},
+                    "details": {
+                        "failure_count": state.get("failure_count"),
+                        "backoff_until": state.get("backoff_until"),
+                    }
+                    if state
+                    else {},
+                }
+            )
+
+        source_rows = (
+            await session.execute(
+                select(
+                    Source.id,
+                    Source.kind,
+                    Source.fetch_error_count,
+                    Source.last_error,
+                    Source.updated_at,
+                    Source.is_active,
+                )
+                .where(or_(Source.fetch_error_count > 0, Source.last_error.is_not(None)))
+                .order_by(Source.updated_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        for source_id, kind, error_count, last_error, updated_at, is_active in source_rows:
+            failures.append(
+                {
+                    "source": "source",
+                    "event_id": f"source:{source_id}",
+                    "error_code": f"SOURCE_{str(kind).upper()}_FETCH_FAILED",
+                    "message": _redact_message(last_error),
+                    "occurred_at": updated_at,
+                    "retryable": bool(is_active),
+                    "details": {
+                        "kind": str(kind),
+                        "fetch_error_count": int(error_count or 0),
+                    },
                 }
             )
 
@@ -769,6 +817,7 @@ def _parse_since(since: str | None) -> dt.datetime | None:
 
 
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)(authorization)\s*=\s*(bearer|basic)\s+[a-z0-9._~+/=-]+"),
     re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)=([^&\s]+)"),
     re.compile(r"(?i)\b(bearer|basic)\s+[a-z0-9._~+/=-]+"),
     re.compile(r"(?i)(sk-[a-z0-9_-]{12,})"),
@@ -785,6 +834,18 @@ def _redact_message(message: Any, *, max_len: int = 240) -> str | None:
     if len(text) > max_len:
         return f"{text[: max_len - 3]}..."
     return text or None
+
+
+def _parse_github_sync_state(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("kind") != "github_sync_state":
+        return {}
+    return data
 
 
 def _first_error(errors_json: Any) -> str | None:

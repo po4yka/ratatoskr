@@ -57,6 +57,11 @@ class _FakeRSSRepo:
 
 class _FakeSignalRepo:
     instance = None
+    default_run_state = {
+        "is_active": True,
+        "backoff_until": None,
+        "max_items_per_run": None,
+    }
 
     def __init__(self, _db) -> None:
         self.sources: list[dict] = []
@@ -65,6 +70,7 @@ class _FakeSignalRepo:
         self.bulk_subscriptions: list[dict] = []
         self.successes: list[int] = []
         self.errors: list[dict] = []
+        self.run_state: dict | None = dict(_FakeSignalRepo.default_run_state)
         _FakeSignalRepo.instance = self
 
     async def async_upsert_source(self, **kwargs):
@@ -96,6 +102,9 @@ class _FakeSignalRepo:
     async def async_record_source_fetch_error(self, **kwargs):
         self.errors.append(kwargs)
         return False
+
+    async def async_get_source_run_state(self, source_id: int):
+        return self.run_state
 
 
 @pytest.mark.asyncio
@@ -135,6 +144,34 @@ async def test_rss_poll_mirrors_new_items_into_signal_sources(monkeypatch):
     assert signal_repo.bulk_subscriptions == [{"source_id": 200, "user_ids": [1001]}]
     assert signal_repo.subscriptions == [{"user_id": 1001, "source_id": 200}]
     assert signal_repo.successes == [200]
+
+
+@pytest.mark.asyncio
+async def test_rss_poll_skips_disabled_signal_source_without_fetch(monkeypatch):
+    from app.adapters.rss import feed_poller
+
+    monkeypatch.setattr(feed_poller, "RSSFeedRepositoryAdapter", _FakeRSSRepo)
+    monkeypatch.setattr(feed_poller, "SignalSourceRepositoryAdapter", _FakeSignalRepo)
+    fetches = {"count": 0}
+
+    def _fetch(*_args, **_kwargs):
+        fetches["count"] += 1
+        return FeedResult(title="Example")
+
+    monkeypatch.setattr(feed_poller, "fetch_feed", _fetch)
+
+    _FakeSignalRepo.default_run_state = {"is_active": False, "backoff_until": None}
+    try:
+        stats = await feed_poller.poll_all_feeds(SimpleNamespace())
+    finally:
+        _FakeSignalRepo.default_run_state = {
+            "is_active": True,
+            "backoff_until": None,
+            "max_items_per_run": None,
+        }
+
+    assert stats["skipped"] == 1
+    assert fetches["count"] == 0
 
 
 @pytest.mark.asyncio

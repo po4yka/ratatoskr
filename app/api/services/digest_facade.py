@@ -58,6 +58,17 @@ class DigestFacade:
     def unsubscribe_channel(self, user_id: int, channel_username: str) -> dict[str, str]:
         return self._service().unsubscribe_channel(user_id, channel_username)
 
+    def update_channel_controls(
+        self,
+        user_id: int,
+        channel_username: str,
+        **fields: Any,
+    ) -> dict[str, object]:
+        return self._service().update_channel_controls(user_id, channel_username, **fields)
+
+    def retry_channel(self, user_id: int, channel_username: str) -> dict[str, object]:
+        return self._service().retry_channel(user_id, channel_username)
+
     async def resolve_channel(self, user_id: int, username: str) -> ResolveChannelResponse:
         return await self._service().resolve_channel(user_id, username)
 

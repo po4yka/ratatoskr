@@ -52,7 +52,7 @@ class DiagnosticsVectorIndexLag(BaseModel):
 
 
 class DiagnosticsSyncFailure(BaseModel):
-    source: Literal["rss", "github", "request", "import", "vector"]
+    source: Literal["rss", "github", "source", "request", "import", "vector"]
     event_id: str
     correlation_id: str | None = None
     error_code: str | None = None

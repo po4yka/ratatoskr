@@ -9,6 +9,7 @@ US-021: DELETE /v1/auth/github            — revoke integration
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -31,6 +32,7 @@ router = APIRouter(prefix="/v1/auth/github", tags=["auth-github"])
 _GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _DEVICE_KEY_PREFIX = "gh:device"
+_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +95,10 @@ class GitHubStatusResponse(BaseModel):
     status: str | None
     last_synced_at: datetime | None
     repo_count: int
+
+
+class GitHubSyncResponse(BaseModel):
+    status: Literal["queued"]
 
 
 class DeviceFlowStartResponse(BaseModel):
@@ -167,6 +173,21 @@ async def get_status(
     )
 
 
+@router.post("/sync", response_model=GitHubSyncResponse, status_code=202)
+async def trigger_sync(
+    user: dict[str, Any] = Depends(get_current_user),
+    use_case: ManageGitHubIntegrationUseCase = Depends(_get_use_case),
+) -> GitHubSyncResponse:
+    """Trigger a best-effort sync for the authenticated user's GitHub integration."""
+    status = await use_case.get_status(user["user_id"])
+    if not status.is_connected:
+        raise HTTPException(status_code=404, detail="GitHub integration not found")
+    task = asyncio.create_task(_run_user_sync(user["user_id"]))
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return GitHubSyncResponse(status="queued")
+
+
 @router.delete("", status_code=204)
 async def revoke(
     user: dict[str, Any] = Depends(get_current_user),
@@ -237,6 +258,34 @@ async def device_flow_start(
         device_code=device_code,
         interval=interval,
         expires_in=expires_in,
+    )
+
+
+async def _run_user_sync(user_id: int) -> None:
+    from sqlalchemy import select
+
+    from app.api.dependencies.database import get_session_manager
+    from app.config.settings import load_config
+    from app.db.models.repository import GitHubIntegrationStatus, UserGitHubIntegration
+    from app.tasks.github_sync import _sync_all
+
+    cfg = load_config(allow_stub_telegram=True)
+    db = get_session_manager()
+    async with db.session() as session:
+        integration = await session.scalar(
+            select(UserGitHubIntegration).where(
+                UserGitHubIntegration.user_id == user_id,
+                UserGitHubIntegration.status == GitHubIntegrationStatus.ACTIVE,
+            )
+        )
+    if integration is None:
+        return
+    await _sync_all(
+        [integration],
+        cfg=cfg,
+        db=db,
+        bot=None,
+        correlation_id=f"github-sync-manual-{uuid.uuid4()}",
     )
 
 

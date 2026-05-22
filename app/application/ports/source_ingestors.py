@@ -72,5 +72,8 @@ class SourceIngester(Protocol):
     def is_enabled(self) -> bool:
         """Return whether this ingester should run in the current config."""
 
+    def source_identity(self) -> IngestedSource:
+        """Return persisted source identity without making a provider call."""
+
     async def fetch(self) -> SourceFetchResult:
         """Fetch, normalize, and return items for one source."""

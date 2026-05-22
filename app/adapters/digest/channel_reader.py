@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
+from app.core.time_utils import utc_now
 from app.infrastructure.persistence.digest_store import DigestStore
 
 if TYPE_CHECKING:
@@ -40,9 +42,7 @@ class ChannelReader:
         """
         max_total = max_posts or self._cfg.digest.max_posts_per_digest
 
-        subscriptions = await self._store.async_list_active_feed_subscriptions_with_channels(
-            user_id
-        )
+        subscriptions = await self._store.async_list_fetchable_subscriptions(user_id)
 
         if not subscriptions:
             logger.info("digest_no_subscriptions", extra={"uid": user_id})
@@ -53,11 +53,18 @@ class ChannelReader:
         for sub in subscriptions:
             channel = sub.channel
             try:
+                run_state = await self._store.async_get_channel_run_state(
+                    user_id=user_id,
+                    channel=channel,
+                )
+                max_items = _max_items_per_run(run_state)
                 posts = await self._userbot.fetch_channel_posts(
                     channel.username,
                     hours_lookback=self._cfg.digest.hours_lookback,
                     min_length=self._cfg.digest.min_post_length,
                 )
+                if max_items is not None:
+                    posts = posts[:max_items]
                 for p in posts:
                     p["_channel_id"] = channel.channel_id or channel.id
                     p["_channel_username"] = channel.username
@@ -139,11 +146,29 @@ class ChannelReader:
             )
             return []
 
-        posts = await self._userbot.fetch_channel_posts(
-            channel.username,
-            hours_lookback=self._cfg.digest.hours_lookback,
-            min_length=self._cfg.digest.min_post_length,
-        )
+        run_state = await self._store.async_get_channel_run_state(user_id=user_id, channel=channel)
+        if not _channel_source_due(run_state):
+            logger.info(
+                "cdigest_channel_backoff_or_disabled",
+                extra={"channel": channel.username, "uid": user_id},
+            )
+            return []
+        max_items = _max_items_per_run(run_state)
+        try:
+            posts = await self._userbot.fetch_channel_posts(
+                channel.username,
+                hours_lookback=self._cfg.digest.hours_lookback,
+                min_length=self._cfg.digest.min_post_length,
+            )
+        except Exception:
+            await self._store.async_record_channel_fetch_error(
+                channel,
+                "fetch_failed",
+                max_errors=self._cfg.digest.max_fetch_errors,
+            )
+            raise
+        if max_items is not None:
+            posts = posts[:max_items]
         for p in posts:
             p["_channel_id"] = channel.channel_id or channel.id
             p["_channel_username"] = channel.username
@@ -201,3 +226,20 @@ class ChannelReader:
             result.extend(overflow[:remaining])
 
         return result
+
+
+def _max_items_per_run(run_state: dict[str, Any]) -> int | None:
+    try:
+        value = int(run_state.get("max_items_per_run") or 0)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _channel_source_due(run_state: dict[str, Any]) -> bool:
+    if not run_state.get("is_active", True):
+        return False
+    if not run_state.get("active_subscription", True):
+        return False
+    backoff_until = run_state.get("backoff_until")
+    return not isinstance(backoff_until, datetime) or backoff_until <= utc_now()
