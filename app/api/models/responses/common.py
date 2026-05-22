@@ -114,6 +114,54 @@ docs/openapi/mobile_api.yaml `info.version`. Mobile/CLI clients read this
 from the success envelope's meta.api_version to pin against a known
 contract."""
 
+MIN_SUPPORTED_CLIENT_API_VERSION = "1.0.0"
+"""Oldest client API contract major/minor/patch accepted by this backend."""
+
+API_CAPABILITIES = (
+    "auth.credentials",
+    "auth.secret",
+    "auth.telegram",
+    "sync.v1",
+    "summaries.v1",
+    "collections.v1",
+    "search.v1",
+)
+
+
+class SystemMetaResponse(BaseModel):
+    """Public backend/client compatibility metadata."""
+
+    api_version: str = Field(
+        default=API_CONTRACT_VERSION,
+        serialization_alias="apiVersion",
+        description="Backend API contract semver.",
+    )
+    app_version: str = Field(
+        default_factory=lambda: os.getenv("APP_VERSION", "1.0.0"),
+        serialization_alias="appVersion",
+        description="Deploy/application version.",
+    )
+    build: str | None = Field(
+        default_factory=lambda: os.getenv("APP_BUILD") or None,
+        description="Build identifier when supplied by deployment.",
+    )
+    min_supported_client_api_version: str = Field(
+        default=MIN_SUPPORTED_CLIENT_API_VERSION,
+        serialization_alias="minSupportedClientApiVersion",
+        description="Oldest client API contract version accepted by this backend.",
+    )
+    capabilities: list[str] = Field(default_factory=lambda: list(API_CAPABILITIES))
+    feature_flags: dict[str, bool] = Field(
+        default_factory=dict,
+        serialization_alias="featureFlags",
+        description="Server-side feature gates relevant to clients.",
+    )
+    deprecated_routes: list[str] = Field(
+        default_factory=list,
+        serialization_alias="deprecatedRoutes",
+        description="Routes that still exist but should no longer be used.",
+    )
+
 
 class MetaInfo(BaseModel):
     """Metadata for all API responses."""

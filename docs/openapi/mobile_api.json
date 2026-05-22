@@ -10796,6 +10796,31 @@
         }
       }
     },
+    "/v1/meta": {
+      "get": {
+        "tags": [
+          "Meta"
+        ],
+        "summary": "Get Backend Meta",
+        "description": "Return public backend/client compatibility metadata.",
+        "operationId": "get_backend_meta_v1_meta_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemMetaSuccessResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/v1/quick-save": {
       "post": {
         "tags": [
@@ -11731,6 +11756,105 @@
               "application/json": {
                 "schema": {
                   "title": "Response System Metrics V1 Admin Metrics Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/llm-costs": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Llm Costs",
+        "description": "Redacted aggregate LLM usage and cost statistics.",
+        "operationId": "llm_costs_v1_admin_llm_costs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 366,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Llm Costs V1 Admin Llm Costs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          }
+        }
+      }
+    },
+    "/v1/admin/diagnostics": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Diagnostics",
+        "description": "Safe provider and operational diagnostics for owner dashboards.",
+        "operationId": "diagnostics_v1_admin_diagnostics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticsSuccessResponse"
                 }
               }
             }
@@ -13499,6 +13623,468 @@
           "platform"
         ],
         "title": "DeviceRegistrationPayload"
+      },
+      "DiagnosticsComponent": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unhealthy",
+              "disabled",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Status",
+            "default": "unknown"
+          },
+          "failure_count": {
+            "type": "integer",
+            "title": "Failure Count",
+            "default": 0
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
+          },
+          "last_failure_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure At"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "default": true
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "title": "DiagnosticsComponent"
+      },
+      "DiagnosticsProviderStatus": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unhealthy",
+              "disabled",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Status",
+            "default": "unknown"
+          },
+          "total_count": {
+            "type": "integer",
+            "title": "Total Count",
+            "default": 0
+          },
+          "failure_count": {
+            "type": "integer",
+            "title": "Failure Count",
+            "default": 0
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
+          },
+          "last_failure_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "title": "DiagnosticsProviderStatus"
+      },
+      "DiagnosticsQueueBacklog": {
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Status"
+          },
+          "runnable_count": {
+            "type": "integer",
+            "title": "Runnable Count",
+            "default": 0
+          },
+          "oldest_queued_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued At"
+          },
+          "oldest_retry_after": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Retry After"
+          },
+          "expired_running_leases": {
+            "type": "integer",
+            "title": "Expired Running Leases",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "DiagnosticsQueueBacklog"
+      },
+      "DiagnosticsResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "title": "Cache Ttl Seconds"
+          },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DiagnosticsComponent"
+            },
+            "type": "object",
+            "title": "Components"
+          },
+          "scraper_providers": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticsProviderStatus"
+            },
+            "type": "array",
+            "title": "Scraper Providers"
+          },
+          "llm_providers": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticsProviderStatus"
+            },
+            "type": "array",
+            "title": "Llm Providers"
+          },
+          "queue_backlog": {
+            "$ref": "#/components/schemas/DiagnosticsQueueBacklog"
+          },
+          "vector_indexing_lag": {
+            "$ref": "#/components/schemas/DiagnosticsVectorIndexLag"
+          },
+          "latest_sync_failures": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticsSyncFailure"
+            },
+            "type": "array",
+            "title": "Latest Sync Failures"
+          },
+          "storage_growth": {
+            "$ref": "#/components/schemas/DiagnosticsStorageGrowth"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "cache_ttl_seconds",
+          "components",
+          "scraper_providers",
+          "llm_providers",
+          "queue_backlog",
+          "vector_indexing_lag",
+          "latest_sync_failures",
+          "storage_growth"
+        ],
+        "title": "DiagnosticsResponse"
+      },
+      "DiagnosticsStorageGrowth": {
+        "properties": {
+          "database_size_mb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Database Size Mb"
+          },
+          "table_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Table Counts"
+          },
+          "created_last_24h": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Created Last 24H"
+          },
+          "created_last_7d": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Created Last 7D"
+          }
+        },
+        "type": "object",
+        "title": "DiagnosticsStorageGrowth"
+      },
+      "DiagnosticsSuccessResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/DiagnosticsResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "DiagnosticsSuccessResponse"
+      },
+      "DiagnosticsSyncFailure": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "rss",
+              "github",
+              "request",
+              "import",
+              "vector"
+            ],
+            "title": "Source"
+          },
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "retryable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retryable"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "event_id"
+        ],
+        "title": "DiagnosticsSyncFailure"
+      },
+      "DiagnosticsVectorIndexLag": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unhealthy",
+              "disabled",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Status",
+            "default": "unknown"
+          },
+          "missing_embeddings": {
+            "type": "integer",
+            "title": "Missing Embeddings",
+            "default": 0
+          },
+          "stale_embeddings": {
+            "type": "integer",
+            "title": "Stale Embeddings",
+            "default": 0
+          },
+          "pending_embeddings": {
+            "type": "integer",
+            "title": "Pending Embeddings",
+            "default": 0
+          },
+          "oldest_unindexed_summary_updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Unindexed Summary Updated At"
+          },
+          "latest_indexed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Indexed At"
+          }
+        },
+        "type": "object",
+        "title": "DiagnosticsVectorIndexLag"
       },
       "ForwardMetadata": {
         "properties": {
@@ -15642,6 +16228,65 @@
           "hasMore"
         ],
         "title": "PaginationInfo",
+        "type": "object"
+      },
+      "SystemMeta": {
+        "description": "Public backend/client compatibility metadata.",
+        "properties": {
+          "apiVersion": {
+            "default": "1.0.0",
+            "description": "Backend API contract semver.",
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "appVersion": {
+            "description": "Deploy/application version.",
+            "title": "Appversion",
+            "type": "string"
+          },
+          "build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Build identifier when supplied by deployment.",
+            "title": "Build"
+          },
+          "minSupportedClientApiVersion": {
+            "default": "1.0.0",
+            "description": "Oldest client API contract version accepted by this backend.",
+            "title": "Minsupportedclientapiversion",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "featureFlags": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "Server-side feature gates relevant to clients.",
+            "title": "Featureflags",
+            "type": "object"
+          },
+          "deprecatedRoutes": {
+            "description": "Routes that still exist but should no longer be used.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Deprecatedroutes",
+            "type": "array"
+          }
+        },
+        "title": "SystemMetaResponse",
         "type": "object"
       },
       "RequestStatus": {
@@ -17991,6 +18636,24 @@
             "properties": {
               "data": {
                 "$ref": "#/components/schemas/RequestStatusData"
+              }
+            }
+          }
+        ]
+      },
+      "SystemMetaSuccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BaseSuccessResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SystemMeta"
               }
             }
           }

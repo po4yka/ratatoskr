@@ -122,7 +122,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
     from app.api.exceptions import ErrorCode, ErrorType
     from app.api.models.responses.auth import UserInfo
     from app.api.models.responses.collections import CollectionItem, CollectionResponse
-    from app.api.models.responses.common import MetaInfo, PaginationInfo
+    from app.api.models.responses.common import MetaInfo, PaginationInfo, SystemMetaResponse
     from app.api.models.responses.requests import (
         RequestDetailResponse,
         RequestStatusData,
@@ -157,6 +157,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
     for name, model in (
         ("Meta", MetaInfo),
         ("Pagination", PaginationInfo),
+        ("SystemMeta", SystemMetaResponse),
         ("SubmitRequestData", SubmitRequestData),
         ("RequestStatusData", RequestStatusData),
         ("RequestDetailResponse", RequestDetailResponse),
@@ -232,6 +233,9 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
             "RequestStatusSuccessResponse": _success_envelope_schema(
                 "#/components/schemas/RequestStatusData"
             ),
+            "SystemMetaSuccessResponse": _success_envelope_schema(
+                "#/components/schemas/SystemMeta"
+            ),
             "RequestDetailSuccessResponse": _success_envelope_schema(
                 "#/components/schemas/RequestDetailResponse"
             ),
@@ -304,6 +308,12 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
     _set_json_response(
         spec,
         method="GET",
+        path="/v1/meta",
+        schema_ref="#/components/schemas/SystemMetaSuccessResponse",
+    )
+    _set_json_response(
+        spec,
+        method="GET",
         path="/v1/summaries/{summary_id}",
         schema_ref="#/components/schemas/SummaryDetailSuccessResponse",
     )
@@ -318,6 +328,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         ("GET", "/health"),
         ("GET", "/health/live"),
         ("GET", "/health/ready"),
+        ("GET", "/v1/meta"),
         ("POST", "/v1/auth/credentials-login"),
         ("POST", "/v1/auth/refresh"),
         ("POST", "/v1/auth/secret-login"),
