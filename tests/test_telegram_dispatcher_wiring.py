@@ -3,9 +3,41 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from app.adapters.telegram.command_dispatch import (
+    TelegramCommandContribution,
+    TextCommandRoute,
+    UidCommandRoute,
+    merge_command_contributions,
+)
 from app.di.telegram import _build_command_dispatcher_deps
 from app.di.types import TelegramRepositories
 from tests.conftest import make_test_app_config
+
+
+def test_fake_command_contribution_merges_into_routes() -> None:
+    async def _uid_handler(*_args: object) -> None:
+        return None
+
+    async def _text_handler(*_args: object) -> None:
+        return None
+
+    routes = merge_command_contributions(
+        (
+            TelegramCommandContribution(
+                name="fake-early",
+                pre_alias_uid=(UidCommandRoute("/fake", _uid_handler),),
+                summarize_prefix="/summarize",
+            ),
+            TelegramCommandContribution(
+                name="fake-late",
+                post_summarize_text=(TextCommandRoute("/fake_late", _text_handler),),
+            ),
+        )
+    )
+
+    assert [route.prefix for route in routes.pre_alias_uid] == ["/fake"]
+    assert routes.summarize_prefix == "/summarize"
+    assert [route.prefix for route in routes.post_summarize_text] == ["/fake_late"]
 
 
 def test_command_dispatcher_routes_preserve_expected_precedence_order() -> None:

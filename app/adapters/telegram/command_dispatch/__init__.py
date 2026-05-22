@@ -14,7 +14,15 @@ from .models import (
     TextCommandHandler,
     UidCommandHandler,
 )
-from .routes import AliasCommandRoute, TelegramCommandRoutes, TextCommandRoute, UidCommandRoute
+from .routes import (
+    AliasCommandRoute,
+    TelegramCommandContribution,
+    TelegramCommandContributionProvider,
+    TelegramCommandRoutes,
+    TextCommandRoute,
+    UidCommandRoute,
+    merge_command_contributions,
+)
 from .state import TelegramCommandRuntimeState
 
 __all__ = [
@@ -23,6 +31,8 @@ __all__ = [
     "CommandContextFactory",
     "CommandDispatchOutcome",
     "SummarizeCommandHandler",
+    "TelegramCommandContribution",
+    "TelegramCommandContributionProvider",
     "TelegramCommandRoutes",
     "TelegramCommandRuntimeState",
     "TextCommandHandler",
@@ -33,4 +43,5 @@ __all__ = [
     "dispatch_summarize_fallback",
     "dispatch_text_routes",
     "dispatch_uid_routes",
+    "merge_command_contributions",
 ]

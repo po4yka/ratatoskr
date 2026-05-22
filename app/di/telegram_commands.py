@@ -5,10 +5,11 @@ from typing import TYPE_CHECKING, Any
 from app.adapters.telegram.command_dispatch import (
     AliasCommandRoute,
     CommandContextFactory,
-    TelegramCommandRoutes,
+    TelegramCommandContribution,
     TelegramCommandRuntimeState,
     TextCommandRoute,
     UidCommandRoute,
+    merge_command_contributions,
 )
 from app.adapters.telegram.command_handlers.admin_handler import AdminHandler
 from app.adapters.telegram.command_handlers.aggregation_commands_handler import (
@@ -145,149 +146,225 @@ def build_command_dispatcher_deps(
         response_formatter=response_formatter,
     )
 
-    routes = TelegramCommandRoutes(
-        pre_alias_uid=(
-            UidCommandRoute(
-                "/start", _build_uid_handler(context_factory, onboarding_handler.handle_start)
-            ),
-            UidCommandRoute(
-                "/help", _build_uid_handler(context_factory, onboarding_handler.handle_help)
-            ),
-            UidCommandRoute(
-                "/dbinfo", _build_uid_handler(context_factory, admin_handler.handle_dbinfo)
-            ),
-            UidCommandRoute(
-                "/dbverify",
-                _build_uid_handler(context_factory, admin_handler.handle_dbverify),
-            ),
-            UidCommandRoute(
-                "/models", _build_uid_handler(context_factory, admin_handler.handle_models)
-            ),
-            UidCommandRoute(
-                "/setmodel",
-                _build_uid_handler(context_factory, admin_handler.handle_setmodel),
-            ),
-            UidCommandRoute(
-                "/clearcache",
-                _build_uid_handler(context_factory, admin_handler.handle_clearcache),
+    contributions = (
+        TelegramCommandContribution(
+            name="onboarding",
+            pre_alias_uid=(
+                UidCommandRoute(
+                    "/start", _build_uid_handler(context_factory, onboarding_handler.handle_start)
+                ),
+                UidCommandRoute(
+                    "/help", _build_uid_handler(context_factory, onboarding_handler.handle_help)
+                ),
             ),
         ),
-        pre_alias_text=(
-            TextCommandRoute(
-                "/admin", _build_text_handler(context_factory, admin_handler.handle_admin)
+        TelegramCommandContribution(
+            name="admin",
+            pre_alias_uid=(
+                UidCommandRoute(
+                    "/dbinfo", _build_uid_handler(context_factory, admin_handler.handle_dbinfo)
+                ),
+                UidCommandRoute(
+                    "/dbverify",
+                    _build_uid_handler(context_factory, admin_handler.handle_dbverify),
+                ),
+                UidCommandRoute(
+                    "/models", _build_uid_handler(context_factory, admin_handler.handle_models)
+                ),
+                UidCommandRoute(
+                    "/setmodel",
+                    _build_uid_handler(context_factory, admin_handler.handle_setmodel),
+                ),
+                UidCommandRoute(
+                    "/clearcache",
+                    _build_uid_handler(context_factory, admin_handler.handle_clearcache),
+                ),
+            ),
+            pre_alias_text=(
+                TextCommandRoute(
+                    "/admin", _build_text_handler(context_factory, admin_handler.handle_admin)
+                ),
             ),
         ),
-        local_search_aliases=(
-            AliasCommandRoute(
-                ("/finddb", "/findlocal"),
-                _build_alias_handler(context_factory, search_handler.handle_find_local),
+        TelegramCommandContribution(
+            name="aggregation",
+            pre_summarize_text=(
+                TextCommandRoute(
+                    "/aggregate",
+                    _build_text_handler(
+                        context_factory, aggregation_commands_handler.handle_aggregate
+                    ),
+                ),
             ),
         ),
-        online_search_aliases=(
-            AliasCommandRoute(
-                ("/findweb", "/findonline", "/find"),
-                _build_alias_handler(context_factory, search_handler.handle_find_online),
+        TelegramCommandContribution(
+            name="url",
+            pre_summarize_text=(
+                TextCommandRoute(
+                    "/summarize_all",
+                    _build_text_handler(context_factory, url_commands_handler.handle_summarize_all),
+                ),
+                TextCommandRoute(
+                    "/retry",
+                    _build_text_handler(context_factory, url_commands_handler.handle_retry),
+                ),
+            ),
+            summarize_prefix="/summarize",
+            post_summarize_uid=(
+                UidCommandRoute(
+                    "/cancel",
+                    _build_uid_handler(context_factory, url_commands_handler.handle_cancel),
+                ),
             ),
         ),
-        pre_summarize_text=(
-            TextCommandRoute(
-                "/aggregate",
-                _build_text_handler(context_factory, aggregation_commands_handler.handle_aggregate),
-            ),
-            TextCommandRoute(
-                "/summarize_all",
-                _build_text_handler(context_factory, url_commands_handler.handle_summarize_all),
-            ),
-            TextCommandRoute(
-                "/retry",
-                _build_text_handler(context_factory, url_commands_handler.handle_retry),
-            ),
-        ),
-        summarize_prefix="/summarize",
-        post_summarize_uid=(
-            UidCommandRoute(
-                "/cancel",
-                _build_uid_handler(context_factory, url_commands_handler.handle_cancel),
+        TelegramCommandContribution(
+            name="tag",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/untag", _build_text_handler(context_factory, tag_handler.handle_untag)
+                ),
+                TextCommandRoute(
+                    "/tags", _build_text_handler(context_factory, tag_handler.handle_tags)
+                ),
+                TextCommandRoute(
+                    "/tag", _build_text_handler(context_factory, tag_handler.handle_tag)
+                ),
             ),
         ),
-        post_summarize_text=(
-            TextCommandRoute(
-                "/untag", _build_text_handler(context_factory, tag_handler.handle_untag)
+        TelegramCommandContribution(
+            name="content",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/unread",
+                    _build_text_handler(context_factory, content_handler.handle_unread),
+                ),
+                TextCommandRoute(
+                    "/read", _build_text_handler(context_factory, content_handler.handle_read)
+                ),
             ),
-            TextCommandRoute(
-                "/tags", _build_text_handler(context_factory, tag_handler.handle_tags)
-            ),
-            TextCommandRoute("/tag", _build_text_handler(context_factory, tag_handler.handle_tag)),
-            TextCommandRoute(
-                "/unread",
-                _build_text_handler(context_factory, content_handler.handle_unread),
-            ),
-            TextCommandRoute(
-                "/read", _build_text_handler(context_factory, content_handler.handle_read)
-            ),
-            TextCommandRoute(
-                "/search",
-                _build_text_handler(context_factory, search_handler.handle_search),
-            ),
-            TextCommandRoute(
-                "/listen",
-                _build_text_handler(context_factory, listen_handler.handle_listen),
-            ),
-            TextCommandRoute(
-                "/cdigest",
-                _build_text_handler(context_factory, digest_handler.handle_cdigest),
-            ),
-            TextCommandRoute(
-                "/digest",
-                _build_text_handler(context_factory, digest_handler.handle_digest),
-            ),
-            TextCommandRoute(
-                "/channels",
-                _build_text_handler(context_factory, digest_handler.handle_channels),
-            ),
-            TextCommandRoute(
-                "/subscribe",
-                _build_text_handler(context_factory, digest_handler.handle_subscribe),
-            ),
-            TextCommandRoute(
-                "/unsubscribe",
-                _build_text_handler(context_factory, digest_handler.handle_unsubscribe),
-            ),
-            TextCommandRoute(
-                "/init_session",
-                _build_text_handler(context_factory, init_session_handler.handle_init_session),
-            ),
-            TextCommandRoute(
-                "/settings",
-                _build_text_handler(context_factory, settings_handler.handle_settings),
-            ),
-            TextCommandRoute(
-                "/rules", _build_text_handler(context_factory, rules_handler.handle_rules)
-            ),
-            TextCommandRoute(
-                "/export",
-                _build_text_handler(context_factory, export_handler.handle_export),
-            ),
-            TextCommandRoute(
-                "/backups",
-                _build_text_handler(context_factory, backup_handler.handle_backups),
-            ),
-            TextCommandRoute(
-                "/backup",
-                _build_text_handler(context_factory, backup_handler.handle_backup),
-            ),
-            TextCommandRoute(
-                "/substack",
-                _build_text_handler(context_factory, rss_handler.handle_substack),
-            ),
-            TextCommandRoute("/rss", _build_text_handler(context_factory, rss_handler.handle_rss)),
         ),
-        tail_uid=(
-            UidCommandRoute(
-                "/debug", _build_uid_handler(context_factory, settings_handler.handle_debug)
+        TelegramCommandContribution(
+            name="search",
+            local_search_aliases=(
+                AliasCommandRoute(
+                    ("/finddb", "/findlocal"),
+                    _build_alias_handler(context_factory, search_handler.handle_find_local),
+                ),
+            ),
+            online_search_aliases=(
+                AliasCommandRoute(
+                    ("/findweb", "/findonline", "/find"),
+                    _build_alias_handler(context_factory, search_handler.handle_find_online),
+                ),
+            ),
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/search",
+                    _build_text_handler(context_factory, search_handler.handle_search),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="listen",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/listen",
+                    _build_text_handler(context_factory, listen_handler.handle_listen),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="digest",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/cdigest",
+                    _build_text_handler(context_factory, digest_handler.handle_cdigest),
+                ),
+                TextCommandRoute(
+                    "/digest",
+                    _build_text_handler(context_factory, digest_handler.handle_digest),
+                ),
+                TextCommandRoute(
+                    "/channels",
+                    _build_text_handler(context_factory, digest_handler.handle_channels),
+                ),
+                TextCommandRoute(
+                    "/subscribe",
+                    _build_text_handler(context_factory, digest_handler.handle_subscribe),
+                ),
+                TextCommandRoute(
+                    "/unsubscribe",
+                    _build_text_handler(context_factory, digest_handler.handle_unsubscribe),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="init_session",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/init_session",
+                    _build_text_handler(context_factory, init_session_handler.handle_init_session),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="settings",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/settings",
+                    _build_text_handler(context_factory, settings_handler.handle_settings),
+                ),
+            ),
+            tail_uid=(
+                UidCommandRoute(
+                    "/debug", _build_uid_handler(context_factory, settings_handler.handle_debug)
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="rules",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/rules", _build_text_handler(context_factory, rules_handler.handle_rules)
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="export",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/export",
+                    _build_text_handler(context_factory, export_handler.handle_export),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="backup",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/backups",
+                    _build_text_handler(context_factory, backup_handler.handle_backups),
+                ),
+                TextCommandRoute(
+                    "/backup",
+                    _build_text_handler(context_factory, backup_handler.handle_backup),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="rss",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/substack",
+                    _build_text_handler(context_factory, rss_handler.handle_substack),
+                ),
+                TextCommandRoute(
+                    "/rss", _build_text_handler(context_factory, rss_handler.handle_rss)
+                ),
             ),
         ),
     )
+    routes = merge_command_contributions(contributions)
 
     return TelegramCommandDispatcherDeps(
         routes=routes,

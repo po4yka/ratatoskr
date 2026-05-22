@@ -8,10 +8,12 @@ import pytest
 
 from app.adapters.telegram.command_dispatch import (
     CommandContextFactory,
+    TelegramCommandContribution,
     TelegramCommandRoutes,
     TelegramCommandRuntimeState,
     TextCommandRoute,
     UidCommandRoute,
+    merge_command_contributions,
 )
 from app.adapters.telegram.command_dispatcher import TelegramCommandDispatcher
 
@@ -132,6 +134,44 @@ async def test_dispatch_command_short_circuits_before_summarize() -> None:
 
     assert outcome.handled is True
     assert calls == ["start"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_command_runs_fake_contribution_route() -> None:
+    calls: list[tuple[str, int, str]] = []
+
+    async def handle_fake(
+        message: object,
+        text: str,
+        uid: int,
+        correlation_id: str,
+        interaction_id: int,
+        start_time: float,
+    ) -> None:
+        _ = (message, interaction_id, start_time)
+        calls.append((text, uid, correlation_id))
+
+    routes = merge_command_contributions(
+        (
+            TelegramCommandContribution(
+                name="fake",
+                post_summarize_text=(TextCommandRoute("/fake", handle_fake),),
+            ),
+        )
+    )
+    dispatcher = _make_dispatcher(routes=routes)
+
+    outcome = await dispatcher.dispatch_command(
+        message=object(),
+        text="/fake payload",
+        uid=123,
+        correlation_id="cid-fake",
+        interaction_id=12,
+        start_time=1.0,
+    )
+
+    assert outcome.handled is True
+    assert calls == [("/fake payload", 123, "cid-fake")]
 
 
 @pytest.mark.asyncio
