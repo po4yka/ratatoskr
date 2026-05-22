@@ -807,6 +807,22 @@ curl -X POST http://localhost:8000/v1/auth/telegram-login \
      -d '{"telegram_user_id": 123456789, "telegram_auth_token": "..."}'
 ```
 
+### Request Stuck In Processing
+
+**Symptom**: A submitted URL remains `pending` or `processing`, the web SubmitPage keeps polling, or the SSE stream never reaches `done` / `error`.
+
+**First checks**:
+
+```bash
+# Find the request and durable processing job by correlation/request id
+grep "<correlation_id>" /var/log/ratatoskr/app.log
+
+# Reproduce with the CLI runner and debug logs
+python -m app.cli.summary --url <URL> --log-level DEBUG
+```
+
+**Likely owners**: `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/adapters/content/streaming/`, and `app/db/models/core.py::RequestProcessingJob`.
+
 ### Sync Conflicts
 
 **Symptom**: "Sync conflict detected" errors during sync.

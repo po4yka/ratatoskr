@@ -15,6 +15,7 @@ This document is a developer-facing summary of the mobile API implemented by the
 - Phase 3 signal/source triage surface: `/v1/signals`
 - OpenAPI source of truth: `app.api.main:app`, generated into `docs/openapi/mobile_api.yaml` and `docs/openapi/mobile_api.json` with `make generate-openapi`
 - Cross-repo regeneration workflow: [`docs/reference/openapi-contract-workflow.md`](openapi-contract-workflow.md)
+- Sync protocol implementation map: [`docs/reference/sync-protocol.md`](sync-protocol.md)
 
 The same FastAPI host also serves the web SPA:
 
@@ -63,6 +64,17 @@ The mobile API surface is contract-locked against the generated `docs/openapi/mo
 - **Generated spec drift check** — `tools/scripts/generate_openapi.py --check` fails when committed OpenAPI docs differ from `app.api.main:app`. Run `make generate-openapi` after API model, router, response envelope, or contract-version changes.
 - **CI contract tests** — `tests/api/test_openapi_sync.py`, `tests/api/test_openapi_security.py`, `tests/api/test_runtime_openapi_drift.py`, and `tests/tools/test_generate_openapi.py` reject route drift, schema drift, missing security/error declarations, and stale generated docs. The job runs on every PR via the `test` CI job.
 - **Contract semver in the envelope** — every success response carries `meta.api_version` (sourced from `app.api.models.responses.common.API_CONTRACT_VERSION`). The constant is independent of `meta.version` (which tracks app/build deploys).
+
+### Agent contract map
+
+| Concern | Backend owner | Downstream owner |
+|---|---|---|
+| Generated contract | `app.api.main:app`, `app/api/models/`, `app/api/routers/`, `tools/scripts/generate_openapi.py`, `docs/openapi/mobile_api.yaml`, `docs/openapi/mobile_api.json` | `ratatoskr-web/docs/openapi/mobile_api.yaml`, `ratatoskr-web/src/api/generated.ts`, `ratatoskr-client/core/api-generated/src/commonMain/openapi/mobile_api.yaml`, `ratatoskr-client/core/api-generated/src/commonMain/generated/` |
+| Auth/session | `app/api/routers/auth/`, `app/api/routers/auth/tokens.py`, `app/api/routers/auth/cookies.py`, `app/infrastructure/persistence/repositories/auth_repository.py`, `app/db/models/core.py::RefreshToken` | Web: `src/auth/AuthProvider.tsx`, `src/auth/storage.ts`, `src/api/client.ts`; KMP: `feature/auth/`, `core/data/src/*/kotlin/.../data/local/`, `core/data/src/commonMain/kotlin/.../data/remote/auth/` |
+| Sync v2 | `app/api/routers/sync.py`, `app/api/services/sync/`, `app/infrastructure/persistence/sync_aux_read_adapter.py` | KMP: `feature/sync/`, feature-owned `SyncItemApplier` and `PendingOperationHandler` bindings |
+| Streaming request progress | `app/api/routers/streams.py`, `app/adapters/content/streaming/`, `app/adapters/content/url_processor.py` | Web: `src/api/streamRequest.ts`, `src/hooks/useRequestStream.ts`, `src/features/submit/SubmitPage.tsx` |
+
+Do not edit generated OpenAPI files by hand. For backend contract changes, run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`; then update web and KMP pins using their repo-local regeneration commands.
 
 ### When to bump `api_version`
 

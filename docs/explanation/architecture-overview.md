@@ -191,6 +191,24 @@ Each subsystem has a canonical doc; this page is the entry point.
 
 ---
 
+## Agent Implementation Map
+
+This is the implementation-first map for future agents; use it to find ownership before editing contracts or generated clients.
+
+| Area | Backend ownership | Downstream ownership / drift checks |
+| --- | --- | --- |
+| Auth | `app/api/routers/auth/` maps Telegram login, credentials login, secret login, refresh, logout, and sessions; `tokens.py` fixes 30-minute access tokens and refresh-token rotation; `cookies.py` controls web refresh-cookie persistence; `auth_repository.py` persists refresh families; `RefreshToken` rows live in `app/db/models/core.py`. | Web storage rules are in `ratatoskr-web/src/auth/storage.ts`; KMP secure storage and refresh are in `ratatoskr-client/core/data/src/*/kotlin/.../data/local/` and `core/data/src/commonMain/kotlin/.../data/remote/auth/`; current TTL/storage contract is in `docs/reference/mobile-api.md#authentication-modes`. |
+| API contracts | FastAPI source is `app.api.main:app`; OpenAPI post-processing is `tools/scripts/generate_openapi.py`; committed generated specs are `docs/openapi/mobile_api.yaml` and `.json`; response envelope version is `app/api/models/responses/common.py::API_CONTRACT_VERSION`. | Web pins backend OpenAPI in `ratatoskr-web/tools/openapi.lock` and regenerates `src/api/generated.ts`; KMP pins the same spec in `ratatoskr-client/tools/openapi.lock` and regenerates `core/api-generated/src/commonMain/generated/`. |
+| Sync | Router entrypoints are `app/api/routers/sync.py`; session/full/delta/apply behavior is split under `app/api/services/sync/`; session persistence is `session_store.py`; DB collection reads are `collector.py` plus `app/infrastructure/persistence/sync_aux_read_adapter.py`. | Web has no offline sync owner today; KMP owns client orchestration in `feature/sync/src/commonMain/kotlin/.../data/repository/SyncRepositoryImpl.kt` and entity appliers in feature modules. |
+| Request processing | URL requests enter through `app/adapters/content/url_processor.py` and platform extraction lifecycle helpers; durable processing jobs use `app/db/models/core.py::RequestProcessingJob`. | Common triage begins with correlation ID and `docs/reference/troubleshooting.md#request-stuck-in-processing`. |
+| LLM pipeline | `LLMSummarizer` and `LLMResponseWorkflow` live under `app/adapters/content/`; provider calls are `app/adapters/openrouter/`; strict shaping is `app/core/summary_contract.py`; LangGraph retry/repair is `app/agents/langgraph/`. | Parse failures map to `docs/reference/troubleshooting.md#json-parsing-failures`; prompt edits must keep `app/prompts/*_en.txt` and `*_ru.txt` paired. |
+| Extraction providers | Generic provider chain is `app/adapters/content/scraper/`; platform extraction router is `app/adapters/content/platform_extraction/`; YouTube, Twitter/X, and academic papers bypass the generic chain through their dedicated adapter packages. | Provider-order and fallback behavior are documented in `docs/explanation/scraper-chain.md`; source ingestion polling is separate under `app/adapters/ingestors/` and `app/adapters/rss/`. |
+| Vector and source drift | Fast-path vector writes use infrastructure vector/embedding services; reconciliation is `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/tasks/reconcile_vector_index.py`; source ingestors feed signals through `app/adapters/ingestors/` and `app/api/routers/social/signals.py`. | Operational drift docs are `docs/cocoindex.md` and `docs/reference/troubleshooting.md`. |
+
+Generated OpenAPI files are derived artifacts. Change routers/models first, run `make generate-openapi`, then run `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`.
+
+---
+
 ## Where to next
 
 - New here and want to run the bot? → [Quickstart Tutorial](../guides/quickstart.md).

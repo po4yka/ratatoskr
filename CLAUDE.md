@@ -32,6 +32,18 @@ Operating notes for Claude (and other AI assistants) working in this repo. Leads
 | Common failure recipes | `docs/reference/troubleshooting.md` |
 | Claude Code safety hooks | `docs/reference/claude-code-hooks.md` |
 
+## Agent Implementation Map
+
+| Need | Implementation map |
+|---|---|
+| Auth/session failure | Backend auth is split across `app/api/routers/auth/` transport handlers, `app/api/routers/auth/tokens.py` token creation/validation, `app/api/routers/auth/cookies.py` refresh-cookie policy, `app/infrastructure/persistence/repositories/auth_repository.py` persistence, and `app/db/models/core.py::RefreshToken`; token TTL/storage behavior is documented in `docs/reference/mobile-api.md#authentication-modes` and failure triage starts at `docs/reference/troubleshooting.md#refresh-token-stops-working`. |
+| API contract drift | FastAPI source is `app.api.main:app`; request/response models live under `app/api/models/`, routers under `app/api/routers/`, generated artifacts under `docs/openapi/mobile_api.yaml` and `.json`; never patch generated OpenAPI by hand. Run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`. |
+| Sync drift | Sync v2 entrypoints are `app/api/routers/sync.py`, service collaborators are under `app/api/services/sync/`, DB reads for sync live in `app/infrastructure/persistence/sync_aux_read_adapter.py`, and the contract map is `docs/reference/sync-protocol.md`. |
+| Request stuck in processing | Start with `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob`, and `docs/reference/troubleshooting.md#request-stuck-in-processing`; keep correlation IDs intact across any repair. |
+| LLM parse failure | Parse/repair lives in `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, and `app/core/summary_contract.py`; LangGraph retry topology is `app/agents/langgraph/graph.py`; failure recipe is `docs/reference/troubleshooting.md#json-parsing-failures`. |
+| Extraction provider behavior | Generic URL extraction is `app/adapters/content/scraper/` plus `app/adapters/content/platform_extraction/`; platform-specific bypasses are `app/adapters/youtube/`, `app/adapters/twitter/`, and `app/adapters/academic/`; provider docs are `docs/explanation/scraper-chain.md`. |
+| Source ingestion and vector repair | Source ingestors live in `app/adapters/ingestors/`, RSS/digest helpers in `app/adapters/rss/` and `app/adapters/digest/`, signal API in `app/api/routers/social/signals.py`, vector reconciliation in `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/cli/backfill_vector_store.py`; vector drift docs are `docs/cocoindex.md`. |
+
 ## Directory Structure
 
 ```

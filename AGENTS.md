@@ -51,6 +51,21 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGrap
 - `bot.py` -- Entrypoint
 - `docs/SPEC.md` -- Full technical specification (canonical reference)
 
+## Agent Implementation Map
+
+| Need | Start here | Contract / failure doc |
+|------|------------|------------------------|
+| Auth and sessions | `app/api/routers/auth/`, `app/api/routers/auth/tokens.py`, `app/api/routers/auth/cookies.py`, `app/infrastructure/persistence/repositories/auth_repository.py`, `app/db/models/core.py::RefreshToken` | `docs/reference/mobile-api.md#authentication-modes`, `docs/reference/troubleshooting.md#refresh-token-stops-working` |
+| API contracts | `app/api/main.py`, `app/api/models/`, `app/api/routers/`, `tools/scripts/generate_openapi.py`, `docs/openapi/mobile_api.yaml` | `docs/reference/openapi-contract-workflow.md`, `docs/reference/mobile-api.md#api-surface-freeze-policy` |
+| Sync v2 | `app/api/routers/sync.py`, `app/api/services/sync/`, `app/infrastructure/persistence/sync_aux_read_adapter.py` | `docs/reference/sync-protocol.md`, `docs/reference/troubleshooting.md#sync-conflicts` |
+| Request processing stuck | `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob` | `docs/reference/troubleshooting.md#request-stuck-in-processing` |
+| LLM parse / repair | `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, `app/core/summary_contract.py`, `app/agents/langgraph/graph.py` | `docs/reference/troubleshooting.md#json-parsing-failures` |
+| Extraction providers | `app/adapters/content/scraper/`, `app/adapters/content/platform_extraction/`, `app/adapters/youtube/`, `app/adapters/twitter/`, `app/adapters/academic/` | `docs/explanation/scraper-chain.md`, `docs/reference/troubleshooting.md#content-extraction-failures` |
+| Source ingestion and signals | `app/adapters/ingestors/`, `app/adapters/rss/`, `app/adapters/digest/`, `app/api/routers/social/signals.py` | `docs/guides/configure-source-ingestors.md` |
+| Vector drift / reconciliation | `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, `app/cli/backfill_vector_store.py`, `app/infrastructure/cocoindex/flow.py` | `docs/cocoindex.md`, `docs/reference/troubleshooting.md` |
+
+Generated API artifacts live in `docs/openapi/mobile_api.yaml` and `docs/openapi/mobile_api.json`; do not edit them manually. Change routers/models first, then run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`.
+
 ## Development Commands
 
 ```bash
