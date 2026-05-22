@@ -6,6 +6,7 @@ import pytest
 
 from app.api.exceptions import ResourceNotFoundError
 from app.api.routers.content import requests, summaries
+from app.application.dto.request_workflow import RequestStatusDTO
 from app.domain.exceptions.domain_exceptions import ResourceNotFoundError as DomainNotFound
 
 
@@ -65,4 +66,37 @@ async def test_request_status_maps_non_owner_to_not_found() -> None:
             request_service=request_service,
         )
 
+    request_service.get_request_status.assert_awaited_once_with(1001, 42)
+
+
+@pytest.mark.asyncio
+async def test_request_status_router_returns_public_lifecycle_payload() -> None:
+    request_service = _RequestService()
+    request_service.get_request_status = AsyncMock(
+        return_value=RequestStatusDTO(
+            request_id=42,
+            status="running",
+            legacy_status="processing",
+            stage="summarizing",
+            progress={"percentage": 50, "value": 0.5},
+            estimated_seconds_remaining=8,
+            queue_position=None,
+            error_details=None,
+            can_retry=False,
+            correlation_id="cid-status-router",
+        )
+    )
+
+    response = await requests.get_request_status(
+        request_id=42,
+        user={"user_id": 1001},
+        request_service=request_service,
+    )
+
+    assert response["success"] is True
+    data = response["data"]
+    assert data["status"] == "running"
+    assert data["legacyStatus"] == "processing"
+    assert data["stage"] == "summarizing"
+    assert data["progress"] == {"percentage": 50, "value": 0.5}
     request_service.get_request_status.assert_awaited_once_with(1001, 42)

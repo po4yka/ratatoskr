@@ -528,6 +528,47 @@ async def test_background_progress_publisher_persists_event_and_publishes_same_s
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "stage", "expected_kind", "expected_status", "expected_stage"),
+    [
+        ("COMPLETED", "DONE", "done", "succeeded", "done"),
+        ("ERROR", "UNKNOWN", "error", "failed", "done"),
+        ("CANCELLED", "CANCELLED", "error", "cancelled", "done"),
+        ("PROCESSING", "VALIDATION", "stage", "running", "validating"),
+    ],
+)
+async def test_progress_publisher_uses_shared_public_lifecycle_mapping(
+    status: str,
+    stage: str,
+    expected_kind: str,
+    expected_status: str,
+    expected_stage: str,
+) -> None:
+    event_repo = FakeProgressEventRepository()
+    publisher = BackgroundProgressPublisher(
+        redis=None,
+        logger=SimpleNamespace(
+            warning=lambda *args, **kwargs: None, debug=lambda *args, **kwargs: None
+        ),
+        progress_event_repo=event_repo,
+    )
+
+    await publisher.publish(
+        request_id=43,
+        status=status,
+        stage=stage,
+        message="Lifecycle update",
+        progress=1.0,
+        correlation_id="cid-progress-map",
+    )
+
+    appended = event_repo.appended[0]
+    assert appended["kind"] == expected_kind
+    assert appended["status"] == expected_status
+    assert appended["stage"] == expected_stage
+
+
+@pytest.mark.asyncio
 async def test_sse_replay_honors_since_sequence_and_last_event_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

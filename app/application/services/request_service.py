@@ -15,6 +15,7 @@ from app.application.dto.request_workflow import (
     RequestStatusDTO,
     SummaryRecordDTO,
 )
+from app.application.dto.request_lifecycle import project_request_lifecycle
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.core.url_utils import compute_dedupe_hash, normalize_url
@@ -34,49 +35,6 @@ if TYPE_CHECKING:
     from app.application.ports.summaries import SummaryRepositoryPort
 
 logger = get_logger(__name__)
-
-_PUBLIC_STATUS_BY_LEGACY: dict[str, str] = {
-    "pending": "pending",
-    "queued": "pending",
-    "running": "running",
-    "processing": "running",
-    "crawling": "running",
-    "summarizing": "running",
-    "success": "succeeded",
-    "succeeded": "succeeded",
-    "complete": "succeeded",
-    "completed": "succeeded",
-    "ok": "succeeded",
-    "error": "failed",
-    "failed": "failed",
-    "cancelled": "cancelled",
-}
-
-_PUBLIC_STAGE_BY_LEGACY: dict[str, str] = {
-    "pending": "queued",
-    "queued": "queued",
-    "crawling": "extracting",
-    "extracting": "extracting",
-    "processing": "summarizing",
-    "summarizing": "summarizing",
-    "validating": "validating",
-    "persisting": "persisting",
-    "success": "done",
-    "complete": "done",
-    "completed": "done",
-    "ok": "done",
-    "error": "done",
-    "failed": "done",
-    "cancelled": "done",
-}
-
-
-def _public_request_status(status: object) -> str:
-    return _PUBLIC_STATUS_BY_LEGACY.get(str(status or "").lower(), "pending")
-
-
-def _public_processing_stage(stage: object) -> str:
-    return _PUBLIC_STAGE_BY_LEGACY.get(str(stage or "").lower(), "queued")
 
 
 class RequestService:
@@ -327,11 +285,12 @@ class RequestService:
             )
             can_retry = True
 
+        lifecycle = project_request_lifecycle(status=effective_status, stage=stage)
         return RequestStatusDTO(
             request_id=request_id,
-            status=_public_request_status(effective_status),
+            status=lifecycle.status,
             legacy_status=legacy_status or None,
-            stage=_public_processing_stage(stage),
+            stage=lifecycle.stage,
             progress=progress,
             estimated_seconds_remaining=8
             if stage in {"extracting", "summarizing", "persisting"}

@@ -236,20 +236,26 @@ async def test_get_request_status_covers_processing_queue_complete_cancelled_and
     cancelled_status = await service.get_request_status(user.telegram_user_id, cancelled.id)
     unknown_status = await service.get_request_status(user.telegram_user_id, unknown.id)
 
-    assert crawling_status.stage == "crawling"
+    assert crawling_status.status == "running"
+    assert crawling_status.stage == "extracting"
     assert crawling_status.progress == {"current_step": 1, "total_steps": 3, "percentage": 33}
-    assert processing_status.stage == "processing"
+    assert processing_status.status == "running"
+    assert processing_status.stage == "summarizing"
     assert processing_status.progress == {"current_step": 2, "total_steps": 3, "percentage": 66}
     assert almost_done_status.progress == {"current_step": 3, "total_steps": 3, "percentage": 90}
-    assert queued_status.stage == "pending"
+    assert queued_status.status == "pending"
+    assert queued_status.stage == "queued"
     assert queued_status.queue_position == 2
-    assert complete_status.stage == "complete"
-    assert cancelled_status.stage == "failed"
+    assert complete_status.status == "succeeded"
+    assert complete_status.stage == "done"
+    assert cancelled_status.status == "cancelled"
+    assert cancelled_status.stage == "done"
     assert cancelled_status.error_details is not None
     assert cancelled_status.error_details.error_message == "Request was cancelled"
     assert cancelled_status.error_details.error_reason_code == "REQUEST_CANCELLED"
     assert cancelled_status.can_retry is True
-    assert unknown_status.stage == "pending"
+    assert unknown_status.status == "pending"
+    assert unknown_status.stage == "queued"
 
 
 @pytest.mark.asyncio
@@ -267,7 +273,8 @@ async def test_get_request_status_falls_back_for_failed_requests_and_enforces_ac
 
     status = await service.get_request_status(user.telegram_user_id, failed.id)
 
-    assert status.stage == "failed"
+    assert status.status == "failed"
+    assert status.stage == "done"
     assert status.error_details is not None
     assert status.error_details.error_message == "Request failed"
     assert status.error_details.retryable is False

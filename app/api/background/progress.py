@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.adapters.content.streaming import StreamEvent, get_stream_hub
+from app.application.dto.request_lifecycle import (
+    progress_event_kind,
+    public_processing_stage,
+    public_request_status,
+)
 from app.core.json_utils import dumps as json_dumps
 
 
@@ -110,40 +115,12 @@ class BackgroundProgressPublisher:
 
 
 def _event_kind(status: str) -> str:
-    normalized = status.lower()
-    if normalized in {"completed", "complete", "success", "succeeded"}:
-        return "done"
-    if normalized in {"failed", "error", "cancelled"}:
-        return "error"
-    return "stage"
+    return progress_event_kind(status)
 
 
 def _normalize_status(status: str) -> str:
-    normalized = status.lower()
-    if normalized in {"processing", "running"}:
-        return "running"
-    if normalized in {"completed", "complete", "success", "succeeded"}:
-        return "succeeded"
-    if normalized in {"failed", "error"}:
-        return "failed"
-    if normalized == "cancelled":
-        return "cancelled"
-    return "pending" if normalized in {"queued", "pending"} else normalized
+    return public_request_status(status)
 
 
 def _normalize_stage(stage: str) -> str:
-    normalized = stage.lower()
-    return {
-        "queued": "queued",
-        "extraction": "extracting",
-        "extracting": "extracting",
-        "summarization": "summarizing",
-        "summarizing": "summarizing",
-        "validation": "validating",
-        "validating": "validating",
-        "saving": "persisting",
-        "persisting": "persisting",
-        "done": "done",
-        "unknown": "done",
-        "cancelled": "done",
-    }.get(normalized, normalized)
+    return public_processing_stage(stage, default=str(stage or "").lower())

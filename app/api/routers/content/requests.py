@@ -26,6 +26,7 @@ from app.api.models.responses import (
     success_response,
 )
 from app.api.routers.auth import get_current_user
+from app.application.dto.request_lifecycle import public_request_status
 from app.application.services.request_service import RequestService
 from app.core.time_utils import UTC
 from app.di.api import resolve_api_runtime
@@ -36,24 +37,6 @@ from app.domain.exceptions.domain_exceptions import (
 )
 
 router = APIRouter()
-
-_PUBLIC_STATUS_BY_LEGACY: dict[str, PublicRequestStatus] = {
-    "pending": PublicRequestStatus.PENDING,
-    "processing": PublicRequestStatus.RUNNING,
-    "crawling": PublicRequestStatus.RUNNING,
-    "summarizing": PublicRequestStatus.RUNNING,
-    "success": PublicRequestStatus.SUCCEEDED,
-    "complete": PublicRequestStatus.SUCCEEDED,
-    "completed": PublicRequestStatus.SUCCEEDED,
-    "ok": PublicRequestStatus.SUCCEEDED,
-    "error": PublicRequestStatus.FAILED,
-    "failed": PublicRequestStatus.FAILED,
-    "cancelled": PublicRequestStatus.CANCELLED,
-}
-
-
-def _public_status(legacy_status: str | None) -> PublicRequestStatus:
-    return _PUBLIC_STATUS_BY_LEGACY.get((legacy_status or "").lower(), PublicRequestStatus.PENDING)
 
 
 def _get_request_service(request: Request) -> RequestService:
@@ -148,7 +131,7 @@ async def submit_request(
                     request_id=created.id,
                     correlation_id=created.correlation_id,
                     type=cast("Literal['url', 'forward']", created.type),
-                    status=PublicRequestStatus.PENDING,
+                    status=PublicRequestStatus(public_request_status(created.status)),
                     legacy_status=created.status,
                     estimated_wait_seconds=15,
                     created_at=created.created_at.isoformat().replace("+00:00", "Z"),
@@ -175,7 +158,7 @@ async def submit_request(
                 request_id=created.id,
                 correlation_id=created.correlation_id,
                 type=cast("Literal['url', 'forward']", created.type),
-                status=PublicRequestStatus.PENDING,
+                status=PublicRequestStatus(public_request_status(created.status)),
                 legacy_status=created.status,
                 estimated_wait_seconds=10,
                 created_at=created.created_at.isoformat().replace("+00:00", "Z"),
@@ -202,7 +185,7 @@ async def get_request(
             request=RequestDetailRequest(
                 id=details.request.id,
                 type=details.request.type,
-                status=_public_status(details.request.status),
+                status=PublicRequestStatus(public_request_status(details.request.status)),
                 legacy_status=details.request.status,
                 correlation_id=details.request.correlation_id,
                 input_url=details.request.input_url,
@@ -307,7 +290,7 @@ async def retry_request(
         RetryRequestResponse(
             new_request_id=created.id,
             correlation_id=created.correlation_id,
-            status=PublicRequestStatus.PENDING,
+            status=PublicRequestStatus(public_request_status(created.status)),
             legacy_status=created.status,
             created_at=created.created_at.isoformat().replace("+00:00", "Z"),
         )
