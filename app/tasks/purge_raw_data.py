@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select, update
 from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves at runtime
+from app.adapters.external.formatting.export_temp_files import cleanup_stale_export_files
 from app.core.logging_utils import get_logger
 from app.db.models import (
     CrawlResult,
@@ -47,8 +49,10 @@ class PurgeStats:
     crawl_content: int = 0
     llm_payload: int = 0
     video_transcript: int = 0
+    downloaded_media: int = 0
     interaction_text: int = 0
     request_content: int = 0
+    export_temp_files: int = 0
 
 
 @broker.task(task_name="ratatoskr.data.purge")
@@ -83,15 +87,48 @@ async def _purge_body(cfg: AppConfig, db: Database) -> PurgeStats:
     now = dt.datetime.now(dt.UTC)
 
     stats = PurgeStats(
-        telegram_raw=await _purge_telegram_raw(db, now, ret.telegram_raw_days, batch),
-        crawl_content=await _purge_crawl_content(db, now, ret.crawl_content_days, batch),
-        llm_payload=await _purge_llm_payload(db, now, ret.llm_payload_days, batch),
-        video_transcript=await _purge_video_transcript(db, now, ret.video_transcript_days, batch),
-        interaction_text=await _purge_interaction_text(db, now, ret.interaction_text_days, batch),
-        request_content=await _purge_request_content(db, now, ret.request_content_days, batch),
+        telegram_raw=await _purge_telegram_raw(
+            db, now, _effective_days(ret, ret.telegram_raw_days), batch
+        ),
+        crawl_content=await _purge_crawl_content(
+            db, now, _effective_days(ret, ret.crawl_content_days), batch
+        ),
+        llm_payload=await _purge_llm_payload(
+            db, now, _effective_days(ret, ret.llm_payload_days), batch
+        ),
+        video_transcript=await _purge_video_transcript(
+            db, now, _effective_days(ret, ret.video_transcript_days), batch
+        ),
+        downloaded_media=await _purge_downloaded_media(
+            db, now, _effective_days(ret, ret.downloaded_media_days), batch
+        ),
+        interaction_text=await _purge_interaction_text(
+            db, now, _effective_days(ret, ret.interaction_text_days), batch
+        ),
+        request_content=await _purge_request_content(
+            db, now, _effective_days(ret, ret.request_content_days), batch
+        ),
+        export_temp_files=_purge_export_temp_files(ret),
     )
     logger.info("data_purge_complete", extra=asdict(stats))
     return stats
+
+
+def _effective_days(ret: Any, days: int) -> int:
+    """Return an immediate TTL sentinel when no-retention mode is active."""
+    return -1 if getattr(ret, "privacy_no_retention_mode", False) else days
+
+
+def _cutoff(now: dt.datetime, days: int) -> dt.datetime:
+    return now if days < 0 else now - dt.timedelta(days=days)
+
+
+def _purge_export_temp_files(ret: Any) -> int:
+    max_age_seconds = int(getattr(ret, "export_temp_file_max_age_seconds", 0) or 0)
+    if max_age_seconds == 0:
+        return 0
+    result = cleanup_stale_export_files(max_age_seconds=max_age_seconds)
+    return int(result.get("deleted", 0))
 
 
 async def _null_columns(
@@ -113,7 +150,7 @@ async def _purge_telegram_raw(db: Database, now: dt.datetime, days: int, batch: 
     """
     if days == 0:
         return 0
-    cutoff = now - dt.timedelta(days=days)
+    cutoff = _cutoff(now, days)
     stmt = (
         update(TelegramMessage)
         .where(
@@ -147,7 +184,7 @@ async def _purge_crawl_content(db: Database, now: dt.datetime, days: int, batch:
     """
     if days == 0:
         return 0
-    cutoff = now - dt.timedelta(days=days)
+    cutoff = _cutoff(now, days)
     stmt = (
         update(CrawlResult)
         .where(
@@ -192,7 +229,7 @@ async def _purge_llm_payload(db: Database, now: dt.datetime, days: int, batch: i
     """
     if days == 0:
         return 0
-    cutoff = now - dt.timedelta(days=days)
+    cutoff = _cutoff(now, days)
     stmt = (
         update(LLMCall)
         .where(
@@ -229,7 +266,7 @@ async def _purge_video_transcript(db: Database, now: dt.datetime, days: int, bat
     """NULL transcript_text in video_downloads."""
     if days == 0:
         return 0
-    cutoff = now - dt.timedelta(days=days)
+    cutoff = _cutoff(now, days)
     stmt = (
         update(VideoDownload)
         .where(
@@ -248,11 +285,86 @@ async def _purge_video_transcript(db: Database, now: dt.datetime, days: int, bat
     return await _null_columns(db, stmt=stmt)
 
 
+async def _purge_downloaded_media(db: Database, now: dt.datetime, days: int, batch: int) -> int:
+    """Delete downloaded video/media artifact files and NULL their path columns."""
+    if days == 0:
+        return 0
+    cutoff = _cutoff(now, days)
+    async with db.transaction() as session:
+        rows = (
+            await session.execute(
+                select(
+                    VideoDownload.id,
+                    VideoDownload.video_file_path,
+                    VideoDownload.subtitle_file_path,
+                    VideoDownload.metadata_file_path,
+                    VideoDownload.thumbnail_file_path,
+                )
+                .where(
+                    VideoDownload.created_at < cutoff,
+                    (
+                        VideoDownload.video_file_path.is_not(None)
+                        | VideoDownload.subtitle_file_path.is_not(None)
+                        | VideoDownload.metadata_file_path.is_not(None)
+                        | VideoDownload.thumbnail_file_path.is_not(None)
+                    ),
+                )
+                .order_by(VideoDownload.id)
+                .limit(batch)
+            )
+        ).all()
+
+        purge_ids: list[int] = []
+        for row in rows:
+            paths = (
+                row.video_file_path,
+                row.subtitle_file_path,
+                row.metadata_file_path,
+                row.thumbnail_file_path,
+            )
+            if _delete_media_paths(paths):
+                purge_ids.append(int(row.id))
+
+        if not purge_ids:
+            return 0
+        result = await session.execute(
+            update(VideoDownload)
+            .where(VideoDownload.id.in_(purge_ids))
+            .values(
+                video_file_path=None,
+                subtitle_file_path=None,
+                metadata_file_path=None,
+                thumbnail_file_path=None,
+                file_size_bytes=None,
+            )
+        )
+        return result.rowcount or 0  # type: ignore[attr-defined]
+
+
+def _delete_media_paths(paths: tuple[str | None, ...]) -> bool:
+    deleted_or_missing = True
+    for path_value in paths:
+        if not path_value:
+            continue
+        try:
+            Path(path_value).unlink(missing_ok=True)
+        except OSError as exc:
+            deleted_or_missing = False
+            logger.warning(
+                "downloaded_media_cleanup_failed",
+                extra={
+                    "suffix": Path(path_value).suffix,
+                    "error_type": type(exc).__name__,
+                },
+            )
+    return deleted_or_missing
+
+
 async def _purge_interaction_text(db: Database, now: dt.datetime, days: int, batch: int) -> int:
     """NULL input_text in user_interactions."""
     if days == 0:
         return 0
-    cutoff = now - dt.timedelta(days=days)
+    cutoff = _cutoff(now, days)
     stmt = (
         update(UserInteraction)
         .where(
@@ -275,7 +387,7 @@ async def _purge_request_content(db: Database, now: dt.datetime, days: int, batc
     """NULL content_text and error_context_json in requests."""
     if days == 0:
         return 0
-    cutoff = now - dt.timedelta(days=days)
+    cutoff = _cutoff(now, days)
     stmt = (
         update(Request)
         .where(
