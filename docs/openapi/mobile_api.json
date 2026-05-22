@@ -18569,6 +18569,17 @@
           "processing": {
             "$ref": "#/components/schemas/SummaryDetailProcessing"
           },
+          "sourceBundle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AggregationSourceBundle"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "readingProgress": {
             "anyOf": [
               {

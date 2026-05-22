@@ -11,10 +11,16 @@ from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 class _OptimizedSummaryRepository:
     def __init__(self, context: dict[str, object] | None) -> None:
         self.get_summary_context_mock = AsyncMock(return_value=context)
+        self.get_aggregation_source_bundle_mock = AsyncMock(return_value=None)
         self.async_get_summary_by_id = AsyncMock()
 
     async def async_get_summary_context_by_id(self, summary_id: int) -> dict[str, object] | None:
         return await self.get_summary_context_mock(summary_id)
+
+    async def async_get_aggregation_source_bundle_for_summary(
+        self, summary_id: int
+    ) -> dict[str, object] | None:
+        return await self.get_aggregation_source_bundle_mock(summary_id)
 
 
 @pytest.mark.asyncio
@@ -46,8 +52,10 @@ async def test_get_summary_context_for_user_prefers_joined_repository_path() -> 
         "request_id": 70,
         "crawl_result": {"request": 70, "status": "ok"},
         "llm_calls": [{"id": 1, "request": 70}],
+        "aggregation_source_bundle": None,
     }
     summary_repo.get_summary_context_mock.assert_awaited_once_with(7)
+    summary_repo.get_aggregation_source_bundle_mock.assert_awaited_once_with(7)
     summary_repo.async_get_summary_by_id.assert_not_called()
     request_repo.async_get_request_by_id.assert_not_called()
     crawl_repo.async_get_crawl_result_by_request.assert_not_called()

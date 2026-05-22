@@ -169,12 +169,16 @@ class SummaryReadModelUseCase:
 
         request_id_int = int(request_id)
         llm_calls = await self._llm_repo.async_get_llm_calls_by_request(request_id_int)
+        aggregation_source_bundle = (
+            await self._summary_repo.async_get_aggregation_source_bundle_for_summary(summary_id)
+        )
         return {
             "summary": summary,
             "request": request_data,
             "request_id": request_id_int,
             "crawl_result": context.get("crawl_result"),
             "llm_calls": llm_calls,
+            "aggregation_source_bundle": aggregation_source_bundle,
         }
 
     async def update_summary(

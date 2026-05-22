@@ -11755,6 +11755,11 @@ components:
           $ref: '#/components/schemas/SummaryDetailSource'
         processing:
           $ref: '#/components/schemas/SummaryDetailProcessing'
+        sourceBundle:
+          anyOf:
+          - $ref: '#/components/schemas/AggregationSourceBundle'
+          - type: 'null'
+          default: null
         readingProgress:
           anyOf:
           - type: number

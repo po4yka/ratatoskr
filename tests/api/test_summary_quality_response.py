@@ -66,6 +66,7 @@ class FakeSummaryReadModelUseCase:
                 "latency_ms": 321,
             }
         ]
+        self.aggregation_source_bundle: dict[str, Any] | None = None
 
     async def get_summary_context_for_user(
         self,
@@ -79,6 +80,7 @@ class FakeSummaryReadModelUseCase:
             "request_id": self.request["id"],
             "crawl_result": self.crawl_result,
             "llm_calls": self.llm_calls,
+            "aggregation_source_bundle": self.aggregation_source_bundle,
         }
 
     async def get_user_summaries(self, **_kwargs: Any) -> tuple[list[dict[str, Any]], int, int]:
@@ -142,6 +144,67 @@ async def test_summary_detail_contract_includes_processing_quality() -> None:
         "promptInjectionSuspected": False,
     }
     assert "rawPrompt" not in data["processing"]["quality"]
+
+
+@pytest.mark.asyncio
+async def test_summary_detail_exposes_mixed_source_bundle_provenance() -> None:
+    use_case = FakeSummaryReadModelUseCase()
+    use_case.aggregation_source_bundle = {
+        "session": {
+            "id": 501,
+            "correlation_id": "agg-summary-501",
+            "status": "partial",
+        },
+        "items": [
+            {
+                "id": 701,
+                "aggregation_session_id": 501,
+                "request_id": 42,
+                "position": 0,
+                "source_kind": "web_article",
+                "source_item_id": "src_ok",
+                "original_value": "https://example.com/backend-contract",
+                "normalized_value": "https://example.com/backend-contract",
+                "status": "extracted",
+                "summary_id": 99,
+                "crawl_result_id": 88,
+                "normalized_document_json": {
+                    "metadata": {"title": "Backend Contract", "domain": "example.com"}
+                },
+            },
+            {
+                "id": 702,
+                "aggregation_session_id": 501,
+                "request_id": None,
+                "position": 1,
+                "source_kind": "web_article",
+                "source_item_id": "src_failed",
+                "original_value": "https://bad.example/article",
+                "normalized_value": "https://bad.example/article",
+                "status": "failed",
+                "failure_code": "FETCH_TIMEOUT",
+                "failure_message": "Timed out fetching source",
+            },
+        ],
+    }
+
+    response = await get_summary(
+        summary_id=99,
+        user={"user_id": 7},
+        use_case=use_case,  # type: ignore[arg-type]
+    )
+
+    source_bundle = response["data"]["sourceBundle"]
+    assert source_bundle["bundleId"] == 501
+    assert source_bundle["correlationId"] == "agg-summary-501"
+    assert source_bundle["status"] == "partial"
+    assert [
+        (item["sourceItemId"], item["extractionStatus"]) for item in source_bundle["items"]
+    ] == [("src_ok", "extracted"), ("src_failed", "failed")]
+    assert source_bundle["items"][0]["summaryId"] == 99
+    assert source_bundle["items"][0]["crawlResultId"] == 88
+    assert source_bundle["items"][1]["summaryId"] is None
+    assert source_bundle["items"][1]["errorCode"] == "FETCH_TIMEOUT"
 
 
 @pytest.mark.asyncio

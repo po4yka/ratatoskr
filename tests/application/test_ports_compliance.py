@@ -75,7 +75,11 @@ def test_summary_repository_critical_methods_are_async(db) -> None:
     from app.di.repositories import build_summary_repository
 
     repo = build_summary_repository(db)
-    for method_name in ("async_get_user_summaries", "async_get_summary_context_by_id"):
+    for method_name in (
+        "async_get_user_summaries",
+        "async_get_summary_context_by_id",
+        "async_get_aggregation_source_bundle_for_summary",
+    ):
         method = getattr(repo, method_name, None)
         assert method is not None, f"Missing method: {method_name}"
         assert inspect.iscoroutinefunction(method), f"{method_name} must be async"

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel as _BulkBaseModel
 from pydantic import Field
 
+from app.api.aggregation_provenance import build_source_bundle
 from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.exceptions import ResourceNotFoundError, ValidationError
 from app.api.models.requests import (
@@ -32,6 +33,7 @@ from app.api.models.responses import (
     SummaryDetailRequest,
     SummaryDetailSource,
     SummaryDetailSummary,
+    AggregationSourceBundle,
     SummaryListResponse,
     SummaryListStats,
     ToggleFavoriteResponse,
@@ -101,6 +103,29 @@ def _safe_compact_summary_quality(json_payload: dict[str, Any]) -> SummaryDetail
         **ensure_mapping(json_payload.get("summary_quality")),
     }
     return _safe_summary_quality(quality)
+
+
+def _build_summary_source_bundle(raw: Any) -> AggregationSourceBundle | None:
+    if raw is None:
+        return None
+    if isinstance(raw, AggregationSourceBundle):
+        return raw
+    bundle_data = ensure_mapping(raw)
+    session_data = ensure_mapping(bundle_data.get("session"))
+    items = bundle_data.get("items")
+    if not isinstance(items, list):
+        return None
+    session_id = session_data.get("id")
+    if session_id is None and items:
+        session_id = ensure_mapping(items[0]).get("aggregation_session_id")
+    if session_id is None:
+        return None
+    return build_source_bundle(
+        session_id=int(session_id),
+        correlation_id=session_data.get("correlation_id"),
+        status=session_data.get("status"),
+        persisted_items=[ensure_mapping(item) for item in items],
+    )
 
 
 def _get_summary_use_case() -> SummaryReadModelUseCase:
@@ -462,6 +487,7 @@ async def get_summary(
             request=SummaryDetailRequest(**request_detail),
             source=SummaryDetailSource(**source_detail),
             processing=SummaryDetailProcessing(**processing_detail),
+            source_bundle=_build_summary_source_bundle(context.get("aggregation_source_bundle")),
             reading_progress=summary.get("reading_progress"),
             last_read_offset=summary.get("last_read_offset"),
         )

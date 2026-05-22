@@ -13,7 +13,15 @@ from app.application.services.topic_search_utils import ensure_mapping, tokenize
 from app.core.logging_utils import get_logger
 from app.core.time_utils import coerce_datetime
 from app.db.json_utils import prepare_json_payload
-from app.db.models import CrawlResult, Request, Summary, SummaryFeedback, model_to_dict
+from app.db.models import (
+    AggregationSession,
+    AggregationSessionItem,
+    CrawlResult,
+    Request,
+    Summary,
+    SummaryFeedback,
+    model_to_dict,
+)
 from app.db.types import _next_server_version, _utcnow
 from app.domain.models.request import RequestStatus
 from app.domain.models.summary import Summary as DomainSummary
@@ -208,6 +216,64 @@ class SummaryRepositoryAdapter:
                 "summary": summary_data,
                 "request": model_to_dict(request),
                 "crawl_result": model_to_dict(crawl_result),
+            }
+
+    async def async_get_aggregation_source_bundle_for_summary(
+        self, summary_id: int
+    ) -> dict[str, Any] | None:
+        """Return the newest aggregation session containing this summary's source request."""
+        async with self._database.session() as session:
+            session_id = await session.scalar(
+                select(AggregationSession.id)
+                .join(
+                    AggregationSessionItem,
+                    AggregationSessionItem.aggregation_session_id == AggregationSession.id,
+                )
+                .join(Request, AggregationSessionItem.request_id == Request.id)
+                .join(Summary, Summary.request_id == Request.id)
+                .where(Summary.id == summary_id)
+                .order_by(AggregationSession.created_at.desc(), AggregationSession.id.desc())
+                .limit(1)
+            )
+            if session_id is None:
+                return None
+
+            aggregation_session = await session.get(AggregationSession, session_id)
+            rows = (
+                await session.execute(
+                    select(
+                        AggregationSessionItem,
+                        CrawlResult.id.label("crawl_result_id"),
+                        Summary.id.label("summary_id"),
+                        Request.is_deleted.label("request_is_deleted"),
+                        Summary.is_deleted.label("summary_is_deleted"),
+                    )
+                    .outerjoin(Request, AggregationSessionItem.request_id == Request.id)
+                    .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
+                    .outerjoin(Summary, Summary.request_id == Request.id)
+                    .where(AggregationSessionItem.aggregation_session_id == session_id)
+                    .order_by(AggregationSessionItem.position)
+                )
+            ).all()
+            return {
+                "session": model_to_dict(aggregation_session),
+                "items": [
+                    _aggregation_item_to_dict(
+                        item,
+                        crawl_result_id=crawl_result_id,
+                        summary_id=row_summary_id,
+                        request_is_deleted=bool(request_is_deleted),
+                        summary_is_deleted=bool(summary_is_deleted),
+                    )
+                    or {}
+                    for (
+                        item,
+                        crawl_result_id,
+                        row_summary_id,
+                        request_is_deleted,
+                        summary_is_deleted,
+                    ) in rows
+                ],
             }
 
     async def async_get_summaries_by_request_ids(
@@ -764,3 +830,22 @@ class SummaryRepositoryAdapter:
 
 def _status_value(status: RequestStatus | str) -> str:
     return status.value if isinstance(status, RequestStatus) else str(status)
+
+
+def _aggregation_item_to_dict(
+    item: AggregationSessionItem | None,
+    *,
+    crawl_result_id: int | None = None,
+    summary_id: int | None = None,
+    request_is_deleted: bool = False,
+    summary_is_deleted: bool = False,
+) -> dict[str, Any] | None:
+    data = model_to_dict(item)
+    if data is not None:
+        data["aggregation_session"] = data.get("aggregation_session_id")
+        data["request"] = data.get("request_id")
+        data["crawl_result_id"] = crawl_result_id
+        data["summary_id"] = summary_id
+        data["request_is_deleted"] = request_is_deleted
+        data["summary_is_deleted"] = summary_is_deleted
+    return data

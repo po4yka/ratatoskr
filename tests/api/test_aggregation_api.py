@@ -794,10 +794,10 @@ def test_external_aggregation_detail_exposes_failed_source_provenance(client, db
 
 
 def test_aggregation_source_item_serializer_hides_deleted_summary_link() -> None:
+    from app.api.aggregation_provenance import build_source_bundle, source_item_from_record
     from app.api.models.responses import AggregationDetailResponse
-    from app.api.routers.content.aggregation import _build_source_bundle, _source_item_from_record
 
-    bundle = _build_source_bundle(
+    bundle = build_source_bundle(
         session_id=42,
         correlation_id="cid-source-bundle",
         status="partial",
@@ -872,7 +872,7 @@ def test_aggregation_source_item_serializer_hides_deleted_summary_link() -> None
     dumped = validated.model_dump(by_alias=True)
     assert dumped["data"]["sourceBundle"]["items"][0]["sourceItemId"] == "src_ok"
 
-    item = _source_item_from_record(
+    item = source_item_from_record(
         {
             "aggregation_session_id": 42,
             "id": 7,
