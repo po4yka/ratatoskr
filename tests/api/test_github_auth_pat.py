@@ -97,6 +97,9 @@ async def test_post_pat_with_valid_token_stores_encrypted(
     assert body["github_user_id"] == 99001
     assert body["auth_method"] == "pat"
     assert body["status"] == "active"
+    assert raw_token not in resp.text
+    assert "encrypted_token" not in body
+    assert "token_scopes" not in body
 
     # Verify DB: encrypted_token is not the raw bytes
     async with db.session() as session:
@@ -299,6 +302,25 @@ async def test_token_not_logged(
             assert raw_token not in str(record.args), (
                 f"Plaintext token found in log args: {record.args}"
             )
+
+
+def test_token_validation_error_does_not_echo_secret(
+    client: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    raw_token = "github_pat_" + ("A" * 240)
+
+    with caplog.at_level(logging.WARNING):
+        resp = client.post(
+            "/v1/auth/github/pat",
+            json={"token": raw_token},
+            headers=_auth_headers(),
+        )
+
+    assert resp.status_code == 422
+    assert raw_token not in resp.text
+    for record in caplog.records:
+        assert raw_token not in record.getMessage()
+        assert raw_token not in str(record.__dict__)
 
 
 # ---------------------------------------------------------------------------

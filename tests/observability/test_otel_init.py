@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,6 +16,22 @@ def test_init_noop_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OTEL_ENABLED", "false")
     otel_module.init_tracing()
     assert not otel_module._initialized
+
+
+def test_http_header_sanitizers_include_token_like_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SANITIZE_FIELDS",
+        "custom-header,authorization",
+    )
+
+    otel_module._ensure_http_header_sanitizers()
+
+    configured = os.environ["OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SANITIZE_FIELDS"].split(",")
+    assert configured.count("authorization") == 1
+    assert "custom-header" in configured
+    assert "x-github-token" in configured
+    assert ".*token.*" in configured
+    assert ".*secret.*" in configured
 
 
 def test_init_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -28,6 +28,7 @@ logger = get_logger(__name__)
 
 Role = Literal["owner", "editor", "viewer"]
 ROLE_RANK = {"owner": 3, "editor": 2, "viewer": 1}
+BULK_COLLECTION_MAX_IDS = 500
 
 # Module-level repo factory; set once at startup via ``CollectionService.configure()``.
 # Single-element holder so configure() does not need `global`. The
@@ -54,6 +55,19 @@ class CollectionService:
         if factory is None:
             raise RuntimeError("CollectionService.configure() must be called before use")
         return factory()
+
+    @staticmethod
+    def _dedupe_ints(values: Iterable[int]) -> list[int]:
+        """Return unique integer IDs in caller order."""
+        seen: dict[int, None] = {}
+        for value in values:
+            seen.setdefault(int(value), None)
+        return list(seen)
+
+    @staticmethod
+    def _require_batch_size(values: list[Any], operation: str) -> None:
+        if len(values) > BULK_COLLECTION_MAX_IDS:
+            raise ValidationError(f"{operation} accepts at most {BULK_COLLECTION_MAX_IDS} ids")
 
     # ---- access helpers ----
     @staticmethod
@@ -365,10 +379,29 @@ class CollectionService:
     ) -> None:
         """Reorder items in a collection."""
         repo = cls._repo()
+        item_list = list(items)
+        cls._require_batch_size(item_list, "reorder_items")
         await cls._guard_smart_collection(repo, collection_id)
         await cls._get_collection_or_raise(repo, collection_id)
         await cls._require_role(repo, collection_id, user_id, "editor")
-        await repo.async_reorder_items(collection_id, list(items))
+        summary_ids = cls._dedupe_ints(item["summary_id"] for item in item_list)
+        if not summary_ids:
+            return
+        existing_ids = set(await repo.async_list_item_summary_ids(collection_id, summary_ids))
+        if len(existing_ids) != len(summary_ids):
+            missing = next(
+                summary_id for summary_id in summary_ids if summary_id not in existing_ids
+            )
+            raise ResourceNotFoundError("Summary", missing)
+        deduped_items: list[dict[str, int]] = []
+        seen: set[int] = set()
+        for item in item_list:
+            summary_id = int(item["summary_id"])
+            if summary_id in seen:
+                continue
+            seen.add(summary_id)
+            deduped_items.append({"summary_id": summary_id, "position": int(item["position"])})
+        await repo.async_reorder_items(collection_id, deduped_items)
 
     @classmethod
     async def move_items(
@@ -381,6 +414,8 @@ class CollectionService:
     ) -> list[int]:
         """Move items from one collection to another."""
         repo = cls._repo()
+        summary_ids = cls._dedupe_ints(summary_ids)
+        cls._require_batch_size(summary_ids, "move_items")
 
         # Guard against smart collections on both sides
         await cls._guard_smart_collection(repo, source_collection_id)
@@ -414,12 +449,32 @@ class CollectionService:
     ) -> None:
         """Reorder collections within a parent."""
         repo = cls._repo()
+        item_list = list(items)
+        cls._require_batch_size(item_list, "reorder_collections")
 
         if parent_id is not None:
             await cls._get_collection_or_raise(repo, parent_id)
             await cls._require_role(repo, parent_id, user_id, "editor")
 
-        await repo.async_reorder_collections(parent_id, list(items))
+        collection_ids = cls._dedupe_ints(item["collection_id"] for item in item_list)
+        if not collection_ids:
+            return
+        for collection_id in collection_ids:
+            collection = await cls._get_collection_or_raise(repo, collection_id)
+            if collection.get("parent_id") != parent_id and collection.get("parent") != parent_id:
+                raise ResourceNotFoundError("Collection", collection_id)
+            await cls._require_role(repo, collection_id, user_id, "editor")
+        deduped_items: list[dict[str, int]] = []
+        seen: set[int] = set()
+        for item in item_list:
+            collection_id = int(item["collection_id"])
+            if collection_id in seen:
+                continue
+            seen.add(collection_id)
+            deduped_items.append(
+                {"collection_id": collection_id, "position": int(item["position"])}
+            )
+        await repo.async_reorder_collections(parent_id, deduped_items)
 
     @classmethod
     async def move_collection(

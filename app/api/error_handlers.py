@@ -4,13 +4,14 @@ Provides consistent error responses across all endpoints with correlation ID tra
 """
 
 from fastapi import Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.exceptions import APIException, ErrorCode, ErrorType
 from app.api.models.responses import error_response, make_error
 from app.config import load_config
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_for_logging
 
 logger = get_logger(__name__)
 
@@ -52,24 +53,34 @@ async def api_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
-async def validation_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle Pydantic validation errors."""
-    # Type narrowing for FastAPI compatibility
-    if not isinstance(exc, PydanticValidationError):
-        raise exc
-
-    correlation_id = getattr(request.state, "correlation_id", None)
-
-    # Format validation errors
+def _format_validation_errors(errors: list[dict]) -> list[dict]:
+    """Return validation errors without raw rejected input values."""
     formatted_errors = []
-    for error in exc.errors():
+    for error in errors:
+        field = ".".join(str(loc) for loc in error["loc"])
         formatted_errors.append(
             {
-                "field": ".".join(str(loc) for loc in error["loc"]),
-                "message": error["msg"],
+                "field": field,
+                "message": redact_for_logging(error["msg"], key=field),
                 "type": error["type"],
             }
         )
+    return formatted_errors
+
+
+async def validation_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle Pydantic and FastAPI request validation errors without echoing secrets."""
+    # Type narrowing for FastAPI compatibility
+    if not isinstance(exc, (PydanticValidationError, RequestValidationError)):
+        raise exc
+
+    correlation_id = getattr(request.state, "correlation_id", None)
+    formatted_errors = _format_validation_errors(
+        [
+            {key: value for key, value in error.items() if key in {"loc", "msg", "type"}}
+            for error in exc.errors()
+        ]
+    )
 
     logger.warning(
         "Request validation failed",
@@ -90,7 +101,7 @@ async def validation_exception_handler(request: Request, exc: Exception) -> Resp
     detail.correlation_id = correlation_id
 
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=error_response(detail, correlation_id=correlation_id),
     )
 

@@ -208,7 +208,11 @@ async def reorder_collection_items(
     body: CollectionItemReorderRequest,
     user: dict[str, Any] = Depends(get_current_user),
 ) -> Any:
-    await CollectionService.reorder_items(collection_id, user["user_id"], body.items)
+    await CollectionService.reorder_items(
+        collection_id,
+        user["user_id"],
+        [item.model_dump() for item in body.items],
+    )
     return success_response({"success": True})
 
 
@@ -248,7 +252,7 @@ async def reorder_collections(
     await CollectionService.reorder_collections(
         parent_id=collection_id,
         user_id=user["user_id"],
-        items=body.items,
+        items=[item.model_dump() for item in body.items],
     )
     return success_response({"success": True})
 

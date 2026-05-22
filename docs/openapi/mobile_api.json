@@ -12757,7 +12757,8 @@
                 "items": {
                   "type": "integer"
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 500
               },
               {
                 "type": "null"
@@ -12771,7 +12772,8 @@
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 500
               },
               {
                 "type": "null"
@@ -13045,6 +13047,7 @@
         "properties": {
           "summary_id": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "Summary Id"
           }
         },
@@ -13062,11 +13065,13 @@
               "type": "integer"
             },
             "type": "array",
+            "maxItems": 500,
             "minItems": 1,
             "title": "Summary Ids"
           },
           "target_collection_id": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "Target Collection Id"
           },
           "position": {
@@ -13090,16 +13095,35 @@
         "title": "CollectionItemMoveRequest",
         "description": "Move items to another collection."
       },
+      "CollectionItemReorderItem": {
+        "properties": {
+          "summary_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Summary Id"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary_id",
+          "position"
+        ],
+        "title": "CollectionItemReorderItem",
+        "description": "Single collection item position update."
+      },
       "CollectionItemReorderRequest": {
         "properties": {
           "items": {
             "items": {
-              "additionalProperties": {
-                "type": "integer"
-              },
-              "type": "object"
+              "$ref": "#/components/schemas/CollectionItemReorderItem"
             },
             "type": "array",
+            "maxItems": 500,
             "minItems": 1,
             "title": "Items"
           }
@@ -13142,16 +13166,35 @@
         "title": "CollectionMoveRequest",
         "description": "Move collection to a new parent."
       },
+      "CollectionReorderItem": {
+        "properties": {
+          "collection_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Collection Id"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "collection_id",
+          "position"
+        ],
+        "title": "CollectionReorderItem",
+        "description": "Single child collection position update."
+      },
       "CollectionReorderRequest": {
         "properties": {
           "items": {
             "items": {
-              "additionalProperties": {
-                "type": "integer"
-              },
-              "type": "object"
+              "$ref": "#/components/schemas/CollectionReorderItem"
             },
             "type": "array",
+            "maxItems": 500,
             "minItems": 1,
             "title": "Items"
           }
@@ -14418,10 +14461,13 @@
               "type": "integer"
             },
             "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
             "title": "Source Tag Ids"
           },
           "target_tag_id": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "Target Tag Id"
           }
         },
@@ -16238,13 +16284,11 @@
               "type": "integer"
             },
             "type": "array",
+            "maxItems": 500,
             "title": "Summary Ids"
           }
         },
         "type": "object",
-        "required": [
-          "summary_ids"
-        ],
         "title": "_BulkDeleteRequest"
       },
       "_BulkFavoriteRequest": {
@@ -16254,6 +16298,7 @@
               "type": "integer"
             },
             "type": "array",
+            "maxItems": 500,
             "title": "Summary Ids"
           },
           "value": {
@@ -16263,9 +16308,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "summary_ids"
-        ],
         "title": "_BulkFavoriteRequest"
       },
       "_BulkMarkReadRequest": {
@@ -16275,13 +16317,11 @@
               "type": "integer"
             },
             "type": "array",
+            "maxItems": 500,
             "title": "Summary Ids"
           }
         },
         "type": "object",
-        "required": [
-          "summary_ids"
-        ],
         "title": "_BulkMarkReadRequest"
       },
       "Meta": {

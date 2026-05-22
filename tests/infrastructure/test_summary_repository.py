@@ -83,6 +83,28 @@ async def _create_request(
         return request.id
 
 
+async def _create_summary_for_user(
+    database: Database,
+    repo: SummaryRepositoryAdapter,
+    *,
+    user_id: int,
+    url: str,
+    is_read: bool = False,
+    is_favorited: bool = False,
+) -> int:
+    request_id = await _create_request(database, user_id=user_id, url=url, status="completed")
+    await repo.async_upsert_summary(
+        request_id,
+        "en",
+        {"summary_250": f"summary for {url}"},
+        is_read=is_read,
+        is_favorited=is_favorited,
+    )
+    summary = await repo.async_get_summary_by_request(request_id)
+    assert summary is not None
+    return int(summary["id"])
+
+
 @pytest.mark.asyncio
 async def test_summary_repository_upserts_reads_and_finalizes(database: Database) -> None:
     repo = SummaryRepositoryAdapter(database)
@@ -167,6 +189,100 @@ async def test_summary_repository_context_state_sync_and_feedback(database: Data
     assert updated_feedback["rating"] == 5
     assert updated_feedback["issues"] == ["clear"]
     assert updated_feedback["comment"] == "still good"
+
+
+@pytest.mark.asyncio
+async def test_summary_repository_bulk_mark_read_skips_cross_user_ids(database: Database) -> None:
+    repo = SummaryRepositoryAdapter(database)
+    owned_first = await _create_summary_for_user(
+        database, repo, user_id=7101, url="https://bulk.example/owned-1"
+    )
+    owned_second = await _create_summary_for_user(
+        database, repo, user_id=7101, url="https://bulk.example/owned-2"
+    )
+    owned_third = await _create_summary_for_user(
+        database, repo, user_id=7101, url="https://bulk.example/owned-3"
+    )
+    other = await _create_summary_for_user(
+        database, repo, user_id=7102, url="https://bulk.example/other"
+    )
+
+    assert (
+        await repo.async_bulk_mark_summaries_as_read(
+            user_id=7101, summary_ids=[owned_first, owned_second]
+        )
+        == 2
+    )
+    assert (
+        await repo.async_bulk_mark_summaries_as_read(
+            user_id=7101, summary_ids=[owned_third, other, owned_third]
+        )
+        == 1
+    )
+    assert await repo.async_bulk_mark_summaries_as_read(user_id=7101, summary_ids=[other]) == 0
+
+    async with database.session() as session:
+        rows = await session.execute(
+            select(Summary.id, Summary.is_read).where(
+                Summary.id.in_([owned_first, owned_second, owned_third, other])
+            )
+        )
+        states = {row[0]: row[1] for row in rows}
+    assert states == {owned_first: True, owned_second: True, owned_third: True, other: False}
+
+
+@pytest.mark.asyncio
+async def test_summary_repository_bulk_favorite_skips_cross_user_ids_and_handles_duplicates(
+    database: Database,
+) -> None:
+    repo = SummaryRepositoryAdapter(database)
+    owned = await _create_summary_for_user(
+        database, repo, user_id=7201, url="https://bulk.example/fav-owned"
+    )
+    other = await _create_summary_for_user(
+        database, repo, user_id=7202, url="https://bulk.example/fav-other"
+    )
+
+    assert (
+        await repo.async_bulk_set_summaries_favorite(
+            user_id=7201, summary_ids=[owned, owned, other], value=True
+        )
+        == 1
+    )
+    assert (
+        await repo.async_bulk_set_summaries_favorite(user_id=7201, summary_ids=[other], value=True)
+        == 0
+    )
+
+    async with database.session() as session:
+        rows = await session.execute(
+            select(Summary.id, Summary.is_favorited).where(Summary.id.in_([owned, other]))
+        )
+        states = {row[0]: row[1] for row in rows}
+    assert states == {owned: True, other: False}
+
+
+@pytest.mark.asyncio
+async def test_summary_repository_bulk_delete_skips_cross_user_ids(database: Database) -> None:
+    repo = SummaryRepositoryAdapter(database)
+    owned = await _create_summary_for_user(
+        database, repo, user_id=7301, url="https://bulk.example/delete-owned"
+    )
+    other = await _create_summary_for_user(
+        database, repo, user_id=7302, url="https://bulk.example/delete-other"
+    )
+
+    assert (
+        await repo.async_bulk_soft_delete_summaries(user_id=7301, summary_ids=[owned, other]) == 1
+    )
+    assert await repo.async_bulk_soft_delete_summaries(user_id=7301, summary_ids=[other]) == 0
+
+    async with database.session() as session:
+        rows = await session.execute(
+            select(Summary.id, Summary.is_deleted).where(Summary.id.in_([owned, other]))
+        )
+        states = {row[0]: row[1] for row in rows}
+    assert states == {owned: True, other: False}
 
 
 @pytest.mark.asyncio

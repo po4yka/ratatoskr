@@ -222,6 +222,21 @@ def _repo_to_detail(row: Repository) -> RepositoryDetail:
     )
 
 
+async def _load_owned_repository(
+    db: Database,
+    *,
+    repository_id: int,
+    user_id: int,
+) -> Repository | None:
+    """Load a repository only when it belongs to the authenticated user."""
+    async with db.session() as session:
+        stmt = select(Repository).where(
+            Repository.id == repository_id,
+            Repository.user_id == user_id,
+        )
+        return (await session.execute(stmt)).scalar_one_or_none()
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -291,12 +306,7 @@ async def get_repository(
     """Get full detail for a single repository."""
     user_id: int = user["user_id"]
 
-    async with db.session() as session:
-        stmt = select(Repository).where(
-            Repository.id == repository_id,
-            Repository.user_id == user_id,
-        )
-        row = (await session.execute(stmt)).scalar_one_or_none()
+    row = await _load_owned_repository(db, repository_id=repository_id, user_id=user_id)
 
     if row is None:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -376,13 +386,8 @@ async def reanalyze_repository(
     """Force re-analysis of a repository."""
     user_id: int = user["user_id"]
 
-    # Verify ownership first
-    async with db.session() as session:
-        stmt = select(Repository).where(
-            Repository.id == repository_id,
-            Repository.user_id == user_id,
-        )
-        row = (await session.execute(stmt)).scalar_one_or_none()
+    # Verify ownership first.
+    row = await _load_owned_repository(db, repository_id=repository_id, user_id=user_id)
 
     if row is None:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -398,10 +403,9 @@ async def reanalyze_repository(
     except RepositoryNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Repository not found") from exc
 
-    # Reload updated row
-    async with db.session() as session:
-        stmt = select(Repository).where(Repository.id == repository_id)
-        updated_row = (await session.execute(stmt)).scalar_one_or_none()
+    # Reload under the same ownership predicate so a stale or reused repository
+    # ID cannot cross user boundaries after analysis completes.
+    updated_row = await _load_owned_repository(db, repository_id=repository_id, user_id=user_id)
 
     if updated_row is None:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -425,12 +429,7 @@ async def delete_repository(
 
     user_id: int = user["user_id"]
 
-    async with db.session() as session:
-        stmt = select(Repository).where(
-            Repository.id == repository_id,
-            Repository.user_id == user_id,
-        )
-        row = (await session.execute(stmt)).scalar_one_or_none()
+    row = await _load_owned_repository(db, repository_id=repository_id, user_id=user_id)
 
     if row is None:
         raise HTTPException(status_code=404, detail="Repository not found")

@@ -446,6 +446,18 @@ class Settings(BaseSettings):
         )
         return self
 
+    @model_validator(mode="after")
+    def _ensure_production_github_token_encryption_key(self) -> Self:
+        """Require a GitHub token encryption key before production/public startup."""
+        if self.deployment.is_production_mode and self.github.token_encryption_key is None:
+            raise RuntimeError(
+                "Production deployment requires GITHUB_TOKEN_ENCRYPTION_KEY. "
+                "Stored GitHub PAT/OAuth credentials must be encrypted with a "
+                "deployment-owned Fernet key before GitHub auth or sync can be used. Generate one "
+                "with: python tools/scripts/generate_github_encryption_key.py."
+            )
+        return self
+
     def as_app_config(self) -> AppConfig:
         return AppConfig(
             telegram=self.telegram,

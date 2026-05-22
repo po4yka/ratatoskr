@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.url_utils import validate_url_input
 
+BULK_API_MAX_IDS = 500
+
 
 class SubmitURLRequest(BaseModel):
     """Request body for submitting a URL."""
@@ -121,19 +123,33 @@ class CollectionUpdateRequest(BaseModel):
 class CollectionItemCreateRequest(BaseModel):
     """Request body for adding an item to a collection."""
 
-    summary_id: int
+    summary_id: int = Field(ge=1)
+
+
+class CollectionReorderItem(BaseModel):
+    """Single child collection position update."""
+
+    collection_id: int = Field(ge=1)
+    position: int = Field(ge=1)
+
+
+class CollectionItemReorderItem(BaseModel):
+    """Single collection item position update."""
+
+    summary_id: int = Field(ge=1)
+    position: int = Field(ge=1)
 
 
 class CollectionReorderRequest(BaseModel):
     """Reorder child collections."""
 
-    items: list[dict[str, int]] = Field(min_length=1)
+    items: list[CollectionReorderItem] = Field(min_length=1, max_length=BULK_API_MAX_IDS)
 
 
 class CollectionItemReorderRequest(BaseModel):
     """Reorder items inside a collection."""
 
-    items: list[dict[str, int]] = Field(min_length=1)
+    items: list[CollectionItemReorderItem] = Field(min_length=1, max_length=BULK_API_MAX_IDS)
 
 
 class CollectionMoveRequest(BaseModel):
@@ -146,8 +162,8 @@ class CollectionMoveRequest(BaseModel):
 class CollectionItemMoveRequest(BaseModel):
     """Move items to another collection."""
 
-    summary_ids: list[int] = Field(min_length=1)
-    target_collection_id: int
+    summary_ids: list[int] = Field(min_length=1, max_length=BULK_API_MAX_IDS)
+    target_collection_id: int = Field(ge=1)
     position: int | None = Field(default=None, ge=1)
 
 
@@ -242,15 +258,15 @@ class UpdateTagRequest(BaseModel):
 class MergeTagsRequest(BaseModel):
     """Request body for merging tags."""
 
-    source_tag_ids: list[int]
-    target_tag_id: int
+    source_tag_ids: list[int] = Field(min_length=1, max_length=BULK_API_MAX_IDS)
+    target_tag_id: int = Field(ge=1)
 
 
 class AttachTagsRequest(BaseModel):
     """Request body for attaching tags to a summary."""
 
-    tag_ids: list[int] | None = None
-    tag_names: list[str] | None = None
+    tag_ids: list[int] | None = Field(default=None, max_length=BULK_API_MAX_IDS)
+    tag_names: list[str] | None = Field(default=None, max_length=BULK_API_MAX_IDS)
 
 
 class CreateWebhookRequest(BaseModel):

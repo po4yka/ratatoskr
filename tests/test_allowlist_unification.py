@@ -141,6 +141,7 @@ _MINIMAL_SETTINGS_ENV = {
     "FIRECRAWL_API_KEY": "",
     "OPENROUTER_API_KEY": "sk-test",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+    "GITHUB_TOKEN_ENCRYPTION_KEY": "QpuAsYbqcPtUCkWXZzjYmmVgjV5QV0VTmUz2pZjWpEA=",
 }
 
 

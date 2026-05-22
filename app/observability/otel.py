@@ -16,6 +16,16 @@ if TYPE_CHECKING:
 
 _initialized = False
 _otel_available = False
+_HTTP_CAPTURE_SANITIZE_ENV = "OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SANITIZE_FIELDS"
+_SENSITIVE_HTTP_HEADER_SANITIZERS = (
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+    "x-github-token",
+    ".*token.*",
+    ".*secret.*",
+)
 
 try:
     from opentelemetry import trace as _trace
@@ -35,6 +45,25 @@ def _is_enabled(cfg: AppConfig | None) -> bool:
     return os.getenv("OTEL_ENABLED", "").lower() in ("1", "true")
 
 
+def _ensure_http_header_sanitizers() -> None:
+    """Ensure OTel HTTP header capture redacts auth and token-like fields."""
+    configured = [
+        item.strip()
+        for item in os.getenv(_HTTP_CAPTURE_SANITIZE_ENV, "").split(",")
+        if item.strip()
+    ]
+    lower_configured = {item.lower() for item in configured}
+    merged = [
+        *configured,
+        *[
+            sanitizer
+            for sanitizer in _SENSITIVE_HTTP_HEADER_SANITIZERS
+            if sanitizer.lower() not in lower_configured
+        ],
+    ]
+    os.environ[_HTTP_CAPTURE_SANITIZE_ENV] = ",".join(merged)
+
+
 def init_tracing(cfg: AppConfig | None = None) -> None:
     """Initialise the OTel SDK.  No-op when [otel] extra is absent or OTEL_ENABLED=false.
 
@@ -46,6 +75,7 @@ def init_tracing(cfg: AppConfig | None = None) -> None:
         return
     if not _otel_available or not _is_enabled(cfg):
         return
+    _ensure_http_header_sanitizers()
 
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor

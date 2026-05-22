@@ -57,6 +57,21 @@ def _verify_tag_ownership(tag: dict[str, Any] | None, tag_id: int, user_id: int)
     return tag
 
 
+def _dedupe_ints(values: list[int] | None) -> list[int]:
+    seen: dict[int, None] = {}
+    for value in values or []:
+        seen.setdefault(value, None)
+    return list(seen)
+
+
+def _dedupe_tag_names(values: list[str] | None) -> list[str]:
+    seen: dict[str, str] = {}
+    for value in values or []:
+        normalized = normalize_tag_name(value)
+        seen.setdefault(normalized, value)
+    return list(seen.values())
+
+
 async def _ensure_summary_owned(summary_id: int, user_id: int) -> None:
     """Raise if the summary does not belong to the authenticated user."""
     summary = await get_summary_repository().async_get_summary_by_id(summary_id)
@@ -171,20 +186,21 @@ async def merge_tags(
 ) -> dict[str, Any]:
     """Merge source tags into a target tag."""
     repo = _get_tag_repo()
+    source_tag_ids = _dedupe_ints(body.source_tag_ids)
 
     # Verify ownership of target
     target = await repo.async_get_tag_by_id(body.target_tag_id)
     _verify_tag_ownership(target, body.target_tag_id, user["user_id"])
 
     # Verify ownership of all sources
-    for src_id in body.source_tag_ids:
+    for src_id in source_tag_ids:
         src = await repo.async_get_tag_by_id(src_id)
         _verify_tag_ownership(src, src_id, user["user_id"])
 
-    if body.target_tag_id in body.source_tag_ids:
+    if body.target_tag_id in source_tag_ids:
         raise ValidationError("Target tag cannot be in source tags")
 
-    await repo.async_merge_tags(body.source_tag_ids, body.target_tag_id)
+    await repo.async_merge_tags(source_tag_ids, body.target_tag_id)
     return success_response({"merged": True, "target_tag_id": body.target_tag_id})
 
 
@@ -202,18 +218,20 @@ async def attach_tags(
 
     repo = _get_tag_repo()
     attached: list[dict[str, Any]] = []
+    tag_ids = _dedupe_ints(body.tag_ids)
+    tag_names = _dedupe_tag_names(body.tag_names)
 
     # Attach by tag IDs
-    if body.tag_ids:
-        for tid in body.tag_ids:
+    if tag_ids:
+        for tid in tag_ids:
             tag = await repo.async_get_tag_by_id(tid)
             _verify_tag_ownership(tag, tid, user["user_id"])
             assoc = await repo.async_attach_tag(summary_id, tid, source="manual")
             attached.append(assoc)
 
     # Attach by tag names (auto-create if needed)
-    if body.tag_names:
-        for name in body.tag_names:
+    if tag_names:
+        for name in tag_names:
             valid, err = validate_tag_name(name)
             if not valid:
                 raise ValidationError(err or f"Invalid tag name: {name}")
@@ -233,7 +251,7 @@ async def attach_tags(
             assoc = await repo.async_attach_tag(summary_id, tid, source="manual")
             attached.append(assoc)
 
-    if not body.tag_ids and not body.tag_names:
+    if not tag_ids and not tag_names:
         raise ValidationError("At least one of tag_ids or tag_names must be provided")
 
     # Return current tags for the summary

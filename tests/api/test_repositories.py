@@ -328,6 +328,30 @@ async def test_post_reanalyze_calls_use_case_with_force_true(client: Any, db: Da
     assert resp.json()["id"] == repo.id
 
 
+async def test_post_reanalyze_404_for_other_users_repo(client: Any, db: Database) -> None:
+    await _create_user(db, _USER_A_ID)
+    await _create_user(db, _USER_B_ID)
+    repo = await _create_repo(db, user_id=_USER_B_ID)
+
+    mock_use_case = MagicMock()
+    mock_use_case.analyze = AsyncMock()
+
+    from app.api.main import app
+    from app.api.routers.repositories import _get_analyze_use_case
+
+    app.dependency_overrides[_get_analyze_use_case] = lambda: mock_use_case
+    try:
+        resp = client.post(
+            f"/v1/repositories/{repo.id}/reanalyze",
+            headers=_auth(_USER_A_ID),
+        )
+    finally:
+        app.dependency_overrides.pop(_get_analyze_use_case, None)
+
+    assert resp.status_code == 404
+    mock_use_case.analyze.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # 11. delete removes repo and calls Qdrant
 # ---------------------------------------------------------------------------

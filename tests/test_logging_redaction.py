@@ -34,6 +34,10 @@ def test_redact_for_logging_removes_tokens_headers_and_private_urls() -> None:
         "api_key": "sk-or-secretsecretsecret",
         "telegram_token": "123456789:ABCDEFghijklmnopqrstuvwxyz123456",
         "github_token": "ghp_abcdefghijklmnopqrstuvwxyz123456",
+        "pat": "github_pat_11AAAAAAAAAAAAAAAAAAAA_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        "personal_access_token": "ghp_personalAccessSecretValue123456",
+        "device_code": "device-secret-code-value",
+        "client_secret": "oauth-client-secret-value",
         "crawl4ai_token": "provider-secret-value",
         "tokens_prompt": 123,
         "headers": {
@@ -53,6 +57,10 @@ def test_redact_for_logging_removes_tokens_headers_and_private_urls() -> None:
     assert "sk-or-secretsecretsecret" not in rendered
     assert "ABCDEFghijklmnopqrstuvwxyz123456" not in rendered
     assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in rendered
+    assert "github_pat_11AAAAAAAAAAAAAAAAAAAA" not in rendered
+    assert "ghp_personalAccessSecretValue123456" not in rendered
+    assert "device-secret-code-value" not in rendered
+    assert "oauth-client-secret-value" not in rendered
     assert "provider-secret-value" not in rendered
     assert "sessionid=secret" not in rendered
     assert "/private/path" not in rendered

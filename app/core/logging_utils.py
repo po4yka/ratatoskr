@@ -23,7 +23,8 @@ _REDACTED = "[REDACTED]"
 _CONTENT_REDACTED = "[REDACTED_CONTENT]"
 _SENSITIVE_KEY_RE = re.compile(
     r"(authorization|cookie|set[-_]?cookie|access[-_]?token|refresh[-_]?token|api[-_]?key|"
-    r"telegram[-_]?token|github[-_]?token|bot[-_]?token|x[-_]?api[-_]?key|secret)",
+    r"telegram[-_]?token|github[-_]?token|bot[-_]?token|x[-_]?api[-_]?key|"
+    r"personal[-_]?access[-_]?token|client[-_]?secret|device[-_]?code|secret)",
     re.IGNORECASE,
 )
 _TOKEN_KEY_RE = re.compile(r"(^|[-_])token($|[-_])", re.IGNORECASE)
@@ -43,7 +44,8 @@ _AUTH_HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 _TOKEN_ASSIGNMENT_RE = re.compile(
-    r"\b(access_token|refresh_token|api_key|telegram_token|github_token|bot_token|token|secret)"
+    r"\b(access_token|refresh_token|api_key|telegram_token|github_token|bot_token|"
+    r"personal_access_token|pat|client_secret|device_code|token|secret)"
     r"\s*[:=]\s*([A-Za-z0-9._~:/+\-=]{8,})",
     re.IGNORECASE,
 )
@@ -74,6 +76,7 @@ _OPERATIONAL_KEY_EXACT = {
     "tokens_total",
     "total_tokens",
 }
+_SENSITIVE_KEY_EXACT = {"pat"}
 
 
 def _privacy_redact_urls_default() -> bool:
@@ -350,7 +353,11 @@ def redact_for_logging(
 
     if key and key.lower() in _OPERATIONAL_KEY_EXACT:
         return value
-    if key and (_SENSITIVE_KEY_RE.search(key) or _TOKEN_KEY_RE.search(key)):
+    if key and (
+        key.lower() in _SENSITIVE_KEY_EXACT
+        or _SENSITIVE_KEY_RE.search(key)
+        or _TOKEN_KEY_RE.search(key)
+    ):
         return _REDACTED
     if key and _CONTENT_KEY_RE.search(key):
         if allow_debug_content or _DEBUG_PREVIEW_KEY_RE.search(key):

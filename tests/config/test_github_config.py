@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import os
+import unittest.mock
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
+
+from cryptography.fernet import Fernet
 
 from app.config.github import GitHubConfig
 
@@ -54,3 +56,58 @@ def test_appconfig_includes_github_subconfig() -> None:
     from app.config.settings import AppConfig
 
     assert "github" in AppConfig.__dataclass_fields__
+
+
+def test_production_requires_github_token_encryption_key() -> None:
+    from app.config import settings
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            "API_ID": "12345",
+            "API_HASH": "abc123",
+            "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "ALLOWED_USER_IDS": "999",
+            "ALLOWED_CLIENT_IDS": "mobile-v1",
+            "FIRECRAWL_API_KEY": "",
+            "OPENROUTER_API_KEY": "sk-test",
+            "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+            "APP_ENV": "production",
+            "REDIS_ENABLED": "true",
+            "REDIS_REQUIRED": "true",
+            "GITHUB_SYNC_ENABLED": "true",
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with pytest.raises(RuntimeError, match="GITHUB_TOKEN_ENCRYPTION_KEY"):
+            settings.Settings(allow_stub_telegram=True)
+
+
+def test_production_accepts_github_token_encryption_key() -> None:
+    from app.config import settings
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            "API_ID": "12345",
+            "API_HASH": "abc123",
+            "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "ALLOWED_USER_IDS": "999",
+            "ALLOWED_CLIENT_IDS": "mobile-v1",
+            "FIRECRAWL_API_KEY": "",
+            "OPENROUTER_API_KEY": "sk-test",
+            "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+            "APP_ENV": "production",
+            "REDIS_ENABLED": "true",
+            "REDIS_REQUIRED": "true",
+            "GITHUB_SYNC_ENABLED": "true",
+            "GITHUB_TOKEN_ENCRYPTION_KEY": Fernet.generate_key().decode("ascii"),
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        cfg = settings.Settings(allow_stub_telegram=True)
+
+    assert cfg.deployment.is_production_mode is True
+    assert cfg.github.token_encryption_key is not None

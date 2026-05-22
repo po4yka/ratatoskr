@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel as _BulkBaseModel
+from pydantic import Field
 
 from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.exceptions import ResourceNotFoundError, ValidationError
@@ -47,6 +48,7 @@ from app.core.time_utils import UTC
 
 logger = get_logger(__name__)
 router = APIRouter()
+BULK_SUMMARY_MAX_IDS = 500
 
 # Internal schema stores "med"; API contract exposes "medium".
 _HR_NORMALIZE: dict[str, str] = {"med": "medium"}
@@ -639,7 +641,7 @@ async def delete_summary(
 
 
 class _BulkMarkReadRequest(_BulkBaseModel):
-    summary_ids: list[int]
+    summary_ids: list[int] = Field(default_factory=list, max_length=BULK_SUMMARY_MAX_IDS)
 
 
 class _BulkMarkReadResponse(_BulkBaseModel):
@@ -647,12 +649,12 @@ class _BulkMarkReadResponse(_BulkBaseModel):
 
 
 class _BulkFavoriteRequest(_BulkBaseModel):
-    summary_ids: list[int]
+    summary_ids: list[int] = Field(default_factory=list, max_length=BULK_SUMMARY_MAX_IDS)
     value: bool = True
 
 
 class _BulkDeleteRequest(_BulkBaseModel):
-    summary_ids: list[int]
+    summary_ids: list[int] = Field(default_factory=list, max_length=BULK_SUMMARY_MAX_IDS)
 
 
 @router.post("/bulk/mark-read")
