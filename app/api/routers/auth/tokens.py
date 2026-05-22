@@ -8,7 +8,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import jwt
 
@@ -126,7 +126,7 @@ def create_token(
     else:
         raise ValueError(f"Invalid token type: {token_type}")
 
-    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
+    return cast("str", jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM))
 
 
 def create_access_token(
@@ -227,7 +227,7 @@ def decode_token(token: str, expected_type: str | None = None) -> dict[str, Any]
     if expected_type and payload.get("type") != expected_type:
         raise TokenWrongTypeError(expected=expected_type, received=payload.get("type", "unknown"))
 
-    return payload
+    return cast("dict[str, Any]", payload)
 
 
 def validate_client_id(client_id: str | None) -> None:
@@ -261,12 +261,15 @@ def validate_client_id(client_id: str | None) -> None:
     # Check against allowlist
     allowed_client_ids = Config.get_allowed_client_ids()
 
-    # If allowlist is empty, allow all clients (backward compatible)
+    # If the allowlist is empty, Settings has already rejected production /
+    # public deployments unless AUTH_ALLOW_ANY_CLIENT_ID=true was explicit.
     if not allowed_client_ids:
         if not _allowlist_empty_warned_holder[0]:
+            override = Config.allow_any_client_id()
             logger.warning(
                 "ALLOWED_CLIENT_IDS is empty -- all client IDs are accepted. "
-                "Set ALLOWED_CLIENT_IDS to restrict access."
+                "Set ALLOWED_CLIENT_IDS to restrict access.",
+                extra={"auth_allow_any_client_id": override},
             )
             _allowlist_empty_warned_holder[0] = True
         return
@@ -280,6 +283,39 @@ def validate_client_id(client_id: str | None) -> None:
         raise AuthorizationError("Client application not authorized. Please contact administrator.")
 
     return
+
+
+def build_auth_posture_summary(cfg: Any, *, cors_origins_count: int) -> dict[str, Any]:
+    """Build a redacted auth startup posture summary."""
+    from app.api.routers.auth.cookies import REFRESH_COOKIE_NAME
+
+    allowed_user_count = len(cfg.telegram.allowed_user_ids)
+    allowed_client_count = len(cfg.auth.allowed_client_ids)
+    return {
+        "allowed_user_ids_configured": allowed_user_count > 0,
+        "allowed_user_ids_count": allowed_user_count,
+        "allowed_client_ids_configured": allowed_client_count > 0,
+        "allowed_client_ids_count": allowed_client_count,
+        "auth_allow_any_client_id": cfg.auth.allow_any_client_id,
+        "refresh_cookie_mode": {
+            "name_configured": bool(REFRESH_COOKIE_NAME),
+            "httponly": True,
+            "secure": True,
+            "samesite": "strict",
+            "path": "/v1/auth",
+        },
+        "access_token_ttl_seconds": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "refresh_token_ttl_seconds": REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        "cors_origins_count": cors_origins_count,
+    }
+
+
+def log_auth_posture_summary(cfg: Any, *, cors_origins_count: int) -> None:
+    """Log redacted auth posture at startup."""
+    logger.info(
+        "auth_posture_summary",
+        extra=build_auth_posture_summary(cfg, cors_origins_count=cors_origins_count),
+    )
 
 
 def resolve_client_type(client_id: str | None) -> str:

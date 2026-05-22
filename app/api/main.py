@@ -111,6 +111,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         runtime = await build_api_runtime()
         setup_json_logging(runtime.cfg.runtime.log_level)
 
+        from app.api.routers.auth.tokens import log_auth_posture_summary
+
+        log_auth_posture_summary(runtime.cfg, cors_origins_count=len(_ALLOWED_ORIGINS))
+
         # Startup gate: warn if in-memory rate limiting is active in production.
         # The config validator blocks this unless RATE_LIMIT_REDIS_OVERRIDE=true,
         # so reaching here in production means the override was set explicitly.
@@ -227,14 +231,17 @@ def _resolve_allowed_origins() -> list[str]:
             "http://127.0.0.1:3000",
             "http://127.0.0.1:8080",
         ]
-    logger.info(f"CORS allowed origins: {origins}")
+    logger.info("cors_allowed_origins_configured", extra={"cors_origins_count": len(origins)})
     return origins
+
+
+_ALLOWED_ORIGINS = _resolve_allowed_origins()
 
 
 # CORS middleware with specific origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_resolve_allowed_origins(),
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=[
         "GET",

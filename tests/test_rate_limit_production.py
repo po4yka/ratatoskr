@@ -17,6 +17,7 @@ _MINIMAL_ENV = {
     "API_HASH": "abc123",
     "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",  # 30-char secret
     "ALLOWED_USER_IDS": "999",
+    "ALLOWED_CLIENT_IDS": "test-client",
     "OPENROUTER_API_KEY": "sk-test",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
 }

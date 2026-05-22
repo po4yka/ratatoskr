@@ -4,7 +4,7 @@ import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.core.logging_utils import get_logger
 
@@ -398,6 +398,45 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _ensure_production_client_allowlist(self) -> Self:
+        """Require explicit client-ID posture in production/public deployments."""
+        if self.auth.allowed_client_ids:
+            return self
+        if self.auth.allow_any_client_id:
+            logger.warning(
+                "auth_allow_any_client_id_override_active",
+                extra={
+                    "app_env": self.deployment.env,
+                    "api_public_exposure": self.deployment.api_public_exposure,
+                    "warning": (
+                        "AUTH_ALLOW_ANY_CLIENT_ID=true: every syntactically valid "
+                        "client_id can authenticate while ALLOWED_CLIENT_IDS is empty."
+                    ),
+                },
+            )
+            return self
+        if self.deployment.is_production_mode:
+            raise RuntimeError(
+                "Production deployment requires ALLOWED_CLIENT_IDS to list authorized "
+                "client applications. Empty ALLOWED_CLIENT_IDS accepts any valid client_id "
+                "and is unsafe for public deployments. Set ALLOWED_CLIENT_IDS to a "
+                "comma-separated allowlist, or set AUTH_ALLOW_ANY_CLIENT_ID=true to "
+                "explicitly accept broad client access."
+            )
+        logger.warning(
+            "auth_client_allowlist_empty_development",
+            extra={
+                "app_env": self.deployment.env,
+                "api_public_exposure": self.deployment.api_public_exposure,
+                "warning": (
+                    "ALLOWED_CLIENT_IDS is empty; every syntactically valid client_id "
+                    "is accepted. This is intended only for local/development use."
+                ),
+            },
+        )
+        return self
+
     def as_app_config(self) -> AppConfig:
         return AppConfig(
             telegram=self.telegram,
@@ -557,7 +596,10 @@ class ConfigHelper:
         secret-login (the validator at settings.py:331 still rejects empty
         allowlists in real production loads).
         """
-        return load_config(allow_stub_telegram=True).telegram.allowed_user_ids
+        return cast(
+            "tuple[int, ...]",
+            load_config(allow_stub_telegram=True).telegram.allowed_user_ids,
+        )
 
     @staticmethod
     def is_user_allowed(user_id: int, *, fail_open_when_empty: bool = False) -> bool:
@@ -579,12 +621,18 @@ class ConfigHelper:
         Client IDs are arbitrary strings that identify specific client
         applications (e.g., "android-app-v1.0", "ios-app-v2.0"). Only clients
         with these IDs can authenticate and receive access tokens. Empty tuple
-        = no client restriction (backward compatible).
+        = no client restriction only outside production or when
+        AUTH_ALLOW_ANY_CLIENT_ID=true is explicitly set.
 
         Delegates to AuthConfig.allowed_client_ids; the env-var parsing /
         validation lives there as a field validator.
         """
         return load_config(allow_stub_telegram=True).auth.allowed_client_ids
+
+    @staticmethod
+    def allow_any_client_id() -> bool:
+        """Return whether broad client-ID access is explicitly enabled."""
+        return load_config(allow_stub_telegram=True).auth.allow_any_client_id
 
 
 # Public alias used across the codebase.

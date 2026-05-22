@@ -19,10 +19,14 @@ The test below verifies two complementary properties:
 
 from __future__ import annotations
 
+import os
+import unittest.mock
 from pathlib import Path
 
 import pytest
 
+from app.api.exceptions import AuthorizationError
+from app.api.routers.auth import tokens
 from app.config import Config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -106,7 +110,7 @@ def test_config_helper_get_allowed_client_ids_delegates_to_authconfig(monkeypatc
     settings.clear_config_cache()
     assert settings.Config.get_allowed_client_ids() == ("android-app", "ios-app", "cli")
 
-    # Empty / unset → no restriction (back-compat default).
+    # Empty / unset → no restriction only for development/local posture.
     monkeypatch.setenv("ALLOWED_CLIENT_IDS", "")
     settings.clear_config_cache()
     assert settings.Config.get_allowed_client_ids() == ()
@@ -127,3 +131,135 @@ def test_authconfig_drops_invalid_client_ids(monkeypatch):
 
     monkeypatch.setenv("ALLOWED_CLIENT_IDS", "")
     settings.clear_config_cache()
+
+
+_MINIMAL_SETTINGS_ENV = {
+    "API_ID": "12345",
+    "API_HASH": "abc123",
+    "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "ALLOWED_USER_IDS": "999",
+    "FIRECRAWL_API_KEY": "",
+    "OPENROUTER_API_KEY": "sk-test",
+    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+}
+
+
+def test_production_empty_client_allowlist_fails_startup():
+    from app.config import settings
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            **_MINIMAL_SETTINGS_ENV,
+            "APP_ENV": "production",
+            "REDIS_ENABLED": "true",
+            "REDIS_REQUIRED": "true",
+            "ALLOWED_CLIENT_IDS": "",
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with pytest.raises(RuntimeError, match="Production deployment requires ALLOWED_CLIENT_IDS"):
+            settings.Settings(allow_stub_telegram=True)
+
+
+def test_production_empty_client_allowlist_with_explicit_override_starts_with_warning():
+    from app.config import settings
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            **_MINIMAL_SETTINGS_ENV,
+            "APP_ENV": "production",
+            "REDIS_ENABLED": "true",
+            "REDIS_REQUIRED": "true",
+            "ALLOWED_CLIENT_IDS": "",
+            "AUTH_ALLOW_ANY_CLIENT_ID": "true",
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with unittest.mock.patch.object(settings.logger, "warning") as warning:
+            cfg = settings.Settings(allow_stub_telegram=True)
+
+    assert cfg.auth.allow_any_client_id is True
+    warning.assert_any_call(
+        "auth_allow_any_client_id_override_active",
+        extra={
+            "app_env": "production",
+            "api_public_exposure": False,
+            "warning": (
+                "AUTH_ALLOW_ANY_CLIENT_ID=true: every syntactically valid "
+                "client_id can authenticate while ALLOWED_CLIENT_IDS is empty."
+            ),
+        },
+    )
+
+
+def test_development_empty_client_allowlist_starts_with_warning():
+    from app.config import settings
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            **_MINIMAL_SETTINGS_ENV,
+            "APP_ENV": "development",
+            "ALLOWED_CLIENT_IDS": "",
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with unittest.mock.patch.object(settings.logger, "warning") as warning:
+            cfg = settings.Settings(allow_stub_telegram=True)
+
+    assert cfg.deployment.is_production_mode is False
+    assert cfg.auth.allowed_client_ids == ()
+    warning.assert_any_call(
+        "auth_client_allowlist_empty_development",
+        extra={
+            "app_env": "development",
+            "api_public_exposure": False,
+            "warning": (
+                "ALLOWED_CLIENT_IDS is empty; every syntactically valid client_id "
+                "is accepted. This is intended only for local/development use."
+            ),
+        },
+    )
+
+
+def test_unknown_client_id_rejected_when_allowlist_configured(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "web-v1,cli-v1")
+    settings.clear_config_cache()
+
+    with pytest.raises(AuthorizationError):
+        tokens.validate_client_id("mobile-v1")
+
+
+def test_known_client_id_accepted_when_allowlist_configured(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "web-v1,cli-v1")
+    settings.clear_config_cache()
+
+    tokens.validate_client_id("web-v1")
+
+
+def test_auth_posture_summary_is_redacted_counts_only(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setenv("ALLOWED_USER_IDS", "111,222")
+    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "web-v1,cli-v1")
+    settings.clear_config_cache()
+    cfg = settings.load_config(allow_stub_telegram=True)
+
+    summary = tokens.build_auth_posture_summary(cfg, cors_origins_count=3)
+
+    assert summary["allowed_user_ids_configured"] is True
+    assert summary["allowed_user_ids_count"] == 2
+    assert summary["allowed_client_ids_configured"] is True
+    assert summary["allowed_client_ids_count"] == 2
+    assert summary["cors_origins_count"] == 3
+    assert "111" not in repr(summary)
+    assert "web-v1" not in repr(summary)

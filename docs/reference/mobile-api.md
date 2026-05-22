@@ -50,6 +50,12 @@ All four authentication paths — JWT (`Authorization: Bearer ...`), Telegram We
 
 Setting `ALLOWED_USER_IDS=""` in production is supported only as a deliberate "lock everyone out" posture (e.g. during incident response). Multi-user deployments must enumerate every Telegram user_id explicitly.
 
+### Client ID allowlist semantics (`ALLOWED_CLIENT_IDS`)
+
+When `ALLOWED_CLIENT_IDS` is populated, all JWT-issuing and JWT-refresh flows reject unknown `client_id` values with an authorization error. When the list is empty, local/development deployments accept every syntactically valid `client_id` and log a warning.
+
+Production/public deployments (`APP_ENV=production` or `API_PUBLIC_EXPOSURE=true`) fail startup if `ALLOWED_CLIENT_IDS` is empty unless `AUTH_ALLOW_ANY_CLIENT_ID=true` is explicitly set. Use the override only when broad client access is intentional and documented; it does not change token rotation semantics.
+
 ## API Surface Freeze Policy
 
 The mobile API surface is contract-locked against the generated `docs/openapi/mobile_api.yaml` / `docs/openapi/mobile_api.json` pair. Changes are gated by:

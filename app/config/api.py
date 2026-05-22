@@ -199,9 +199,19 @@ class AuthConfig(BaseModel):
         description=(
             "Comma-separated list of mobile/CLI client_id values allowed to "
             "obtain access tokens (e.g. android-app, ios-app, cli). Empty "
-            "tuple = no restriction (back-compat default). Values are "
+            "tuple = no restriction only for local/dev or when "
+            "AUTH_ALLOW_ANY_CLIENT_ID=true is explicitly set. Values are "
             "validated to alphanumeric + - _ . characters, max 100 chars; "
             "invalid pieces are silently dropped with a warning log."
+        ),
+    )
+    allow_any_client_id: bool = Field(
+        default=False,
+        validation_alias="AUTH_ALLOW_ANY_CLIENT_ID",
+        description=(
+            "Explicitly allow any syntactically valid client_id when "
+            "ALLOWED_CLIENT_IDS is empty. Required to keep fail-open client ID "
+            "semantics in production/public deployments."
         ),
     )
 

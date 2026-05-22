@@ -328,12 +328,17 @@ uv run python tools/scripts/twitter_article_live_smoke.py \
 | `APP_ENV` | `development` | Deployment environment: `development`, `staging`, or `production`. Setting `production` enables strict safety checks — see below. |
 | `API_PUBLIC_EXPOSURE` | `false` | Set `true` when the API is reachable from the public internet. Triggers the same safety checks as `APP_ENV=production` regardless of `APP_ENV`. |
 | `RATE_LIMIT_REDIS_OVERRIDE` | `false` | Emergency override: allow in-memory rate limiting even in production. Must be explicitly set to acknowledge that per-process limits are not shared across workers or restarts. |
+| `AUTH_ALLOW_ANY_CLIENT_ID` | `false` | Emergency/development override: allow every syntactically valid `client_id` when `ALLOWED_CLIENT_IDS` is empty. Required if a production/public deployment intentionally runs without a client allowlist. |
 
 ### Production Redis requirement
 
 When `APP_ENV=production` or `API_PUBLIC_EXPOSURE=true`, the application **refuses to start** unless both `REDIS_ENABLED=true` and `REDIS_REQUIRED=true` are set. This prevents silent fallback to process-local rate limiting, which is ineffective under multiple workers or after restarts.
 
 To override (e.g. single-process deploy, edge cache handles rate limiting externally), set `RATE_LIMIT_REDIS_OVERRIDE=true` and acknowledge the risk in your deployment notes.
+
+### Production client allowlist requirement
+
+When `APP_ENV=production` or `API_PUBLIC_EXPOSURE=true`, the application **refuses to start** with an empty `ALLOWED_CLIENT_IDS` list unless `AUTH_ALLOW_ANY_CLIENT_ID=true` is set. Local/development mode still allows an empty client allowlist, but startup logs a warning because every syntactically valid `client_id` can authenticate.
 
 ## Redis Caching
 
@@ -444,7 +449,7 @@ See [`docs/cocoindex.md`](../cocoindex.md) for architecture, summary/repository 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
 | `JWT_SECRET_KEY` | _(required if API used)_ | JWT signing secret (min 32 chars) |
-| `ALLOWED_CLIENT_IDS` | _(empty = allow all)_ | Comma-separated allowed client app IDs |
+| `ALLOWED_CLIENT_IDS` | _(empty = allow all only in development or with `AUTH_ALLOW_ANY_CLIENT_ID=true`)_ | Comma-separated allowed client app IDs |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window |
 | `API_RATE_LIMIT_COOLDOWN_MULTIPLIER` | `2.0` | Cooldown multiplier on limit exceeded |
 | `API_RATE_LIMIT_MAX_CONCURRENT_PER_USER` | `3` | Max concurrent requests per user |
@@ -484,6 +489,7 @@ See [`docs/cocoindex.md`](../cocoindex.md) for architecture, summary/repository 
 **External client ID guidance**:
 
 - Use stable, exact client IDs and list them explicitly in `ALLOWED_CLIENT_IDS` for public deployments.
+- Do not leave `ALLOWED_CLIENT_IDS` empty in production unless `AUTH_ALLOW_ANY_CLIENT_ID=true` is an intentional, documented deployment decision.
 - Recommended prefixes are `cli-...`, `mcp-...`, `automation-...`, `web-...`, and `mobile-...`.
 - Non-owner self-service secret creation, rotation, revoke, and listing are intentionally limited to `cli`, `mcp`, and `automation` client types.
 - Mobile and web client secrets should remain owner-issued unless the provisioning model is expanded later.
@@ -689,6 +695,7 @@ Use this checklist to verify your configuration before deploying:
 
 - [ ] **API keys not in git**: `.env` file in `.gitignore`
 - [ ] **Access control model chosen**: either populate `ALLOWED_USER_IDS` for allowlist-based rollout, or intentionally leave it empty for multi-user JWT API / hosted MCP deployments
+- [ ] **Client allowlist explicit**: populate `ALLOWED_CLIENT_IDS` for every production client, or set `AUTH_ALLOW_ANY_CLIENT_ID=true` only as a documented broad-access decision
 - [ ] **JWT secret strong**: `JWT_SECRET_KEY` is 32+ random characters
 - [ ] **Debug mode off**: `DEBUG_PAYLOADS=0` in production
 
