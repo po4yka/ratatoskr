@@ -350,6 +350,8 @@ Before importing an archive, use `POST /v1/backups/restore/dry-run` with the bac
 
 If you enable scheduled/user backups, set `backup_retention_count` to a positive integer. Retention cleanup only prunes terminal `completed` or `failed` backup records beyond the retention window and leaves `pending` or `processing` backups untouched.
 
+Before running a self-hosted instance long term, choose a raw-data retention posture in `.env`. The defaults keep summaries/search data while aging out scraped article bodies, Telegram raw JSON, video transcripts, downloaded media files, LLM prompt/response payloads, request content text, and orphaned export files after their subsystem TTLs. Set `RETENTION_PRIVACY_NO_RETENTION_MODE=true` for a best-effort low-retention setup: new crawl and LLM write paths skip avoidable raw payload persistence, and the purge task nulls raw fields on its next run while preserving summaries, costs, statuses, and search metadata. The tradeoff is operational: offline re-reading/debugging from stored raw content becomes weaker after cleanup, so keep short nonzero TTLs instead of no-retention mode if you need time to inspect bad scraper output or LLM responses.
+
 ### 2. Pull latest
 
 ```bash

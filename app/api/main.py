@@ -152,7 +152,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         from app.adapters.external.formatting.export_temp_files import cleanup_stale_export_files
 
-        cleanup_stale_export_files()
+        export_temp_max_age = runtime.cfg.retention.export_temp_file_max_age_seconds
+        if export_temp_max_age > 0:
+            cleanup_stale_export_files(max_age_seconds=export_temp_max_age)
         await runtime.durable_request_queue.reconcile_startup()
         if runtime.cfg.background.durable_worker_enabled:
             durable_worker = await runtime.durable_request_queue.start()
