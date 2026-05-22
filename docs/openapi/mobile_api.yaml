@@ -771,9 +771,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Create Aggregation Bundle V1 Aggregations Post
+                $ref: '#/components/schemas/AggregationCreateResponse'
         '422':
           description: Validation Error
           content:
@@ -824,9 +822,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response List Aggregation Bundles V1 Aggregations Get
+                $ref: '#/components/schemas/AggregationListResponse'
         '422':
           description: Validation Error
           content:
@@ -859,9 +855,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-                title: Response Get Aggregation Bundle V1 Aggregations  Session Id  Get
+                $ref: '#/components/schemas/AggregationDetailResponse'
         '422':
           description: Validation Error
           content:
@@ -7615,6 +7609,112 @@ components:
       - url
       title: AggregationBundleItemRequest
       description: One source item submitted to the aggregation API.
+    AggregationCreateData:
+      properties:
+        session:
+          additionalProperties: true
+          type: object
+          title: Session
+        aggregation:
+          additionalProperties: true
+          type: object
+          title: Aggregation
+        items:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Items
+        sourceBundle:
+          $ref: '#/components/schemas/AggregationSourceBundle'
+      type: object
+      required:
+      - session
+      - aggregation
+      - items
+      - sourceBundle
+      title: AggregationCreateData
+    AggregationCreateResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/AggregationCreateData'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: AggregationCreateResponse
+    AggregationDetailData:
+      properties:
+        session:
+          additionalProperties: true
+          type: object
+          title: Session
+        items:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Items
+        aggregation:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Aggregation
+        sourceBundle:
+          $ref: '#/components/schemas/AggregationSourceBundle'
+      type: object
+      required:
+      - session
+      - items
+      - aggregation
+      - sourceBundle
+      title: AggregationDetailData
+    AggregationDetailResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/AggregationDetailData'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: AggregationDetailResponse
+    AggregationListData:
+      properties:
+        sessions:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Sessions
+      type: object
+      required:
+      - sessions
+      title: AggregationListData
+    AggregationListResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/AggregationListData'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: AggregationListResponse
     AggregationSessionStatus:
       type: string
       enum:
@@ -7626,6 +7726,128 @@ components:
       - cancelled
       title: AggregationSessionStatus
       description: Bundle-level lifecycle states.
+    AggregationSourceBundle:
+      properties:
+        bundleId:
+          type: integer
+          title: Bundleid
+        correlationId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Correlationid
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        items:
+          items:
+            $ref: '#/components/schemas/AggregationSourceItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - bundleId
+      title: AggregationSourceBundle
+    AggregationSourceItem:
+      properties:
+        bundleId:
+          type: integer
+          title: Bundleid
+        sourceItemId:
+          type: string
+          title: Sourceitemid
+        itemId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Itemid
+        position:
+          type: integer
+          title: Position
+        originalUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Originalurl
+        normalizedUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Normalizedurl
+        sourceKind:
+          type: string
+          title: Sourcekind
+        extractionStatus:
+          type: string
+          title: Extractionstatus
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        domain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Domain
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+        publishedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Publishedat
+        errorCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Errorcode
+        errorMessage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Errormessage
+        requestId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Requestid
+        crawlResultId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Crawlresultid
+        summaryId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Summaryid
+        duplicateOfItemId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Duplicateofitemid
+        deleted:
+          type: boolean
+          title: Deleted
+          default: false
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - bundleId
+      - sourceItemId
+      - position
+      - sourceKind
+      - extractionStatus
+      title: AggregationSourceItem
     AssignCategoryRequest:
       properties:
         category_id:
@@ -8417,6 +8639,42 @@ components:
       - target_tag_id
       title: MergeTagsRequest
       description: Request body for merging tags.
+    MetaInfo:
+      properties:
+        correlation_id:
+          type: string
+          title: Correlation Id
+          default: ''
+        timestamp:
+          type: string
+          title: Timestamp
+        version:
+          type: string
+          title: Version
+        api_version:
+          type: string
+          title: Api Version
+          description: API contract semver. Distinct from `version` (app/build version that changes every deploy). Bumps only
+            on breaking contract changes.
+          default: 1.0.0
+        build:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Build
+        pagination:
+          anyOf:
+          - $ref: '#/components/schemas/PaginationInfo'
+          - type: 'null'
+        debug:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Debug
+      type: object
+      title: MetaInfo
+      description: Metadata for all API responses.
     PATSubmitRequest:
       properties:
         token:

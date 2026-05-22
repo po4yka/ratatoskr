@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.agents.multi_source_aggregation_agent import (
     MultiSourceAggregationAgent,
+    MultiSourceAggregationInput,
     _SentenceCache,
 )
 from app.application.dto.aggregation import (
@@ -120,3 +123,45 @@ def test_sentence_cache_keeps_distinct_documents_with_same_content() -> None:
 
     assert duplicate_signals[0].source_item_ids == ["src_one", "src_two"]
     assert len(sentence_cache._documents) == 2
+
+
+@pytest.mark.asyncio
+async def test_aggregation_output_keeps_failed_source_coverage_and_stored_source_ids() -> None:
+    repo = AsyncMock()
+    agent = MultiSourceAggregationAgent(aggregation_session_repo=repo)
+    successful = _item(
+        0,
+        _document(
+            "src_ok",
+            "Successful source states revenue reached 42 million dollars this quarter.",
+        ),
+    )
+    failed = SourceExtractionItemResult(
+        position=1,
+        item_id=101,
+        source_item_id="src_failed",
+        source_kind=SourceKind.WEB_ARTICLE,
+        status=AggregationItemStatus.FAILED.value,
+    )
+
+    result = await agent.execute(
+        MultiSourceAggregationInput(
+            session_id=55,
+            correlation_id="cid-source-coverage",
+            items=[successful, failed],
+            language="en",
+        )
+    )
+
+    assert result.success is True
+    assert result.output is not None
+    assert {
+        claim_source for claim in result.output.key_claims for claim_source in claim.source_item_ids
+    } == {"src_ok"}
+    assert [entry.source_item_id for entry in result.output.source_coverage] == [
+        "src_ok",
+        "src_failed",
+    ]
+    assert [entry.status for entry in result.output.source_coverage] == ["extracted", "failed"]
+    assert result.output.source_coverage[1].used_in_summary is False
+    repo.async_update_aggregation_session_output.assert_awaited_once()

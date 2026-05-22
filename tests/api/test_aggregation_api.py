@@ -664,6 +664,14 @@ def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
     assert create_payload["data"]["session"]["progress"]["completionPercent"] == 100
     assert create_payload["data"]["aggregation"]["source_type"] == "mixed"
     assert create_payload["data"]["aggregation"]["overview"]
+    assert create_payload["data"]["sourceBundle"]["bundleId"] == session_id
+    assert [
+        item["extractionStatus"] for item in create_payload["data"]["sourceBundle"]["items"]
+    ] == [
+        "extracted",
+        "extracted",
+    ]
+    assert all(item["sourceItemId"] for item in create_payload["data"]["sourceBundle"]["items"])
     assert [item["status"] for item in create_payload["data"]["items"]] == [
         "extracted",
         "extracted",
@@ -674,6 +682,16 @@ def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
     assert get_payload["data"]["session"]["status"] == "completed"
     assert get_payload["data"]["session"]["progress"]["successfulCount"] == 2
     assert get_payload["data"]["aggregation"]["metadata"]["generation_mode"] == "heuristic_fallback"
+    claim_source_ids = {
+        source_item_id
+        for claim in get_payload["data"]["aggregation"]["key_claims"]
+        for source_item_id in claim["source_item_ids"]
+    }
+    bundle_source_ids = {
+        item["sourceItemId"] for item in get_payload["data"]["sourceBundle"]["items"]
+    }
+    assert claim_source_ids
+    assert claim_source_ids <= bundle_source_ids
     assert len(get_payload["data"]["items"]) == 2
 
     assert [session["id"] for session in list_payload["data"]["sessions"]] == [session_id]
@@ -687,6 +705,194 @@ def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
     assert {call.kwargs["source"] for call in metrics_mock.call_args_list} == {"cli"}
     assert {call.kwargs["status"] for call in metrics_mock.call_args_list} == {"success"}
     assert all(call.kwargs["latency_seconds"] >= 0 for call in metrics_mock.call_args_list)
+
+
+def test_external_aggregation_detail_exposes_failed_source_provenance(client, db, user_factory):
+    allowed_ids = Config.get_allowed_user_ids()
+    user_id = int(allowed_ids[0]) if allowed_ids else 424242
+    user_factory(username="aggregation_partial_user", telegram_user_id=user_id)
+
+    class FakeExtractor:
+        cfg = SimpleNamespace(runtime=SimpleNamespace(aggregation_non_youtube_video_enabled=True))
+
+        async def extract_content_pure(
+            self,
+            *,
+            url: str,
+            correlation_id: str,
+            request_id: int | None = None,
+        ) -> tuple[str, str, dict[str, str]]:
+            if "failed.example" in url:
+                raise TimeoutError("source timed out")
+            return (
+                "Successful article body with one source-grounded detail.",
+                "markdown",
+                {
+                    "title": "Working source",
+                    "detected_lang": "en",
+                    "author": "Reporter",
+                    "published_at": "2026-05-20T10:00:00Z",
+                },
+            )
+
+    runtime = getattr(client.app.state, "runtime", None)
+    client.app.state.runtime = SimpleNamespace(
+        cfg=load_config(allow_stub_telegram=True),
+        db=db,
+        background_processor=SimpleNamespace(
+            url_processor=SimpleNamespace(content_extractor=FakeExtractor())
+        ),
+        core=SimpleNamespace(llm_client=None),
+    )
+
+    try:
+        with _allow_public_urls():
+            create_response = client.post(
+                "/v1/aggregations",
+                headers=_auth_headers(user_id, client_id="cli-partial-v1"),
+                json={
+                    "items": [
+                        {
+                            "url": "https://example.com/working",
+                            "source_kind_hint": "web_article",
+                        },
+                        {
+                            "url": "https://failed.example/article",
+                            "source_kind_hint": "web_article",
+                        },
+                    ],
+                    "lang_preference": "en",
+                },
+            )
+            assert create_response.status_code == 200
+            session_id = create_response.json()["data"]["session"]["sessionId"]
+            get_response = client.get(
+                f"/v1/aggregations/{session_id}",
+                headers=_auth_headers(user_id, client_id="cli-partial-v1"),
+            )
+    finally:
+        client.app.state.runtime = runtime
+
+    assert get_response.status_code == 200
+    payload = get_response.json()
+    source_items = payload["data"]["sourceBundle"]["items"]
+    assert [item["extractionStatus"] for item in source_items] == ["extracted", "failed"]
+    assert source_items[0]["title"] == "Working source"
+    assert source_items[0]["author"] == "Reporter"
+    assert source_items[0]["publishedAt"] == "2026-05-20T10:00:00Z"
+    assert source_items[1]["originalUrl"] == "https://failed.example/article"
+    assert source_items[1]["normalizedUrl"] == "https://failed.example/article"
+    assert source_items[1]["errorCode"] == "source_extraction_failed"
+    assert "source timed out" in source_items[1]["errorMessage"]
+    assert source_items[1]["summaryId"] is None
+    coverage_by_id = {
+        entry["source_item_id"]: entry
+        for entry in payload["data"]["aggregation"]["source_coverage"]
+    }
+    assert set(coverage_by_id) == {item["sourceItemId"] for item in source_items}
+    assert coverage_by_id[source_items[1]["sourceItemId"]]["status"] == "failed"
+
+
+def test_aggregation_source_item_serializer_hides_deleted_summary_link() -> None:
+    from app.api.models.responses import AggregationDetailResponse
+    from app.api.routers.content.aggregation import _build_source_bundle, _source_item_from_record
+
+    bundle = _build_source_bundle(
+        session_id=42,
+        correlation_id="cid-source-bundle",
+        status="partial",
+        persisted_items=[
+            {
+                "aggregation_session_id": 42,
+                "id": 6,
+                "position": 0,
+                "source_item_id": "src_ok",
+                "source_kind": "web_article",
+                "status": "extracted",
+                "original_value": "https://example.com/ok?utm_source=test",
+                "normalized_value": "https://example.com/ok",
+                "request_id": 100,
+                "crawl_result_id": 200,
+                "summary_id": 300,
+                "normalized_document_json": {
+                    "title": "Stored title",
+                    "metadata": {
+                        "author": "Reporter",
+                        "published_at": "2026-05-20T10:00:00Z",
+                    },
+                },
+            },
+            {
+                "aggregation_session_id": 42,
+                "id": 7,
+                "position": 1,
+                "source_item_id": "src_failed",
+                "source_kind": "web_article",
+                "status": "failed",
+                "original_value": "https://failed.example/article",
+                "normalized_value": "https://failed.example/article",
+                "failure_code": "source_extraction_failed",
+                "failure_message": "source timed out",
+            },
+        ],
+    ).model_dump(by_alias=True)
+
+    assert bundle["bundleId"] == 42
+    assert bundle["status"] == "partial"
+    assert [item["extractionStatus"] for item in bundle["items"]] == ["extracted", "failed"]
+    assert bundle["items"][0]["sourceItemId"] == "src_ok"
+    assert bundle["items"][0]["normalizedUrl"] == "https://example.com/ok"
+    assert bundle["items"][0]["title"] == "Stored title"
+    assert bundle["items"][0]["domain"] == "example.com"
+    assert bundle["items"][0]["author"] == "Reporter"
+    assert bundle["items"][0]["publishedAt"] == "2026-05-20T10:00:00Z"
+    assert bundle["items"][0]["requestId"] == 100
+    assert bundle["items"][0]["crawlResultId"] == 200
+    assert bundle["items"][0]["summaryId"] == 300
+    assert bundle["items"][1]["sourceItemId"] == "src_failed"
+    assert bundle["items"][1]["errorCode"] == "source_extraction_failed"
+    assert bundle["items"][1]["errorMessage"] == "source timed out"
+
+    response_payload = {
+        "success": True,
+        "data": {
+            "session": {"id": 42},
+            "items": [],
+            "aggregation": {"source_coverage": [{"source_item_id": "src_ok"}]},
+            "sourceBundle": bundle,
+        },
+        "meta": {
+            "correlation_id": "cid-source-bundle",
+            "timestamp": "2026-05-22T00:00:00Z",
+            "version": "test",
+            "api_version": "1.0.0",
+        },
+    }
+    validated = AggregationDetailResponse.model_validate(response_payload)
+    dumped = validated.model_dump(by_alias=True)
+    assert dumped["data"]["sourceBundle"]["items"][0]["sourceItemId"] == "src_ok"
+
+    item = _source_item_from_record(
+        {
+            "aggregation_session_id": 42,
+            "id": 7,
+            "position": 0,
+            "source_item_id": "src_deleted",
+            "source_kind": "web_article",
+            "status": "extracted",
+            "original_value": "https://example.com/deleted",
+            "normalized_value": "https://example.com/deleted",
+            "request_id": 101,
+            "crawl_result_id": 202,
+            "summary_id": 303,
+            "summary_is_deleted": True,
+        }
+    ).model_dump(by_alias=True)
+
+    assert item["deleted"] is True
+    assert item["requestId"] == 101
+    assert item["crawlResultId"] == 202
+    assert item["summaryId"] is None
 
 
 def test_create_aggregation_bundle_endpoint_rejects_invalid_source_kind_hint(

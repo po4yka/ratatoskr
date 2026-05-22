@@ -1,6 +1,17 @@
 """Compatibility facade for split API response models."""
 
 from .auth import AuthTokensResponse, LoginData, TokenPair, UserInfo
+from .aggregation import (
+    AggregationCreateData,
+    AggregationCreateResponse,
+    AggregationDetailData,
+    AggregationDetailResponse,
+    AggregationFailurePayload,
+    AggregationListData,
+    AggregationListResponse,
+    AggregationSourceBundle,
+    AggregationSourceItem,
+)
 from .backups import BackupResponse, ImportJobResponse
 from .collections import (
     CollectionAclEntry,
@@ -92,6 +103,15 @@ from .user import (
 from .webhooks import WebhookDeliveryResponse, WebhookSubscriptionResponse
 
 __all__ = [
+    "AggregationCreateData",
+    "AggregationCreateResponse",
+    "AggregationDetailData",
+    "AggregationDetailResponse",
+    "AggregationFailurePayload",
+    "AggregationListData",
+    "AggregationListResponse",
+    "AggregationSourceBundle",
+    "AggregationSourceItem",
     "AuthTokensResponse",
     "BackupResponse",
     "CollectionAclEntry",

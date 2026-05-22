@@ -9,7 +9,14 @@ from sqlalchemy import func, select, update
 
 from app.core.time_utils import UTC
 from app.db.json_utils import prepare_json_payload
-from app.db.models import AggregationSession, AggregationSessionItem, model_to_dict
+from app.db.models import (
+    AggregationSession,
+    AggregationSessionItem,
+    CrawlResult,
+    Request,
+    Summary,
+    model_to_dict,
+)
 from app.domain.models.source import AggregationItemStatus, AggregationSessionStatus, SourceItem
 
 if TYPE_CHECKING:
@@ -169,14 +176,39 @@ class AggregationSessionRepositoryAdapter:
 
     async def async_get_aggregation_session_items(self, session_id: int) -> list[dict[str, Any]]:
         async with self._database.session() as db_session:
-            items = (
+            rows = (
                 await db_session.execute(
-                    select(AggregationSessionItem)
+                    select(
+                        AggregationSessionItem,
+                        CrawlResult.id.label("crawl_result_id"),
+                        Summary.id.label("summary_id"),
+                        Request.is_deleted.label("request_is_deleted"),
+                        Summary.is_deleted.label("summary_is_deleted"),
+                    )
+                    .outerjoin(Request, AggregationSessionItem.request_id == Request.id)
+                    .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
+                    .outerjoin(Summary, Summary.request_id == Request.id)
                     .where(AggregationSessionItem.aggregation_session_id == session_id)
                     .order_by(AggregationSessionItem.position)
                 )
-            ).scalars()
-            return [_item_to_dict(item) or {} for item in items]
+            ).all()
+            return [
+                _item_to_dict(
+                    item,
+                    crawl_result_id=crawl_result_id,
+                    summary_id=summary_id,
+                    request_is_deleted=bool(request_is_deleted),
+                    summary_is_deleted=bool(summary_is_deleted),
+                )
+                or {}
+                for (
+                    item,
+                    crawl_result_id,
+                    summary_id,
+                    request_is_deleted,
+                    summary_is_deleted,
+                ) in rows
+            ]
 
     async def async_update_aggregation_session_item_result(
         self,
@@ -309,9 +341,20 @@ def _session_to_dict(session: AggregationSession | None) -> dict[str, Any] | Non
     return data
 
 
-def _item_to_dict(item: AggregationSessionItem | None) -> dict[str, Any] | None:
+def _item_to_dict(
+    item: AggregationSessionItem | None,
+    *,
+    crawl_result_id: int | None = None,
+    summary_id: int | None = None,
+    request_is_deleted: bool = False,
+    summary_is_deleted: bool = False,
+) -> dict[str, Any] | None:
     data = model_to_dict(item)
     if data is not None:
         data["aggregation_session"] = data.get("aggregation_session_id")
         data["request"] = data.get("request_id")
+        data["crawl_result_id"] = crawl_result_id
+        data["summary_id"] = summary_id
+        data["request_is_deleted"] = request_is_deleted
+        data["summary_is_deleted"] = summary_is_deleted
     return data
