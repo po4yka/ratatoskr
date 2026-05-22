@@ -416,6 +416,17 @@ class ContentExtractorCrawlMixin:
                 "status": llm_result.status.value if llm_result.status else None,
                 "error_text": llm_result.error_text,
             }
+            if not bool(
+                getattr(
+                    getattr(self.cfg, "retention", None),
+                    "persist_llm_prompt_response_payloads",
+                    True,
+                )
+            ):
+                record["response_text"] = None
+                record["response_json"] = {}
+                record["request_messages_json"] = []
+                record["request_headers_json"] = {}
             await self.message_persistence.llm_repo.async_insert_llm_call(record)
         except Exception:
             logger.warning(

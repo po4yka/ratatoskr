@@ -59,19 +59,25 @@ def _build_cfg(
     crawl_content_days=7,
     llm_payload_days=7,
     video_transcript_days=7,
+    downloaded_media_days=7,
     interaction_text_days=7,
     request_content_days=7,
+    export_temp_file_max_age_seconds=3600,
+    privacy_no_retention_mode=False,
 ):
     return SimpleNamespace(
         retention=SimpleNamespace(
             enabled=enabled,
             batch_size=batch_size,
+            privacy_no_retention_mode=privacy_no_retention_mode,
             telegram_raw_days=telegram_raw_days,
             crawl_content_days=crawl_content_days,
             llm_payload_days=llm_payload_days,
             video_transcript_days=video_transcript_days,
+            downloaded_media_days=downloaded_media_days,
             interaction_text_days=interaction_text_days,
             request_content_days=request_content_days,
+            export_temp_file_max_age_seconds=export_temp_file_max_age_seconds,
         )
     )
 
@@ -277,12 +283,20 @@ async def test_purge_body_aggregates_subsystem_counts(monkeypatch):
         AsyncMock(return_value=4),
     )
     monkeypatch.setattr(
+        "app.tasks.purge_raw_data._purge_downloaded_media",
+        AsyncMock(return_value=7),
+    )
+    monkeypatch.setattr(
         "app.tasks.purge_raw_data._purge_interaction_text",
         AsyncMock(return_value=5),
     )
     monkeypatch.setattr(
         "app.tasks.purge_raw_data._purge_request_content",
         AsyncMock(return_value=6),
+    )
+    monkeypatch.setattr(
+        "app.tasks.purge_raw_data._purge_export_temp_files",
+        MagicMock(return_value=8),
     )
 
     result = await _purge_body(_build_cfg(), MagicMock())
@@ -292,6 +306,58 @@ async def test_purge_body_aggregates_subsystem_counts(monkeypatch):
         crawl_content=2,
         llm_payload=3,
         video_transcript=4,
+        downloaded_media=7,
         interaction_text=5,
         request_content=6,
+        export_temp_files=8,
     )
+
+
+@pytest.mark.asyncio
+async def test_no_retention_mode_uses_immediate_raw_ttl(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.tasks.purge_raw_data import _purge_body
+
+    telegram = AsyncMock(return_value=0)
+    crawl = AsyncMock(return_value=0)
+    llm = AsyncMock(return_value=0)
+    video = AsyncMock(return_value=0)
+    media = AsyncMock(return_value=0)
+    interaction = AsyncMock(return_value=0)
+    request = AsyncMock(return_value=0)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_telegram_raw", telegram)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_crawl_content", crawl)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_llm_payload", llm)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_video_transcript", video)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_downloaded_media", media)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_interaction_text", interaction)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_request_content", request)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_export_temp_files", MagicMock(return_value=0))
+
+    await _purge_body(_build_cfg(privacy_no_retention_mode=True), MagicMock())
+
+    for purge in (telegram, crawl, llm, video, media, interaction, request):
+        assert purge.await_args.args[2] == -1
+
+
+@pytest.mark.asyncio
+async def test_purge_crawl_content_updates_raw_columns_without_summaries(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.tasks.purge_raw_data import _purge_crawl_content
+
+    mock_db = _make_mock_db(rowcount=1)
+    now = dt.datetime.now(dt.UTC)
+
+    await _purge_crawl_content(mock_db, now, days=7, batch=100)
+
+    session = await mock_db.transaction.return_value.__aenter__()
+    stmt = session.execute.await_args.args[0]
+    compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "crawl_results" in compiled
+    assert "summaries" not in compiled

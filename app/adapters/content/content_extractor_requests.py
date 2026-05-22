@@ -25,6 +25,7 @@ class ContentExtractorRequestsMixin:
 
     # Explicit host contract: these members are provided by ContentExtractor.
     _audit: Callable[..., None]
+    cfg: Any
     message_persistence: MessagePersistence
 
     def _schedule_crawl_persistence(
@@ -66,13 +67,20 @@ class ContentExtractorRequestsMixin:
     ) -> None:
         """Persist crawl result; exceptions propagate so the task callback can log and meter them."""
         try:
+            retain_raw = bool(
+                getattr(
+                    getattr(self.cfg, "retention", None),
+                    "persist_raw_extracted_content",
+                    True,
+                )
+            )
             await self.message_persistence.crawl_repo.async_insert_crawl_result(
                 request_id=req_id,
                 success=crawl.response_success,
-                markdown=crawl.content_markdown,
-                html=crawl.content_html,
+                markdown=crawl.content_markdown if retain_raw else None,
+                html=crawl.content_html if retain_raw else None,
                 error=crawl.error_text,
-                metadata_json=crawl.metadata_json,
+                metadata_json=crawl.metadata_json if retain_raw else _metadata_without_raw(crawl),
                 source_url=crawl.source_url,
                 http_status=crawl.http_status,
                 status=crawl.status,
@@ -205,3 +213,14 @@ class ContentExtractorRequestsMixin:
     async def _persist_message_snapshot(self, request_id: int, message: Any) -> None:
         """Persist message snapshot to database."""
         await self.message_persistence.persist_message_snapshot(request_id, message)
+
+
+def _metadata_without_raw(crawl: Any) -> dict[str, Any]:
+    source_metadata = getattr(crawl, "metadata_json", None)
+    metadata: dict[str, Any] = {}
+    if isinstance(source_metadata, dict):
+        for key, value in source_metadata.items():
+            if key not in {"raw", "raw_response", "html", "markdown", "content"}:
+                metadata[key] = value
+    metadata["raw_payload_persisted"] = False
+    return metadata

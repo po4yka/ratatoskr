@@ -71,6 +71,8 @@ class LLMWorkflowStorageMixin:
         }
         if attempt_trigger is not None:
             payload["attempt_trigger"] = attempt_trigger
+        if not self._should_persist_llm_prompt_response_payloads():
+            _strip_llm_prompt_response_payloads(payload)
         return payload
 
     async def _persist_llm_calls_batch(self, calls: list[dict[str, Any]]) -> None:
@@ -98,7 +100,7 @@ class LLMWorkflowStorageMixin:
             or (getattr(self.cfg, "openrouter", None) and self.cfg.openrouter.model)
             or "unknown"
         )
-        return {
+        payload = {
             "request_id": req_id,
             "provider": "openrouter",
             "model": model,
@@ -118,6 +120,15 @@ class LLMWorkflowStorageMixin:
             "error_context_json": attempt.get("error_context") or None,
             "attempt_trigger": "auto_backfill",
         }
+        if not self._should_persist_llm_prompt_response_payloads():
+            _strip_llm_prompt_response_payloads(payload)
+        return payload
+
+    def _should_persist_llm_prompt_response_payloads(self) -> bool:
+        retention = getattr(self.cfg, "retention", None)
+        if retention is None:
+            return True
+        return bool(getattr(retention, "persist_llm_prompt_response_payloads", True))
 
     async def _persist_llm_call(
         self,
@@ -175,3 +186,12 @@ class LLMWorkflowStorageMixin:
                 "persist_llm_error",
                 extra={"error": str(exc), "cid": correlation_id},
             )
+
+
+def _strip_llm_prompt_response_payloads(payload: dict[str, Any]) -> None:
+    payload["request_headers_json"] = {}
+    payload["request_messages_json"] = []
+    payload["response_text"] = None
+    payload["response_json"] = {}
+    payload["openrouter_response_text"] = None
+    payload["openrouter_response_json"] = {}

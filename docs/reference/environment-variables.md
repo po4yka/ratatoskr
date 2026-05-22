@@ -571,17 +571,21 @@ See [`docs/cocoindex.md`](../cocoindex.md) for architecture, summary/repository 
 
 ## Data Retention
 
-Configures scheduled nulling of raw artifact columns (scraped HTML, LLM payloads, Telegram message JSON, video transcripts). The summary, cost, and status columns are never purged. A TTL of `0` disables purge for that subsystem.
+Configures scheduled nulling of raw artifact columns and cleanup of orphaned local artifacts. Summaries, search metadata, cost, status, and request rows are never purged by these settings. A TTL of `0` disables purge for that subsystem.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `RETENTION_ENABLED` | bool | `true` | Master switch. Set to `false` to disable all purge runs. |
 | `RETENTION_CRON` | str | `"0 3 * * *"` | UTC cron for the daily purge job (3 am UTC). |
 | `RETENTION_BATCH_SIZE` | int | `500` | Max rows updated per subsystem per run. Next run continues the backlog. |
+| `RETENTION_PRIVACY_NO_RETENTION_MODE` | bool | `false` | Best-effort privacy mode. New crawl and LLM write paths skip avoidable raw prompt/content payload persistence, and the next purge run immediately nulls raw fields while preserving summaries/search metadata. |
 | `RETENTION_TELEGRAM_RAW_DAYS` | int | `30` | Days to keep `telegram_messages` raw columns (`text_full`, `entities_json`, `telegram_raw_json`). `0` = never purge. |
-| `RETENTION_CRAWL_CONTENT_DAYS` | int | `7` | Days to keep `crawl_results` content columns (`content_markdown`, `content_html`, `raw_response_json`, `firecrawl_details_json`, `structured_json`, `metadata_json`, `links_json`). `0` = never purge. |
-| `RETENTION_LLM_PAYLOAD_DAYS` | int | `90` | Days to keep `llm_calls` request/response columns. Cost, token, and latency fields are always preserved. `0` = never purge. |
+| `RETENTION_RAW_EXTRACTED_CONTENT_DAYS` / `RETENTION_CRAWL_CONTENT_DAYS` | int | `7` | Days to keep `crawl_results` raw extracted content columns (`content_markdown`, `content_html`, raw provider JSON, metadata, links). `0` = never purge. |
+| `RETENTION_LLM_PROMPT_RESPONSE_DAYS` / `RETENTION_LLM_PAYLOAD_DAYS` | int | `90` | Days to keep `llm_calls` request/response columns. Cost, token, model, status, and latency fields are always preserved. `0` = never purge. |
+| `RETENTION_LLM_PROMPT_RESPONSE_POLICY` | str | `"full"` | `full` stores LLM prompt/response payloads until their TTL; `metadata_only` stores only cost/token/model/status/latency/error metadata for new calls. |
 | `RETENTION_VIDEO_TRANSCRIPT_DAYS` | int | `30` | Days to keep `video_downloads.transcript_text`. `0` = never purge. |
+| `RETENTION_DOWNLOADED_MEDIA_DAYS` | int | `30` | Days to keep downloaded video, subtitle, metadata, and thumbnail files referenced by `video_downloads`. The database row remains, but path and size fields are nulled after cleanup. `0` = never purge. |
+| `RETENTION_EXPORT_TEMP_FILE_HOURS` | int | `24` | Hours to keep orphaned export temp files under the private `ratatoskr-exports` temp directory. Normal successful responses still delete their own temp file immediately. `0` = never purge. |
 | `RETENTION_INTERACTION_TEXT_DAYS` | int | `30` | Days to keep `user_interactions.input_text`. `0` = never purge. |
 | `RETENTION_REQUEST_CONTENT_DAYS` | int | `30` | Days to keep `requests.content_text` and `requests.error_context_json`. `0` = never purge. |
 
