@@ -25,7 +25,6 @@ class RequestStatusData(BaseModel):
     error_message: str | None = Field(default=None, serialization_alias="errorMessage")
     error_reason_code: str | None = Field(default=None, serialization_alias="errorReasonCode")
     retryable: bool | None = Field(default=None, serialization_alias="retryable")
-    debug: dict[str, Any] | None = Field(default=None, serialization_alias="debug")
     can_retry: bool = Field(default=False, serialization_alias="canRetry")
     correlation_id: str | None = Field(default=None, serialization_alias="correlationId")
     updated_at: str = Field(serialization_alias="updatedAt")

@@ -282,7 +282,6 @@ async def get_request_status(
             error_message=error_details.error_message if error_details else None,
             error_reason_code=error_details.error_reason_code if error_details else None,
             retryable=error_details.retryable if error_details else None,
-            debug=error_details.debug if error_details else None,
             can_retry=status_info.can_retry,
             correlation_id=status_info.correlation_id,
             updated_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),

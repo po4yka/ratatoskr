@@ -10416,13 +10416,6 @@ components:
           - type: 'null'
           default: null
           title: Retryable
-        debug:
-          anyOf:
-          - additionalProperties: true
-            type: object
-          - type: 'null'
-          default: null
-          title: Debug
         canRetry:
           default: false
           title: Canretry

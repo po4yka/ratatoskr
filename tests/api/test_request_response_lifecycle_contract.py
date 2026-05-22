@@ -42,6 +42,7 @@ def test_status_response_uses_canonical_status_stage_and_legacy_status() -> None
     assert payload["legacyStatus"] == "processing"
     assert payload["stage"] == "summarizing"
     assert payload["progress"]["percentage"] == 66
+    assert "debug" not in payload
 
 
 def test_detail_response_request_uses_canonical_status_and_legacy_status() -> None:
