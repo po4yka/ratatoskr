@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 
-from app.api.routers.repositories import _load_owned_repository, reanalyze_repository
+from app.api.routers.repositories import (
+    _load_owned_repository,
+    delete_repository,
+    get_repository,
+    reanalyze_repository,
+)
 
 
 class _Result:
@@ -36,8 +41,13 @@ class _Session:
 class _Database:
     def __init__(self, row: Any = None) -> None:
         self.session_ctx = _Session(row)
+        self.transaction_started = False
 
     def session(self) -> _Session:
+        return self.session_ctx
+
+    def transaction(self) -> _Session:
+        self.transaction_started = True
         return self.session_ctx
 
 
@@ -67,3 +77,29 @@ async def test_reanalyze_denies_cross_user_repository_before_use_case() -> None:
 
     assert exc_info.value.status_code == 404
     use_case.analyze.assert_not_awaited()
+
+
+async def test_get_repository_denies_cross_user_repository() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await get_repository(
+            repository_id=123,
+            user={"user_id": 456},
+            db=_Database(row=None),
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+async def test_delete_repository_denies_cross_user_repository_before_delete() -> None:
+    db = _Database(row=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await delete_repository(
+            repository_id=123,
+            user={"user_id": 456},
+            db=db,
+            qdrant=None,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert db.transaction_started is False

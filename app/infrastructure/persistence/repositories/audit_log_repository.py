@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, Any
 
+from app.core.logging_utils import redact_for_logging
 from app.db.json_utils import prepare_json_payload
 from app.db.models import AuditLog
 
@@ -29,7 +30,7 @@ class AuditLogRepositoryAdapter:
             log = AuditLog(
                 level=log_level,
                 event=event_type,
-                details_json=prepare_json_payload(details),
+                details_json=prepare_json_payload(redact_for_logging(details)),
             )
             add_result = session.add(log)
             if inspect.isawaitable(add_result):
