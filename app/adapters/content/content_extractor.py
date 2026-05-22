@@ -320,7 +320,7 @@ class ContentExtractor(
         )
 
         async with self._sem():
-            crawl = await self.scraper.scrape_markdown(url, request_id=request_id)
+            crawl = await self.scraper.scrape_markdown(normalized_url, request_id=request_id)
 
         quality_issue = detect_low_value_content(crawl)
         if quality_issue:
@@ -340,7 +340,7 @@ class ContentExtractor(
                     error=ValueError(f"Low-value content detected: {reason}"),
                     retryable=True,
                     quality_reason=reason,
-                    source_url=url,
+                    source_url=normalized_url,
                     content_signals=quality_issue.get("metrics")
                     if isinstance(quality_issue, dict)
                     else None,
@@ -365,7 +365,7 @@ class ContentExtractor(
                     retryable=True,
                     http_status=crawl.http_status,
                     latency_ms=crawl.latency_ms,
-                    source_url=url,
+                    source_url=normalized_url,
                     provider_error_code=crawl.response_error_code,
                 )
             raise ValueError(f"Extraction failed: {error_msg}") from None
@@ -508,7 +508,7 @@ class ContentExtractor(
             title,
             images,
         ) = await self._extract_or_reuse_content_with_title(
-            message, req_id, url_text, dedupe, correlation_id, interaction_id, silent=silent
+            message, req_id, norm, dedupe, correlation_id, interaction_id, silent=silent
         )
         detected = detect_language(content_text or "")
         try:

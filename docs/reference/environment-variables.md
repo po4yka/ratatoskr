@@ -212,6 +212,7 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | `SCRAPER_FORCE_PROVIDER` | _(none)_ | Force single provider token (`scrapling`, `crawl4ai`, `firecrawl`, `defuddle`, `playwright`, `crawlee`, `direct_html`, `scrapegraph_ai`) |
 | `SCRAPER_JS_HEAVY_HOSTS` | _(none)_ | CSV host list for JS-heavy heuristic overlays |
 | `SCRAPER_MIN_CONTENT_LENGTH` | `400` | Minimum extracted text length to accept content |
+| `SCRAPER_ALLOW_PRIVATE_NETWORK_URLS` | `false` | Local-development override for user-submitted localhost/RFC1918 targets. Leave disabled outside isolated dev; metadata, link-local, reserved, and non-http(s) targets remain blocked. |
 | `SCRAPER_PROVIDER_ORDER` | `["scrapling", "crawl4ai", "firecrawl", "defuddle", "playwright", "crawlee", "direct_html", "scrapegraph_ai"]` | Ordered list of scraping providers to try |
 | `SCRAPER_SCRAPLING_ENABLED` | `true` | Enable Scrapling in-process provider |
 | `SCRAPER_SCRAPLING_TIMEOUT_SEC` | `30` | Scrapling fetch timeout (seconds) |

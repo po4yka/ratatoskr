@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
 
 from app.adapters.academic.platform_extractor import (
+    AcademicPlatformExtractor,
+    PDFDownloadError,
     _extract_abstract,
     _extract_title,
     _harvest_pdf_anchor,
@@ -156,8 +159,6 @@ def test_landing_paywall_empty_input() -> None:
 def test_supports_delegates_to_url_parser() -> None:
     """The supports() predicate must mirror parse_academic_paper_url
     so the platform router doesn't divert non-academic URLs."""
-    from app.adapters.academic.platform_extractor import AcademicPlatformExtractor
-
     # Minimal stub deps — supports() doesn't touch them.
     extractor = AcademicPlatformExtractor(
         cfg=None,
@@ -171,6 +172,35 @@ def test_supports_delegates_to_url_parser() -> None:
     assert extractor.supports("https://github.com/foo/bar") is False
 
 
+@pytest.mark.asyncio
+async def test_download_pdf_blocks_private_redirect_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    extractor = AcademicPlatformExtractor(
+        cfg=None,
+        scraper=None,
+        firecrawl_sem=_NullSem(),
+        lifecycle=None,
+        http_client_factory=lambda: _FakeHTTPClient(
+            [
+                httpx.Response(
+                    302,
+                    headers={"location": "http://127.0.0.1/private.pdf"},
+                    request=httpx.Request("GET", "https://example.com/paper.pdf"),
+                )
+            ]
+        ),
+    )
+
+    def fake_is_url_safe(url: str) -> tuple[bool, str | None]:
+        if url.startswith("http://127.0.0.1"):
+            return False, "Private or reserved IP address: 127.0.0.1"
+        return True, None
+
+    monkeypatch.setattr("app.adapters.academic.platform_extractor.is_url_safe", fake_is_url_safe)
+
+    with pytest.raises(PDFDownloadError, match="ssrf_blocked"):
+        await extractor._download_pdf("https://example.com/paper.pdf")
+
+
 class _NullSem:
     """Minimal async context-manager so supports() can be constructed."""
 
@@ -182,3 +212,19 @@ class _NullSem:
 
     async def __aexit__(self, *exc: Any) -> None:
         return None
+
+
+class _FakeHTTPClient:
+    def __init__(self, responses: list[httpx.Response]) -> None:
+        self._responses = list(responses)
+
+    async def __aenter__(self) -> _FakeHTTPClient:
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        return None
+
+    async def get(self, url: str) -> httpx.Response:
+        if not self._responses:
+            raise AssertionError(f"unexpected GET {url}")
+        return self._responses.pop(0)

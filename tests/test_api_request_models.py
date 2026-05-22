@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.models.requests import (
+    AggregationBundleItemRequest,
     AttachTagsRequest,
     CreateGoalRequest,
     CreateRuleRequest,
@@ -12,6 +13,7 @@ from app.api.models.requests import (
     ImportOptionsRequest,
     MergeTagsRequest,
     QuickSaveRequest,
+    SubmitURLRequest,
     SyncApplyItem,
     SyncApplyRequest,
     TestRuleRequest,
@@ -209,6 +211,43 @@ class TestQuickSaveRequest:
         assert req.selected_text is None
         assert req.tag_names == []
         assert req.summarize is True
+
+
+class TestURLSSRFValidation:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://localhost/admin",
+            "http://127.0.0.1/admin",
+            "http://10.0.0.5/admin",
+            "http://172.16.0.5/admin",
+            "http://192.168.1.5/admin",
+            "http://169.254.169.254/latest/meta-data/",
+        ],
+    )
+    def test_submit_url_request_rejects_private_targets(self, url: str) -> None:
+        with pytest.raises(ValidationError):
+            SubmitURLRequest(input_url=url)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "file:///etc/passwd",
+            "data:text/plain,hello",
+            "javascript:alert(1)",
+        ],
+    )
+    def test_submit_url_request_rejects_non_http_schemes(self, url: str) -> None:
+        with pytest.raises(ValidationError):
+            SubmitURLRequest(input_url=url)
+
+    def test_aggregation_bundle_item_rejects_private_target(self) -> None:
+        with pytest.raises(ValidationError):
+            AggregationBundleItemRequest(url="http://10.0.0.5/admin")
+
+    def test_quick_save_rejects_private_target(self) -> None:
+        with pytest.raises(ValidationError):
+            QuickSaveRequest(url="http://127.0.0.1/admin")
 
 
 class TestSyncApplyRequest:

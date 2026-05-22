@@ -169,6 +169,9 @@ All sidecar connections are optional: a provider that cannot reach its sidecar r
 - **`min_content_length`** — rejects content shorter than the configured threshold (default 400 chars; controlled by `SCRAPER_MIN_CONTENT_LENGTH`). Applied only when `min_content_length > 0`.
 - **`detect_low_value_content`** — quality filter that scores character count, word count, and content signal density. Applied when `min_content_length > 0`.
 - **JS-heavy reorder** — when the request URL matches a host in `SCRAPER_JS_HEAVY_HOSTS`, browser providers (`playwright`, `crawlee`) are moved to the front of the effective provider list before any rung is tried.
+- **SSRF preflight** — user-submitted target URLs are checked before provider delivery. Localhost, RFC1918/private networks, link-local/metadata ranges, reserved ranges, DNS results that resolve to blocked ranges, and non-http(s) schemes are rejected. `SCRAPER_ALLOW_PRIVATE_NETWORK_URLS=true` is only for isolated local development and does not allow metadata, link-local, reserved, or non-http(s) targets.
+
+Providers that delegate fetching to sidecars or third-party libraries still cannot enforce redirect-hop checks inside that delegated runtime. The chain blocks obvious dangerous initial targets before calling those providers; backend-controlled `httpx` providers additionally perform per-hop redirect checks with connection-time DNS pinning.
 
 ---
 

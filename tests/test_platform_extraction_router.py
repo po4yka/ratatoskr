@@ -213,6 +213,21 @@ async def test_extract_content_pure_passes_request_id_to_generic_scraper() -> No
 
 
 @pytest.mark.asyncio
+async def test_extract_content_pure_passes_normalized_url_to_generic_scraper() -> None:
+    extractor = _make_extractor()
+
+    await extractor.extract_content_pure(
+        "HTTPS://Example.COM/article?utm_source=newsletter&a=1",
+        correlation_id="cid-normalized",
+    )
+
+    extractor.scraper.scrape_markdown.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "https://example.com/article?a=1",
+        request_id=None,
+    )
+
+
+@pytest.mark.asyncio
 async def test_extract_content_pure_routes_meta_urls_through_platform_router() -> None:
     extractor = cast("Any", _make_extractor())
     meta_extractor = MagicMock()

@@ -9,6 +9,7 @@ from app.adapters.content.quality_filters import best_content_text, detect_low_v
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_url_for_logging
+from app.security.ssrf import is_url_safe
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -103,6 +104,33 @@ class ContentScraperChain:
 
         _tracer = get_tracer(__name__)
         errors: list[str] = []
+        safe, reason = is_url_safe(url)
+        if not safe:
+            error_text = f"SSRF blocked URL: {reason}"
+            logger.warning(
+                "scraper_chain_ssrf_blocked",
+                extra={
+                    "url": redact_url_for_logging(url),
+                    "reason": reason,
+                    "request_id": request_id,
+                },
+            )
+            if self._audit:
+                self._audit(
+                    "ERROR",
+                    "scraper_chain_ssrf_blocked",
+                    {
+                        "url": redact_url_for_logging(url),
+                        "reason": reason,
+                        "request_id": request_id,
+                    },
+                )
+            return FirecrawlResult(
+                status=CallStatus.ERROR,
+                error_text=error_text,
+                source_url=url,
+                endpoint="chain",
+            )
 
         with _tracer.start_as_current_span(
             "scraper.chain",

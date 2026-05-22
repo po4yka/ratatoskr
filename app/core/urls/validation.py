@@ -115,10 +115,12 @@ def _validate_url_input_basics(url: str) -> None:
 def _validate_hostname_security(hostname: str) -> None:
     import ipaddress
 
-    from app.security.ssrf import is_ip_blocked
+    from app.security.ssrf import allow_private_network_urls, is_ip_blocked
 
     hostname_lower = hostname.lower()
     if hostname_lower in ("localhost", "localhost.localdomain"):
+        if allow_private_network_urls():
+            return
         msg = "Localhost access not allowed"
         raise ValueError(msg)
 

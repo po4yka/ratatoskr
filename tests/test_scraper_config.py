@@ -34,6 +34,16 @@ def test_defuddle_enabled_by_default() -> None:
     assert cfg.defuddle_enabled is True
 
 
+def test_private_network_url_override_disabled_by_default() -> None:
+    cfg = ScraperConfig()
+    assert cfg.allow_private_network_urls is False
+
+
+def test_private_network_url_override_accepts_env_alias() -> None:
+    cfg = ScraperConfig(SCRAPER_ALLOW_PRIVATE_NETWORK_URLS=True)
+    assert cfg.allow_private_network_urls is True
+
+
 def test_new_provider_tokens_in_token_set() -> None:
     from app.config.scraper import SCRAPER_PROVIDER_TOKENS
 

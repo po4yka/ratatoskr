@@ -89,6 +89,14 @@ class ScraperConfig(BaseModel):
         validation_alias="SCRAPER_MIN_CONTENT_LENGTH",
         description="Minimum extracted text length required to accept a scrape",
     )
+    allow_private_network_urls: bool = Field(
+        default=False,
+        validation_alias="SCRAPER_ALLOW_PRIVATE_NETWORK_URLS",
+        description=(
+            "Local-development override for fetching localhost and RFC1918 target URLs; "
+            "metadata, link-local, reserved, and non-http(s) URLs remain blocked"
+        ),
+    )
 
     provider_order: list[str] = Field(
         default_factory=lambda: list(DEFAULT_SCRAPER_PROVIDER_ORDER),

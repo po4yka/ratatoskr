@@ -9,7 +9,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from app.security.ssrf import is_ip_blocked, is_url_safe
+from app.security.ssrf import allow_private_network_urls, is_ip_blocked, is_url_safe
 
 # ---------------------------------------------------------------------------
 # is_ip_blocked — individual IP payload checks
@@ -67,6 +67,22 @@ def test_is_url_safe_blocks_localhost_name() -> None:
     assert reason is not None
 
 
+def test_is_url_safe_blocks_non_http_scheme() -> None:
+    safe, reason = is_url_safe("file:///etc/passwd")
+    assert safe is False
+    assert reason is not None
+    assert "scheme" in reason.lower()
+
+
+def test_is_url_safe_allows_public_hostname_after_dns_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.security.ssrf.resolve_host_ips", lambda _: ["93.184.216.34"])
+    safe, reason = is_url_safe("https://example.com/article")
+    assert safe is True
+    assert reason is None
+
+
 def test_is_url_safe_blocks_ipv4_loopback_literal() -> None:
     safe, _ = is_url_safe("http://127.0.0.1/")
     assert safe is False
@@ -85,6 +101,16 @@ def test_is_url_safe_blocks_ipv6_loopback_literal() -> None:
 def test_is_url_safe_blocks_aws_metadata_ip() -> None:
     safe, _ = is_url_safe("http://169.254.169.254/latest/meta-data/")
     assert safe is False
+
+
+def test_local_dev_override_allows_localhost_and_rfc1918_but_not_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SCRAPER_ALLOW_PRIVATE_NETWORK_URLS", "true")
+    assert allow_private_network_urls() is True
+    assert is_url_safe("http://localhost:8000/")[0] is True
+    assert is_url_safe("http://10.0.0.5/")[0] is True
+    assert is_url_safe("http://169.254.169.254/latest/meta-data/")[0] is False
 
 
 def test_is_url_safe_blocks_ipv4_mapped_ipv6() -> None:

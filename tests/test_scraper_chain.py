@@ -219,7 +219,7 @@ class TestContentScraperChain:
         assert level == "INFO"
         assert event == "scraper_chain_success"
         assert data["provider"] == "audited"
-        assert data["url"] == "https://example.com"
+        assert data["url"] == "https://example.com/[redacted]"
         assert data["request_id"] == 42
 
     @pytest.mark.asyncio(loop_scope="function")

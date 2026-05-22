@@ -26,6 +26,14 @@ from app.core.call_status import CallStatus
 pytestmark = pytest.mark.no_network
 
 
+@pytest.fixture(autouse=True)
+def _allow_safe_scraper_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.adapters.content.scraper.chain.is_url_safe",
+        lambda _url: (True, None),
+    )
+
+
 class _FakeProvider:
     """Tiny in-memory ``ContentScraperProtocol`` double.
 
@@ -213,6 +221,22 @@ async def test_chain_returns_aggregated_error_when_all_providers_fail() -> None:
     assert "e_a" in result.error_text and "e_b" in result.error_text and "e_c" in result.error_text
     # Every provider must have been tried even though all failed.
     assert len(a.calls) == 1 and len(b.calls) == 1 and len(c.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_chain_blocks_unsafe_url_before_provider_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _FakeProvider("primary", _ok_result("should not be called"))
+    monkeypatch.setattr(
+        "app.adapters.content.scraper.chain.is_url_safe",
+        lambda _url: (False, "Private or reserved IP address: 127.0.0.1"),
+    )
+
+    chain = ContentScraperChain(providers=[provider])
+    result = await chain.scrape_markdown("http://127.0.0.1/admin")
+
+    assert result.status == CallStatus.ERROR
+    assert "SSRF blocked URL" in (result.error_text or "")
+    assert provider.calls == []
 
 
 @pytest.mark.asyncio

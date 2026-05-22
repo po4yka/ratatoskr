@@ -31,6 +31,7 @@ import asyncio
 import re
 import tempfile
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urljoin
 
 import httpx
 
@@ -49,6 +50,7 @@ from app.core.call_status import CallStatus
 from app.core.lang import detect_language
 from app.core.logging_utils import get_logger
 from app.core.url_utils import compute_dedupe_hash
+from app.security.ssrf import is_url_safe, make_safe_async_client
 
 if TYPE_CHECKING:
     from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
@@ -122,8 +124,8 @@ class AcademicPlatformExtractor(PlatformExtractor):
         self._scraper = scraper
         self._firecrawl_sem = firecrawl_sem
         self._lifecycle = lifecycle
-        # Injectable for tests; defaults to a fresh httpx.AsyncClient per
-        # download with redirect-following enabled (OSF /download 302s).
+        # Injectable for tests; defaults to an SSRF-safe httpx client with
+        # manual redirect handling (OSF /download 302s).
         self._http_client_factory = http_client_factory
 
     # ------------------------------------------------------------------
@@ -307,9 +309,9 @@ class AcademicPlatformExtractor(PlatformExtractor):
         if self._http_client_factory is not None:
             client_cm = self._http_client_factory()
         else:
-            client_cm = httpx.AsyncClient(
+            client_cm = make_safe_async_client(
                 timeout=httpx.Timeout(_PDF_DOWNLOAD_TIMEOUT_SEC),
-                follow_redirects=True,
+                follow_redirects=False,
                 headers={
                     # Several hosts (arXiv, NBER) serve a CDN-cached
                     # binary directly; SSRN's Delivery.cfm is more
@@ -322,9 +324,21 @@ class AcademicPlatformExtractor(PlatformExtractor):
                 },
             )
         async with client_cm as client:
-            resp = await client.get(pdf_url)
-            resp.raise_for_status()
-            return cast("bytes", resp.content)
+            current_url = pdf_url
+            for _ in range(5):
+                safe, reason = is_url_safe(current_url)
+                if not safe:
+                    raise PDFDownloadError(f"ssrf_blocked:{reason}")
+                resp = await client.get(current_url)
+                if resp.status_code in {301, 302, 303, 307, 308}:
+                    location = resp.headers.get("location")
+                    if not location:
+                        resp.raise_for_status()
+                    current_url = urljoin(current_url, location)
+                    continue
+                resp.raise_for_status()
+                return cast("bytes", resp.content)
+            raise PDFDownloadError("too_many_redirects")
 
     # ------------------------------------------------------------------
     # Helpers

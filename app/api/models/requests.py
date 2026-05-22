@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
+from app.core.url_utils import validate_url_input
+
 
 class SubmitURLRequest(BaseModel):
     """Request body for submitting a URL."""
@@ -21,6 +23,7 @@ class SubmitURLRequest(BaseModel):
         url_str = str(v)
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
+        validate_url_input(url_str)
         return v
 
 
@@ -294,6 +297,7 @@ class AggregationBundleItemRequest(BaseModel):
         url_str = str(value)
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
+        validate_url_input(url_str)
         return value
 
     @field_validator("metadata")
@@ -375,6 +379,12 @@ class QuickSaveRequest(BaseModel):
     selected_text: str | None = None
     tag_names: list[str] = Field(default_factory=list)
     summarize: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def validate_quick_save_url(cls, value: str) -> str:
+        validate_url_input(value)
+        return value
 
 
 # ---------------------------------------------------------------------------
