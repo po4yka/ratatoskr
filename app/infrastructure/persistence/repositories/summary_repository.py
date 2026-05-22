@@ -311,7 +311,7 @@ class SummaryRepositoryAdapter:
         """
         if not summary_ids:
             return 0
-        async with self._database.session() as session:
+        async with self._database.transaction() as session:
             # Two-step: collect owned IDs, then UPDATE.
             owned_rows = await session.execute(
                 select(Summary.id)
@@ -339,7 +339,7 @@ class SummaryRepositoryAdapter:
         """Bulk set favorite scoped to *user_id*."""
         if not summary_ids:
             return 0
-        async with self._database.session() as session:
+        async with self._database.transaction() as session:
             owned_rows = await session.execute(
                 select(Summary.id)
                 .join(Request, Summary.request_id == Request.id)
@@ -366,7 +366,7 @@ class SummaryRepositoryAdapter:
         if not summary_ids:
             return 0
         now = _utcnow()
-        async with self._database.session() as session:
+        async with self._database.transaction() as session:
             owned_rows = await session.execute(
                 select(Summary.id)
                 .join(Request, Summary.request_id == Request.id)

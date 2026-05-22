@@ -229,7 +229,12 @@ async def test_collection_reorder_collections_dedupes_owned_ids(
 
 
 class _TagRepo:
-    def __init__(self, tags_by_id: dict[int, dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        tags_by_id: dict[int, dict[str, Any]],
+        *,
+        tags_for_summary: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.tags_by_id = tags_by_id
         self.async_get_tag_by_id = AsyncMock(side_effect=lambda tag_id: self.tags_by_id.get(tag_id))
         self.async_merge_tags = AsyncMock(return_value=None)
@@ -240,7 +245,7 @@ class _TagRepo:
                 "source": source,
             }
         )
-        self.async_get_tags_for_summary = AsyncMock(return_value=[])
+        self.async_get_tags_for_summary = AsyncMock(return_value=tags_for_summary or [])
         self.async_get_tag_by_normalized_name = AsyncMock(return_value=None)
         self.async_create_tag = AsyncMock()
 
@@ -261,6 +266,28 @@ def _tag(tag_id: int, user_id: int, name: str) -> dict[str, Any]:
 
 @pytest.mark.asyncio
 async def test_tag_merge_rejects_cross_user_source_before_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _TagRepo(
+        {
+            1: _tag(1, 8301, "target"),
+            2: _tag(2, 8301, "owned-source"),
+            3: _tag(3, 8302, "other-source"),
+        }
+    )
+    monkeypatch.setattr(tags, "_get_tag_repo", lambda: repo)
+
+    with pytest.raises(ResourceNotFoundError):
+        await tags.merge_tags(
+            body=MergeTagsRequest(source_tag_ids=[2, 3], target_tag_id=1),
+            user={"user_id": 8301},
+        )
+
+    repo.async_merge_tags.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tag_merge_rejects_all_cross_user_sources_before_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = _TagRepo({1: _tag(1, 8301, "target"), 2: _tag(2, 8302, "other")})
@@ -292,7 +319,26 @@ async def test_tag_merge_dedupes_source_ids_and_pins_response_shape(
 
 
 @pytest.mark.asyncio
-async def test_attach_tags_dedupes_ids_and_rejects_cross_user_tags(
+async def test_attach_tags_dedupes_ids_and_pins_response_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tag = _tag(1, 8501, "owned")
+    repo = _TagRepo({1: tag}, tags_for_summary=[tag])
+    monkeypatch.setattr(tags, "_get_tag_repo", lambda: repo)
+    monkeypatch.setattr(tags, "_ensure_summary_owned", AsyncMock(return_value=None))
+
+    response = await tags.attach_tags(
+        summary_id=99,
+        body=AttachTagsRequest(tag_ids=[1, 1]),
+        user={"user_id": 8501},
+    )
+
+    assert response["data"]["tags"][0]["id"] == 1
+    repo.async_attach_tag.assert_awaited_once_with(99, 1, source="manual")
+
+
+@pytest.mark.asyncio
+async def test_attach_tags_rejects_mixed_cross_user_tags_before_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = _TagRepo({1: _tag(1, 8501, "owned"), 2: _tag(2, 8502, "other")})
@@ -306,7 +352,25 @@ async def test_attach_tags_dedupes_ids_and_rejects_cross_user_tags(
             user={"user_id": 8501},
         )
 
-    repo.async_attach_tag.assert_awaited_once_with(99, 1, source="manual")
+    repo.async_attach_tag.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_attach_tags_rejects_all_cross_user_tags_before_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _TagRepo({2: _tag(2, 8502, "other")})
+    monkeypatch.setattr(tags, "_get_tag_repo", lambda: repo)
+    monkeypatch.setattr(tags, "_ensure_summary_owned", AsyncMock(return_value=None))
+
+    with pytest.raises(ResourceNotFoundError):
+        await tags.attach_tags(
+            summary_id=99,
+            body=AttachTagsRequest(tag_ids=[2]),
+            user={"user_id": 8501},
+        )
+
+    repo.async_attach_tag.assert_not_awaited()
 
 
 @pytest.mark.asyncio

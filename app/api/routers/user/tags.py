@@ -221,13 +221,14 @@ async def attach_tags(
     tag_ids = _dedupe_ints(body.tag_ids)
     tag_names = _dedupe_tag_names(body.tag_names)
 
-    # Attach by tag IDs
-    if tag_ids:
-        for tid in tag_ids:
-            tag = await repo.async_get_tag_by_id(tid)
-            _verify_tag_ownership(tag, tid, user["user_id"])
-            assoc = await repo.async_attach_tag(summary_id, tid, source="manual")
-            attached.append(assoc)
+    # Validate all explicit tag IDs before attaching any of them so a mixed owned/cross-user batch cannot partially mutate state.
+    for tid in tag_ids:
+        tag = await repo.async_get_tag_by_id(tid)
+        _verify_tag_ownership(tag, tid, user["user_id"])
+
+    for tid in tag_ids:
+        assoc = await repo.async_attach_tag(summary_id, tid, source="manual")
+        attached.append(assoc)
 
     # Attach by tag names (auto-create if needed)
     if tag_names:

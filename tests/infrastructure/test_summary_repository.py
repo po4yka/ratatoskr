@@ -90,7 +90,6 @@ async def _create_summary_for_user(
     user_id: int,
     url: str,
     is_read: bool = False,
-    is_favorited: bool = False,
 ) -> int:
     request_id = await _create_request(database, user_id=user_id, url=url, status="completed")
     await repo.async_upsert_summary(
@@ -98,7 +97,6 @@ async def _create_summary_for_user(
         "en",
         {"summary_250": f"summary for {url}"},
         is_read=is_read,
-        is_favorited=is_favorited,
     )
     summary = await repo.async_get_summary_by_request(request_id)
     assert summary is not None
