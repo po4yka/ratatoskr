@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
+    from app.adapters.llm.protocol import LLMClientProtocol
     from app.application.ports.requests import LLMRepositoryPort, RequestRepositoryPort
     from app.application.ports.summaries import SummaryRepositoryPort
     from app.application.ports.users import UserRepositoryPort
@@ -133,7 +134,7 @@ class LLMResponseWorkflow(
         *,
         cfg: Any,
         db: Database,
-        openrouter: Any,
+        openrouter: LLMClientProtocol,
         response_formatter: ResponseFormatter,
         audit_func: Callable[[str, str, dict[str, Any]], None],
         sem: Callable[[], Any],
@@ -147,6 +148,7 @@ class LLMResponseWorkflow(
         """Initialize workflow dependencies and repositories."""
         self.cfg = cfg
         self.db = db
+        self.llm_client = openrouter
         self.openrouter = openrouter
         self.response_formatter = response_formatter
         self._audit = audit_func

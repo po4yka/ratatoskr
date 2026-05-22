@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from app.adapters.llm.anthropic import AnthropicClient
 from app.adapters.llm.openai import OpenAIClient
+from app.adapters.llm.protocol import LLMClientProtocol
 from app.adapters.openrouter.openrouter_client import OpenRouterClient
 
 
@@ -30,6 +33,22 @@ class TestLLMClientProtocol:
         assert hasattr(AnthropicClient, "provider_name")
         assert hasattr(AnthropicClient, "chat")
         assert hasattr(AnthropicClient, "aclose")
+
+    @pytest.mark.parametrize(
+        "client_cls",
+        [OpenRouterClient, OpenAIClient, AnthropicClient],
+    )
+    def test_chat_signature_matches_generic_workflow_kwargs(self, client_cls: type) -> None:
+        """Every provider accepts the kwargs passed by LLMResponseWorkflow."""
+        protocol_params = set(inspect.signature(LLMClientProtocol.chat).parameters)
+        client_params = set(inspect.signature(client_cls.chat).parameters)
+
+        assert {
+            "stream",
+            "per_model_timeout_sec",
+            "per_model_timeout_overrides",
+        } <= protocol_params
+        assert protocol_params <= client_params
 
     def test_provider_names_are_unique(self) -> None:
         """Each provider should have a unique provider name."""

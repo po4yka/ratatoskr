@@ -45,11 +45,14 @@ class LLMClientProtocol(Protocol):
         temperature: float = 0.2,
         max_tokens: int | None = None,
         top_p: float | None = None,
+        stream: bool = False,
         request_id: int | None = None,
         response_format: dict[str, Any] | None = None,
         model_override: str | None = None,
         fallback_models_override: tuple[str, ...] | list[str] | None = None,
         on_stream_delta: Callable[[str], Awaitable[None] | None] | None = None,
+        per_model_timeout_sec: float | None = None,
+        per_model_timeout_overrides: dict[str, float] | None = None,
     ) -> LLMCallResult:
         """Send a chat completion request to the LLM provider.
 
@@ -62,11 +65,15 @@ class LLMClientProtocol(Protocol):
                        provider defaults.
             top_p: Nucleus sampling parameter (0.0 to 1.0). If None, uses
                   provider defaults.
+            stream: Whether to request streaming output when the provider supports it.
             request_id: Optional internal request ID for tracing and persistence.
             response_format: Optional structured output format specification.
                            Provider-specific handling applies.
             model_override: Optional model name to use instead of the default.
+            fallback_models_override: Optional ordered list of fallback models.
             on_stream_delta: Optional callback invoked with streamed text deltas.
+            per_model_timeout_sec: Optional timeout budget for each model attempt.
+            per_model_timeout_overrides: Optional per-model timeout overrides.
 
         Returns:
             LLMCallResult containing the response text, token usage, cost,

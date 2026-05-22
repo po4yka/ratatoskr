@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from app.adapters.content.llm_response_workflow import (
@@ -18,6 +19,65 @@ class _DummySemaphore:
         return None
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+class _StrictFakeLLMClient:
+    provider_name = "strict-fake"
+
+    def __init__(self, result: Any) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        stream: bool = False,
+        request_id: int | None = None,
+        response_format: dict[str, Any] | None = None,
+        model_override: str | None = None,
+        fallback_models_override: tuple[str, ...] | list[str] | None = None,
+        on_stream_delta: Any | None = None,
+        per_model_timeout_sec: float | None = None,
+        per_model_timeout_overrides: dict[str, float] | None = None,
+    ) -> Any:
+        self.calls.append(
+            {
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "top_p": top_p,
+                "stream": stream,
+                "request_id": request_id,
+                "response_format": response_format,
+                "model_override": model_override,
+                "fallback_models_override": fallback_models_override,
+                "on_stream_delta": on_stream_delta,
+                "per_model_timeout_sec": per_model_timeout_sec,
+                "per_model_timeout_overrides": per_model_timeout_overrides,
+            }
+        )
+        return self.result
+
+    async def chat_structured(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        response_model: type[Any],
+        max_retries: int = 3,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        request_id: int | None = None,
+        model_override: str | None = None,
+        fallback_models_override: tuple[str, ...] | list[str] | None = None,
+    ) -> Any:
+        raise NotImplementedError
+
+    async def aclose(self) -> None:
         return None
 
 
@@ -46,6 +106,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.cfg.runtime.json_parse_timeout_sec = 60.0
         self.cfg.runtime.llm_per_model_timeout_min_sec = 90.0
         self.cfg.runtime.llm_per_model_timeout_overrides = {}
+        self.cfg.llm_usage_budget = None
 
         self.db = MagicMock()
         self.response_formatter = MagicMock()
@@ -145,6 +206,75 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.insert_llm_call_mock.assert_awaited_once()
         self.completion_mock.assert_awaited_once()
         self.llm_error_mock.assert_not_awaited()
+
+    async def test_execute_accepts_strict_llm_client_protocol(self) -> None:
+        summary_payload = {
+            "summary_250": "Summary body",
+            "tldr": "TLDR text",
+        }
+        fake_client = _StrictFakeLLMClient(self._llm_response(summary_payload))
+        self.cfg.runtime.llm_per_model_timeout_overrides = {"fallback-model": 12.0}
+        workflow = LLMResponseWorkflow(
+            cfg=self.cfg,
+            db=self.db,
+            openrouter=fake_client,
+            response_formatter=self.response_formatter,
+            audit_func=lambda *args, **kwargs: None,
+            sem=lambda: _DummySemaphore(),
+            **_workflow_repo_kwargs(),
+        )
+        workflow.request_repo = self.workflow.request_repo
+        workflow.summary_repo = self.workflow.summary_repo
+        workflow.llm_repo = self.workflow.llm_repo
+        workflow.user_repo = self.workflow.user_repo
+
+        request = self.request.model_copy(
+            update={
+                "stream": True,
+                "model_override": "primary-model",
+                "fallback_models_override": ("fallback-model",),
+            }
+        )
+
+        with unittest.mock.patch(
+            "app.adapters.content.llm_response_workflow.parse_summary_response",
+            return_value=SimpleNamespace(
+                shaped=summary_payload,
+                errors=[],
+                used_local_fix=False,
+            ),
+        ):
+            summary = await workflow.execute_summary_workflow(
+                message=MagicMock(),
+                req_id=111,
+                correlation_id="strict",
+                interaction_config=self.interaction,
+                persistence=self.persistence,
+                repair_context=self.repair_context,
+                requests=[request],
+                notifications=self.notifications,
+            )
+
+        assert summary is not None
+        assert summary["summary_250"] == summary_payload["summary_250"]
+        assert summary["tldr"] == summary_payload["tldr"]
+        assert summary["summary_quality"]["model_used"] == "test-model"
+        assert fake_client.calls == [
+            {
+                "messages": self.base_messages,
+                "temperature": 0.1,
+                "max_tokens": 256,
+                "top_p": 1.0,
+                "stream": True,
+                "request_id": 111,
+                "response_format": {"type": "json_object"},
+                "model_override": "primary-model",
+                "fallback_models_override": ("fallback-model",),
+                "on_stream_delta": None,
+                "per_model_timeout_sec": 90.0,
+                "per_model_timeout_overrides": {"fallback-model": 12.0},
+            }
+        ]
 
     async def test_execute_runs_repair_on_parse_failure(self) -> None:
         llm_invalid = self._llm_response({}, text="not json")

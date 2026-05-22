@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from app.adapters.content.llm_response_workflow import AttemptContext
+    from app.adapters.llm.protocol import LLMClientProtocol
 
 from app.core.call_status import CallStatus
 from app.core.summary_contract import validate_and_shape_summary
@@ -30,7 +31,7 @@ class LLMWorkflowRepairMixin:
     _sem: Callable[..., Any]
     _set_failure_context: Callable[..., None]
     cfg: Any
-    openrouter: Any
+    llm_client: LLMClientProtocol
     request_repo: Any
     user_repo: Any
 
@@ -134,7 +135,7 @@ class LLMWorkflowRepairMixin:
                     getattr(self.cfg.runtime, "llm_per_model_timeout_overrides", {}) or {}
                 )
                 async with asyncio.timeout(llm_timeout):
-                    repair = await self.openrouter.chat(
+                    repair = await self.llm_client.chat(
                         repair_messages,
                         temperature=request_config.temperature,
                         max_tokens=repair_context.repair_max_tokens,

@@ -184,11 +184,14 @@ class OpenAIClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         top_p: float | None = None,
+        stream: bool = False,
         request_id: int | None = None,
         response_format: dict[str, Any] | None = None,
         model_override: str | None = None,
         fallback_models_override: tuple[str, ...] | list[str] | None = None,
         on_stream_delta: Any | None = None,
+        per_model_timeout_sec: float | None = None,
+        per_model_timeout_overrides: dict[str, float] | None = None,
     ) -> LLMCallResult:
         """Send a chat completion request to OpenAI.
 
@@ -197,6 +200,7 @@ class OpenAIClient:
             temperature: Sampling temperature.
             max_tokens: Maximum tokens to generate.
             top_p: Nucleus sampling parameter.
+            stream: Streaming flag from the generic workflow (ignored for OpenAI adapter).
             request_id: Optional request ID for tracing.
             response_format: Optional structured output format.
             model_override: Optional model override.
@@ -230,10 +234,20 @@ class OpenAIClient:
             msg = "Messages cannot be empty"
             raise ValueError(msg)
 
-        if on_stream_delta is not None:
+        if stream or on_stream_delta is not None:
             logger.debug(
                 "openai_stream_callback_ignored",
-                extra={"request_id": request_id},
+                extra={"request_id": request_id, "stream": stream},
+            )
+
+        if per_model_timeout_sec is not None or per_model_timeout_overrides:
+            logger.debug(
+                "openai_per_model_timeout_ignored",
+                extra={
+                    "request_id": request_id,
+                    "per_model_timeout_sec": per_model_timeout_sec,
+                    "has_overrides": bool(per_model_timeout_overrides),
+                },
             )
 
         # Build model list to try

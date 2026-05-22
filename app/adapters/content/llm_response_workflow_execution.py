@@ -13,6 +13,8 @@ from app.core.call_status import CallStatus
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Sequence
 
+    from app.adapters.llm.protocol import LLMClientProtocol
+
 logger = logging.getLogger("app.adapters.content.llm_response_workflow")
 
 
@@ -29,7 +31,7 @@ class LLMWorkflowExecutionMixin:
     _set_failure_context: Callable[..., None]
     cfg: Any
     llm_repo: Any
-    openrouter: Any
+    llm_client: LLMClientProtocol
 
     def _schedule_background_task(
         self, coro: Coroutine[Any, Any, Any], label: str, correlation_id: str | None
@@ -331,7 +333,7 @@ class LLMWorkflowExecutionMixin:
         # The 15s buffer covers semaphore/network overhead when fallback fires.
         # No buffer when num_models == 1 (single-shot call, full testability).
         fallback_models = request.fallback_models_override or getattr(
-            self.openrouter, "_fallback_models", ()
+            self.llm_client, "_fallback_models", ()
         )
         num_models = 1 + len(fallback_models or ())
         per_model_min = float(getattr(self.cfg.runtime, "llm_per_model_timeout_min_sec", 90.0))
@@ -378,7 +380,7 @@ class LLMWorkflowExecutionMixin:
                 extra={"req_id": req_id, "model": request.model_override},
             )
             async with asyncio.timeout(effective_llm_timeout):
-                return await self.openrouter.chat(
+                return await self.llm_client.chat(
                     request.messages,
                     temperature=request.temperature,
                     max_tokens=request_max_tokens,
