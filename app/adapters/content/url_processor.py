@@ -276,7 +276,9 @@ class URLProcessor:
             if getattr(self.cfg.runtime, "url_flow_streaming_enabled", True):
                 get_stream_hub().publish(
                     str(context.req_id),
-                    StreamEvent.now("stage", {"stage": "summarizing"}, request.correlation_id or ""),
+                    StreamEvent.now(
+                        "stage", {"stage": "summarizing"}, request.correlation_id or ""
+                    ),
                 )
 
             if context.should_chunk and context.chunks:
@@ -295,6 +297,18 @@ class URLProcessor:
                             chosen_lang=context.chosen_lang,
                             req_id=context.req_id,
                         )
+                    )
+                    from app.core.summary_contract_impl.quality_metadata import (
+                        merge_summary_quality_metadata,
+                    )
+
+                    merge_summary_quality_metadata(
+                        summary_json,
+                        structured_output_mode=getattr(
+                            self.cfg.openrouter, "structured_output_mode", None
+                        ),
+                        model_used=getattr(self.cfg.openrouter, "model", None),
+                        source_coverage=context.source_coverage,
                     )
                 summary_result: InteractiveSummaryResult | None = InteractiveSummaryResult(
                     summary=summary_json,
@@ -319,6 +333,9 @@ class URLProcessor:
                         on_phase_change=request.on_phase_change,
                         images=context.images,
                         progress_tracker=request.progress_tracker,
+                        source_coverage=context.source_coverage,
+                        extraction_quality=context.extraction_quality,
+                        extraction_confidence=context.extraction_confidence,
                     )
                 )
 

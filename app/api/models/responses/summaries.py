@@ -98,6 +98,32 @@ class SummaryDetailSource(BaseModel):
     content_type: str | None = Field(default=None, serialization_alias="contentType")
 
 
+class SummaryDetailQuality(BaseModel):
+    validation_warnings: list[str] = Field(
+        default_factory=list, serialization_alias="validationWarnings"
+    )
+    repair_attempted: bool = Field(default=False, serialization_alias="repairAttempted")
+    repair_succeeded: bool = Field(default=False, serialization_alias="repairSucceeded")
+    structured_output_mode: str | None = Field(
+        default=None, serialization_alias="structuredOutputMode"
+    )
+    model_used: str | None = Field(default=None, serialization_alias="modelUsed")
+    source_coverage: Literal[
+        "full",
+        "partial",
+        "abstract_only",
+        "transcript_missing",
+        "unknown",
+    ] = Field(default="unknown", serialization_alias="sourceCoverage")
+    extraction_quality: str | None = Field(default=None, serialization_alias="extractionQuality")
+    extraction_confidence: float | None = Field(
+        default=None, serialization_alias="extractionConfidence"
+    )
+    prompt_injection_suspected: bool = Field(
+        default=False, serialization_alias="promptInjectionSuspected"
+    )
+
+
 class SummaryDetailProcessing(BaseModel):
     model_used: str | None = Field(default=None, serialization_alias="modelUsed")
     tokens_used: int | None = Field(default=None, serialization_alias="tokensUsed")
@@ -105,6 +131,7 @@ class SummaryDetailProcessing(BaseModel):
     crawl_time_ms: int | None = Field(default=None, serialization_alias="crawlTimeMs")
     confidence: float | None = None
     hallucination_risk: str | None = Field(default=None, serialization_alias="hallucinationRisk")
+    quality: SummaryDetailQuality | None = None
 
 
 class SummaryDetail(BaseModel):

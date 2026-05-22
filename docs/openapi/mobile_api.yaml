@@ -1730,7 +1730,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summary By Url V1 Summaries By Url Get
+                $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -1799,7 +1799,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summary V1 Summaries  Summary Id  Get
+                $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -3161,6 +3161,22 @@ paths:
         schema:
           type: integer
           title: Request Id
+      - name: since_sequence
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Since Sequence
+      - name: Last-Event-ID
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last-Event-Id
       responses:
         '200':
           description: Successful Response
@@ -10283,6 +10299,343 @@ components:
       - stats
       title: SummaryListResponse
       type: object
+    SummaryDetailEntities:
+      properties:
+        people:
+          items:
+            type: string
+          title: People
+          type: array
+        organizations:
+          items:
+            type: string
+          title: Organizations
+          type: array
+        locations:
+          items:
+            type: string
+          title: Locations
+          type: array
+      title: SummaryDetailEntities
+      type: object
+    SummaryDetailKeyStat:
+      properties:
+        label:
+          title: Label
+          type: string
+        value:
+          title: Value
+          type: number
+        unit:
+          title: Unit
+          type: string
+        sourceExcerpt:
+          title: Sourceexcerpt
+          type: string
+      required:
+      - label
+      - value
+      - unit
+      - sourceExcerpt
+      title: SummaryDetailKeyStat
+      type: object
+    SummaryDetailProcessing:
+      properties:
+        modelUsed:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Modelused
+        tokensUsed:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Tokensused
+        processingTimeMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Processingtimems
+        crawlTimeMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Crawltimems
+        confidence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Confidence
+        hallucinationRisk:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Hallucinationrisk
+        quality:
+          anyOf:
+          - $ref: '#/components/schemas/SummaryDetailQuality'
+          - type: 'null'
+          default: null
+      title: SummaryDetailProcessing
+      type: object
+    SummaryDetailQuality:
+      properties:
+        validationWarnings:
+          items:
+            type: string
+          title: Validationwarnings
+          type: array
+        repairAttempted:
+          default: false
+          title: Repairattempted
+          type: boolean
+        repairSucceeded:
+          default: false
+          title: Repairsucceeded
+          type: boolean
+        structuredOutputMode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Structuredoutputmode
+        modelUsed:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Modelused
+        sourceCoverage:
+          default: unknown
+          enum:
+          - full
+          - partial
+          - abstract_only
+          - transcript_missing
+          - unknown
+          title: Sourcecoverage
+          type: string
+        extractionQuality:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Extractionquality
+        extractionConfidence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Extractionconfidence
+        promptInjectionSuspected:
+          default: false
+          title: Promptinjectionsuspected
+          type: boolean
+      title: SummaryDetailQuality
+      type: object
+    SummaryDetailReadability:
+      properties:
+        method:
+          title: Method
+          type: string
+        score:
+          title: Score
+          type: number
+        level:
+          title: Level
+          type: string
+      required:
+      - method
+      - score
+      - level
+      title: SummaryDetailReadability
+      type: object
+    SummaryDetailRequest:
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          title: Type
+          type: string
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Url
+        normalizedUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Normalizedurl
+        dedupeHash:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Dedupehash
+        status:
+          title: Status
+          type: string
+        langDetected:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Langdetected
+        createdAt:
+          title: Createdat
+          type: string
+        updatedAt:
+          title: Updatedat
+          type: string
+      required:
+      - id
+      - type
+      - status
+      - createdAt
+      - updatedAt
+      title: SummaryDetailRequest
+      type: object
+    SummaryDetailSource:
+      properties:
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Url
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        domain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Domain
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Author
+        publishedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Publishedat
+        wordCount:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Wordcount
+        contentType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Contenttype
+      title: SummaryDetailSource
+      type: object
+    SummaryDetailSummary:
+      properties:
+        summary250:
+          title: Summary250
+          type: string
+        summary1000:
+          title: Summary1000
+          type: string
+        tldr:
+          title: Tldr
+          type: string
+        keyIdeas:
+          items:
+            type: string
+          title: Keyideas
+          type: array
+        topicTags:
+          items:
+            type: string
+          title: Topictags
+          type: array
+        entities:
+          $ref: '#/components/schemas/SummaryDetailEntities'
+        estimatedReadingTimeMin:
+          title: Estimatedreadingtimemin
+          type: integer
+        keyStats:
+          items:
+            $ref: '#/components/schemas/SummaryDetailKeyStat'
+          title: Keystats
+          type: array
+        answeredQuestions:
+          items:
+            type: string
+          title: Answeredquestions
+          type: array
+        readability:
+          anyOf:
+          - $ref: '#/components/schemas/SummaryDetailReadability'
+          - type: 'null'
+          default: null
+        seoKeywords:
+          items:
+            type: string
+          title: Seokeywords
+          type: array
+      required:
+      - summary250
+      - summary1000
+      - tldr
+      - keyIdeas
+      - topicTags
+      - entities
+      - estimatedReadingTimeMin
+      title: SummaryDetailSummary
+      type: object
+    SummaryDetail:
+      properties:
+        summary:
+          $ref: '#/components/schemas/SummaryDetailSummary'
+        request:
+          $ref: '#/components/schemas/SummaryDetailRequest'
+        source:
+          $ref: '#/components/schemas/SummaryDetailSource'
+        processing:
+          $ref: '#/components/schemas/SummaryDetailProcessing'
+        readingProgress:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Readingprogress
+        lastReadOffset:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Lastreadoffset
+      required:
+      - summary
+      - request
+      - source
+      - processing
+      title: SummaryDetail
+      type: object
     SummaryContent:
       properties:
         summaryId:
@@ -10685,6 +11038,15 @@ components:
         properties:
           data:
             $ref: '#/components/schemas/RequestDetailResponse'
+    SummaryDetailSuccessResponse:
+      allOf:
+      - $ref: '#/components/schemas/BaseSuccessResponse'
+      - type: object
+        required:
+        - data
+        properties:
+          data:
+            $ref: '#/components/schemas/SummaryDetail'
     RetryRequestSuccessResponse:
       allOf:
       - $ref: '#/components/schemas/BaseSuccessResponse'

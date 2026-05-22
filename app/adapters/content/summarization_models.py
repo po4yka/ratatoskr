@@ -29,6 +29,9 @@ class InteractiveSummaryRequest:
     on_phase_change: PhaseChangeCallback | None = None
     images: list[str] | None = None
     progress_tracker: TelegramProgressMessage | None = None
+    source_coverage: str | None = None
+    extraction_quality: str | None = None
+    extraction_confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -50,6 +53,9 @@ class PureSummaryRequest:
     system_prompt: str
     correlation_id: str | None = None
     feedback_instructions: str | None = None
+    source_coverage: str | None = None
+    extraction_quality: str | None = None
+    extraction_confidence: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,3 +67,6 @@ class EnsureSummaryPayloadRequest:
     content_text: str
     chosen_lang: str
     correlation_id: str | None = None
+    source_coverage: str | None = None
+    extraction_quality: str | None = None
+    extraction_confidence: float | None = None

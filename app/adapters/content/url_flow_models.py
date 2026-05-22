@@ -51,6 +51,9 @@ class URLFlowContext:
     should_chunk: bool
     max_chars: int
     chunks: list[str] | None
+    source_coverage: str = "unknown"
+    extraction_quality: str | None = None
+    extraction_confidence: float | None = None
 
 
 @dataclass(slots=True)

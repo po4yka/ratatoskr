@@ -22,6 +22,9 @@ class TestBatchRelationshipFlow(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         """Set up test fixtures with a temporary database."""
+        if not os.environ.get("TEST_DATABASE_URL"):
+            self.skipTest("TEST_DATABASE_URL is required for Postgres-backed batch tests")
+
         from app.db.models import Request, Summary, User
         from app.db.session import DatabaseSessionManager
 

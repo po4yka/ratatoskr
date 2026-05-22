@@ -36,14 +36,20 @@ async def test_characterization_summary_command_happy_path_preserved() -> None:
 
     from unittest.mock import patch
 
-    with patch("app.adapters.openrouter.openrouter_client.OpenRouterClient") as mock_openrouter:
+    with (
+        patch("app.adapters.openrouter.openrouter_client.OpenRouterClient") as mock_openrouter,
+        patch(
+            "app.infrastructure.persistence.repositories.user_repository.UserRepositoryAdapter.async_insert_user_interaction",
+            new=AsyncMock(return_value=1),
+        ),
+    ):
         mock_openrouter.return_value = AsyncMock()
         bot = BotSpy(cfg=cfg, db=MagicMock())
 
-    url = "https://example.com/characterization"
-    msg = FakeMessage(f"/summarize {url}")
+        url = "https://example.com/characterization"
+        msg = FakeMessage(f"/summarize {url}")
 
-    await bot._on_message(msg)
+        await bot._on_message(msg)
 
     assert url in bot.seen_urls
     assert any(url in reply for reply in msg._replies)

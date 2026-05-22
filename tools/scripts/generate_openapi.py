@@ -132,6 +132,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
     from app.api.models.responses.summaries import (
         SummaryContent,
         SummaryCompact,
+        SummaryDetail,
         SummaryListResponse,
     )
     from app.api.models.responses.user import UserStatsData
@@ -164,6 +165,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         ("UserStats", UserStatsData),
         ("SummaryListItem", SummaryCompact),
         ("PaginatedSummariesData", SummaryListResponse),
+        ("SummaryDetail", SummaryDetail),
         ("SummaryContent", SummaryContent),
         ("Collection", CollectionResponse),
         ("CollectionItem", CollectionItem),
@@ -233,6 +235,9 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
             "RequestDetailSuccessResponse": _success_envelope_schema(
                 "#/components/schemas/RequestDetailResponse"
             ),
+            "SummaryDetailSuccessResponse": _success_envelope_schema(
+                "#/components/schemas/SummaryDetail"
+            ),
             "RetryRequestSuccessResponse": _success_envelope_schema(
                 "#/components/schemas/RetryRequestResponse"
             ),
@@ -295,6 +300,18 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         method="POST",
         path="/v1/requests/{request_id}/retry",
         schema_ref="#/components/schemas/RetryRequestSuccessResponse",
+    )
+    _set_json_response(
+        spec,
+        method="GET",
+        path="/v1/summaries/{summary_id}",
+        schema_ref="#/components/schemas/SummaryDetailSuccessResponse",
+    )
+    _set_json_response(
+        spec,
+        method="GET",
+        path="/v1/summaries/by-url",
+        schema_ref="#/components/schemas/SummaryDetailSuccessResponse",
     )
 
     public_routes = {

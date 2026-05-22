@@ -197,3 +197,29 @@ def test_invalid_source_type_and_freshness_warn_and_become_unknown(caplog):
     assert out["temporal_freshness"] == "unknown"
     assert "summary_source_type_invalid" in caplog.messages
     assert "summary_temporal_freshness_invalid" in caplog.messages
+
+
+def test_malformed_quality_fields_create_persisted_validation_warnings():
+    out = validate_and_shape_summary(
+        _minimal_summary_payload(
+            confidence="very sure",
+            hallucination_risk="definitely no risk",
+            source_type="marketing-blast",
+            temporal_freshness="someday",
+            summary_quality={
+                "source_coverage": "mostly",
+                "extraction_confidence": "high",
+            },
+        )
+    )
+
+    warnings = set(out["summary_quality"]["validation_warnings"])
+    assert {
+        "confidence_invalid",
+        "hallucination_risk_invalid",
+        "source_type_invalid",
+        "temporal_freshness_invalid",
+        "source_coverage_invalid",
+        "extraction_confidence_invalid",
+    }.issubset(warnings)
+    assert out["summary_quality"]["source_coverage"] == "unknown"

@@ -11,6 +11,7 @@ from app.core.json_utils import dumps as json_dumps, extract_json
 from app.core.lang import LANG_RU
 from app.core.logging_utils import get_logger
 from app.core.summary_contract import validate_and_shape_summary
+from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.core.token_utils import count_tokens
 
 from .summary_request_factory import (
@@ -113,12 +114,18 @@ class PureSummaryService:
             },
         )
 
-        return await self._summarize_with_instructor(
+        summary = await self._summarize_with_instructor(
             messages=messages,
             source_content=content_for_summary,
             max_tokens=max_tokens,
             model_override=model_override,
             correlation_id=request.correlation_id,
+        )
+        return self._apply_request_quality_metadata(
+            summary,
+            source_coverage=request.source_coverage,
+            extraction_quality=request.extraction_quality,
+            extraction_confidence=request.extraction_confidence,
         )
 
     async def _summarize_with_instructor(
@@ -150,6 +157,16 @@ class PureSummaryService:
             raise ValueError(f"Instructor LLM call failed: {exc}") from exc
 
         summary = mark_prompt_injection_metadata(result.parsed.model_dump(), source_content)
+        merge_summary_quality_metadata(
+            summary,
+            model_used=result.model_used,
+            structured_output_mode=self._runtime.cfg.openrouter.structured_output_mode,
+            prompt_injection_suspected=summary.get("quality", {}).get(
+                "prompt_injection_suspected", False
+            )
+            if isinstance(summary.get("quality"), dict)
+            else False,
+        )
         logger.info(
             "summarize_pure_success",
             extra={
@@ -189,8 +206,37 @@ class PureSummaryService:
             request.chosen_lang,
         )
         shaped = mark_prompt_injection_metadata(shaped, request.content_text)
+        self._apply_request_quality_metadata(
+            shaped,
+            source_coverage=request.source_coverage,
+            extraction_quality=request.extraction_quality,
+            extraction_confidence=request.extraction_confidence,
+            prompt_injection_suspected=shaped.get("quality", {}).get(
+                "prompt_injection_suspected", False
+            )
+            if isinstance(shaped.get("quality"), dict)
+            else False,
+        )
         self._runtime.insights_generator.update_last_summary(shaped)
         return shaped
+
+    @staticmethod
+    def _apply_request_quality_metadata(
+        summary: dict[str, Any],
+        *,
+        source_coverage: str | None,
+        extraction_quality: str | None,
+        extraction_confidence: float | None,
+        prompt_injection_suspected: bool | None = None,
+    ) -> dict[str, Any]:
+        merge_summary_quality_metadata(
+            summary,
+            source_coverage=source_coverage,
+            extraction_quality=extraction_quality,
+            extraction_confidence=extraction_confidence,
+            prompt_injection_suspected=prompt_injection_suspected,
+        )
+        return summary
 
     async def enrich_two_pass(
         self,

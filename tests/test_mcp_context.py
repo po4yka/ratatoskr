@@ -298,7 +298,8 @@ def test_request_identity_scope_takes_precedence_over_request_user_override() ->
 
 
 def test_active_mcp_request_identity_takes_precedence() -> None:
-    from mcp.server.lowlevel.server import request_ctx
+    mcp_server = pytest.importorskip("mcp.server.lowlevel.server")
+    request_ctx = mcp_server.request_ctx
 
     context = McpServerContext(user_id=111)
     identity = McpRequestIdentity(

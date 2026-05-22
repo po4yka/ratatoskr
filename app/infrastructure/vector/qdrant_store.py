@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import warnings
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -169,11 +170,17 @@ class QdrantVectorStore:
                     ("language", PayloadSchemaType.KEYWORD),
                     ("tags", PayloadSchemaType.KEYWORD),
                 ]:
-                    client.create_payload_index(
-                        collection_name=self._collection_name,
-                        field_name=field,
-                        field_schema=schema,
-                    )
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore",
+                            message="Payload indexes have no effect in the local Qdrant.*",
+                            category=UserWarning,
+                        )
+                        client.create_payload_index(
+                            collection_name=self._collection_name,
+                            field_name=field,
+                            field_schema=schema,
+                        )
 
             self._client = client
             self._available = True

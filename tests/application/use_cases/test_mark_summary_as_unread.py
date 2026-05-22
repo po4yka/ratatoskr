@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,7 +25,7 @@ def _make_summary_dict(summary_id: int, is_read: bool = True) -> dict:
         "insights_json": None,
         "is_read": is_read,
         "version": 1,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(UTC),
     }
 
 

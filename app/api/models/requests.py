@@ -353,6 +353,8 @@ class UpdateRuleRequest(BaseModel):
 class TestRuleRequest(BaseModel):
     """Request body for dry-run testing a rule."""
 
+    __test__ = False
+
     summary_id: int
 
 

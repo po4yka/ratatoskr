@@ -177,6 +177,12 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         assert self.openrouter.chat.await_count == 2
         self.repair_failure_mock.assert_not_awaited()
         self.upsert_summary_mock.assert_awaited_once()
+        _args, kwargs = self.upsert_summary_mock.await_args
+        quality = kwargs["json_payload"]["summary_quality"]
+        assert quality["repair_attempted"] is True
+        assert quality["repair_succeeded"] is True
+        assert quality["structured_output_mode"] == "json_object"
+        assert quality["model_used"] == "test-model"
         assert self.insert_llm_call_mock.await_count >= 1
 
     async def test_execute_handles_llm_error(self) -> None:

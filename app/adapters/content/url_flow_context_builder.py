@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from app.adapters.content.url_flow_models import URLFlowContext, URLFlowRequest
 from app.core.lang import LANG_RU, choose_language
+from app.core.summary_contract_impl.quality_metadata import infer_source_coverage
 from app.core.url_utils import compute_dedupe_hash
 from app.prompts.manager import get_prompt_manager
 
@@ -96,9 +97,14 @@ class URLFlowContextBuilder:
                     updater._task = None
         req_id = extraction.request_id
         content_text = extraction.content_text
+        content_source = extraction.content_source
         detected = extraction.detected_lang
         title = extraction.title
         images = extraction.images
+        source_coverage = infer_source_coverage(
+            content_text=content_text,
+            content_source=content_source,
+        )
 
         if getattr(self._cfg.runtime, "url_flow_streaming_enabled", True):
             from app.adapters.content.streaming import StreamEvent, get_stream_hub
@@ -156,6 +162,7 @@ class URLFlowContextBuilder:
             should_chunk=should_chunk,
             max_chars=max_chars,
             chunks=chunks,
+            source_coverage=source_coverage,
         )
 
     def _compute_chunk_strategy(

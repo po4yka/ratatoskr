@@ -37,9 +37,11 @@ class TestContentScraperFactory:
             patch("app.adapters.content.scraper.factory._build_playwright") as mock_playwright,
             patch("app.adapters.content.scraper.factory._build_crawlee") as mock_crawlee,
             patch("app.adapters.content.scraper.factory._build_direct_html") as mock_direct,
+            patch("app.adapters.content.scraper.factory._build_direct_pdf") as mock_direct_pdf,
             patch("app.adapters.content.scraper.factory._build_scrapegraph") as mock_scrapegraph,
         ):
             mock_scrapling.return_value = _MockProvider(name="scrapling")
+            mock_direct_pdf.return_value = _MockProvider(name="direct_pdf")
             mock_crawl4ai.return_value = _MockProvider(name="crawl4ai")
             mock_firecrawl.return_value = None  # self-hosted disabled by default
             mock_defuddle.return_value = _MockProvider(name="defuddle")
@@ -89,9 +91,11 @@ class TestContentScraperFactory:
             patch("app.adapters.content.scraper.factory._build_playwright") as mock_playwright,
             patch("app.adapters.content.scraper.factory._build_crawlee") as mock_crawlee,
             patch("app.adapters.content.scraper.factory._build_direct_html") as mock_direct,
+            patch("app.adapters.content.scraper.factory._build_direct_pdf") as mock_direct_pdf,
             patch("app.adapters.content.scraper.factory._build_scrapegraph") as mock_scrapegraph,
         ):
             mock_scrapling.return_value = _MockProvider(name="scrapling")
+            mock_direct_pdf.return_value = _MockProvider(name="direct_pdf")
             mock_crawl4ai.return_value = _MockProvider(name="crawl4ai")
             # _build_firecrawl always sets provider_name='firecrawl_self_hosted'
             mock_firecrawl.return_value = _MockProvider(name="firecrawl_self_hosted")

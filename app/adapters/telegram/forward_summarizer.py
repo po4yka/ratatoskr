@@ -16,6 +16,7 @@ from app.adapters.content.summary_request_factory import (
     build_summary_user_prompt,
     mark_prompt_injection_metadata,
 )
+from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.core.logging_utils import get_logger
 from app.utils.typing_indicator import typing_indicator
 
@@ -222,7 +223,17 @@ class ForwardSummarizer:
         )
 
         async def _ensure_summary(summary: dict[str, Any]) -> dict[str, Any]:
-            return mark_prompt_injection_metadata(summary, prompt)
+            summary = mark_prompt_injection_metadata(summary, prompt)
+            merge_summary_quality_metadata(
+                summary,
+                source_coverage="full",
+                prompt_injection_suspected=summary.get("quality", {}).get(
+                    "prompt_injection_suspected", False
+                )
+                if isinstance(summary.get("quality"), dict)
+                else False,
+            )
+            return summary
 
         try:
             async with typing_indicator(self.response_formatter, message, action="typing"):

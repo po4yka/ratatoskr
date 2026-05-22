@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from app.core.call_status import CallStatus
+from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.db.user_interactions import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 from app.utils.json_validation import finalize_summary_texts
@@ -85,9 +86,13 @@ class LLMWorkflowAttemptsMixin:
             self._set_failure_context(ctx.llm, "json_parse_timeout")
             return None
         shaped = parse_result.shaped if parse_result else None
+        repair_attempted = False
+        repair_succeeded = False
 
         if shaped is None:
+            repair_attempted = True
             shaped = await self._attempt_json_repair(ctx, parse_result=parse_result)
+            repair_succeeded = shaped is not None
 
         if shaped is None:
             self._set_failure_context(ctx.llm, "summary_parse_failed")
@@ -110,7 +115,12 @@ class LLMWorkflowAttemptsMixin:
                 repair_hint = SimpleNamespace(errors=["missing_summary_fields"])
                 repaired = await self._attempt_json_repair(ctx, parse_result=repair_hint)
                 if repaired and summary_has_content(repaired, ctx.required_summary_fields):
-                    return await self.finalize_success(ctx, repaired)
+                    return await self.finalize_success(
+                        ctx,
+                        repaired,
+                        repair_attempted=True,
+                        repair_succeeded=True,
+                    )
             except Exception as exc:
                 logger.warning(
                     "summary_repair_failed",
@@ -120,12 +130,20 @@ class LLMWorkflowAttemptsMixin:
             self._set_failure_context(ctx.llm, "summary_fields_empty")
             return None
 
-        return await self.finalize_success(ctx, shaped)
+        return await self.finalize_success(
+            ctx,
+            shaped,
+            repair_attempted=repair_attempted,
+            repair_succeeded=repair_succeeded,
+        )
 
     async def finalize_success(
         self,
         ctx: AttemptContext,
         summary: dict[str, Any],
+        *,
+        repair_attempted: bool = False,
+        repair_succeeded: bool = False,
     ) -> dict[str, Any]:
         from app.adapters.external.formatting.data_formatter import normalize_metric_names
 
@@ -143,6 +161,15 @@ class LLMWorkflowAttemptsMixin:
         if ensure_summary is not None:
             summary = await ensure_summary(summary)
 
+        merge_summary_quality_metadata(
+            summary,
+            repair_attempted=repair_attempted,
+            repair_succeeded=repair_succeeded,
+            structured_output_mode=getattr(llm, "structured_output_mode", None)
+            or getattr(self.cfg.openrouter, "structured_output_mode", None),
+            model_used=getattr(llm, "model", None)
+            or getattr(ctx.request_config, "model_override", None),
+        )
         finalize_summary_texts(summary)
 
         if on_success is not None:

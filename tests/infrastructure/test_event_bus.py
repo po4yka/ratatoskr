@@ -1,6 +1,6 @@
 """Unit tests for EventBus."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -30,7 +30,7 @@ class TestEventBus:
         event_bus.subscribe(SummaryCreated, handler)
 
         event = SummaryCreated(
-            occurred_at=datetime.utcnow(),
+            occurred_at=datetime.now(UTC),
             aggregate_id=1,
             summary_id=1,
             request_id=2,
@@ -61,7 +61,7 @@ class TestEventBus:
         event_bus.subscribe(SummaryCreated, handler2)
 
         event = SummaryCreated(
-            occurred_at=datetime.utcnow(),
+            occurred_at=datetime.now(UTC),
             aggregate_id=1,
             summary_id=1,
             request_id=2,
@@ -78,7 +78,7 @@ class TestEventBus:
     async def test_publish_with_no_handlers(self, event_bus):
         """Test publishing event with no subscribed handlers."""
         event = SummaryCreated(
-            occurred_at=datetime.utcnow(),
+            occurred_at=datetime.now(UTC),
             aggregate_id=1,
             summary_id=1,
             request_id=2,
@@ -106,7 +106,7 @@ class TestEventBus:
         event_bus.subscribe(SummaryCreated, handler2)
 
         event = SummaryCreated(
-            occurred_at=datetime.utcnow(),
+            occurred_at=datetime.now(UTC),
             aggregate_id=1,
             summary_id=1,
             request_id=2,

@@ -139,11 +139,33 @@ class HallucinationRisk(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SourceCoverage(StrEnum):
+    """How completely the persisted summary was sourced from extracted content."""
+
+    FULL = "full"
+    PARTIAL = "partial"
+    ABSTRACT_ONLY = "abstract_only"
+    TRANSCRIPT_MISSING = "transcript_missing"
+    UNKNOWN = "unknown"
+
+
 class QualityAssessment(BaseModel):
     author_bias: str | None = None
     emotional_tone: str | None = None
     missing_perspectives: list[str] = Field(default_factory=list)
     evidence_quality: str | None = None
+    prompt_injection_suspected: bool = False
+
+
+class SummaryQualityMetadata(BaseModel):
+    validation_warnings: list[str] = Field(default_factory=list)
+    repair_attempted: bool = False
+    repair_succeeded: bool = False
+    structured_output_mode: str | None = None
+    model_used: str | None = None
+    source_coverage: SourceCoverage = SourceCoverage.UNKNOWN
+    extraction_quality: str | None = None
+    extraction_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     prompt_injection_suspected: bool = False
 
 
@@ -190,6 +212,7 @@ class SummaryModel(BaseModel):
     key_points_to_remember: list[str] = Field(default_factory=list)
     insights: Insights = Field(default_factory=Insights)
     quality: QualityAssessment = Field(default_factory=QualityAssessment)
+    summary_quality: SummaryQualityMetadata = Field(default_factory=SummaryQualityMetadata)
 
     # ------------------------------------------------------------------
     # model_validator: normalize field names and backfill summaries

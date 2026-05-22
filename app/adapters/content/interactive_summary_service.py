@@ -16,6 +16,7 @@ from app.adapters.external.formatting.single_url_progress_formatter import (
     SingleURLProgressFormatter,
 )
 from app.core.logging_utils import get_logger
+from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.db.user_interactions import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 from app.utils.progress_message_updater import ProgressMessageUpdater
@@ -70,7 +71,19 @@ class _InteractiveSummaryCallbacks:
             self._request.correlation_id,
             self._request.chosen_lang,
         )
-        return mark_prompt_injection_metadata(shaped, self._request.content_text)
+        shaped = mark_prompt_injection_metadata(shaped, self._request.content_text)
+        merge_summary_quality_metadata(
+            shaped,
+            source_coverage=self._request.source_coverage,
+            extraction_quality=self._request.extraction_quality,
+            extraction_confidence=self._request.extraction_confidence,
+            prompt_injection_suspected=shaped.get("quality", {}).get(
+                "prompt_injection_suspected", False
+            )
+            if isinstance(shaped.get("quality"), dict)
+            else False,
+        )
+        return shaped
 
     async def on_completion(self, llm_result: Any, attempt: Any) -> None:
         await self._runtime.response_formatter.send_llm_completion_notification(

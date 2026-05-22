@@ -27,6 +27,7 @@ from app.api.models.responses import (
     SummaryContentData,
     SummaryDetail,
     SummaryDetailProcessing,
+    SummaryDetailQuality,
     SummaryDetailRequest,
     SummaryDetailSource,
     SummaryDetailSummary,
@@ -49,6 +50,7 @@ router = APIRouter()
 
 # Internal schema stores "med"; API contract exposes "medium".
 _HR_NORMALIZE: dict[str, str] = {"med": "medium"}
+_SAFE_SOURCE_COVERAGE = {"full", "partial", "abstract_only", "transcript_missing", "unknown"}
 
 
 def _normalize_hallucination_risk(raw: str) -> Literal["low", "medium", "high", "unknown"]:
@@ -57,6 +59,38 @@ def _normalize_hallucination_risk(raw: str) -> Literal["low", "medium", "high", 
     if result not in {"low", "medium", "high", "unknown"}:
         return "unknown"
     return cast("Literal['low', 'medium', 'high', 'unknown']", result)
+
+
+def _safe_summary_quality(raw: Any) -> SummaryDetailQuality:
+    quality = ensure_mapping(raw)
+    warnings = [
+        str(warning)[:128]
+        for warning in quality.get("validation_warnings", []) or []
+        if str(warning).strip()
+    ]
+    source_coverage = str(quality.get("source_coverage") or "unknown").strip().lower()
+    if source_coverage not in _SAFE_SOURCE_COVERAGE:
+        source_coverage = "unknown"
+    extraction_confidence = quality.get("extraction_confidence")
+    if extraction_confidence is not None:
+        try:
+            extraction_confidence = float(extraction_confidence)
+        except (TypeError, ValueError):
+            extraction_confidence = None
+    return SummaryDetailQuality(
+        validation_warnings=warnings,
+        repair_attempted=bool(quality.get("repair_attempted")),
+        repair_succeeded=bool(quality.get("repair_succeeded")),
+        structured_output_mode=quality.get("structured_output_mode"),
+        model_used=quality.get("model_used"),
+        source_coverage=cast(
+            "Literal['full', 'partial', 'abstract_only', 'transcript_missing', 'unknown']",
+            source_coverage,
+        ),
+        extraction_quality=quality.get("extraction_quality"),
+        extraction_confidence=extraction_confidence,
+        prompt_injection_suspected=bool(quality.get("prompt_injection_suspected")),
+    )
 
 
 def _get_summary_use_case() -> SummaryReadModelUseCase:
@@ -403,6 +437,7 @@ async def get_summary(
         "hallucination_risk": _normalize_hallucination_risk(
             json_payload.get("hallucination_risk") or "unknown"
         ),
+        "quality": _safe_summary_quality(json_payload.get("summary_quality")),
     }
 
     return success_response(

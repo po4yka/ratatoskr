@@ -79,7 +79,11 @@ class ForwardSummarizerTests(unittest.IsolatedAsyncioTestCase):
 
         repair_context = call_kwargs["repair_context"]
         assert repair_context.repair_max_tokens >= 6144
-        assert "Summarize the following" in repair_context.base_messages[1]["content"]
+        assert "<untrusted_source_content>" in repair_context.base_messages[1]["content"]
+        assert prompt in repair_context.base_messages[1]["content"]
+
+        ensured = await call_kwargs["ensure_summary"]({"summary_250": "ok", "tldr": "fine"})
+        assert ensured["summary_quality"]["source_coverage"] == "full"
 
         notifications = call_kwargs["notifications"]
         assert notifications.completion is not None

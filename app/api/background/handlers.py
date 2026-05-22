@@ -8,6 +8,7 @@ from app.adapters.content.summarization_models import (
 )
 from app.adapters.content.url_flow_context_builder import get_url_system_prompt
 from app.core.lang import choose_language, detect_language
+from app.core.summary_contract_impl.quality_metadata import infer_source_coverage
 from app.core.url_utils import normalize_url
 
 from .models import StageError
@@ -48,7 +49,7 @@ class UrlBackgroundRequestHandler:
             0.2,
             correlation_id=correlation_id,
         )
-        content_text, _content_source, metadata = await self._run_stage(
+        content_text, content_source, metadata = await self._run_stage(
             "extraction",
             correlation_id,
             lambda: url_processor.content_extractor.extract_content_pure(
@@ -63,6 +64,11 @@ class UrlBackgroundRequestHandler:
             )
 
         lang = self.resolve_request_language(request, content_text, metadata=metadata)
+        source_coverage = infer_source_coverage(
+            content_text=content_text,
+            content_source=content_source,
+            metadata=metadata,
+        )
         system_prompt = get_url_system_prompt(lang)
         await self._publish_update(
             request_id,
@@ -81,6 +87,13 @@ class UrlBackgroundRequestHandler:
                     chosen_lang=lang,
                     system_prompt=system_prompt,
                     correlation_id=correlation_id,
+                    source_coverage=source_coverage,
+                    extraction_quality=metadata.get("extraction_quality")
+                    if isinstance(metadata, dict)
+                    else None,
+                    extraction_confidence=metadata.get("extraction_confidence")
+                    if isinstance(metadata, dict)
+                    else None,
                 )
             ),
         )
@@ -107,6 +120,13 @@ class UrlBackgroundRequestHandler:
                     content_text=content_text,
                     chosen_lang=lang,
                     correlation_id=correlation_id,
+                    source_coverage=source_coverage,
+                    extraction_quality=metadata.get("extraction_quality")
+                    if isinstance(metadata, dict)
+                    else None,
+                    extraction_confidence=metadata.get("extraction_confidence")
+                    if isinstance(metadata, dict)
+                    else None,
                 )
             ),
         )
@@ -192,6 +212,7 @@ class ForwardBackgroundRequestHandler:
                     chosen_lang=lang,
                     system_prompt=system_prompt,
                     correlation_id=correlation_id,
+                    source_coverage="full",
                 )
             ),
         )

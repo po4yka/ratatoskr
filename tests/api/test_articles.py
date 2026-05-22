@@ -38,6 +38,18 @@ async def article_data(db, article_user):
         },
         "confidence": 0.9,
         "hallucination_risk": "low",
+        "summary_quality": {
+            "validation_warnings": ["confidence_invalid"],
+            "repair_attempted": True,
+            "repair_succeeded": True,
+            "structured_output_mode": "json_object",
+            "model_used": "safe-model",
+            "source_coverage": "partial",
+            "extraction_confidence": 0.7,
+            "prompt_injection_suspected": True,
+            "raw_prompt": "must never appear",
+            "raw_llm_output": "must never appear",
+        },
     }
 
     async with db.transaction() as session:
@@ -79,6 +91,15 @@ async def test_get_article_by_id(db, article_data):
     data = result["data"]
     assert data["summary"]["tldr"] == "Too long"
     assert data["request"]["url"] == "https://example.com/article"
+    quality = data["processing"]["quality"]
+    assert quality["sourceCoverage"] == "partial"
+    assert quality["repairAttempted"] is True
+    assert quality["repairSucceeded"] is True
+    assert quality["promptInjectionSuspected"] is True
+    assert "rawPrompt" not in quality
+    assert "raw_prompt" not in quality
+    assert "rawLlmOutput" not in quality
+    assert "raw_llm_output" not in quality
 
 
 @pytest.mark.asyncio

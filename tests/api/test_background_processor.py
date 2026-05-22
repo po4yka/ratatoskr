@@ -83,10 +83,14 @@ class StubDB:
 
 class StubExtractor:
     def __init__(
-        self, content: str = "hello world", metadata: dict[str, Any] | None = None
+        self,
+        content: str = "hello world",
+        metadata: dict[str, Any] | None = None,
+        content_source: str = "markdown",
     ) -> None:
         self._content = content
         self._metadata = metadata or {}
+        self._content_source = content_source
         self.firecrawl = object()
 
     async def extract_content_pure(
@@ -99,7 +103,7 @@ class StubExtractor:
         metadata.update(self._metadata)
         return (
             self._content,
-            "markdown",
+            self._content_source,
             metadata,
         )
 
@@ -120,7 +124,12 @@ class StubPureSummaryService:
         return self._summary
 
     async def ensure_summary_payload(self, request: Any) -> dict[str, Any]:
-        return dict(request.summary)
+        summary = dict(request.summary)
+        summary["summary_quality"] = {
+            "source_coverage": request.source_coverage or "unknown",
+            "extraction_confidence": request.extraction_confidence,
+        }
+        return summary
 
 
 class StubURLProcessor:
@@ -420,6 +429,56 @@ async def test_url_processing_prefers_extractor_detected_lang_metadata():
 
     await processor.execute_request(5, correlation_id="cid-youtube-lang")
     assert summarizer.last_chosen_lang == "ru"
+
+
+@pytest.mark.asyncio
+async def test_url_processing_persists_partial_source_coverage():
+    cfg = DummyCfg()
+    db = StubDB()
+    extractor = StubExtractor(
+        content="Partial article content",
+        metadata={"source_coverage": "partial", "extraction_confidence": 0.42},
+        content_source="markdown_partial",
+    )
+    summarizer = StubPureSummaryService(summary={"summary_250": "ok"})
+    processor = BackgroundProcessor(
+        cfg=cfg,
+        db=db,
+        url_processor=StubURLProcessor(extractor, summarizer),
+        redis=None,
+        semaphore=asyncio.Semaphore(1),
+        audit_func=lambda *_args, **_kwargs: None,
+    )
+
+    processor.request_repo = MagicMock()
+    processor.request_repo.async_get_request_by_id = AsyncMock(
+        return_value={
+            "id": 6,
+            "type": "url",
+            "input_url": "https://example.com/partial",
+            "lang_detected": "auto",
+            "correlation_id": "cid-partial",
+        }
+    )
+    processor.request_repo.async_update_request_status_with_correlation = AsyncMock()
+    processor.summary_repo = MagicMock()
+    processor.summary_repo.async_get_summary_by_request = AsyncMock(return_value=None)
+
+    async def fake_upsert(**kwargs):
+        db.upsert_summary(
+            request_id=kwargs["request_id"],
+            lang=kwargs["lang"],
+            json_payload=kwargs["json_payload"],
+            is_read=kwargs["is_read"],
+        )
+
+    processor.summary_repo.async_upsert_summary = AsyncMock(side_effect=fake_upsert)
+
+    await processor.execute_request(6, correlation_id="cid-partial")
+
+    quality = db.summaries[6]["json"]["summary_quality"]
+    assert quality["source_coverage"] == "partial"
+    assert quality["extraction_confidence"] == 0.42
 
 
 def test_resolve_request_language_prefers_explicit_request_lang():
