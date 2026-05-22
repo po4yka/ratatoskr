@@ -198,49 +198,14 @@ def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
 
 
 def create_source_ingestion_runner(cfg: AppConfig, db: Database) -> Any:
-    from app.adapters.ingestors.hn import HackerNewsIngester
-    from app.adapters.ingestors.reddit import RedditIngester, RequestRateBudget
+    from app.adapters.ingestors.registry import create_source_ingesters
     from app.adapters.ingestors.runner import SourceIngestionRunner
-    from app.adapters.ingestors.twitter import TwitterIngester, TwitterIngestionConfig
     from app.infrastructure.persistence.repositories.signal_source_repository import (
         SignalSourceRepositoryAdapter,
     )
 
-    ingestion_cfg = cfg.signal_ingestion
-    ingesters: list[Any] = []
-    reddit_rate_budget = RequestRateBudget(
-        max_requests_per_minute=ingestion_cfg.reddit_requests_per_minute
-    )
-    if ingestion_cfg.enabled and ingestion_cfg.hn_enabled:
-        ingesters.extend(
-            HackerNewsIngester(
-                feed=feed,
-                limit=ingestion_cfg.max_items_per_source,
-                enabled=True,
-            )
-            for feed in ingestion_cfg.hn_feed_names()
-        )
-    if ingestion_cfg.enabled and ingestion_cfg.reddit_enabled:
-        ingesters.extend(
-            RedditIngester(
-                subreddit=subreddit,
-                listing=ingestion_cfg.reddit_listing,
-                limit=ingestion_cfg.max_items_per_source,
-                enabled=True,
-                rate_budget=reddit_rate_budget,
-            )
-            for subreddit in ingestion_cfg.reddit_names()
-        )
-    ingesters.append(
-        TwitterIngester(
-            TwitterIngestionConfig(
-                enabled=ingestion_cfg.enabled and ingestion_cfg.twitter_enabled,
-                ack_cost=ingestion_cfg.twitter_ack_cost,
-            )
-        )
-    )
     return SourceIngestionRunner(
         repository=SignalSourceRepositoryAdapter(db),
-        ingesters=ingesters,
+        ingesters=create_source_ingesters(cfg.signal_ingestion),
         subscriber_user_ids=cfg.telegram.allowed_user_ids,
     )

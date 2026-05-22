@@ -7,10 +7,12 @@ import pytest
 
 from app.adapters.ingestors.runner import SourceIngestionRunner
 from app.application.ports.source_ingestors import (
+    AuthSourceError,
     IngestedFeedItem,
     IngestedSource,
     SourceFetchResult,
     SourceIngester,
+    TransientSourceError,
 )
 from app.core.time_utils import UTC
 
@@ -91,6 +93,16 @@ class _FakeIngester:
         )
 
 
+class _FailingIngester(_FakeIngester):
+    def __init__(self, exc: Exception) -> None:
+        super().__init__()
+        self._exc = exc
+
+    async def fetch(self) -> SourceFetchResult:
+        self.fetches += 1
+        raise self._exc
+
+
 def test_source_ingester_protocol_is_runtime_checkable() -> None:
     assert isinstance(_FakeIngester(), SourceIngester)
 
@@ -112,6 +124,50 @@ async def test_runner_persists_normalized_items_and_subscriptions() -> None:
     assert repo.items[0]["engagement"]["comments"] == 3
     assert repo.subscriptions == [{"user_id": 1001, "source_id": 1}]
     assert repo.successes == [1]
+
+
+@pytest.mark.asyncio
+async def test_runner_records_transient_errors_with_standard_backoff() -> None:
+    repo = _FakeRepository()
+    runner = SourceIngestionRunner(
+        repository=cast("SignalSourceRepositoryPort", repo),
+        ingesters=[_FailingIngester(TransientSourceError("temporary"))],
+        subscriber_user_ids=[1001],
+    )
+
+    stats = await runner.run_once()
+
+    assert stats == {"enabled": 1, "sources": 0, "items": 0, "errors": 1, "skipped": 0}
+    assert repo.errors == [
+        {
+            "source_id": 1,
+            "error": "temporary",
+            "max_errors": 10,
+            "base_backoff_seconds": 300,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_runner_records_auth_errors_with_single_error_backoff() -> None:
+    repo = _FakeRepository()
+    runner = SourceIngestionRunner(
+        repository=cast("SignalSourceRepositoryPort", repo),
+        ingesters=[_FailingIngester(AuthSourceError("denied"))],
+        subscriber_user_ids=[1001],
+    )
+
+    stats = await runner.run_once()
+
+    assert stats == {"enabled": 1, "sources": 0, "items": 0, "errors": 1, "skipped": 0}
+    assert repo.errors == [
+        {
+            "source_id": 1,
+            "error": "denied",
+            "max_errors": 1,
+            "base_backoff_seconds": 300,
+        }
+    ]
 
 
 @pytest.mark.asyncio

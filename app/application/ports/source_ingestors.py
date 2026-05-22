@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
 
 
 @dataclass(slots=True, frozen=True)
@@ -77,3 +80,11 @@ class SourceIngester(Protocol):
 
     async def fetch(self) -> SourceFetchResult:
         """Fetch, normalize, and return items for one source."""
+
+
+@dataclass(slots=True, frozen=True)
+class SourceIngesterDescriptor:
+    """Static registry entry that builds one proactive source ingester family."""
+
+    name: str
+    build: Callable[[Any], Iterable[SourceIngester]]
