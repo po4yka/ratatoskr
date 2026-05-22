@@ -335,7 +335,9 @@ async def test_no_retention_mode_uses_immediate_raw_ttl(monkeypatch):
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_downloaded_media", media)
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_interaction_text", interaction)
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_request_content", request)
-    monkeypatch.setattr("app.tasks.purge_raw_data._purge_export_temp_files", MagicMock(return_value=0))
+    monkeypatch.setattr(
+        "app.tasks.purge_raw_data._purge_export_temp_files", MagicMock(return_value=0)
+    )
 
     await _purge_body(_build_cfg(privacy_no_retention_mode=True), MagicMock())
 
