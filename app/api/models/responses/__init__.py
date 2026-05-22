@@ -40,6 +40,16 @@ from .common import (
     success_response,
 )
 from .digest import CustomDigestResponse
+from .diagnostics import (
+    DiagnosticsComponent,
+    DiagnosticsProviderStatus,
+    DiagnosticsQueueBacklog,
+    DiagnosticsResponse,
+    DiagnosticsStorageGrowth,
+    DiagnosticsSuccessResponse,
+    DiagnosticsSyncFailure,
+    DiagnosticsVectorIndexLag,
+)
 from .requests import (
     DuplicateCheckData,
     DuplicateDetectionResponse,
@@ -126,6 +136,14 @@ __all__ = [
     "CustomDigestResponse",
     "DeleteSummaryResponse",
     "DeltaSyncResponseData",
+    "DiagnosticsComponent",
+    "DiagnosticsProviderStatus",
+    "DiagnosticsQueueBacklog",
+    "DiagnosticsResponse",
+    "DiagnosticsStorageGrowth",
+    "DiagnosticsSuccessResponse",
+    "DiagnosticsSyncFailure",
+    "DiagnosticsVectorIndexLag",
     "DomainStat",
     "DuplicateCheckData",
     "DuplicateDetectionResponse",

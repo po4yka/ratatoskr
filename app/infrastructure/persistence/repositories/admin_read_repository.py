@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import case, desc, func, select
+from sqlalchemy import case, desc, func, or_, select
 
 from app.api.search_helpers import isotime
 from app.core.time_utils import UTC
@@ -15,10 +16,14 @@ from app.db.models import (
     CrawlResult,
     ImportJob,
     LLMCall,
+    RSSFeed,
     Request,
+    RequestProcessingJob,
     Summary,
+    SummaryEmbedding,
     Tag,
     User,
+    UserGitHubIntegration,
 )
 
 if TYPE_CHECKING:
@@ -336,6 +341,419 @@ class AdminReadRepositoryAdapter:
 
             return {"logs": logs, "total": total, "limit": limit, "offset": offset}
 
+    async def async_diagnostics_snapshot(
+        self,
+        *,
+        since: dt.datetime,
+        now: dt.datetime,
+    ) -> dict[str, Any]:
+        """Return redacted operational diagnostics from persisted state."""
+        async with self._database.session() as session:
+            return {
+                "queue_backlog": await self._queue_backlog(session, now=now),
+                "vector_indexing_lag": await self._vector_indexing_lag(session),
+                "llm_providers": await self._llm_provider_stats(session, since=since),
+                "scraper_providers": await self._scraper_provider_stats(session, since=since),
+                "integration_health": await self._integration_health(session),
+                "latest_sync_failures": await self._latest_sync_failures(session, limit=20),
+                "storage_activity": await self._storage_activity(
+                    session,
+                    last_24h=now - dt.timedelta(days=1),
+                    last_7d=now - dt.timedelta(days=7),
+                ),
+            }
+
+    @staticmethod
+    async def _queue_backlog(session: Any, *, now: dt.datetime) -> dict[str, Any]:
+        rows = await session.execute(
+            select(RequestProcessingJob.status, func.count(RequestProcessingJob.id)).group_by(
+                RequestProcessingJob.status
+            )
+        )
+        by_status = {str(status or "unknown"): int(count or 0) for status, count in rows}
+        runnable = await session.scalar(
+            select(func.count(RequestProcessingJob.id)).where(
+                or_(
+                    RequestProcessingJob.status == "queued",
+                    (
+                        (RequestProcessingJob.status == "failed")
+                        & (
+                            (RequestProcessingJob.retry_after.is_(None))
+                            | (RequestProcessingJob.retry_after <= now)
+                        )
+                    ),
+                    (
+                        (RequestProcessingJob.status == "running")
+                        & (RequestProcessingJob.lease_expires_at <= now)
+                    ),
+                ),
+                RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
+            )
+        )
+        expired_running = await session.scalar(
+            select(func.count(RequestProcessingJob.id)).where(
+                RequestProcessingJob.status == "running",
+                RequestProcessingJob.lease_expires_at.is_not(None),
+                RequestProcessingJob.lease_expires_at <= now,
+            )
+        )
+        oldest_queued = await session.scalar(
+            select(func.min(RequestProcessingJob.created_at)).where(
+                RequestProcessingJob.status == "queued"
+            )
+        )
+        oldest_retry = await session.scalar(
+            select(func.min(RequestProcessingJob.retry_after)).where(
+                RequestProcessingJob.status == "failed",
+                RequestProcessingJob.retry_after.is_not(None),
+            )
+        )
+        return {
+            "by_status": by_status,
+            "runnable_count": int(runnable or 0),
+            "oldest_queued_at": oldest_queued,
+            "oldest_retry_after": oldest_retry,
+            "expired_running_leases": int(expired_running or 0),
+        }
+
+    @staticmethod
+    async def _vector_indexing_lag(session: Any) -> dict[str, Any]:
+        missing = await session.scalar(
+            select(func.count(Summary.id))
+            .outerjoin(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
+            .where(Summary.is_deleted.is_(False), SummaryEmbedding.id.is_(None))
+        )
+        stale = await session.scalar(
+            select(func.count(Summary.id))
+            .join(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
+            .where(
+                Summary.is_deleted.is_(False),
+                or_(
+                    SummaryEmbedding.last_indexed_at.is_(None),
+                    SummaryEmbedding.last_indexed_at < Summary.updated_at,
+                ),
+            )
+        )
+        pending = await session.scalar(
+            select(func.count(SummaryEmbedding.id)).where(
+                SummaryEmbedding.index_status != "indexed"
+            )
+        )
+        oldest_unindexed = await session.scalar(
+            select(func.min(Summary.updated_at))
+            .outerjoin(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
+            .where(
+                Summary.is_deleted.is_(False),
+                or_(
+                    SummaryEmbedding.id.is_(None),
+                    SummaryEmbedding.last_indexed_at.is_(None),
+                    SummaryEmbedding.last_indexed_at < Summary.updated_at,
+                ),
+            )
+        )
+        latest_indexed = await session.scalar(select(func.max(SummaryEmbedding.last_indexed_at)))
+        missing_int = int(missing or 0)
+        stale_int = int(stale or 0)
+        pending_int = int(pending or 0)
+        status = "healthy" if missing_int + stale_int + pending_int == 0 else "degraded"
+        return {
+            "status": status,
+            "missing_embeddings": missing_int,
+            "stale_embeddings": stale_int,
+            "pending_embeddings": pending_int,
+            "oldest_unindexed_summary_updated_at": oldest_unindexed,
+            "latest_indexed_at": latest_indexed,
+        }
+
+    @staticmethod
+    async def _llm_provider_stats(session: Any, *, since: dt.datetime) -> list[dict[str, Any]]:
+        failure_expr = case(
+            (
+                LLMCall.status.notin_(("ok", "success", "completed", "succeeded")),
+                1,
+            ),
+            else_=0,
+        )
+        rows = (
+            await session.execute(
+                select(
+                    LLMCall.provider,
+                    func.count(LLMCall.id),
+                    func.sum(failure_expr),
+                )
+                .where(LLMCall.created_at >= since)
+                .group_by(LLMCall.provider)
+            )
+        ).all()
+        stats: list[dict[str, Any]] = []
+        for provider, total, failures in rows:
+            provider_name = str(provider or "unknown")
+            latest = await session.execute(
+                select(LLMCall.error_text, LLMCall.status, LLMCall.updated_at)
+                .where(
+                    LLMCall.created_at >= since,
+                    LLMCall.provider.is_(None)
+                    if provider is None
+                    else LLMCall.provider == provider_name,
+                    LLMCall.status.notin_(("ok", "success", "completed", "succeeded")),
+                )
+                .order_by(LLMCall.updated_at.desc())
+                .limit(1)
+            )
+            error_text, status, updated_at = latest.first() or (None, None, None)
+            failure_count = int(failures or 0)
+            stats.append(
+                {
+                    "provider": provider_name,
+                    "status": "healthy" if failure_count == 0 else "degraded",
+                    "total_count": int(total or 0),
+                    "failure_count": failure_count,
+                    "last_error_code": str(status or "LLM_FAILURE") if failure_count else None,
+                    "last_error_message": _redact_message(error_text),
+                    "last_failure_at": updated_at,
+                }
+            )
+        return stats
+
+    @staticmethod
+    async def _integration_health(session: Any) -> dict[str, Any]:
+        rss_total = int(await session.scalar(select(func.count(RSSFeed.id))) or 0)
+        rss_failing = int(
+            await session.scalar(
+                select(func.count(RSSFeed.id)).where(
+                    RSSFeed.is_active.is_(True),
+                    or_(RSSFeed.fetch_error_count > 0, RSSFeed.last_error.is_not(None)),
+                )
+            )
+            or 0
+        )
+        github_total = int(await session.scalar(select(func.count(UserGitHubIntegration.id))) or 0)
+        github_failing = int(
+            await session.scalar(
+                select(func.count(UserGitHubIntegration.id)).where(
+                    UserGitHubIntegration.status != "active"
+                )
+            )
+            or 0
+        )
+        return {
+            "rss": {
+                "status": "healthy" if rss_failing == 0 else "degraded",
+                "total_count": rss_total,
+                "failure_count": rss_failing,
+            },
+            "github": {
+                "status": "healthy" if github_failing == 0 else "degraded",
+                "total_count": github_total,
+                "failure_count": github_failing,
+            },
+        }
+
+    @staticmethod
+    async def _scraper_provider_stats(session: Any, *, since: dt.datetime) -> list[dict[str, Any]]:
+        provider_expr = func.coalesce(CrawlResult.winning_provider, CrawlResult.endpoint, "unknown")
+        failure_condition = or_(
+            CrawlResult.firecrawl_success.is_(False),
+            CrawlResult.error_text.is_not(None),
+            CrawlResult.firecrawl_error_code.is_not(None),
+            CrawlResult.status.in_(("error", "failed", "timeout")),
+        )
+        rows = (
+            await session.execute(
+                select(
+                    provider_expr.label("provider"),
+                    func.count(CrawlResult.id),
+                    func.sum(case((failure_condition, 1), else_=0)),
+                )
+                .where(CrawlResult.updated_at >= since)
+                .group_by(provider_expr)
+            )
+        ).all()
+        stats: list[dict[str, Any]] = []
+        for provider, total, failures in rows:
+            provider_name = str(provider or "unknown")
+            latest = await session.execute(
+                select(
+                    CrawlResult.firecrawl_error_code,
+                    CrawlResult.error_text,
+                    CrawlResult.firecrawl_error_message,
+                    CrawlResult.updated_at,
+                )
+                .where(
+                    CrawlResult.updated_at >= since,
+                    provider_expr == provider_name,
+                    failure_condition,
+                )
+                .order_by(CrawlResult.updated_at.desc())
+                .limit(1)
+            )
+            error_code, error_text, firecrawl_error, updated_at = latest.first() or (
+                None,
+                None,
+                None,
+                None,
+            )
+            failure_count = int(failures or 0)
+            stats.append(
+                {
+                    "provider": provider_name,
+                    "status": "healthy" if failure_count == 0 else "degraded",
+                    "total_count": int(total or 0),
+                    "failure_count": failure_count,
+                    "last_error_code": str(error_code or "SCRAPER_FAILURE")
+                    if failure_count
+                    else None,
+                    "last_error_message": _redact_message(error_text or firecrawl_error),
+                    "last_failure_at": updated_at,
+                }
+            )
+        return stats
+
+    @staticmethod
+    async def _latest_sync_failures(session: Any, *, limit: int) -> list[dict[str, Any]]:
+        failures: list[dict[str, Any]] = []
+
+        rss_rows = (
+            await session.execute(
+                select(
+                    RSSFeed.id,
+                    RSSFeed.fetch_error_count,
+                    RSSFeed.last_error,
+                    RSSFeed.updated_at,
+                )
+                .where(or_(RSSFeed.fetch_error_count > 0, RSSFeed.last_error.is_not(None)))
+                .order_by(RSSFeed.updated_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        for feed_id, error_count, last_error, updated_at in rss_rows:
+            failures.append(
+                {
+                    "source": "rss",
+                    "event_id": f"rss-feed:{feed_id}",
+                    "error_code": "RSS_FETCH_FAILED",
+                    "message": _redact_message(last_error),
+                    "occurred_at": updated_at,
+                    "retryable": True,
+                    "details": {"fetch_error_count": int(error_count or 0)},
+                }
+            )
+
+        github_rows = (
+            await session.execute(
+                select(
+                    UserGitHubIntegration.id,
+                    UserGitHubIntegration.status,
+                    UserGitHubIntegration.updated_at,
+                )
+                .where(UserGitHubIntegration.status != "active")
+                .order_by(UserGitHubIntegration.updated_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        for integration_id, status, updated_at in github_rows:
+            failures.append(
+                {
+                    "source": "github",
+                    "event_id": f"github-integration:{integration_id}",
+                    "error_code": f"GITHUB_{str(status).upper()}",
+                    "message": f"GitHub integration status is {status}",
+                    "occurred_at": updated_at,
+                    "retryable": status == "needs_reauth",
+                    "details": {},
+                }
+            )
+
+        import_rows = (
+            await session.execute(
+                select(ImportJob.id, ImportJob.status, ImportJob.errors_json, ImportJob.updated_at)
+                .where(ImportJob.status.in_(("failed", "error")))
+                .order_by(ImportJob.updated_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        for job_id, status, errors_json, updated_at in import_rows:
+            failures.append(
+                {
+                    "source": "import",
+                    "event_id": f"import-job:{job_id}",
+                    "error_code": f"IMPORT_{str(status).upper()}",
+                    "message": _redact_message(_first_error(errors_json)),
+                    "occurred_at": updated_at,
+                    "retryable": True,
+                    "details": {},
+                }
+            )
+
+        job_rows = (
+            await session.execute(
+                select(
+                    RequestProcessingJob.id,
+                    RequestProcessingJob.request_id,
+                    RequestProcessingJob.correlation_id,
+                    RequestProcessingJob.last_error_code,
+                    RequestProcessingJob.last_error_message,
+                    RequestProcessingJob.updated_at,
+                    RequestProcessingJob.status,
+                )
+                .where(RequestProcessingJob.status.in_(("failed", "dead_letter")))
+                .order_by(RequestProcessingJob.updated_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        for job_id, request_id, correlation_id, error_code, message, updated_at, status in job_rows:
+            failures.append(
+                {
+                    "source": "request",
+                    "event_id": f"request-processing-job:{job_id}",
+                    "correlation_id": correlation_id,
+                    "error_code": error_code or f"REQUEST_JOB_{str(status).upper()}",
+                    "message": _redact_message(message),
+                    "occurred_at": updated_at,
+                    "retryable": status == "failed",
+                    "details": {"request_id": int(request_id)},
+                }
+            )
+
+        return sorted(
+            failures,
+            key=lambda item: item.get("occurred_at") or dt.datetime.min.replace(tzinfo=UTC),
+            reverse=True,
+        )[:limit]
+
+    @staticmethod
+    async def _storage_activity(
+        session: Any,
+        *,
+        last_24h: dt.datetime,
+        last_7d: dt.datetime,
+    ) -> dict[str, Any]:
+        models = {
+            "requests": Request,
+            "summaries": Summary,
+            "crawl_results": CrawlResult,
+            "llm_calls": LLMCall,
+            "request_processing_jobs": RequestProcessingJob,
+            "rss_feeds": RSSFeed,
+        }
+        created_last_24h: dict[str, int] = {}
+        created_last_7d: dict[str, int] = {}
+        for name, model in models.items():
+            created_at = getattr(model, "created_at", None)
+            if created_at is None:
+                continue
+            created_last_24h[name] = int(
+                await session.scalar(select(func.count(model.id)).where(created_at >= last_24h))
+                or 0
+            )
+            created_last_7d[name] = int(
+                await session.scalar(select(func.count(model.id)).where(created_at >= last_7d)) or 0
+            )
+        return {
+            "created_last_24h": created_last_24h,
+            "created_last_7d": created_last_7d,
+        }
+
 
 def _parse_since(since: str | None) -> dt.datetime | None:
     if not since:
@@ -348,3 +766,33 @@ def _parse_since(since: str | None) -> dt.datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed
+
+
+_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)=([^&\s]+)"),
+    re.compile(r"(?i)\b(bearer|basic)\s+[a-z0-9._~+/=-]+"),
+    re.compile(r"(?i)(sk-[a-z0-9_-]{12,})"),
+)
+
+
+def _redact_message(message: Any, *, max_len: int = 240) -> str | None:
+    if message is None:
+        return None
+    text = str(message)
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(lambda match: f"{match.group(1)}=[REDACTED]", text)
+    text = text.replace("\n", " ").replace("\r", " ").strip()
+    if len(text) > max_len:
+        return f"{text[: max_len - 3]}..."
+    return text or None
+
+
+def _first_error(errors_json: Any) -> str | None:
+    if isinstance(errors_json, list) and errors_json:
+        return str(errors_json[0])
+    if isinstance(errors_json, dict):
+        for key in ("message", "error", "detail"):
+            value = errors_json.get(key)
+            if value:
+                return str(value)
+    return None

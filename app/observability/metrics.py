@@ -313,6 +313,13 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    ADMIN_DIAGNOSTICS_REQUESTS = Counter(
+        "ratatoskr_admin_diagnostics_requests_total",
+        "Owner diagnostics API requests by outcome",
+        ["status"],
+        registry=REGISTRY,
+    )
+
     OPENROUTER_STREAM_FALLBACK = Counter(
         "ratatoskr_openrouter_stream_fallback_total",
         "OpenRouter SSE stream fallbacks to non-streaming.",
@@ -370,6 +377,7 @@ else:
     AGGREGATION_USED_SOURCES = None
     AGGREGATION_COST_USD = None
     SCHEDULER_JOB_CHRONIC_FAILURES = None
+    ADMIN_DIAGNOSTICS_REQUESTS = None
     OPENROUTER_STREAM_FALLBACK = None
     OPENROUTER_PER_MODEL_TIMEOUT = None
     OPENROUTER_PER_MODEL_LATENCY = None
@@ -624,6 +632,13 @@ def record_scheduler_chronic_failure(job_id: str) -> None:
     if not PROMETHEUS_AVAILABLE:
         return
     SCHEDULER_JOB_CHRONIC_FAILURES.labels(job_id=job_id).inc()
+
+
+def record_admin_diagnostics_request(status: str) -> None:
+    """Record an owner diagnostics API request outcome."""
+    if not PROMETHEUS_AVAILABLE:
+        return
+    ADMIN_DIAGNOSTICS_REQUESTS.labels(status=status).inc()
 
 
 def record_stream_latency_ms(metric: str, value_ms: float) -> None:

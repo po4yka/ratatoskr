@@ -9,13 +9,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.dependencies.database import get_session_manager
-from app.api.models.responses import success_response
+from app.api.models.responses import DiagnosticsSuccessResponse, success_response
 from app.api.routers.auth import AuthenticatedUser, get_current_user
 from app.api.services.admin_read_service import AdminReadService
 from app.api.services.auth_service import AuthService
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.di.shared import build_async_audit_sink
+from app.observability.metrics import record_admin_diagnostics_request
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -165,7 +166,29 @@ async def llm_costs(
 
 
 # ---------------------------------------------------------------------------
-# 6. GET /audit-log -- Paginated audit log
+# 6. GET /diagnostics -- Owner-only operational diagnostics
+# ---------------------------------------------------------------------------
+
+
+@router.get("/diagnostics", response_model=DiagnosticsSuccessResponse)
+async def diagnostics(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> Any:
+    """Safe provider and operational diagnostics for owner dashboards."""
+    await AuthService.require_owner(user)
+    user_id = _extract_user_id(user)
+
+    audit = build_async_audit_sink(_resolve_db(request))
+    audit("INFO", "admin.diagnostics", {"user_id": user_id})
+    service = AdminReadService(_resolve_db(request))
+    response = success_response(await service.diagnostics(request=request))
+    record_admin_diagnostics_request("success")
+    return response
+
+
+# ---------------------------------------------------------------------------
+# 7. GET /audit-log -- Paginated audit log
 # ---------------------------------------------------------------------------
 
 
