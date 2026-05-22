@@ -2,21 +2,24 @@ from __future__ import annotations
 
 import os
 import zipfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import delete, select
 
+from app.config.backup import BackupConfig
 from app.config.database import DatabaseConfig
 from app.db.models import Request, Summary, User, UserBackup
 from app.db.session import Database
 from app.infrastructure.persistence.backup_archive_service import (
     async_create_backup_archive,
+    calculate_backup_checksum,
+    verify_backup_archive,
 )
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    from pathlib import Path
 
 
 def _test_dsn() -> str:
@@ -90,9 +93,22 @@ async def test_create_backup_archive_uses_postgres_session(
     assert backup.status == "completed"
     assert backup.file_path is not None
     assert backup.items_count == 1
+    assert backup.checksum_sha256 == calculate_backup_checksum(Path(backup.file_path).read_bytes())
+    assert backup.item_counts_json["requests"] == 1
+    assert backup.item_counts_json["summaries"] == 1
+    assert backup.schema_version == "1.0"
+    assert backup.verified_at is not None
+    assert backup.verification_status == "verified"
+    assert backup.verification_error is None
 
     with zipfile.ZipFile(backup.file_path) as archive:
         names = set(archive.namelist())
     assert "manifest.json" in names
     assert "requests.json" in names
     assert "summaries.json" in names
+    verification = verify_backup_archive(
+        Path(backup.file_path).read_bytes(),
+        cfg=BackupConfig(),
+        expected_checksum=backup.checksum_sha256,
+    )
+    assert verification["verification_status"] == "verified"

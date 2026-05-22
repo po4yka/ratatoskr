@@ -12,7 +12,7 @@ from .aggregation import (
     AggregationSourceBundle,
     AggregationSourceItem,
 )
-from .backups import BackupResponse, ImportJobResponse
+from .backups import BackupResponse, ImportJobResponse, RestoreDryRunResponse
 from .collections import (
     CollectionAclEntry,
     CollectionAclResponse,
@@ -172,6 +172,7 @@ __all__ = [
     "RequestDetailSummary",
     "RequestStatus",
     "RequestStatusData",
+    "RestoreDryRunResponse",
     "RetryRequestResponse",
     "RuleLogResponse",
     "RuleResponse",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile
@@ -14,14 +16,16 @@ from app.api.dependencies.database import (
     get_user_repository,
 )
 from app.api.exceptions import APIException, ErrorCode, ResourceNotFoundError
-from app.api.models.responses import BackupResponse, success_response
+from app.api.models.responses import BackupResponse, RestoreDryRunResponse, success_response
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
 from app.config.backup import load_backup_config
 from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.backup_archive_service import (
     async_create_backup_archive,
+    async_dry_run_restore_from_archive,
     async_restore_from_archive,
+    verify_backup_archive,
 )
 
 logger = get_logger(__name__)
@@ -62,6 +66,14 @@ def _backup_to_response(b: dict[str, Any]) -> BackupResponse:
         file_path=b.get("file_path"),
         file_size_bytes=b.get("file_size_bytes"),
         items_count=b.get("items_count"),
+        checksum_sha256=b.get("checksum_sha256"),
+        item_counts=b.get("item_counts_json")
+        if isinstance(b.get("item_counts_json"), dict)
+        else {},
+        schema_version=b.get("schema_version"),
+        verified_at=isotime(b["verified_at"]) if b.get("verified_at") else None,
+        verification_status=b.get("verification_status"),
+        verification_error=b.get("verification_error"),
         error=b.get("error"),
         created_at=isotime(b["created_at"]),
         updated_at=isotime(b["updated_at"]),
@@ -144,6 +156,27 @@ async def restore_backup(
     return success_response(summary)
 
 
+@router.post("/restore/dry-run")
+async def dry_run_restore_backup(
+    file: UploadFile,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Validate an uploaded backup and estimate restore effects without writing data."""
+    cfg = load_backup_config()
+    content = await _read_bounded(file, cfg.max_restore_bytes)
+    if not content:
+        raise APIException(
+            message="Uploaded file is empty",
+            error_code=ErrorCode.VALIDATION_ERROR,
+            status_code=400,
+        )
+
+    summary = await async_dry_run_restore_from_archive(
+        user["user_id"], content, db=get_session_manager(), cfg=cfg
+    )
+    return success_response(RestoreDryRunResponse(**summary).model_dump(by_alias=True))
+
+
 @router.patch("/schedule")
 async def update_backup_schedule(
     body: dict[str, Any],
@@ -160,6 +193,22 @@ async def update_backup_schedule(
             error_code=ErrorCode.VALIDATION_ERROR,
             status_code=400,
         )
+    if "backup_retention_count" in update_data:
+        try:
+            retention_count = int(update_data["backup_retention_count"])
+        except (TypeError, ValueError) as exc:
+            raise APIException(
+                message="backup_retention_count must be a positive integer",
+                error_code=ErrorCode.VALIDATION_ERROR,
+                status_code=400,
+            ) from exc
+        if retention_count <= 0:
+            raise APIException(
+                message="backup_retention_count must be a positive integer",
+                error_code=ErrorCode.VALIDATION_ERROR,
+                status_code=400,
+            )
+        update_data["backup_retention_count"] = retention_count
 
     user_record, _ = await user_repo.async_get_or_create_user(
         user["user_id"],
@@ -231,6 +280,45 @@ async def download_backup(
     filename = os.path.basename(file_path)
     media_type = "application/zip" if filename.endswith(".zip") else "application/octet-stream"
     return FileResponse(path=file_path, filename=filename, media_type=media_type)
+
+
+@router.post("/{backup_id}/verify")
+async def verify_backup(
+    backup_id: int,
+    user: dict[str, Any] = Depends(get_current_user),
+    backup_repo: Any = Depends(get_backup_repository),
+) -> dict[str, Any]:
+    """Re-check a stored backup file checksum and archive structure."""
+    backup = await _verify_ownership(backup_repo, backup_id, user["user_id"])
+    file_path = backup.get("file_path")
+    if not file_path or not os.path.isfile(file_path):
+        raise APIException(
+            message="Backup file not found on disk",
+            error_code=ErrorCode.NOT_FOUND,
+            status_code=404,
+        )
+
+    cfg = load_backup_config()
+    payload = Path(file_path).read_bytes()
+    verification = verify_backup_archive(
+        payload,
+        cfg=cfg,
+        expected_checksum=backup.get("checksum_sha256"),
+    )
+    update_fields: dict[str, Any] = {
+        "verified_at": datetime.fromisoformat(verification["verified_at"]),
+        "verification_status": verification["verification_status"],
+        "verification_error": verification["verification_error"],
+    }
+    if verification["verification_status"] == "verified":
+        update_fields.update(
+            checksum_sha256=verification["checksum"],
+            item_counts_json=verification["item_counts"],
+            schema_version=verification["schema_version"],
+        )
+    await backup_repo.async_update_backup(backup_id, **update_fields)
+    updated = await backup_repo.async_get_backup(backup_id)
+    return success_response(_backup_to_response(updated or backup).model_dump(by_alias=True))
 
 
 @router.delete("/{backup_id}")

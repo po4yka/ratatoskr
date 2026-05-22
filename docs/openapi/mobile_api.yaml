@@ -6001,6 +6001,40 @@ paths:
           $ref: '#/components/responses/InternalServerError'
       security:
       - HTTPBearer: []
+  /v1/backups/restore/dry-run:
+    post:
+      tags:
+      - Backups
+      summary: Dry Run Restore Backup
+      description: Validate an uploaded backup and estimate restore effects without writing data.
+      operationId: dry_run_restore_backup_v1_backups_restore_dry_run_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_dry_run_restore_backup_v1_backups_restore_dry_run_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Dry Run Restore Backup V1 Backups Restore Dry Run Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
   /v1/backups/schedule:
     patch:
       tags:
@@ -6222,6 +6256,54 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/backups/{backup_id}/verify:
+    post:
+      tags:
+      - Backups
+      summary: Verify Backup
+      description: Re-check a stored backup file checksum and archive structure.
+      operationId: verify_backup_v1_backups__backup_id__verify_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: backup_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Backup Id
+      - name: session_manager
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Session Manager
+      - name: request
+        in: query
+        required: false
+        schema:
+          title: Request
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Verify Backup V1 Backups  Backup Id  Verify Post
         '422':
           description: Validation Error
           content:
@@ -7955,6 +8037,16 @@ components:
       type: object
       title: AttachTagsRequest
       description: Request body for attaching tags to a summary.
+    Body_dry_run_restore_backup_v1_backups_restore_dry_run_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_dry_run_restore_backup_v1_backups_restore_dry_run_post
     Body_import_bookmarks_v1_import_post:
       properties:
         file:

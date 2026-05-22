@@ -12,9 +12,33 @@ class BackupResponse(BaseModel):
     file_path: str | None = Field(default=None, serialization_alias="filePath")
     file_size_bytes: int | None = Field(default=None, serialization_alias="fileSizeBytes")
     items_count: int | None = Field(default=None, serialization_alias="itemsCount")
+    checksum_sha256: str | None = Field(default=None, serialization_alias="checksumSha256")
+    item_counts: dict[str, int] = Field(default_factory=dict, serialization_alias="itemCounts")
+    schema_version: str | None = Field(default=None, serialization_alias="schemaVersion")
+    verified_at: str | None = Field(default=None, serialization_alias="verifiedAt")
+    verification_status: str | None = Field(default=None, serialization_alias="verificationStatus")
+    verification_error: str | None = Field(default=None, serialization_alias="verificationError")
     error: str | None = None
     created_at: str = Field(serialization_alias="createdAt")
     updated_at: str = Field(serialization_alias="updatedAt")
+
+
+class RestoreDryRunResponse(BaseModel):
+    valid: bool
+    compatible: bool
+    schema_version: str | None = Field(default=None, serialization_alias="schemaVersion")
+    backup_created_at: str | None = Field(default=None, serialization_alias="backupCreatedAt")
+    encrypted: bool
+    counts: dict[str, int] = Field(default_factory=dict)
+    estimated_affected_rows: dict[str, int] = Field(
+        default_factory=dict,
+        serialization_alias="estimatedAffectedRows",
+    )
+    estimated_skipped_rows: dict[str, int] = Field(
+        default_factory=dict,
+        serialization_alias="estimatedSkippedRows",
+    )
+    errors: list[str] = Field(default_factory=list)
 
 
 class ImportJobResponse(BaseModel):

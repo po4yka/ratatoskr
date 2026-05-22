@@ -344,6 +344,12 @@ tar czf ~/ratatoskr-backup-$(date +%Y%m%d%H%M).tgz data .env
 
 The container also writes automatic snapshots to `data/backups/`.
 
+Application backups created from `/v1/backups` now include integrity metadata: `checksumSha256`, `itemCounts`, `schemaVersion`, `createdAt`, `verifiedAt`, `verificationStatus`, and `verificationError`. Before trusting a downloaded archive, check that `verificationStatus` is `verified`; if you copy backup files between hosts, run `POST /v1/backups/{backup_id}/verify` after the file lands to re-check the checksum and archive structure.
+
+Before importing an archive, use `POST /v1/backups/restore/dry-run` with the backup ZIP. The dry run validates the format, checks schema compatibility, reports entity counts and estimated affected rows, and does not mutate the production database. The existing `POST /v1/backups/restore` endpoint performs an import-style restore; there is intentionally no automatic destructive restore workflow.
+
+If you enable scheduled/user backups, set `backup_retention_count` to a positive integer. Retention cleanup only prunes terminal `completed` or `failed` backup records beyond the retention window and leaves `pending` or `processing` backups untouched.
+
 ### 2. Pull latest
 
 ```bash

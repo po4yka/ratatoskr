@@ -193,6 +193,12 @@ class UserBackup(Base):
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     items_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    checksum_sha256: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_counts_json: Mapped[JSONValue] = mapped_column(JSONB, default=dict, nullable=False)
+    schema_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verification_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verification_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     server_version: Mapped[int] = mapped_column(
         BigInteger, default=_next_server_version, nullable=False
