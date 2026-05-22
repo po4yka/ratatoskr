@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from app.api.exceptions import ResourceNotFoundError, ValidationError
+from app.api.exceptions import AuthorizationError, ResourceNotFoundError, ValidationError
 from app.api.models.requests import (
     AttachTagsRequest,
     CollectionItemMoveRequest,
@@ -18,9 +18,8 @@ from app.api.models.requests import (
 from app.api.routers import collections
 from app.api.routers.content import summaries
 from app.api.routers.user import tags
-from app.api.services.collection_service import CollectionService
+from app.api.services import collection_service
 from app.core.time_utils import UTC
-from app.db.models import CollectionItem
 
 
 def test_bulk_request_models_reject_oversized_batches() -> None:
@@ -82,76 +81,151 @@ async def test_summary_bulk_router_response_shapes_and_duplicate_ids() -> None:
     use_case.bulk_delete.assert_awaited_once_with(user_id=8001, summary_ids=[1, 2, 1])
 
 
+class _CollectionRepo:
+    def __init__(self) -> None:
+        self.collections = {
+            10: {"id": 10, "user_id": 8101, "parent_id": None, "collection_type": "manual"},
+            11: {"id": 11, "user_id": 8101, "parent_id": None, "collection_type": "manual"},
+            20: {"id": 20, "user_id": 8101, "parent_id": 10, "collection_type": "manual"},
+            21: {"id": 21, "user_id": 8101, "parent_id": 10, "collection_type": "manual"},
+            30: {"id": 30, "user_id": 8201, "parent_id": 10, "collection_type": "manual"},
+        }
+        self.roles = {
+            (10, 8101): "owner",
+            (11, 8101): "owner",
+            (20, 8101): "owner",
+            (21, 8101): "owner",
+        }
+        self.source_items = {10: {101, 102}}
+        self.async_reorder_items = AsyncMock(return_value=None)
+        self.async_reorder_collections = AsyncMock(return_value=None)
+        self.async_move_items = AsyncMock(side_effect=lambda _source, _target, ids, _position: ids)
+
+    async def async_get_collection(self, collection_id: int) -> dict[str, Any] | None:
+        return self.collections.get(collection_id)
+
+    async def async_get_role(self, collection_id: int, user_id: int) -> str | None:
+        return self.roles.get((collection_id, user_id))
+
+    async def async_list_item_summary_ids(
+        self, collection_id: int, summary_ids: list[int]
+    ) -> list[int]:
+        existing = self.source_items.get(collection_id, set())
+        return [summary_id for summary_id in summary_ids if summary_id in existing]
+
+
+def _use_collection_repo(monkeypatch: pytest.MonkeyPatch, repo: _CollectionRepo) -> None:
+    monkeypatch.setattr(collection_service, "_repo_factory_holder", [lambda: repo])
+
+
 @pytest.mark.asyncio
 async def test_collection_move_items_skips_absent_ids_and_dedupes_response(
-    db, user_factory, summary_factory
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    owner = await user_factory(username="bulk-move-owner", telegram_user_id=8101)
-    source = await CollectionService.create_collection(
-        user_id=owner.telegram_user_id,
-        name="Source",
-        description=None,
-        parent_id=None,
-        position=None,
-    )
-    target = await CollectionService.create_collection(
-        user_id=owner.telegram_user_id,
-        name="Target",
-        description=None,
-        parent_id=None,
-        position=None,
-    )
-    owned = await summary_factory(user=owner)
-    absent = await summary_factory(user=owner)
-    await CollectionService.add_item(source["id"], owned.id, owner.telegram_user_id)
+    repo = _CollectionRepo()
+    _use_collection_repo(monkeypatch, repo)
 
     response = await collections.move_collection_items(
-        collection_id=source["id"],
-        body=CollectionItemMoveRequest(
-            summary_ids=[owned.id, owned.id, absent.id], target_collection_id=target["id"]
-        ),
-        user={"user_id": owner.telegram_user_id},
+        collection_id=10,
+        body=CollectionItemMoveRequest(summary_ids=[101, 101, 999], target_collection_id=11),
+        user={"user_id": 8101},
     )
 
-    assert response["data"] == {"movedSummaryIds": [owned.id]}
-    assert (
-        not CollectionItem.select()
-        .where(
-            (CollectionItem.collection_id == target["id"])
-            & (CollectionItem.summary_id == absent.id)
-        )
-        .exists()
+    assert response["data"] == {"movedSummaryIds": [101]}
+    repo.async_move_items.assert_awaited_once_with(10, 11, [101], None)
+
+
+@pytest.mark.asyncio
+async def test_collection_move_items_skips_all_ids_absent_from_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _CollectionRepo()
+    _use_collection_repo(monkeypatch, repo)
+
+    response = await collections.move_collection_items(
+        collection_id=10,
+        body=CollectionItemMoveRequest(summary_ids=[999, 1000], target_collection_id=11),
+        user={"user_id": 8101},
     )
+
+    assert response["data"] == {"movedSummaryIds": []}
+    repo.async_move_items.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_collection_reorder_items_errors_on_ids_not_in_owned_collection(
-    db, user_factory, summary_factory
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    owner = await user_factory(username="bulk-reorder-owner", telegram_user_id=8201)
-    other = await user_factory(username="bulk-reorder-other", telegram_user_id=8202)
-    collection = await CollectionService.create_collection(
-        user_id=owner.telegram_user_id,
-        name="Owned",
-        description=None,
-        parent_id=None,
-        position=None,
-    )
-    owned = await summary_factory(user=owner)
-    other_summary = await summary_factory(user=other)
-    await CollectionService.add_item(collection["id"], owned.id, owner.telegram_user_id)
+    repo = _CollectionRepo()
+    _use_collection_repo(monkeypatch, repo)
 
     with pytest.raises(ResourceNotFoundError):
         await collections.reorder_collection_items(
-            collection_id=collection["id"],
+            collection_id=10,
             body=CollectionItemReorderRequest(
-                items=[
-                    {"summary_id": owned.id, "position": 1},
-                    {"summary_id": other_summary.id, "position": 2},
-                ]
+                items=[{"summary_id": 101, "position": 1}, {"summary_id": 999, "position": 2}]
             ),
-            user={"user_id": owner.telegram_user_id},
+            user={"user_id": 8101},
         )
+
+    repo.async_reorder_items.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_collection_reorder_items_dedupes_owned_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _CollectionRepo()
+    _use_collection_repo(monkeypatch, repo)
+
+    await collections.reorder_collection_items(
+        collection_id=10,
+        body=CollectionItemReorderRequest(
+            items=[{"summary_id": 101, "position": 1}, {"summary_id": 101, "position": 2}]
+        ),
+        user={"user_id": 8101},
+    )
+
+    repo.async_reorder_items.assert_awaited_once_with(10, [{"summary_id": 101, "position": 1}])
+
+
+@pytest.mark.asyncio
+async def test_collection_reorder_collections_rejects_cross_user_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _CollectionRepo()
+    _use_collection_repo(monkeypatch, repo)
+
+    with pytest.raises(AuthorizationError):
+        await collections.reorder_collections(
+            collection_id=10,
+            body=CollectionReorderRequest(
+                items=[{"collection_id": 20, "position": 1}, {"collection_id": 30, "position": 2}]
+            ),
+            user={"user_id": 8101},
+        )
+
+    repo.async_reorder_collections.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_collection_reorder_collections_dedupes_owned_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _CollectionRepo()
+    _use_collection_repo(monkeypatch, repo)
+
+    await collections.reorder_collections(
+        collection_id=10,
+        body=CollectionReorderRequest(
+            items=[{"collection_id": 20, "position": 1}, {"collection_id": 20, "position": 2}]
+        ),
+        user={"user_id": 8101},
+    )
+
+    repo.async_reorder_collections.assert_awaited_once_with(
+        10, [{"collection_id": 20, "position": 1}]
+    )
 
 
 class _TagRepo:
