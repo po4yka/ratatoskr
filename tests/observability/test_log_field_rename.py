@@ -72,3 +72,25 @@ def test_record_without_otel_fields_unchanged(monkeypatch: Any) -> None:
     assert data["correlation_id"] == "my-cid-789"
     assert "trace_id" not in data
     assert "span_id" not in data
+
+
+def test_json_sink_redacts_sensitive_extra_fields(monkeypatch: Any) -> None:
+    data = _emit(
+        {
+            "Authorization": "Bearer sk-or-secretsecretsecret",
+            "source_url": "https://example.test/private/path?token=secret",
+            "text_preview": "private source body",
+            "provider": "openrouter",
+            "latency_ms": 42,
+        },
+        monkeypatch,
+    )
+
+    rendered = json.dumps(data)
+    assert "sk-or-secretsecretsecret" not in rendered
+    assert "/private/path" not in rendered
+    assert "private source body" not in rendered
+    assert data["Authorization"] == "[REDACTED]"
+    assert data["text_preview"] == "[REDACTED_CONTENT]"
+    assert data["provider"] == "openrouter"
+    assert data["latency_ms"] == 42

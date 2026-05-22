@@ -44,4 +44,4 @@ def test_build_failure_snapshot_redacts_url_query_and_fragment() -> None:
         retryable=True,
         source_url="https://example.com/a/path?token=secret&x=1#frag",
     )
-    assert snapshot["source_url"] == "https://example.com/a/path"
+    assert snapshot["source_url"] == "https://example.com/[redacted]?token=%5BREDACTED%5D"

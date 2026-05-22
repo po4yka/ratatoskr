@@ -9,13 +9,76 @@ correlation IDs and log levels are preserved.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 import uuid
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import orjson
 from loguru import logger as loguru_logger
+
+_REDACTED = "[REDACTED]"
+_CONTENT_REDACTED = "[REDACTED_CONTENT]"
+_SENSITIVE_KEY_RE = re.compile(
+    r"(authorization|cookie|set[-_]?cookie|access[-_]?token|refresh[-_]?token|api[-_]?key|"
+    r"telegram[-_]?token|github[-_]?token|bot[-_]?token|x[-_]?api[-_]?key|secret)",
+    re.IGNORECASE,
+)
+_TOKEN_KEY_RE = re.compile(r"(^|[-_])token($|[-_])", re.IGNORECASE)
+_CONTENT_KEY_RE = re.compile(
+    r"(^content$|raw[-_]?source|source[-_]?content|prompt|messages|request[-_]?messages|"
+    r"response[-_]?text|raw[-_]?body|html|markdown|text[-_]?preview|content[-_]?preview|"
+    r"prompt[-_]?preview|payload[-_]?preview)",
+    re.IGNORECASE,
+)
+_DEBUG_PREVIEW_KEY_RE = re.compile(r"^debug[-_].*preview$", re.IGNORECASE)
+_URL_KEY_RE = re.compile(
+    r"(^url$|source[-_]?url|input[-_]?url|normalized[-_]?url|canonical[-_]?url|resolved[-_]?url)",
+    re.IGNORECASE,
+)
+_AUTH_HEADER_RE = re.compile(
+    r"\b(authorization|cookie|set-cookie|x-api-key)\s*[:=]\s*([^,\s;]+)",
+    re.IGNORECASE,
+)
+_TOKEN_ASSIGNMENT_RE = re.compile(
+    r"\b(access_token|refresh_token|api_key|telegram_token|github_token|bot_token|token|secret)"
+    r"\s*[:=]\s*([A-Za-z0-9._~:/+\-=]{8,})",
+    re.IGNORECASE,
+)
+_BEARER_RE = re.compile(r"\b(Bearer|Token|Bot)\s+[A-Za-z0-9._~:/+\-=]{8,}", re.IGNORECASE)
+_TELEGRAM_BOT_TOKEN_RE = re.compile(r"\b\d{5,12}:[A-Za-z0-9_-]{20,}\b")
+_GITHUB_TOKEN_RE = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b")
+_API_KEY_RE = re.compile(
+    r"\b(?:sk-[A-Za-z0-9_-]{12,}|sk-or-[A-Za-z0-9_-]{12,}|fc-[A-Za-z0-9_-]{12,})\b"
+)
+_URL_WITH_SECRET_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_URL_SECRET_QUERY_KEYS = {
+    "access_token",
+    "auth",
+    "code",
+    "key",
+    "password",
+    "refresh_token",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+}
+_OPERATIONAL_KEY_EXACT = {
+    "completion_tokens",
+    "prompt_tokens",
+    "tokens_completion",
+    "tokens_prompt",
+    "tokens_total",
+    "total_tokens",
+}
+
+
+def _privacy_redact_urls_default() -> bool:
+    raw = os.getenv("LOG_PRIVACY_REDACT_URLS", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 def _json_sink(message: Any) -> None:
@@ -25,7 +88,7 @@ def _json_sink(message: Any) -> None:
         "timestamp": record["time"].strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
         "level": record["level"].name,
         "logger": record["name"],
-        "message": record["message"],
+        "message": redact_for_logging(record["message"]),
         "module": record["module"],
         "function": record["function"],
         "line": record["line"],
@@ -35,7 +98,7 @@ def _json_sink(message: Any) -> None:
     # Merge extra fields (correlation_id, etc.)
     for k, v in record["extra"].items():
         if k not in log_entry:
-            log_entry[k] = v
+            log_entry[k] = redact_for_logging(v, key=k)
     # Rename OTel-injected fields to snake_case for Grafana Tempo derived-fields
     if (otel_trace_id := log_entry.get("otelTraceID")) and otel_trace_id != "0":
         log_entry["trace_id"] = otel_trace_id
@@ -45,7 +108,7 @@ def _json_sink(message: Any) -> None:
         log_entry.pop("otelServiceName", None)
     # Include exception info when present
     if record["exception"] is not None:
-        log_entry["exception"] = str(message).rstrip("\n")
+        log_entry["exception"] = redact_for_logging(str(message).rstrip("\n"))
     try:
         data = orjson.dumps(log_entry)
     except (TypeError, ValueError):
@@ -152,7 +215,7 @@ def setup_json_logging(
             for key, value in record.__dict__.items():
                 if key.startswith("_") or key in standard_fields:
                     continue
-                extra[key] = value
+                extra[key] = redact_for_logging(value, key=key)
 
             loguru_logger.bind(**extra).opt(depth=6, exception=record.exc_info).log(
                 level_to_use, record.getMessage()
@@ -209,7 +272,7 @@ def log_exception(
     **extra: Any,
 ) -> None:
     """Log an exception with structured context and traceback."""
-    payload = {"error": str(exc), "error_type": type(exc).__name__}
+    payload = {"error": redact_for_logging(str(exc)), "error_type": type(exc).__name__}
     payload.update(extra)
 
     if level == "warning":
@@ -273,11 +336,147 @@ def truncate_log_content(content: str | None, max_length: int = 1000) -> str | N
     return content[:max_length] + "..."
 
 
+def redact_for_logging(
+    value: Any,
+    *,
+    key: str | None = None,
+    redact_urls: bool | None = None,
+    allow_debug_content: bool = False,
+    max_preview_chars: int = 200,
+) -> Any:
+    """Return a logging-safe copy of a value without secrets, prompts, raw content, or private URLs."""
+    if redact_urls is None:
+        redact_urls = _privacy_redact_urls_default()
+
+    if key and key.lower() in _OPERATIONAL_KEY_EXACT:
+        return value
+    if key and (_SENSITIVE_KEY_RE.search(key) or _TOKEN_KEY_RE.search(key)):
+        return _REDACTED
+    if key and _CONTENT_KEY_RE.search(key):
+        if allow_debug_content or _DEBUG_PREVIEW_KEY_RE.search(key):
+            return bounded_debug_preview(
+                value, max_chars=max_preview_chars, redact_urls=redact_urls
+            )
+        return _CONTENT_REDACTED
+    if key and redact_urls and _URL_KEY_RE.search(key):
+        return redact_url_for_logging(value)
+
+    if isinstance(value, dict):
+        return {
+            str(item_key): redact_for_logging(
+                item_value,
+                key=str(item_key),
+                redact_urls=redact_urls,
+                allow_debug_content=allow_debug_content,
+                max_preview_chars=max_preview_chars,
+            )
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            redact_for_logging(
+                item,
+                redact_urls=redact_urls,
+                allow_debug_content=allow_debug_content,
+                max_preview_chars=max_preview_chars,
+            )
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            redact_for_logging(
+                item,
+                redact_urls=redact_urls,
+                allow_debug_content=allow_debug_content,
+                max_preview_chars=max_preview_chars,
+            )
+            for item in value
+        )
+    if isinstance(value, str):
+        return _redact_sensitive_text(value, redact_urls=redact_urls)
+    return value
+
+
+def bounded_debug_preview(
+    value: Any,
+    *,
+    max_chars: int = 200,
+    redact_urls: bool | None = None,
+) -> str:
+    """Build an explicitly requested bounded preview after token and URL redaction."""
+    if redact_urls is None:
+        redact_urls = _privacy_redact_urls_default()
+    text = _redact_sensitive_text(str(value), redact_urls=redact_urls)
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 15)] + "... [truncated]"
+
+
+def redact_headers_for_logging(headers: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a copy of HTTP headers with credential-bearing fields redacted."""
+    if not headers:
+        return {}
+    return {str(key): redact_for_logging(value, key=str(key)) for key, value in headers.items()}
+
+
+def redact_url_for_logging(value: Any, *, max_length: int = 220) -> Any:
+    """Remove private URL path, query, fragment, and credentials while preserving host-level utility."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return raw
+    try:
+        split = urlsplit(raw)
+    except Exception:
+        return _redact_sensitive_text(raw, redact_urls=False)[:max_length]
+    if not split.scheme or not split.netloc:
+        return _redact_sensitive_text(raw, redact_urls=False)[:max_length]
+    host = split.hostname or ""
+    netloc = host
+    if split.port:
+        netloc = f"{netloc}:{split.port}"
+    safe_query = _redact_url_query(split.query)
+    sanitized = urlunsplit((split.scheme, netloc, "/[redacted]", safe_query, ""))
+    if len(sanitized) > max_length:
+        return sanitized[: max_length - 15] + "... [truncated]"
+    return sanitized
+
+
+def _redact_url_query(query: str) -> str:
+    if not query:
+        return ""
+    safe_pairs: list[tuple[str, str]] = []
+    for key, _value in parse_qsl(query, keep_blank_values=True):
+        if key.lower() in _URL_SECRET_QUERY_KEYS:
+            safe_pairs.append((key, _REDACTED))
+    return urlencode(safe_pairs)
+
+
+def _redact_sensitive_text(text: str, *, redact_urls: bool) -> str:
+    redacted = _AUTH_HEADER_RE.sub(lambda match: f"{match.group(1)}: {_REDACTED}", text)
+    redacted = _TOKEN_ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}={_REDACTED}", redacted)
+    redacted = _BEARER_RE.sub(lambda match: f"{match.group(1)} {_REDACTED}", redacted)
+    redacted = _TELEGRAM_BOT_TOKEN_RE.sub(_REDACTED, redacted)
+    redacted = _GITHUB_TOKEN_RE.sub(_REDACTED, redacted)
+    redacted = _API_KEY_RE.sub(_REDACTED, redacted)
+    if redact_urls:
+        redacted = _URL_WITH_SECRET_RE.sub(
+            lambda match: str(redact_url_for_logging(match.group(0))),
+            redacted,
+        )
+    return redacted
+
+
 # Export commonly used items
 __all__ = [
+    "bounded_debug_preview",
     "generate_correlation_id",
     "get_logger",
     "log_exception",
+    "redact_for_logging",
+    "redact_headers_for_logging",
+    "redact_url_for_logging",
     "sanitize_correlation_id",
     "setup_json_logging",
     "truncate_log_content",

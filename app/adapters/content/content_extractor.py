@@ -25,7 +25,7 @@ from app.config import AppConfig
 from app.core.call_status import CallStatus
 from app.core.html_utils import clean_markdown_article_text, html_to_text
 from app.core.lang import detect_language
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.core.url_utils import normalize_url, url_hash_sha256
 from app.core.validation import safe_message_id, safe_telegram_chat_id, safe_telegram_user_id
 from app.db.session import Database
@@ -312,7 +312,11 @@ class ContentExtractor(
 
         logger.info(
             "pure_extraction_start",
-            extra={"url": url, "normalized": normalized_url, "cid": correlation_id},
+            extra={
+                "url": redact_url_for_logging(url),
+                "normalized": redact_url_for_logging(normalized_url),
+                "cid": correlation_id,
+            },
         )
 
         async with self._sem():
@@ -485,7 +489,12 @@ class ContentExtractor(
         dedupe = url_hash_sha256(norm)
         logger.info(
             "url_flow_detected",
-            extra={"url": url_text, "normalized": norm, "hash": dedupe, "cid": correlation_id},
+            extra={
+                "url": redact_url_for_logging(url_text),
+                "normalized": redact_url_for_logging(norm),
+                "hash": dedupe,
+                "cid": correlation_id,
+            },
         )
         await self.response_formatter.send_url_accepted_notification(
             message, norm, correlation_id, silent=silent

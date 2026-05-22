@@ -426,7 +426,7 @@ make format lint type
 # Enable debug logging
 export LOG_LEVEL=DEBUG
 
-# Enable API payload logging (Authorization redacted)
+# Enable bounded API payload previews; tokens, prompts, raw content, and private URLs stay redacted
 export DEBUG_PAYLOADS=1
 
 # Run CLI with verbose output

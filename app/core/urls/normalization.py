@@ -4,7 +4,7 @@ import hashlib
 import re
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.core.urls.twitter import canonicalize_twitter_url
 from app.core.urls.validation import _ALLOWED_SCHEMES, _DANGEROUS_SCHEMES, validate_url_input
 
@@ -102,10 +102,19 @@ def normalize_url(url: str) -> str:
         query = urlencode(query_pairs)
 
         normalized = urlunparse((scheme, netloc, path, "", query, ""))
-        logger.debug("normalize_url", extra={"url": url[:100], "normalized": normalized[:100]})
+        logger.debug(
+            "normalize_url",
+            extra={
+                "url": redact_url_for_logging(url),
+                "normalized": redact_url_for_logging(normalized),
+            },
+        )
         return normalized
     except Exception as exc:
-        logger.exception("url_normalization_failed", extra={"url": url[:100], "error": str(exc)})
+        logger.exception(
+            "url_normalization_failed",
+            extra={"url": redact_url_for_logging(url), "error": str(exc)},
+        )
         msg = f"URL normalization failed: {exc}"
         raise ValueError(msg) from exc
 

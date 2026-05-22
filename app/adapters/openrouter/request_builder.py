@@ -11,7 +11,7 @@ from app.adapters.openrouter.model_capabilities import (
     supports_automatic_caching,
     supports_explicit_caching,
 )
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_headers_for_logging
 
 if TYPE_CHECKING:
     from app.adapter_models.llm.llm_models import ChatRequest
@@ -213,7 +213,7 @@ class RequestBuilder:
         )
 
     def sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Sanitize user content to prevent prompt injection."""
+        """Sanitize user content to prevent prompt injection before provider submission."""
         patterns = [
             r"(?i)ignore previous instructions",
             r"(?i)forget previous instructions",
@@ -359,10 +359,7 @@ class RequestBuilder:
 
     def get_redacted_headers(self, headers: dict[str, str]) -> dict[str, str]:
         """Get headers with sensitive information redacted."""
-        redacted_headers = dict(headers)
-        if "Authorization" in redacted_headers:
-            redacted_headers["Authorization"] = "REDACTED"
-        return redacted_headers
+        return redact_headers_for_logging(headers)
 
     def build_cacheable_messages(
         self,

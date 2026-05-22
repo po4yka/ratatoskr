@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from app.adapters.content.quality_filters import best_content_text, detect_low_value_content
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -85,7 +85,10 @@ class ContentScraperChain:
         if browser:
             logger.info(
                 "scraper_chain_js_heavy_reorder",
-                extra={"url": url, "browser_first": [p.provider_name for p in browser]},
+                extra={
+                    "url": redact_url_for_logging(url),
+                    "browser_first": [p.provider_name for p in browser],
+                },
             )
         return browser + non_browser
 
@@ -103,13 +106,16 @@ class ContentScraperChain:
 
         with _tracer.start_as_current_span(
             "scraper.chain",
-            attributes={"scraper.url": url},
+            attributes={"scraper.url": str(redact_url_for_logging(url))},
         ) as chain_span:
             for provider in self._effective_providers(url):
                 name = provider.provider_name
                 with _tracer.start_as_current_span(
                     f"scraper.{name}",
-                    attributes={"scraper.provider": name, "scraper.url": url},
+                    attributes={
+                        "scraper.provider": name,
+                        "scraper.url": str(redact_url_for_logging(url)),
+                    },
                 ) as provider_span:
                     try:
                         result = await provider.scrape_markdown(
@@ -124,7 +130,7 @@ class ContentScraperChain:
                             "scraper_chain_provider_exception",
                             extra={
                                 "provider": name,
-                                "url": url,
+                                "url": redact_url_for_logging(url),
                                 "error": str(exc),
                                 "error_type": type(exc).__name__,
                                 "request_id": request_id,
@@ -148,9 +154,8 @@ class ContentScraperChain:
                                 "scraper_chain_error_page",
                                 extra={
                                     "provider": name,
-                                    "url": url,
+                                    "url": redact_url_for_logging(url),
                                     "content_len": len(text),
-                                    "preview": text[:200],
                                     "request_id": request_id,
                                 },
                             )
@@ -167,7 +172,7 @@ class ContentScraperChain:
                                 "scraper_chain_thin_content",
                                 extra={
                                     "provider": name,
-                                    "url": url,
+                                    "url": redact_url_for_logging(url),
                                     "content_len": len(text),
                                     "threshold": self._min_content_length,
                                     "request_id": request_id,
@@ -194,10 +199,9 @@ class ContentScraperChain:
                                 "scraper_chain_low_value_content",
                                 extra={
                                     "provider": name,
-                                    "url": url,
+                                    "url": redact_url_for_logging(url),
                                     "reason": reason,
                                     "metrics": metrics,
-                                    "preview": quality_issue["preview"],
                                     "request_id": request_id,
                                 },
                             )
@@ -211,7 +215,7 @@ class ContentScraperChain:
                             "scraper_chain_success",
                             extra={
                                 "provider": name,
-                                "url": url,
+                                "url": redact_url_for_logging(url),
                                 "latency_ms": result.latency_ms,
                                 "request_id": request_id,
                                 "tried": len(errors) + 1,
@@ -223,7 +227,7 @@ class ContentScraperChain:
                                 "scraper_chain_success",
                                 {
                                     "provider": name,
-                                    "url": url,
+                                    "url": redact_url_for_logging(url),
                                     "latency_ms": result.latency_ms,
                                     "request_id": request_id,
                                 },
@@ -237,7 +241,7 @@ class ContentScraperChain:
                         "scraper_chain_provider_failed",
                         extra={
                             "provider": name,
-                            "url": url,
+                            "url": redact_url_for_logging(url),
                             "error": result.error_text,
                             "request_id": request_id,
                         },
@@ -248,7 +252,7 @@ class ContentScraperChain:
             logger.warning(
                 "scraper_chain_exhausted",
                 extra={
-                    "url": url,
+                    "url": redact_url_for_logging(url),
                     "providers_tried": len(errors),
                     "errors": errors,
                     "request_id": request_id,

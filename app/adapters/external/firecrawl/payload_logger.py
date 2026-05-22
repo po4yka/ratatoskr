@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Any
 
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import bounded_debug_preview, get_logger, redact_for_logging
 
 if TYPE_CHECKING:
     import logging
@@ -69,7 +69,7 @@ class PayloadLogger:
             "firecrawl_attempt",
             {
                 "attempt": attempt,
-                "url": url,
+                "url": redact_for_logging(url, key="url"),
                 "mobile": mobile,
                 "pdf": pdf,
                 "request_id": request_id,
@@ -79,7 +79,7 @@ class PayloadLogger:
             "firecrawl_request",
             extra={
                 "attempt": attempt,
-                "url": url,
+                "url": redact_for_logging(url, key="url"),
                 "mobile": mobile,
                 "pdf": pdf,
                 "request_id": request_id,
@@ -93,7 +93,15 @@ class PayloadLogger:
             json_body: Request JSON body to log
         """
         if self._debug_payloads:
-            self._logger.debug("firecrawl_request_payload", extra={"json": json_body})
+            self._logger.debug(
+                "firecrawl_request_payload",
+                extra={
+                    "debug_payload_preview": bounded_debug_preview(
+                        redact_for_logging(json_body, allow_debug_content=True),
+                        max_chars=self._log_truncate_length,
+                    )
+                },
+            )
 
     def log_response(
         self,

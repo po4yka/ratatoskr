@@ -466,7 +466,7 @@ class LLMTierClassifier:
             logger.info(
                 "llm_tier_classifier_unparseable",
                 extra={
-                    "reply_preview": result.response_text[:64],
+                    "reply_length": len(result.response_text),
                     "url_domain": _extract_domain(url),
                 },
             )

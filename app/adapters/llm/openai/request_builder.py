@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.adapters.llm.message_sanitizer import sanitize_messages_for_logging
+from app.core.logging_utils import redact_headers_for_logging
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -135,10 +136,7 @@ class OpenAIRequestBuilder:
 
     def get_redacted_headers(self, headers: dict[str, str]) -> dict[str, str]:
         """Return headers with sensitive values redacted."""
-        redacted = dict(headers)
-        if "Authorization" in redacted:
-            redacted["Authorization"] = "Bearer [REDACTED]"
-        return redacted
+        return redact_headers_for_logging(headers)
 
     sanitize_messages = staticmethod(sanitize_messages_for_logging)
 

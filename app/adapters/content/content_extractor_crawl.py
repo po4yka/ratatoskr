@@ -391,7 +391,6 @@ class ContentExtractorCrawlMixin:
                 "cid": correlation_id,
                 "reason": reason_label,
                 **metrics,
-                "preview": quality_issue["preview"],
             },
         )
         return quality_issue

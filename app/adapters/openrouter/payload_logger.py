@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.logging_utils import get_logger, truncate_log_content
+from app.core.logging_utils import bounded_debug_preview, get_logger, redact_headers_for_logging
 
 
 class PayloadLogger:
@@ -30,9 +30,7 @@ class PayloadLogger:
         if not self._debug_payloads:
             return
 
-        redacted_headers = dict(headers)
-        if "Authorization" in redacted_headers:
-            redacted_headers["Authorization"] = "REDACTED"
+        redacted_headers = redact_headers_for_logging(headers)
 
         preview_rf = body.get("response_format") or {}
         rf_type = preview_rf.get("type") if isinstance(preview_rf, dict) else None
@@ -48,7 +46,7 @@ class PayloadLogger:
                 {
                     "role": role,
                     "len": len(content),
-                    "preview": truncate_log_content(content, 120),
+                    "debug_content_preview": bounded_debug_preview(content, max_chars=120),
                 }
             )
 
@@ -85,15 +83,15 @@ class PayloadLogger:
                 if isinstance(message, dict):
                     content = message.get("content")
                     if isinstance(content, str):
-                        content_preview = truncate_log_content(content, 200)
+                        content_preview = bounded_debug_preview(content, max_chars=200)
                     reasoning = message.get("reasoning")
                     if isinstance(reasoning, str):
-                        reasoning_preview = truncate_log_content(reasoning, 200)
+                        reasoning_preview = bounded_debug_preview(reasoning, max_chars=200)
                 choice_preview = {
                     "finish_reason": first.get("finish_reason"),
                     "native_finish_reason": first.get("native_finish_reason"),
-                    "content_preview": content_preview,
-                    "reasoning_preview": reasoning_preview,
+                    "debug_content_preview": content_preview,
+                    "debug_reasoning_preview": reasoning_preview,
                 }
 
             preview = {

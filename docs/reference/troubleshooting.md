@@ -90,7 +90,7 @@ Common `error_context_json.reason_code` values:
 - `RESOLVE_FAILED`
 - `EXTRACTION_EMPTY_OUTPUT`
 
-**Pro Tip**: Use `DEBUG_PAYLOADS=1` to log full request/response bodies (Authorization headers redacted).
+**Pro Tip**: `DEBUG_PAYLOADS=1` enables bounded debug previews only. Authorization headers, provider tokens, prompts, raw source content, and private URL path/query data remain redacted by default; use it only in controlled local debugging.
 
 ---
 
@@ -309,7 +309,7 @@ docker restart ratatoskr
 **Solution**:
 
 ```bash
-# Enable DEBUG_PAYLOADS to see raw Firecrawl response
+# Enable bounded Firecrawl payload previews; raw content and private URLs stay redacted
 echo "DEBUG_PAYLOADS=1" >> .env
 
 # Check database for Firecrawl response
@@ -1244,7 +1244,7 @@ Before diving deep:
 # Enable debug logging
 echo "LOG_LEVEL=DEBUG" >> .env
 
-# Enable payload logging (redacts Authorization headers)
+# Enable bounded payload previews; tokens, prompts, raw content, and private URLs stay redacted
 echo "DEBUG_PAYLOADS=1" >> .env
 
 # Restart bot

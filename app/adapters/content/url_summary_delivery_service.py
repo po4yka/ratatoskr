@@ -11,7 +11,7 @@ from app.adapters.content.url_flow_models import (
     create_chunk_llm_stub,
 )
 from app.core.async_utils import raise_if_cancelled
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.db.user_interactions import async_safe_update_user_interaction
 
 logger = get_logger(__name__)
@@ -116,7 +116,10 @@ class URLSummaryDeliveryService:
         silent: bool,
         batch_mode: bool,
     ) -> URLProcessingFlowResult:
-        logger.error("summarization_failed", extra={"cid": correlation_id, "url": url_text})
+        logger.error(
+            "summarization_failed",
+            extra={"cid": correlation_id, "url": redact_url_for_logging(url_text)},
+        )
         if not silent and not batch_mode:
             retry_markup = self._build_retry_markup(correlation_id)
             await self._response_formatter.send_error_notification(

@@ -54,7 +54,7 @@ def validate_and_truncate(
     if not is_safe:
         logger.warning(
             f"{context_log_key}_unsafe_content_blocked",
-            extra={"error": error_msg, "text_length": len(text), "text_preview": text[:100]},
+            extra={"error": error_msg, "text_length": len(text)},
         )
         if substitute_on_unsafe:
             text = "❌ Message blocked for security reasons."

@@ -22,7 +22,7 @@ from app.core.content_cleaner import (
     detect_prompt_injection_patterns,
 )
 from app.core.lang import LANG_RU
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import bounded_debug_preview, get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -134,24 +134,30 @@ def log_llm_content_validation(
     correlation_id: str | None,
 ) -> None:
     """Emit a uniform validation log before sending prompt content to the LLM."""
+    extra: dict[str, Any] = {
+        "cid": correlation_id,
+        "system_prompt_len": len(system_prompt),
+        "user_content_len": len(user_content),
+        "text_for_summary_len": len(content_text),
+        "has_content": bool(content_text.strip()),
+        "structured_output_config": {
+            "enabled": cfg.openrouter.enable_structured_outputs,
+            "mode": cfg.openrouter.structured_output_mode,
+            "require_parameters": cfg.openrouter.require_parameters,
+            "auto_fallback": cfg.openrouter.auto_fallback_structured,
+        },
+    }
+    if getattr(getattr(cfg, "runtime", None), "debug_payloads", False):
+        extra.update(
+            {
+                "debug_text_preview": bounded_debug_preview(content_text, max_chars=200),
+                "debug_system_prompt_preview": bounded_debug_preview(system_prompt, max_chars=200),
+                "debug_user_prompt_preview": bounded_debug_preview(user_content, max_chars=200),
+            }
+        )
     logger.info(
         "llm_content_validation",
-        extra={
-            "cid": correlation_id,
-            "system_prompt_len": len(system_prompt),
-            "user_content_len": len(user_content),
-            "text_for_summary_len": len(content_text),
-            "text_preview": (
-                content_text[:200] + "..." if len(content_text) > 200 else content_text
-            ),
-            "has_content": bool(content_text.strip()),
-            "structured_output_config": {
-                "enabled": cfg.openrouter.enable_structured_outputs,
-                "mode": cfg.openrouter.structured_output_mode,
-                "require_parameters": cfg.openrouter.require_parameters,
-                "auto_fallback": cfg.openrouter.auto_fallback_structured,
-            },
-        },
+        extra=extra,
     )
 
 

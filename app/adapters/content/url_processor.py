@@ -27,7 +27,7 @@ from app.adapters.content.url_flow_models import (
 from app.adapters.content.url_post_summary_task_service import URLPostSummaryTaskService
 from app.adapters.content.url_summary_delivery_service import URLSummaryDeliveryService
 from app.core.async_utils import raise_if_cancelled
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -226,7 +226,7 @@ class URLProcessor:
         with _tracer.start_as_current_span(
             "url_flow.process",
             attributes={
-                "url": request.url_text,
+                "url": str(redact_url_for_logging(request.url_text)),
                 "ratatoskr.correlation_id": request.correlation_id,
             },
         ):
@@ -404,7 +404,7 @@ class URLProcessor:
                     _top_frame = f"{_last.filename}:{_last.lineno}"
             _compact_extra = {
                 "cid": request.correlation_id,
-                "url": request.url_text,
+                "url": redact_url_for_logging(request.url_text),
                 "error_class": _error_class,
                 "error_message": _error_message,
                 "top_frame": _top_frame,

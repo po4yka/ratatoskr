@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from app.core.async_utils import raise_if_cancelled
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.core.urls.forward_link_extraction import extract_forward_urls
 
 if TYPE_CHECKING:
@@ -150,14 +150,22 @@ class ForwardLinkEnricher:
             except TimeoutError:
                 logger.warning(
                     "forward_link_fetch_failed",
-                    extra={"cid": correlation_id, "url": url, "error": "timeout"},
+                    extra={
+                        "cid": correlation_id,
+                        "url": redact_url_for_logging(url),
+                        "error": "timeout",
+                    },
                 )
                 return None
             except Exception as exc:
                 raise_if_cancelled(exc)
                 logger.warning(
                     "forward_link_fetch_failed",
-                    extra={"cid": correlation_id, "url": url, "error": str(exc)},
+                    extra={
+                        "cid": correlation_id,
+                        "url": redact_url_for_logging(url),
+                        "error": str(exc),
+                    },
                 )
                 return None
 

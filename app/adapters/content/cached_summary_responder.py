@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 
 if TYPE_CHECKING:
     from app.adapters.external.formatting.protocols import (
@@ -66,7 +66,11 @@ class CachedSummaryResponder:
 
             logger.info(
                 "cache_hit",
-                extra={"cid": correlation_id, "url": url_text, "hash": dedupe_hash[:12]},
+                extra={
+                    "cid": correlation_id,
+                    "url": redact_url_for_logging(url_text),
+                    "hash": dedupe_hash[:12],
+                },
             )
             if correlation_id:
                 await self._update_request_correlation_id(request_id, correlation_id)

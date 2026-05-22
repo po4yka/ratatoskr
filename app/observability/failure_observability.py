@@ -9,8 +9,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit, urlunsplit
 
+from app.core.logging_utils import redact_for_logging, redact_url_for_logging
 from app.core.time_utils import UTC
 from app.observability.metrics import record_extraction_failure
 
@@ -34,26 +34,16 @@ def _utc_now_iso() -> str:
 
 
 def sanitize_url_for_logs(url: str | None, *, max_length: int = 400) -> str | None:
-    """Sanitize URLs by dropping query/fragment and truncating."""
+    """Sanitize URLs for logs by removing private path, query, fragment, and credentials."""
     if not url:
         return None
-    raw = str(url).strip()
-    if not raw:
-        return None
-    try:
-        split = urlsplit(raw)
-        sanitized = urlunsplit((split.scheme, split.netloc, split.path, "", ""))
-    except Exception:
-        sanitized = raw
-    if len(sanitized) > max_length:
-        return sanitized[: max_length - 15] + "... [truncated]"
-    return sanitized
+    return str(redact_url_for_logging(url, max_length=max_length))
 
 
 def truncate_for_logs(value: str | None, *, max_length: int = 500) -> str | None:
     if not value:
         return value
-    text = str(value)
+    text = str(redact_for_logging(str(value)))
     if len(text) <= max_length:
         return text
     return text[: max_length - 15] + "... [truncated]"

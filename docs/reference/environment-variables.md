@@ -593,7 +593,8 @@ Configures scheduled nulling of raw artifact columns (scraped HTML, LLM payloads
 | `LOG_TRUNCATE_LENGTH` | `1000` | Max chars for truncated log fields |
 | `REQUEST_TIMEOUT_SEC` | `60` | General request timeout |
 | `PREFERRED_LANG` | `auto` | Language preference: `auto`, `en`, `ru` |
-| `DEBUG_PAYLOADS` | `0` | Log API payloads (0/1, Authorization redacted) |
+| `DEBUG_PAYLOADS` | `0` | Enable bounded debug payload previews. Keep disabled in production; tokens, prompts, raw content, and private URLs are redacted by default. |
+| `LOG_PRIVACY_REDACT_URLS` | `1` | Redact URL path/query/fragment fields in logs and traces by default; set to `0` only for controlled local debugging. |
 | `MAX_CONCURRENT_CALLS` | `4` | Max concurrent Firecrawl/OpenRouter calls |
 | `TEXTACY_ENABLED` | `false` | Enable the optional text-normalization pass (historical env var name) |
 | `CHUNKING_ENABLED` | `true` | Enable content chunking for long articles |
