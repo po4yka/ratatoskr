@@ -28,6 +28,7 @@ class LLMWorkflowExecutionMixin:
     _sem: Callable[..., Any]
     _set_failure_context: Callable[..., None]
     cfg: Any
+    llm_repo: Any
     openrouter: Any
 
     def _schedule_background_task(
@@ -252,9 +253,71 @@ class LLMWorkflowExecutionMixin:
 
     async def _invoke_llm(self, request: Any, req_id: int, on_retry: Any | None = None) -> Any:
         from app.adapters.content.llm_response_workflow import ConcurrencyTimeoutError
+        from app.adapter_models.llm.llm_models import LLMCallResult
+        from app.adapters.llm.usage_budget import (
+            LLMUsageSnapshot,
+            day_start,
+            evaluate_aggregate_budget,
+            month_start,
+        )
 
         sem_timeout = getattr(self.cfg.runtime, "semaphore_acquire_timeout_sec", 30.0)
         llm_timeout, timeout_source = await self._resolve_llm_timeout(request.model_override)
+        request_max_tokens = request.max_tokens
+        budget = getattr(self.cfg, "llm_usage_budget", None)
+        if budget is not None:
+            configured_max_tokens = getattr(budget, "max_tokens_per_request", None)
+            if configured_max_tokens is not None:
+                configured_max_tokens = int(configured_max_tokens)
+                request_max_tokens = (
+                    configured_max_tokens
+                    if request_max_tokens is None
+                    else min(int(request_max_tokens), configured_max_tokens)
+                )
+            try:
+                usage = LLMUsageSnapshot(
+                    daily_cost_usd=await self.llm_repo.async_get_cost_usd_since(day_start()),
+                    monthly_cost_usd=await self.llm_repo.async_get_cost_usd_since(month_start()),
+                )
+                decision = evaluate_aggregate_budget(budget=budget, usage=usage)
+            except Exception as exc:
+                logger.warning(
+                    "llm_budget_lookup_failed", extra={"req_id": req_id, "error": str(exc)}
+                )
+            else:
+                if decision.warning:
+                    logger.warning(
+                        "llm_budget_warning",
+                        extra={
+                            "req_id": req_id,
+                            "status": decision.status,
+                            "reasons": list(decision.reasons),
+                        },
+                    )
+                if not decision.allowed:
+                    logger.error(
+                        "llm_budget_hard_stop",
+                        extra={
+                            "req_id": req_id,
+                            "status": decision.status,
+                            "reasons": list(decision.reasons),
+                        },
+                    )
+                    return LLMCallResult(
+                        status=CallStatus.ERROR,
+                        model=request.model_override or getattr(self.cfg.openrouter, "model", None),
+                        response_text=None,
+                        error_text="LLM usage budget hard stop",
+                        tokens_prompt=0,
+                        tokens_completion=0,
+                        cost_usd=0.0,
+                        latency_ms=0,
+                        error_context={
+                            "message": "llm_budget_hard_stop",
+                            "usage_budget_status": decision.status,
+                            "usage_budget_reasons": list(decision.reasons),
+                        },
+                    )
 
         # Compute per-model timeout: divide total budget among models in fallback chain,
         # then enforce a minimum floor so slow models in long ladders are not starved.
@@ -318,7 +381,7 @@ class LLMWorkflowExecutionMixin:
                 return await self.openrouter.chat(
                     request.messages,
                     temperature=request.temperature,
-                    max_tokens=request.max_tokens,
+                    max_tokens=request_max_tokens,
                     top_p=request.top_p,
                     stream=bool(getattr(request, "stream", False)),
                     request_id=req_id,

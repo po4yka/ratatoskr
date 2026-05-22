@@ -208,6 +208,16 @@ class LLMRepositoryAdapter:
             )
             return model_to_dict(row)
 
+    async def async_get_cost_usd_since(self, since: Any) -> float:
+        """Return summed LLM cost since the supplied timestamp."""
+        async with self._database.session() as session:
+            total = await session.scalar(
+                select(func.coalesce(func.sum(LLMCall.cost_usd), 0.0)).where(
+                    LLMCall.created_at >= since
+                )
+            )
+        return float(total or 0.0)
+
     async def async_get_max_server_version(self, user_id: int) -> int | None:
         """Return the maximum server_version across LLM calls owned by *user_id*."""
         async with self._database.session() as session:

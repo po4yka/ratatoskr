@@ -10,7 +10,14 @@ from .content import ContentLimitsConfig
 from .database import DatabaseConfig
 from .firecrawl import FirecrawlConfig
 from .integrations import EmbeddingConfig, McpConfig, QdrantConfig, WebSearchConfig
-from .llm import AnthropicConfig, ModelRoutingConfig, OllamaConfig, OpenAIConfig, OpenRouterConfig
+from .llm import (
+    AnthropicConfig,
+    LLMUsageBudgetConfig,
+    ModelRoutingConfig,
+    OllamaConfig,
+    OpenAIConfig,
+    OpenRouterConfig,
+)
 from .media import AttachmentConfig, YouTubeConfig
 from .otel import SentryConfig
 from .push import PushNotificationConfig
@@ -43,6 +50,7 @@ __all__ = [
     "ElevenLabsConfig",
     "EmbeddingConfig",
     "FirecrawlConfig",
+    "LLMUsageBudgetConfig",
     "McpConfig",
     "ModelRoutingConfig",
     "OllamaConfig",

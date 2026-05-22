@@ -6,6 +6,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.adapters.llm.usage_budget import evaluate_request_usage
+from app.observability.metrics import record_llm_call_persisted
+
 logger = logging.getLogger("app.adapters.content.llm_response_workflow")
 
 
@@ -24,6 +27,29 @@ class LLMWorkflowStorageMixin:
         attempt_trigger: str | None = None,
     ) -> dict[str, Any]:
         """Serialize an LLM call once so queue batching can reuse the payload."""
+        error_context = (
+            dict(getattr(llm, "error_context", {}))
+            if isinstance(getattr(llm, "error_context", None), dict)
+            else (
+                getattr(llm, "error_context", None)
+                if getattr(llm, "error_context", None) is not None
+                else None
+            )
+        )
+        budget = getattr(self.cfg, "llm_usage_budget", None)
+        if budget is not None:
+            decision = evaluate_request_usage(
+                budget=budget,
+                prompt_tokens=getattr(llm, "tokens_prompt", None),
+                completion_tokens=getattr(llm, "tokens_completion", None),
+                cost_usd=getattr(llm, "cost_usd", None),
+            )
+            if decision.reasons:
+                if not isinstance(error_context, dict):
+                    error_context = {}
+                error_context["usage_budget_status"] = decision.status
+                error_context["usage_budget_reasons"] = list(decision.reasons)
+
         payload: dict[str, Any] = {
             "request_id": req_id,
             "provider": "openrouter",
@@ -41,11 +67,7 @@ class LLMWorkflowStorageMixin:
             "error_text": llm.error_text,
             "structured_output_used": getattr(llm, "structured_output_used", None),
             "structured_output_mode": getattr(llm, "structured_output_mode", None),
-            "error_context_json": (
-                getattr(llm, "error_context", {})
-                if getattr(llm, "error_context", None) is not None
-                else None
-            ),
+            "error_context_json": error_context,
         }
         if attempt_trigger is not None:
             payload["attempt_trigger"] = attempt_trigger
@@ -55,6 +77,8 @@ class LLMWorkflowStorageMixin:
         """Persist multiple LLM calls together when the queue can coalesce them."""
         try:
             await self.llm_repo.async_insert_llm_calls_batch(calls)
+            for call in calls:
+                record_llm_call_persisted(call)
         except Exception as exc:
             logger.exception(
                 "persist_llm_batch_error",
@@ -136,6 +160,7 @@ class LLMWorkflowStorageMixin:
             try:
                 cascade_payload = self._build_cascade_attempt_payload(llm, req_id, cascade_attempt)
                 await self.llm_repo.async_insert_llm_call(cascade_payload)
+                record_llm_call_persisted(cascade_payload)
             except Exception as exc:
                 logger.warning(
                     "persist_llm_cascade_error",
@@ -144,6 +169,7 @@ class LLMWorkflowStorageMixin:
 
         try:
             await self.llm_repo.async_insert_llm_call(payload)
+            record_llm_call_persisted(payload)
         except Exception as exc:
             logger.exception(
                 "persist_llm_error",

@@ -623,6 +623,20 @@ These knobs govern how long the OpenRouter chat engine spends per model and per 
 | `LLM_PER_MODEL_TIMEOUT_OVERRIDES` | _(empty)_ | Comma-separated `model=seconds` overrides, e.g. `moonshotai/kimi-k2.5=180,minimax/minimax-m1=240`. Overrides win over the formula above. Malformed entries are skipped with a warning |
 | `LLM_CALL_MAX_RETRIES` | `2` | Retries on transient HTTP failures inside a single model attempt |
 
+## LLM Usage Budgets
+
+These knobs bound LLM spend for self-hosted deployments. The per-request token limit caps the workflow `max_tokens` sent to providers and is also recorded when persisted usage exceeds the configured limit. Daily and monthly hard budgets are enforced before workflow LLM calls using persisted `llm_calls.cost_usd`; soft budgets are exposed as warnings in the owner-only admin cost endpoint.
+
+| Variable | Default | Description |
+| ---------- | --------- | ------------- |
+| `LLM_MAX_TOKENS_PER_REQUEST` | _(none)_ | Maximum prompt plus completion tokens allowed per persisted LLM call, and maximum generated tokens requested by summary workflows |
+| `LLM_MAX_COST_USD_PER_REQUEST` | _(none)_ | Maximum estimated USD cost allowed per persisted LLM call when provider cost data is available |
+| `LLM_DAILY_SOFT_BUDGET_USD` | _(none)_ | Daily cost warning budget |
+| `LLM_MONTHLY_SOFT_BUDGET_USD` | _(none)_ | Monthly cost warning budget |
+| `LLM_BUDGET_WARNING_THRESHOLD_RATIO` | `0.8` | Ratio of a configured soft budget that starts reporting warning status |
+| `LLM_DAILY_HARD_BUDGET_USD` | _(none)_ | Daily persisted LLM cost at which new workflow LLM calls are blocked |
+| `LLM_MONTHLY_HARD_BUDGET_USD` | _(none)_ | Monthly persisted LLM cost at which new workflow LLM calls are blocked |
+
 ## Mixed-Source Aggregation Rollout
 
 | Variable | Default | Description |

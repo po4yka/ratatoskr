@@ -19,6 +19,8 @@ Usage:
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.logging_utils import get_logger
 
 # Try to import prometheus_client, but make it optional
@@ -120,6 +122,42 @@ if PROMETHEUS_AVAILABLE:
         "End-to-end latency of a single LLM call attempt in seconds",
         ["model"],
         buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+        registry=REGISTRY,
+    )
+    LLM_TOKENS_TOTAL = Counter(
+        "ratatoskr_llm_tokens_total",
+        "Total LLM tokens persisted by provider, model, and token type",
+        ["provider", "model", "type"],
+        registry=REGISTRY,
+    )
+    LLM_COST_USD_TOTAL = Counter(
+        "ratatoskr_llm_cost_usd_total",
+        "Total estimated LLM cost in USD by provider and model",
+        ["provider", "model"],
+        registry=REGISTRY,
+    )
+    LLM_PARSE_FAILURES_TOTAL = Counter(
+        "ratatoskr_llm_parse_failures_total",
+        "Total LLM parse failures by provider, model, and failure stage",
+        ["provider", "model", "stage"],
+        registry=REGISTRY,
+    )
+    LLM_REPAIR_ATTEMPTS_TOTAL = Counter(
+        "ratatoskr_llm_repair_attempts_total",
+        "Total LLM JSON repair attempts by provider, model, and status",
+        ["provider", "model", "status"],
+        registry=REGISTRY,
+    )
+    LLM_FALLBACK_ATTEMPTS_TOTAL = Counter(
+        "ratatoskr_llm_fallback_attempts_total",
+        "Total LLM fallback attempts by provider, model, and status",
+        ["provider", "model", "status"],
+        registry=REGISTRY,
+    )
+    LLM_TIMEOUTS_TOTAL = Counter(
+        "ratatoskr_llm_timeouts_total",
+        "Total LLM timeout outcomes by provider and model",
+        ["provider", "model"],
         registry=REGISTRY,
     )
 
@@ -339,6 +377,12 @@ else:
     LLM_CALL_ATTEMPTS_TOTAL = None
     LLM_CALL_RETRY_EXHAUSTION_TOTAL = None
     LLM_CALL_LATENCY_SECONDS = None
+    LLM_TOKENS_TOTAL = None
+    LLM_COST_USD_TOTAL = None
+    LLM_PARSE_FAILURES_TOTAL = None
+    LLM_REPAIR_ATTEMPTS_TOTAL = None
+    LLM_FALLBACK_ATTEMPTS_TOTAL = None
+    LLM_TIMEOUTS_TOTAL = None
     SCRAPER_ATTEMPTS_TOTAL = None
     SCRAPER_ATTEMPT_LATENCY_SECONDS = None
 
@@ -762,6 +806,63 @@ def record_llm_call_latency(*, model: str, latency_seconds: float) -> None:
     if latency_seconds < 0:
         return
     LLM_CALL_LATENCY_SECONDS.labels(model=model).observe(latency_seconds)
+
+
+def record_llm_call_persisted(call: dict[str, Any]) -> None:
+    """Record metrics for a persisted LLM call without exposing payload content."""
+    if not PROMETHEUS_AVAILABLE:
+        return
+
+    provider = str(call.get("provider") or "unknown")
+    model = str(call.get("model") or "unknown")
+    status = str(call.get("status") or "unknown")
+    prompt_tokens = int(call.get("tokens_prompt") or 0)
+    completion_tokens = int(call.get("tokens_completion") or 0)
+    cost_usd = call.get("cost_usd")
+    latency_ms = call.get("latency_ms")
+
+    LLM_CALL_ATTEMPTS_TOTAL.labels(provider=provider, model=model, status=status).inc()
+    if prompt_tokens > 0:
+        LLM_TOKENS_TOTAL.labels(provider=provider, model=model, type="prompt").inc(prompt_tokens)
+    if completion_tokens > 0:
+        LLM_TOKENS_TOTAL.labels(provider=provider, model=model, type="completion").inc(
+            completion_tokens
+        )
+    if cost_usd is not None and float(cost_usd) > 0:
+        LLM_COST_USD_TOTAL.labels(provider=provider, model=model).inc(float(cost_usd))
+    if latency_ms is not None:
+        latency_seconds = max(0.0, float(latency_ms) / 1000.0)
+        LLM_CALL_LATENCY_SECONDS.labels(model=model).observe(latency_seconds)
+
+    error_text = str(call.get("error_text") or "").lower()
+    error_context = call.get("error_context_json") or {}
+    context_message = ""
+    if isinstance(error_context, dict):
+        context_message = str(error_context.get("message") or "").lower()
+    stage = _parse_failure_stage(error_text=error_text, context_message=context_message)
+    if stage is not None:
+        LLM_PARSE_FAILURES_TOTAL.labels(provider=provider, model=model, stage=stage).inc()
+    if "timeout" in error_text or "timeout" in context_message:
+        LLM_TIMEOUTS_TOTAL.labels(provider=provider, model=model).inc()
+
+    attempt_trigger = str(call.get("attempt_trigger") or "")
+    if attempt_trigger == "repair_loop":
+        LLM_REPAIR_ATTEMPTS_TOTAL.labels(provider=provider, model=model, status=status).inc()
+    if attempt_trigger == "auto_backfill" or call.get("fallback_model_used"):
+        LLM_FALLBACK_ATTEMPTS_TOTAL.labels(provider=provider, model=model, status=status).inc()
+
+
+def _parse_failure_stage(*, error_text: str, context_message: str) -> str | None:
+    combined = f"{error_text} {context_message}"
+    if "json_parse_timeout" in combined:
+        return "json_parse_timeout"
+    if "summary_parse_failed" in combined or "structured_output_parse_error" in combined:
+        return "summary_parse_failed"
+    if "json_repair_failed" in combined or "repair_failed" in combined:
+        return "json_repair_failed"
+    if "parse json" in combined or "failed to parse" in combined or "validation" in combined:
+        return "provider_response_parse"
+    return None
 
 
 def record_scraper_attempt(*, provider: str, status: str) -> None:

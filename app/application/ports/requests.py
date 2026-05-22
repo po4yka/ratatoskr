@@ -216,6 +216,9 @@ class LLMRepositoryPort(Protocol):
     async def async_get_latest_error_by_request(self, request_id: int) -> dict[str, Any] | None:
         """Return the latest error-like LLM call for a request."""
 
+    async def async_get_cost_usd_since(self, since: datetime) -> float:
+        """Return summed LLM cost since the supplied timestamp."""
+
 
 @runtime_checkable
 class VideoDownloadRepositoryPort(Protocol):

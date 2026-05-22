@@ -14,6 +14,91 @@ class _FallbackModelsMixin:
         return parse_fallback_models(value)
 
 
+class LLMUsageBudgetConfig(BaseModel):
+    """Operator-controlled limits for LLM consumption."""
+
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    max_tokens_per_request: int | None = Field(
+        default=None,
+        validation_alias="LLM_MAX_TOKENS_PER_REQUEST",
+        description="Maximum prompt+completion tokens allowed for a persisted LLM call; unset disables the check.",
+    )
+    max_cost_usd_per_request: float | None = Field(
+        default=None,
+        validation_alias="LLM_MAX_COST_USD_PER_REQUEST",
+        description="Maximum estimated USD cost allowed for a persisted LLM call; unset disables the check.",
+    )
+    daily_soft_budget_usd: float | None = Field(
+        default=None,
+        validation_alias="LLM_DAILY_SOFT_BUDGET_USD",
+        description="Daily warning budget for aggregate LLM cost; unset disables the soft budget.",
+    )
+    monthly_soft_budget_usd: float | None = Field(
+        default=None,
+        validation_alias="LLM_MONTHLY_SOFT_BUDGET_USD",
+        description="Monthly warning budget for aggregate LLM cost; unset disables the soft budget.",
+    )
+    warning_threshold_ratio: float = Field(
+        default=0.8,
+        validation_alias="LLM_BUDGET_WARNING_THRESHOLD_RATIO",
+        description="Ratio of a configured soft budget that starts reporting warning status.",
+    )
+    daily_hard_budget_usd: float | None = Field(
+        default=None,
+        validation_alias="LLM_DAILY_HARD_BUDGET_USD",
+        description="Daily aggregate LLM cost at which new workflow LLM calls are blocked; unset disables hard stop.",
+    )
+    monthly_hard_budget_usd: float | None = Field(
+        default=None,
+        validation_alias="LLM_MONTHLY_HARD_BUDGET_USD",
+        description="Monthly aggregate LLM cost at which new workflow LLM calls are blocked; unset disables hard stop.",
+    )
+
+    @field_validator(
+        "max_tokens_per_request",
+        mode="before",
+    )
+    @classmethod
+    def _validate_optional_positive_int(cls, value: Any) -> int | None:
+        if value in (None, ""):
+            return None
+        parsed = int(str(value))
+        if parsed < 1:
+            msg = "LLM_MAX_TOKENS_PER_REQUEST must be at least 1 when set"
+            raise ValueError(msg)
+        return parsed
+
+    @field_validator(
+        "max_cost_usd_per_request",
+        "daily_soft_budget_usd",
+        "monthly_soft_budget_usd",
+        "daily_hard_budget_usd",
+        "monthly_hard_budget_usd",
+        mode="before",
+    )
+    @classmethod
+    def _validate_optional_non_negative_float(cls, value: Any) -> float | None:
+        if value in (None, ""):
+            return None
+        parsed = float(str(value))
+        if parsed < 0:
+            msg = "LLM budget values must be non-negative"
+            raise ValueError(msg)
+        return parsed
+
+    @field_validator("warning_threshold_ratio", mode="before")
+    @classmethod
+    def _validate_warning_threshold(cls, value: Any) -> float:
+        if value in (None, ""):
+            return 0.8
+        parsed = float(str(value))
+        if parsed <= 0 or parsed > 1:
+            msg = "LLM_BUDGET_WARNING_THRESHOLD_RATIO must be greater than 0 and at most 1"
+            raise ValueError(msg)
+        return parsed
+
+
 class OpenRouterConfig(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 

@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     )
     from app.config.llm import (
         AnthropicConfig,
+        LLMUsageBudgetConfig,
         ModelRoutingConfig,
         OllamaConfig,
         OpenAIConfig,
@@ -70,6 +71,7 @@ class ConfigHolder:
         openai: OpenAIConfig
         ollama: OllamaConfig
         anthropic: AnthropicConfig
+        llm_usage_budget: LLMUsageBudgetConfig
         youtube: YouTubeConfig
         attachment: AttachmentConfig
         runtime: RuntimeConfig

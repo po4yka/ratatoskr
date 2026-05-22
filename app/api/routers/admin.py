@@ -38,8 +38,24 @@ def _seven_days_ago() -> _dt.datetime:
     return _dt.datetime.now(UTC) - _dt.timedelta(days=7)
 
 
+def _days_ago(days: int) -> _dt.datetime:
+    return _dt.datetime.now(UTC) - _dt.timedelta(days=days)
+
+
 def _today_start() -> _dt.datetime:
     return _dt.datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _month_start() -> _dt.datetime:
+    return _dt.datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _resolve_llm_budget(request: Any) -> Any | None:
+    from app.di.api import resolve_api_runtime
+
+    with contextlib.suppress(RuntimeError):
+        return getattr(resolve_api_runtime(request).cfg, "llm_usage_budget", None)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +137,35 @@ async def system_metrics(
 
 
 # ---------------------------------------------------------------------------
-# 5. GET /audit-log -- Paginated audit log
+# 5. GET /llm-costs -- Redacted LLM usage and cost stats
+# ---------------------------------------------------------------------------
+
+
+@router.get("/llm-costs")
+async def llm_costs(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+    days: int = Query(30, ge=1, le=366),
+) -> Any:
+    """Redacted aggregate LLM usage and cost statistics."""
+    await AuthService.require_owner(user)
+    user_id = _extract_user_id(user)
+
+    audit = build_async_audit_sink(_resolve_db(request))
+    audit("INFO", "admin.llm_costs", {"user_id": user_id, "days": days})
+    service = AdminReadService(_resolve_db(request))
+    return success_response(
+        await service.llm_cost_stats(
+            since=_days_ago(days),
+            today=_today_start(),
+            month_start=_month_start(),
+            budget=_resolve_llm_budget(request),
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. GET /audit-log -- Paginated audit log
 # ---------------------------------------------------------------------------
 
 

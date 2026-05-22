@@ -207,6 +207,89 @@ class AdminReadRepositoryAdapter:
 
             return {"llm_7d": llm_stats, "scraper_7d": scraper_stats}
 
+    async def async_llm_cost_stats(
+        self, *, since: Any, today: Any, month_start: Any
+    ) -> dict[str, Any]:
+        """Return redacted aggregate LLM usage and cost statistics."""
+        async with self._database.session() as session:
+            total_row = (
+                await session.execute(
+                    select(
+                        func.count(LLMCall.id),
+                        func.sum(LLMCall.tokens_prompt),
+                        func.sum(LLMCall.tokens_completion),
+                        func.sum(LLMCall.cost_usd),
+                    ).where(LLMCall.created_at >= since)
+                )
+            ).one()
+            today_cost = await session.scalar(
+                select(func.coalesce(func.sum(LLMCall.cost_usd), 0.0)).where(
+                    LLMCall.created_at >= today
+                )
+            )
+            month_cost = await session.scalar(
+                select(func.coalesce(func.sum(LLMCall.cost_usd), 0.0)).where(
+                    LLMCall.created_at >= month_start
+                )
+            )
+            provider_model_rows = (
+                await session.execute(
+                    select(
+                        LLMCall.provider,
+                        LLMCall.model,
+                        LLMCall.status,
+                        func.count(LLMCall.id),
+                        func.sum(LLMCall.tokens_prompt),
+                        func.sum(LLMCall.tokens_completion),
+                        func.sum(LLMCall.cost_usd),
+                        func.avg(LLMCall.latency_ms),
+                    )
+                    .where(LLMCall.created_at >= since)
+                    .group_by(LLMCall.provider, LLMCall.model, LLMCall.status)
+                    .order_by(func.coalesce(func.sum(LLMCall.cost_usd), 0.0).desc())
+                )
+            ).all()
+
+        total_calls, prompt_tokens, completion_tokens, total_cost = total_row
+        by_provider_model: list[dict[str, Any]] = []
+        for (
+            provider,
+            model,
+            status,
+            count,
+            prompt,
+            completion,
+            cost,
+            latency,
+        ) in provider_model_rows:
+            by_provider_model.append(
+                {
+                    "provider": provider or "unknown",
+                    "model": model or "unknown",
+                    "status": status or "unknown",
+                    "calls": int(count or 0),
+                    "prompt_tokens": int(prompt or 0),
+                    "completion_tokens": int(completion or 0),
+                    "cost_usd": round(float(cost or 0), 6),
+                    "avg_latency_ms": round(float(latency or 0), 1),
+                }
+            )
+
+        return {
+            "window_start": isotime(since),
+            "totals": {
+                "calls": int(total_calls or 0),
+                "prompt_tokens": int(prompt_tokens or 0),
+                "completion_tokens": int(completion_tokens or 0),
+                "cost_usd": round(float(total_cost or 0), 6),
+            },
+            "periods": {
+                "today_cost_usd": round(float(today_cost or 0), 6),
+                "month_cost_usd": round(float(month_cost or 0), 6),
+            },
+            "by_provider_model": by_provider_model,
+        }
+
     async def async_audit_log(
         self,
         *,

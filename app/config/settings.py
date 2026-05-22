@@ -35,7 +35,14 @@ from .integrations import (
     VectorReconcileConfig,
     WebSearchConfig,
 )
-from .llm import AnthropicConfig, ModelRoutingConfig, OllamaConfig, OpenAIConfig, OpenRouterConfig
+from .llm import (
+    AnthropicConfig,
+    LLMUsageBudgetConfig,
+    ModelRoutingConfig,
+    OllamaConfig,
+    OpenAIConfig,
+    OpenRouterConfig,
+)
 from .media import AttachmentConfig, YouTubeConfig
 from .otel import OtelConfig, SentryConfig
 from .push import PushNotificationConfig
@@ -180,6 +187,7 @@ class AppConfig:
     web_search: WebSearchConfig
     adaptive_timeout: AdaptiveTimeoutConfig
     batch_analysis: BatchAnalysisConfig
+    llm_usage_budget: LLMUsageBudgetConfig = field(default_factory=LLMUsageBudgetConfig)
     twitter: TwitterConfig = field(default_factory=TwitterConfig)
     digest: ChannelDigestConfig = field(default_factory=ChannelDigestConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
@@ -223,6 +231,7 @@ class Settings(BaseSettings):
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
+    llm_usage_budget: LLMUsageBudgetConfig = Field(default_factory=LLMUsageBudgetConfig)
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     attachment: AttachmentConfig = Field(default_factory=AttachmentConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
