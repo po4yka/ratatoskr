@@ -252,5 +252,7 @@ async def detach_tag(
     await _ensure_summary_owned(summary_id, user["user_id"])
 
     repo = _get_tag_repo()
+    tag = await repo.async_get_tag_by_id(tag_id)
+    _verify_tag_ownership(tag, tag_id, user["user_id"])
     await repo.async_detach_tag(summary_id, tag_id)
     return success_response({"detached": True, "summary_id": summary_id, "tag_id": tag_id})

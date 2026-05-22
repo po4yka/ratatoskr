@@ -349,8 +349,14 @@ class UserContentRepositoryAdapter:
                     SummaryTag.tag_id == tag_id
                 )
             if collection_id is not None:
-                stmt = stmt.join(CollectionItem, CollectionItem.summary_id == Summary.id).where(
-                    CollectionItem.collection_id == collection_id
+                stmt = (
+                    stmt.join(CollectionItem, CollectionItem.summary_id == Summary.id)
+                    .join(Collection, Collection.id == CollectionItem.collection_id)
+                    .where(
+                        CollectionItem.collection_id == collection_id,
+                        Collection.user_id == user_id,
+                        Collection.is_deleted.is_(False),
+                    )
                 )
 
             rows = await session.execute(stmt)
@@ -364,8 +370,10 @@ class UserContentRepositoryAdapter:
                 json_payload = summary_dict.get("json_payload")
                 if isinstance(json_payload, dict):
                     summary_dict["title"] = json_payload.get("title", "")
-                summary_dict["tags"] = await _summary_tags(session, summary.id)
-                summary_dict["collections"] = await _summary_collections(session, summary.id)
+                summary_dict["tags"] = await _summary_tags(session, summary.id, user_id=user_id)
+                summary_dict["collections"] = await _summary_collections(
+                    session, summary.id, user_id=user_id
+                )
                 summaries.append(summary_dict)
             return summaries
 
@@ -380,21 +388,31 @@ def _summary_with_request(summary: Summary, request: Request) -> dict[str, Any]:
     return item
 
 
-async def _summary_tags(session: Any, summary_id: int) -> list[dict[str, str]]:
+async def _summary_tags(session: Any, summary_id: int, *, user_id: int) -> list[dict[str, str]]:
     rows = await session.execute(
         select(Tag.name)
         .join(SummaryTag, SummaryTag.tag_id == Tag.id)
-        .where(SummaryTag.summary_id == summary_id, Tag.is_deleted.is_(False))
+        .where(
+            SummaryTag.summary_id == summary_id,
+            Tag.user_id == user_id,
+            Tag.is_deleted.is_(False),
+        )
         .order_by(Tag.name.asc())
     )
     return [{"name": name} for name in rows.scalars()]
 
 
-async def _summary_collections(session: Any, summary_id: int) -> list[dict[str, str]]:
+async def _summary_collections(
+    session: Any, summary_id: int, *, user_id: int
+) -> list[dict[str, str]]:
     rows = await session.execute(
         select(Collection.name)
         .join(CollectionItem, CollectionItem.collection_id == Collection.id)
-        .where(CollectionItem.summary_id == summary_id, Collection.is_deleted.is_(False))
+        .where(
+            CollectionItem.summary_id == summary_id,
+            Collection.user_id == user_id,
+            Collection.is_deleted.is_(False),
+        )
         .order_by(Collection.name.asc())
     )
     return [{"name": name} for name in rows.scalars()]

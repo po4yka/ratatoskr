@@ -237,6 +237,19 @@ class CollectionRepositoryAdapter:
         async with self._database.session() as session:
             return await _item_count(session, collection_id)
 
+    async def async_summary_belongs_to_user(self, summary_id: int, user_id: int) -> bool:
+        async with self._database.session() as session:
+            owned_summary_id = await session.scalar(
+                select(Summary.id)
+                .join(Request, Summary.request_id == Request.id)
+                .where(
+                    Summary.id == summary_id,
+                    Request.user_id == user_id,
+                    Summary.is_deleted.is_(False),
+                )
+            )
+            return owned_summary_id is not None
+
     async def async_add_item(
         self,
         collection_id: int,
@@ -295,6 +308,24 @@ class CollectionRepositoryAdapter:
                 )
             ).scalars()
             return [_item_dict(item) for item in rows]
+
+    async def async_list_item_summary_ids(
+        self,
+        collection_id: int,
+        summary_ids: list[int],
+    ) -> list[int]:
+        if not summary_ids:
+            return []
+        async with self._database.session() as session:
+            rows = (
+                await session.execute(
+                    select(CollectionItem.summary_id).where(
+                        CollectionItem.collection_id == collection_id,
+                        CollectionItem.summary_id.in_(summary_ids),
+                    )
+                )
+            ).scalars()
+            return list(rows)
 
     async def async_get_next_item_position(self, collection_id: int) -> int:
         async with self._database.session() as session:
@@ -400,9 +431,21 @@ class CollectionRepositoryAdapter:
                     )
                 )
                 insert_pos = int(max_pos or 0) + 1
+            existing_summary_ids = set(
+                (
+                    await session.execute(
+                        select(CollectionItem.summary_id).where(
+                            CollectionItem.collection_id == source_collection_id,
+                            CollectionItem.summary_id.in_(summary_ids),
+                        )
+                    )
+                ).scalars()
+            )
 
             moved: list[int] = []
             for summary_id in summary_ids:
+                if summary_id not in existing_summary_ids:
+                    continue
                 await session.execute(
                     delete(CollectionItem).where(
                         CollectionItem.collection_id == source_collection_id,

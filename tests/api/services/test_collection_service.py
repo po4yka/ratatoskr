@@ -220,6 +220,82 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
 
 
 @pytest.mark.asyncio
+async def test_collection_service_rejects_cross_user_summary_ids(
+    db,
+    user_factory,
+    summary_factory,
+) -> None:
+    owner = user_factory(username="collection-owner-summary", telegram_user_id=6101)
+    other = user_factory(username="collection-other-summary", telegram_user_id=6102)
+    collection = await CollectionService.create_collection(
+        user_id=owner.telegram_user_id,
+        name="Owned Collection",
+        description=None,
+        parent_id=None,
+        position=None,
+    )
+    other_summary = summary_factory(user=other)
+
+    with pytest.raises(ResourceNotFoundError):
+        await CollectionService.add_item(
+            collection["id"],
+            other_summary.id,
+            owner.telegram_user_id,
+        )
+
+    assert (
+        not CollectionItem.select()  # type: ignore[attr-defined]
+        .where(
+            (CollectionItem.collection_id == collection["id"])
+            & (CollectionItem.summary_id == other_summary.id)
+        )
+        .exists()
+    )
+
+
+@pytest.mark.asyncio
+async def test_collection_service_move_items_skips_ids_not_in_source_collection(
+    db,
+    user_factory,
+    summary_factory,
+) -> None:
+    owner = user_factory(username="collection-move-absent", telegram_user_id=6103)
+    source = await CollectionService.create_collection(
+        user_id=owner.telegram_user_id,
+        name="Move Source",
+        description=None,
+        parent_id=None,
+        position=None,
+    )
+    target = await CollectionService.create_collection(
+        user_id=owner.telegram_user_id,
+        name="Move Target",
+        description=None,
+        parent_id=None,
+        position=None,
+    )
+    absent_summary = summary_factory(user=owner)
+
+    moved = await CollectionService.move_items(
+        source["id"],
+        owner.telegram_user_id,
+        [absent_summary.id],
+        target["id"],
+        position=1,
+    )
+
+    assert moved == []
+    assert (
+        not CollectionItem.select()  # type: ignore[attr-defined]
+        .where(
+            (CollectionItem.collection_id == target["id"])
+            & (CollectionItem.summary_id == absent_summary.id)
+        )
+        .exists()
+    )
+
+
+@pytest.mark.asyncio
 async def test_collection_service_collaborators_acl_and_invites(
     db, user_factory, collection_service
 ) -> None:

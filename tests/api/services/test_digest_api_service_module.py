@@ -257,6 +257,41 @@ def test_category_crud_and_assignment_flows(
         digest_service.assign_category(user.telegram_user_id, subscription.id, 999999)
 
 
+def test_digest_category_assignment_rejects_cross_user_ids(
+    db,
+    user_factory,
+    digest_service: DigestAPIService,
+) -> None:
+    owner = user_factory(username="digest-owner", telegram_user_id=8015)
+    other = user_factory(username="digest-other", telegram_user_id=8016)
+    owner_category = digest_service.create_category(owner.telegram_user_id, "Owner")
+    other_category = digest_service.create_category(other.telegram_user_id, "Other")
+    owner_subscription = _create_subscription(
+        user_id=owner.telegram_user_id,
+        username="ownerchan",
+        category=ChannelCategory.get_by_id(owner_category.id),  # type: ignore[attr-defined]
+    )
+    other_subscription = _create_subscription(
+        user_id=other.telegram_user_id,
+        username="otherchan",
+        category=ChannelCategory.get_by_id(other_category.id),  # type: ignore[attr-defined]
+    )
+
+    with pytest.raises(ValidationError, match="Subscription not found"):
+        digest_service.assign_category(
+            owner.telegram_user_id,
+            other_subscription.id,
+            owner_category.id,
+        )
+
+    with pytest.raises(ValidationError, match="Category not found"):
+        digest_service.assign_category(
+            owner.telegram_user_id,
+            owner_subscription.id,
+            other_category.id,
+        )
+
+
 def test_bulk_digest_operations_report_mixed_results(
     db,
     user_factory,

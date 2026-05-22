@@ -329,6 +329,8 @@ class CollectionService:
         await cls._guard_smart_collection(repo, collection_id)
         await cls._get_collection_or_raise(repo, collection_id)
         await cls._require_role(repo, collection_id, user_id, "editor")
+        if not await repo.async_summary_belongs_to_user(summary_id, user_id):
+            raise ResourceNotFoundError("Summary", summary_id)
 
         position = await repo.async_get_next_item_position(collection_id)
         added = await repo.async_add_item(collection_id, summary_id, position)
@@ -389,11 +391,19 @@ class CollectionService:
         await cls._get_collection_or_raise(repo, target_collection_id)
         await cls._require_role(repo, source_collection_id, user_id, "editor")
         await cls._require_role(repo, target_collection_id, user_id, "editor")
+        existing_source_ids = set(
+            await repo.async_list_item_summary_ids(source_collection_id, summary_ids)
+        )
+        movable_summary_ids = [
+            summary_id for summary_id in summary_ids if summary_id in existing_source_ids
+        ]
+        if not movable_summary_ids:
+            return []
 
         return cast(
             "list[int]",
             await repo.async_move_items(
-                source_collection_id, target_collection_id, summary_ids, position
+                source_collection_id, target_collection_id, movable_summary_ids, position
             ),
         )
 

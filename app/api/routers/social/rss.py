@@ -27,6 +27,14 @@ def _get_rss_repo() -> Any:
     return runtime.rss_feed_repo
 
 
+async def _require_feed_subscription(repo: Any, *, user_id: int, feed_id: int) -> dict[str, Any]:
+    """Return the user's subscription for a feed or raise a non-enumerating 404."""
+    subscription = await repo.async_get_subscription_by_feed(user_id=user_id, feed_id=feed_id)
+    if subscription is None:
+        raise ResourceNotFoundError("Feed", feed_id)
+    return subscription
+
+
 # --- Subscription endpoints ---
 
 
@@ -149,9 +157,7 @@ async def list_feed_items(
     """List paginated items for a feed."""
     repo = _get_rss_repo()
 
-    feed = await repo.async_get_feed(feed_id)
-    if feed is None:
-        raise ResourceNotFoundError("Feed", feed_id)
+    await _require_feed_subscription(repo, user_id=user["user_id"], feed_id=feed_id)
 
     items = await repo.async_list_feed_items(feed_id, limit=limit, offset=offset)
     return success_response(
@@ -181,6 +187,7 @@ async def refresh_feed(
     """Trigger a fetch for a specific feed and store new items."""
     repo = _get_rss_repo()
 
+    await _require_feed_subscription(repo, user_id=user["user_id"], feed_id=feed_id)
     feed = await repo.async_get_feed(feed_id)
     if feed is None:
         raise ResourceNotFoundError("Feed", feed_id)
