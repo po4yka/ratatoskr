@@ -66,6 +66,7 @@ class BackgroundFailureHandler:
             str(stage_error.original),
             0.0,
             error=str(stage_error.original),
+            correlation_id=cid,
         )
         self._logger.error(
             "bg_processing_failed",
@@ -98,6 +99,7 @@ class BackgroundFailureHandler:
             "CANCELLED",
             "Task cancelled",
             0.0,
+            correlation_id=correlation_id or (request or {}).get("correlation_id"),
         )
 
     async def handle_unexpected_error(
@@ -138,6 +140,7 @@ class BackgroundFailureHandler:
             str(exc),
             0.0,
             error=str(exc),
+            correlation_id=cid,
         )
         self._logger.error(
             "bg_processing_failed",

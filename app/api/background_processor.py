@@ -62,6 +62,7 @@ class BackgroundProcessor:
         summary_repo: Any | None = None,
         request_repo_factory: Callable[[Database], Any] | None = None,
         summary_repo_factory: Callable[[Database], Any] | None = None,
+        progress_event_repo: Any | None = None,
         deps: Any | None = None,
     ) -> None:
         self.cfg = cfg
@@ -101,7 +102,11 @@ class BackgroundProcessor:
             )
             self._lock_manager = BackgroundLockManager(cfg=cfg, redis=redis, logger=logger)
             self._retry_runner = BackgroundRetryRunner(policy=self._retry, logger=logger)
-            self._progress_publisher = BackgroundProgressPublisher(redis=redis, logger=logger)
+            self._progress_publisher = BackgroundProgressPublisher(
+                redis=redis,
+                logger=logger,
+                progress_event_repo=progress_event_repo,
+            )
             self._url_request_handler = UrlBackgroundRequestHandler(
                 cfg=cfg,
                 publish_update=self._progress_publisher.publish,

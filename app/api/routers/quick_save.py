@@ -5,9 +5,8 @@ from __future__ import annotations
 import contextlib
 from typing import Any, cast
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, Depends, Request
 
-from app.api.background_tasks import process_url_request
 from app.api.exceptions import ValidationError
 from app.api.models.requests import (  # noqa: TC001  # used at runtime in route body annotation
     QuickSaveRequest,
@@ -59,8 +58,8 @@ def _get_tag_repo() -> Any:
 
 @router.post("/quick-save")
 async def quick_save(
+    request: Request,
     body: QuickSaveRequest,
-    background_tasks: BackgroundTasks,
     user: dict[str, Any] = Depends(get_current_user),
     request_service: RequestService = Depends(_get_request_service),
 ) -> Any:
@@ -140,7 +139,13 @@ async def quick_save(
 
     # Schedule background summarization if requested
     if body.summarize:
-        background_tasks.add_task(process_url_request, new_request.id)
+        from app.di.api import resolve_api_runtime
+
+        runtime = resolve_api_runtime(request)
+        await runtime.durable_request_queue.enqueue(
+            request_id=new_request.id,
+            correlation_id=new_request.correlation_id,
+        )
 
     return success_response(
         {

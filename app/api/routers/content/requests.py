@@ -6,9 +6,8 @@ import contextlib
 from datetime import datetime
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, Depends, Request
 
-from app.api.background_tasks import process_url_request
 from app.api.exceptions import DuplicateResourceError, ResourceNotFoundError, ValidationError
 from app.api.models.requests import SubmitForwardRequest, SubmitURLRequest
 from app.api.models.responses import (
@@ -80,6 +79,16 @@ def _get_request_service(request: Request) -> RequestService:
     )
 
 
+async def _enqueue_request_processing(
+    request: Request, request_id: int, correlation_id: str | None
+) -> None:
+    runtime = resolve_api_runtime(request)
+    await runtime.durable_request_queue.enqueue(
+        request_id=request_id,
+        correlation_id=correlation_id,
+    )
+
+
 def _raise_api_exception(exc: Exception) -> None:
     if isinstance(exc, DomainResourceNotFoundError):
         resource_id = exc.details.get("request_id") or exc.details.get("id") or "unknown"
@@ -95,8 +104,8 @@ def _raise_api_exception(exc: Exception) -> None:
 
 @router.post("")
 async def submit_request(
+    request: Request,
     request_data: SubmitURLRequest | SubmitForwardRequest,
-    background_tasks: BackgroundTasks,
     user: dict[str, Any] = Depends(get_current_user),
     request_service: RequestService = Depends(_get_request_service),
 ) -> dict[str, Any]:
@@ -132,7 +141,7 @@ async def submit_request(
                 )
             _raise_api_exception(exc)
 
-        background_tasks.add_task(process_url_request, created.id)
+        await _enqueue_request_processing(request, created.id, created.correlation_id)
         return success_response(
             SubmitRequestData(
                 request=SubmitRequestResponse(
@@ -159,7 +168,7 @@ async def submit_request(
     except Exception as exc:
         _raise_api_exception(exc)
 
-    background_tasks.add_task(process_url_request, created.id)
+    await _enqueue_request_processing(request, created.id, created.correlation_id)
     return success_response(
         SubmitRequestData(
             request=SubmitRequestResponse(
@@ -284,7 +293,7 @@ async def get_request_status(
 @router.post("/{request_id}/retry")
 async def retry_request(
     request_id: int,
-    background_tasks: BackgroundTasks,
+    request: Request,
     user: dict[str, Any] = Depends(get_current_user),
     request_service: RequestService = Depends(_get_request_service),
 ) -> dict[str, Any]:
@@ -294,7 +303,7 @@ async def retry_request(
     except Exception as exc:
         _raise_api_exception(exc)
 
-    background_tasks.add_task(process_url_request, created.id)
+    await _enqueue_request_processing(request, created.id, created.correlation_id)
     return success_response(
         RetryRequestResponse(
             new_request_id=created.id,

@@ -41,7 +41,12 @@ class UrlBackgroundRequestHandler:
     ) -> None:
         normalized_url = normalize_url(request.get("input_url") or "")
         await self._publish_update(
-            request_id, "PROCESSING", "EXTRACTION", "Extracting content...", 0.2
+            request_id,
+            "PROCESSING",
+            "EXTRACTION",
+            "Extracting content...",
+            0.2,
+            correlation_id=correlation_id,
         )
         content_text, _content_source, metadata = await self._run_stage(
             "extraction",
@@ -60,7 +65,12 @@ class UrlBackgroundRequestHandler:
         lang = self.resolve_request_language(request, content_text, metadata=metadata)
         system_prompt = get_url_system_prompt(lang)
         await self._publish_update(
-            request_id, "PROCESSING", "SUMMARIZATION", "Summarizing content...", 0.5
+            request_id,
+            "PROCESSING",
+            "SUMMARIZATION",
+            "Summarizing content...",
+            0.5,
+            correlation_id=correlation_id,
         )
         summary_json = await self._run_stage(
             "summarization",
@@ -80,7 +90,12 @@ class UrlBackgroundRequestHandler:
             )
 
         await self._publish_update(
-            request_id, "PROCESSING", "VALIDATION", "Validating summary...", 0.8
+            request_id,
+            "PROCESSING",
+            "VALIDATION",
+            "Validating summary...",
+            0.8,
+            correlation_id=correlation_id,
         )
         summary_json = await self._run_stage(
             "validation",
@@ -96,7 +111,14 @@ class UrlBackgroundRequestHandler:
             ),
         )
 
-        await self._publish_update(request_id, "PROCESSING", "SAVING", "Saving summary...", 0.9)
+        await self._publish_update(
+            request_id,
+            "PROCESSING",
+            "SAVING",
+            "Saving summary...",
+            0.9,
+            correlation_id=correlation_id,
+        )
         repo = self._summary_repo_for_db(db)
         await repo.async_upsert_summary(
             request_id=request_id,
@@ -154,7 +176,12 @@ class ForwardBackgroundRequestHandler:
             lang = choose_language(self._cfg.runtime.preferred_lang, detected)
         system_prompt = get_url_system_prompt(lang)
         await self._publish_update(
-            request_id, "PROCESSING", "SUMMARIZATION", "Summarizing content...", 0.5
+            request_id,
+            "PROCESSING",
+            "SUMMARIZATION",
+            "Summarizing content...",
+            0.5,
+            correlation_id=correlation_id,
         )
         summary_json = await self._run_stage(
             "summarization",
@@ -173,7 +200,14 @@ class ForwardBackgroundRequestHandler:
                 "summarization", ValueError("Summary generation failed - no summary returned")
             )
 
-        await self._publish_update(request_id, "PROCESSING", "SAVING", "Saving summary...", 0.9)
+        await self._publish_update(
+            request_id,
+            "PROCESSING",
+            "SAVING",
+            "Saving summary...",
+            0.9,
+            correlation_id=correlation_id,
+        )
         repo = self._summary_repo_for_db(db)
         await repo.async_upsert_summary(
             request_id=request_id,

@@ -113,6 +113,8 @@ class ApiRuntime:
     core: CoreDependencies
     search: SearchDependencies
     background_processor: Any
+    durable_request_queue: Any
+    progress_event_repository: Any
     summary_read_model_use_case: Any
     search_read_model_use_case: Any
     request_service: Any

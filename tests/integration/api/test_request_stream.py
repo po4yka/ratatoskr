@@ -35,7 +35,11 @@ _OTHER_ID = 987654321
 # ---------------------------------------------------------------------------
 
 
-def _build_app_and_client(monkeypatch: pytest.MonkeyPatch, owner_id: int = _OWNER_ID) -> Any:
+def _build_app_and_client(
+    monkeypatch: pytest.MonkeyPatch,
+    owner_id: int = _OWNER_ID,
+    progress_repo: Any | None = None,
+) -> Any:
     """Build a TestClient with the DB dependency stubbed out.
 
     The streams router's `_get_request_service` dependency is overridden to
@@ -91,6 +95,10 @@ def _build_app_and_client(monkeypatch: pytest.MonkeyPatch, owner_id: int = _OWNE
     import app.api.routers.content.streams as _streams_mod
 
     fastapi_app.dependency_overrides[_streams_mod._get_request_service] = lambda: mock_svc
+    if progress_repo is not None:
+        fastapi_app.dependency_overrides[_streams_mod._get_progress_event_repository] = lambda: (
+            progress_repo
+        )
 
     try:
         from app.api import middleware as _mw
@@ -136,6 +144,99 @@ def _parse_event_types(raw_lines: list[str]) -> list[str]:
     """Extract event type names from raw SSE lines."""
     return [
         line.removeprefix("event: ").strip() for line in raw_lines if line.startswith("event: ")
+    ]
+
+
+class _ProgressEvent:
+    def __init__(
+        self,
+        *,
+        event_id: str,
+        request_id: int,
+        sequence: int,
+        kind: str,
+        stage: str,
+        status: str,
+    ) -> None:
+        self.event_id = event_id
+        self.request_id = request_id
+        self.sequence = sequence
+        self.kind = kind
+        self.stage = stage
+        self.status = status
+        self.message = f"{kind}-{sequence}"
+        self.progress = float(sequence) / 10
+        self.payload = {"sequence": sequence}
+        self.correlation_id = "cid"
+        self.created_at = "2026-05-21T00:00:00Z"
+
+    def as_sse_payload(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "request_id": self.request_id,
+            "sequence": self.sequence,
+            "kind": self.kind,
+            "stage": self.stage,
+            "status": self.status,
+            "message": self.message,
+            "progress": self.progress,
+            "payload": self.payload,
+            "created_at": self.created_at,
+            "correlation_id": self.correlation_id,
+        }
+
+
+class _ProgressRepo:
+    def __init__(self, events: list[_ProgressEvent]) -> None:
+        self.events = events
+
+    async def list_after_sequence(
+        self,
+        *,
+        request_id: int,
+        sequence: int,
+        limit: int = 100,
+    ) -> list[_ProgressEvent]:
+        del limit
+        return [
+            event
+            for event in self.events
+            if event.request_id == request_id and event.sequence > sequence
+        ]
+
+    async def sequence_for_event_id(self, *, request_id: int, event_id: str) -> int | None:
+        for event in self.events:
+            if event.request_id == request_id and event.event_id == event_id:
+                return event.sequence
+        return None
+
+
+def _durable_events(request_id: int) -> list[_ProgressEvent]:
+    return [
+        _ProgressEvent(
+            event_id=f"evt-{request_id}-1",
+            request_id=request_id,
+            sequence=1,
+            kind="stage",
+            stage="queued",
+            status="pending",
+        ),
+        _ProgressEvent(
+            event_id=f"evt-{request_id}-2",
+            request_id=request_id,
+            sequence=2,
+            kind="stage",
+            stage="summarizing",
+            status="running",
+        ),
+        _ProgressEvent(
+            event_id=f"evt-{request_id}-3",
+            request_id=request_id,
+            sequence=3,
+            kind="done",
+            stage="done",
+            status="succeeded",
+        ),
     ]
 
 
@@ -266,6 +367,99 @@ def test_stream_delivers_events_in_order(monkeypatch: pytest.MonkeyPatch) -> Non
 
     # Order must be preserved.
     assert event_types.index("stage") < event_types.index("section") < event_types.index("done")
+
+
+def test_stream_replays_durable_events_after_last_event_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routers.auth.tokens import create_access_token
+
+    request_id = 44444
+    events = _durable_events(request_id)
+    client = _build_app_and_client(monkeypatch, progress_repo=_ProgressRepo(events))
+    token = create_access_token(_OWNER_ID, client_id="test")
+
+    raw_lines: list[str] = []
+    with client.stream(
+        "GET",
+        f"/v1/requests/{request_id}/stream",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Last-Event-ID": events[0].event_id,
+        },
+    ) as response:
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            raw_lines.append(line)
+            if line == "event: done":
+                response.close()
+                break
+
+    assert f"id: {events[0].event_id}" not in raw_lines
+    assert f"id: {events[1].event_id}" in raw_lines
+    assert f"id: {events[2].event_id}" in raw_lines
+
+
+def test_stream_uses_durable_repo_without_shared_stream_hub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routers.auth.tokens import create_access_token
+
+    request_id = 55555
+    client = _build_app_and_client(
+        monkeypatch,
+        progress_repo=_ProgressRepo(_durable_events(request_id)),
+    )
+    token = create_access_token(_OWNER_ID, client_id="test")
+
+    raw_lines: list[str] = []
+    with client.stream(
+        "GET",
+        f"/v1/requests/{request_id}/stream",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as response:
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            raw_lines.append(line)
+            if line == "event: done":
+                response.close()
+                break
+
+    assert _parse_event_types(raw_lines) == ["stage", "stage", "done"]
+
+
+def test_stream_replays_terminal_durable_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routers.auth.tokens import create_access_token
+
+    request_id = 66666
+    terminal = _ProgressEvent(
+        event_id=f"evt-{request_id}-9",
+        request_id=request_id,
+        sequence=9,
+        kind="done",
+        stage="done",
+        status="succeeded",
+    )
+    client = _build_app_and_client(monkeypatch, progress_repo=_ProgressRepo([terminal]))
+    token = create_access_token(_OWNER_ID, client_id="test")
+
+    raw_lines: list[str] = []
+    with client.stream(
+        "GET",
+        f"/v1/requests/{request_id}/stream?since_sequence=8",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as response:
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            raw_lines.append(line)
+            if line == "event: done":
+                response.close()
+                break
+
+    assert raw_lines.count("event: done") == 1
+    assert f"id: {terminal.event_id}" in raw_lines
 
 
 def test_disconnect_mid_stream_does_not_raise(

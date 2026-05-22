@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -150,8 +151,22 @@ async def test_di_builder_creates_processor_with_semaphore(monkeypatch):
         return redis_client
 
     monkeypatch.setattr("app.infrastructure.redis.get_redis", fake_get_redis)
+    monkeypatch.setattr(
+        "app.di.api.build_search_dependencies",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            local_searcher=None,
+            topic_searcher=None,
+            embedding_service=None,
+            embedding_generator=None,
+            vector_store=None,
+            vector_search_service=None,
+            hybrid_search_service=None,
+            query_expansion_service=None,
+        ),
+    )
 
-    processor = await build_background_processor()
+    fake_db = MagicMock()
+    processor = await build_background_processor(db=fake_db)
     assert processor is not None
     # Semaphore capacity respects runtime max_concurrent_calls default (4)
     assert isinstance(processor._sem, asyncio.Semaphore)

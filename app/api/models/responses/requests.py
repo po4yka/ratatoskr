@@ -31,6 +31,20 @@ class RequestStatusData(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
+class ProgressEventData(BaseModel):
+    event_id: str = Field(serialization_alias="eventId")
+    request_id: int = Field(serialization_alias="requestId")
+    sequence: int
+    kind: str
+    stage: str | None = None
+    status: str | None = None
+    message: str | None = None
+    progress: float | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: str = Field(serialization_alias="createdAt")
+    correlation_id: str | None = Field(default=None, serialization_alias="correlationId")
+
+
 class SubmitRequestResponse(BaseModel):
     request_id: int = Field(serialization_alias="requestId")
     correlation_id: str = Field(serialization_alias="correlationId")

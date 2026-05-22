@@ -6,7 +6,15 @@ import asyncio
 from typing import TYPE_CHECKING, Any, cast
 
 import orjson
-from fastapi import APIRouter, Depends, HTTPException, Request as FastAPIRequest, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request as FastAPIRequest,
+    status,
+)
 from loguru import logger
 from sse_starlette.sse import EventSourceResponse
 
@@ -52,12 +60,25 @@ def _get_request_service(request: FastAPIRequest) -> RequestService:
     )
 
 
+def _get_progress_event_repository(request: FastAPIRequest) -> Any | None:
+    import contextlib
+
+    with contextlib.suppress(RuntimeError):
+        from app.di.api import resolve_api_runtime
+
+        return resolve_api_runtime(request).progress_event_repository
+    return None
+
+
 @router.get("/{request_id}/stream")
 async def stream_request(
     request_id: int,
     fastapi_request: FastAPIRequest,
+    since_sequence: int = Query(default=0, ge=0),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     user: dict[str, Any] = Depends(get_current_user),
     request_service: RequestService = Depends(_get_request_service),
+    progress_event_repo: Any | None = Depends(_get_progress_event_repository),
 ) -> EventSourceResponse:
     """Stream processing events for a specific request via SSE.
 
@@ -95,6 +116,41 @@ async def stream_request(
 
     del details  # ownership confirmed; we don't need the full details object
 
+    if progress_event_repo is None:
+        return _stream_from_local_hub(request_id)
+
+    async def event_generator() -> AsyncIterator[dict[str, Any]]:
+        sequence = since_sequence
+        if last_event_id:
+            stored_sequence = await progress_event_repo.sequence_for_event_id(
+                request_id=request_id,
+                event_id=last_event_id,
+            )
+            if stored_sequence is not None:
+                sequence = max(sequence, stored_sequence)
+        try:
+            while True:
+                events = await progress_event_repo.list_after_sequence(
+                    request_id=request_id,
+                    sequence=sequence,
+                    limit=100,
+                )
+                for event in events:
+                    sequence = event.sequence
+                    yield _to_sse_event(event)
+                    if event.kind in ("done", "error"):
+                        return
+                if await fastapi_request.is_disconnected():
+                    return
+                await asyncio.sleep(0.5)
+        except (asyncio.CancelledError, GeneratorExit):
+            # Client disconnect: stop iterating; the underlying summarization continues.
+            return
+
+    return _event_source_response(event_generator())
+
+
+def _stream_from_local_hub(request_id: int) -> EventSourceResponse:
     hub = get_stream_hub()
 
     async def event_generator() -> AsyncIterator[dict[str, Any]]:
@@ -115,11 +171,23 @@ async def stream_request(
                 if event.kind in ("done", "error"):
                     return
         except (asyncio.CancelledError, GeneratorExit):
-            # Client disconnect: stop iterating; the underlying summarization continues.
             return
 
+    return _event_source_response(event_generator())
+
+
+def _to_sse_event(event: Any) -> dict[str, Any]:
+    payload = event.as_sse_payload()
+    return {
+        "id": event.event_id,
+        "event": event.kind,
+        "data": orjson.dumps(payload).decode(),
+    }
+
+
+def _event_source_response(event_generator: AsyncIterator[dict[str, Any]]) -> EventSourceResponse:
     return EventSourceResponse(
-        event_generator(),
+        event_generator,
         ping=HEARTBEAT_INTERVAL,
         headers={
             "Cache-Control": "no-cache",

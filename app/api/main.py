@@ -82,6 +82,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     runtime = None
     broker = None
     coco_runtime = None
+    durable_worker = None
     try:
         from app.config import load_config as _load_config
         from app.observability.otel import init_tracing
@@ -144,6 +145,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         logger.info("database_initialized", extra={"database": "postgresql"})
 
+        await runtime.durable_request_queue.reconcile_startup()
+        if runtime.cfg.background.durable_worker_enabled:
+            durable_worker = await runtime.durable_request_queue.start()
+            logger.info("durable_request_processing_worker_started")
+
         # Connect the taskiq broker in producer mode so API endpoints can
         # enqueue tasks via .kiq() in future features.
         try:
@@ -175,6 +181,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     finally:
         if coco_runtime is not None:
             await coco_runtime.stop(timeout=10.0)
+        if durable_worker is not None:
+            await runtime.durable_request_queue.stop()
         if broker is not None and not broker.is_worker_process:
             await broker.shutdown()
         await close_redis()

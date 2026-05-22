@@ -37,10 +37,13 @@ logger = get_logger(__name__)
 
 _PUBLIC_STATUS_BY_LEGACY: dict[str, str] = {
     "pending": "pending",
+    "queued": "pending",
+    "running": "running",
     "processing": "running",
     "crawling": "running",
     "summarizing": "running",
     "success": "succeeded",
+    "succeeded": "succeeded",
     "complete": "succeeded",
     "completed": "succeeded",
     "ok": "succeeded",
@@ -87,12 +90,14 @@ class RequestService:
         summary_repository: SummaryRepositoryPort,
         crawl_result_repository: CrawlResultRepositoryPort,
         llm_repository: LLMRepositoryPort,
+        progress_event_repository: Any | None = None,
     ) -> None:
         self._db = db
         self._request_repo = request_repository
         self._summary_repo = summary_repository
         self._crawl_repo = crawl_result_repository
         self._llm_repo = llm_repository
+        self._progress_event_repo = progress_event_repository
 
     async def check_duplicate_url(
         self,
@@ -227,8 +232,37 @@ class RequestService:
         queue_position: int | None = None
         error_details: RequestErrorDetailsDTO | None = None
         can_retry = False
+        effective_status = legacy_status
+        latest_progress = (
+            await self._progress_event_repo.get_latest(request_id)
+            if self._progress_event_repo is not None
+            else None
+        )
 
-        if legacy_status == "processing":
+        if latest_progress is not None:
+            stage = latest_progress.stage or "queued"
+            if latest_progress.status:
+                effective_status = latest_progress.status
+            if latest_progress.progress is not None:
+                progress = {
+                    "percentage": round(latest_progress.progress * 100),
+                    "value": latest_progress.progress,
+                }
+            if latest_progress.status in {"failed", "cancelled"} or latest_progress.kind == "error":
+                error_details = RequestErrorDetailsDTO(
+                    stage=latest_progress.stage,
+                    error_type=(latest_progress.payload or {}).get("error")
+                    or (latest_progress.payload or {}).get("error_code"),
+                    error_message=latest_progress.message or "Request failed",
+                    error_reason_code=(latest_progress.payload or {}).get("error_code"),
+                    retryable=True,
+                    debug={
+                        "event_id": latest_progress.event_id,
+                        "sequence": latest_progress.sequence,
+                    },
+                )
+                can_retry = True
+        elif legacy_status == "processing":
             crawl_result = (
                 context.get("crawl_result")
                 if context
@@ -295,11 +329,13 @@ class RequestService:
 
         return RequestStatusDTO(
             request_id=request_id,
-            status=_public_request_status(legacy_status),
+            status=_public_request_status(effective_status),
             legacy_status=legacy_status or None,
             stage=_public_processing_stage(stage),
             progress=progress,
-            estimated_seconds_remaining=8 if stage in {"extracting", "summarizing", "persisting"} else None,
+            estimated_seconds_remaining=8
+            if stage in {"extracting", "summarizing", "persisting"}
+            else None,
             queue_position=queue_position,
             error_details=error_details,
             can_retry=can_retry,

@@ -73,6 +73,7 @@ class BackgroundRequestExecutor:
                     "DONE",
                     "Already summarized",
                     1.0,
+                    correlation_id=request.get("correlation_id") or correlation_id,
                 )
                 return
 
@@ -84,6 +85,7 @@ class BackgroundRequestExecutor:
                 "QUEUED",
                 "Processing started",
                 0.0,
+                correlation_id=cid,
             )
 
             self._logger.info(
@@ -124,6 +126,7 @@ class BackgroundRequestExecutor:
                 "DONE",
                 "Processing completed",
                 1.0,
+                correlation_id=cid,
             )
             self._logger.info(
                 "bg_processing_success",

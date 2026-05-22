@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.api.background.progress_events import ProgressEventRecord
 from app.application.services.request_service import RequestService
 from app.core.time_utils import UTC
 from app.db.models import CrawlResult, LLMCall, Request, Summary
@@ -27,6 +28,11 @@ class _OptimizedRequestRepository:
 
     async def async_get_request_context(self, request_id: int) -> dict[str, object] | None:
         return await self.get_request_context_mock(request_id)
+
+
+class _ProgressEventRepository:
+    def __init__(self, event: ProgressEventRecord | None) -> None:
+        self.get_latest = AsyncMock(return_value=event)
 
 
 def _create_request(
@@ -302,6 +308,54 @@ async def test_get_request_by_id_prefers_joined_repository_path() -> None:
     request_repo.get_request_context_mock.assert_awaited_once_with(99)
     request_repo.async_get_request_by_id.assert_not_called()
     llm_repo.async_get_llm_calls_by_request.assert_awaited_once_with(99)
+
+
+@pytest.mark.asyncio
+async def test_get_request_status_uses_durable_progress_projection() -> None:
+    request_repo = _OptimizedRequestRepository(
+        {
+            "request": {
+                "id": 101,
+                "user_id": 5002,
+                "status": "pending",
+                "type": "url",
+                "correlation_id": "cid-progress",
+            },
+            "crawl_result": None,
+            "summary": None,
+        }
+    )
+    progress_repo = _ProgressEventRepository(
+        ProgressEventRecord(
+            event_id="event-101-2",
+            request_id=101,
+            sequence=2,
+            kind="stage",
+            stage="summarizing",
+            status="running",
+            message="Summarizing content...",
+            progress=0.5,
+            payload={"step": "summary"},
+            created_at=datetime.now(UTC),
+            correlation_id="cid-progress",
+        )
+    )
+
+    service = RequestService(
+        db=None,
+        request_repository=cast("RequestRepositoryPort", request_repo),
+        summary_repository=AsyncMock(),
+        crawl_result_repository=AsyncMock(),
+        llm_repository=AsyncMock(),
+        progress_event_repository=progress_repo,
+    )
+
+    status = await service.get_request_status(user_id=5002, request_id=101)
+
+    assert status.status == "running"
+    assert status.stage == "summarizing"
+    assert status.progress == {"percentage": 50, "value": 0.5}
+    progress_repo.get_latest.assert_awaited_once_with(101)
 
 
 @pytest.mark.asyncio

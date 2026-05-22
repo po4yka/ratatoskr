@@ -4,6 +4,11 @@ import asyncio
 from typing import TYPE_CHECKING, Any, cast
 
 from app.api.background_processor import BackgroundProcessor
+from app.api.background import (
+    DurableRequestProcessingQueue,
+    ProgressEventRepository,
+    RequestProcessingJobRepository,
+)
 from app.api.services.sync import (
     FallbackSyncSessionStore,
     InMemorySyncSessionStore,
@@ -132,6 +137,7 @@ async def build_api_runtime(
     summary_repository = build_summary_repository(database)
     crawl_result_repository = build_crawl_result_repository(database)
     llm_repository = build_llm_repository(database)
+    progress_event_repository = ProgressEventRepository(database)
     background_processor = BackgroundProcessor(
         cfg=app_cfg,
         db=database,
@@ -145,6 +151,16 @@ async def build_api_runtime(
         summary_repo=summary_repository,
         request_repo_factory=build_request_repository,
         summary_repo_factory=build_summary_repository,
+        progress_event_repo=progress_event_repository,
+    )
+    durable_request_queue = DurableRequestProcessingQueue(
+        repository=RequestProcessingJobRepository(database),
+        processor=background_processor,
+        max_attempts=app_cfg.background.retry_attempts,
+        lease_ttl_seconds=app_cfg.background.durable_lease_ttl_seconds,
+        retry_delay_seconds=app_cfg.background.durable_retry_delay_seconds,
+        poll_interval_seconds=app_cfg.background.durable_poll_interval_ms / 1000,
+        stale_processing_seconds=app_cfg.background.stuck_processing_seconds,
     )
     summary_read_model_use_case = SummaryReadModelUseCase(
         summary_repository=summary_repository,
@@ -163,6 +179,7 @@ async def build_api_runtime(
         summary_repository=summary_repository,
         crawl_result_repository=crawl_result_repository,
         llm_repository=llm_repository,
+        progress_event_repository=progress_event_repository,
     )
     sync_serializer = SyncEnvelopeSerializer()
     sync_aux_reads = SyncAuxReadAdapter(database)
@@ -219,6 +236,8 @@ async def build_api_runtime(
         core=core,
         search=search,
         background_processor=background_processor,
+        durable_request_queue=durable_request_queue,
+        progress_event_repository=progress_event_repository,
         summary_read_model_use_case=summary_read_model_use_case,
         search_read_model_use_case=search_read_model_use_case,
         request_service=request_service,

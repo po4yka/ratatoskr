@@ -353,6 +353,73 @@ class Request(Base):
     batch_item: Mapped[Any | None] = relationship(
         "BatchSessionItem", back_populates="request", cascade="all, delete-orphan"
     )
+    processing_job: Mapped[RequestProcessingJob | None] = relationship(
+        back_populates="request", cascade="all, delete-orphan"
+    )
+    progress_events: Mapped[list[ProgressEvent]] = relationship(
+        back_populates="request", cascade="all, delete-orphan"
+    )
+
+
+class RequestProcessingJob(Base):
+    __tablename__ = "request_processing_jobs"
+    __table_args__ = (
+        Index("ix_request_processing_jobs_status_retry", "status", "retry_after"),
+        Index("ix_request_processing_jobs_lease_expires_at", "lease_expires_at"),
+        Index("ix_request_processing_jobs_updated_at", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("requests.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, default="queued", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lease_expires_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    retry_after: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    request: Mapped[Request] = relationship(back_populates="processing_job")
+
+
+class ProgressEvent(Base):
+    __tablename__ = "progress_events"
+    __table_args__ = (
+        UniqueConstraint("request_id", "sequence", name="uq_progress_events_request_sequence"),
+        Index("ix_progress_events_request_sequence", "request_id", "sequence"),
+        Index("ix_progress_events_event_id", "event_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    request_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("requests.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    stage: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    payload: Mapped[JSONValue] = _json_column()
+    correlation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    request: Mapped[Request] = relationship(back_populates="progress_events")
 
 
 class TelegramMessage(Base):
@@ -813,6 +880,8 @@ CORE_MODELS: tuple[type[Base], ...] = (
     UserCredential,
     Chat,
     Request,
+    RequestProcessingJob,
+    ProgressEvent,
     TelegramMessage,
     CrawlResult,
     LLMCall,
@@ -837,8 +906,10 @@ __all__ = [
     "CrawlResult",
     "LLMAttemptTrigger",
     "LLMCall",
+    "ProgressEvent",
     "RefreshToken",
     "Request",
+    "RequestProcessingJob",
     "Summary",
     "SummaryEmbedding",
     "TelegramMessage",
