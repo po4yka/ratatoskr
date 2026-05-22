@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 from app.api.models.responses.common import ProcessingStage, ProgressEventKind
 
-
 StreamEventKind = ProgressEventKind
 
 

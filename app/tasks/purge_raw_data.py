@@ -17,8 +17,8 @@ from typing import Any
 from sqlalchemy import select, update
 from taskiq import TaskiqDepends
 
-from app.config import AppConfig  # noqa: TC001 — taskiq resolves at runtime
 from app.adapters.external.formatting.export_temp_files import cleanup_stale_export_files
+from app.config import AppConfig  # noqa: TC001 — taskiq resolves at runtime
 from app.core.logging_utils import get_logger
 from app.db.models import (
     CrawlResult,

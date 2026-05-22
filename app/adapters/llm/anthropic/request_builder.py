@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.adapters.llm.message_sanitizer import sanitize_messages_for_logging
-from app.core.logging_utils import redact_headers_for_logging
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_headers_for_logging
 
 logger = get_logger(__name__)
 

@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, cast
 
-from app.api.background_processor import BackgroundProcessor
 from app.api.background import (
     DurableRequestProcessingQueue,
     ProgressEventRepository,
     RequestProcessingJobRepository,
 )
+from app.api.background_processor import BackgroundProcessor
 from app.api.services.sync import (
     FallbackSyncSessionStore,
     InMemorySyncSessionStore,

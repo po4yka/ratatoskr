@@ -8,19 +8,19 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, cast
 
+from app.adapters.llm.usage_budget import LLMUsageSnapshot, evaluate_aggregate_budget
 from app.api.dependencies.database import get_session_manager
 from app.api.models.responses.diagnostics import (
     DiagnosticsComponent,
-    HealthStatus,
     DiagnosticsProviderStatus,
     DiagnosticsQueueBacklog,
     DiagnosticsResponse,
     DiagnosticsStorageGrowth,
     DiagnosticsSyncFailure,
     DiagnosticsVectorIndexLag,
+    HealthStatus,
 )
 from app.api.services.system_maintenance_service import SystemMaintenanceService
-from app.adapters.llm.usage_budget import LLMUsageSnapshot, evaluate_aggregate_budget
 from app.core.time_utils import UTC
 from app.db.session import Database  # noqa: TC001  # used at runtime in __init__ signature
 from app.infrastructure.embedding.embedding_service import DEFAULT_MODELS

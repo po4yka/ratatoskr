@@ -318,8 +318,8 @@ def test_stream_delivers_events_in_order(monkeypatch: pytest.MonkeyPatch) -> Non
     """
     from app.adapters.content.streaming.events import (
         DonePayload,
-        StagePayload,
         SectionPayload,
+        StagePayload,
         StreamEvent,
     )
     from app.api.routers.auth.tokens import create_access_token

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from app.application.ports.source_ingestors import IngestedSource
-
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:

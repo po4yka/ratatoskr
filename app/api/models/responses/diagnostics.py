@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from app.api.models.responses.common import MetaInfo
 
-
 HealthStatus = Literal["healthy", "degraded", "unhealthy", "disabled", "unavailable", "unknown"]
 
 

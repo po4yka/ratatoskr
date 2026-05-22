@@ -20,7 +20,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api.models.responses.common import API_CONTRACT_VERSION
 from app.api.error_handlers import (
     api_exception_handler,
     database_exception_handler,
@@ -34,6 +33,7 @@ from app.api.middleware import (
     webapp_auth_middleware,
 )
 from app.api.models.responses import success_response
+from app.api.models.responses.common import API_CONTRACT_VERSION
 from app.api.routers import (
     admin,
     aggregation,

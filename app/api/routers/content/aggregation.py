@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from app.api.aggregation_provenance import build_source_bundle as _build_source_bundle
 from app.api.dependencies.database import get_session_manager
 from app.api.exceptions import (
     AuthorizationError,
@@ -23,7 +24,6 @@ from app.api.models.responses import (
     success_response,
 )
 from app.api.models.responses.common import PaginationInfo
-from app.api.aggregation_provenance import build_source_bundle as _build_source_bundle
 from app.api.routers.auth import get_current_user
 from app.api.routers.auth.tokens import resolve_client_type
 from app.application.dto.aggregation import SourceSubmission

@@ -9,8 +9,7 @@ from hashlib import sha256
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel as _BulkBaseModel
-from pydantic import Field
+from pydantic import BaseModel as _BulkBaseModel, Field
 
 from app.api.aggregation_provenance import build_source_bundle
 from app.api.dependencies.database import get_summary_read_model_use_case
@@ -21,6 +20,7 @@ from app.api.models.requests import (
     UpdateSummaryRequest,
 )
 from app.api.models.responses import (
+    AggregationSourceBundle,
     DeleteSummaryResponse,
     FeedbackResponse,
     PaginationInfo,
@@ -33,7 +33,6 @@ from app.api.models.responses import (
     SummaryDetailRequest,
     SummaryDetailSource,
     SummaryDetailSummary,
-    AggregationSourceBundle,
     SummaryListResponse,
     SummaryListStats,
     ToggleFavoriteResponse,

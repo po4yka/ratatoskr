@@ -252,8 +252,8 @@ class LLMWorkflowExecutionMixin:
         return fixed_timeout, "fixed"
 
     async def _invoke_llm(self, request: Any, req_id: int, on_retry: Any | None = None) -> Any:
-        from app.adapters.content.llm_response_workflow import ConcurrencyTimeoutError
         from app.adapter_models.llm.llm_models import LLMCallResult
+        from app.adapters.content.llm_response_workflow import ConcurrencyTimeoutError
         from app.adapters.llm.usage_budget import (
             LLMUsageSnapshot,
             day_start,

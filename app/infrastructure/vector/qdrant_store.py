@@ -22,11 +22,11 @@ from qdrant_client.models import (
 )
 
 from app.core.logging_utils import get_logger
-from app.observability.metrics import record_vector_write
 from app.infrastructure.vector.point_ids import str_to_uuid as _str_to_uuid
 from app.infrastructure.vector.protocol import VectorStoreError
 from app.infrastructure.vector.qdrant_schemas import QdrantQueryFilters
 from app.infrastructure.vector.result_types import VectorQueryHit, VectorQueryResult
+from app.observability.metrics import record_vector_write
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

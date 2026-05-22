@@ -119,6 +119,13 @@ def _set_json_response(
 
 def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
     """Add contract metadata FastAPI cannot infer from raw-dict handlers yet."""
+    from app.adapters.content.streaming.events import (
+        DonePayload,
+        ErrorPayload,
+        SectionPayload,
+        StagePayload,
+        WarningPayload,
+    )
     from app.api.exceptions import ErrorCode, ErrorType
     from app.api.models.responses.auth import UserInfo
     from app.api.models.responses.collections import CollectionItem, CollectionResponse
@@ -130,19 +137,12 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         SubmitRequestData,
     )
     from app.api.models.responses.summaries import (
-        SummaryContent,
         SummaryCompact,
+        SummaryContent,
         SummaryDetail,
         SummaryListResponse,
     )
     from app.api.models.responses.user import UserStatsData
-    from app.adapters.content.streaming.events import (
-        DonePayload,
-        ErrorPayload,
-        SectionPayload,
-        StagePayload,
-        WarningPayload,
-    )
 
     components = spec.setdefault("components", {})
     schemas = components.setdefault("schemas", {})

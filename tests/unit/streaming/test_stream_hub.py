@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from app.adapters.content.streaming.events import (
     DonePayload,
-    StagePayload,
     SectionPayload,
+    StagePayload,
     StreamEvent,
 )
 from app.adapters.content.streaming.stream_hub import _QUEUE_MAXSIZE, StreamHub

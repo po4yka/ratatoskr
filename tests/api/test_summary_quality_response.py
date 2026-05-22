@@ -3,9 +3,12 @@ from typing import Any
 
 import pytest
 
-from app.api.routers.content.summaries import get_summaries, get_summary
-from app.api.routers.content.summaries import _build_summary_compact
-from app.api.routers.content.summaries import _safe_summary_quality
+from app.api.routers.content.summaries import (
+    _build_summary_compact,
+    _safe_summary_quality,
+    get_summaries,
+    get_summary,
+)
 from app.core.time_utils import UTC
 
 

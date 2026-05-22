@@ -6,7 +6,6 @@ import os
 import unittest.mock
 
 import pytest
-
 from cryptography.fernet import Fernet
 
 from app.config.github import GitHubConfig

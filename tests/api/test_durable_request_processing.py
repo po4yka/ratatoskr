@@ -7,12 +7,12 @@ from typing import Any
 import pytest
 from starlette.requests import Request
 
-from app.api.background.progress import BackgroundProgressPublisher
 from app.api.background.durable_jobs import (
     DurableRequestProcessingQueue,
     LeasedRequestJob,
     RequestProcessingJobRepository,
 )
+from app.api.background.progress import BackgroundProgressPublisher
 from app.api.background.progress_events import ProgressEventRecord
 from app.api.background_tasks import process_url_request
 from app.api.models.requests import SubmitURLRequest
