@@ -22,6 +22,7 @@ from app.application.ports.social_connections import (
     SUPPORTED_SOCIAL_PROVIDERS,
     SocialAuthStateCreate,
     SocialConnectionRepositoryPort,
+    SocialConnectionUpdate,
     SocialConnectionUpsert,
 )
 from app.core.time_utils import UTC
@@ -68,6 +69,8 @@ class SocialAuthConfig:
     """Runtime knobs for social OAuth state creation."""
 
     state_ttl_seconds: int = 600
+    provider_default_scopes: Mapping[str, list[str]] | None = None
+    provider_redirect_uris: Mapping[str, str | None] | None = None
 
 
 class StubSocialOAuthClient:
@@ -113,6 +116,21 @@ class StubSocialOAuthClient:
             status_code=501,
         )
 
+    async def refresh_access_token(
+        self,
+        *,
+        provider: str,
+        refresh_token: str,
+        scopes: list[str],
+        correlation_id: str | None,
+    ) -> OAuthTokenResult:
+        del provider, refresh_token, scopes, correlation_id
+        raise SocialAuthError(
+            "Social OAuth refresh client is not configured",
+            code="SOCIAL_OAUTH_CLIENT_NOT_CONFIGURED",
+            status_code=501,
+        )
+
 
 def build_stub_social_oauth_clients() -> dict[str, SocialOAuthClientProtocol]:
     """Return provider-specific stub clients for every supported provider."""
@@ -135,6 +153,11 @@ class SocialAuthService:
         self._repository = repository
         self._oauth_clients = dict(oauth_clients or build_stub_social_oauth_clients())
         self._config = config or SocialAuthConfig()
+        self._default_scopes = {
+            **DEFAULT_SOCIAL_SCOPES,
+            **(self._config.provider_default_scopes or {}),
+        }
+        self._default_redirect_uris = dict(self._config.provider_redirect_uris or {})
 
     async def list_connections(self, user_id: int) -> SocialConnectionListDTO:
         rows = {record.provider: record for record in await self._repository.list_by_user(user_id)}
@@ -150,11 +173,19 @@ class SocialAuthService:
         *,
         user_id: int,
         provider: str,
-        redirect_uri: str,
+        redirect_uri: str | None,
         scopes: list[str] | None = None,
     ) -> SocialConnectUrlDTO:
         provider = _validate_provider(provider)
-        requested_scopes = _normalize_scopes(scopes or DEFAULT_SOCIAL_SCOPES[provider])
+        redirect_uri = redirect_uri or self._default_redirect_uris.get(provider)
+        if not redirect_uri:
+            raise SocialAuthError(
+                "Social OAuth redirect URI is required",
+                code="SOCIAL_REDIRECT_URI_REQUIRED",
+                status_code=422,
+                details={"provider": provider},
+            )
+        requested_scopes = _normalize_scopes(scopes or self._default_scopes[provider])
         state = secrets.token_urlsafe(32)
         code_verifier = secrets.token_urlsafe(64)
         code_challenge = _pkce_challenge(code_verifier)
@@ -276,6 +307,71 @@ class SocialAuthService:
                 metadata_json=token_result.metadata_json,
             )
         )
+        return SocialCallbackDTO(connection=connection_record_to_dto(provider, connection))
+
+    async def refresh_connection(
+        self,
+        *,
+        user_id: int,
+        provider: str,
+        correlation_id: str | None = None,
+    ) -> SocialCallbackDTO:
+        provider = _validate_provider(provider)
+        record = await self._repository.get_by_user_and_provider(user_id, provider)
+        if record is None:
+            raise SocialAuthError(
+                "Social connection was not found",
+                code="SOCIAL_CONNECTION_NOT_FOUND",
+                status_code=404,
+            )
+        if record.encrypted_refresh_token is None:
+            await self._repository.update_connection(
+                user_id,
+                provider,
+                SocialConnectionUpdate(status="needs_reauth"),
+            )
+            raise SocialAuthError(
+                "Social connection does not have a refresh token",
+                code="SOCIAL_REFRESH_TOKEN_MISSING",
+                status_code=409,
+            )
+
+        try:
+            token_result = await self._oauth_client(provider).refresh_access_token(
+                provider=provider,
+                refresh_token=decrypt_secret(record.encrypted_refresh_token),
+                scopes=record.token_scopes or [],
+                correlation_id=correlation_id,
+            )
+        except SocialAuthError:
+            await self._repository.update_connection(
+                user_id,
+                provider,
+                SocialConnectionUpdate(status="needs_reauth"),
+            )
+            raise
+
+        connection = await self._repository.update_connection(
+            user_id,
+            provider,
+            SocialConnectionUpdate(
+                encrypted_access_token=encrypt_secret(token_result.access_token),
+                encrypted_refresh_token=encrypt_secret(token_result.refresh_token)
+                if token_result.refresh_token
+                else None,
+                token_scopes=token_result.scopes or record.token_scopes,
+                access_token_expires_at=_parse_datetime(token_result.access_token_expires_at),
+                refresh_token_expires_at=_parse_datetime(token_result.refresh_token_expires_at),
+                status="active",
+                metadata_json={**(record.metadata_json or {}), **(token_result.metadata_json or {})},
+            ),
+        )
+        if connection is None:
+            raise SocialAuthError(
+                "Social connection was not found",
+                code="SOCIAL_CONNECTION_NOT_FOUND",
+                status_code=404,
+            )
         return SocialCallbackDTO(connection=connection_record_to_dto(provider, connection))
 
     async def disconnect(self, *, user_id: int, provider: str) -> SocialDisconnectDTO:

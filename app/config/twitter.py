@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
 _SCRAPER_PROFILES = {"fast", "balanced", "robust", "inherit"}
 _FORCE_TIERS = {"auto", "firecrawl", "playwright"}
+_DEFAULT_X_OAUTH_SCOPES = ("tweet.read", "users.read", "offline.access")
 
 
 class TwitterConfig(BaseModel):
@@ -86,6 +87,31 @@ class TwitterConfig(BaseModel):
         validation_alias="TWITTER_ARTICLE_LIVE_SMOKE_ENABLED",
         description="Enable optional live smoke checks for X Article extraction",
     )
+    x_oauth_client_id: str | None = Field(
+        default=None,
+        validation_alias="X_OAUTH_CLIENT_ID",
+        description="X OAuth 2.0 client ID for Authorization Code with PKCE",
+    )
+    x_oauth_client_secret: SecretStr | None = Field(
+        default=None,
+        validation_alias="X_OAUTH_CLIENT_SECRET",
+        description="Optional X OAuth 2.0 client secret for confidential clients",
+    )
+    x_oauth_redirect_uri: str | None = Field(
+        default=None,
+        validation_alias="X_OAUTH_REDIRECT_URI",
+        description="Configured X OAuth callback URI",
+    )
+    x_oauth_scopes: list[str] = Field(
+        default_factory=lambda: list(_DEFAULT_X_OAUTH_SCOPES),
+        validation_alias="X_OAUTH_SCOPES",
+        description="Read-only X OAuth scopes",
+    )
+    x_api_base_url: str = Field(
+        default="https://api.x.com/2",
+        validation_alias="X_API_BASE_URL",
+        description="X API v2 base URL",
+    )
 
     @field_validator("force_tier", mode="before")
     @classmethod
@@ -151,6 +177,44 @@ class TwitterConfig(BaseModel):
             msg = "article_resolution_timeout_sec must be 120 seconds or less"
             raise ValueError(msg)
         return timeout
+
+    @field_validator("x_oauth_scopes", mode="before")
+    @classmethod
+    def _parse_x_oauth_scopes(cls, value: Any) -> list[str]:
+        if value in (None, ""):
+            return list(_DEFAULT_X_OAUTH_SCOPES)
+        if isinstance(value, str):
+            raw_scopes = value.replace(",", " ").split()
+        elif isinstance(value, list):
+            raw_scopes = [str(item) for item in value]
+        else:
+            msg = "X_OAUTH_SCOPES must be a comma- or space-separated scope list"
+            raise ValueError(msg)
+
+        scopes: list[str] = []
+        for raw_scope in raw_scopes:
+            scope = raw_scope.strip()
+            if scope and scope not in scopes:
+                scopes.append(scope)
+        return scopes or list(_DEFAULT_X_OAUTH_SCOPES)
+
+    @field_validator("x_oauth_scopes")
+    @classmethod
+    def _validate_x_oauth_scopes(cls, value: list[str]) -> list[str]:
+        write_scopes = sorted(scope for scope in value if scope.endswith(".write"))
+        if write_scopes:
+            msg = f"X_OAUTH_SCOPES must not include write scopes: {', '.join(write_scopes)}"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("x_api_base_url", mode="before")
+    @classmethod
+    def _normalize_x_api_base_url(cls, value: Any) -> str:
+        base_url = str(value or "https://api.x.com/2").strip().rstrip("/")
+        if not base_url:
+            msg = "X_API_BASE_URL must not be empty"
+            raise ValueError(msg)
+        return base_url
 
     @model_validator(mode="after")
     def _validate_extraction_tiers(self) -> TwitterConfig:

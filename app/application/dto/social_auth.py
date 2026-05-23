@@ -89,6 +89,16 @@ class SocialOAuthClientProtocol(Protocol):
     ) -> OAuthTokenResult:
         """Exchange an authorization code for provider tokens."""
 
+    async def refresh_access_token(
+        self,
+        *,
+        provider: str,
+        refresh_token: str,
+        scopes: list[str],
+        correlation_id: str | None,
+    ) -> OAuthTokenResult:
+        """Refresh an access token using a provider refresh token."""
+
 
 def connection_record_to_dto(
     provider: str,

@@ -22,11 +22,15 @@ from app.api.models.responses.social import (
     SocialDisconnectSuccessResponse,
 )
 from app.api.routers.auth import get_current_user
+from app.adapters.social.x import XOAuthClient, XOAuthConfig
 from app.application.services.social_auth_service import (
+    DEFAULT_SOCIAL_SCOPES,
+    SocialAuthConfig,
     SocialAuthError,
     SocialAuthService,
     build_stub_social_oauth_clients,
 )
+from app.config import load_config
 
 router = APIRouter(prefix="/v1/social", tags=["social-auth"])
 
@@ -34,16 +38,40 @@ router = APIRouter(prefix="/v1/social", tags=["social-auth"])
 def get_social_oauth_clients() -> Any:
     """Resolve provider-specific OAuth clients.
 
-    The default clients are stubs: they can build authorization URLs but do not exchange codes until provider implementations are wired.
+    X is backed by a real OAuth 2.0 PKCE client; providers without concrete implementations still use token-safe stubs.
     """
-    return build_stub_social_oauth_clients()
+    clients = build_stub_social_oauth_clients()
+    twitter_cfg = load_config().twitter
+    clients["x"] = XOAuthClient(
+        XOAuthConfig(
+            client_id=twitter_cfg.x_oauth_client_id,
+            client_secret=twitter_cfg.x_oauth_client_secret.get_secret_value()
+            if twitter_cfg.x_oauth_client_secret is not None
+            else None,
+            redirect_uri=twitter_cfg.x_oauth_redirect_uri,
+            scopes=twitter_cfg.x_oauth_scopes,
+            api_base_url=twitter_cfg.x_api_base_url,
+        )
+    )
+    return clients
 
 
 def _get_social_auth_service(
     repository: Any = Depends(get_social_connection_repository),
     oauth_clients: Any = Depends(get_social_oauth_clients),
 ) -> SocialAuthService:
-    return SocialAuthService(repository=repository, oauth_clients=oauth_clients)
+    twitter_cfg = load_config().twitter
+    return SocialAuthService(
+        repository=repository,
+        oauth_clients=oauth_clients,
+        config=SocialAuthConfig(
+            provider_default_scopes={
+                **DEFAULT_SOCIAL_SCOPES,
+                "x": twitter_cfg.x_oauth_scopes,
+            },
+            provider_redirect_uris={"x": twitter_cfg.x_oauth_redirect_uri},
+        ),
+    )
 
 
 def _correlation_id(request: Request) -> str | None:
@@ -113,7 +141,7 @@ async def list_social_connections(
 async def get_social_connect_url(
     provider: str,
     request: Request,
-    redirect_uri: str = Query(..., alias="redirectUri", min_length=1, max_length=1000),
+    redirect_uri: str | None = Query(default=None, alias="redirectUri", min_length=1, max_length=1000),
     scopes: list[str] | None = Query(default=None),
     user: dict[str, Any] = Depends(get_current_user),
     service: SocialAuthService = Depends(_get_social_auth_service),
