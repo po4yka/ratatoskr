@@ -48,6 +48,13 @@ from .social_connections import (
     SocialFetchAttemptCreate,
 )
 from .summaries import SummaryRepositoryPort, TagRepositoryPort
+from .transcriptions import (
+    TranscriptionArtifactCreate,
+    TranscriptionArtifactRecord,
+    TranscriptionJobCreate,
+    TranscriptionJobRecord,
+    TranscriptionRepositoryPort,
+)
 from .users import UserRepositoryPort
 
 __all__ = [
@@ -85,6 +92,11 @@ __all__ = [
     "TopicSearchRepositoryPort",
     "TopicSearchResultItemPort",
     "TopicSearchResultPort",
+    "TranscriptionArtifactCreate",
+    "TranscriptionArtifactRecord",
+    "TranscriptionJobCreate",
+    "TranscriptionJobRecord",
+    "TranscriptionRepositoryPort",
     "UserRepositoryPort",
     "VectorSearchPort",
     "VideoDownloadRepositoryPort",

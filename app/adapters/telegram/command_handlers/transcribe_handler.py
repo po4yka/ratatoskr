@@ -43,6 +43,14 @@ from app.adapters.transcription import (
     format_mmss,
 )
 from app.adapters.transcription.diarization_engine import speaker_at
+from app.adapters.telegram.transcription_persistence import (
+    TranscriptionSourceContext,
+    create_transcription_job,
+    mark_transcription_job_failed,
+    persist_transcription_artifact,
+    telegram_chat_id,
+    telegram_message_id,
+)
 from app.core.logging_utils import get_logger
 from app.core.url_utils import extract_all_urls
 
@@ -54,6 +62,7 @@ if TYPE_CHECKING:
         CommandExecutionContext,
     )
     from app.config import AppConfig
+    from app.application.ports.transcriptions import TranscriptionRepositoryPort
 
 logger = get_logger(__name__)
 
@@ -70,10 +79,12 @@ class TranscribeHandler:
         cfg: AppConfig,
         response_formatter: ResponseFormatter,
         transcription_service: TranscriptionService,
+        transcription_repository: TranscriptionRepositoryPort | None = None,
     ) -> None:
         self._cfg = cfg
         self._formatter = response_formatter
         self._service = transcription_service
+        self._transcription_repository = transcription_repository
 
     async def handle_transcribe(self, ctx: CommandExecutionContext) -> None:
         """Dispatch /transcribe based on argument shape (URL vs reply)."""
@@ -121,7 +132,7 @@ class TranscribeHandler:
             except MediaFetchError as exc:
                 await self._reply_error(ctx, f"Could not fetch media: {exc}")
                 return
-            await self._run_and_reply(ctx, media_path)
+            await self._run_and_reply(ctx, media_path, source_type="url")
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 
@@ -140,16 +151,43 @@ class TranscribeHandler:
             except RuntimeError as exc:
                 await self._reply_error(ctx, f"Could not download media: {exc}")
                 return
-            await self._run_and_reply(ctx, media_path)
+            await self._run_and_reply(
+                ctx,
+                media_path,
+                source_type="telegram_reply",
+                source_message=replied,
+            )
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 
     # ----------------------------------------------------------- Shared run/reply
 
-    async def _run_and_reply(self, ctx: CommandExecutionContext, media_path: Path) -> None:
-        await self._formatter.safe_reply(ctx.message, "Transcribing (CPU-only; this may take a moment)...")
+    async def _run_and_reply(
+        self,
+        ctx: CommandExecutionContext,
+        media_path: Path,
+        *,
+        source_type: str,
+        source_message: Any | None = None,
+    ) -> None:
+        await self._formatter.safe_reply(
+            ctx.message, "Transcribing (CPU-only; this may take a moment)..."
+        )
         options = TranscribeOptions(
             with_diarization=self._cfg.transcription.diarization_enabled or None,
+        )
+        source = TranscriptionSourceContext(
+            user_id=int(ctx.uid),
+            source_type=source_type,
+            telegram_chat_id=telegram_chat_id(source_message or ctx.message),
+            telegram_message_id=telegram_message_id(source_message or ctx.message),
+            correlation_id=ctx.correlation_id,
+        )
+        job = await create_transcription_job(
+            self._transcription_repository,
+            source=source,
+            cfg=self._cfg.transcription,
+            media_path=media_path,
         )
         try:
             result = await self._service.transcribe_media_path(
@@ -158,9 +196,23 @@ class TranscribeHandler:
                 correlation_id=ctx.correlation_id,
             )
         except TranscriptionDisabledError as exc:
+            await mark_transcription_job_failed(
+                self._transcription_repository,
+                job=job,
+                correlation_id=ctx.correlation_id,
+                error_code="disabled",
+                error_message=str(exc),
+            )
             await self._reply_error(ctx, str(exc))
             return
         except TranscriptionDurationExceededError as exc:
+            await mark_transcription_job_failed(
+                self._transcription_repository,
+                job=job,
+                correlation_id=ctx.correlation_id,
+                error_code="duration_exceeded",
+                error_message=str(exc),
+            )
             await self._reply_error(
                 ctx,
                 f"Media is {exc.duration_sec:.0f}s long; the max is "
@@ -168,21 +220,49 @@ class TranscribeHandler:
             )
             return
         except FfmpegNotInstalledError:
+            await mark_transcription_job_failed(
+                self._transcription_repository,
+                job=job,
+                correlation_id=ctx.correlation_id,
+                error_code="ffmpeg_not_installed",
+                error_message="ffmpeg is not installed",
+            )
             await self._reply_error(
                 ctx,
                 "ffmpeg is not installed on the server; transcription cannot run.",
             )
             return
         except (AudioDecodeError, NoAudioStreamError) as exc:
+            await mark_transcription_job_failed(
+                self._transcription_repository,
+                job=job,
+                correlation_id=ctx.correlation_id,
+                error_code=type(exc).__name__,
+                error_message=str(exc),
+            )
             await self._reply_error(ctx, f"Could not decode audio: {exc}")
             return
         except TimestampsUnavailableError as exc:
+            await mark_transcription_job_failed(
+                self._transcription_repository,
+                job=job,
+                correlation_id=ctx.correlation_id,
+                error_code="timestamps_unavailable",
+                error_message=str(exc),
+            )
             await self._reply_error(ctx, str(exc))
             return
         except Exception as exc:
             logger.exception(
                 "transcribe_unexpected_failure",
-                extra={"cid": ctx.correlation_id, "error": str(exc)},
+                extra={"cid": ctx.correlation_id, "error": type(exc).__name__},
+            )
+            await mark_transcription_job_failed(
+                self._transcription_repository,
+                job=job,
+                correlation_id=ctx.correlation_id,
+                error_code=type(exc).__name__,
+                error_message=str(exc),
             )
             await self._reply_error(
                 ctx,
@@ -190,6 +270,13 @@ class TranscribeHandler:
             )
             return
 
+        await persist_transcription_artifact(
+            self._transcription_repository,
+            job=job,
+            source=source,
+            cfg=self._cfg.transcription,
+            result=result,
+        )
         await self._send_transcript(ctx, result)
 
     async def _send_transcript(
@@ -225,8 +312,7 @@ class TranscribeHandler:
                 head = body[: _TELEGRAM_TEXT_LIMIT - 200]
                 await self._formatter.safe_reply(
                     ctx.message,
-                    head
-                    + "\n\n[truncated; could not attach file -- "
+                    head + "\n\n[truncated; could not attach file -- "
                     f"full length was {len(body)} chars]",
                 )
         finally:
@@ -279,7 +365,9 @@ async def _download_telethon_media(message: Any, workdir: Path) -> Path:
         msg = "this message wrapper does not expose download_media"
         raise RuntimeError(msg)
 
-    saved = await download(file=target) if asyncio.iscoroutinefunction(download) else download(target)
+    saved = (
+        await download(file=target) if asyncio.iscoroutinefunction(download) else download(target)
+    )
     if asyncio.iscoroutine(saved):
         saved = await saved
     if saved is None:
@@ -300,7 +388,7 @@ async def _try_reply_document(message: Any, path: Path) -> bool:
         except Exception as exc:
             logger.debug(
                 "transcribe_reply_document_failed",
-                extra={"attr": attr, "error": str(exc)},
+                extra={"attr": attr, "error": type(exc).__name__},
             )
     return False
 
@@ -311,8 +399,7 @@ def _format_transcript(result: TranscriptionResult) -> str:
         return _format_diarized(result)
     if result.sentences:
         return "\n".join(
-            f"[{format_mmss(sentence.start_sec)}] {sentence.text}"
-            for sentence in result.sentences
+            f"[{format_mmss(sentence.start_sec)}] {sentence.text}" for sentence in result.sentences
         )
     return result.plain_text or ""
 

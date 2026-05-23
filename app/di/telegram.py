@@ -40,6 +40,7 @@ from app.di.repositories import (
     build_summary_repository,
     build_tag_repository,
     build_topic_search_repository,
+    build_transcription_repository,
     build_user_repository,
 )
 from app.di.search import build_search_dependencies, get_topic_search_limit
@@ -415,6 +416,8 @@ def _build_telegram_interface_stack(
                 response_formatter=core.response_formatter,
                 transcription_service=transcription_service,
                 diarization_enabled=cfg.transcription.diarization_enabled,
+                transcription_cfg=cfg.transcription,
+                transcription_repository=build_transcription_repository(db),
             )
     dispatcher_deps = _build_command_dispatcher_deps(
         cfg=cfg,

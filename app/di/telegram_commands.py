@@ -31,7 +31,7 @@ from app.adapters.telegram.command_handlers.tag_handler import TagHandler
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
 from app.adapters.transcription import TranscriptionService
-from app.di.repositories import build_social_connection_repository
+from app.di.repositories import build_social_connection_repository, build_transcription_repository
 from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
@@ -164,6 +164,7 @@ def build_command_dispatcher_deps(
             cfg=cfg,
             response_formatter=response_formatter,
             transcription_service=service,
+            transcription_repository=build_transcription_repository(db),
         )
 
     contributions = (

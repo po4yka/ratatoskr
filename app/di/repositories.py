@@ -44,6 +44,9 @@ from app.infrastructure.persistence.repositories.tag_repository import (
 from app.infrastructure.persistence.repositories.topic_search_repository import (
     TopicSearchRepositoryAdapter,
 )
+from app.infrastructure.persistence.repositories.transcription_repository import (
+    TranscriptionRepositoryAdapter,
+)
 from app.infrastructure.persistence.repositories.user_repository import (
     UserRepositoryAdapter,
 )
@@ -70,6 +73,7 @@ if TYPE_CHECKING:
     from app.application.ports.search import EmbeddingRepositoryPort, TopicSearchRepositoryPort
     from app.application.ports.summaries import SummaryRepositoryPort, TagRepositoryPort
     from app.application.ports.social_connections import SocialConnectionRepositoryPort
+    from app.application.ports.transcriptions import TranscriptionRepositoryPort
     from app.application.ports.users import UserRepositoryPort
     from app.db.session import Database
 
@@ -142,6 +146,10 @@ def build_backup_repository(db: Database) -> BackupRepositoryPort:
 
 def build_social_connection_repository(db: Database) -> SocialConnectionRepositoryPort:
     return SocialConnectionRepositoryAdapter(db)
+
+
+def build_transcription_repository(db: Database) -> TranscriptionRepositoryPort:
+    return TranscriptionRepositoryAdapter(db)
 
 
 def build_rss_feed_repository(db: Database) -> Any:

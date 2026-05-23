@@ -163,6 +163,44 @@ CREATE INDEX idx_requests_status ON requests(status);
 
 ---
 
+### transcription_jobs
+
+**Purpose:** One row per attempted Telegram transcription run. Jobs are operational state, not summaries, and they do not store raw audio or local media paths.
+
+**Fields:**
+
+- `user_id` (int, FK) - Telegram user that requested or sent the audio
+- `request_id` (int, nullable FK) - Optional request row when transcription is attached to a broader request pipeline
+- `telegram_chat_id` / `telegram_message_id` (int, nullable) - Telegram source identifiers for command replies and auto voice messages
+- `source_type` (str) - Entry point such as `url`, `telegram_reply`, or `telegram_voice`
+- `language`, `backend`, `tokens_mode`, `model_identifier` (str, nullable) - ASR configuration snapshot used for the run
+- `status` (str) - Job lifecycle status (`started`, `completed`, `failed`)
+- `duration_sec` (float, nullable) - Probed media duration when available
+- `audio_hash` (str, nullable) - SHA-256 of the downloaded audio/media payload, used for lookup without storing the payload
+- `correlation_id` (str, nullable) - Request correlation ID for traceability
+- `error_code` / `error_message` (nullable) - Failure details when the run fails
+- `metadata_json` (json, nullable) - Redacted operational metadata
+
+---
+
+### transcription_artifacts
+
+**Purpose:** Durable transcript outputs produced by completed transcription jobs. Artifacts are listable/reprocessable transcript records and do not create `summaries` rows unless a future summarize-transcript path explicitly does so.
+
+**Fields:**
+
+- `job_id` (int, FK) - Owning `transcription_jobs` row
+- `user_id`, `request_id`, `telegram_chat_id`, `telegram_message_id`, `source_type` - Same source identity fields as the job snapshot
+- `language`, `backend`, `tokens_mode`, `model_identifier`, `status`, `duration_sec` - ASR configuration and result status snapshot
+- `plain_text` (text) - Full recognized transcript text
+- `sentences_json` (json, nullable) - Timestamped sentence list with `start_sec` and `text`
+- `speaker_turns_json` (json, nullable) - Diarization speaker spans with `start`, `end`, `speaker`, and `label`
+- `audio_hash` (str, nullable) - SHA-256 of the source media
+- `correlation_id` (str, nullable) - Request correlation ID
+- `metadata_json` (json, nullable) - Redacted result metadata such as whether diarization ran
+
+---
+
 ### aggregation_sessions
 
 **Purpose:** Stores bundle-level state for mixed-source aggregation runs.

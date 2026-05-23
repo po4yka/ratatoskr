@@ -26,6 +26,15 @@ from app.adapters.transcription import (
     format_mmss,
 )
 from app.adapters.transcription.diarization_engine import speaker_at
+from app.adapters.telegram.transcription_persistence import (
+    TranscriptionSourceContext,
+    create_transcription_job,
+    mark_transcription_job_failed,
+    persist_transcription_artifact,
+    telegram_chat_id,
+    telegram_message_id,
+    telegram_user_id,
+)
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -33,6 +42,8 @@ if TYPE_CHECKING:
         ResponseFormatterFacade as ResponseFormatter,
     )
     from app.adapters.transcription import TranscriptionService
+    from app.application.ports.transcriptions import TranscriptionRepositoryPort
+    from app.config.transcription import TranscriptionConfig
 
 logger = get_logger(__name__)
 
@@ -58,10 +69,14 @@ class VoiceMessageProcessor:
         response_formatter: ResponseFormatter,
         transcription_service: TranscriptionService,
         diarization_enabled: bool,
+        transcription_cfg: TranscriptionConfig | None = None,
+        transcription_repository: TranscriptionRepositoryPort | None = None,
     ) -> None:
         self._formatter = response_formatter
         self._service = transcription_service
         self._diarization_enabled = diarization_enabled
+        self._transcription_cfg = transcription_cfg
+        self._transcription_repository = transcription_repository
 
     async def handle(
         self,
@@ -84,10 +99,21 @@ class VoiceMessageProcessor:
             try:
                 media_path = await _download_attached_media(message, workdir)
             except RuntimeError as exc:
-                await self._reply_error(message, f"Could not download voice media: {exc}", correlation_id)
+                await self._reply_error(
+                    message, f"Could not download voice media: {exc}", correlation_id
+                )
                 return True
 
             options = TranscribeOptions(with_diarization=self._diarization_enabled or None)
+            source = self._source_context(message, correlation_id)
+            job = None
+            if source is not None and self._transcription_cfg is not None:
+                job = await create_transcription_job(
+                    self._transcription_repository,
+                    source=source,
+                    cfg=self._transcription_cfg,
+                    media_path=media_path,
+                )
             try:
                 result = await self._service.transcribe_media_path(
                     media_path,
@@ -95,9 +121,23 @@ class VoiceMessageProcessor:
                     correlation_id=correlation_id,
                 )
             except TranscriptionDisabledError as exc:
+                await mark_transcription_job_failed(
+                    self._transcription_repository,
+                    job=job,
+                    correlation_id=correlation_id,
+                    error_code="disabled",
+                    error_message=str(exc),
+                )
                 await self._reply_error(message, str(exc), correlation_id)
                 return True
             except TranscriptionDurationExceededError as exc:
+                await mark_transcription_job_failed(
+                    self._transcription_repository,
+                    job=job,
+                    correlation_id=correlation_id,
+                    error_code="duration_exceeded",
+                    error_message=str(exc),
+                )
                 await self._reply_error(
                     message,
                     f"Voice message is {exc.duration_sec:.0f}s long; the max is "
@@ -106,6 +146,13 @@ class VoiceMessageProcessor:
                 )
                 return True
             except FfmpegNotInstalledError:
+                await mark_transcription_job_failed(
+                    self._transcription_repository,
+                    job=job,
+                    correlation_id=correlation_id,
+                    error_code="ffmpeg_not_installed",
+                    error_message="ffmpeg is not installed",
+                )
                 await self._reply_error(
                     message,
                     "ffmpeg is not installed on the server; transcription cannot run.",
@@ -113,15 +160,36 @@ class VoiceMessageProcessor:
                 )
                 return True
             except (AudioDecodeError, NoAudioStreamError) as exc:
+                await mark_transcription_job_failed(
+                    self._transcription_repository,
+                    job=job,
+                    correlation_id=correlation_id,
+                    error_code=type(exc).__name__,
+                    error_message=str(exc),
+                )
                 await self._reply_error(message, f"Could not decode audio: {exc}", correlation_id)
                 return True
             except TimestampsUnavailableError as exc:
+                await mark_transcription_job_failed(
+                    self._transcription_repository,
+                    job=job,
+                    correlation_id=correlation_id,
+                    error_code="timestamps_unavailable",
+                    error_message=str(exc),
+                )
                 await self._reply_error(message, str(exc), correlation_id)
                 return True
             except Exception as exc:
                 logger.exception(
                     "voice_message_transcribe_failed",
-                    extra={"cid": correlation_id, "error": str(exc)},
+                    extra={"cid": correlation_id, "error": type(exc).__name__},
+                )
+                await mark_transcription_job_failed(
+                    self._transcription_repository,
+                    job=job,
+                    correlation_id=correlation_id,
+                    error_code=type(exc).__name__,
+                    error_message=str(exc),
                 )
                 await self._reply_error(
                     message,
@@ -130,10 +198,38 @@ class VoiceMessageProcessor:
                 )
                 return True
 
+            if source is not None and self._transcription_cfg is not None:
+                await persist_transcription_artifact(
+                    self._transcription_repository,
+                    job=job,
+                    source=source,
+                    cfg=self._transcription_cfg,
+                    result=result,
+                )
             await self._send_transcript(message, result, correlation_id)
             return True
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
+
+    def _source_context(
+        self,
+        message: Any,
+        correlation_id: str,
+    ) -> TranscriptionSourceContext | None:
+        user_id = telegram_user_id(message)
+        if user_id is None:
+            logger.warning(
+                "voice_message_transcription_missing_user_id",
+                extra={"cid": correlation_id},
+            )
+            return None
+        return TranscriptionSourceContext(
+            user_id=user_id,
+            source_type="telegram_voice",
+            telegram_chat_id=telegram_chat_id(message),
+            telegram_message_id=telegram_message_id(message),
+            correlation_id=correlation_id,
+        )
 
     async def _send_transcript(
         self,
@@ -168,8 +264,7 @@ class VoiceMessageProcessor:
                 head = body[: _TELEGRAM_TEXT_LIMIT - 200]
                 await self._formatter.safe_reply(
                     message,
-                    head
-                    + "\n\n[truncated; could not attach file -- "
+                    head + "\n\n[truncated; could not attach file -- "
                     f"full length was {len(body)} chars]",
                 )
         finally:
@@ -209,9 +304,7 @@ async def _download_attached_media(message: Any, workdir: Path) -> Path:
         raise RuntimeError(msg)
 
     saved = (
-        await download(file=target)
-        if asyncio.iscoroutinefunction(download)
-        else download(target)
+        await download(file=target) if asyncio.iscoroutinefunction(download) else download(target)
     )
     if asyncio.iscoroutine(saved):
         saved = await saved
@@ -232,7 +325,7 @@ async def _try_reply_document(message: Any, path: Path) -> bool:
         except Exception as exc:
             logger.debug(
                 "voice_reply_document_failed",
-                extra={"attr": attr, "error": str(exc)},
+                extra={"attr": attr, "error": type(exc).__name__},
             )
     return False
 
@@ -242,8 +335,7 @@ def _format_transcript(result: TranscriptionResult) -> str:
         return _format_diarized(result)
     if result.sentences:
         return "\n".join(
-            f"[{format_mmss(sentence.start_sec)}] {sentence.text}"
-            for sentence in result.sentences
+            f"[{format_mmss(sentence.start_sec)}] {sentence.text}" for sentence in result.sentences
         )
     return result.plain_text or ""
 

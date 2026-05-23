@@ -83,6 +83,11 @@ from app.db.models.social import (
     SocialProvider,
 )
 from app.db.models.topic_search import TOPIC_SEARCH_MODELS, TopicSearchIndex
+from app.db.models.transcription import (
+    TRANSCRIPTION_MODELS,
+    TranscriptionArtifact,
+    TranscriptionJob,
+)
 from app.db.models.user_content import (
     USER_CONTENT_MODELS,
     CustomDigest,
@@ -106,6 +111,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
     *SIGNAL_MODELS,
     *SOCIAL_MODELS,
     *TOPIC_SEARCH_MODELS,
+    *TRANSCRIPTION_MODELS,
     *USER_CONTENT_MODELS,
 )
 
@@ -122,6 +128,7 @@ __all__ = [
     "SIGNAL_MODELS",
     "SOCIAL_MODELS",
     "TOPIC_SEARCH_MODELS",
+    "TRANSCRIPTION_MODELS",
     "USER_CONTENT_MODELS",
     "AggregationSession",
     "AggregationSessionItem",
@@ -185,6 +192,8 @@ __all__ = [
     "TelegramMessage",
     "Topic",
     "TopicSearchIndex",
+    "TranscriptionArtifact",
+    "TranscriptionJob",
     "User",
     "UserBackup",
     "UserCredential",
