@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.models.responses.diagnostics import DiagnosticsResponse
 from app.api.routers.auth.tokens import create_access_token
-from app.api.services.admin_read_service import clear_diagnostics_cache
+from app.api.services.diagnostics_service import clear_diagnostics_cache
 from app.core.time_utils import UTC
 from app.db.models import (
     CrawlResult,

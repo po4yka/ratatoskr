@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from taskiq import TaskiqDepends
 
@@ -12,10 +13,7 @@ from app.core.time_utils import UTC
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.tasks.broker import broker
 from app.tasks.deps import (
-    create_rss_bot_client,
-    create_rss_delivery_service,
-    create_signal_ingestion_worker,
-    create_source_ingestion_runner,
+    build_rss_poll_task_runtime,
     get_app_config,
     get_db,
 )
@@ -37,11 +35,12 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
     from app.adapters.rss.feed_poller import poll_all_feeds
 
     correlation_id = f"rss_poll_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    runtime = build_rss_poll_task_runtime(cfg, db)
     logger.info("rss_poll_starting", extra={"cid": correlation_id})
 
     try:
         stats = await poll_all_feeds(db) if cfg.rss.enabled else {"new_item_ids": []}
-        await _run_optional_source_ingestors(cfg, db, correlation_id)
+        await _run_optional_source_ingestors(cfg, runtime, correlation_id)
         new_item_ids: list[int] = stats.get("new_item_ids", [])
         logger.info(
             "rss_poll_fetched",
@@ -53,13 +52,13 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
             },
         )
 
-        await _run_signal_ingestion(cfg, db, correlation_id)
+        await _run_signal_ingestion(cfg, runtime, correlation_id)
 
         if not new_item_ids or not cfg.rss.auto_summarize:
             return
 
-        delivery_service = create_rss_delivery_service(cfg, db)
-        bot = create_rss_bot_client(cfg)
+        delivery_service = runtime.create_delivery_service()
+        bot = runtime.create_bot_client()
 
         async with bot:
 
@@ -82,13 +81,13 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
         )
 
 
-async def _run_signal_ingestion(cfg: AppConfig, db: Database, correlation_id: str) -> None:
+async def _run_signal_ingestion(cfg: AppConfig, runtime: Any, correlation_id: str) -> None:
     signal_sources_enabled = bool(getattr(cfg.signal_ingestion, "any_enabled", False))
     if not signal_sources_enabled:
         logger.info("signal_ingestion_skipped", extra={"cid": correlation_id})
         return
     try:
-        worker = create_signal_ingestion_worker(cfg, db)
+        worker = runtime.create_signal_ingestion_worker()
         limit = getattr(cfg.rss, "max_items_per_poll", 100)
         stats = await worker.run_once(limit=limit)
         logger.info("signal_ingestion_complete", extra={"cid": correlation_id, **stats})
@@ -99,12 +98,12 @@ async def _run_signal_ingestion(cfg: AppConfig, db: Database, correlation_id: st
         )
 
 
-async def _run_optional_source_ingestors(cfg: AppConfig, db: Database, correlation_id: str) -> None:
+async def _run_optional_source_ingestors(cfg: AppConfig, runtime: Any, correlation_id: str) -> None:
     if not cfg.signal_ingestion.any_enabled:
         logger.info("source_ingestion_skipped", extra={"cid": correlation_id})
         return
     try:
-        runner = create_source_ingestion_runner(cfg, db)
+        runner = runtime.create_source_ingestion_runner()
         stats = await runner.run_once()
         logger.info("source_ingestion_complete", extra={"cid": correlation_id, **stats})
     except Exception as exc:

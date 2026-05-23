@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.application.ports.repository_analysis import RepositoryAnalysisRecord
 from app.application.use_cases.analyze_repository import (
     AnalyzeRepositoryUseCase,
     RepositoryNotFoundError,
@@ -98,32 +99,53 @@ class _FakeRepo:
         self.updated_at = datetime.now(UTC)
 
 
-def _make_repository(**kwargs) -> _FakeRepo:
-    return _FakeRepo(**kwargs)
+def _make_repository(**kwargs) -> RepositoryAnalysisRecord:
+    fake = _FakeRepo(**kwargs)
+    return RepositoryAnalysisRecord(
+        id=fake.id,
+        user_id=fake.user_id,
+        github_id=fake.github_id,
+        full_name=fake.full_name,
+        description=fake.description,
+        topics_json=fake.topics_json,
+        languages_json=fake.languages_json,
+        analysis_json=fake.analysis_json,
+        content_hash=fake.content_hash,
+        pending_analysis=fake.pending_analysis,
+        readme_excerpt=fake.readme_excerpt,
+        primary_language=fake.primary_language,
+        license_spdx=fake.license_spdx,
+        default_branch=fake.default_branch,
+        is_starred=fake.is_starred,
+        source=fake.source,
+        created_at=fake.created_at,
+    )
 
 
-def _stub_db(repository: _FakeRepo | None) -> MagicMock:
-    """Return a mock Database that yields the given repository from session()."""
-    db = MagicMock()
+class _FakeRepositoryAnalysisRepo:
+    def __init__(self, repository: RepositoryAnalysisRecord | None) -> None:
+        self.repository = repository
+        self.get_calls: list[int] = []
+        self.save_calls: list[tuple[int, dict, str]] = []
 
-    # session() context manager — used by _load_repository
-    session_cm = AsyncMock()
-    execute_result = MagicMock()
-    execute_result.scalar_one_or_none.return_value = repository
-    session_cm.__aenter__ = AsyncMock(return_value=session_cm)
-    session_cm.__aexit__ = AsyncMock(return_value=False)
-    session_cm.execute = AsyncMock(return_value=execute_result)
+    async def get_for_analysis(self, repository_id: int) -> RepositoryAnalysisRecord | None:
+        self.get_calls.append(repository_id)
+        return self.repository
 
-    # transaction() context manager — used by _persist_analysis
-    tx_cm = AsyncMock()
-    tx_cm.__aenter__ = AsyncMock(return_value=tx_cm)
-    tx_cm.__aexit__ = AsyncMock(return_value=False)
-    # .get() inside transaction returns the same repo object
-    tx_cm.get = AsyncMock(return_value=repository)
-
-    db.session.return_value = session_cm
-    db.transaction.return_value = tx_cm
-    return db
+    async def save_analysis(
+        self,
+        repository_id: int,
+        *,
+        analysis_json: dict,
+        content_hash: str,
+    ) -> RepositoryAnalysisRecord | None:
+        self.save_calls.append((repository_id, analysis_json, content_hash))
+        if self.repository is None or self.repository.id != repository_id:
+            return None
+        self.repository.analysis_json = analysis_json
+        self.repository.content_hash = content_hash
+        self.repository.pending_analysis = False
+        return self.repository
 
 
 def _stub_agent(return_value: RepoAnalysis | None) -> AsyncMock:
@@ -148,11 +170,15 @@ async def test_first_analysis_runs_llm_and_persists() -> None:
     """Fresh repository: agent is called, analysis_json persisted, embedding refreshed."""
     repo = _make_repository(analysis_json=None, content_hash=None)
     analysis = _make_analysis()
-    db = _stub_db(repo)
+    repository_repo = _FakeRepositoryAnalysisRepo(repo)
     agent = _stub_agent(analysis)
     embedding_gen = _stub_embedding_gen()
 
-    use_case = AnalyzeRepositoryUseCase(db=db, agent=agent, embedding_gen=embedding_gen)
+    use_case = AnalyzeRepositoryUseCase(
+        repository_repo=repository_repo,
+        agent=agent,
+        embedding_gen=embedding_gen,
+    )
     result = await use_case.analyze(1, correlation_id="corr-1")
 
     assert result.repository_id == 1
@@ -167,6 +193,7 @@ async def test_first_analysis_runs_llm_and_persists() -> None:
     assert repo.analysis_json == analysis.model_dump()
     assert repo.content_hash is not None
     assert repo.pending_analysis is False
+    assert repository_repo.save_calls == [(1, analysis.model_dump(), repo.content_hash)]
 
 
 @pytest.mark.asyncio
@@ -178,15 +205,19 @@ async def test_unchanged_content_skips_llm() -> None:
         readme_excerpt=None,
     )
     # Pre-compute the exact hash the use case will compute
-    computed_hash = _compute_content_hash(repo)  # type: ignore[arg-type]
+    computed_hash = _compute_content_hash(repo)
     repo.content_hash = computed_hash
     repo.analysis_json = _make_analysis().model_dump()
 
-    db = _stub_db(repo)
+    repository_repo = _FakeRepositoryAnalysisRepo(repo)
     agent = _stub_agent(_make_analysis())
     embedding_gen = _stub_embedding_gen()
 
-    use_case = AnalyzeRepositoryUseCase(db=db, agent=agent, embedding_gen=embedding_gen)
+    use_case = AnalyzeRepositoryUseCase(
+        repository_repo=repository_repo,
+        agent=agent,
+        embedding_gen=embedding_gen,
+    )
     result = await use_case.analyze(1, correlation_id="corr-2")
 
     assert result.cached is True
@@ -195,6 +226,7 @@ async def test_unchanged_content_skips_llm() -> None:
 
     agent.analyze.assert_not_awaited()
     embedding_gen.regenerate.assert_not_awaited()
+    assert repository_repo.save_calls == []
 
 
 @pytest.mark.asyncio
@@ -205,16 +237,20 @@ async def test_force_re_analysis_runs_llm_even_if_unchanged() -> None:
         topics_json=["testing"],
         readme_excerpt=None,
     )
-    computed_hash = _compute_content_hash(repo)  # type: ignore[arg-type]
+    computed_hash = _compute_content_hash(repo)
     repo.content_hash = computed_hash
     repo.analysis_json = _make_analysis().model_dump()
 
-    db = _stub_db(repo)
+    repository_repo = _FakeRepositoryAnalysisRepo(repo)
     analysis = _make_analysis(confidence=0.7)
     agent = _stub_agent(analysis)
     embedding_gen = _stub_embedding_gen()
 
-    use_case = AnalyzeRepositoryUseCase(db=db, agent=agent, embedding_gen=embedding_gen)
+    use_case = AnalyzeRepositoryUseCase(
+        repository_repo=repository_repo,
+        agent=agent,
+        embedding_gen=embedding_gen,
+    )
     result = await use_case.analyze(1, force=True, correlation_id="corr-3")
 
     assert result.cached is False
@@ -232,11 +268,15 @@ async def test_agent_failure_preserves_existing_analysis() -> None:
         content_hash=None,  # force run regardless
     )
 
-    db = _stub_db(repo)
+    repository_repo = _FakeRepositoryAnalysisRepo(repo)
     agent = _stub_agent(None)  # agent fails
     embedding_gen = _stub_embedding_gen()
 
-    use_case = AnalyzeRepositoryUseCase(db=db, agent=agent, embedding_gen=embedding_gen)
+    use_case = AnalyzeRepositoryUseCase(
+        repository_repo=repository_repo,
+        agent=agent,
+        embedding_gen=embedding_gen,
+    )
     result = await use_case.analyze(1, correlation_id="corr-4")
 
     assert result.analysis is None
@@ -246,16 +286,21 @@ async def test_agent_failure_preserves_existing_analysis() -> None:
     # prior analysis must not have been touched
     assert repo.analysis_json == prior_analysis.model_dump()
     embedding_gen.regenerate.assert_not_awaited()
+    assert repository_repo.save_calls == []
 
 
 @pytest.mark.asyncio
 async def test_repository_not_found_raises() -> None:
     """Missing repository raises RepositoryNotFoundError."""
-    db = _stub_db(None)  # scalar_one_or_none returns None
+    repository_repo = _FakeRepositoryAnalysisRepo(None)
     agent = _stub_agent(_make_analysis())
     embedding_gen = _stub_embedding_gen()
 
-    use_case = AnalyzeRepositoryUseCase(db=db, agent=agent, embedding_gen=embedding_gen)
+    use_case = AnalyzeRepositoryUseCase(
+        repository_repo=repository_repo,
+        agent=agent,
+        embedding_gen=embedding_gen,
+    )
 
     with pytest.raises(RepositoryNotFoundError):
         await use_case.analyze(999, correlation_id="corr-5")

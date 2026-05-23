@@ -52,6 +52,9 @@ def _get_github_extractor(request: Request) -> GitHubPlatformExtractor:
     from app.agents.repo_analysis_agent import RepoAnalysisAgent
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
     from app.di.api import resolve_api_runtime
+    from app.infrastructure.persistence.repositories.repository_analysis_repository import (
+        RepositoryAnalysisRepositoryAdapter,
+    )
 
     db = _get_db(request)
     runtime = resolve_api_runtime(request)
@@ -59,8 +62,9 @@ def _get_github_extractor(request: Request) -> GitHubPlatformExtractor:
 
     embedding_gen = _build_repo_embedding_gen(request)
     agent = RepoAnalysisAgent(llm_service=runtime.core.llm_client)
+    repository_repo = RepositoryAnalysisRepositoryAdapter(db)
     analyze_use_case = AnalyzeRepositoryUseCase(
-        db=db,
+        repository_repo=repository_repo,
         agent=agent,
         embedding_gen=embedding_gen,
     )
@@ -76,13 +80,17 @@ def _get_analyze_use_case(request: Request) -> AnalyzeRepositoryUseCase:
     from app.agents.repo_analysis_agent import RepoAnalysisAgent
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
     from app.di.api import resolve_api_runtime
+    from app.infrastructure.persistence.repositories.repository_analysis_repository import (
+        RepositoryAnalysisRepositoryAdapter,
+    )
 
     db = _get_db(request)
     runtime = resolve_api_runtime(request)
     embedding_gen = _build_repo_embedding_gen(request)
     agent = RepoAnalysisAgent(llm_service=runtime.core.llm_client)
+    repository_repo = RepositoryAnalysisRepositoryAdapter(db)
     return AnalyzeRepositoryUseCase(
-        db=db,
+        repository_repo=repository_repo,
         agent=agent,
         embedding_gen=embedding_gen,
     )

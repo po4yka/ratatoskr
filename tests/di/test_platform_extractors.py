@@ -14,6 +14,9 @@ from app.adapters.github.platform_extractor import GitHubPlatformExtractor
 from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
 from app.config import AppConfig
 from app.di.platform_extractors import build_platform_extractor_contributions
+from app.infrastructure.persistence.repositories.repository_analysis_repository import (
+    RepositoryAnalysisRepositoryAdapter,
+)
 
 
 def _cfg() -> AppConfig:
@@ -147,6 +150,11 @@ def test_github_contribution_factory_builds_analyze_use_case_in_di(
 
     assert isinstance(extractor, GitHubPlatformExtractor)
     assert isinstance(extractor._analyze_use_case, AnalyzeRepositoryUseCase)
-    assert extractor._analyze_use_case._db is db
+    assert isinstance(
+        extractor._analyze_use_case._repository_repo,
+        RepositoryAnalysisRepositoryAdapter,
+    )
+    assert extractor._analyze_use_case._repository_repo._db is db
     assert extractor._analyze_use_case._agent._llm is llm_client
-    assert extractor._analyze_use_case._embedding_gen._db is db
+    embedding_gen = cast("Any", extractor._analyze_use_case._embedding_gen)
+    assert embedding_gen._db is db

@@ -20,6 +20,7 @@ from .requests import (
     RequestRepositoryPort,
     VideoDownloadRepositoryPort,
 )
+from .repository_analysis import RepositoryAnalysisRecord, RepositoryAnalysisRepositoryPort
 from .rules import (
     CollectionMembershipPort,
     RuleContextPort,
@@ -56,6 +57,8 @@ __all__ = [
     "ImportJobRepositoryPort",
     "LLMCallRecord",
     "LLMRepositoryPort",
+    "RepositoryAnalysisRecord",
+    "RepositoryAnalysisRepositoryPort",
     "RequestRepositoryPort",
     "RuleContextPort",
     "RuleRateLimiterPort",

@@ -595,6 +595,9 @@ def _build_analyze_use_case(db: Database, settings: AppConfig) -> Any:
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
     from app.infrastructure.embedding.embedding_factory import create_embedding_service
     from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
+    from app.infrastructure.persistence.repositories.repository_analysis_repository import (
+        RepositoryAnalysisRepositoryAdapter,
+    )
 
     llm_client = LLMClientFactory.create_from_config(settings)
     embedding_service = create_embedding_service(settings.embedding)
@@ -615,7 +618,12 @@ def _build_analyze_use_case(db: Database, settings: AppConfig) -> Any:
         user_scope=settings.vector_store.user_scope,
     )
     agent = RepoAnalysisAgent(llm_service=llm_client)
-    return AnalyzeRepositoryUseCase(db=db, agent=agent, embedding_gen=embedding_gen)
+    repository_repo = RepositoryAnalysisRepositoryAdapter(db)
+    return AnalyzeRepositoryUseCase(
+        repository_repo=repository_repo,
+        agent=agent,
+        embedding_gen=embedding_gen,
+    )
 
 
 async def _notify_needs_reauth(

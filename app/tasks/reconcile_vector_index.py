@@ -15,25 +15,14 @@ from uuid import uuid4
 from sqlalchemy import select
 from taskiq import TaskiqDepends
 
-from app.application.services.summary_embedding_generator import SummaryEmbeddingGenerator
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
 from app.db.models import Request, Summary, SummaryEmbedding
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
-from app.infrastructure.embedding.embedding_factory import create_embedding_service
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
-from app.infrastructure.persistence.repositories.embedding_repository import (
-    EmbeddingRepositoryAdapter,
-)
-from app.infrastructure.persistence.repositories.request_repository import (
-    RequestRepositoryAdapter,
-)
-from app.infrastructure.persistence.repositories.summary_repository import (
-    SummaryRepositoryAdapter,
-)
 from app.infrastructure.redis import get_redis
 from app.tasks.broker import broker
-from app.tasks.deps import get_app_config, get_db
+from app.tasks.deps import build_vector_reconcile_task_runtime, get_app_config, get_db
 
 logger = get_logger(__name__)
 
@@ -173,13 +162,6 @@ async def _fetch_stale_summaries(db: Database, *, limit: int) -> list[dict[str, 
         return [dict(row._mapping) for row in result]
 
 
-def _build_generator(cfg: AppConfig, db: Database) -> SummaryEmbeddingGenerator:
+def _build_generator(cfg: AppConfig, db: Database) -> Any:
     """Construct a generator wired against the application repositories."""
-    embedding_service = create_embedding_service(cfg.embedding)
-    return SummaryEmbeddingGenerator(
-        embedding_repository=EmbeddingRepositoryAdapter(db),
-        request_repository=RequestRepositoryAdapter(db),
-        summary_repository=SummaryRepositoryAdapter(db),
-        embedding_service=embedding_service,
-        max_token_length=cfg.embedding.max_token_length,
-    )
+    return build_vector_reconcile_task_runtime(cfg, db).embedding_generator

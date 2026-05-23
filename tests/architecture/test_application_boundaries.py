@@ -16,14 +16,11 @@ def test_application_layer_has_no_outer_layer_imports() -> None:
             "app.infrastructure",
             "app.di",
         ),
-        # TODO: these use-cases currently import GitHubAuthMethod/Repository
+        # TODO: manage_github_integration currently imports GitHubAuthMethod
         # from app.db.models and the github adapter directly. Move the enums
-        # into the domain layer and wrap the adapter behind a port so these
-        # ignores can be removed.
-        ignored_path_prefixes=(
-            "application/use_cases/analyze_repository.py",
-            "application/use_cases/manage_github_integration.py",
-        ),
+        # into the domain layer and wrap the adapter behind a port so this
+        # ignore can be removed.
+        ignored_path_prefixes=("application/use_cases/manage_github_integration.py",),
     )
 
     assert violations == []

@@ -102,16 +102,17 @@ def build_platform_extractor_contributions(
         ),
         PlatformExtractorContribution(
             name="twitter",
-            predicate=lambda normalized_url: bool(cfg.twitter.enabled)
-            and is_twitter_url(normalized_url),
+            predicate=lambda normalized_url: (
+                bool(cfg.twitter.enabled) and is_twitter_url(normalized_url)
+            ),
             factory=_build_twitter_platform_extractor,
         ),
         PlatformExtractorContribution(
             name="meta",
-            predicate=lambda normalized_url: bool(
-                getattr(cfg.runtime, "aggregation_meta_extractors_enabled", True)
-            )
-            and (is_threads_url(normalized_url) or is_instagram_url(normalized_url)),
+            predicate=lambda normalized_url: (
+                bool(getattr(cfg.runtime, "aggregation_meta_extractors_enabled", True))
+                and (is_threads_url(normalized_url) or is_instagram_url(normalized_url))
+            ),
             factory=_build_meta_platform_extractor,
         ),
     )
@@ -177,6 +178,9 @@ def _build_github_platform_extractor(context: PlatformExtractorContext) -> Any:
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
     from app.infrastructure.embedding.embedding_factory import create_embedding_service
     from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
+    from app.infrastructure.persistence.repositories.repository_analysis_repository import (
+        RepositoryAnalysisRepositoryAdapter,
+    )
 
     llm_client = context.quality_llm_client
     if llm_client is None:
@@ -215,8 +219,9 @@ def _build_github_platform_extractor(context: PlatformExtractorContext) -> Any:
         user_scope=context.cfg.vector_store.user_scope,
     )
     agent = RepoAnalysisAgent(llm_service=llm_client)
+    repository_repo = RepositoryAnalysisRepositoryAdapter(context.db)
     analyze_use_case = AnalyzeRepositoryUseCase(
-        db=context.db,
+        repository_repo=repository_repo,
         agent=agent,
         embedding_gen=embedding_gen,
     )

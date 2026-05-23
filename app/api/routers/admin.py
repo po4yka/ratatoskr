@@ -13,6 +13,7 @@ from app.api.models.responses import DiagnosticsSuccessResponse, success_respons
 from app.api.routers.auth import AuthenticatedUser, get_current_user
 from app.api.services.admin_read_service import AdminReadService
 from app.api.services.auth_service import AuthService
+from app.api.services.diagnostics_service import DiagnosticsService
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.di.shared import build_async_audit_sink
@@ -189,7 +190,7 @@ async def diagnostics(
 
     audit = build_async_audit_sink(_resolve_db(request))
     audit("INFO", "admin.diagnostics", {"user_id": user_id})
-    service = AdminReadService(_resolve_db(request), vector_store=_resolve_vector_store(request))
+    service = DiagnosticsService(_resolve_db(request), vector_store=_resolve_vector_store(request))
     response = success_response(await service.diagnostics(request=request))
     record_admin_diagnostics_request("success")
     return response

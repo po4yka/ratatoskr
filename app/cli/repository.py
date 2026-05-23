@@ -110,6 +110,9 @@ async def run_repository_cli(args: argparse.Namespace) -> None:
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
     from app.infrastructure.embedding.embedding_factory import create_embedding_service
     from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
+    from app.infrastructure.persistence.repositories.repository_analysis_repository import (
+        RepositoryAnalysisRepositoryAdapter,
+    )
 
     llm_client = LLMClientFactory.create_from_config(cfg)
     embedding_service = create_embedding_service(cfg.embedding)
@@ -129,8 +132,9 @@ async def run_repository_cli(args: argparse.Namespace) -> None:
         user_scope=cfg.vector_store.user_scope,
     )
     agent = RepoAnalysisAgent(llm_service=llm_client)
+    repository_repo = RepositoryAnalysisRepositoryAdapter(db)
     analyze_use_case = AnalyzeRepositoryUseCase(
-        db=db,
+        repository_repo=repository_repo,
         agent=agent,
         embedding_gen=embedding_gen,
     )

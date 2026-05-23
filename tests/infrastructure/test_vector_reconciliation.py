@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from sqlalchemy import delete
@@ -21,7 +21,7 @@ from app.db.models import (
 )
 from app.db.models.repository import RepoSource
 from app.db.session import Database
-from app.infrastructure.vector.reconciliation import VectorIndexReconciler
+from app.infrastructure.vector.reconciliation import VectorIndexedEntityStats, VectorIndexReconciler
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -42,6 +42,48 @@ class FakeVectorStore:
 
     def get_indexed_repository_ids(self, *, limit: int | None = None, user_id: int | None = None):
         return set(self._repositories)
+
+
+class _SessionContext:
+    async def __aenter__(self) -> object:
+        return object()
+
+    async def __aexit__(self, exc_type, exc, traceback) -> bool:
+        return False
+
+
+class _FakeDatabase:
+    def session(self) -> _SessionContext:
+        return _SessionContext()
+
+
+class _FakeEntityAdapter:
+    entity_type = "bookmark"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[bool, int, str]] = []
+
+    async def inspect(
+        self,
+        session,
+        *,
+        vector_store,
+        vector_store_available: bool,
+        scan_limit: int,
+        expected_model_version: str,
+    ) -> VectorIndexedEntityStats:
+        self.calls.append((vector_store_available, scan_limit, expected_model_version))
+        return VectorIndexedEntityStats(
+            entity_type=self.entity_type,
+            expected_ids={1, 2, 3},
+            indexed_ids={1, 3},
+            missing_embeddings=1,
+            stale_embeddings=2,
+            pending_embeddings=1,
+            stale_model_count=1,
+            oldest_unindexed_at=dt.datetime(2026, 5, 22, 12, tzinfo=UTC),
+            latest_indexed_at=dt.datetime(2026, 5, 22, 12, 30, tzinfo=UTC),
+        )
 
 
 def _test_dsn() -> str:
@@ -134,6 +176,38 @@ async def _seed(database: Database) -> dict[str, int]:
             "summary_two": summary_two.id,
             "repo_one": repo_one.id,
         }
+
+
+@pytest.mark.asyncio
+async def test_reconciler_accepts_fake_entity_adapter_without_hardcoded_type() -> None:
+    adapter = _FakeEntityAdapter()
+
+    report = await VectorIndexReconciler(
+        database=_FakeDatabase(),
+        vector_store=FakeVectorStore(summaries=set(), repositories=set()),
+        adapters=[adapter],
+        scan_limit=25,
+    ).inspect(now=dt.datetime(2026, 5, 22, 13, tzinfo=UTC))
+
+    assert adapter.calls == [(True, 25, "1.0")]
+    assert report.status == "degraded"
+    assert report.expected_summaries == 0
+    assert report.expected_repositories == 0
+    assert report.indexed_points == 0
+    assert report.lag_seconds == 3600
+    assert report.latest_indexed_at == dt.datetime(2026, 5, 22, 12, 30, tzinfo=UTC)
+    entities = cast("dict[str, Any]", report.details["entities"])
+    assert entities["bookmark"] == {
+        "expected": 3,
+        "indexed": 2,
+        "missing_vectors": 1,
+        "missing_embeddings": 1,
+        "stale_embeddings": 2,
+        "pending_embeddings": 1,
+        "stale_model_count": 1,
+        "oldest_unindexed_at": dt.datetime(2026, 5, 22, 12, tzinfo=UTC),
+        "latest_indexed_at": dt.datetime(2026, 5, 22, 12, 30, tzinfo=UTC),
+    }
 
 
 @pytest.mark.asyncio

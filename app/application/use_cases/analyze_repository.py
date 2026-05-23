@@ -5,19 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
-
-from sqlalchemy import select
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from app.core.logging_utils import get_logger
-from app.db.models.repository import Repository
 
 if TYPE_CHECKING:
     from app.agents.repo_analysis_agent import RepoAnalysisAgent
+    from app.application.ports.repository_analysis import (
+        RepositoryAnalysisRecord,
+        RepositoryAnalysisRepositoryPort,
+    )
     from app.core.repo_analysis_schema import RepoAnalysis
-    from app.db.session import Database
-    from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
 
 logger = get_logger(__name__)
 
@@ -36,16 +34,35 @@ class RepositoryAnalysisResult:
     embedding_refreshed: bool
 
 
+class RepositoryEmbeddingGeneratorPort(Protocol):
+    """Embedding refresh dependency used by repository analysis."""
+
+    async def regenerate(
+        self,
+        repository: Any,
+        *,
+        analysis: RepoAnalysis | None,
+        correlation_id: str,
+    ) -> Any:
+        """Regenerate the repository embedding after analysis changes."""
+
+
+class _RepositoryContentSignals(Protocol):
+    description: str | None
+    topics_json: list[Any] | None
+    readme_excerpt: str | None
+
+
 class AnalyzeRepositoryUseCase:
     """Orchestrate LLM analysis and embedding refresh for a repository."""
 
     def __init__(
         self,
-        db: Database,
+        repository_repo: RepositoryAnalysisRepositoryPort,
         agent: RepoAnalysisAgent,
-        embedding_gen: RepositoryEmbeddingGenerator,
+        embedding_gen: RepositoryEmbeddingGeneratorPort,
     ) -> None:
-        self._db = db
+        self._repository_repo = repository_repo
         self._agent = agent
         self._embedding_gen = embedding_gen
 
@@ -64,7 +81,7 @@ class AnalyzeRepositoryUseCase:
         """Run analysis on a repository, honouring content-hash short-circuit.
 
         Args:
-            repository_id: Primary key of the :class:`Repository` row.
+            repository_id: Primary key of the repository being analyzed.
             force: When ``True``, bypass the content-hash cache and always
                 call the agent.
             correlation_id: Opaque tracing token threaded through logs.
@@ -160,7 +177,11 @@ class AnalyzeRepositoryUseCase:
             )
 
         # Persist analysis to the repository row
-        await self._persist_analysis(repository, analysis=analysis, content_hash=new_content_hash)
+        repository = await self._persist_analysis(
+            repository,
+            analysis=analysis,
+            content_hash=new_content_hash,
+        )
 
         # Refresh embedding
         await self._embedding_gen.regenerate(
@@ -191,39 +212,27 @@ class AnalyzeRepositoryUseCase:
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _load_repository(self, repository_id: int) -> Repository:
-        async with self._db.session() as session:
-            stmt = select(Repository).where(Repository.id == repository_id)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-
-        if row is None:
+    async def _load_repository(self, repository_id: int) -> RepositoryAnalysisRecord:
+        repository = await self._repository_repo.get_for_analysis(repository_id)
+        if repository is None:
             raise RepositoryNotFoundError(repository_id)
-        return row
+        return repository
 
     async def _persist_analysis(
         self,
-        repository: Repository,
+        repository: RepositoryAnalysisRecord,
         *,
         analysis: RepoAnalysis,
         content_hash: str,
-    ) -> None:
-        async with self._db.transaction() as session:
-            # Re-fetch inside the transaction to avoid stale state
-            row = await session.get(Repository, repository.id)
-            if row is None:
-                raise RepositoryNotFoundError(repository.id)
-
-            row.analysis_json = analysis.model_dump()
-            row.analysis_model = None  # populated by DI caller when model name is known
-            row.analysis_at = datetime.now(UTC)
-            row.content_hash = content_hash
-            row.pending_analysis = False
-
-        # Refresh the in-memory reference so callers see the updated row
-        repository.analysis_json = analysis.model_dump()
-        repository.content_hash = content_hash
-        repository.pending_analysis = False
+    ) -> RepositoryAnalysisRecord:
+        updated = await self._repository_repo.save_analysis(
+            repository.id,
+            analysis_json=analysis.model_dump(),
+            content_hash=content_hash,
+        )
+        if updated is None:
+            raise RepositoryNotFoundError(repository.id)
+        return updated
 
 
 # ------------------------------------------------------------------
@@ -231,7 +240,7 @@ class AnalyzeRepositoryUseCase:
 # ------------------------------------------------------------------
 
 
-def _compute_content_hash(repository: Repository) -> str:
+def _compute_content_hash(repository: _RepositoryContentSignals) -> str:
     """Compute a stable SHA-256 fingerprint from repository content signals."""
     description = repository.description or ""
     topics_raw = repository.topics_json

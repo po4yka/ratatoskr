@@ -830,11 +830,17 @@ def _redact_message(message: Any, *, max_len: int = 240) -> str | None:
         return None
     text = str(message)
     for pattern in _SECRET_PATTERNS:
-        text = pattern.sub(lambda match: f"{match.group(1)}=[REDACTED]", text)
+        text = pattern.sub(_redact_match, text)
     text = text.replace("\n", " ").replace("\r", " ").strip()
     if len(text) > max_len:
         return f"{text[: max_len - 3]}..."
     return text or None
+
+
+def _redact_match(match: re.Match[str]) -> str:
+    if match.lastindex == 1:
+        return "[REDACTED]"
+    return f"{match.group(1)}=[REDACTED]"
 
 
 def _parse_github_sync_state(raw: str | None) -> dict[str, Any]:
