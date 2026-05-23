@@ -81,7 +81,7 @@ class NotificationOnboardingPresenter:
             "- /dbinfo, /dbverify, /admin for storage and operational stats.\n\n"
             "Notes:\n"
             "- All artifacts (sources, LLM calls, summaries, embeddings) are "
-            "persisted to SQLite + Qdrant.\n"
+            "persisted to PostgreSQL + Qdrant.\n"
             "- Errors include an Error ID you can reference in logs.\n"
             "- Full command list: /help."
         )

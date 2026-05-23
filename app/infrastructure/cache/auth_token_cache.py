@@ -24,7 +24,7 @@ class AuthTokenCache:
     Value: {"user_id": int, "client_id": str | None, "expires_at": str, "is_revoked": bool}
     TTL: Aligned with token expiry (configurable via REDIS_AUTH_TOKEN_CACHE_TTL_SECONDS)
 
-    Fallback: On cache miss, query SQLite (existing behavior).
+    Fallback: On cache miss, query PostgreSQL through the auth repository.
     """
 
     def __init__(self, cache: RedisCache, cfg: AppConfig) -> None:

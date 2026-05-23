@@ -63,7 +63,7 @@ See [Cost Optimization](#cost-optimization) for ways to minimize costs.
 2. **Content extraction**: Multi-provider scraper chain (Scrapling, Firecrawl, Playwright, Crawlee, direct HTML) extracts articles; platform extractors handle X, Threads, Instagram, and YouTube; Telegram-native submissions preserve message/media provenance.
 3. **LLM summarization or synthesis**: OpenRouter sends extracted content to an LLM (e.g., DeepSeek, Qwen, Kimi).
 4. **Structured output**: The system returns either a strict summary JSON object or a provenance-aware aggregation bundle result.
-5. **Storage**: Requests, source items, crawl artifacts, LLM calls, and outputs are stored in SQLite.
+5. **Storage**: Requests, source items, crawl artifacts, LLM calls, and outputs are stored in PostgreSQL.
 6. **Reply**: Bot sends formatted results back to Telegram, and the API returns the same workflow through `/v1/*`.
 
 ### What makes it different from ChatGPT?
@@ -589,7 +589,7 @@ Yes. Multiple integration options:
 
 1. **REST API** (FastAPI): Build custom clients
 2. **MCP Server**: Expose to Claude Desktop (or any MCP client)
-3. **SQLite Database**: Direct database access for custom scripts
+3. **PostgreSQL Database**: Direct database access for custom scripts
 4. **CLI Tools**: Batch processing, search, export
 
 See [reference/mcp-server.md](../reference/mcp-server.md) for MCP integration.
@@ -600,7 +600,7 @@ Not directly, but you can:
 
 1. **Export to Markdown** (CLI tool, roadmap)
 2. **Sync via Mobile API** (build custom sync script)
-3. **Direct Database Access** (query SQLite, convert to Markdown)
+3. **Direct Database Access** (query PostgreSQL, convert to Markdown)
 
 ### Can I use it as a Slack bot?
 

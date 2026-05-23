@@ -558,7 +558,7 @@ docker restart ratatoskr
 
 **Symptom**: "Database is locked" errors during writes.
 
-**Cause**: Multiple processes accessing SQLite concurrently (not supported well).
+**Cause**: A long-running database transaction or connection pool exhaustion is blocking writes.
 
 **Solution**:
 

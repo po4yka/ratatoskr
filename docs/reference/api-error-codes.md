@@ -752,7 +752,7 @@ ffmpeg is required for video processing but was not found.
 
 **HTTP Status:** `500 Internal Server Error`
 
-**Cause:** SQLite database is locked by another process
+**Cause:** A database transaction or connection is blocked by another process
 
 **Response:**
 
@@ -780,7 +780,7 @@ ffmpeg is required for video processing but was not found.
 
 **HTTP Status:** `500 Internal Server Error`
 
-**Cause:** SQLite database file is corrupted
+**Cause:** Database storage is corrupted or unavailable
 
 **Telegram Response:**
 

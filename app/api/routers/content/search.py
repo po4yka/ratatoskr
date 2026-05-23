@@ -61,7 +61,7 @@ async def search_summaries(
     search_service: SearchService = Depends(_get_search_service),
 ) -> Any:
     """
-    Full-text search across all summaries using FTS5.
+    Full-text search across all summaries using PostgreSQL text search.
 
     Search Syntax:
     - Wildcard: bitcoin*

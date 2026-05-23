@@ -106,7 +106,7 @@ if os.getenv("LOG_FORMAT") == "json":
 
 **Problem:** LLM output is non-deterministic. If a summary is incorrect, how do you debug without the exact prompt and response?
 
-**Solution:** Persist everything in SQLite.
+**Solution:** Persist everything in PostgreSQL.
 
 **Stored Data:**
 

@@ -67,7 +67,7 @@ See:
 
 ```bash
 python -m app.cli.signal_eval export \
-  --db-path data/ratatoskr.sqlite \
+  --dsn "$DATABASE_URL" \
   --user-id 123456 \
   --limit 100 \
   --output data/signal_eval.jsonl
@@ -253,7 +253,7 @@ python -m app.cli.migrate_db
 
 **Location:** `app/db/alembic/versions/`
 
-Alembic owns schema DDL. The old hand-written SQLite migration package has been removed.
+Alembic owns schema DDL. The old hand-written migration package has been removed.
 
 ---
 

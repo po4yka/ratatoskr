@@ -19,6 +19,6 @@ app/core/content_cleaner.py
 app/application/use_cases/get_unread_summaries.py
 app/application/use_cases/mark_summary_as_read.py
 app/application/use_cases/mark_summary_as_unread.py
-# SQLite repositories
-app/infrastructure/persistence/sqlite/repositories/summary_repository.py
-app/infrastructure/persistence/sqlite/repositories/request_repository.py
+# SQLAlchemy repositories
+app/infrastructure/persistence/repositories/summary_repository.py
+app/infrastructure/persistence/repositories/request_repository.py

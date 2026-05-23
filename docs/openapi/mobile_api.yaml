@@ -3214,7 +3214,7 @@ paths:
       tags:
       - Search
       summary: Search Summaries
-      description: 'Full-text search across all summaries using FTS5.
+      description: 'Full-text search across all summaries using PostgreSQL text search.
 
 
         Search Syntax:

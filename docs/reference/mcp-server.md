@@ -206,7 +206,7 @@ MCP_USER_ID=12345 docker compose -f ops/docker/docker-compose.yml --profile mcp-
 
 Key differences from the read-only profile:
 
-- the SQLite volume is mounted read-write, so aggregation tools can persist sessions and items
+- the database service is available for writes, so aggregation tools can persist sessions and items
 - the service binds to `127.0.0.1:8201`
 - startup scoping via `MCP_USER_ID` is still required
 

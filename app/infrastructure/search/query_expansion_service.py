@@ -115,13 +115,13 @@ class QueryExpansionService:
         )
 
     def expand_for_fts(self, query: str) -> str:
-        """Expand query for FTS5 search (returns query string).
+        """Expand query for keyword search.
 
         Args:
             query: Original query
 
         Returns:
-            Expanded query string suitable for FTS5
+            Expanded keyword query string
         """
         expanded = self.expand_query(query)
 
@@ -129,7 +129,7 @@ class QueryExpansionService:
         all_terms = [expanded.original]
         all_terms.extend(expanded.expanded_terms[: self._max_expansions])
 
-        # FTS5 uses OR for multiple terms in quotes
+        # Keep the quoted OR form expected by the keyword-search adapter.
         return " OR ".join(f'"{term}"' for term in all_terms if term)
 
     def _extract_key_terms(self, query: str) -> list[str]:

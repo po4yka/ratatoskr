@@ -1,4 +1,4 @@
-"""Protocol aliases for SQLite database executors used by repository adapters."""
+"""Protocol aliases for database executors used by repository adapters."""
 
 from __future__ import annotations
 

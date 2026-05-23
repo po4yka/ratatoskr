@@ -136,7 +136,7 @@ class MessageRouteFailureHandler:
             )
             return
 
-        if any(keyword in error_lower for keyword in ("database", "sqlite", "disk")):
+        if any(keyword in error_lower for keyword in ("database", "postgres", "disk")):
             await self.response_formatter.send_error_notification(
                 message,
                 "database_error",

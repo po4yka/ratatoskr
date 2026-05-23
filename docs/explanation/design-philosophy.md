@@ -15,7 +15,7 @@ Understanding the principles and trade-offs behind Ratatoskr's architecture.
 **Applied:**
 
 - Single-user access control (no multi-tenancy complexity)
-- SQLite database (no distributed database complexity)
+- PostgreSQL database with a local-first deployment profile
 - Environment variables only (no runtime configuration UI)
 - One bot per owner (no shared infrastructure)
 
@@ -127,7 +127,7 @@ See: [Summary Contract Design](summary-contract-design.md)
 - No analytics, no telemetry to third parties
 - No PII stored (only Telegram user IDs, no names/emails/phones)
 - API keys never logged (redacted in debug mode)
-- Local SQLite storage (no cloud database)
+- Self-hosted PostgreSQL storage
 - Self-hosted deployment (user owns the data)
 - Single-user access control (no data co-mingling)
 
@@ -233,20 +233,20 @@ See: [FAQ § Security](faq.md#security)
 
 ## Technology Choices
 
-### Why SQLite Over PostgreSQL?
+### Why PostgreSQL?
 
-**Chosen:** SQLite (single-file database) **Rejected:** PostgreSQL, MySQL, MongoDB
+**Chosen:** PostgreSQL with SQLAlchemy 2.0 and Alembic migrations
 
 **Rationale:**
 
-- **Simplicity:** Zero setup (no server, no connection pooling, no backups)
-- **Performance:** Sufficient for single-user workload (<1000 requests/day)
-- **Portability:** Entire database is one file (easy backups, migrations)
-- **Cost:** Zero hosting cost (included in Docker image)
+- **Correctness:** Async workers, API requests, and Telegram processing can share one transactional store.
+- **Search:** Native text search indexes support keyword search without a separate relational engine.
+- **Operations:** Alembic owns schema upgrades, and the Docker stack gives one durable database service.
+- **Extensibility:** The same database supports repository ingestion, sync metadata, and future multi-client workflows.
 
-**Trade-off:** No horizontal scaling, but single-user workload never exceeds SQLite's capabilities.
+**Trade-off:** The deployment includes a database service, but the runtime no longer depends on single-file write concurrency limits.
 
-**When to reconsider:** If multi-user support is added, PostgreSQL becomes necessary for concurrent writes.
+**When to reconsider:** If the project grows into a multi-node service, add connection-pool and failover guidance before changing the persistence model.
 
 ---
 
@@ -320,7 +320,7 @@ class SummaryRepository:
         ...
 ```
 
-**Benefits:** Swap SQLite for PostgreSQL by changing one class, no domain code changes.
+**Benefits:** Swap concrete persistence adapters without changing domain code.
 
 ---
 
@@ -474,7 +474,7 @@ def test_url_normalization_calls_urlparse():
 **Applied:**
 
 - Bot token has no special permissions (only send/receive messages)
-- SQLite database has no network access
+- PostgreSQL is reachable only from the trusted runtime network
 - Docker container runs as non-root user
 - Environment variables never logged (even in DEBUG mode)
 

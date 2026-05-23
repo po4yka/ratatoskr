@@ -114,7 +114,7 @@ bash tools/scripts/build-and-deploy-pi.sh --help
 
 ## Database
 
-PostgreSQL via SQLAlchemy 2.0 + asyncpg. Typed declarative models live under `app/db/models/` (split by area: `core.py`, `aggregation.py`, `batch.py`, `collections.py`, `digest.py`, `repository.py`, `rss.py`, `rules.py`, `signal.py`, `topic_search.py`, `user_content.py`) and are aggregated through `app/db/models/__init__.py::ALL_MODELS`. `Database` (`app/db/session.py`) is the sole DB entry point and exposes async sessions/transactions; full-text search runs on a Postgres `TSVECTOR` + GIN column instead of the legacy SQLite FTS5 surface. Schema migrations are managed by Alembic (`app/db/alembic/versions/`) and applied with `python -m app.cli.migrate_db`.
+PostgreSQL via SQLAlchemy 2.0 + asyncpg. Typed declarative models live under `app/db/models/` (split by area: `core.py`, `aggregation.py`, `batch.py`, `collections.py`, `digest.py`, `repository.py`, `rss.py`, `rules.py`, `signal.py`, `topic_search.py`, `user_content.py`) and are aggregated through `app/db/models/__init__.py::ALL_MODELS`. `Database` (`app/db/session.py`) is the sole DB entry point and exposes async sessions/transactions; full-text search runs on a Postgres `TSVECTOR` + GIN column. Schema migrations are managed by Alembic (`app/db/alembic/versions/`) and applied with `python -m app.cli.migrate_db`.
 
 ## Summary JSON Contract
 

@@ -38,7 +38,7 @@ def load_env_file(path: Path) -> None:
 
 
 def prepare_config(args: argparse.Namespace) -> AppConfig:
-    """Load configuration, optionally applying CLI overrides for db_path and log_level."""
+    """Load configuration, optionally applying CLI overrides for log_level."""
     base_dir = Path(__file__).resolve().parents[2]
     candidates: list[Path] = []
     if getattr(args, "env_file", None):
@@ -68,8 +68,10 @@ def prepare_config(args: argparse.Namespace) -> AppConfig:
     updated = False
 
     if getattr(args, "db_path", None):
-        runtime = replace(runtime, db_path=str(args.db_path))
-        updated = True
+        logger.warning(
+            "cli_db_path_ignored",
+            extra={"db_path": str(args.db_path), "reason": "postgresql_runtime"},
+        )
 
     if getattr(args, "log_level", None):
         runtime = replace(runtime, log_level=args.log_level)

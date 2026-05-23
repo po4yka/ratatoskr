@@ -5087,7 +5087,7 @@
           "Search"
         ],
         "summary": "Search Summaries",
-        "description": "Full-text search across all summaries using FTS5.\n\nSearch Syntax:\n- Wildcard: bitcoin*\n- Phrase: \"artificial intelligence\"\n- Boolean: blockchain AND crypto\n- Exclusion: crypto NOT bitcoin",
+        "description": "Full-text search across all summaries using PostgreSQL text search.\n\nSearch Syntax:\n- Wildcard: bitcoin*\n- Phrase: \"artificial intelligence\"\n- Boolean: blockchain AND crypto\n- Exclusion: crypto NOT bitcoin",
         "operationId": "search_summaries_v1_search_get",
         "security": [
           {

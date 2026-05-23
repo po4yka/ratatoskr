@@ -28,7 +28,7 @@ You want to use Ratatoskr to summarize articles, videos, or mixed-source bundles
 - [How to enable YouTube support](guides/configure-youtube-download.md)
 - [How to enable web search](guides/enable-web-search.md)
 - [External Access Quickstart](guides/external-access-quickstart.md)
-- [SPEC.md § Mixed-source aggregation foundation](SPEC.md#data-model-sqlite)
+- [SPEC.md § Data Model](SPEC.md#data-model)
 - [Environment variables reference](reference/environment-variables.md)
 
 ### 💻 I'm a Developer
@@ -123,7 +123,7 @@ You want to integrate Ratatoskr with other tools or build a client.
 - **Enable YouTube support** → [How to configure YouTube download](guides/configure-youtube-download.md)
 - **Enable Twitter / X extraction** → [How to configure Twitter / X extraction](guides/configure-twitter-extraction.md)
 - **Upgrade across the project rename** → [Migrate from bite-size-reader](guides/migrate-from-bite-size-reader.md)
-- **Run mixed-source aggregation** → [SPEC.md § Mixed-source aggregation foundation](SPEC.md#data-model-sqlite)
+- **Run mixed-source aggregation** → [SPEC.md § Data Model](SPEC.md#data-model)
 - **Onboard an external CLI or MCP client** → [External Access Quickstart](guides/external-access-quickstart.md)
 - **Enable web search enrichment** → [How to enable web search](guides/enable-web-search.md)
 - **Setup Redis caching** → [How to setup Redis caching](guides/setup-redis-caching.md)

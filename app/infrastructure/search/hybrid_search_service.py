@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 
 
 class HybridSearchService:
-    """Combines full-text (FTS5) and vector (semantic) search."""
+    """Combines PostgreSQL full-text and vector semantic search."""
 
     def __init__(
         self,

@@ -121,7 +121,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--db-path",
         type=Path,
-        help="Override the configured SQLite path for this run.",
+        help="Deprecated; ignored by the PostgreSQL-backed runtime.",
     )
     parser.add_argument(
         "--json-path",

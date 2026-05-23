@@ -49,7 +49,7 @@ Skips non-Python files and files in `venv`/`build`/`dist` directories.
 Automatically injects helpful context based on prompt keywords:
 
 - **correlation / error id**: Database query patterns for tracing
-- **database / sqlite**: Points to `data/ratatoskr.db` and database-inspection skill
+- **database / postgres**: Points to database-inspection guidance
 - **summary validate**: Links to `app/core/summary_contract.py`
 - **firecrawl / openrouter / api**: Points to adapter files and api-debugging skill
 - **test / cli**: Links to CLI runner and telegram-testing skill

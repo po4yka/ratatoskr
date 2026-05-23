@@ -147,12 +147,12 @@ def register_resources(
 
     @_contribute_resource(contributions, "ratatoskr://vector/index-stats")
     async def vector_index_stats_resource() -> str:
-        """Vector store index coverage compared to SQLite summaries."""
+        """Vector store index coverage compared to PostgreSQL summaries."""
         return to_json(await semantic_service.vector_index_stats())
 
     @_contribute_resource(contributions, "ratatoskr://vector/sync-gap")
     async def vector_sync_gap_resource() -> str:
-        """Vector store/SQLite sync gap sample using default scan limits."""
+        """Vector store/PostgreSQL sync gap sample using default scan limits."""
         return to_json(await semantic_service.vector_sync_gap())
 
     @_contribute_resource(contributions, "ratatoskr://signals/recent")

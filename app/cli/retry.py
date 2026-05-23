@@ -32,7 +32,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--correlation-id", metavar="CID", help="Correlation ID shown in the error message."
     )
     lookup.add_argument("--request-id", type=int, metavar="ID", help="Request primary-key ID.")
-    parser.add_argument("--db-path", type=Path, help="Override SQLite path.")
+    parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Deprecated; ignored by the PostgreSQL-backed runtime.",
+    )
     parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
