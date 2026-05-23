@@ -340,7 +340,7 @@ def _format_iso(value: dt.datetime) -> str:
 
 
 __all__ = [
-    "XBookmarksIngestor",
     "XBookmarkRow",
+    "XBookmarksIngestor",
     "XIngestStats",
 ]

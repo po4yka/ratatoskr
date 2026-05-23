@@ -182,7 +182,7 @@ class XWikiSyncService:
 
 
 __all__ = [
-    "XWikiSyncService",
     "WikiSyncSummary",
+    "XWikiSyncService",
     "x_wiki_point_id",
 ]
