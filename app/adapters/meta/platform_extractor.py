@@ -39,6 +39,7 @@ from app.domain.models.source import SourceItem, SourceKind
 
 if TYPE_CHECKING:
     from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
+    from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
     from app.config import AppConfig
 
 _META_LOGIN_WALL_TERMS = (
@@ -72,12 +73,14 @@ class MetaPlatformExtractor(PlatformExtractor):
         scraper: Any,
         firecrawl_sem: Any,
         lifecycle: PlatformRequestLifecycle,
+        threads_api_extractor: ThreadsApiExtractor | None = None,
     ) -> None:
         self._cfg = cfg
         self._scraper = scraper
         self._firecrawl_sem = firecrawl_sem
         self._lifecycle = lifecycle
         self._video_source_extractor = MetadataDrivenVideoSourceExtractor()
+        self._threads_api_extractor = threads_api_extractor
 
     def supports(self, normalized_url: str) -> bool:
         return is_threads_url(normalized_url) or is_instagram_url(normalized_url)
@@ -93,6 +96,34 @@ class MetaPlatformExtractor(PlatformExtractor):
                 dedupe_hash=dedupe_hash,
             )
 
+        threads_api_metadata: dict[str, Any] | None = None
+        if kind_hint == SourceKind.THREADS_POST and self._threads_api_extractor is not None:
+            threads_api_result = await self._threads_api_extractor.extract(
+                url=request.normalized_url,
+                user_id=request.user_id,
+                request_id=request_id,
+                dedupe_hash=dedupe_hash,
+            )
+            if threads_api_result.ok:
+                detected_lang = threads_api_result.detected_lang or detect_language(
+                    threads_api_result.content_text
+                )
+                if request.mode == "interactive" and request_id is not None:
+                    await self._lifecycle.persist_detected_lang(request_id, detected_lang)
+                return PlatformExtractionResult(
+                    platform="meta",
+                    request_id=request_id,
+                    content_text=threads_api_result.content_text,
+                    content_source=threads_api_result.content_source,
+                    detected_lang=detected_lang,
+                    title=threads_api_result.title,
+                    images=threads_api_result.images or [],
+                    metadata=threads_api_result.metadata or {},
+                    source_item=threads_api_result.source_item,
+                    normalized_document=threads_api_result.normalized_document,
+                )
+            threads_api_metadata = threads_api_result.metadata
+
         async with self._firecrawl_sem():
             crawl = await self._scraper.scrape_markdown(
                 request.normalized_url,
@@ -104,6 +135,7 @@ class MetaPlatformExtractor(PlatformExtractor):
             kind_hint=kind_hint,
             request_id=request_id,
             crawl=crawl,
+            api_fallback_metadata=threads_api_metadata,
         )
 
         detected_lang = detect_language(
@@ -244,6 +276,7 @@ def _build_meta_document(
     kind_hint: SourceKind,
     request_id: int | None,
     crawl: Any,
+    api_fallback_metadata: dict[str, Any] | None = None,
 ) -> _MetaBuildResult:
     metadata_json = crawl.metadata_json if isinstance(crawl.metadata_json, dict) else {}
     quality = _evaluate_meta_quality(crawl=crawl, metadata_json=metadata_json)
@@ -332,6 +365,8 @@ def _build_meta_document(
         "firecrawl_metadata": metadata_json,
         "request_id": request_id,
     }
+    if api_fallback_metadata and resolved_kind == SourceKind.THREADS_POST:
+        metadata = _merge_threads_api_fallback_metadata(metadata, api_fallback_metadata)
     return _MetaBuildResult(
         kind=resolved_kind,
         title=title,
@@ -341,6 +376,19 @@ def _build_meta_document(
         metadata=metadata,
         content_source=content_source,
     )
+
+
+def _merge_threads_api_fallback_metadata(
+    scraper_metadata: dict[str, Any],
+    api_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = {**api_metadata, **scraper_metadata}
+    metadata["auth_strategy"] = {
+        "authenticated_supported": True,
+        "selected_tier": "meta_scraper_fallback",
+        "fallback_reason": api_metadata.get("api_status"),
+    }
+    return metadata
 
 
 def _classify_meta_source_kind(url: str) -> SourceKind:

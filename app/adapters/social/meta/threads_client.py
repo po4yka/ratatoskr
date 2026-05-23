@@ -203,6 +203,14 @@ class ThreadsClient:
         )
         return ThreadsMedia.from_payload(payload)
 
+    async def get_media_response(self, media_id: str, *, access_token: str) -> httpx.Response:
+        """Return the raw HTTP response for extractor tiers that need status metadata."""
+        return await self._get_response(
+            media_id,
+            access_token=access_token,
+            params={"fields": ",".join(THREADS_MEDIA_FIELDS)},
+        )
+
     async def get_user_threads(
         self,
         user_id: str = "me",
@@ -233,9 +241,7 @@ class ThreadsClient:
         data = payload.get("data") if isinstance(payload.get("data"), list) else []
         return {
             "data": [
-                ThreadsMedia.from_payload(item).to_dict()
-                for item in data
-                if isinstance(item, dict)
+                ThreadsMedia.from_payload(item).to_dict() for item in data if isinstance(item, dict)
             ],
             "paging": payload.get("paging") if isinstance(payload.get("paging"), dict) else None,
         }
@@ -247,17 +253,7 @@ class ThreadsClient:
         access_token: str,
         params: dict[str, str],
     ) -> dict[str, Any]:
-        close_client = self._http_client is None
-        client = self._http_client or httpx.AsyncClient(timeout=httpx.Timeout(self._config.timeout_sec))
-        query = {**params, "access_token": access_token}
-        url = f"{self._config.normalized_graph_base_url}/{path.lstrip('/')}"
-        try:
-            response = await client.get(url, params=query)
-        except httpx.HTTPError as exc:
-            raise ThreadsOAuthError("Threads Graph request failed", code="THREADS_GRAPH_REQUEST_FAILED") from exc
-        finally:
-            if close_client:
-                await client.aclose()
+        response = await self._get_response(path, access_token=access_token, params=params)
         if response.status_code >= 400:
             raise ThreadsOAuthError(
                 "Threads Graph request was rejected",
@@ -267,10 +263,38 @@ class ThreadsClient:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise ThreadsOAuthError("Threads Graph response was not JSON", code="THREADS_GRAPH_INVALID_JSON") from exc
+            raise ThreadsOAuthError(
+                "Threads Graph response was not JSON", code="THREADS_GRAPH_INVALID_JSON"
+            ) from exc
         if not isinstance(payload, dict):
-            raise ThreadsOAuthError("Threads Graph response was not an object", code="THREADS_GRAPH_INVALID_JSON")
+            raise ThreadsOAuthError(
+                "Threads Graph response was not an object", code="THREADS_GRAPH_INVALID_JSON"
+            )
         return payload
+
+    async def _get_response(
+        self,
+        path: str,
+        *,
+        access_token: str,
+        params: dict[str, str],
+    ) -> httpx.Response:
+        close_client = self._http_client is None
+        client = self._http_client or httpx.AsyncClient(
+            timeout=httpx.Timeout(self._config.timeout_sec)
+        )
+        query = {**params, "access_token": access_token}
+        url = f"{self._config.normalized_graph_base_url}/{path.lstrip('/')}"
+        try:
+            response = await client.get(url, params=query)
+        except httpx.HTTPError as exc:
+            raise ThreadsOAuthError(
+                "Threads Graph request failed", code="THREADS_GRAPH_REQUEST_FAILED"
+            ) from exc
+        finally:
+            if close_client:
+                await client.aclose()
+        return response
 
 
 def _to_social_auth_error(exc: ThreadsOAuthError, *, refresh: bool = False) -> SocialAuthError:
@@ -309,8 +333,5 @@ def redact_threads_url(url: str) -> str:
     """Return a token-redacted URL for tests/debugging without logging secrets."""
     parsed = urllib.parse.urlsplit(url)
     query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-    redacted = [
-        (key, "[REDACTED]" if key == "access_token" else value)
-        for key, value in query
-    ]
+    redacted = [(key, "[REDACTED]" if key == "access_token" else value) for key, value in query]
     return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(redacted)))

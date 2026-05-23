@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any
 from app.adapters.content.content_extractor import URL_ROUTE_VERSION
 from app.adapters.content.content_extractor_requests import schedule_crawl_persistence_task
 from app.adapters.content.platform_extraction import (
+    PlatformExtractionRouter,
     PlatformExtractorContext,
     PlatformExtractorContribution,
-    PlatformExtractionRouter,
     PlatformRequestLifecycle,
     build_platform_extraction_router,
 )
@@ -152,12 +152,33 @@ def _build_twitter_platform_extractor(context: PlatformExtractorContext) -> Any:
 
 def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
     from app.adapters.meta.platform_extractor import MetaPlatformExtractor
+    from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
+    from app.adapters.social.meta import ThreadsClient, ThreadsOAuthConfig
+    from app.infrastructure.persistence.repositories.social_connection_repository import (
+        SocialConnectionRepositoryAdapter,
+    )
+
+    social_cfg = context.cfg.social
 
     return MetaPlatformExtractor(
         cfg=context.cfg,
         scraper=context.scraper,
         firecrawl_sem=context.sem,
         lifecycle=context.lifecycle,
+        threads_api_extractor=ThreadsApiExtractor(
+            repository=SocialConnectionRepositoryAdapter(context.db),
+            threads_client=ThreadsClient(
+                ThreadsOAuthConfig(
+                    client_id=social_cfg.threads_client_id,
+                    client_secret=social_cfg.threads_client_secret.get_secret_value()
+                    if social_cfg.threads_client_secret is not None
+                    else None,
+                    redirect_uri=social_cfg.threads_redirect_uri,
+                    scopes=social_cfg.threads_scopes,
+                    graph_base_url=social_cfg.threads_graph_base_url,
+                )
+            ),
+        ),
     )
 
 

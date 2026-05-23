@@ -10,6 +10,7 @@ from app.core.urls.normalization import normalize_url
 _THREADS_HOSTS = frozenset({"threads.net", "www.threads.net"})
 _INSTAGRAM_HOSTS = frozenset({"instagram.com", "www.instagram.com"})
 _THREADS_POST_RE = re.compile(r"^/@[^/]+/post/([^/?#]+)", re.IGNORECASE)
+_THREADS_T_RE = re.compile(r"^/t/([^/?#]+)", re.IGNORECASE)
 _INSTAGRAM_POST_RE = re.compile(r"^/p/([^/?#]+)", re.IGNORECASE)
 _INSTAGRAM_REEL_RE = re.compile(r"^/(?:reel|reels|tv)/([^/?#]+)", re.IGNORECASE)
 
@@ -26,8 +27,11 @@ def extract_threads_post_id(url: str) -> str | None:
     parsed = _parse_meta_url(url)
     if parsed is None or parsed.hostname not in _THREADS_HOSTS:
         return None
-    match = _THREADS_POST_RE.match(parsed.path)
-    return match.group(1) if match else None
+    for pattern in (_THREADS_POST_RE, _THREADS_T_RE):
+        match = pattern.match(parsed.path)
+        if match:
+            return match.group(1)
+    return None
 
 
 def is_instagram_url(url: str) -> bool:
