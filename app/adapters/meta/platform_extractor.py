@@ -39,6 +39,7 @@ from app.domain.models.source import SourceItem, SourceKind
 
 if TYPE_CHECKING:
     from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
+    from app.adapters.meta.instagram_api_extractor import InstagramApiExtractor
     from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
     from app.config import AppConfig
 
@@ -74,6 +75,7 @@ class MetaPlatformExtractor(PlatformExtractor):
         firecrawl_sem: Any,
         lifecycle: PlatformRequestLifecycle,
         threads_api_extractor: ThreadsApiExtractor | None = None,
+        instagram_api_extractor: InstagramApiExtractor | None = None,
     ) -> None:
         self._cfg = cfg
         self._scraper = scraper
@@ -81,6 +83,7 @@ class MetaPlatformExtractor(PlatformExtractor):
         self._lifecycle = lifecycle
         self._video_source_extractor = MetadataDrivenVideoSourceExtractor()
         self._threads_api_extractor = threads_api_extractor
+        self._instagram_api_extractor = instagram_api_extractor
 
     def supports(self, normalized_url: str) -> bool:
         return is_threads_url(normalized_url) or is_instagram_url(normalized_url)
@@ -124,6 +127,42 @@ class MetaPlatformExtractor(PlatformExtractor):
                 )
             threads_api_metadata = threads_api_result.metadata
 
+        instagram_api_metadata: dict[str, Any] | None = None
+        if (
+            kind_hint
+            in {
+                SourceKind.INSTAGRAM_POST,
+                SourceKind.INSTAGRAM_REEL,
+            }
+            and self._instagram_api_extractor is not None
+        ):
+            instagram_api_result = await self._instagram_api_extractor.extract(
+                url=request.normalized_url,
+                kind_hint=kind_hint,
+                user_id=request.user_id,
+                request_id=request_id,
+                dedupe_hash=dedupe_hash,
+            )
+            if instagram_api_result.ok:
+                detected_lang = instagram_api_result.detected_lang or detect_language(
+                    instagram_api_result.content_text
+                )
+                if request.mode == "interactive" and request_id is not None:
+                    await self._lifecycle.persist_detected_lang(request_id, detected_lang)
+                return PlatformExtractionResult(
+                    platform="meta",
+                    request_id=request_id,
+                    content_text=instagram_api_result.content_text,
+                    content_source=instagram_api_result.content_source,
+                    detected_lang=detected_lang,
+                    title=instagram_api_result.title,
+                    images=instagram_api_result.images or [],
+                    metadata=instagram_api_result.metadata or {},
+                    source_item=instagram_api_result.source_item,
+                    normalized_document=instagram_api_result.normalized_document,
+                )
+            instagram_api_metadata = instagram_api_result.metadata
+
         async with self._firecrawl_sem():
             crawl = await self._scraper.scrape_markdown(
                 request.normalized_url,
@@ -135,7 +174,7 @@ class MetaPlatformExtractor(PlatformExtractor):
             kind_hint=kind_hint,
             request_id=request_id,
             crawl=crawl,
-            api_fallback_metadata=threads_api_metadata,
+            api_fallback_metadata=threads_api_metadata or instagram_api_metadata,
         )
 
         detected_lang = detect_language(
@@ -367,6 +406,16 @@ def _build_meta_document(
     }
     if api_fallback_metadata and resolved_kind == SourceKind.THREADS_POST:
         metadata = _merge_threads_api_fallback_metadata(metadata, api_fallback_metadata)
+    if api_fallback_metadata and resolved_kind in {
+        SourceKind.INSTAGRAM_POST,
+        SourceKind.INSTAGRAM_CAROUSEL,
+        SourceKind.INSTAGRAM_REEL,
+    }:
+        metadata = _merge_instagram_api_fallback_metadata(
+            metadata,
+            api_fallback_metadata,
+            content_source=content_source,
+        )
     return _MetaBuildResult(
         kind=resolved_kind,
         title=title,
@@ -387,6 +436,29 @@ def _merge_threads_api_fallback_metadata(
         "authenticated_supported": True,
         "selected_tier": "meta_scraper_fallback",
         "fallback_reason": api_metadata.get("api_status"),
+    }
+    return metadata
+
+
+def _merge_instagram_api_fallback_metadata(
+    scraper_metadata: dict[str, Any],
+    api_metadata: dict[str, Any],
+    *,
+    content_source: str,
+) -> dict[str, Any]:
+    metadata = {**api_metadata, **scraper_metadata}
+    selected_tier = (
+        "metadata_fallback"
+        if content_source == "meta_metadata_fallback"
+        else "meta_scraper_fallback"
+    )
+    metadata["api_supported_for_url"] = bool(api_metadata.get("api_supported_for_url"))
+    if api_metadata.get("unsupported_reason") is not None:
+        metadata["unsupported_reason"] = api_metadata.get("unsupported_reason")
+    metadata["auth_strategy"] = {
+        "authenticated_supported": True,
+        "selected_tier": selected_tier,
+        "fallback_reason": api_metadata.get("unsupported_reason") or api_metadata.get("api_status"),
     }
     return metadata
 

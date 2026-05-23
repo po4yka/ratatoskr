@@ -151,9 +151,15 @@ def _build_twitter_platform_extractor(context: PlatformExtractorContext) -> Any:
 
 
 def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
+    from app.adapters.meta.instagram_api_extractor import InstagramApiExtractor
     from app.adapters.meta.platform_extractor import MetaPlatformExtractor
     from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
-    from app.adapters.social.meta import ThreadsClient, ThreadsOAuthConfig
+    from app.adapters.social.meta import (
+        InstagramClient,
+        InstagramOAuthConfig,
+        ThreadsClient,
+        ThreadsOAuthConfig,
+    )
     from app.infrastructure.persistence.repositories.social_connection_repository import (
         SocialConnectionRepositoryAdapter,
     )
@@ -176,6 +182,20 @@ def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
                     redirect_uri=social_cfg.threads_redirect_uri,
                     scopes=social_cfg.threads_scopes,
                     graph_base_url=social_cfg.threads_graph_base_url,
+                )
+            ),
+        ),
+        instagram_api_extractor=InstagramApiExtractor(
+            repository=SocialConnectionRepositoryAdapter(context.db),
+            instagram_client=InstagramClient(
+                InstagramOAuthConfig(
+                    client_id=social_cfg.instagram_client_id,
+                    client_secret=social_cfg.instagram_client_secret.get_secret_value()
+                    if social_cfg.instagram_client_secret is not None
+                    else None,
+                    redirect_uri=social_cfg.instagram_redirect_uri,
+                    scopes=social_cfg.instagram_scopes,
+                    graph_base_url=social_cfg.instagram_graph_base_url,
                 )
             ),
         ),

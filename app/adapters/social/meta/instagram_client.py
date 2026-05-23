@@ -194,12 +194,15 @@ class InstagramClient:
         )
 
     async def get_media_by_id(self, media_id: str, *, access_token: str) -> InstagramMedia:
-        payload = await self._get_json(
+        payload = await self.get_media_payload(media_id, access_token=access_token)
+        return InstagramMedia.from_payload(payload)
+
+    async def get_media_payload(self, media_id: str, *, access_token: str) -> dict[str, Any]:
+        return await self._get_json(
             media_id,
             access_token=access_token,
             params={"fields": ",".join(INSTAGRAM_MEDIA_FIELDS)},
         )
-        return InstagramMedia.from_payload(payload)
 
     async def get_user_media_ids(
         self,
