@@ -49,10 +49,12 @@ from .social_connections import (
 )
 from .summaries import SummaryRepositoryPort, TagRepositoryPort
 from .transcriptions import (
+    LeasedTranscriptionJob,
     TranscriptionArtifactCreate,
     TranscriptionArtifactRecord,
     TranscriptionJobCreate,
     TranscriptionJobRecord,
+    TranscriptionProgressEventRecord,
     TranscriptionRepositoryPort,
 )
 from .users import UserRepositoryPort
@@ -73,6 +75,7 @@ __all__ = [
     "ImportJobRepositoryPort",
     "LLMCallRecord",
     "LLMRepositoryPort",
+    "LeasedTranscriptionJob",
     "RepositoryAnalysisRecord",
     "RepositoryAnalysisRepositoryPort",
     "RequestRepositoryPort",
@@ -96,6 +99,7 @@ __all__ = [
     "TranscriptionArtifactRecord",
     "TranscriptionJobCreate",
     "TranscriptionJobRecord",
+    "TranscriptionProgressEventRecord",
     "TranscriptionRepositoryPort",
     "UserRepositoryPort",
     "VectorSearchPort",

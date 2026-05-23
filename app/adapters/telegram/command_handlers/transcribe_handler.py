@@ -55,6 +55,7 @@ from app.core.logging_utils import get_logger
 from app.core.url_utils import extract_all_urls
 
 if TYPE_CHECKING:
+    from app.application.services.transcription_job_service import TranscriptionJobService
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
@@ -80,11 +81,13 @@ class TranscribeHandler:
         response_formatter: ResponseFormatter,
         transcription_service: TranscriptionService,
         transcription_repository: TranscriptionRepositoryPort | None = None,
+        transcription_job_service: TranscriptionJobService | None = None,
     ) -> None:
         self._cfg = cfg
         self._formatter = response_formatter
         self._service = transcription_service
         self._transcription_repository = transcription_repository
+        self._transcription_job_service = transcription_job_service
 
     async def handle_transcribe(self, ctx: CommandExecutionContext) -> None:
         """Dispatch /transcribe based on argument shape (URL vs reply)."""
@@ -119,6 +122,14 @@ class TranscribeHandler:
     # ------------------------------------------------------------------ URL path
 
     async def _transcribe_url(self, ctx: CommandExecutionContext, url: str) -> None:
+        if self._transcription_job_service is not None:
+            queued = await self._transcription_job_service.enqueue_url(
+                user_id=int(ctx.uid),
+                source_url=url,
+                correlation_id=ctx.correlation_id,
+            )
+            await self._reply_queued(ctx, queued.job.id, duplicate=queued.duplicate)
+            return
         await self._formatter.safe_reply(ctx.message, f"Fetching audio from {url}...")
         workdir = Path(tempfile.mkdtemp(prefix="transcribe-"))
         try:
@@ -143,6 +154,16 @@ class TranscribeHandler:
         ctx: CommandExecutionContext,
         replied: Any,
     ) -> None:
+        if self._transcription_job_service is not None:
+            queued = await self._transcription_job_service.enqueue_telegram_message(
+                user_id=int(ctx.uid),
+                source_type="telegram_reply",
+                telegram_chat_id=telegram_chat_id(replied),
+                telegram_message_id=telegram_message_id(replied),
+                correlation_id=ctx.correlation_id,
+            )
+            await self._reply_queued(ctx, queued.job.id, duplicate=queued.duplicate)
+            return
         await self._formatter.safe_reply(ctx.message, "Downloading attached media...")
         workdir = Path(tempfile.mkdtemp(prefix="transcribe-"))
         try:
@@ -322,6 +343,19 @@ class TranscribeHandler:
         await self._formatter.safe_reply(
             ctx.message,
             f"{msg}\nError ID: {ctx.correlation_id}",
+        )
+
+    async def _reply_queued(
+        self,
+        ctx: CommandExecutionContext,
+        job_id: int,
+        *,
+        duplicate: bool,
+    ) -> None:
+        prefix = "Transcription is already queued" if duplicate else "Transcription queued"
+        await self._formatter.safe_reply(
+            ctx.message,
+            f"{prefix}. Job ID: {job_id}\nTrace ID: {ctx.correlation_id}",
         )
 
 

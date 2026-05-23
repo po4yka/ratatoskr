@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     )
     from app.adapters.transcription import TranscriptionService
     from app.application.ports.transcriptions import TranscriptionRepositoryPort
+    from app.application.services.transcription_job_service import TranscriptionJobService
     from app.config.transcription import TranscriptionConfig
 
 logger = get_logger(__name__)
@@ -71,12 +72,14 @@ class VoiceMessageProcessor:
         diarization_enabled: bool,
         transcription_cfg: TranscriptionConfig | None = None,
         transcription_repository: TranscriptionRepositoryPort | None = None,
+        transcription_job_service: TranscriptionJobService | None = None,
     ) -> None:
         self._formatter = response_formatter
         self._service = transcription_service
         self._diarization_enabled = diarization_enabled
         self._transcription_cfg = transcription_cfg
         self._transcription_repository = transcription_repository
+        self._transcription_job_service = transcription_job_service
 
     async def handle(
         self,
@@ -94,6 +97,27 @@ class VoiceMessageProcessor:
             "voice_message_transcribe_start",
             extra={"cid": correlation_id},
         )
+        if self._transcription_job_service is not None:
+            source = self._source_context(message, correlation_id)
+            if source is None:
+                return False
+            queued = await self._transcription_job_service.enqueue_telegram_message(
+                user_id=source.user_id,
+                source_type=source.source_type,
+                telegram_chat_id=source.telegram_chat_id,
+                telegram_message_id=source.telegram_message_id,
+                correlation_id=correlation_id,
+            )
+            prefix = (
+                "Voice transcription is already queued"
+                if queued.duplicate
+                else "Voice transcription queued"
+            )
+            await self._formatter.safe_reply(
+                message,
+                f"{prefix}. Job ID: {queued.job.id}\nTrace ID: {correlation_id}",
+            )
+            return True
         workdir = Path(tempfile.mkdtemp(prefix="voice-transcribe-"))
         try:
             try:

@@ -67,6 +67,20 @@ class DiagnosticsQueueBacklog(BaseModel):
     expired_running_leases: int = 0
 
 
+class DiagnosticsTranscriptionQueue(BaseModel):
+    enabled: bool = False
+    model_status: HealthStatus = "disabled"
+    language: str | None = None
+    backend: str | None = None
+    tokens_mode: str | None = None
+    model_identifier: str | None = None
+    by_status: dict[str, int] = Field(default_factory=dict)
+    runnable_count: int = 0
+    expired_running_leases: int = 0
+    oldest_queued_at: datetime | None = None
+    latest_event_at: datetime | None = None
+
+
 class DiagnosticsVectorIndexLag(BaseModel):
     status: HealthStatus = "unknown"
     missing_embeddings: int = 0
@@ -113,6 +127,7 @@ class DiagnosticsResponse(BaseModel):
     llm_providers: list[DiagnosticsProviderStatus]
     social_connections: list[DiagnosticsSocialProvider]
     queue_backlog: DiagnosticsQueueBacklog
+    transcription_queue: DiagnosticsTranscriptionQueue
     vector_indexing_lag: DiagnosticsVectorIndexLag
     latest_sync_failures: list[DiagnosticsSyncFailure]
     storage_growth: DiagnosticsStorageGrowth

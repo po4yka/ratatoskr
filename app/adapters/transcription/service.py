@@ -42,6 +42,7 @@ from .model_resolver import (
 from .types import TranscriptionResult
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from pathlib import Path
 
     from app.config.transcription import TranscriptionConfig
@@ -106,6 +107,7 @@ class TranscriptionService:
         *,
         options: TranscribeOptions | None = None,
         correlation_id: str | None = None,
+        progress_callback: Callable[[str, str, float, str], Awaitable[None] | None] | None = None,
     ) -> TranscriptionResult:
         """Transcribe a local media file end-to-end.
 
@@ -130,13 +132,18 @@ class TranscriptionService:
             opts.num_speakers if opts.num_speakers is not None else self._cfg.default_num_speakers,
         )
 
+        await _emit_progress(progress_callback, "probing_audio", "running", 0.2, "Probing audio")
         duration = probe_duration_sec(media_path)
         if duration is not None and duration > self._cfg.max_duration_sec:
             raise TranscriptionDurationExceededError(duration, self._cfg.max_duration_sec)
 
-        engine = await self._get_engine()
-
+        await _emit_progress(progress_callback, "decoding_audio", "running", 0.35, "Decoding audio")
         sped_pcm = await asyncio.to_thread(decode_to_pcm, media_path, speed)
+        await _emit_progress(progress_callback, "loading_model", "running", 0.45, "Loading model")
+        engine = await self._get_engine()
+        await _emit_progress(
+            progress_callback, "transcribing", "running", 0.65, "Transcribing audio"
+        )
         plain_text, sentences = await asyncio.to_thread(
             engine.transcribe_sync,
             sped_pcm,
@@ -144,6 +151,9 @@ class TranscriptionService:
         )
 
         if not want_diarization:
+            await _emit_progress(
+                progress_callback, "diarizing", "running", 0.82, "Skipping diarization"
+            )
             return TranscriptionResult(
                 plain_text=plain_text,
                 sentences=sentences or (),
@@ -165,6 +175,7 @@ class TranscriptionService:
                 used_diarization=True,
             )
 
+        await _emit_progress(progress_callback, "diarizing", "running", 0.82, "Diarizing speakers")
         seg_onnx, emb_onnx = await self._ensure_diarization_models()
         if abs(speed - 1.0) < 1e-5:
             original_pcm = sped_pcm
@@ -264,3 +275,17 @@ __all__ = [
     "TranscriptionDurationExceededError",
     "TranscriptionService",
 ]
+
+
+async def _emit_progress(
+    callback: Callable[[str, str, float, str], Awaitable[None] | None] | None,
+    stage: str,
+    status: str,
+    progress: float,
+    message: str,
+) -> None:
+    if callback is None:
+        return
+    result = callback(stage, status, progress, message)
+    if hasattr(result, "__await__"):
+        await result

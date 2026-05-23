@@ -18,7 +18,9 @@ from app.api.services.sync import (
     SyncRecordCollector,
 )
 from app.api.services.sync_service import SyncService
+from app.adapters.transcription import get_or_create_transcription_service
 from app.application.services.request_service import RequestService
+from app.application.services.transcription_job_service import TranscriptionJobService
 from app.application.use_cases.search_read_model import SearchReadModelUseCase
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.config import load_config
@@ -32,6 +34,7 @@ from app.di.repositories import (
     build_summary_repository,
     build_tag_repository,
     build_topic_search_repository,
+    build_transcription_repository,
     build_user_repository,
     build_social_connection_repository,
 )
@@ -139,6 +142,7 @@ async def build_api_runtime(
     summary_repository = build_summary_repository(database)
     crawl_result_repository = build_crawl_result_repository(database)
     llm_repository = build_llm_repository(database)
+    transcription_repository = build_transcription_repository(database)
     progress_event_repository = ProgressEventRepository(database)
     background_processor = BackgroundProcessor(
         cfg=app_cfg,
@@ -164,6 +168,17 @@ async def build_api_runtime(
         poll_interval_seconds=app_cfg.background.durable_poll_interval_ms / 1000,
         stale_processing_seconds=app_cfg.background.stuck_processing_seconds,
     )
+    durable_transcription_queue = None
+    if app_cfg.transcription.enabled:
+        durable_transcription_queue = TranscriptionJobService(
+            repository=transcription_repository,
+            transcription_service=get_or_create_transcription_service(app_cfg.transcription),
+            cfg=app_cfg.transcription,
+            max_attempts=app_cfg.background.retry_attempts,
+            lease_ttl_seconds=app_cfg.background.durable_lease_ttl_seconds,
+            retry_delay_seconds=app_cfg.background.durable_retry_delay_seconds,
+            poll_interval_seconds=app_cfg.background.durable_poll_interval_ms / 1000,
+        )
     summary_read_model_use_case = SummaryReadModelUseCase(
         summary_repository=summary_repository,
         request_repository=request_repository,
@@ -241,6 +256,7 @@ async def build_api_runtime(
         search=search,
         background_processor=background_processor,
         durable_request_queue=durable_request_queue,
+        durable_transcription_queue=durable_transcription_queue,
         progress_event_repository=progress_event_repository,
         summary_read_model_use_case=summary_read_model_use_case,
         search_read_model_use_case=search_read_model_use_case,

@@ -122,6 +122,17 @@ class _FakeVectorReconciler:
         return _FakeVectorReport()
 
 
+class _FakeTranscriptionRepo:
+    async def diagnostics_snapshot(self) -> dict[str, Any]:
+        return {
+            "by_status": {"queued": 1},
+            "runnable_count": 1,
+            "expired_running_leases": 0,
+            "oldest_queued_at": None,
+            "latest_event_at": None,
+        }
+
+
 @pytest.fixture(autouse=True)
 def _clear_cache() -> None:
     clear_diagnostics_cache()
@@ -164,6 +175,13 @@ def _patch_diagnostics_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
                 threads_client_secret=None,
                 threads_redirect_uri=None,
             ),
+            transcription=SimpleNamespace(
+                enabled=True,
+                language="en",
+                backend="whisper",
+                tokens_mode="words",
+                model_path=SimpleNamespace(name="tiny.en"),
+            ),
             twitter=SimpleNamespace(x_oauth_client_id=None, x_oauth_redirect_uri=None),
         ),
     )
@@ -181,6 +199,7 @@ async def test_diagnostics_service_response_fixture_preserves_shape(
         session_manager=cast("Any", object()),
         vector_store=object(),
         admin_repo=_FakeAdminRepo(),
+        transcription_repo=_FakeTranscriptionRepo(),
     ).diagnostics()
 
     DiagnosticsResponse.model_validate(response.model_dump())
@@ -192,6 +211,7 @@ async def test_diagnostics_service_response_fixture_preserves_shape(
         "llm_providers",
         "social_connections",
         "queue_backlog",
+        "transcription_queue",
         "vector_indexing_lag",
         "latest_sync_failures",
         "storage_growth",
@@ -211,6 +231,8 @@ async def test_diagnostics_service_response_fixture_preserves_shape(
     assert response.latest_sync_failures[0].source == "rss"
     assert response.social_connections[0].provider == "instagram"
     assert response.social_connections[0].configured is True
+    assert response.transcription_queue.model_identifier == "en:whisper:words:tiny.en"
+    assert response.transcription_queue.by_status == {"queued": 1}
 
 
 @pytest.mark.asyncio
@@ -221,6 +243,7 @@ async def test_diagnostics_service_redacts_health_errors(monkeypatch: pytest.Mon
         session_manager=cast("Any", object()),
         vector_store=object(),
         admin_repo=_FakeAdminRepo(),
+        transcription_repo=_FakeTranscriptionRepo(),
     ).diagnostics()
 
     rendered = response.model_dump_json()
@@ -272,6 +295,7 @@ def test_admin_diagnostics_route_is_owner_only(monkeypatch: pytest.MonkeyPatch) 
                     "llm_providers": [],
                     "social_connections": [],
                     "queue_backlog": {},
+                    "transcription_queue": {},
                     "vector_indexing_lag": {},
                     "latest_sync_failures": [],
                     "storage_growth": {},

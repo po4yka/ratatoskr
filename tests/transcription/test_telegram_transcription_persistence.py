@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,7 @@ import pytest
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.routing.voice_message_processor import VoiceMessageProcessor
 from app.adapters.transcription import Sentence, SpeakerTurn, TranscriptionResult
+from app.application.services.transcription_job_service import EnqueuedTranscription
 from app.application.ports.transcriptions import (
     TranscriptionArtifactCreate,
     TranscriptionArtifactRecord,
@@ -39,15 +41,27 @@ class _FakeTranscriptionRepository:
             request_id=job.request_id,
             telegram_chat_id=job.telegram_chat_id,
             telegram_message_id=job.telegram_message_id,
+            source_url=job.source_url,
+            idempotency_key=job.idempotency_key,
             source_type=job.source_type,
             language=job.language,
             backend=job.backend,
             tokens_mode=job.tokens_mode,
             model_identifier=job.model_identifier,
             status=job.status,
+            current_stage=job.current_stage,
+            progress=job.progress,
             duration_sec=job.duration_sec,
             audio_hash=job.audio_hash,
             correlation_id=job.correlation_id,
+            attempt_count=0,
+            max_attempts=job.max_attempts,
+            lease_owner=None,
+            lease_expires_at=None,
+            retry_after=None,
+            queued_at=None,
+            started_at=None,
+            completed_at=None,
             error_code=None,
             error_message=None,
             metadata_json=job.metadata_json,
@@ -101,6 +115,44 @@ class _FakeTranscriptionRepository:
         limit: int = 50,
     ) -> list[TranscriptionArtifactRecord]:
         return []
+
+
+class _FakeTranscriptionJobService:
+    def __init__(self) -> None:
+        self.url_jobs: list[dict[str, Any]] = []
+        self.telegram_jobs: list[dict[str, Any]] = []
+
+    async def enqueue_url(
+        self,
+        *,
+        user_id: int,
+        source_url: str,
+        correlation_id: str | None,
+    ) -> EnqueuedTranscription:
+        self.url_jobs.append(
+            {"user_id": user_id, "source_url": source_url, "correlation_id": correlation_id}
+        )
+        return EnqueuedTranscription(job=SimpleNamespace(id=42), duplicate=False)
+
+    async def enqueue_telegram_message(
+        self,
+        *,
+        user_id: int,
+        source_type: str,
+        telegram_chat_id: int | None,
+        telegram_message_id: int | None,
+        correlation_id: str | None,
+    ) -> EnqueuedTranscription:
+        self.telegram_jobs.append(
+            {
+                "user_id": user_id,
+                "source_type": source_type,
+                "telegram_chat_id": telegram_chat_id,
+                "telegram_message_id": telegram_message_id,
+                "correlation_id": correlation_id,
+            }
+        )
+        return EnqueuedTranscription(job=SimpleNamespace(id=43), duplicate=False)
 
 
 def _cfg() -> MagicMock:
@@ -187,6 +239,33 @@ async def test_transcribe_command_persists_mocked_service_artifact(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_transcribe_command_enqueues_without_running_service() -> None:
+    repo = _FakeTranscriptionRepository()
+    formatter = _formatter()
+    service = _service(TranscriptionResult(plain_text="should not run"))
+    job_service = _FakeTranscriptionJobService()
+    handler = TranscribeHandler(
+        cfg=_cfg(),
+        response_formatter=formatter,
+        transcription_service=service,
+        transcription_repository=repo,
+        transcription_job_service=job_service,
+    )
+
+    await handler.handle_transcribe(_ctx())
+
+    assert job_service.url_jobs == [
+        {
+            "user_id": 4242,
+            "source_url": "https://example.com/audio.mp3",
+            "correlation_id": "cid-command",
+        }
+    ]
+    service.transcribe_media_path.assert_not_awaited()
+    assert repo.jobs == []
+
+
+@pytest.mark.asyncio
 async def test_auto_voice_path_persists_mocked_service_artifact(tmp_path: Path) -> None:
     media_path = _media(tmp_path)
     repo = _FakeTranscriptionRepository()
@@ -215,6 +294,41 @@ async def test_auto_voice_path_persists_mocked_service_artifact(tmp_path: Path) 
     assert repo.artifacts[0].audio_hash == _expected_hash(media_path)
     assert str(media_path) not in _serialized(repo.jobs[0])
     assert str(media_path) not in _serialized(repo.artifacts[0])
+
+
+@pytest.mark.asyncio
+async def test_auto_voice_enqueues_without_downloading_media() -> None:
+    formatter = _formatter()
+    service = _service(TranscriptionResult(plain_text="should not run"))
+    job_service = _FakeTranscriptionJobService()
+    processor = VoiceMessageProcessor(
+        response_formatter=formatter,
+        transcription_service=service,
+        diarization_enabled=False,
+        transcription_cfg=TranscriptionConfig(enabled=True, model_path=Path("/models/asr")),
+        transcription_repository=_FakeTranscriptionRepository(),
+        transcription_job_service=job_service,
+    )
+    message = MagicMock(voice=object(), audio=None, video_note=None)
+    message.sender_id = 5151
+    message.chat_id = 6161
+    message.id = 7171
+    message.download_media = AsyncMock(return_value="/tmp/should-not-download.ogg")
+
+    handled = await processor.handle(message, correlation_id="cid-voice")
+
+    assert handled is True
+    assert job_service.telegram_jobs == [
+        {
+            "user_id": 5151,
+            "source_type": "telegram_voice",
+            "telegram_chat_id": 6161,
+            "telegram_message_id": 7171,
+            "correlation_id": "cid-voice",
+        }
+    ]
+    message.download_media.assert_not_awaited()
+    service.transcribe_media_path.assert_not_awaited()
 
 
 def _serialized(value: Any) -> str:

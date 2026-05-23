@@ -116,6 +116,7 @@ class ApiRuntime:
     search: SearchDependencies
     background_processor: Any
     durable_request_queue: Any
+    durable_transcription_queue: Any
     progress_event_repository: Any
     summary_read_model_use_case: Any
     search_read_model_use_case: Any

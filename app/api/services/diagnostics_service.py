@@ -17,6 +17,7 @@ from app.api.models.responses.diagnostics import (
     DiagnosticsSocialProvider,
     DiagnosticsStorageGrowth,
     DiagnosticsSyncFailure,
+    DiagnosticsTranscriptionQueue,
     DiagnosticsVectorIndexLag,
     HealthStatus,
 )
@@ -27,6 +28,9 @@ from app.db.session import Database  # noqa: TC001  # used at runtime in __init_
 from app.infrastructure.embedding.embedding_service import DEFAULT_MODELS
 from app.infrastructure.persistence.repositories.admin_read_repository import (
     AdminReadRepositoryAdapter,
+)
+from app.infrastructure.persistence.repositories.transcription_repository import (
+    TranscriptionRepositoryAdapter,
 )
 from app.infrastructure.vector.reconciliation import VectorIndexReconciler
 
@@ -59,9 +63,11 @@ class DiagnosticsService:
         *,
         vector_store: Any | None = None,
         admin_repo: Any | None = None,
+        transcription_repo: Any | None = None,
     ) -> None:
         self._db = session_manager or get_session_manager()
         self._admin_repo = admin_repo or AdminReadRepositoryAdapter(self._db)
+        self._transcription_repo = transcription_repo or TranscriptionRepositoryAdapter(self._db)
         self._vector_store = vector_store
 
     async def diagnostics(self, *, request: Request | None = None) -> DiagnosticsResponse:
@@ -104,6 +110,7 @@ class DiagnosticsService:
             persisted=list(persisted.get("social_connections") or []),
             cfg=cfg,
         )
+        transcription_queue = await self._transcription_diagnostics(cfg)
         vector_report = await VectorIndexReconciler(
             database=self._db,
             vector_store=self._vector_store,
@@ -156,6 +163,7 @@ class DiagnosticsService:
             llm_providers=llm_providers,
             social_connections=social_connections,
             queue_backlog=DiagnosticsQueueBacklog.model_validate(persisted["queue_backlog"]),
+            transcription_queue=transcription_queue,
             vector_indexing_lag=DiagnosticsVectorIndexLag.model_validate(
                 vector_report.to_diagnostics()
             ),
@@ -175,6 +183,33 @@ class DiagnosticsService:
                 created_last_24h=storage_activity["created_last_24h"],
                 created_last_7d=storage_activity["created_last_7d"],
             ),
+        )
+
+    async def _transcription_diagnostics(self, cfg: Any) -> DiagnosticsTranscriptionQueue:
+        snapshot = await self._transcription_repo.diagnostics_snapshot()
+        transcription_cfg = getattr(cfg, "transcription", None)
+        enabled = bool(getattr(transcription_cfg, "enabled", False))
+        model_identifier = None
+        if enabled:
+            model_path = getattr(transcription_cfg, "model_path", None)
+            model_name = getattr(model_path, "name", None) or "model"
+            model_identifier = (
+                f"{getattr(transcription_cfg, 'language', None)}:"
+                f"{getattr(transcription_cfg, 'backend', None)}:"
+                f"{getattr(transcription_cfg, 'tokens_mode', None)}:{model_name}"
+            )
+        return DiagnosticsTranscriptionQueue(
+            enabled=enabled,
+            model_status="healthy" if enabled else "disabled",
+            language=getattr(transcription_cfg, "language", None),
+            backend=getattr(transcription_cfg, "backend", None),
+            tokens_mode=getattr(transcription_cfg, "tokens_mode", None),
+            model_identifier=model_identifier,
+            by_status=dict(snapshot.get("by_status") or {}),
+            runnable_count=int(snapshot.get("runnable_count") or 0),
+            expired_running_leases=int(snapshot.get("expired_running_leases") or 0),
+            oldest_queued_at=snapshot.get("oldest_queued_at"),
+            latest_event_at=snapshot.get("latest_event_at"),
         )
 
 

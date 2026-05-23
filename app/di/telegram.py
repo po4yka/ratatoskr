@@ -25,6 +25,7 @@ from app.application.services.multi_source_aggregation_service import (
     MultiSourceAggregationService,
 )
 from app.application.services.related_reads_service import RelatedReadsService
+from app.application.services.transcription_job_service import TranscriptionJobService
 from app.application.services.tts_service import TTSService
 from app.core.logging_utils import get_logger
 from app.core.verbosity import VerbosityResolver
@@ -89,6 +90,7 @@ class _TelegramInterfaceStack:
     access_controller: AccessController
     callback_handler: CallbackHandler
     message_handler: MessageHandler
+    durable_transcription_queue: TranscriptionJobService | None = None
 
 
 def build_telegram_runtime(
@@ -167,6 +169,7 @@ def build_telegram_runtime(
         forward_processor=processing.forward_processor,
         attachment_processor=processing.attachment_processor,
         message_handler=interface.message_handler,
+        durable_transcription_queue=interface.durable_transcription_queue,
         adaptive_timeout_service=interface.adaptive_timeout_service,
         verbosity_resolver=verbosity_resolver,
     )
@@ -408,16 +411,29 @@ def _build_telegram_interface_stack(
         lang=getattr(core.response_formatter, "_lang", "en"),
     )
     transcription_service: TranscriptionService | None = None
+    transcription_job_service: TranscriptionJobService | None = None
     voice_processor: VoiceMessageProcessor | None = None
     if cfg.transcription.enabled:
         transcription_service = get_or_create_transcription_service(cfg.transcription)
+        transcription_repository = build_transcription_repository(db)
+        transcription_job_service = TranscriptionJobService(
+            repository=transcription_repository,
+            transcription_service=transcription_service,
+            cfg=cfg.transcription,
+            max_attempts=cfg.background.retry_attempts,
+            lease_ttl_seconds=cfg.background.durable_lease_ttl_seconds,
+            retry_delay_seconds=cfg.background.durable_retry_delay_seconds,
+            poll_interval_seconds=cfg.background.durable_poll_interval_ms / 1000,
+            telegram_media_downloader=_build_telegram_media_downloader(telegram_client),
+        )
         if cfg.transcription.auto_on_voice_message:
             voice_processor = VoiceMessageProcessor(
                 response_formatter=core.response_formatter,
                 transcription_service=transcription_service,
                 diarization_enabled=cfg.transcription.diarization_enabled,
                 transcription_cfg=cfg.transcription,
-                transcription_repository=build_transcription_repository(db),
+                transcription_repository=transcription_repository,
+                transcription_job_service=transcription_job_service,
             )
     dispatcher_deps = _build_command_dispatcher_deps(
         cfg=cfg,
@@ -440,6 +456,7 @@ def _build_telegram_interface_stack(
             summary_repo=repositories.summary_repository,
         ),
         transcription_service=transcription_service,
+        transcription_job_service=transcription_job_service,
     )
     command_dispatcher = _build_command_dispatcher(dispatcher_deps)
     access_controller = AccessController(
@@ -495,6 +512,7 @@ def _build_telegram_interface_stack(
         access_controller=access_controller,
         callback_handler=callback_handler,
         message_handler=message_handler,
+        durable_transcription_queue=transcription_job_service,
     )
 
 
@@ -582,6 +600,29 @@ def _compute_llm_cascade_floor(cfg: AppConfig) -> float:
         },
     )
     return floor
+
+
+def _build_telegram_media_downloader(telegram_client: TelegramClient) -> Any:
+    async def _download(job: Any, workdir: Any) -> Any:
+        client = getattr(telegram_client, "client", None)
+        raw = getattr(client, "raw", None)
+        if raw is None:
+            msg = "telegram client is not available for transcription download"
+            raise RuntimeError(msg)
+        if job.telegram_chat_id is None or job.telegram_message_id is None:
+            msg = "telegram transcription job is missing chat/message identifiers"
+            raise RuntimeError(msg)
+        message = await raw.get_messages(job.telegram_chat_id, ids=job.telegram_message_id)
+        if message is None:
+            msg = "telegram message was not found for transcription"
+            raise RuntimeError(msg)
+        saved = await message.download_media(file=str(workdir) + "/")
+        if saved is None:
+            msg = "telegram returned no media path for transcription"
+            raise RuntimeError(msg)
+        return saved
+
+    return _download
 
 
 def _create_adaptive_timeout_service(

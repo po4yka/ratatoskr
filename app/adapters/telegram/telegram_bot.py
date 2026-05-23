@@ -105,12 +105,18 @@ class TelegramBot:
         self._backup_task = self._lifecycle.backup_task
         self._rate_limiter_cleanup_task = self._lifecycle.rate_limiter_cleanup_task
 
+        transcription_queue = getattr(self._runtime, "durable_transcription_queue", None)
         try:
+            if transcription_queue is not None:
+                await transcription_queue.reconcile_startup()
+                await transcription_queue.start()
             await self.telegram_client.start(
                 self.message_handler.handle_message,
                 self.message_handler.handle_callback_query,
             )
         finally:
+            if transcription_queue is not None:
+                await transcription_queue.stop()
             await self._lifecycle.on_shutdown()
 
             # Close external clients and drain in-flight tasks

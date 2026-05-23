@@ -34,12 +34,12 @@ from app.adapters.telegram.command_handlers.tag_handler import TagHandler
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
 from app.adapters.transcription import TranscriptionService
-from app.application.services.transcription_job_service import TranscriptionJobService
 from app.di.repositories import build_social_connection_repository, build_transcription_repository
 from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
 if TYPE_CHECKING:
+    from app.application.services.transcription_job_service import TranscriptionJobService
     from app.adapters.content.url_processor import URLProcessor
     from app.adapters.telegram.task_manager import UserTaskManager
     from app.adapters.telegram.url_handler import URLHandler
@@ -166,11 +166,12 @@ def build_command_dispatcher_deps(
     transcribe_handler: TranscribeHandler | None = None
     if cfg.transcription.enabled:
         service = transcription_service or TranscriptionService(cfg.transcription)
+        transcription_repository = build_transcription_repository(db)
         transcribe_handler = TranscribeHandler(
             cfg=cfg,
             response_formatter=response_formatter,
             transcription_service=service,
-            transcription_repository=build_transcription_repository(db),
+            transcription_repository=transcription_repository,
             transcription_job_service=transcription_job_service,
         )
 

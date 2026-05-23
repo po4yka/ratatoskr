@@ -270,7 +270,9 @@ class TranscriptionJobService:
                 error_message=safe_message,
                 retry_delay_seconds=self._retry_delay_seconds,
             )
-            await self._publish(job, "error", "error", 1.0 if status == "dead_letter" else None, safe_message)
+            await self._publish(
+                job, "error", "error", 1.0 if status == "dead_letter" else None, safe_message
+            )
             log_exception(logger, "transcription_job_failed", exc, job_id=job.id)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
