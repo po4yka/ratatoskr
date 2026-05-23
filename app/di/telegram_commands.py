@@ -19,6 +19,9 @@ from app.adapters.telegram.command_handlers.backup_handler import BackupHandler
 from app.adapters.telegram.command_handlers.content_handler import ContentHandler
 from app.adapters.telegram.command_handlers.digest_handler import DigestHandler
 from app.adapters.telegram.command_handlers.export_command import ExportHandler
+from app.adapters.telegram.command_handlers.fieldtheory_possible import (
+    FieldTheoryPossibleHandler,
+)
 from app.adapters.telegram.command_handlers.init_session_handler import InitSessionHandler
 from app.adapters.telegram.command_handlers.listen_handler import ListenHandler
 from app.adapters.telegram.command_handlers.onboarding_handler import OnboardingHandler
@@ -156,6 +159,7 @@ def build_command_dispatcher_deps(
         db=db,
         response_formatter=response_formatter,
     )
+    fieldtheory_possible_handler = FieldTheoryPossibleHandler(cfg=cfg)
 
     transcribe_handler: TranscribeHandler | None = None
     if cfg.transcription.enabled:
@@ -405,6 +409,18 @@ def build_command_dispatcher_deps(
                 ),
                 TextCommandRoute(
                     "/rss", _build_text_handler(context_factory, rss_handler.handle_rss)
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="fieldtheory_possible",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/fieldtheory_possible",
+                    _build_text_handler(
+                        context_factory,
+                        fieldtheory_possible_handler.handle_fieldtheory_possible,
+                    ),
                 ),
             ),
         ),

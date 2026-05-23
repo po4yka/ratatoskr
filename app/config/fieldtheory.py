@@ -64,6 +64,16 @@ class FieldTheoryConfig(BaseModel):
             "container; typically the mount target of `~/.fieldtheory/library`."
         ),
     )
+    ideas_path: str = Field(
+        default="/fieldtheory/ideas",
+        validation_alias="FIELDTHEORY_IDEAS_PATH",
+        description=(
+            "Path to the read-only `ft` Possible-run output directory inside the "
+            "container; typically the mount target of `~/.fieldtheory/ideas`. "
+            "Consumed by the `/fieldtheory_possible` Telegram handler, which "
+            "reads the newest `*.json` file on user gesture."
+        ),
+    )
 
     @field_validator("sync_cron", mode="before")
     @classmethod
@@ -106,5 +116,16 @@ class FieldTheoryConfig(BaseModel):
         path = str(value).strip()
         if not path:
             msg = "Fieldtheory library_path must be a non-empty path"
+            raise ValueError(msg)
+        return path
+
+    @field_validator("ideas_path", mode="before")
+    @classmethod
+    def _validate_ideas_path(cls, value: Any) -> str:
+        if value in (None, ""):
+            return "/fieldtheory/ideas"
+        path = str(value).strip()
+        if not path:
+            msg = "Fieldtheory ideas_path must be a non-empty path"
             raise ValueError(msg)
         return path
