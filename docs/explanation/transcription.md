@@ -16,7 +16,12 @@ All three share the same requirements: CPU-only (the bot runs on a Pi-class host
 
 ## Engine
 
-The adapter wraps sherpa-onnx with the [Kroko English streaming Zipformer](https://huggingface.co/Banafo/Kroko-ASR) by default. Other languages (Dutch, French, German, Italian, Portuguese, Spanish, Swedish, Swiss German, Hebrew, Turkish) are a one-line `--model` swap — drop the matching Kroko bundle into a directory and point `TRANSCRIPTION_MODEL_PATH` at it.
+The adapter wraps sherpa-onnx with one of two language presets selected by `TRANSCRIPTION_LANGUAGE`:
+
+- **`en` (default)** — [Kroko English streaming Zipformer](https://huggingface.co/Banafo/Kroko-ASR) via `OnlineRecognizer.from_transducer`. Streaming, BPE tokens with U+2581 word-start marker, Apache-2.0, ~80 MB INT8. Other Kroko languages (Dutch, French, German, Italian, Portuguese, Spanish, Swedish, Swiss German, Hebrew, Turkish) drop in by pointing `TRANSCRIPTION_MODEL_PATH` at a pre-populated directory.
+- **`ru`** — [GigaAM-v3 e2e RNN-T](https://huggingface.co/ai-sage/GigaAM-v3) via `OfflineRecognizer.from_transducer`, using the sherpa-onnx-format export at [`Smirnov75/GigaAM-v3-sherpa-onnx`](https://huggingface.co/Smirnov75/GigaAM-v3-sherpa-onnx). MIT-licensed, ~230 MB INT8, ~8.4% WER on Russian benchmarks, char-level Cyrillic tokens, **punctuation and text normalization built into the model output** (no separate post-processing). Offline only — there is no Russian streaming transducer in the sherpa-onnx ecosystem.
+
+The model resolver carries a per-language bundle registry. Upstream filenames are normalized to the canonical `encoder.onnx` / `decoder.onnx` / `joiner.onnx` / `tokens.txt` layout on download (e.g. GigaAM's `gigaam_v3_e2e_rnnt_encoder.onnx` becomes `encoder.onnx` on disk), so the recognizer loader stays language-agnostic.
 
 Diarization is opt-in via `TRANSCRIPTION_DIARIZATION_ENABLED=true`. It adds a second pass through:
 
@@ -92,9 +97,25 @@ When `youtube-transcript-api` returns nothing and VTT subtitle parsing also retu
 
 Failures in this path are logged and turned into `None` rather than raised, so the caller's existing "no transcript or subtitles available" error still fires when every path is exhausted. This keeps the YouTube error surface unchanged — transcription is purely additive.
 
+## Streaming vs. offline
+
+The two language presets sit on opposite sides of an architectural split:
+
+| | English (Kroko) | Russian (GigaAM-v3) |
+|---|---|---|
+| Backend | `OnlineRecognizer` (streaming) | `OfflineRecognizer.from_transducer` |
+| Audio consumed | Chunked + tail-padded | Whole buffer in one call |
+| User perceives | Reply after full transcribe (currently — bot batches the output) | Same — reply after full transcribe |
+| Tokens | BPE with `▁` word-start marker | Character-level Cyrillic, no marker |
+| Punctuation | Inferred from token stream + grouped on `.!?` | Emitted by the model itself; grouped on `.!?` |
+| Cold-start model load | ~80 MB | ~230 MB |
+| Streaming-captions UX possible? | Yes (engine is streaming; current adapter just doesn't expose partial output) | No (offline only — would need an upstream Russian streaming model) |
+
+For the current Telegram-reply use case the difference is invisible — both paths reply after the transcribe completes. If a future UX surfaces partial captions for English, the Russian path will lag behind that capability until a Russian streaming model appears upstream.
+
 ## Operational notes
 
-- **Model location.** Mount `/data/models/` as a persistent volume in production so the ~80 MB ASR bundle does not re-download on every container restart.
+- **Model location.** Mount `/data/models/` as a persistent volume in production so the ASR bundle does not re-download on every container restart (~80 MB for English, ~230 MB for Russian).
 - **Long media.** `TRANSCRIPTION_MAX_DURATION_SEC` (default 1800s) refuses anything longer up-front, before any ffmpeg work. Increase only after confirming your host can stay responsive for the duration.
 - **Speed vs. accuracy.** Default `TRANSCRIPTION_SPEED=1.5` shaves ~30% off CPU time with minimal accuracy cost. Try 2.0 for clean speech, 1.0 for noisy or fast-speech sources. Output timestamps stay in original-audio time regardless.
 - **Long transcripts.** Anything over ~4000 characters is uploaded as a `.txt` attachment via `Message.reply_document` rather than truncated.

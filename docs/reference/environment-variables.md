@@ -298,18 +298,26 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 
 ## Transcription (CPU-only ASR)
 
-Off by default. When enabled, ratatoskr can transcribe URLs, voice/audio/video_note messages, and (optionally) fill the audio-transcript slot in the YouTube pipeline when no native captions are available. The engine is sherpa-onnx with the Kroko streaming Zipformer model — fully CPU-side, no GPU, no cloud API, ~80 MB model download on first use. Requires `ffmpeg` on `PATH` and the `transcription` optional extra (`pip install 'ratatoskr[transcription]'`).
+Off by default. When enabled, ratatoskr can transcribe URLs, voice/audio/video_note messages, and (optionally) fill the audio-transcript slot in the YouTube pipeline when no native captions are available. Fully CPU-side, no GPU, no cloud API. Requires `ffmpeg` on `PATH` and the `transcription` optional extra (`pip install 'ratatoskr[transcription]'`).
+
+Two language presets are wired in. Set `TRANSCRIPTION_LANGUAGE` and the right engine + tokenization mode are picked automatically:
+
+- **`en` (default)** — Kroko English streaming Zipformer (Apache-2.0, ~80 MB INT8). Streaming backend, BPE tokens with the U+2581 word-start marker. Source: `csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06`.
+- **`ru`** — GigaAM-v3 e2e RNN-T (MIT-licensed, ~230 MB INT8, ~8.4% WER on Russian benchmarks). Offline backend (consumes full audio before emitting text — there is no Russian streaming model in the sherpa-onnx ecosystem as of 2026-05), char-level Cyrillic tokens, **punctuation and text normalization baked into the model output**. Source: `Smirnov75/GigaAM-v3-sherpa-onnx`; original weights from `ai-sage/GigaAM-v3`.
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
 | `TRANSCRIPTION_ENABLED` | `false` | Master switch. When `false`, the `/transcribe` command, voice auto-handler, and URL-pipeline fallback are all inactive and the transcription package is never loaded |
-| `TRANSCRIPTION_MODEL_PATH` | `/data/models/transcription` | Directory holding the streaming Zipformer model files. If empty on first use, the default Kroko English bundle is auto-downloaded into it. Point at a custom directory containing `tokens.txt` to use a different language model — see the Kroko HF repo for the list |
+| `TRANSCRIPTION_LANGUAGE` | `en` | Primary language preset. `en` picks the streaming Kroko Zipformer; `ru` picks the offline GigaAM-v3 RNN-T |
+| `TRANSCRIPTION_MODEL_PATH` | `/data/models/transcription` | Directory holding the chosen model. If empty on first use, the bundle for the configured language is auto-downloaded and upstream filenames are normalized to `encoder.onnx` / `decoder.onnx` / `joiner.onnx` / `tokens.txt`. If `tokens.txt` already exists, the directory is treated as a custom model and no download happens |
+| `TRANSCRIPTION_BACKEND` | (auto) | Override the backend selected by `TRANSCRIPTION_LANGUAGE`. `streaming` uses `sherpa_onnx.OnlineRecognizer`; `offline_transducer` uses `OfflineRecognizer.from_transducer`. Leave unset unless you are loading a custom model that disagrees with its language preset |
+| `TRANSCRIPTION_TOKENS_MODE` | (auto) | Override the tokens-mode selected by `TRANSCRIPTION_LANGUAGE`. `bpe` honours the U+2581 word-start marker; `char` joins tokens verbatim |
 | `TRANSCRIPTION_SPEED` | `1.5` | Pre-transcription speedup (pitch preserved via ffmpeg `atempo`). 1.5x cuts CPU time by ~30% with minimal accuracy loss; use 1.0 for noisy / fast-speech sources |
 | `TRANSCRIPTION_NUM_THREADS` | `2` | Threads sherpa-onnx may use for inference |
 | `TRANSCRIPTION_MAX_DURATION_SEC` | `1800` | Refuse any media longer than this. Protects against runaway multi-hour transcribe jobs |
 | `TRANSCRIPTION_AUTO_VOICE` | `true` | When `TRANSCRIPTION_ENABLED`, auto-transcribe forwarded voice / audio / video_note messages without requiring `/transcribe` |
 | `TRANSCRIPTION_AUTO_URL_PIPELINE` | `false` | When `TRANSCRIPTION_ENABLED`, fill `VideoSourceRequest.audio_transcript_text` in the YouTube pipeline when both `youtube-transcript-api` and VTT subtitles return empty. Opt-in because it adds CPU cost to every captionless video |
-| `TRANSCRIPTION_DIARIZATION_ENABLED` | `false` | Add speaker labels (`SPEAKER_00`, `SPEAKER_01`, ...). Downloads two additional ONNX models on first use |
+| `TRANSCRIPTION_DIARIZATION_ENABLED` | `false` | Add speaker labels (`SPEAKER_00`, `SPEAKER_01`, ...). Downloads two additional ONNX models on first use. Note: diarization needs per-sentence timestamps, which the offline RU backend does not always emit — diarization on Russian audio may degrade to plain text without speaker labels |
 | `TRANSCRIPTION_DIARIZATION_MODEL` | `pyannote` | Segmentation model. `pyannote` is CC-BY-4.0 (default, safe for most uses). `reverb` is more accurate but distributed under a **non-commercial** license — review the Rev.ai model card before commercial use |
 | `TRANSCRIPTION_DIARIZATION_PATH` | `/data/models/diarization` | Directory holding the diarization segmentation + embedding models |
 | `TRANSCRIPTION_EMBEDDING_MODEL` | `3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx` | Filename of the speaker-embedding ONNX in the sherpa-onnx `speaker-recongition-models` release (note upstream typo) |

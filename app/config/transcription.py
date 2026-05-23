@@ -15,9 +15,21 @@ from app.core.logging_utils import get_logger
 
 LOGGER = get_logger(__name__)
 
+Language = Literal["en", "ru"]
+Backend = Literal["streaming", "offline_transducer"]
+TokensMode = Literal["bpe", "char"]
+
 _DEFAULT_MODEL_PATH = "/data/models/transcription"
 _DEFAULT_DIARIZATION_PATH = "/data/models/diarization"
 _DEFAULT_EMBEDDING_FILE = "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+
+# Per-language presets pick the right backend + tokens mode automatically so
+# users only need to flip ``TRANSCRIPTION_LANGUAGE``. Power users can still
+# override via ``TRANSCRIPTION_BACKEND`` / ``TRANSCRIPTION_TOKENS_MODE``.
+_LANGUAGE_PRESETS: dict[Language, tuple[Backend, TokensMode]] = {
+    "en": ("streaming", "bpe"),     # Kroko streaming Zipformer
+    "ru": ("offline_transducer", "char"),  # GigaAM-v3 e2e RNN-T
+}
 
 
 class TranscriptionConfig(BaseModel):
@@ -38,14 +50,47 @@ class TranscriptionConfig(BaseModel):
         description="Master switch for the transcription adapter",
     )
 
+    language: Language = Field(
+        default="en",
+        validation_alias="TRANSCRIPTION_LANGUAGE",
+        description=(
+            "Primary language. 'en' uses the Kroko streaming Zipformer "
+            "(streaming, BPE tokens, ~80 MB). 'ru' uses GigaAM-v3 e2e RNN-T "
+            "(offline, char-level Cyrillic tokens with built-in punctuation, "
+            "~230 MB INT8, MIT license)."
+        ),
+    )
+
+    backend_override: Backend | None = Field(
+        default=None,
+        validation_alias="TRANSCRIPTION_BACKEND",
+        description=(
+            "Override the engine backend selected by language. 'streaming' "
+            "uses sherpa_onnx.OnlineRecognizer; 'offline_transducer' uses "
+            "OfflineRecognizer.from_transducer. Leave unset to follow the "
+            "language preset."
+        ),
+    )
+
+    tokens_mode_override: TokensMode | None = Field(
+        default=None,
+        validation_alias="TRANSCRIPTION_TOKENS_MODE",
+        description=(
+            "Override the tokens-mode selected by language. 'bpe' honours "
+            "the U+2581 word-start marker; 'char' concatenates character "
+            "tokens verbatim. Leave unset to follow the language preset."
+        ),
+    )
+
     model_path: Path = Field(
         default=Path(_DEFAULT_MODEL_PATH),
         validation_alias="TRANSCRIPTION_MODEL_PATH",
         description=(
-            "Directory holding the sherpa-onnx streaming Zipformer model "
-            "(encoder/decoder/joiner/tokens). If the directory is empty the "
-            "default Kroko English model is downloaded into it on first use; "
-            "if it already contains tokens.txt it is treated as a custom model."
+            "Directory holding the sherpa-onnx model "
+            "(encoder/decoder/joiner/tokens.txt). If the directory is empty "
+            "the model bundle for the configured TRANSCRIPTION_LANGUAGE is "
+            "downloaded into it on first use; if it already contains "
+            "tokens.txt it is treated as a custom model."
         ),
     )
 
@@ -203,3 +248,34 @@ class TranscriptionConfig(BaseModel):
             msg = "TRANSCRIPTION_DIARIZATION_MODEL must be 'pyannote' or 'reverb'"
             raise ValueError(msg)
         return normalized
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def _parse_language(cls, value: Any) -> str:
+        if value in (None, ""):
+            return "en"
+        normalized = str(value).strip().lower()
+        if normalized not in _LANGUAGE_PRESETS:
+            msg = (
+                f"TRANSCRIPTION_LANGUAGE must be one of "
+                f"{sorted(_LANGUAGE_PRESETS)}; got {value!r}"
+            )
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator("backend_override", "tokens_mode_override", mode="before")
+    @classmethod
+    def _parse_optional_enum(cls, value: Any) -> Any:
+        if value in (None, ""):
+            return None
+        return str(value).strip().lower()
+
+    @property
+    def backend(self) -> Backend:
+        """Resolved backend: override if set, otherwise the language preset."""
+        return self.backend_override or _LANGUAGE_PRESETS[self.language][0]
+
+    @property
+    def tokens_mode(self) -> TokensMode:
+        """Resolved tokens mode: override if set, otherwise the language preset."""
+        return self.tokens_mode_override or _LANGUAGE_PRESETS[self.language][1]

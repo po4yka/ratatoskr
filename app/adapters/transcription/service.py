@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from app.core.logging_utils import get_logger
 
-from .asr_engine import StreamingAsrEngine
+from .asr_engine import AsrEngine, OfflineAsrEngine, StreamingAsrEngine
 from .audio_decoder import (
     AudioDecodeError,
     FfmpegNotInstalledError,
@@ -88,7 +88,7 @@ class TranscriptionService:
     def __init__(self, cfg: TranscriptionConfig) -> None:
         self._cfg = cfg
         self._asr_lock = asyncio.Lock()
-        self._asr_engine: StreamingAsrEngine | None = None
+        self._asr_engine: AsrEngine | None = None
         self._diarization_paths: tuple[Path, Path] | None = None
         self._diarization_lock = asyncio.Lock()
 
@@ -212,17 +212,29 @@ class TranscriptionService:
         require_ffmpeg()
         await self._get_engine()
 
-    async def _get_engine(self) -> StreamingAsrEngine:
+    async def _get_engine(self) -> AsrEngine:
         if self._asr_engine is not None:
             return self._asr_engine
         async with self._asr_lock:
             if self._asr_engine is not None:
                 return self._asr_engine
-            model_path = await asyncio.to_thread(ensure_asr_model, self._cfg.model_path)
-            self._asr_engine = StreamingAsrEngine(
-                model_dir=model_path,
-                num_threads=self._cfg.num_threads,
+            model_path = await asyncio.to_thread(
+                ensure_asr_model, self._cfg.model_path, self._cfg.language
             )
+            backend = self._cfg.backend
+            tokens_mode = self._cfg.tokens_mode
+            if backend == "offline_transducer":
+                self._asr_engine = OfflineAsrEngine(
+                    model_dir=model_path,
+                    num_threads=self._cfg.num_threads,
+                    tokens_mode=tokens_mode,
+                )
+            else:
+                self._asr_engine = StreamingAsrEngine(
+                    model_dir=model_path,
+                    num_threads=self._cfg.num_threads,
+                    tokens_mode=tokens_mode,
+                )
         return self._asr_engine
 
     async def _ensure_diarization_models(self) -> tuple[Path, Path]:

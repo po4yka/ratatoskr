@@ -1,8 +1,12 @@
 """Auto-download and on-disk resolution for ASR + diarization models.
 
-Differs from yapsnap's resolver: paths come from ``TranscriptionConfig`` rather
-than XDG / per-OS cache dirs, and the downloader uses ratatoskr's structured
-logger instead of writing progress to stderr.
+Differs from yapsnap's resolver in two ways:
+
+    * paths come from ``TranscriptionConfig`` rather than XDG / per-OS cache dirs
+    * a per-language bundle registry picks the right HF repo and normalizes
+      upstream file names (GigaAM ships ``gigaam_v3_e2e_rnnt_encoder.onnx``
+      etc.; we rename to plain ``encoder.onnx`` on disk so the recognizer
+      loader stays language-agnostic).
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ from __future__ import annotations
 import tarfile
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from app.core.logging_utils import get_logger
@@ -21,15 +26,51 @@ logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Kroko English streaming ASR (default)
+# Per-language ASR bundle registry
 # ---------------------------------------------------------------------------
 
 _HF_BASE = "https://huggingface.co"
-_DEFAULT_ASR_REPO = "csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06"
-_DEFAULT_ASR_FILES = ("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
-
 _USER_AGENT = "ratatoskr-transcription/0.1 (+https://github.com/)"
 _HTTP_CHUNK = 1 << 16
+
+
+@dataclass(frozen=True, slots=True)
+class _AsrBundle:
+    """One language preset.
+
+    ``files`` is a tuple of ``(remote_name, local_name)`` pairs so we can
+    rename on the fly. Every bundle MUST produce ``encoder.onnx``,
+    ``decoder.onnx``, ``joiner.onnx``, and ``tokens.txt`` on disk -- that's
+    the layout the recognizer loader expects.
+    """
+
+    hf_repo: str
+    files: tuple[tuple[str, str], ...]
+    license_note: str
+
+
+_ASR_BUNDLES: dict[str, _AsrBundle] = {
+    "en": _AsrBundle(
+        hf_repo="csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06",
+        files=(
+            ("encoder.onnx", "encoder.onnx"),
+            ("decoder.onnx", "decoder.onnx"),
+            ("joiner.onnx", "joiner.onnx"),
+            ("tokens.txt", "tokens.txt"),
+        ),
+        license_note="Apache-2.0 (Kroko English streaming Zipformer)",
+    ),
+    "ru": _AsrBundle(
+        hf_repo="Smirnov75/GigaAM-v3-sherpa-onnx",
+        files=(
+            ("gigaam_v3_e2e_rnnt_encoder.onnx", "encoder.onnx"),
+            ("gigaam_v3_e2e_rnnt_decoder.onnx", "decoder.onnx"),
+            ("gigaam_v3_e2e_rnnt_joint.onnx", "joiner.onnx"),
+            ("gigaam_v3_e2e_rnnt_tokens.txt", "tokens.txt"),
+        ),
+        license_note="MIT (GigaAM-v3 e2e RNN-T, ai-sage/GigaAM-v3)",
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +115,10 @@ class ModelDirectoryError(RuntimeError):
 
 class UnknownDiarizationModelError(ValueError):
     """Raised when ``segmentation_key`` is not a known diarization model."""
+
+
+class UnknownLanguageError(ValueError):
+    """Raised when ``language`` has no registered ASR bundle."""
 
 
 # ---------------------------------------------------------------------------
@@ -155,33 +200,52 @@ def find_model_file(model_dir: Path, base: str) -> Path:
     raise ModelDirectoryError(msg)
 
 
-def ensure_asr_model(model_path: Path) -> Path:
-    """Ensure the default Kroko English model exists under ``model_path``.
+def ensure_asr_model(model_path: Path, language: str = "en") -> Path:
+    """Ensure the ASR model for ``language`` exists under ``model_path``.
 
     If ``model_path`` already contains ``tokens.txt`` we treat it as a
-    user-supplied model directory and skip the download entirely (the same
-    behaviour as yapsnap's ``KROKO_MODEL`` override).
+    user-supplied model directory and skip the download entirely. Otherwise
+    the per-language bundle is downloaded and files are renamed to the
+    canonical ``encoder/decoder/joiner/tokens.txt`` layout.
     """
+    if language not in _ASR_BUNDLES:
+        msg = (
+            f"unknown TRANSCRIPTION_LANGUAGE {language!r}; "
+            f"known: {sorted(_ASR_BUNDLES)}"
+        )
+        raise UnknownLanguageError(msg)
+    bundle = _ASR_BUNDLES[language]
+
     model_path.mkdir(parents=True, exist_ok=True)
     if (model_path / "tokens.txt").is_file():
         return model_path
 
-    missing = [name for name in _DEFAULT_ASR_FILES if not (model_path / name).is_file()]
+    missing = [
+        (remote, local)
+        for (remote, local) in bundle.files
+        if not (model_path / local).is_file()
+    ]
     if not missing:
         return model_path
 
     logger.info(
         "transcription_asr_model_bootstrap",
-        extra={"model_path": str(model_path), "missing": missing},
+        extra={
+            "language": language,
+            "repo": bundle.hf_repo,
+            "license": bundle.license_note,
+            "model_path": str(model_path),
+            "missing": [local for (_remote, local) in missing],
+        },
     )
-    for fname in missing:
-        url = f"{_HF_BASE}/{_DEFAULT_ASR_REPO}/resolve/main/{fname}"
+    for remote_name, local_name in missing:
+        url = f"{_HF_BASE}/{bundle.hf_repo}/resolve/main/{remote_name}"
         try:
-            _download(url, model_path / fname)
+            _download(url, model_path / local_name)
         except ModelDownloadError:
             raise
         except Exception as exc:  # narrow to ModelDownloadError for callers
-            msg = f"failed to download {fname} from {url}: {exc}"
+            msg = f"failed to download {remote_name} from {url}: {exc}"
             raise ModelDownloadError(msg) from exc
     return model_path
 
