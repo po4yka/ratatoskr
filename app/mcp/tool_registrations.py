@@ -1,17 +1,20 @@
 """MCP tool registration adapters — thin wrappers required by the MCP framework.
 
-Each function is a single-line adapter: decorate the service call with @mcp.tool()
-and serialize the result to JSON for the wire protocol. No domain logic lives here;
-all business logic is in the injected service classes.
+Each function is a single-line adapter: wrap the service call, serialize the
+result to JSON for the wire protocol, and register it through a schema-testable
+contribution. No domain logic lives here; all business logic is in the injected
+service classes.
 """
 
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable  # noqa: TC003
+from typing import TYPE_CHECKING, Any, Protocol
 
 from app.mcp.helpers import to_json
 from app.observability.metrics import record_request
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
@@ -19,6 +22,43 @@ if TYPE_CHECKING:
     from app.mcp.catalog_service import CatalogReadService
     from app.mcp.semantic_service import SemanticSearchService
     from app.mcp.signal_service import SignalMcpService
+
+
+class McpToolRegistrar(Protocol):
+    def tool(self, *args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Return a FastMCP-compatible tool decorator."""
+        ...
+
+
+class McpToolContribution(BaseModel):
+    """Schema-testable MCP tool contribution."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    name: str
+    handler: Callable[..., Any] = Field(exclude=True)
+    description: str
+
+    @classmethod
+    def from_handler(cls, handler: Callable[..., Any]) -> McpToolContribution:
+        return cls(
+            name=handler.__name__,
+            handler=handler,
+            description=(handler.__doc__ or "").strip(),
+        )
+
+    def register(self, mcp: McpToolRegistrar) -> None:
+        mcp.tool()(self.handler)
+
+
+def _contribute_tool(
+    contributions: list[McpToolContribution],
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        contributions.append(McpToolContribution.from_handler(fn))
+        return fn
+
+    return decorator
 
 
 def register_tools(
@@ -31,6 +71,8 @@ def register_tools(
     signal_service: SignalMcpService | None = None,
 ) -> None:
     signal_runtime: Any = signal_service if signal_service is not None else _NullSignalService()
+    contributions: list[McpToolContribution] = []
+    contribute_tool = _contribute_tool(contributions)
 
     def _status_from_result(result: Any) -> str:
         return "error" if isinstance(result, dict) and "error" in result else "success"
@@ -63,7 +105,7 @@ def register_tools(
         _record_tool_metric(tool_name, status=_status_from_result(result), started_at=started_at)
         return result
 
-    @mcp.tool()
+    @contribute_tool
     async def create_aggregation_bundle(
         items: list[dict[str, Any]],
         lang_preference: str = "auto",
@@ -80,7 +122,7 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def get_aggregation_bundle(session_id: int) -> str:
         """Get one persisted aggregation bundle by session ID."""
         return to_json(
@@ -91,7 +133,7 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def list_aggregation_bundles(
         limit: int = 20,
         offset: int = 0,
@@ -108,7 +150,7 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     def check_source_supported(url: str, source_kind_hint: str | None = None) -> str:
         """Classify whether a URL fits the public aggregation source contract."""
         return to_json(
@@ -120,19 +162,19 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def search_articles(query: str, limit: int = 10) -> str:
         """Search stored article summaries by keyword, topic, or entity."""
         return to_json(
             await _call_async("search_articles", article_service.search_articles, query, limit)
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def get_article(summary_id: int) -> str:
         """Get full details of an article summary by its ID."""
         return to_json(await _call_async("get_article", article_service.get_article, summary_id))
 
-    @mcp.tool()
+    @contribute_tool
     async def list_articles(
         limit: int = 20,
         offset: int = 0,
@@ -153,7 +195,7 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def get_article_content(summary_id: int) -> str:
         """Get the full extracted content (markdown/text) of an article."""
         return to_json(
@@ -162,12 +204,12 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def get_stats() -> str:
         """Get statistics about the Ratatoskr article database."""
         return to_json(await _call_async("get_stats", article_service.get_stats))
 
-    @mcp.tool()
+    @contribute_tool
     async def find_by_entity(
         entity_name: str, entity_type: str | None = None, limit: int = 10
     ) -> str:
@@ -178,14 +220,14 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def list_collections(limit: int = 20, offset: int = 0) -> str:
         """List article collections (folders/reading lists)."""
         return to_json(
             await _call_async("list_collections", catalog_service.list_collections, limit, offset)
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def get_collection(
         collection_id: int, include_items: bool = True, limit: int = 50
     ) -> str:
@@ -200,14 +242,14 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def list_videos(limit: int = 20, offset: int = 0, status: str | None = None) -> str:
         """List downloaded YouTube videos with metadata."""
         return to_json(
             await _call_async("list_videos", catalog_service.list_videos, limit, offset, status)
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def get_video_transcript(video_id: str) -> str:
         """Get the transcript text of a downloaded YouTube video."""
         return to_json(
@@ -216,12 +258,12 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def check_url(url: str) -> str:
         """Check if a URL has already been processed and summarised."""
         return to_json(await _call_async("check_url", article_service.check_url, url))
 
-    @mcp.tool()
+    @contribute_tool
     async def semantic_search(
         description: str,
         limit: int = 10,
@@ -244,7 +286,7 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def hybrid_search(
         query: str,
         limit: int = 10,
@@ -265,7 +307,7 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def find_similar_articles(
         summary_id: int,
         limit: int = 10,
@@ -286,19 +328,19 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def list_signal_sources(limit: int = 50) -> str:
         """List signal sources for the scoped MCP user."""
         return to_json(await _call_async("list_signal_sources", signal_runtime.list_sources, limit))
 
-    @mcp.tool()
+    @contribute_tool
     async def list_user_signals(limit: int = 20, status: str | None = None) -> str:
         """List scored signal candidates for the scoped MCP user."""
         return to_json(
             await _call_async("list_user_signals", signal_runtime.list_signals, limit, status)
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def update_signal_feedback(signal_id: int, action: str) -> str:
         """Write signal feedback: like, dislike, skip, queue, or hide_source."""
         return to_json(
@@ -310,7 +352,7 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def set_signal_source_active(source_id: int, is_active: bool) -> str:
         """Enable or disable one subscribed signal source for the scoped MCP user."""
         return to_json(
@@ -322,19 +364,19 @@ def register_tools(
             )
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def vector_health() -> str:
         """Check vector store availability and fallback readiness."""
         return to_json(await _call_async("vector_health", semantic_service.vector_health))
 
-    @mcp.tool()
+    @contribute_tool
     async def vector_index_stats(scan_limit: int = 5000) -> str:
         """Return index coverage stats between database summaries and the vector store."""
         return to_json(
             await _call_async("vector_index_stats", semantic_service.vector_index_stats, scan_limit)
         )
 
-    @mcp.tool()
+    @contribute_tool
     async def vector_sync_gap(max_scan: int = 5000, sample_size: int = 20) -> str:
         """Report sync gaps between database summaries and the vector store index."""
         return to_json(
@@ -345,6 +387,9 @@ def register_tools(
                 sample_size,
             )
         )
+
+    for contribution in contributions:
+        contribution.register(mcp)
 
 
 class _NullSignalService:

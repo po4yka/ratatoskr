@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -14,13 +15,16 @@ class FakeFastMCP:
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self.settings = SimpleNamespace(host="127.0.0.1", port=8000, transport_security=None)
         self.registered_tools: list[str] = []
+        self.registered_tool_handlers: dict[str, Any] = {}
         self.registered_resources: list[str] = []
+        self.registered_resource_handlers: dict[str, Any] = {}
         self.run_calls: list[dict[str, Any]] = []
         self.sse_apps: list[object] = []
 
     def tool(self, *_args: Any, **_kwargs: Any):
         def decorator(fn):
             self.registered_tools.append(fn.__name__)
+            self.registered_tool_handlers[fn.__name__] = fn
             return fn
 
         return decorator
@@ -28,6 +32,7 @@ class FakeFastMCP:
     def resource(self, uri: str, *_args: Any, **_kwargs: Any):
         def decorator(fn):
             self.registered_resources.append(uri)
+            self.registered_resource_handlers[uri] = fn
             return fn
 
         return decorator
@@ -237,3 +242,74 @@ def test_server_module_is_thin_shell() -> None:
     assert "_runtime =" not in server_text
     assert "_scope_user_id =" not in server_text
     assert "_MCP_USER_ID" not in server_text
+
+
+def test_mcp_tool_contribution_is_schema_testable_and_registers_on_fake_mcp() -> None:
+    from app.mcp.tool_registrations import McpToolContribution
+
+    def sample_tool(value: int) -> str:
+        """Sample tool."""
+        return str(value)
+
+    contribution = McpToolContribution.from_handler(sample_tool)
+    assert contribution.model_dump() == {"name": "sample_tool", "description": "Sample tool."}
+
+    mcp = FakeFastMCP()
+    contribution.register(mcp)
+
+    assert mcp.registered_tools == ["sample_tool"]
+    assert mcp.registered_tool_handlers["sample_tool"] is sample_tool
+
+
+def test_mcp_resource_contribution_is_schema_testable_and_registers_on_fake_mcp() -> None:
+    from app.mcp.resource_registrations import McpResourceContribution
+
+    async def sample_resource() -> str:
+        """Sample resource."""
+        return "{}"
+
+    contribution = McpResourceContribution.from_handler("ratatoskr://sample", sample_resource)
+    assert contribution.model_dump() == {
+        "uri": "ratatoskr://sample",
+        "name": "sample_resource",
+        "description": "Sample resource.",
+    }
+
+    mcp = FakeFastMCP()
+    contribution.register(mcp)
+
+    assert mcp.registered_resources == ["ratatoskr://sample"]
+    assert mcp.registered_resource_handlers["ratatoskr://sample"] is sample_resource
+
+
+def test_registered_tool_still_records_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.mcp.tool_registrations import register_tools
+
+    metric_calls: list[dict[str, Any]] = []
+
+    def fake_record_request(**kwargs: Any) -> None:
+        metric_calls.append(kwargs)
+
+    monkeypatch.setattr("app.mcp.tool_registrations.record_request", fake_record_request)
+
+    mcp = FakeFastMCP()
+    register_tools(
+        mcp,
+        aggregation_service=cast(
+            "Any",
+            SimpleNamespace(check_source_supported=lambda **_kwargs: {"supported": True}),
+        ),
+        article_service=cast("Any", SimpleNamespace()),
+        catalog_service=cast("Any", SimpleNamespace()),
+        semantic_service=cast("Any", SimpleNamespace()),
+    )
+
+    payload = json.loads(
+        mcp.registered_tool_handlers["check_source_supported"]("https://example.com")
+    )
+
+    assert payload == {"supported": True}
+    assert metric_calls
+    assert metric_calls[-1]["request_type"] == "check_source_supported"
+    assert metric_calls[-1]["status"] == "success"
+    assert metric_calls[-1]["source"] == "mcp"
