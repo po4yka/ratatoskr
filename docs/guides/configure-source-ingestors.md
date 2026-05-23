@@ -1,6 +1,6 @@
 # Configure Optional Source Ingestors
 
-Phase 5 adds optional proactive ingestors that emit generic `Source` and `FeedItem` rows for signal scoring. Generic RSS remains the default path. Hacker News and Reddit are zero-cost optional sources. Substack is an RSS specialization. X/Twitter is disabled unless explicitly cost-acknowledged.
+Phase 5 adds optional proactive ingestors that emit generic `Source` and `FeedItem` rows for signal scoring. Generic RSS remains the default path. Hacker News and Reddit are zero-cost optional sources. Substack is an RSS specialization. The legacy generic X/Twitter placeholder remains disabled unless explicitly cost-acknowledged. Authenticated connected-account X and Threads feed ingestion is also disabled by default and requires explicit per-provider flags plus active social connections.
 
 ## Enable Hacker News
 
@@ -110,3 +110,16 @@ TWITTER_INGESTION_ACK_COST=true
 ```
 
 This is intentionally separate from `twitter.enabled`, which controls one-off X/Twitter URL extraction. Proactive X/Twitter polling is bring-your-own-token and has an explicit cost warning because the Basic tier is approximately $200/month.
+
+## Authenticated Social Feeds
+
+Connected-account social feed ingestion uses encrypted OAuth credentials from `social_connections`; it never runs unless global signal ingestion and the provider-specific social flag are enabled. X supports the authenticated user's post timeline by default and can be switched to the reverse-chronological home timeline with `SOCIAL_X_TIMELINE_MODE=home_timeline`; both modes require `tweet.read` and `users.read`. Threads uses the official Threads Graph `GET /me/threads` surface with `threads_basic`. Instagram proactive ingestion is intentionally not implemented.
+
+```env
+SIGNAL_INGESTION_ENABLED=true
+SOCIAL_X_INGESTION_ENABLED=true
+SOCIAL_THREADS_INGESTION_ENABLED=true
+SOCIAL_X_TIMELINE_MODE=user_posts
+```
+
+The runner still applies the normal source controls: `SIGNAL_MAX_ITEMS_PER_SOURCE` limits provider fetch size, per-source `max_items_per_run` limits persistence, `backoff_until` skips sources until due, provider 429 reset headers are recorded as source backoff, and connections in `needs_reauth` are skipped without provider calls.

@@ -74,6 +74,7 @@ class SignalSourceRepositoryPort(Protocol):
         error: str,
         max_errors: int,
         base_backoff_seconds: int,
+        retry_at: Any | None = None,
     ) -> bool:
         """Record a source fetch failure and return whether the source was disabled."""
 

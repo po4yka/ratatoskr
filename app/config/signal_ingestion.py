@@ -33,6 +33,18 @@ class SignalIngestionConfig(BaseModel):
         default=False,
         validation_alias="TWITTER_INGESTION_ACK_COST",
     )
+    social_x_ingestion_enabled: bool = Field(
+        default=False,
+        validation_alias="SOCIAL_X_INGESTION_ENABLED",
+    )
+    social_x_timeline_mode: str = Field(
+        default="user_posts",
+        validation_alias="SOCIAL_X_TIMELINE_MODE",
+    )
+    social_threads_ingestion_enabled: bool = Field(
+        default=False,
+        validation_alias="SOCIAL_THREADS_INGESTION_ENABLED",
+    )
 
     @field_validator("hn_feeds", "reddit_subreddits", mode="before")
     @classmethod
@@ -40,6 +52,15 @@ class SignalIngestionConfig(BaseModel):
         if isinstance(value, list | tuple):
             return ",".join(str(item).strip() for item in value if str(item).strip())
         return str(value or "").strip()
+
+    @field_validator("social_x_timeline_mode", mode="before")
+    @classmethod
+    def _normalize_x_timeline_mode(cls, value: object) -> str:
+        mode = str(value or "user_posts").strip().lower().replace("-", "_")
+        if mode not in {"user_posts", "home_timeline"}:
+            msg = "SOCIAL_X_TIMELINE_MODE must be user_posts or home_timeline"
+            raise ValueError(msg)
+        return mode
 
     def hn_feed_names(self) -> tuple[str, ...]:
         return tuple(part.strip() for part in self.hn_feeds.split(",") if part.strip())
@@ -57,4 +78,6 @@ class SignalIngestionConfig(BaseModel):
             self.hn_enabled
             or (self.reddit_enabled and bool(self.reddit_names()))
             or self.twitter_enabled
+            or self.social_x_ingestion_enabled
+            or self.social_threads_ingestion_enabled
         )

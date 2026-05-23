@@ -144,6 +144,7 @@ async def test_runner_records_transient_errors_with_standard_backoff() -> None:
             "error": "temporary",
             "max_errors": 10,
             "base_backoff_seconds": 300,
+            "retry_at": None,
         }
     ]
 
@@ -166,6 +167,7 @@ async def test_runner_records_auth_errors_with_single_error_backoff() -> None:
             "error": "denied",
             "max_errors": 1,
             "base_backoff_seconds": 300,
+            "retry_at": None,
         }
     ]
 

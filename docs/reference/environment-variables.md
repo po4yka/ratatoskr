@@ -657,6 +657,9 @@ These variables configure connected social-account OAuth clients used by the Mob
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
+| `SOCIAL_X_INGESTION_ENABLED` | `false` | Enable authenticated X timeline ingestion when `SIGNAL_INGESTION_ENABLED=true` and the user has an active X connection |
+| `SOCIAL_X_TIMELINE_MODE` | `user_posts` | Authenticated X timeline mode: `user_posts` uses `GET /2/users/:id/tweets`; `home_timeline` uses `GET /2/users/:id/timelines/reverse_chronological` |
+| `SOCIAL_THREADS_INGESTION_ENABLED` | `false` | Enable authenticated Threads `GET /me/threads` ingestion when `SIGNAL_INGESTION_ENABLED=true` and the user has an active Threads connection |
 | `INSTAGRAM_CLIENT_ID` | _(none)_ | Instagram App ID for Business Login for Instagram |
 | `INSTAGRAM_CLIENT_SECRET` | _(none)_ | Instagram App Secret; stored as `SecretStr`, never logged |
 | `INSTAGRAM_REDIRECT_URI` | _(none)_ | Redirect URI registered for Instagram Login |

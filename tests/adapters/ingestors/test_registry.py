@@ -4,6 +4,7 @@ from app.adapters.ingestors.registry import SOURCE_INGESTER_DESCRIPTORS, create_
 from app.application.ports.source_ingestors import (
     IngestedSource,
     SourceFetchResult,
+    SourceIngesterBuildContext,
     SourceIngesterDescriptor,
 )
 from app.config.signal_ingestion import SignalIngestionConfig
@@ -25,7 +26,7 @@ class _FakeIngester:
 def test_fake_ingestor_descriptor_is_additive() -> None:
     cfg = SignalIngestionConfig()
     fake = _FakeIngester()
-    descriptors = (SourceIngesterDescriptor(name="fake", build=lambda _cfg: (fake,)),)
+    descriptors = (SourceIngesterDescriptor(name="fake", build=lambda _cfg, _context: (fake,)),)
 
     assert create_source_ingesters(cfg, descriptors=descriptors) == [fake]
 
@@ -35,6 +36,8 @@ def test_static_registry_preserves_current_source_families() -> None:
         "hacker_news",
         "reddit",
         "twitter",
+        "x_timeline",
+        "threads_user_threads",
     ]
 
 
@@ -69,3 +72,33 @@ def test_registry_preserves_disabled_twitter_placeholder_behavior() -> None:
 
     assert [ingester.name for ingester in ingesters] == ["twitter"]
     assert ingesters[0].is_enabled() is False
+
+
+def test_registry_builds_social_ingesters_only_with_explicit_flags_and_context() -> None:
+    cfg = SignalIngestionConfig(
+        enabled=True,
+        social_x_ingestion_enabled=True,
+        social_threads_ingestion_enabled=True,
+    )
+    social_repo = object()
+
+    ingesters_without_context = create_source_ingesters(cfg)
+    assert [ingester.name for ingester in ingesters_without_context] == ["twitter"]
+    assert ingesters_without_context[0].is_enabled() is False
+
+    ingesters = create_source_ingesters(
+        cfg,
+        context=SourceIngesterBuildContext(
+            social_connection_repository=social_repo,
+            subscriber_user_ids=(1001,),
+        ),
+    )
+
+    assert [ingester.name for ingester in ingesters] == [
+        "twitter",
+        "x_timeline:1001:user_posts",
+        "threads_user_threads:1001",
+    ]
+    assert ingesters[0].is_enabled() is False
+    assert ingesters[1].is_enabled() is True
+    assert ingesters[2].is_enabled() is True

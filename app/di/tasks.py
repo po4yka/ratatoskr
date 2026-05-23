@@ -225,14 +225,25 @@ def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
 def create_source_ingestion_runner(cfg: AppConfig, db: Database) -> Any:
     from app.adapters.ingestors.registry import create_source_ingesters
     from app.adapters.ingestors.runner import SourceIngestionRunner
+    from app.application.ports.source_ingestors import SourceIngesterBuildContext
+    from app.di.repositories import build_social_connection_repository
     from app.infrastructure.persistence.repositories.signal_source_repository import (
         SignalSourceRepositoryAdapter,
     )
 
+    subscriber_user_ids = tuple(int(user_id) for user_id in cfg.telegram.allowed_user_ids)
     return SourceIngestionRunner(
         repository=SignalSourceRepositoryAdapter(db),
-        ingesters=create_source_ingesters(cfg.signal_ingestion),
-        subscriber_user_ids=cfg.telegram.allowed_user_ids,
+        ingesters=create_source_ingesters(
+            cfg.signal_ingestion,
+            context=SourceIngesterBuildContext(
+                social_connection_repository=build_social_connection_repository(db),
+                subscriber_user_ids=subscriber_user_ids,
+                x_api_base_url=cfg.twitter.x_api_base_url,
+                threads_graph_base_url=cfg.social.threads_graph_base_url,
+            ),
+        ),
+        subscriber_user_ids=subscriber_user_ids,
     )
 
 

@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from app.application.ports.source_ingestors import AuthSourceError, SourceIngester
+from app.application.ports.source_ingestors import (
+    AuthSourceError,
+    RateLimitedSourceError,
+    SourceIngester,
+)
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -123,6 +127,7 @@ class SourceIngestionRunner:
                         if isinstance(exc, AuthSourceError)
                         else MAX_FETCH_ERRORS,
                         base_backoff_seconds=BASE_BACKOFF_SECONDS,
+                        retry_at=exc.retry_at if isinstance(exc, RateLimitedSourceError) else None,
                     )
                 logger.warning(
                     "source_ingester_failed",

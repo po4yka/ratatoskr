@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from datetime import datetime
 
 
 @dataclass(slots=True, frozen=True)
@@ -59,6 +60,10 @@ class TransientSourceError(SourceIngestionError):
 class RateLimitedSourceError(TransientSourceError):
     """Provider rate limit; retry after provider/global budget recovers."""
 
+    def __init__(self, message: str, *, retry_at: datetime | None = None) -> None:
+        super().__init__(message)
+        self.retry_at = retry_at
+
 
 class AuthSourceError(SourceIngestionError):
     """Permanent auth or permission failure until config changes."""
@@ -83,8 +88,18 @@ class SourceIngester(Protocol):
 
 
 @dataclass(slots=True, frozen=True)
+class SourceIngesterBuildContext:
+    """Optional dependencies available to registry-built ingestors."""
+
+    social_connection_repository: Any | None = None
+    subscriber_user_ids: tuple[int, ...] = ()
+    x_api_base_url: str = "https://api.x.com/2"
+    threads_graph_base_url: str = "https://graph.threads.net/v1.0"
+
+
+@dataclass(slots=True, frozen=True)
 class SourceIngesterDescriptor:
     """Static registry entry that builds one proactive source ingester family."""
 
     name: str
-    build: Callable[[Any], Iterable[SourceIngester]]
+    build: Callable[[Any, SourceIngesterBuildContext], Iterable[SourceIngester]]

@@ -314,6 +314,7 @@ class SignalSourceRepositoryAdapter:
         error: str,
         max_errors: int,
         base_backoff_seconds: int,
+        retry_at: Any | None = None,
     ) -> bool:
         async with self._database.transaction() as session:
             now = _utcnow()
@@ -324,7 +325,9 @@ class SignalSourceRepositoryAdapter:
             error_count += 1
             disabled = error_count >= max_errors
             backoff_seconds = min(base_backoff_seconds * (2 ** max(0, error_count - 1)), 86400)
-            next_fetch_at = now + timedelta(seconds=backoff_seconds)
+            next_fetch_at = (
+                retry_at if retry_at is not None else now + timedelta(seconds=backoff_seconds)
+            )
             await session.execute(
                 update(Source)
                 .where(Source.id == source_id)

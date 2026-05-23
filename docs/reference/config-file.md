@@ -100,6 +100,9 @@ signal_ingestion:
   reddit_requests_per_minute: 60
   twitter_enabled: false
   twitter_ack_cost: false
+  social_x_ingestion_enabled: false
+  social_x_timeline_mode: user_posts
+  social_threads_ingestion_enabled: false
 
 mcp:
   enabled: false
@@ -115,5 +118,5 @@ mcp:
 - SSRF redirect enforcement is strongest for backend-controlled HTTP fetchers that use the centralized safe httpx transport and manual redirect loops: proxy image fetches, direct HTML, Defuddle, and Crawl4AI sidecar requests re-check each redirect target and block private, link-local, localhost, and metadata IP ranges. Third-party/browser-controlled providers have limits: Scrapling, Playwright, Crawlee, Firecrawl sidecars, and ScrapeGraphAI may resolve or follow redirects inside external runtimes where this process cannot pin DNS at connect time, so keep those runtimes isolated from internal networks and treat their URL filters as preflight/best-effort controls.
 - Defuddle defaults to enabled (`scraper.defuddle_enabled: true`) but requires a reachable `defuddle-api` sidecar (default: `http://defuddle-api:3003`). The sidecar can be replaced by the public `https://defuddle.md` API for development by setting `SCRAPER_DEFUDDLE_API_BASE_URL=https://defuddle.md`.
 - The `with-scrapers` Docker Compose profile starts an in-compose self-hosted Firecrawl stack at `http://firecrawl-api:3002`. Set `scraper.firecrawl_self_hosted_enabled: true` to use it; self-hosted Firecrawl takes precedence when both self-hosted and cloud Firecrawl are configured.
-- Signal ingestion optional sources are disabled unless `signal_ingestion.enabled` and the per-source flag are both true. Hacker News uses the official Firebase API and has no credentials. Reddit uses public subreddit JSON with a default 60 requests/minute guard, below the free-tier 100 requests/minute ceiling. Substack is handled as RSS via `/feed`; use existing RSS subscription flows.
-- Twitter/X extraction is optional and should stay disabled unless explicitly needed. X/Twitter proactive ingestion is also disabled by default and requires explicit `twitter_ack_cost: true` / `TWITTER_INGESTION_ACK_COST=true`; the Basic tier is approximately $200/month and the project uses a bring-your-own token model for any future polling adapter.
+- Signal ingestion optional sources are disabled unless `signal_ingestion.enabled` and the per-source flag are both true. Hacker News uses the official Firebase API and has no credentials. Reddit uses public subreddit JSON with a default 60 requests/minute guard, below the free-tier 100 requests/minute ceiling. Substack is handled as RSS via `/feed`; use existing RSS subscription flows. Authenticated X and Threads social feed ingestion additionally requires active connected accounts and `social_x_ingestion_enabled` / `social_threads_ingestion_enabled`.
+- Twitter/X extraction is optional and should stay disabled unless explicitly needed. The legacy generic X/Twitter proactive placeholder remains disabled by default and requires explicit `twitter_ack_cost: true` / `TWITTER_INGESTION_ACK_COST=true`; authenticated connected-account X ingestion is separately gated by `social_x_ingestion_enabled` and uses existing OAuth connections rather than a raw token setting.

@@ -4,6 +4,12 @@
 
 Connected X, Instagram, and Threads accounts are managed through the Mobile API social-auth routes and through Telegram commands. In Telegram, `/social` lists token-safe provider status, `/connect_x`, `/connect_threads`, and `/connect_instagram` return OAuth connect URLs, and `/disconnect_social <provider>` deletes local token state for `x`, `threads`, or `instagram`.
 
+## Optional Authenticated Feed Ingestion
+
+Proactive connected-account feed ingestion is opt-in. X ingestion requires `SIGNAL_INGESTION_ENABLED=true`, `SOCIAL_X_INGESTION_ENABLED=true`, an active X connection, and `tweet.read` plus `users.read`; it supports `SOCIAL_X_TIMELINE_MODE=user_posts` for `GET /2/users/:id/tweets` or `SOCIAL_X_TIMELINE_MODE=home_timeline` for `GET /2/users/:id/timelines/reverse_chronological`. Threads ingestion requires `SIGNAL_INGESTION_ENABLED=true`, `SOCIAL_THREADS_INGESTION_ENABLED=true`, an active Threads connection, and `threads_basic`; it uses `GET /me/threads`. The source runner preserves standard source controls including `max_items_per_run`, `backoff_until`, rate-limit reset backoff, and `needs_reauth` skips. Instagram ingestion is not implemented.
+
+Reference links: [X timelines](https://docs.x.com/x-api/posts/timelines/introduction), [X OAuth 2.0 endpoint mapping](https://docs.x.com/fundamentals/authentication/guides/v2-authentication-mapping), [Threads API](https://developers.facebook.com/docs/threads/).
+
 ## Instagram API Scaffold
 
 This project currently keeps public Instagram URL summarization on the existing unauthenticated Meta scraper fallback. The Instagram API client scaffold is for connected-account OAuth and read-only professional-account media lookups only; it is not wired into production content extraction.
