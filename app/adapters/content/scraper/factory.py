@@ -62,6 +62,16 @@ SCRAPER_PROVIDER_DESCRIPTORS: tuple[ScraperProviderDescriptor, ...] = (
         },
     ),
     ScraperProviderDescriptor(
+        name="cloakbrowser",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "cloakbrowser_enabled", True)),
+        build=lambda cfg, audit: _build_cloakbrowser(cfg.scraper, audit),
+        requires_browser=True,
+        diagnostics_metadata={
+            "dependency_modules": ("playwright",),
+            "kind": "browser_sidecar",
+        },
+    ),
+    ScraperProviderDescriptor(
         name="playwright",
         enabled=lambda cfg: bool(getattr(cfg.scraper, "playwright_enabled", True)),
         build=lambda cfg, _audit: _build_playwright(cfg.scraper),
@@ -368,6 +378,34 @@ def _build_direct_pdf(scraper_cfg: object) -> ContentScraperProtocol | None:
         max_pdf_mb=getattr(scraper_cfg, "direct_pdf_max_size_mb", 20),
         min_text_length=getattr(scraper_cfg, "min_content_length", 400),
     )
+
+
+def _build_cloakbrowser(
+    scraper_cfg: object,
+    audit: Callable[[str, str, dict[str, Any]], None] | None,
+) -> ContentScraperProtocol | None:
+    if not getattr(scraper_cfg, "cloakbrowser_enabled", True):
+        return None
+    endpoint_url = getattr(scraper_cfg, "cloakbrowser_url", "")
+    if not endpoint_url:
+        return None
+    try:
+        from app.adapters.content.scraper.cloakbrowser_provider import CloakBrowserProvider
+
+        return CloakBrowserProvider(
+            endpoint_url=endpoint_url,
+            timeout_sec=getattr(scraper_cfg, "cloakbrowser_timeout_sec", 60),
+            min_text_length=getattr(scraper_cfg, "min_content_length", 400),
+            profile=getattr(scraper_cfg, "profile", "balanced"),
+            js_heavy_hosts=getattr(scraper_cfg, "js_heavy_hosts", ()),
+            audit=audit,
+        )
+    except Exception as exc:
+        logger.warning(
+            "cloakbrowser_provider_init_failed",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+        )
+        return None
 
 
 def _build_playwright(scraper_cfg: object) -> ContentScraperProtocol | None:

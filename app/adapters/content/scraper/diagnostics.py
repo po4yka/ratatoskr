@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from app.config import AppConfig
 
 
-_BROWSER_PROVIDERS = {"playwright", "crawlee"}
+_BROWSER_PROVIDERS = {"cloakbrowser", "playwright", "crawlee"}
 
 
 def build_scraper_diagnostics(cfg: AppConfig) -> dict[str, Any]:
@@ -79,6 +79,20 @@ def build_scraper_diagnostics(cfg: AppConfig) -> dict[str, Any]:
             "base_wait_for_ms": scraper_cfg.firecrawl_wait_for_ms,
             "js_heavy_wait_for_multiplier": 1.3,
             "js_heavy_wait_for_cap_ms": 10000,
+        },
+        "cloakbrowser": {
+            "enabled": bool(
+                scraper_cfg.enabled
+                and scraper_cfg.browser_enabled
+                and scraper_cfg.cloakbrowser_enabled
+            ),
+            "dependency_ready": _module_ready("playwright"),
+            "endpoint_url": scraper_cfg.cloakbrowser_url,
+            "base_timeout_sec": scraper_cfg.cloakbrowser_timeout_sec,
+            "effective_timeout_sec": round(
+                scraper_cfg.cloakbrowser_timeout_sec * profile_multiplier, 2
+            ),
+            "kind": "browser_sidecar",
         },
         "playwright": {
             "enabled": bool(

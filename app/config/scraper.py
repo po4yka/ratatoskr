@@ -11,6 +11,7 @@ SCRAPER_PROVIDER_TOKENS = {
     "scrapling",
     "defuddle",
     "firecrawl",
+    "cloakbrowser",
     "playwright",
     "crawlee",
     "direct_html",
@@ -26,6 +27,7 @@ DEFAULT_SCRAPER_PROVIDER_ORDER = [
     "crawl4ai",
     "firecrawl",
     "defuddle",
+    "cloakbrowser",
     "playwright",
     "crawlee",
     "direct_html",
@@ -175,6 +177,29 @@ class ScraperConfig(BaseModel):
     firecrawl_max_response_size_mb: int = Field(
         default=50,
         validation_alias="SCRAPER_FIRECRAWL_MAX_RESPONSE_SIZE_MB",
+    )
+
+    cloakbrowser_enabled: bool = Field(
+        default=True,
+        validation_alias="SCRAPER_CLOAKBROWSER_ENABLED",
+        description=(
+            "Enable the CloakBrowser CDP-sidecar provider. Active only when the "
+            "`with-scrapers` Docker profile brings up the cloakbrowser service; "
+            "otherwise the provider build fails and the chain falls through to "
+            "the in-process playwright rung."
+        ),
+    )
+    cloakbrowser_url: str = Field(
+        default="http://cloakbrowser:9222",
+        validation_alias="SCRAPER_CLOAKBROWSER_URL",
+        description=(
+            "HTTP endpoint of the CloakBrowser cloakserve CDP server. Playwright "
+            "resolves the WebSocket debugger URL from /json/version on this host."
+        ),
+    )
+    cloakbrowser_timeout_sec: int = Field(
+        default=60,
+        validation_alias="SCRAPER_CLOAKBROWSER_TIMEOUT_SEC",
     )
 
     playwright_enabled: bool = Field(
@@ -381,6 +406,7 @@ class ScraperConfig(BaseModel):
         "firecrawl_max_connections",
         "firecrawl_max_keepalive_connections",
         "firecrawl_max_response_size_mb",
+        "cloakbrowser_timeout_sec",
         "playwright_timeout_sec",
         "crawlee_timeout_sec",
         "crawlee_max_retries",
@@ -412,6 +438,7 @@ class ScraperConfig(BaseModel):
             "firecrawl_max_connections": (1, 100),
             "firecrawl_max_keepalive_connections": (1, 50),
             "firecrawl_max_response_size_mb": (1, 1024),
+            "cloakbrowser_timeout_sec": (1, 300),
             "playwright_timeout_sec": (1, 300),
             "crawlee_timeout_sec": (1, 300),
             "crawlee_max_retries": (0, 10),

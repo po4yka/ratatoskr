@@ -13,7 +13,7 @@ def test_provider_order_accepts_csv() -> None:
     assert cfg.provider_order == ["scrapling", "firecrawl", "playwright", "direct_html"]
 
 
-def test_default_provider_order_has_nine_entries() -> None:
+def test_default_provider_order_has_ten_entries() -> None:
     cfg = ScraperConfig()
 
     assert cfg.provider_order == [
@@ -22,6 +22,7 @@ def test_default_provider_order_has_nine_entries() -> None:
         "crawl4ai",
         "firecrawl",
         "defuddle",
+        "cloakbrowser",
         "playwright",
         "crawlee",
         "direct_html",
@@ -49,6 +50,21 @@ def test_new_provider_tokens_in_token_set() -> None:
 
     assert "crawl4ai" in SCRAPER_PROVIDER_TOKENS
     assert "scrapegraph_ai" in SCRAPER_PROVIDER_TOKENS
+    assert "cloakbrowser" in SCRAPER_PROVIDER_TOKENS
+
+
+def test_cloakbrowser_defaults() -> None:
+    cfg = ScraperConfig()
+    assert cfg.cloakbrowser_enabled is True
+    assert cfg.cloakbrowser_url == "http://cloakbrowser:9222"
+    assert cfg.cloakbrowser_timeout_sec == 60
+
+
+def test_cloakbrowser_timeout_bounds_rejected() -> None:
+    with pytest.raises(ValueError, match="Cloakbrowser timeout sec"):
+        ScraperConfig(cloakbrowser_timeout_sec=0)
+    with pytest.raises(ValueError, match="Cloakbrowser timeout sec"):
+        ScraperConfig(cloakbrowser_timeout_sec=10_000)
 
 
 def test_provider_order_accepts_json_array_string() -> None:

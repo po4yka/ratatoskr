@@ -26,17 +26,37 @@ def test_build_scraper_diagnostics_includes_expected_keys() -> None:
     assert "direct_html" in diagnostics["providers"]
     assert "crawl4ai" in diagnostics["providers"]
     assert "scrapegraph_ai" in diagnostics["providers"]
+    assert "cloakbrowser" in diagnostics["providers"]
     assert diagnostics["provider_order_effective"] == [
         "scrapling",
         "direct_pdf",
         "crawl4ai",
         "firecrawl",
         "defuddle",
+        "cloakbrowser",
         "playwright",
         "crawlee",
         "direct_html",
         "scrapegraph_ai",
     ]
+
+
+def test_cloakbrowser_diagnostics_filtered_when_browser_disabled() -> None:
+    cfg = make_test_app_config(scraper=ScraperConfig(browser_enabled=False))
+    diagnostics = build_scraper_diagnostics(cfg)
+
+    assert "cloakbrowser" not in diagnostics["provider_order_effective"]
+    assert diagnostics["providers"]["cloakbrowser"]["enabled"] is False
+
+
+def test_cloakbrowser_diagnostics_reports_endpoint_url() -> None:
+    cfg = make_test_app_config(
+        scraper=ScraperConfig(cloakbrowser_url="http://example-cb:9222")
+    )
+    diagnostics = build_scraper_diagnostics(cfg)
+
+    assert diagnostics["providers"]["cloakbrowser"]["endpoint_url"] == "http://example-cb:9222"
+    assert diagnostics["providers"]["cloakbrowser"]["kind"] == "browser_sidecar"
 
 
 def test_build_scraper_diagnostics_disabled_state() -> None:

@@ -30,12 +30,12 @@ class TestContentScraperFactory:
         assert all(descriptor.diagnostics_metadata for descriptor in SCRAPER_PROVIDER_DESCRIPTORS)
         assert {
             descriptor.name for descriptor in SCRAPER_PROVIDER_DESCRIPTORS if descriptor.requires_browser
-        } == {"playwright", "crawlee"}
+        } == {"cloakbrowser", "playwright", "crawlee"}
 
-    def test_default_config_creates_chain_with_seven_providers_when_firecrawl_disabled(
+    def test_default_config_creates_chain_with_eight_providers_when_firecrawl_disabled(
         self,
     ):
-        """Default config (firecrawl self-hosted off) yields a 7-rung chain.
+        """Default config (firecrawl self-hosted off) yields an 8-rung chain.
 
         Firecrawl activates only when FIRECRAWL_SELF_HOSTED_ENABLED=true, and
         scrapegraph_ai activates only when SCRAPER_SCRAPEGRAPH_ENABLED=true.
@@ -47,6 +47,7 @@ class TestContentScraperFactory:
             patch("app.adapters.content.scraper.factory._build_crawl4ai") as mock_crawl4ai,
             patch("app.adapters.content.scraper.factory._build_firecrawl") as mock_firecrawl,
             patch("app.adapters.content.scraper.factory._build_defuddle") as mock_defuddle,
+            patch("app.adapters.content.scraper.factory._build_cloakbrowser") as mock_cloakbrowser,
             patch("app.adapters.content.scraper.factory._build_playwright") as mock_playwright,
             patch("app.adapters.content.scraper.factory._build_crawlee") as mock_crawlee,
             patch("app.adapters.content.scraper.factory._build_direct_html") as mock_direct,
@@ -58,6 +59,7 @@ class TestContentScraperFactory:
             mock_crawl4ai.return_value = _MockProvider(name="crawl4ai")
             mock_firecrawl.return_value = None  # self-hosted disabled by default
             mock_defuddle.return_value = _MockProvider(name="defuddle")
+            mock_cloakbrowser.return_value = _MockProvider(name="cloakbrowser")
             mock_playwright.return_value = _MockProvider(name="playwright")
             mock_crawlee.return_value = _MockProvider(name="crawlee")
             mock_direct.return_value = _MockProvider(name="direct_html")
@@ -71,6 +73,7 @@ class TestContentScraperFactory:
             "direct_pdf",
             "crawl4ai",
             "defuddle",
+            "cloakbrowser",
             "playwright",
             "crawlee",
             "direct_html",
@@ -78,7 +81,7 @@ class TestContentScraperFactory:
         mock_firecrawl.assert_not_called()
         mock_scrapegraph.assert_not_called()
 
-    def test_default_config_creates_chain_with_eight_providers_when_firecrawl_enabled(
+    def test_default_config_creates_chain_with_nine_providers_when_firecrawl_enabled(
         self,
     ):
         """When FIRECRAWL_SELF_HOSTED_ENABLED=true, firecrawl appears in the chain.
@@ -100,6 +103,7 @@ class TestContentScraperFactory:
             patch("app.adapters.content.scraper.factory._build_crawl4ai") as mock_crawl4ai,
             patch("app.adapters.content.scraper.factory._build_firecrawl") as mock_firecrawl,
             patch("app.adapters.content.scraper.factory._build_defuddle") as mock_defuddle,
+            patch("app.adapters.content.scraper.factory._build_cloakbrowser") as mock_cloakbrowser,
             patch("app.adapters.content.scraper.factory._build_playwright") as mock_playwright,
             patch("app.adapters.content.scraper.factory._build_crawlee") as mock_crawlee,
             patch("app.adapters.content.scraper.factory._build_direct_html") as mock_direct,
@@ -112,6 +116,7 @@ class TestContentScraperFactory:
             # _build_firecrawl always sets provider_name='firecrawl_self_hosted'
             mock_firecrawl.return_value = _MockProvider(name="firecrawl_self_hosted")
             mock_defuddle.return_value = _MockProvider(name="defuddle")
+            mock_cloakbrowser.return_value = _MockProvider(name="cloakbrowser")
             mock_playwright.return_value = _MockProvider(name="playwright")
             mock_crawlee.return_value = _MockProvider(name="crawlee")
             mock_direct.return_value = _MockProvider(name="direct_html")
@@ -126,6 +131,7 @@ class TestContentScraperFactory:
             "crawl4ai",
             "firecrawl_self_hosted",
             "defuddle",
+            "cloakbrowser",
             "playwright",
             "crawlee",
             "direct_html",
@@ -323,30 +329,34 @@ class TestContentScraperFactory:
         names = [p.provider_name for p in chain.providers]
         assert "direct_html" in names
 
-    def test_browser_disabled_skips_playwright_and_crawlee(self):
-        """When browser_enabled=False, browser providers are skipped regardless of order."""
+    def test_browser_disabled_skips_playwright_crawlee_and_cloakbrowser(self):
+        """When browser_enabled=False, all requires_browser providers are skipped."""
         scraper_cfg = ScraperConfig(browser_enabled=False)
         cfg = make_test_app_config(scraper=scraper_cfg)
 
         with (
             patch("app.adapters.content.scraper.factory._build_scrapling") as mock_scrapling,
             patch("app.adapters.content.scraper.factory._build_firecrawl") as mock_firecrawl,
+            patch("app.adapters.content.scraper.factory._build_cloakbrowser") as mock_cloakbrowser,
             patch("app.adapters.content.scraper.factory._build_playwright") as mock_playwright,
             patch("app.adapters.content.scraper.factory._build_crawlee") as mock_crawlee,
             patch("app.adapters.content.scraper.factory._build_direct_html") as mock_direct,
         ):
             mock_scrapling.return_value = _MockProvider(name="scrapling")
             mock_firecrawl.return_value = _MockProvider(name="firecrawl_self_hosted")
+            mock_cloakbrowser.return_value = _MockProvider(name="cloakbrowser")
             mock_playwright.return_value = _MockProvider(name="playwright")
             mock_crawlee.return_value = _MockProvider(name="crawlee")
             mock_direct.return_value = _MockProvider(name="direct_html")
             chain = ContentScraperFactory.create_from_config(cfg)
 
         names = [p.provider_name for p in chain.providers]
+        assert "cloakbrowser" not in names
         assert "playwright" not in names
         assert "crawlee" not in names
         assert "scrapling" in names
         assert "direct_html" in names
+        mock_cloakbrowser.assert_not_called()
         mock_playwright.assert_not_called()
         mock_crawlee.assert_not_called()
 

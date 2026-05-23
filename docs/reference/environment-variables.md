@@ -214,12 +214,12 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | ---------- | --------- | ------------- |
 | `SCRAPER_ENABLED` | `true` | Global master switch for article scraper chain |
 | `SCRAPER_PROFILE` | `balanced` | Scraper tuning profile: `fast`, `balanced`, `robust` |
-| `SCRAPER_BROWSER_ENABLED` | `true` | Master switch for browser-based providers (`playwright`, `crawlee`) |
-| `SCRAPER_FORCE_PROVIDER` | _(none)_ | Force single provider token (`scrapling`, `crawl4ai`, `firecrawl`, `defuddle`, `playwright`, `crawlee`, `direct_html`, `scrapegraph_ai`) |
+| `SCRAPER_BROWSER_ENABLED` | `true` | Master switch for browser-based providers (`cloakbrowser`, `playwright`, `crawlee`) |
+| `SCRAPER_FORCE_PROVIDER` | _(none)_ | Force single provider token (`scrapling`, `crawl4ai`, `firecrawl`, `defuddle`, `cloakbrowser`, `playwright`, `crawlee`, `direct_html`, `scrapegraph_ai`) |
 | `SCRAPER_JS_HEAVY_HOSTS` | _(none)_ | CSV host list for JS-heavy heuristic overlays |
 | `SCRAPER_MIN_CONTENT_LENGTH` | `400` | Minimum extracted text length to accept content |
 | `SCRAPER_ALLOW_PRIVATE_NETWORK_URLS` | `false` | Local-development override for user-submitted localhost/RFC1918 targets. Leave disabled outside isolated dev; metadata, link-local, reserved, and non-http(s) targets remain blocked. |
-| `SCRAPER_PROVIDER_ORDER` | `["scrapling", "crawl4ai", "firecrawl", "defuddle", "playwright", "crawlee", "direct_html", "scrapegraph_ai"]` | Ordered list of scraping providers to try |
+| `SCRAPER_PROVIDER_ORDER` | `["scrapling", "direct_pdf", "crawl4ai", "firecrawl", "defuddle", "cloakbrowser", "playwright", "crawlee", "direct_html", "scrapegraph_ai"]` | Ordered list of scraping providers to try |
 | `SCRAPER_SCRAPLING_ENABLED` | `true` | Enable Scrapling in-process provider |
 | `SCRAPER_SCRAPLING_TIMEOUT_SEC` | `30` | Scrapling fetch timeout (seconds) |
 | `SCRAPER_SCRAPLING_STEALTH_FALLBACK` | `true` | Try stealth fetch if basic fetch returns thin content |
@@ -241,6 +241,9 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | `SCRAPER_FIRECRAWL_MAX_KEEPALIVE_CONNECTIONS` | `5` | Firecrawl keepalive pool size for article chain |
 | `SCRAPER_FIRECRAWL_KEEPALIVE_EXPIRY` | `30.0` | Firecrawl keepalive expiry (seconds) for article chain |
 | `SCRAPER_FIRECRAWL_MAX_RESPONSE_SIZE_MB` | `50` | Firecrawl max response size for article chain |
+| `SCRAPER_CLOAKBROWSER_ENABLED` | `true` | Enable CloakBrowser CDP-sidecar provider (stealth Chromium via `cloakserve`) |
+| `SCRAPER_CLOAKBROWSER_URL` | `http://cloakbrowser:9222` | CloakBrowser `cloakserve` HTTP endpoint; Playwright resolves the WebSocket debugger URL from `/json/version` on this host |
+| `SCRAPER_CLOAKBROWSER_TIMEOUT_SEC` | `60` | CloakBrowser request timeout (seconds) |
 | `SCRAPER_PLAYWRIGHT_ENABLED` | `true` | Enable Playwright rendering fallback provider |
 | `SCRAPER_PLAYWRIGHT_HEADLESS` | `true` | Run Playwright browser headless in scraper fallback |
 | `SCRAPER_PLAYWRIGHT_TIMEOUT_SEC` | `30` | Playwright render timeout (seconds) |
@@ -261,6 +264,7 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 - Crawl4AI is a self-hosted Docker sidecar (`crawl4ai` service on port 11235). When the service is not reachable the provider is skipped automatically.
 - Firecrawl now only supports self-hosted mode (`FIRECRAWL_SELF_HOSTED_ENABLED=true`). Cloud Firecrawl (`FIRECRAWL_API_KEY`) is no longer used by the article scraper chain; it remains available for the web-search enrichment subsystem.
 - Defuddle is now enabled by default and points at the self-hosted Docker Compose service (`http://defuddle-api:3003`). Pointing it at `https://defuddle.md` logs a `defuddle_provider_cloud_url_deprecated` warning.
+- CloakBrowser is a self-hosted stealth-Chromium sidecar reached over CDP (`cloakhq/cloakbrowser` running `cloakserve`); it ships under the `with-scrapers` Docker profile. The upstream binary is licensed for use but not redistribution — pull the upstream image (pinned by tag), do not rebake. When the sidecar is absent the per-call CDP connection fails fast and the chain falls through to in-process `playwright`.
 - Playwright fallback is useful for JS-heavy pages that fail in HTTP-only extractors.
 - Crawlee fallback is a single-page advanced fallback (BeautifulSoup stage, then Playwright stage); it is not broad multi-page site crawling in this pipeline.
 - `direct_html` is a lightweight fallback using trafilatura for simple pages.

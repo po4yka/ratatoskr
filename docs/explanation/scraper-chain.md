@@ -20,12 +20,15 @@ How Ratatoskr extracts clean article content from arbitrary URLs: the provider t
 | `crawl4ai` | Docker sidecar | 2 | `crawl4ai` container at `SCRAPER_CRAWL4AI_URL` |
 | `firecrawl_self_hosted` | Docker sidecar | 3 | `firecrawl-api` stack at `FIRECRAWL_SELF_HOSTED_URL` |
 | `defuddle` | Docker sidecar | 4 | `defuddle-api` container at `SCRAPER_DEFUDDLE_API_BASE_URL` |
-| `playwright` | browser pool (in-process) | 5 | Chromium installed via `playwright install chromium` |
-| `crawlee` | browser pool (in-process) | 6 | Chromium (same as playwright) |
-| `direct_html` | in-process | 7 | None — raw httpx fetch + trafilatura |
-| `scrapegraph_ai` | in-process (LLM-driven) | 8 | `scrapegraphai` package + valid `OPENROUTER_API_KEY` |
+| `cloakbrowser` | browser sidecar (CDP) | 5 | `cloakbrowser` container at `SCRAPER_CLOAKBROWSER_URL` (Playwright `connect_over_cdp`) |
+| `playwright` | browser pool (in-process) | 6 | Chromium installed via `playwright install chromium` |
+| `crawlee` | browser pool (in-process) | 7 | Chromium (same as playwright) |
+| `direct_html` | in-process | 8 | None — raw httpx fetch + trafilatura |
+| `scrapegraph_ai` | in-process (LLM-driven) | 9 | `scrapegraphai` package + valid `OPENROUTER_API_KEY` |
 
-Provider position 3 (`firecrawl`) is active only when `FIRECRAWL_SELF_HOSTED_ENABLED=true`; cloud Firecrawl is not used for article scraping. Position 8 (`scrapegraph_ai`) is active only when `scrapegraphai` is installed and `OPENROUTER_API_KEY` is set.
+Provider position 3 (`firecrawl`) is active only when `FIRECRAWL_SELF_HOSTED_ENABLED=true`; cloud Firecrawl is not used for article scraping. Position 9 (`scrapegraph_ai`) is active only when `scrapegraphai` is installed and `OPENROUTER_API_KEY` is set.
+
+Position 5 (`cloakbrowser`) is the stealth-browser rung — an [upstream CloakHQ/CloakBrowser](https://github.com/CloakHQ/CloakBrowser) sidecar in `cloakserve` CDP mode that drives a Chromium build with C++ source-level fingerprint patches (canvas, WebGL, GPU, WebRTC, UA). It runs under the `with-scrapers` Docker profile and is reached over the internal Docker network only. The upstream binary is licensed for use but not redistribution, so we always pull the upstream image rather than rebake it — pin to a specific tag in `ops/docker/docker-compose.yml` rather than `latest`. When the sidecar is absent (no `with-scrapers` profile) the provider build still appears in the chain but the per-call connection fails fast, and the chain falls through to in-process `playwright` exactly as it does today when `crawl4ai` is down.
 
 ---
 
@@ -41,19 +44,20 @@ flowchart TD
 
     subgraph InProcess[In-process]
         Scrapling[1. scrapling]
-        DirectHTML[7. direct_html]
-        ScrapegraphAI[8. scrapegraph_ai]
+        DirectHTML[8. direct_html]
+        ScrapegraphAI[9. scrapegraph_ai]
     end
 
     subgraph Sidecars[Docker sidecars]
         Crawl4AI[2. crawl4ai]
         Firecrawl[3. firecrawl_self_hosted]
         Defuddle[4. defuddle]
+        CloakBrowser[5. cloakbrowser]
     end
 
     subgraph BrowserPool[Browser pool]
-        Playwright[5. playwright]
-        Crawlee[6. crawlee]
+        Playwright[6. playwright]
+        Crawlee[7. crawlee]
     end
 
     Scrapling --> ScraplingGate{Content OK?}
@@ -70,8 +74,12 @@ flowchart TD
     FirecrawlGate -- success --> Success
 
     Defuddle --> DefuddleGate{Content OK?}
-    DefuddleGate -- fail --> Playwright
+    DefuddleGate -- fail --> CloakBrowser
     DefuddleGate -- success --> Success
+
+    CloakBrowser --> CloakBrowserGate{Content OK?}
+    CloakBrowserGate -- fail --> Playwright
+    CloakBrowserGate -- success --> Success
 
     Playwright --> PlaywrightGate{Content OK?}
     PlaywrightGate -- fail --> Crawlee
@@ -97,7 +105,7 @@ flowchart TD
     classDef terminal fill:#f9ebea,stroke:#cb4335
 
     class Scrapling,DirectHTML,ScrapegraphAI inproc
-    class Crawl4AI,Firecrawl,Defuddle sidecar
+    class Crawl4AI,Firecrawl,Defuddle,CloakBrowser sidecar
     class Playwright,Crawlee browser
     class Exhausted terminal
 ```
