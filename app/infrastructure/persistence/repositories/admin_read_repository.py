@@ -23,6 +23,9 @@ from app.db.models import (
     Source,
     Summary,
     SummaryEmbedding,
+    SocialConnection,
+    SocialFetchAttempt,
+    SocialFetchAttemptStatus,
     Tag,
     User,
     UserGitHubIntegration,
@@ -356,6 +359,9 @@ class AdminReadRepositoryAdapter:
                 "vector_indexing_lag": await self._vector_indexing_lag(session),
                 "llm_providers": await self._llm_provider_stats(session, since=since),
                 "scraper_providers": await self._scraper_provider_stats(session, since=since),
+                "social_connections": await self._social_connection_diagnostics(
+                    session, since=since
+                ),
                 "integration_health": await self._integration_health(session),
                 "latest_sync_failures": await self._latest_sync_failures(session, limit=20),
                 "storage_activity": await self._storage_activity(
@@ -364,6 +370,86 @@ class AdminReadRepositoryAdapter:
                     last_7d=now - dt.timedelta(days=7),
                 ),
             }
+
+    @staticmethod
+    async def _social_connection_diagnostics(
+        session: Any,
+        *,
+        since: dt.datetime,
+    ) -> list[dict[str, Any]]:
+        connection_rows = (
+            await session.execute(
+                select(
+                    SocialConnection.provider,
+                    SocialConnection.status,
+                    func.count(SocialConnection.id),
+                ).group_by(SocialConnection.provider, SocialConnection.status)
+            )
+        ).all()
+        by_provider: dict[str, dict[str, Any]] = {}
+        for provider, status, count in connection_rows:
+            provider_name = _enum_value(provider)
+            status_name = _enum_value(status)
+            row = by_provider.setdefault(
+                provider_name,
+                {
+                    "provider": provider_name,
+                    "configured": False,
+                    "active_connection_count": 0,
+                    "needs_reauth_count": 0,
+                    "recent_fetch_failures": [],
+                    "rate_limit_reset_summary": None,
+                },
+            )
+            if status_name == "active":
+                row["active_connection_count"] += int(count or 0)
+            if status_name == "needs_reauth":
+                row["needs_reauth_count"] += int(count or 0)
+
+        failure_rows = (
+            await session.execute(
+                select(SocialFetchAttempt)
+                .where(
+                    SocialFetchAttempt.started_at >= since,
+                    SocialFetchAttempt.status == SocialFetchAttemptStatus.FAILED,
+                )
+                .order_by(SocialFetchAttempt.started_at.desc())
+                .limit(20)
+            )
+        ).scalars()
+        latest_rate_limits: dict[str, str] = {}
+        for attempt in failure_rows:
+            provider_name = _enum_value(attempt.provider)
+            row = by_provider.setdefault(
+                provider_name,
+                {
+                    "provider": provider_name,
+                    "configured": False,
+                    "active_connection_count": 0,
+                    "needs_reauth_count": 0,
+                    "recent_fetch_failures": [],
+                    "rate_limit_reset_summary": None,
+                },
+            )
+            metadata = attempt.metadata_json if isinstance(attempt.metadata_json, dict) else {}
+            row["recent_fetch_failures"].append(
+                {
+                    "provider": provider_name,
+                    "attempt_type": attempt.attempt_type,
+                    "error_code": attempt.error_code,
+                    "error_message": _redact_message(attempt.error_message),
+                    "occurred_at": attempt.finished_at or attempt.started_at,
+                    "metadata": _safe_social_attempt_metadata(metadata),
+                }
+            )
+            rate_limit = metadata.get("rate_limit") if isinstance(metadata, dict) else None
+            reset = rate_limit.get("reset") if isinstance(rate_limit, dict) else None
+            if isinstance(reset, str) and reset:
+                latest_rate_limits.setdefault(provider_name, reset)
+
+        for provider_name, reset in latest_rate_limits.items():
+            by_provider[provider_name]["rate_limit_reset_summary"] = reset
+        return [by_provider[key] for key in sorted(by_provider)]
 
     @staticmethod
     async def _queue_backlog(session: Any, *, now: dt.datetime) -> dict[str, Any]:
@@ -815,6 +901,29 @@ def _parse_since(since: str | None) -> dt.datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def _enum_value(value: Any) -> str:
+    return str(value.value if hasattr(value, "value") else value or "unknown")
+
+
+def _safe_social_attempt_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "api_status",
+        "api_supported_for_url",
+        "provider_resource_id",
+        "provider_shortcode",
+        "unsupported_reason",
+    }
+    safe = {key: metadata[key] for key in allowed if key in metadata}
+    rate_limit = metadata.get("rate_limit")
+    if isinstance(rate_limit, dict):
+        safe["rate_limit"] = {
+            key: rate_limit[key]
+            for key in ("limit", "remaining", "reset", "reset_at")
+            if key in rate_limit
+        }
+    return safe
 
 
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (

@@ -33,6 +33,24 @@ class DiagnosticsProviderStatus(BaseModel):
     last_failure_at: datetime | None = None
 
 
+class DiagnosticsSocialFetchFailure(BaseModel):
+    provider: str
+    attempt_type: str
+    error_code: str | None = None
+    error_message: str | None = None
+    occurred_at: datetime | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class DiagnosticsSocialProvider(BaseModel):
+    provider: str
+    configured: bool = False
+    active_connection_count: int = 0
+    needs_reauth_count: int = 0
+    recent_fetch_failures: list[DiagnosticsSocialFetchFailure] = Field(default_factory=list)
+    rate_limit_reset_summary: str | None = None
+
+
 class DiagnosticsQueueBacklog(BaseModel):
     by_status: dict[str, int] = Field(default_factory=dict)
     runnable_count: int = 0
@@ -85,6 +103,7 @@ class DiagnosticsResponse(BaseModel):
     components: dict[str, DiagnosticsComponent]
     scraper_providers: list[DiagnosticsProviderStatus]
     llm_providers: list[DiagnosticsProviderStatus]
+    social_connections: list[DiagnosticsSocialProvider]
     queue_backlog: DiagnosticsQueueBacklog
     vector_indexing_lag: DiagnosticsVectorIndexLag
     latest_sync_failures: list[DiagnosticsSyncFailure]

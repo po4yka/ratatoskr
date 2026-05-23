@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.api.routers.auth.tokens import create_access_token
 from app.application.dto.social_auth import OAuthTokenResult
 from app.core.time_utils import UTC
-from app.db.models import SocialAuthState, SocialConnection
+from app.db.models import SocialAuthState, SocialConnection, SocialFetchAttempt
 from app.security.secret_crypto import decrypt_secret, reset_secret_key_cache
 
 _USER_ID = 777_001
@@ -167,8 +167,14 @@ async def test_callback_success_stores_connection_without_returning_raw_tokens(
     connection = body["data"]["connection"]
     assert connection["provider"] == "instagram"
     assert connection["connected"] is True
+    assert connection["status"] == "active"
     assert connection["providerUserId"] == "instagram-user-1"
     assert connection["providerUsername"] == "instagram_tester"
+    assert connection["scopes"] == ["profile.read", "offline.access"]
+    assert connection["expiresAt"] == "2026-05-24T00:00:00Z"
+    assert connection["createdAt"] is not None
+    assert connection["updatedAt"] is not None
+    assert "encrypted" not in response.text
     assert "access-token-secret" not in response.text
     assert "refresh-token-secret" not in response.text
     assert "encrypted_access_token" not in response.text
@@ -191,6 +197,74 @@ async def test_callback_success_stores_connection_without_returning_raw_tokens(
     assert auth_state is not None
     assert auth_state.status == "consumed"
     assert fake_oauth_clients["instagram"].exchanges[0]["correlation_id"] == "cid-social-test"
+
+
+async def test_connections_list_returns_safe_status_without_tokens(
+    client: Any,
+    db: Any,
+    social_users: Any,
+) -> None:
+    now = datetime.now(UTC)
+    async with db.transaction() as session:
+        session.add(
+            SocialConnection(
+                user_id=_USER_ID,
+                provider="threads",
+                auth_type="oauth2",
+                provider_user_id="threads-user-1",
+                provider_username="threads_tester",
+                encrypted_access_token=b"encrypted-access-token",
+                encrypted_refresh_token=b"encrypted-refresh-token",
+                token_scopes=["threads_basic"],
+                access_token_expires_at=now + timedelta(days=30),
+                refresh_token_expires_at=now + timedelta(days=30),
+                status="needs_reauth",
+                metadata_json={
+                    "last_used_at": "2026-05-23T12:00:00Z",
+                    "access_token": "raw-token",
+                    "source_payload": {"secret": "raw-source"},
+                    "threads_account": {"id": "threads-user-1", "username": "threads_tester"},
+                },
+            )
+        )
+        await session.flush()
+        row = await session.scalar(
+            select(SocialConnection).where(
+                SocialConnection.user_id == _USER_ID,
+                SocialConnection.provider == "threads",
+            )
+        )
+        assert row is not None
+        session.add(
+            SocialFetchAttempt(
+                connection_id=row.id,
+                user_id=_USER_ID,
+                provider="threads",
+                attempt_type="media_retrieval",
+                status="succeeded",
+                metadata_json={"access_token": "attempt-token"},
+                started_at=now,
+                finished_at=now,
+            )
+        )
+
+    response = client.get("/v1/social/connections", headers=_auth_headers())
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    connection = next(item for item in body["data"]["connections"] if item["provider"] == "threads")
+    assert connection["status"] == "needs_reauth"
+    assert connection["providerUsername"] == "threads_tester"
+    assert connection["scopes"] == ["threads_basic"]
+    assert connection["expiresAt"] is not None
+    assert connection["lastUsedAt"] == "2026-05-23T12:00:00Z"
+    assert connection["createdAt"] is not None
+    assert connection["updatedAt"] is not None
+    rendered = response.text
+    assert "raw-token" not in rendered
+    assert "raw-source" not in rendered
+    assert "attempt-token" not in rendered
+    assert "encrypted-access-token" not in rendered
 
 
 async def test_callback_rejects_expired_state(

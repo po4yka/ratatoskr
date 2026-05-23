@@ -13,16 +13,20 @@ class SocialConnectionResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     provider: str
-    connected: bool
+    status: str
+    provider_username: str | None = Field(default=None, alias="providerUsername")
+    scopes: list[str] | None = None
+    expires_at: str | None = Field(default=None, alias="expiresAt")
+    last_used_at: str | None = Field(default=None, alias="lastUsedAt")
+    created_at: str | None = Field(default=None, alias="createdAt")
+    updated_at: str | None = Field(default=None, alias="updatedAt")
+    connected: bool | None = None
     auth_type: str | None = Field(default=None, alias="authType")
     provider_user_id: str | None = Field(default=None, alias="providerUserId")
-    provider_username: str | None = Field(default=None, alias="providerUsername")
     token_scopes: list[str] | None = Field(default=None, alias="tokenScopes")
     access_token_expires_at: str | None = Field(default=None, alias="accessTokenExpiresAt")
     refresh_token_expires_at: str | None = Field(default=None, alias="refreshTokenExpiresAt")
-    status: str
     connected_at: str | None = Field(default=None, alias="connectedAt")
-    updated_at: str | None = Field(default=None, alias="updatedAt")
     metadata: dict[str, Any] | None = None
 
 

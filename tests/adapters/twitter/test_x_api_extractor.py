@@ -27,7 +27,11 @@ class FakeSocialConnectionRepository:
     async def get_by_user_and_provider(
         self, user_id: int, provider: str
     ) -> SocialConnectionRecord | None:
-        if self.connection and self.connection.user_id == user_id and self.connection.provider == provider:
+        if (
+            self.connection
+            and self.connection.user_id == user_id
+            and self.connection.provider == provider
+        ):
             return self.connection
         return None
 
@@ -100,7 +104,9 @@ def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> None:
     reset_secret_key_cache()
 
 
-def _connection(*, expires_at: dt.datetime | None = None, status: str = "active") -> SocialConnectionRecord:
+def _connection(
+    *, expires_at: dt.datetime | None = None, status: str = "active"
+) -> SocialConnectionRecord:
     now = dt.datetime.now(UTC)
     return SocialConnectionRecord(
         id=10,
@@ -114,6 +120,7 @@ def _connection(*, expires_at: dt.datetime | None = None, status: str = "active"
         token_scopes=["tweet.read", "users.read", "offline.access"],
         access_token_expires_at=expires_at or now + dt.timedelta(hours=1),
         refresh_token_expires_at=None,
+        last_used_at=None,
         status=status,
         metadata_json={},
         created_at=now,
@@ -121,7 +128,9 @@ def _connection(*, expires_at: dt.datetime | None = None, status: str = "active"
     )
 
 
-def _tweet_response(status_code: int = 200, *, headers: dict[str, str] | None = None) -> httpx.Response:
+def _tweet_response(
+    status_code: int = 200, *, headers: dict[str, str] | None = None
+) -> httpx.Response:
     payload = {
         "data": {
             "id": "123",

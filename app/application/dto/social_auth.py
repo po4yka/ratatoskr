@@ -29,6 +29,7 @@ class SocialConnectionDTO:
     token_scopes: list[str] | None
     access_token_expires_at: str | None
     refresh_token_expires_at: str | None
+    last_used_at: str | None
     status: str
     connected_at: str | None
     updated_at: str | None
@@ -115,6 +116,7 @@ def connection_record_to_dto(
             token_scopes=None,
             access_token_expires_at=None,
             refresh_token_expires_at=None,
+            last_used_at=None,
             status="disconnected",
             connected_at=None,
             updated_at=None,
@@ -130,6 +132,7 @@ def connection_record_to_dto(
         token_scopes=safe.token_scopes,
         access_token_expires_at=_iso_or_none(safe.access_token_expires_at),
         refresh_token_expires_at=_iso_or_none(safe.refresh_token_expires_at),
+        last_used_at=_iso_or_none(safe.last_used_at),
         status=safe.status,
         connected_at=_iso_or_none(safe.created_at),
         updated_at=_iso_or_none(safe.updated_at),

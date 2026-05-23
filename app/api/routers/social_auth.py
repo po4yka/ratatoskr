@@ -119,18 +119,43 @@ def _correlation_id(request: Request) -> str | None:
 def _connection_response(dto: Any) -> SocialConnectionResponse:
     return SocialConnectionResponse(
         provider=dto.provider,
+        status=dto.status,
+        providerUsername=dto.provider_username,
+        scopes=dto.token_scopes,
+        expiresAt=dto.access_token_expires_at,
+        lastUsedAt=_last_used_at(dto),
+        createdAt=dto.connected_at,
+        updatedAt=dto.updated_at,
         connected=dto.connected,
         authType=dto.auth_type,
         providerUserId=dto.provider_user_id,
-        providerUsername=dto.provider_username,
         tokenScopes=dto.token_scopes,
         accessTokenExpiresAt=dto.access_token_expires_at,
         refreshTokenExpiresAt=dto.refresh_token_expires_at,
-        status=dto.status,
         connectedAt=dto.connected_at,
-        updatedAt=dto.updated_at,
-        metadata=dto.metadata_json,
+        metadata=_safe_connection_metadata(dto.metadata_json),
     )
+
+
+def _last_used_at(dto: Any) -> str | None:
+    if getattr(dto, "last_used_at", None):
+        return cast("str", dto.last_used_at)
+    metadata = dto.metadata_json if isinstance(dto.metadata_json, dict) else {}
+    value = metadata.get("last_used_at")
+    return value if isinstance(value, str) else None
+
+
+def _safe_connection_metadata(metadata: Any) -> dict[str, Any] | None:
+    if not isinstance(metadata, dict):
+        return None
+    allowed = {
+        "account_type",
+        "instagram_account",
+        "provider_account",
+        "threads_account",
+        "x_account",
+    }
+    return {key: metadata[key] for key in allowed if key in metadata} or None
 
 
 def _raise_api_error(exc: SocialAuthError) -> None:

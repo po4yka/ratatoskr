@@ -16,7 +16,7 @@ Component diagram, request lifecycle, layered (hexagonal) view, goals, non-goals
 
 ## Data Model
 
-Complete PostgreSQL schema reference: all core tables (users, requests, crawl_results, llm_calls, summaries, aggregation sessions, signal-scoring tables), indexes, relationships, ER diagram, common queries, database maintenance, migrations, mixed-source aggregation model, and URL normalization/deduplication rules.
+Complete PostgreSQL schema reference: all core tables (users, requests, crawl_results, llm_calls, summaries, aggregation sessions, signal-scoring tables, social connection credential/status tables), indexes, relationships, ER diagram, common queries, database maintenance, migrations, mixed-source aggregation model, and URL normalization/deduplication rules.
 
 → [Data Model Reference](reference/data-model.md)
 
@@ -115,7 +115,7 @@ React SPA serving contract, routes, hybrid auth modes, and local development wor
 
 ## Observability
 
-Prometheus metrics, structured logs, correlation-ID tracing, owner-safe diagnostics, and the Loki/Promtail/Grafana monitoring stack. Owner diagnostics for `/v1/admin/diagnostics` are composed by `DiagnosticsService`, which gathers health checks, scraper configuration, vector lag, queue backlog, storage growth, integration failures, and redacted provider status behind a short process-local cache.
+Prometheus metrics, structured logs, correlation-ID tracing, owner-safe diagnostics, and the Loki/Promtail/Grafana monitoring stack. Owner diagnostics for `/v1/admin/diagnostics` are composed by `DiagnosticsService`, which gathers health checks, scraper configuration, vector lag, queue backlog, storage growth, integration failures, social provider connection summaries, and redacted provider status behind a short process-local cache.
 
 → [Observability Strategy](explanation/observability-strategy.md)
 

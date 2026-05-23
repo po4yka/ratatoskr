@@ -79,6 +79,7 @@ class SocialConnectionRepositoryAdapter:
                         "token_scopes": values["token_scopes"],
                         "access_token_expires_at": values["access_token_expires_at"],
                         "refresh_token_expires_at": values["refresh_token_expires_at"],
+                        "last_used_at": values["last_used_at"],
                         "status": values["status"],
                         "metadata_json": values["metadata_json"],
                         "updated_at": _utcnow(),
@@ -240,6 +241,7 @@ def _upsert_values(connection: SocialConnectionUpsert) -> dict[str, Any]:
         else None,
         "access_token_expires_at": connection.access_token_expires_at,
         "refresh_token_expires_at": connection.refresh_token_expires_at,
+        "last_used_at": connection.last_used_at,
         "status": _status(connection.status),
         "metadata_json": dict(connection.metadata_json)
         if connection.metadata_json is not None
@@ -265,6 +267,8 @@ def _update_values(update: SocialConnectionUpdate) -> dict[str, Any]:
         values["access_token_expires_at"] = update.access_token_expires_at
     if update.refresh_token_expires_at is not None:
         values["refresh_token_expires_at"] = update.refresh_token_expires_at
+    if update.last_used_at is not None:
+        values["last_used_at"] = update.last_used_at
     if update.status is not None:
         values["status"] = _status(update.status)
     if update.metadata_json is not None:
@@ -288,6 +292,7 @@ def _to_record(row: SocialConnection) -> SocialConnectionRecord:
         token_scopes=list(row.token_scopes) if isinstance(row.token_scopes, list) else None,
         access_token_expires_at=row.access_token_expires_at,
         refresh_token_expires_at=row.refresh_token_expires_at,
+        last_used_at=row.last_used_at,
         status=status,
         metadata_json=dict(row.metadata_json) if isinstance(row.metadata_json, dict) else None,
         created_at=row.created_at,

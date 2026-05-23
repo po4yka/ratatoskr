@@ -50,6 +50,16 @@ class _FakeAdminRepo:
                     "last_failure_at": now,
                 }
             ],
+            "social_connections": [
+                {
+                    "provider": "instagram",
+                    "configured": True,
+                    "active_connection_count": 1,
+                    "needs_reauth_count": 1,
+                    "recent_fetch_failures": [],
+                    "rate_limit_reset_summary": None,
+                }
+            ],
             "integration_health": {
                 "rss": {"status": "healthy", "total_count": 1, "failure_count": 0},
                 "github": {"status": "degraded", "total_count": 1, "failure_count": 1},
@@ -146,6 +156,15 @@ def _patch_diagnostics_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda **_kwargs: SimpleNamespace(
             embedding=SimpleNamespace(provider="local"),
             vector_reconcile=SimpleNamespace(batch_size=10),
+            social=SimpleNamespace(
+                instagram_client_id="instagram-client",
+                instagram_client_secret="instagram-secret",
+                instagram_redirect_uri="https://app.example.com/instagram",
+                threads_client_id=None,
+                threads_client_secret=None,
+                threads_redirect_uri=None,
+            ),
+            twitter=SimpleNamespace(x_oauth_client_id=None, x_oauth_redirect_uri=None),
         ),
     )
     monkeypatch.setattr(diagnostics_service, "SystemMaintenanceService", _FakeMaintenanceService)
@@ -171,6 +190,7 @@ async def test_diagnostics_service_response_fixture_preserves_shape(
         "components",
         "scraper_providers",
         "llm_providers",
+        "social_connections",
         "queue_backlog",
         "vector_indexing_lag",
         "latest_sync_failures",
@@ -189,6 +209,8 @@ async def test_diagnostics_service_response_fixture_preserves_shape(
     assert response.vector_indexing_lag.missing_embeddings == 1
     assert response.storage_growth.table_counts == {"requests": 10}
     assert response.latest_sync_failures[0].source == "rss"
+    assert response.social_connections[0].provider == "instagram"
+    assert response.social_connections[0].configured is True
 
 
 @pytest.mark.asyncio
@@ -248,6 +270,7 @@ def test_admin_diagnostics_route_is_owner_only(monkeypatch: pytest.MonkeyPatch) 
                     "components": {},
                     "scraper_providers": [],
                     "llm_providers": [],
+                    "social_connections": [],
                     "queue_backlog": {},
                     "vector_indexing_lag": {},
                     "latest_sync_failures": [],

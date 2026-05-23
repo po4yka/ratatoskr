@@ -43,7 +43,11 @@ class InMemorySocialRepository:
         return None
 
     async def list_by_user(self, user_id: int) -> list[SocialConnectionRecord]:
-        return [self.connection] if self.connection is not None and self.connection.user_id == user_id else []
+        return (
+            [self.connection]
+            if self.connection is not None and self.connection.user_id == user_id
+            else []
+        )
 
     async def upsert_connection(self, connection: SocialConnectionUpsert) -> SocialConnectionRecord:
         now = dt.datetime.now(UTC)
@@ -59,6 +63,7 @@ class InMemorySocialRepository:
             token_scopes=connection.token_scopes,
             access_token_expires_at=connection.access_token_expires_at,
             refresh_token_expires_at=connection.refresh_token_expires_at,
+            last_used_at=None,
             status=connection.status,
             metadata_json=connection.metadata_json,
             created_at=now,
@@ -90,6 +95,7 @@ class InMemorySocialRepository:
             refresh_token_expires_at=update.refresh_token_expires_at
             if update.refresh_token_expires_at is not None
             else self.connection.refresh_token_expires_at,
+            last_used_at=None,
             status=update.status if update.status is not None else self.connection.status,
             metadata_json=update.metadata_json
             if update.metadata_json is not None
@@ -132,7 +138,11 @@ class InMemorySocialRepository:
         return None
 
     async def mark_auth_state_consumed(self, state_id: int) -> SocialAuthStateRecord | None:
-        if self.auth_state is None or self.auth_state.id != state_id or self.auth_state.status != "pending":
+        if (
+            self.auth_state is None
+            or self.auth_state.id != state_id
+            or self.auth_state.status != "pending"
+        ):
             return None
         self.auth_state = replace(
             self.auth_state,
@@ -181,7 +191,9 @@ def test_authorization_url_uses_threads_auth_surface() -> None:
 
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
-    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://threads.net/oauth/authorize"
+    assert (
+        f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://threads.net/oauth/authorize"
+    )
     assert query["client_id"] == ["threads-client-id"]
     assert query["redirect_uri"] == [_REDIRECT_URI]
     assert query["scope"] == ["threads_basic"]
@@ -217,7 +229,9 @@ def test_social_auth_router_wires_threads_client_from_config(
 
 
 @pytest.mark.asyncio
-async def test_token_exchange_gets_long_lived_token_and_stores_encrypted_connection(respx_mock) -> None:
+async def test_token_exchange_gets_long_lived_token_and_stores_encrypted_connection(
+    respx_mock,
+) -> None:
     respx_mock.post("https://graph.threads.net/oauth/access_token").mock(
         return_value=httpx.Response(200, json={"access_token": "short-token"})
     )
@@ -365,6 +379,7 @@ async def test_refresh_failure_marks_connection_needs_reauth(respx_mock) -> None
         token_scopes=["threads_basic"],
         access_token_expires_at=now,
         refresh_token_expires_at=now,
+        last_used_at=None,
         status="active",
         metadata_json={},
         created_at=now,

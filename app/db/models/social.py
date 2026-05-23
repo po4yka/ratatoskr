@@ -113,6 +113,7 @@ class SocialConnection(Base):
     refresh_token_expires_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[SocialConnectionStatus] = mapped_column(
         SQLEnum(
             SocialConnectionStatus,

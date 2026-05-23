@@ -60,6 +60,7 @@ def upgrade() -> None:
         sa.Column("token_scopes", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("access_token_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("refresh_token_expires_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "status",
             social_connection_status,

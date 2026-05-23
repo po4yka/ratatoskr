@@ -1493,7 +1493,7 @@ Unique constraint: `(user_id)`.
 
 ### social_connections
 
-**Purpose:** Generic encrypted social provider credential storage for X, Instagram, and Threads. This table is intentionally persistence-only for now; it does not change Twitter/X, Instagram, or Threads extraction behavior and no OAuth endpoints are wired to it yet. Access and refresh tokens are Fernet ciphertext bytes produced through `app/security/secret_crypto.py` and must not be emitted in logs, audit payloads, or JSON responses.
+**Purpose:** Generic encrypted social provider credential storage for X, Instagram, and Threads. OAuth and connection-status endpoints use this table to expose safe provider/account status while keeping access and refresh tokens as Fernet ciphertext bytes produced through `app/security/secret_crypto.py`; token bytes and source payloads must not be emitted in logs, audit payloads, diagnostics, or JSON responses.
 
 **Key columns:**
 
@@ -1510,6 +1510,7 @@ Unique constraint: `(user_id)`.
 | `token_scopes` | jsonb, nullable | Granted scopes as a string array |
 | `access_token_expires_at` | timestamp, nullable | Access token expiration |
 | `refresh_token_expires_at` | timestamp, nullable | Refresh token expiration |
+| `last_used_at` | timestamp, nullable | Last successful or attempted provider use recorded by social workflows |
 | `status` | enum | `active`, `needs_reauth`, `revoked`, or `disabled` |
 | `metadata_json` | jsonb, nullable | Non-secret provider metadata |
 | `created_at` | timestamp | Row creation |
@@ -1521,7 +1522,7 @@ Indexes: `(user_id, status)`, `(provider, provider_user_id)`.
 
 ### social_auth_states
 
-**Purpose:** Future OAuth state persistence for social providers. The table stores hashed state values and optional encrypted PKCE verifier bytes so authorization endpoints can be added later without introducing raw verifier storage.
+**Purpose:** OAuth state persistence for social providers. The table stores hashed state values and optional encrypted PKCE verifier bytes so authorization callbacks can validate state without introducing raw verifier storage.
 
 **Key columns:** `user_id`, `provider`, `state_hash`, `encrypted_code_verifier`, `redirect_uri`, `scopes`, `status`, `metadata_json`, `expires_at`, `consumed_at`, `created_at`.
 
@@ -1531,7 +1532,7 @@ Indexes: `(user_id, provider)`, `(expires_at)`.
 
 ### social_fetch_attempts
 
-**Purpose:** Future fetch/sync attempt audit trail for social connections. This is not used by extraction yet, but gives future background jobs a non-secret place to record provider, attempt type, status, timing, error code/message, and metadata.
+**Purpose:** Fetch/sync attempt audit trail for social connections. Extraction and diagnostics use this table as a non-secret place to record provider, attempt type, status, timing, error code/message, and sanitized metadata.
 
 **Key columns:** `connection_id`, `user_id`, `provider`, `attempt_type`, `status`, `started_at`, `finished_at`, `error_code`, `error_message`, `metadata_json`, `created_at`.
 

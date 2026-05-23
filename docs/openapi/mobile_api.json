@@ -14794,6 +14794,13 @@
             "type": "array",
             "title": "Llm Providers"
           },
+          "social_connections": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticsSocialProvider"
+            },
+            "type": "array",
+            "title": "Social Connections"
+          },
           "queue_backlog": {
             "$ref": "#/components/schemas/DiagnosticsQueueBacklog"
           },
@@ -14818,12 +14825,116 @@
           "components",
           "scraper_providers",
           "llm_providers",
+          "social_connections",
           "queue_backlog",
           "vector_indexing_lag",
           "latest_sync_failures",
           "storage_growth"
         ],
         "title": "DiagnosticsResponse"
+      },
+      "DiagnosticsSocialFetchFailure": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "attempt_type": {
+            "type": "string",
+            "title": "Attempt Type"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "attempt_type"
+        ],
+        "title": "DiagnosticsSocialFetchFailure"
+      },
+      "DiagnosticsSocialProvider": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured",
+            "default": false
+          },
+          "active_connection_count": {
+            "type": "integer",
+            "title": "Active Connection Count",
+            "default": 0
+          },
+          "needs_reauth_count": {
+            "type": "integer",
+            "title": "Needs Reauth Count",
+            "default": 0
+          },
+          "recent_fetch_failures": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticsSocialFetchFailure"
+            },
+            "type": "array",
+            "title": "Recent Fetch Failures"
+          },
+          "rate_limit_reset_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Reset Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "title": "DiagnosticsSocialProvider"
       },
       "DiagnosticsStorageGrowth": {
         "properties": {
@@ -17096,8 +17207,88 @@
             "type": "string",
             "title": "Provider"
           },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "providerUsername": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Providerusername"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "lastUsedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastusedat"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          },
           "connected": {
-            "type": "boolean",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Connected"
           },
           "authType": {
@@ -17121,17 +17312,6 @@
               }
             ],
             "title": "Provideruserid"
-          },
-          "providerUsername": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Providerusername"
           },
           "tokenScopes": {
             "anyOf": [
@@ -17169,10 +17349,6 @@
             ],
             "title": "Refreshtokenexpiresat"
           },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
           "connectedAt": {
             "anyOf": [
               {
@@ -17183,17 +17359,6 @@
               }
             ],
             "title": "Connectedat"
-          },
-          "updatedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updatedat"
           },
           "metadata": {
             "anyOf": [
@@ -17211,7 +17376,6 @@
         "type": "object",
         "required": [
           "provider",
-          "connected",
           "status"
         ],
         "title": "SocialConnectionResponse"

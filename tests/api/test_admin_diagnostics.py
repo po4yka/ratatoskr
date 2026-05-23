@@ -4,6 +4,7 @@ import datetime as dt
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.api.models.responses.diagnostics import DiagnosticsResponse
 from app.api.routers.auth.tokens import create_access_token
@@ -19,6 +20,8 @@ from app.db.models import (
     RequestProcessingJob,
     RSSFeed,
     Source,
+    SocialConnection,
+    SocialFetchAttempt,
     Summary,
     User,
     UserGitHubIntegration,
@@ -129,7 +132,43 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
                     last_error="reddit failed token=secret-source",
                     updated_at=now,
                 ),
+                SocialConnection(
+                    user_id=owner.telegram_user_id,
+                    provider="instagram",
+                    auth_type="oauth2",
+                    provider_user_id="ig-user",
+                    provider_username="ig_owner",
+                    encrypted_access_token=b"encrypted-secret",
+                    encrypted_refresh_token=b"encrypted-refresh",
+                    token_scopes=["instagram_business_basic"],
+                    status="needs_reauth",
+                    metadata_json={"last_used_at": now.isoformat(), "raw_token": "secret"},
+                    updated_at=now,
+                ),
             ]
+        )
+        await session.flush()
+        social_connection = await session.scalar(
+            select(SocialConnection).where(SocialConnection.provider == "instagram")
+        )
+        assert social_connection is not None
+        session.add(
+            SocialFetchAttempt(
+                connection_id=social_connection.id,
+                user_id=owner.telegram_user_id,
+                provider="instagram",
+                attempt_type="media_retrieval",
+                status="failed",
+                error_code="rate_limited",
+                error_message="fetch failed access_token=plain-token raw payload body",
+                metadata_json={
+                    "rate_limit": {"reset": "1779522000"},
+                    "source_payload": {"access_token": "plain-token"},
+                    "provider_resource_id": "1791",
+                },
+                started_at=now,
+                finished_at=now,
+            )
         )
         summary_request = Request(type="url", status="completed", user_id=owner.telegram_user_id)
         session.add(summary_request)
@@ -145,6 +184,7 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
         "components",
         "scraper_providers",
         "llm_providers",
+        "social_connections",
         "queue_backlog",
         "vector_indexing_lag",
         "latest_sync_failures",
@@ -155,6 +195,11 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
     assert data["vector_indexing_lag"]["missing_embeddings"] >= 1
     assert any(item["provider"] == "openrouter" for item in data["llm_providers"])
     assert any(item["provider"] == "direct_html" for item in data["scraper_providers"])
+    social = next(item for item in data["social_connections"] if item["provider"] == "instagram")
+    assert social["active_connection_count"] == 0
+    assert social["needs_reauth_count"] == 1
+    assert social["recent_fetch_failures"][0]["error_code"] == "rate_limited"
+    assert social["rate_limit_reset_summary"] == "1779522000"
     assert any(item["source"] == "rss" for item in data["latest_sync_failures"])
     assert any(item["source"] == "github" for item in data["latest_sync_failures"])
     assert any(item["source"] == "source" for item in data["latest_sync_failures"])
@@ -165,6 +210,9 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
     assert "raw model output" not in serialized
     assert "raw-url-token" not in serialized
     assert "secret-source" not in serialized
+    assert "plain-token" not in serialized
+    assert "raw payload body" not in serialized
+    assert "encrypted-secret" not in serialized
 
 
 def test_admin_diagnostics_openapi_contract(client: TestClient) -> None:

@@ -68,6 +68,7 @@ class FakeSocialConnectionRepository:
             refresh_token_expires_at=update.refresh_token_expires_at
             if update.refresh_token_expires_at is not None
             else self.connection.refresh_token_expires_at,
+            last_used_at=None,
             status=update.status if update.status is not None else self.connection.status,
             metadata_json=update.metadata_json
             if update.metadata_json is not None
@@ -163,6 +164,7 @@ def _connection(*, status: str = "active") -> SocialConnectionRecord:
         token_scopes=["instagram_business_basic"],
         access_token_expires_at=now + dt.timedelta(hours=1),
         refresh_token_expires_at=None,
+        last_used_at=None,
         status=status,
         metadata_json={},
         created_at=now,

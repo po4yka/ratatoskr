@@ -14,6 +14,7 @@ from app.api.models.responses.diagnostics import (
     DiagnosticsProviderStatus,
     DiagnosticsQueueBacklog,
     DiagnosticsResponse,
+    DiagnosticsSocialProvider,
     DiagnosticsStorageGrowth,
     DiagnosticsSyncFailure,
     DiagnosticsVectorIndexLag,
@@ -98,6 +99,10 @@ class DiagnosticsService:
         db_status, redis_status, qdrant_status = health_results
         scraper_config = build_scraper_diagnostics(load_config(allow_stub_telegram=True))
         cfg = load_config(allow_stub_telegram=True)
+        social_connections = _social_connection_diagnostics(
+            persisted=list(persisted.get("social_connections") or []),
+            cfg=cfg,
+        )
         vector_report = await VectorIndexReconciler(
             database=self._db,
             vector_store=self._vector_store,
@@ -148,6 +153,7 @@ class DiagnosticsService:
             components=components,
             scraper_providers=scraper_providers,
             llm_providers=llm_providers,
+            social_connections=social_connections,
             queue_backlog=DiagnosticsQueueBacklog.model_validate(persisted["queue_backlog"]),
             vector_indexing_lag=DiagnosticsVectorIndexLag.model_validate(
                 vector_report.to_diagnostics()
@@ -265,6 +271,62 @@ def _merge_scraper_provider_status(
         DiagnosticsProviderStatus.model_validate(row)
         for row in sorted(by_provider.values(), key=lambda item: str(item["provider"]))
     ]
+
+
+def _social_connection_diagnostics(
+    *,
+    persisted: list[dict[str, Any]],
+    cfg: Any,
+) -> list[DiagnosticsSocialProvider]:
+    providers = {
+        "instagram": _instagram_configured(cfg),
+        "threads": _threads_configured(cfg),
+        "x": _x_configured(cfg),
+    }
+    rows = {str(item.get("provider")): dict(item) for item in persisted}
+    for provider, configured in providers.items():
+        row = rows.setdefault(
+            provider,
+            {
+                "provider": provider,
+                "active_connection_count": 0,
+                "needs_reauth_count": 0,
+                "recent_fetch_failures": [],
+                "rate_limit_reset_summary": None,
+            },
+        )
+        row["configured"] = bool(configured)
+    return [
+        DiagnosticsSocialProvider.model_validate(rows[provider])
+        for provider in sorted(rows)
+        if provider and provider != "None"
+    ]
+
+
+def _x_configured(cfg: Any) -> bool:
+    twitter = getattr(cfg, "twitter", None)
+    return bool(
+        getattr(twitter, "x_oauth_client_id", None)
+        and getattr(twitter, "x_oauth_redirect_uri", None)
+    )
+
+
+def _threads_configured(cfg: Any) -> bool:
+    social = getattr(cfg, "social", None)
+    return bool(
+        getattr(social, "threads_client_id", None)
+        and getattr(social, "threads_client_secret", None)
+        and getattr(social, "threads_redirect_uri", None)
+    )
+
+
+def _instagram_configured(cfg: Any) -> bool:
+    social = getattr(cfg, "social", None)
+    return bool(
+        getattr(social, "instagram_client_id", None)
+        and getattr(social, "instagram_client_secret", None)
+        and getattr(social, "instagram_redirect_uri", None)
+    )
 
 
 def _safe_float(value: object) -> float | None:

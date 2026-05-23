@@ -13,6 +13,7 @@ This document is a developer-facing summary of the mobile API implemented by the
 - Envelope contract: all JSON business responses use `success`, `data`, `meta`, and standardized `error`
 - Mixed-source aggregation surface: `/v1/aggregations`
 - Phase 3 signal/source triage surface: `/v1/signals`
+- Social provider connection surface: `/v1/social/*` for OAuth connect/callback, disconnect, and token-safe connection status
 - OpenAPI source of truth: `app.api.main:app`, generated into `docs/openapi/mobile_api.yaml` and `docs/openapi/mobile_api.json` with `make generate-openapi`
 - Cross-repo regeneration workflow: [`docs/reference/openapi-contract-workflow.md`](openapi-contract-workflow.md)
 - Sync protocol implementation map: [`docs/reference/sync-protocol.md`](sync-protocol.md)
@@ -71,6 +72,7 @@ The mobile API surface is contract-locked against the generated `docs/openapi/mo
 |---|---|---|
 | Generated contract | `app.api.main:app`, `app/api/models/`, `app/api/routers/`, `tools/scripts/generate_openapi.py`, `docs/openapi/mobile_api.yaml`, `docs/openapi/mobile_api.json` | `ratatoskr-web/docs/openapi/mobile_api.yaml`, `ratatoskr-web/src/api/generated.ts`, `ratatoskr-client/core/api-generated/src/commonMain/openapi/mobile_api.yaml`, `ratatoskr-client/core/api-generated/src/commonMain/generated/` |
 | Auth/session | `app/api/routers/auth/`, `app/api/routers/auth/tokens.py`, `app/api/routers/auth/cookies.py`, `app/infrastructure/persistence/repositories/auth_repository.py`, `app/db/models/core.py::RefreshToken` | Web: `src/auth/AuthProvider.tsx`, `src/auth/storage.ts`, `src/api/client.ts`; KMP: `feature/auth/`, `core/data/src/*/kotlin/.../data/local/`, `core/data/src/commonMain/kotlin/.../data/remote/auth/` |
+| Social connections | `app/api/routers/social_auth.py`, `app/api/models/responses/social.py`, `app/application/services/social_auth_service.py`, `app/infrastructure/persistence/repositories/social_connection_repository.py`, `app/db/models/social.py` | Web/KMP clients consume `SocialConnectionsSuccessResponse`; response payloads expose provider status, username, scopes, expirations, timestamps, and no token material |
 | Sync v2 | `app/api/routers/sync.py`, `app/api/services/sync/`, `app/infrastructure/persistence/sync_aux_read_adapter.py` | KMP: `feature/sync/`, feature-owned `SyncItemApplier` and `PendingOperationHandler` bindings |
 | Streaming request progress | `app/api/routers/streams.py`, `app/adapters/content/streaming/`, `app/adapters/content/url_processor.py` | Web: `src/api/streamRequest.ts`, `src/hooks/useRequestStream.ts`, `src/features/submit/SubmitPage.tsx` |
 
@@ -107,7 +109,7 @@ FastAPI routers are transport-focused and delegate orchestration to service coll
 
 This keeps auth/input/output mapping in routers while DB/Redis/file logic remains in dedicated service classes.
 
-`GET /v1/admin/diagnostics` remains owner-only and returns `DiagnosticsSuccessResponse`. `DiagnosticsService` owns the 30-second process-local cache, redacted health/error details, scraper configuration diagnostics, vector lag from `VectorIndexReconciler`, queue backlog, storage growth, integration-health status, and provider failure summaries.
+`GET /v1/admin/diagnostics` remains owner-only and returns `DiagnosticsSuccessResponse`. `DiagnosticsService` owns the 30-second process-local cache, redacted health/error details, scraper configuration diagnostics, vector lag from `VectorIndexReconciler`, queue backlog, storage growth, integration-health status, social provider configured/count/reauth/failure summaries, and provider failure summaries.
 
 ## Envelope and Error Contract
 

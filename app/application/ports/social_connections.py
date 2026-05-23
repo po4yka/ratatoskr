@@ -27,6 +27,7 @@ class SocialConnectionRecord:
     token_scopes: list[str] | None
     access_token_expires_at: datetime | None
     refresh_token_expires_at: datetime | None
+    last_used_at: datetime | None
     status: str
     metadata_json: dict[str, Any] | None
     created_at: datetime
@@ -51,6 +52,7 @@ class SocialConnectionUpsert:
     token_scopes: list[str] | None = None
     access_token_expires_at: datetime | None = None
     refresh_token_expires_at: datetime | None = None
+    last_used_at: datetime | None = None
     status: str = "active"
     metadata_json: dict[str, Any] | None = None
 
@@ -67,6 +69,7 @@ class SocialConnectionUpdate:
     token_scopes: list[str] | None = None
     access_token_expires_at: datetime | None = None
     refresh_token_expires_at: datetime | None = None
+    last_used_at: datetime | None = None
     status: str | None = None
     metadata_json: dict[str, Any] | None = None
 
