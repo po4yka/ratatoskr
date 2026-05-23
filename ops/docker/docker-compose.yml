@@ -146,6 +146,7 @@ services:
       - app.tasks.reconcile_vector_index
       - app.tasks.import_tasks
       - app.tasks.fieldtheory_sync
+      - app.tasks.fieldtheory_wiki_sync
       - "--workers"
       - "${TASKIQ_WORKER_CONCURRENCY:-4}"
     env_file:
@@ -251,6 +252,8 @@ services:
       - VECTOR_RECONCILE_CRON=${VECTOR_RECONCILE_CRON:-*/30 * * * *}
       - FIELDTHEORY_SYNC_ENABLED=${FIELDTHEORY_SYNC_ENABLED:-false}
       - FIELDTHEORY_SYNC_CRON=${FIELDTHEORY_SYNC_CRON:-*/15 * * * *}
+      - FIELDTHEORY_WIKI_SYNC_CRON=${FIELDTHEORY_WIKI_SYNC_CRON:-0 * * * *}
+      - FIELDTHEORY_LIBRARY_PATH=${FIELDTHEORY_LIBRARY_PATH:-/fieldtheory/library}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - RATATOSKR_PROCESS_ROLE=scheduler

@@ -551,6 +551,138 @@ class QdrantVectorStore:
                 raise VectorStoreError(str(exc)) from exc
             return set()
 
+    def get_indexed_fieldtheory_wiki_paths(
+        self, *, user_id: int | None = None, limit: int | None = 5000
+    ) -> set[str]:
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            return set()
+
+        scroll_filter = Filter(
+            must=[
+                FieldCondition(key="environment", match=MatchValue(value=self._environment)),
+                FieldCondition(key="user_scope", match=MatchValue(value=self._user_scope)),
+                FieldCondition(key="entity_type", match=MatchValue(value="fieldtheory_wiki")),
+                *(
+                    [FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+                    if user_id is not None
+                    else []
+                ),
+            ]
+        )
+        try:
+            records, _ = self._client.scroll(
+                collection_name=self._collection_name,
+                scroll_filter=scroll_filter,
+                limit=limit or 5000,
+                with_payload=["wiki_path"],
+                with_vectors=False,
+            )
+            wiki_paths: set[str] = set()
+            for record in records:
+                raw = (record.payload or {}).get("wiki_path")
+                if isinstance(raw, str) and raw:
+                    wiki_paths.add(raw)
+            return wiki_paths
+        except Exception as exc:
+            logger.error(
+                "vector_get_indexed_fieldtheory_wiki_paths_failed", extra={"error": str(exc)}
+            )
+            if self._required:
+                raise VectorStoreError(str(exc)) from exc
+            return set()
+
+    def get_indexed_fieldtheory_wiki_path_hashes(
+        self, *, user_id: int | None = None, limit: int | None = 5000
+    ) -> dict[str, str]:
+        """Return {wiki_path: content_hash} for fieldtheory_wiki points.
+
+        Sibling to ``get_indexed_fieldtheory_wiki_paths`` — kept separate so
+        callers that only need the path set retain a stable contract while
+        drift-detection callers (``FieldTheoryWikiSyncService``) get the
+        payload's ``content_hash`` field in the same scroll.
+        """
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            return {}
+
+        scroll_filter = Filter(
+            must=[
+                FieldCondition(key="environment", match=MatchValue(value=self._environment)),
+                FieldCondition(key="user_scope", match=MatchValue(value=self._user_scope)),
+                FieldCondition(key="entity_type", match=MatchValue(value="fieldtheory_wiki")),
+                *(
+                    [FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+                    if user_id is not None
+                    else []
+                ),
+            ]
+        )
+        try:
+            records, _ = self._client.scroll(
+                collection_name=self._collection_name,
+                scroll_filter=scroll_filter,
+                limit=limit or 5000,
+                with_payload=["wiki_path", "content_hash"],
+                with_vectors=False,
+            )
+            path_hashes: dict[str, str] = {}
+            for record in records:
+                payload = record.payload or {}
+                raw_path = payload.get("wiki_path")
+                raw_hash = payload.get("content_hash")
+                if (
+                    isinstance(raw_path, str)
+                    and raw_path
+                    and isinstance(raw_hash, str)
+                    and raw_hash
+                ):
+                    path_hashes[raw_path] = raw_hash
+            return path_hashes
+        except Exception as exc:
+            logger.error(
+                "vector_get_indexed_fieldtheory_wiki_path_hashes_failed",
+                extra={"error": str(exc)},
+            )
+            if self._required:
+                raise VectorStoreError(str(exc)) from exc
+            return {}
+
+    def delete_fieldtheory_wiki_paths(self, wiki_paths: Sequence[str]) -> None:
+        """Delete fieldtheory_wiki points keyed by their wiki path strings.
+
+        Uses the same ``str_to_uuid`` derivation as the upsert path so the
+        delete is symmetric with ``upsert_notes(..., ids=[<wiki_path>])``.
+        """
+        if not wiki_paths:
+            return
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            logger.warning(
+                "vector_delete_skipped",
+                extra={"reason": "not_available", "count": len(list(wiki_paths))},
+            )
+            return
+        point_ids = [_str_to_uuid(p) for p in wiki_paths]
+        try:
+            self._client.delete(
+                collection_name=self._collection_name,
+                points_selector=PointIdsList(points=list(point_ids)),
+                wait=True,
+            )
+        except Exception as exc:
+            logger.error(
+                "vector_delete_fieldtheory_wiki_paths_failed",
+                extra={"count": len(point_ids), "error": str(exc)},
+            )
+            record_vector_write(operation="delete", status="failed")
+            if self._required:
+                raise VectorStoreError(str(exc)) from exc
+            self._available = False
+
     def reset(self) -> None:
         client = self._client
         try:

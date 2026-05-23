@@ -21,6 +21,7 @@ from app.db.session import Database  # noqa: TC001 — taskiq resolves type hint
 from app.di.tasks import (
     DigestTaskRuntime,
     FieldTheoryTaskRuntime,
+    FieldTheoryWikiSyncTaskRuntime,
     RssPollTaskRuntime,
     VectorReconcileTaskRuntime,
 )
@@ -155,5 +156,14 @@ def build_fieldtheory_task_runtime(
     db: Database,
 ) -> FieldTheoryTaskRuntime:
     from app.di.tasks import build_fieldtheory_task_runtime as _build_runtime
+
+    return _build_runtime(cfg, db)
+
+
+def build_fieldtheory_wiki_sync_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> FieldTheoryWikiSyncTaskRuntime:
+    from app.di.tasks import build_fieldtheory_wiki_sync_task_runtime as _build_runtime
 
     return _build_runtime(cfg, db)

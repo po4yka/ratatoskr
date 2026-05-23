@@ -74,6 +74,13 @@ class FieldTheoryTaskRuntime:
     ingestor: Any
 
 
+@dataclass(frozen=True)
+class FieldTheoryWikiSyncTaskRuntime:
+    cfg: AppConfig
+    db: Database
+    service: Any
+
+
 def create_digest_userbot(cfg: AppConfig) -> Any:
     from app.adapters.digest.userbot_client import UserbotClient
 
@@ -281,6 +288,25 @@ def build_fieldtheory_task_runtime(
         ingestor=FieldTheoryBookmarkIngestor(
             database=db,
             bookmarks_db_path=cfg.fieldtheory.bookmarks_db_path,
+        ),
+    )
+
+
+def build_fieldtheory_wiki_sync_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> FieldTheoryWikiSyncTaskRuntime:
+    from app.application.services.fieldtheory_wiki_sync import FieldTheoryWikiSyncService
+    from app.di.shared import build_qdrant_vector_store
+    from app.infrastructure.embedding.embedding_factory import create_embedding_service
+
+    return FieldTheoryWikiSyncTaskRuntime(
+        cfg=cfg,
+        db=db,
+        service=FieldTheoryWikiSyncService(
+            library_path=cfg.fieldtheory.library_path,
+            vector_store=build_qdrant_vector_store(cfg),
+            embedding_service=create_embedding_service(cfg.embedding),
         ),
     )
 

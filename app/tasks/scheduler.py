@@ -127,6 +127,15 @@ class _AppConfigScheduleSource(ScheduleSource):
                     kwargs={},
                 )
             )
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.fieldtheory.sync_wiki",
+                    cron=cfg.fieldtheory.wiki_sync_cron,
+                    labels={"job": "fieldtheory_wiki_sync"},
+                    args=[],
+                    kwargs={},
+                )
+            )
 
         return tasks
 
