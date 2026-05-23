@@ -139,9 +139,6 @@ class SocialHandler:
 def _format_connection_status(connection: Any) -> str:
     label = _provider_label(connection.provider)
     status = str(connection.status or "disconnected")
-    if not getattr(connection, "connected", False):
-        return f"- {label}: {status}"
-
     parts = [f"- {label}: {status}"]
     username = getattr(connection, "provider_username", None)
     if username:
@@ -155,6 +152,8 @@ def _format_connection_status(connection: Any) -> str:
     last_used_at = getattr(connection, "last_used_at", None)
     if last_used_at:
         parts.append(f"last used: {last_used_at}")
+    if status == "needs_reauth":
+        parts.append("needs reauth")
     return " | ".join(parts)
 
 

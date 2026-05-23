@@ -50,6 +50,21 @@ class _FakeSocialAuthService:
                 SocialConnectionDTO(
                     provider="threads",
                     connected=False,
+                    auth_type="oauth2",
+                    provider_user_id="threads-user-id",
+                    provider_username="threader",
+                    token_scopes=["threads_basic"],
+                    access_token_expires_at="2026-05-24T12:00:00+00:00",
+                    refresh_token_expires_at=None,
+                    last_used_at=None,
+                    status="needs_reauth",
+                    connected_at=None,
+                    updated_at=None,
+                    metadata_json={"refresh_token": "raw-refresh-token"},
+                ),
+                SocialConnectionDTO(
+                    provider="instagram",
+                    connected=False,
                     auth_type=None,
                     provider_user_id=None,
                     provider_username=None,
@@ -60,7 +75,7 @@ class _FakeSocialAuthService:
                     status="disconnected",
                     connected_at=None,
                     updated_at=None,
-                    metadata_json=None,
+                    metadata_json={"cookie": "raw-cookie"},
                 ),
             ]
         )
@@ -128,11 +143,38 @@ async def test_social_lists_provider_status_without_tokens() -> None:
     text = formatter.safe_reply.await_args.args[1]
     assert "X: active" in text
     assert "@reader" in text
-    assert "Threads: disconnected" in text
+    assert "Threads: needs_reauth" in text
+    assert "@threader" in text
+    assert "threads_basic" in text
+    assert "2026-05-24T12:00:00+00:00" in text
+    assert "needs reauth" in text
+    assert "Instagram: disconnected" in text
     assert "raw-token" not in text
+    assert "raw-refresh-token" not in text
+    assert "raw-cookie" not in text
     assert "raw-code" not in text
     assert "encrypted_access_token" not in text
     assert "callback_url" not in text
+
+
+@pytest.mark.asyncio
+async def test_social_rendered_messages_redact_sensitive_material() -> None:
+    service = _FakeSocialAuthService()
+    handler = SocialHandler(service)
+    ctx = _ctx("/social")
+
+    await handler.handle_social(ctx)
+
+    text = _response_formatter(ctx).safe_reply.await_args.args[1]
+    for secret in (
+        "raw-token",
+        "raw-refresh-token",
+        "raw-cookie",
+        "raw-code",
+        "code_verifier",
+        "Authorization",
+    ):
+        assert secret not in text
 
 
 @pytest.mark.asyncio
