@@ -63,5 +63,10 @@ def test_social_connection_diagnostics_exposes_safe_provider_summary() -> None:
     assert by_provider["x"]["needs_reauth_count"] == 1
     assert by_provider["x"]["recent_fetch_failures"][0]["error_code"] == "RATE_LIMIT"
     assert by_provider["x"]["rate_limit_reset_summary"] == "2026-05-23T12:30:00Z"
+    assert by_provider["instagram"]["capabilities"]["supports_public_media_lookup"] is False
+    assert by_provider["instagram"]["capabilities"]["supported_scopes"] == [
+        "instagram_business_basic"
+    ]
+    assert by_provider["x"]["capabilities"]["supports_timeline_ingestion"] is True
     assert "raw-token" not in rendered
     assert "source_payload" not in rendered

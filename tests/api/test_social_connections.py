@@ -36,6 +36,9 @@ def test_connection_response_exposes_safe_status_fields_without_tokens() -> None
     assert payload["status"] == "needs_reauth"
     assert payload["providerUsername"] == "threads_user"
     assert payload["scopes"] == ["threads_basic"]
+    assert payload["capabilities"]["provider"] == "threads"
+    assert payload["capabilities"]["supportsTimelineIngestion"] is True
+    assert payload["capabilities"]["supportedScopes"] == ["threads_basic"]
     assert payload["expiresAt"] == "2026-06-23T00:00:00Z"
     assert payload["lastUsedAt"] == "2026-05-23T12:00:00Z"
     assert payload["createdAt"] == "2026-05-01T00:00:00Z"

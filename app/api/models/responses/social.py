@@ -9,6 +9,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.models.responses.common import SuccessResponse
 
 
+class SocialProviderCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    provider: str
+    supports_single_url_lookup: bool = Field(alias="supportsSingleUrlLookup")
+    supports_owned_media_lookup: bool = Field(alias="supportsOwnedMediaLookup")
+    supports_public_media_lookup: bool = Field(alias="supportsPublicMediaLookup")
+    supports_timeline_ingestion: bool = Field(alias="supportsTimelineIngestion")
+    supports_refresh_tokens: bool = Field(alias="supportsRefreshTokens")
+    supported_scopes: list[str] = Field(alias="supportedScopes")
+    unsupported_notes: list[str] = Field(alias="unsupportedNotes")
+
+
 class SocialConnectionResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -28,6 +41,7 @@ class SocialConnectionResponse(BaseModel):
     refresh_token_expires_at: str | None = Field(default=None, alias="refreshTokenExpiresAt")
     connected_at: str | None = Field(default=None, alias="connectedAt")
     metadata: dict[str, Any] | None = None
+    capabilities: SocialProviderCapabilitiesResponse
 
 
 class SocialConnectionsResponse(BaseModel):

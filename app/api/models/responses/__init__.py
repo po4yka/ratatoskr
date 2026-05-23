@@ -82,6 +82,7 @@ from .social import (
     SocialConnectUrlSuccessResponse,
     SocialDisconnectResponse,
     SocialDisconnectSuccessResponse,
+    SocialProviderCapabilitiesResponse,
 )
 from .summaries import (
     BulkSummaryUpdateResponse,
@@ -230,6 +231,7 @@ __all__ = [
     "SocialConnectionsSuccessResponse",
     "SocialDisconnectResponse",
     "SocialDisconnectSuccessResponse",
+    "SocialProviderCapabilitiesResponse",
     "StreakResponse",
     "SubmitRequestData",
     "SubmitRequestResponse",

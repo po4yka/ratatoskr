@@ -20,6 +20,7 @@ from app.api.models.responses.diagnostics import (
     DiagnosticsVectorIndexLag,
     HealthStatus,
 )
+from app.application.dto.social_capabilities import get_social_provider_capabilities
 from app.api.services.system_maintenance_service import SystemMaintenanceService
 from app.core.time_utils import UTC
 from app.db.session import Database  # noqa: TC001  # used at runtime in __init__ signature
@@ -296,6 +297,7 @@ def _social_connection_diagnostics(
             },
         )
         row["configured"] = bool(configured)
+        row["capabilities"] = get_social_provider_capabilities(provider).to_dict()
     return [
         DiagnosticsSocialProvider.model_validate(rows[provider])
         for provider in sorted(rows)

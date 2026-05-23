@@ -19,7 +19,9 @@ from app.api.models.responses.social import (
     SocialConnectUrlSuccessResponse,
     SocialDisconnectResponse,
     SocialDisconnectSuccessResponse,
+    SocialProviderCapabilitiesResponse,
 )
+from app.application.dto.social_capabilities import get_social_provider_capabilities
 from app.api.routers.auth import get_current_user
 from app.application.services.social_auth_service import SocialAuthError, SocialAuthService
 from app.di.api import resolve_api_runtime
@@ -57,6 +59,21 @@ def _connection_response(dto: Any) -> SocialConnectionResponse:
         refreshTokenExpiresAt=dto.refresh_token_expires_at,
         connectedAt=dto.connected_at,
         metadata=_safe_connection_metadata(dto.metadata_json),
+        capabilities=_capabilities_response(dto.provider),
+    )
+
+
+def _capabilities_response(provider: str) -> SocialProviderCapabilitiesResponse:
+    capabilities = get_social_provider_capabilities(provider)
+    return SocialProviderCapabilitiesResponse(
+        provider=capabilities.provider,
+        supportsSingleUrlLookup=capabilities.supports_single_url_lookup,
+        supportsOwnedMediaLookup=capabilities.supports_owned_media_lookup,
+        supportsPublicMediaLookup=capabilities.supports_public_media_lookup,
+        supportsTimelineIngestion=capabilities.supports_timeline_ingestion,
+        supportsRefreshTokens=capabilities.supports_refresh_tokens,
+        supportedScopes=list(capabilities.supported_scopes),
+        unsupportedNotes=list(capabilities.unsupported_notes),
     )
 
 

@@ -56,6 +56,7 @@ class DiagnosticsSocialProvider(BaseModel):
     needs_reauth_count: int = 0
     recent_fetch_failures: list[DiagnosticsSocialFetchFailure] = Field(default_factory=list)
     rate_limit_reset_summary: str | None = None
+    capabilities: dict[str, object] = Field(default_factory=dict)
 
 
 class DiagnosticsQueueBacklog(BaseModel):

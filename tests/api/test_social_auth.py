@@ -135,13 +135,14 @@ def _auth_headers(user_id: int = _USER_ID) -> dict[str, str]:
 
 
 def _create_connect_url(client: Any, provider: str = "x") -> dict[str, Any]:
+    scopes = {
+        "x": ["tweet.read", "users.read", "offline.access"],
+        "instagram": ["instagram_business_basic"],
+        "threads": ["threads_basic"],
+    }[provider]
     response = client.get(
         f"/v1/social/{provider}/connect-url",
-        params=[
-            ("redirectUri", _REDIRECT_URI),
-            ("scopes", "profile.read"),
-            ("scopes", "offline.access"),
-        ],
+        params=[("redirectUri", _REDIRECT_URI), *(("scopes", scope) for scope in scopes)],
         headers=_auth_headers(),
     )
     assert response.status_code == 200, response.text
@@ -159,7 +160,7 @@ async def test_connect_url_creates_encrypted_oauth_state(
     assert data["provider"] == "x"
     assert data["connectUrl"].startswith("https://oauth.example.com/x/authorize")
     assert data["state"]
-    assert data["scopes"] == ["profile.read", "offline.access"]
+    assert data["scopes"] == ["tweet.read", "users.read", "offline.access"]
     assert data["redirectUri"] == _REDIRECT_URI
     parsed = urlparse(data["connectUrl"])
     query = parse_qs(parsed.query)
@@ -181,8 +182,26 @@ async def test_connect_url_creates_encrypted_oauth_state(
     assert state.state_hash != data["state"]
     assert state.encrypted_code_verifier is not None
     assert decrypt_secret(state.encrypted_code_verifier) not in response_text(data)
-    assert state.scopes == ["profile.read", "offline.access"]
+    assert state.scopes == ["tweet.read", "users.read", "offline.access"]
     assert state.redirect_uri == _REDIRECT_URI
+
+
+async def test_connect_url_rejects_unsupported_scopes(
+    client: Any,
+    social_users: Any,
+    fake_oauth_clients: dict[str, FakeSocialOAuthClient],
+) -> None:
+    response = client.get(
+        "/v1/social/instagram/connect-url",
+        params=[("redirectUri", _REDIRECT_URI), ("scopes", "instagram_business_content_publish")],
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 422
+    details = response.json()["error"]["details"]
+    assert details["reason_code"] == "SOCIAL_SCOPES_UNSUPPORTED"
+    assert details["unsupported_scopes"] == ["instagram_business_content_publish"]
+    assert details["supported_scopes"] == ["instagram_business_basic"]
 
 
 async def test_callback_success_stores_connection_without_returning_raw_tokens(
@@ -209,7 +228,7 @@ async def test_callback_success_stores_connection_without_returning_raw_tokens(
     assert connection["status"] == "active"
     assert connection["providerUserId"] == "instagram-user-1"
     assert connection["providerUsername"] == "instagram_tester"
-    assert connection["scopes"] == ["profile.read", "offline.access"]
+    assert connection["scopes"] == ["instagram_business_basic"]
     assert connection["expiresAt"] == "2026-05-24T00:00:00Z"
     assert connection["createdAt"] is not None
     assert connection["updatedAt"] is not None
@@ -233,7 +252,7 @@ async def test_callback_success_stores_connection_without_returning_raw_tokens(
     assert row.encrypted_refresh_token is not None
     assert decrypt_secret(row.encrypted_access_token) == "instagram-access-token-secret"
     assert decrypt_secret(row.encrypted_refresh_token) == "instagram-refresh-token-secret"
-    assert row.token_scopes == ["profile.read", "offline.access"]
+    assert row.token_scopes == ["instagram_business_basic"]
     assert auth_state is not None
     assert auth_state.status == "consumed"
     exchange = fake_oauth_clients["instagram"].exchanges[0]
@@ -305,6 +324,9 @@ async def test_connections_list_returns_safe_status_without_tokens(
     assert connection["status"] == "needs_reauth"
     assert connection["providerUsername"] == "threads_tester"
     assert connection["scopes"] == ["threads_basic"]
+    assert connection["capabilities"]["provider"] == "threads"
+    assert connection["capabilities"]["supportsTimelineIngestion"] is True
+    assert connection["capabilities"]["supportedScopes"] == ["threads_basic"]
     assert connection["expiresAt"] is not None
     assert connection["lastUsedAt"] == "2026-05-23T12:00:00Z"
     assert connection["createdAt"] is not None

@@ -19,6 +19,11 @@ from app.application.dto.social_auth import (
     SocialDisconnectDTO,
     connection_record_to_dto,
 )
+from app.application.dto.social_capabilities import (
+    default_social_scopes,
+    get_social_provider_capabilities,
+    unsupported_social_scopes,
+)
 from app.application.ports.social_connections import (
     SUPPORTED_SOCIAL_PROVIDERS,
     SocialAuthStateCreate,
@@ -36,11 +41,7 @@ if TYPE_CHECKING:
 
     from app.application.dto.social_auth import SocialOAuthClientProtocol
 
-DEFAULT_SOCIAL_SCOPES: dict[str, list[str]] = {
-    "x": ["tweet.read", "users.read", "offline.access"],
-    "instagram": ["instagram_business_basic"],
-    "threads": ["threads_basic"],
-}
+DEFAULT_SOCIAL_SCOPES: dict[str, list[str]] = default_social_scopes()
 
 DEFAULT_AUTHORIZATION_ENDPOINTS: dict[str, str] = {
     "x": "https://x.com/i/oauth2/authorize",
@@ -191,6 +192,20 @@ class SocialAuthService:
                 details={"provider": provider},
             )
         requested_scopes = _normalize_scopes(scopes or self._default_scopes[provider])
+        unsupported_scopes = unsupported_social_scopes(provider, requested_scopes)
+        if unsupported_scopes:
+            raise SocialAuthError(
+                "Requested OAuth scopes are not supported for this provider",
+                code="SOCIAL_SCOPES_UNSUPPORTED",
+                status_code=422,
+                details={
+                    "provider": provider,
+                    "unsupported_scopes": unsupported_scopes,
+                    "supported_scopes": list(
+                        get_social_provider_capabilities(provider).supported_scopes
+                    ),
+                },
+            )
         state = secrets.token_urlsafe(32)
         code_verifier = secrets.token_urlsafe(64)
         code_challenge = _pkce_challenge(code_verifier)

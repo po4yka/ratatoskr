@@ -14,6 +14,7 @@ from app.application.dto.aggregation import (
     SourceProvenance,
     SourceTextBlock,
 )
+from app.application.dto.social_capabilities import get_social_provider_capabilities
 from app.application.ports.social_connections import SocialFetchAttemptCreate
 from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.lang import detect_language
@@ -142,7 +143,7 @@ class InstagramApiExtractor:
 
         if media_payload is None:
             metadata["api_status"] = "unsupported"
-            metadata["unsupported_reason"] = "not_connected_account_media"
+            metadata["unsupported_reason"] = _public_media_lookup_unsupported_reason()
             await self._record_attempt(connection, user_id, "failed", metadata, "unsupported")
             return InstagramApiExtractionResult(ok=False, metadata=metadata)
 
@@ -429,6 +430,13 @@ def _safe_attempt_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "unsupported_reason",
     }
     return {key: value for key, value in metadata.items() if key in allowed}
+
+
+def _public_media_lookup_unsupported_reason() -> str:
+    capabilities = get_social_provider_capabilities("instagram")
+    if not capabilities.supports_public_media_lookup:
+        return "public_media_lookup_unsupported"
+    return "not_connected_account_media"
 
 
 def _selected_tier(metadata: dict[str, Any]) -> str | None:

@@ -292,7 +292,7 @@ async def test_connected_media_resolution_rejects_non_owned_shortcode() -> None:
     assert result.ok is False
     assert result.metadata is not None
     assert result.metadata["api_supported_for_url"] is False
-    assert result.metadata["unsupported_reason"] == "not_connected_account_media"
+    assert result.metadata["unsupported_reason"] == "public_media_lookup_unsupported"
     assert repo.attempts[0].status == "failed"
     assert repo.attempts[0].error_code == "unsupported"
     _assert_safe_metadata(result.metadata)
@@ -393,7 +393,7 @@ async def test_unsupported_public_url_path_falls_back_to_scraper_with_metadata()
                 metadata={
                     "api_status": "unsupported",
                     "api_supported_for_url": False,
-                    "unsupported_reason": "not_connected_account_media",
+                    "unsupported_reason": "public_media_lookup_unsupported",
                     "provider_shortcode": "ABC123",
                     "auth_strategy": {
                         "authenticated_supported": True,
@@ -420,7 +420,7 @@ async def test_unsupported_public_url_path_falls_back_to_scraper_with_metadata()
     assert result.content_text == "Fallback scraper caption"
     assert result.content_source == "markdown"
     assert result.metadata["api_supported_for_url"] is False
-    assert result.metadata["unsupported_reason"] == "not_connected_account_media"
+    assert result.metadata["unsupported_reason"] == "public_media_lookup_unsupported"
     assert result.metadata["auth_strategy"]["authenticated_supported"] is True
     assert result.metadata["auth_strategy"]["selected_tier"] == "meta_scraper_fallback"
     instagram_api.extract.assert_awaited_once()
@@ -449,7 +449,7 @@ async def test_metadata_fallback_selected_when_scraper_has_only_metadata_after_a
                 metadata={
                     "api_status": "unsupported",
                     "api_supported_for_url": False,
-                    "unsupported_reason": "not_connected_account_media",
+                    "unsupported_reason": "public_media_lookup_unsupported",
                     "auth_strategy": {
                         "authenticated_supported": True,
                         "selected_tier": "meta_scraper_fallback",

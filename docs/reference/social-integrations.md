@@ -10,6 +10,16 @@ Proactive connected-account feed ingestion is opt-in. X ingestion requires `SIGN
 
 Reference links: [X timelines](https://docs.x.com/x-api/posts/timelines/introduction), [X OAuth 2.0 endpoint mapping](https://docs.x.com/fundamentals/authentication/guides/v2-authentication-mapping), [Threads API](https://developers.facebook.com/docs/threads/).
 
+## Provider Capabilities
+
+Runtime capabilities are defined in `app/application/dto/social_capabilities.py`, exposed on `/v1/social/connections`, included in admin diagnostics, and enforced when `/v1/social/{provider}/connect-url` validates requested OAuth scopes. The current supported scope set is read-only: X uses `tweet.read`, `users.read`, and `offline.access`; Threads uses `threads_basic`; Instagram uses `instagram_business_basic`. Write/publish scopes are not requested.
+
+| Provider | Single URL lookup | Owned media lookup | Public media lookup | Timeline ingestion | Refresh tokens | Notes |
+|----------|-------------------|--------------------|---------------------|--------------------|----------------|-------|
+| `x` | yes | no | yes | yes | yes | Read-only post lookup and configured timeline ingestion only; write, publish, DM, moderation, and ad scopes are unsupported. |
+| `threads` | yes | yes | yes | yes | yes | Read-only media lookup and the connected account's `/me/threads` feed only; publishing, replies, insights, and webhooks are unsupported. |
+| `instagram` | yes | yes | no | no | yes | Authenticated API lookup is only for media owned by the connected professional account; generalized public/private feed access is not promised. |
+
 ## Observability and Privacy Guardrails
 
 Social integrations emit provider-level Prometheus counters from `app/observability/metrics.py`: `ratatoskr_social_fetch_total{provider,status,auth_tier}` for content fetch attempts, `ratatoskr_social_token_refresh_total{provider,status}` for OAuth refreshes, `ratatoskr_social_rate_limit_total{provider}` for provider 429s, and `ratatoskr_social_connection_status_total{provider,status}` for connection-state observations. Fetch counters are recorded at the `SocialFetchAttempt` persistence boundary so X, Threads, Instagram, and future social providers share the same telemetry contract.
@@ -20,7 +30,7 @@ Social auth and content-fetch logs preserve the standard structured logging form
 
 ## Instagram API Scaffold
 
-This project currently keeps public Instagram URL summarization on the existing unauthenticated Meta scraper fallback. The Instagram API client scaffold is for connected-account OAuth and read-only professional-account media lookups only; it is not wired into production content extraction.
+This project currently keeps unsupported public Instagram URL summarization on the existing unauthenticated Meta scraper fallback. The authenticated Instagram API tier is wired only for supported connected-account media: it enumerates the connected professional account's media IDs and fetches a matching owned media object. It does not promise generalized public media lookup, private feed access, or personal-account media access.
 
 Docs verified on 2026-05-23 against Meta's Instagram Platform documentation:
 
