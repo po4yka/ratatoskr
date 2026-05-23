@@ -6,6 +6,10 @@ from app.adapters.telegram.routing.failure_handler import MessageRouteFailureHan
 from app.adapters.telegram.routing.interactions import MessageInteractionRecorder
 from app.adapters.telegram.routing.models import PreparedRouteContext
 from app.adapters.telegram.routing.rate_limit import MessageRateLimitCoordinator
+from app.adapters.telegram.routing.voice_message_processor import (
+    VoiceMessageProcessor,
+    has_transcribable_voice_media,
+)
 
 __all__ = [
     "MessageContentRouter",
@@ -14,4 +18,6 @@ __all__ = [
     "MessageRouteContextBuilder",
     "MessageRouteFailureHandler",
     "PreparedRouteContext",
+    "VoiceMessageProcessor",
+    "has_transcribable_voice_media",
 ]

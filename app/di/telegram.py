@@ -13,6 +13,8 @@ from app.adapters.telegram.message_router import MessageRouter
 from app.adapters.telegram.multi_source_aggregation_handler import (
     MultiSourceAggregationHandler,
 )
+from app.adapters.telegram.routing.voice_message_processor import VoiceMessageProcessor
+from app.adapters.transcription import TranscriptionService, get_or_create_transcription_service
 from app.adapters.telegram.task_manager import UserTaskManager
 from app.adapters.telegram.telegram_client import TelegramClient
 from app.adapters.telegram.url_batch_policy_service import URLBatchPolicyService
@@ -404,6 +406,16 @@ def _build_telegram_interface_stack(
         ),
         lang=getattr(core.response_formatter, "_lang", "en"),
     )
+    transcription_service: TranscriptionService | None = None
+    voice_processor: VoiceMessageProcessor | None = None
+    if cfg.transcription.enabled:
+        transcription_service = get_or_create_transcription_service(cfg.transcription)
+        if cfg.transcription.auto_on_voice_message:
+            voice_processor = VoiceMessageProcessor(
+                response_formatter=core.response_formatter,
+                transcription_service=transcription_service,
+                diarization_enabled=cfg.transcription.diarization_enabled,
+            )
     dispatcher_deps = _build_command_dispatcher_deps(
         cfg=cfg,
         db=db,
@@ -424,6 +436,7 @@ def _build_telegram_interface_stack(
             db=db,
             summary_repo=repositories.summary_repository,
         ),
+        transcription_service=transcription_service,
     )
     command_dispatcher = _build_command_dispatcher(dispatcher_deps)
     access_controller = AccessController(
@@ -455,6 +468,7 @@ def _build_telegram_interface_stack(
         aggregation_handler=aggregation_handler,
         user_repo=repositories.user_repository,
         callback_handler=callback_handler,
+        voice_processor=voice_processor,
         lang=lang,
     )
     message_handler = MessageHandler(
@@ -519,6 +533,7 @@ def _build_command_dispatcher(
         rules_handler=dispatcher_deps.rules_handler,
         export_handler=dispatcher_deps.export_handler,
         backup_handler=dispatcher_deps.backup_handler,
+        transcribe_handler=dispatcher_deps.transcribe_handler,
     )
 
 

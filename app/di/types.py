@@ -70,6 +70,7 @@ class TelegramCommandDispatcherDeps:
     rules_handler: Any
     export_handler: Any
     backup_handler: Any
+    transcribe_handler: Any = None
 
 
 @dataclass(frozen=True, slots=True)

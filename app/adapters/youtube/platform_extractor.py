@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
+    from app.adapters.transcription import TranscriptionService
     from app.application.ports.requests import RequestRepositoryPort, VideoDownloadRepositoryPort
 
 logger = get_logger(__name__)
@@ -39,6 +40,7 @@ class YouTubePlatformExtractor(PlatformExtractor):
         lifecycle: PlatformRequestLifecycle,
         request_repo: RequestRepositoryPort,
         video_repo: VideoDownloadRepositoryPort,
+        transcription_service: TranscriptionService | None = None,
     ) -> None:
         self._cfg = cfg
         self._feedback_service = YouTubeFeedbackService(response_formatter=response_formatter)
@@ -56,6 +58,7 @@ class YouTubePlatformExtractor(PlatformExtractor):
             audit_func=audit_func,
             feedback_service=self._feedback_service,
             session_service=self._session_service,
+            transcription_service=transcription_service,
         )
 
     def supports(self, normalized_url: str) -> bool:

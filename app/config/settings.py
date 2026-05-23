@@ -54,6 +54,7 @@ from .scraper import ScraperConfig
 from .signal_ingestion import SignalIngestionConfig
 from .social import SocialConfig
 from .telegram import TelegramConfig, TelegramLimitsConfig
+from .transcription import TranscriptionConfig
 from .tts import ElevenLabsConfig
 from .twitter import TwitterConfig
 
@@ -195,6 +196,7 @@ class AppConfig:
     scraper: ScraperConfig = field(default_factory=ScraperConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     tts: ElevenLabsConfig = field(default_factory=ElevenLabsConfig)
+    transcription: TranscriptionConfig = field(default_factory=TranscriptionConfig)
     push: PushNotificationConfig = field(default_factory=PushNotificationConfig)
     model_routing: ModelRoutingConfig = field(default_factory=ModelRoutingConfig)
     rss: RSSConfig = field(default_factory=RSSConfig)
@@ -256,6 +258,7 @@ class Settings(BaseSettings):
     scraper: ScraperConfig = Field(default_factory=ScraperConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     tts: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
+    transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     push: PushNotificationConfig = Field(default_factory=PushNotificationConfig)
     model_routing: ModelRoutingConfig = Field(default_factory=ModelRoutingConfig)
     rss: RSSConfig = Field(default_factory=RSSConfig)
@@ -491,6 +494,7 @@ class Settings(BaseSettings):
             scraper=self.scraper,
             embedding=self.embedding,
             tts=self.tts,
+            transcription=self.transcription,
             push=self.push,
             model_routing=self.model_routing,
             rss=self.rss,

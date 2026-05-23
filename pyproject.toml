@@ -235,6 +235,14 @@ youtube = [
   "youtube-transcript-api>=1.2.4",
 ]
 
+# CPU-only transcription via sherpa-onnx (Kroko streaming ASR + optional
+# pyannote/reverb diarization). Off by default; enable with TRANSCRIPTION_ENABLED.
+# Requires ffmpeg on PATH at runtime. Also relies on yt-dlp from the `youtube`
+# extra when transcribing URL inputs through /transcribe.
+transcription = [
+  "sherpa-onnx>=1.10",
+]
+
 # Twitter/X extraction (uses base runtime dependencies)
 twitter = []
 

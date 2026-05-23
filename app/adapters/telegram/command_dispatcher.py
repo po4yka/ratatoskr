@@ -30,6 +30,7 @@ from app.adapters.telegram.command_handlers.rules_handler import RulesHandler
 from app.adapters.telegram.command_handlers.search_handler import SearchHandler
 from app.adapters.telegram.command_handlers.settings_handler import SettingsHandler
 from app.adapters.telegram.command_handlers.tag_handler import TagHandler
+from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
 from app.adapters.telegram.command_handlers.utils import maybe_load_json
 
@@ -57,6 +58,7 @@ class TelegramCommandDispatcher:
         rules_handler: RulesHandler,
         export_handler: ExportHandler,
         backup_handler: BackupHandler,
+        transcribe_handler: TranscribeHandler | None = None,
     ) -> None:
         self._routes = routes
         self._runtime_state = runtime_state
@@ -75,6 +77,7 @@ class TelegramCommandDispatcher:
         self._rules = rules_handler
         self._export = export_handler
         self._backup = backup_handler
+        self._transcribe = transcribe_handler
 
     @property
     def runtime_state(self) -> TelegramCommandRuntimeState:

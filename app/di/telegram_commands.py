@@ -28,7 +28,9 @@ from app.adapters.telegram.command_handlers.search_handler import SearchHandler
 from app.adapters.telegram.command_handlers.settings_handler import SettingsHandler
 from app.adapters.telegram.command_handlers.social_handler import SocialHandler
 from app.adapters.telegram.command_handlers.tag_handler import TagHandler
+from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
+from app.adapters.transcription import TranscriptionService
 from app.adapters.social.meta import (
     InstagramClient,
     InstagramOAuthConfig,
@@ -70,6 +72,7 @@ def build_command_dispatcher_deps(
     application_services: Any | None,
     repositories: TelegramRepositories,
     tts_service_factory: Any | None,
+    transcription_service: TranscriptionService | None = None,
 ) -> TelegramCommandDispatcherDeps:
     runtime_state = TelegramCommandRuntimeState(
         url_processor=url_processor,
@@ -164,6 +167,15 @@ def build_command_dispatcher_deps(
         db=db,
         response_formatter=response_formatter,
     )
+
+    transcribe_handler: TranscribeHandler | None = None
+    if cfg.transcription.enabled:
+        service = transcription_service or TranscriptionService(cfg.transcription)
+        transcribe_handler = TranscribeHandler(
+            cfg=cfg,
+            response_formatter=response_formatter,
+            transcription_service=service,
+        )
 
     contributions = (
         TelegramCommandContribution(
@@ -406,6 +418,23 @@ def build_command_dispatcher_deps(
                 ),
             ),
         ),
+        *(
+            (
+                TelegramCommandContribution(
+                    name="transcribe",
+                    post_summarize_text=(
+                        TextCommandRoute(
+                            "/transcribe",
+                            _build_text_handler(
+                                context_factory, transcribe_handler.handle_transcribe
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            if transcribe_handler is not None
+            else ()
+        ),
     )
     routes = merge_command_contributions(contributions)
 
@@ -428,6 +457,7 @@ def build_command_dispatcher_deps(
         rules_handler=rules_handler,
         export_handler=export_handler,
         backup_handler=backup_handler,
+        transcribe_handler=transcribe_handler,
     )
 
 

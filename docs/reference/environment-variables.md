@@ -296,6 +296,26 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | `YOUTUBE_AUTO_CLEANUP_ENABLED` | `true` | Auto-delete old videos |
 | `YOUTUBE_CLEANUP_AFTER_DAYS` | `30` | Retention period (days) |
 
+## Transcription (CPU-only ASR)
+
+Off by default. When enabled, ratatoskr can transcribe URLs, voice/audio/video_note messages, and (optionally) fill the audio-transcript slot in the YouTube pipeline when no native captions are available. The engine is sherpa-onnx with the Kroko streaming Zipformer model — fully CPU-side, no GPU, no cloud API, ~80 MB model download on first use. Requires `ffmpeg` on `PATH` and the `transcription` optional extra (`pip install 'ratatoskr[transcription]'`).
+
+| Variable | Default | Description |
+| ---------- | --------- | ------------- |
+| `TRANSCRIPTION_ENABLED` | `false` | Master switch. When `false`, the `/transcribe` command, voice auto-handler, and URL-pipeline fallback are all inactive and the transcription package is never loaded |
+| `TRANSCRIPTION_MODEL_PATH` | `/data/models/transcription` | Directory holding the streaming Zipformer model files. If empty on first use, the default Kroko English bundle is auto-downloaded into it. Point at a custom directory containing `tokens.txt` to use a different language model — see the Kroko HF repo for the list |
+| `TRANSCRIPTION_SPEED` | `1.5` | Pre-transcription speedup (pitch preserved via ffmpeg `atempo`). 1.5x cuts CPU time by ~30% with minimal accuracy loss; use 1.0 for noisy / fast-speech sources |
+| `TRANSCRIPTION_NUM_THREADS` | `2` | Threads sherpa-onnx may use for inference |
+| `TRANSCRIPTION_MAX_DURATION_SEC` | `1800` | Refuse any media longer than this. Protects against runaway multi-hour transcribe jobs |
+| `TRANSCRIPTION_AUTO_VOICE` | `true` | When `TRANSCRIPTION_ENABLED`, auto-transcribe forwarded voice / audio / video_note messages without requiring `/transcribe` |
+| `TRANSCRIPTION_AUTO_URL_PIPELINE` | `false` | When `TRANSCRIPTION_ENABLED`, fill `VideoSourceRequest.audio_transcript_text` in the YouTube pipeline when both `youtube-transcript-api` and VTT subtitles return empty. Opt-in because it adds CPU cost to every captionless video |
+| `TRANSCRIPTION_DIARIZATION_ENABLED` | `false` | Add speaker labels (`SPEAKER_00`, `SPEAKER_01`, ...). Downloads two additional ONNX models on first use |
+| `TRANSCRIPTION_DIARIZATION_MODEL` | `pyannote` | Segmentation model. `pyannote` is CC-BY-4.0 (default, safe for most uses). `reverb` is more accurate but distributed under a **non-commercial** license — review the Rev.ai model card before commercial use |
+| `TRANSCRIPTION_DIARIZATION_PATH` | `/data/models/diarization` | Directory holding the diarization segmentation + embedding models |
+| `TRANSCRIPTION_EMBEDDING_MODEL` | `3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx` | Filename of the speaker-embedding ONNX in the sherpa-onnx `speaker-recongition-models` release (note upstream typo) |
+| `TRANSCRIPTION_DIARIZATION_CLUSTER_THRESHOLD` | `0.5` | FastClustering threshold for auto speaker-count detection. Higher = fewer merged speakers |
+| `TRANSCRIPTION_DEFAULT_NUM_SPEAKERS` | `-1` | Default speaker count (`-1` = auto-detect; auto-detection degrades above ~7 speakers) |
+
 ## Twitter/X Content Extraction
 
 | Variable | Default | Description |

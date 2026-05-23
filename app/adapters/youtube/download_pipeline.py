@@ -38,6 +38,7 @@ from app.core.urls.youtube import extract_youtube_video_id
 from app.domain.models.source import SourceItem, SourceKind
 
 if TYPE_CHECKING:
+    from app.adapters.transcription import TranscriptionService
     from app.adapters.youtube.feedback_service import YouTubeFeedbackService
     from app.adapters.youtube.session_service import YouTubeDownloadSessionService
 
@@ -58,11 +59,13 @@ class YouTubeDownloadPipeline:
         audit_func: Any,
         feedback_service: YouTubeFeedbackService,
         session_service: YouTubeDownloadSessionService,
+        transcription_service: TranscriptionService | None = None,
     ) -> None:
         self._cfg = cfg
         self._audit = audit_func
         self._feedback_service = feedback_service
         self._session_service = session_service
+        self._transcription_service = transcription_service
         self._video_source_extractor = MetadataDrivenVideoSourceExtractor()
 
     async def run(
@@ -122,6 +125,23 @@ class YouTubeDownloadPipeline:
                         stage_duration = time.time() - feedback_state.stage_start
                         feedback_state.completed_stages.append(
                             ("Subtitles processed", stage_duration)
+                        )
+
+            audio_transcript_text: str | None = None
+            if not transcript_text and self._should_attempt_local_transcription():
+                audio_transcript_text = await self._transcribe_video_locally(
+                    video_metadata.get("video_file_path"),
+                    correlation_id=request.correlation_id,
+                )
+                if audio_transcript_text:
+                    transcript_text = audio_transcript_text
+                    transcript_source = "asr_local"
+                    if not transcript_lang:
+                        transcript_lang = detect_language(audio_transcript_text)
+                    if feedback_state.updater is not None:
+                        stage_duration = time.time() - feedback_state.stage_start
+                        feedback_state.completed_stages.append(
+                            ("Local transcription completed", stage_duration)
                         )
 
             if not transcript_text:
@@ -195,6 +215,7 @@ class YouTubeDownloadPipeline:
                     body_text=_metadata.format_metadata_header(video_metadata),
                     transcript_text=transcript_text,
                     transcript_source=transcript_source,
+                    audio_transcript_text=audio_transcript_text,
                     content_source=transcript_source,
                     content_text_override=_metadata.combine_metadata_and_transcript(
                         video_metadata, transcript_text
@@ -317,3 +338,59 @@ class YouTubeDownloadPipeline:
             extract_youtube_video_id=extract_youtube_video_id,
             yt_dlp_module=yt_dlp,
         )
+
+    def _should_attempt_local_transcription(self) -> bool:
+        """Local CPU transcription is opt-in and only runs when no caption path produced text."""
+        if self._transcription_service is None:
+            return False
+        if not self._transcription_service.enabled:
+            return False
+        return bool(getattr(self._cfg.transcription, "auto_in_url_pipeline", False))
+
+    async def _transcribe_video_locally(
+        self,
+        video_file_path: str | None,
+        *,
+        correlation_id: str | None,
+    ) -> str | None:
+        """Run sherpa-onnx ASR on a downloaded video file. Best-effort: failures
+        are logged and turned into ``None`` rather than raised, so the caller's
+        existing "no transcript" error still fires when both paths are exhausted.
+        """
+        if not video_file_path or self._transcription_service is None:
+            return None
+        media_path = Path(video_file_path)
+        if not media_path.is_file():
+            logger.warning(
+                "youtube_transcription_fallback_missing_file",
+                extra={"path": video_file_path, "cid": correlation_id},
+            )
+            return None
+        logger.info(
+            "youtube_transcription_fallback_start",
+            extra={"path": video_file_path, "cid": correlation_id},
+        )
+        try:
+            result = await self._transcription_service.transcribe_media_path(
+                media_path,
+                correlation_id=correlation_id,
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "youtube_transcription_fallback_failed",
+                extra={"path": video_file_path, "error": str(exc), "cid": correlation_id},
+            )
+            return None
+        text = (result.plain_text or "").strip()
+        if not text:
+            logger.info(
+                "youtube_transcription_fallback_empty",
+                extra={"path": video_file_path, "cid": correlation_id},
+            )
+            return None
+        logger.info(
+            "youtube_transcription_fallback_complete",
+            extra={"path": video_file_path, "chars": len(text), "cid": correlation_id},
+        )
+        return text

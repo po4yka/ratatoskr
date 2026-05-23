@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
     from .interactions import MessageInteractionRecorder
     from .models import PreparedRouteContext
+    from .voice_message_processor import VoiceMessageProcessor
 
 logger = logging.getLogger("app.adapters.telegram.message_router")
 
@@ -42,6 +43,7 @@ class MessageContentRouter:
         callback_handler: CallbackHandler | None = None,
         attachment_processor: AttachmentProcessor | None = None,
         aggregation_handler: MultiSourceAggregationHandler | None = None,
+        voice_processor: VoiceMessageProcessor | None = None,
         lang: str = "en",
         aggregation_default_mode: str = "per_url",
         forward_link_bundle_prose_threshold: int = 200,
@@ -54,6 +56,7 @@ class MessageContentRouter:
         self.callback_handler = callback_handler
         self.attachment_processor = attachment_processor
         self.aggregation_handler = aggregation_handler
+        self.voice_processor = voice_processor
         self._lang = lang
         self._aggregation_default_mode = aggregation_default_mode
         self._forward_link_bundle_prose_threshold = forward_link_bundle_prose_threshold
@@ -185,6 +188,20 @@ class MessageContentRouter:
                 interaction_id=interaction_id,
             )
             return
+
+        if self.voice_processor is not None:
+            handled = await self.voice_processor.handle(
+                context.message,
+                correlation_id=context.correlation_id,
+            )
+            if handled:
+                await self.interaction_recorder.update(
+                    interaction_id,
+                    response_sent=True,
+                    response_type="voice_transcribed",
+                    start_time=start_time,
+                )
+                return
 
         await self.response_formatter.safe_reply(context.message, t("fallback_prompt", self._lang))
         logger.debug(

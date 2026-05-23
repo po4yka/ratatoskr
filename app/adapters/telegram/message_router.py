@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         MultiSourceAggregationHandler,
     )
     from app.adapters.telegram.routing.models import PreparedRouteContext
+    from app.adapters.telegram.routing.voice_message_processor import VoiceMessageProcessor
     from app.adapters.telegram.task_manager import UserTaskManager
     from app.adapters.telegram.url_handler import URLHandler
     from app.application.ports.users import UserRepositoryPort
@@ -68,6 +69,7 @@ class MessageRouter:
         aggregation_handler: MultiSourceAggregationHandler | None = None,
         user_repo: UserRepositoryPort | None = None,
         callback_handler: CallbackHandler | None = None,
+        voice_processor: VoiceMessageProcessor | None = None,
         lang: str = "en",
         db: Database | None = None,
     ) -> None:
@@ -102,6 +104,7 @@ class MessageRouter:
             callback_handler=callback_handler,
             attachment_processor=attachment_processor,
             aggregation_handler=aggregation_handler,
+            voice_processor=voice_processor,
             lang=lang,
             aggregation_default_mode=cfg.runtime.aggregation_default_mode,
             forward_link_bundle_prose_threshold=(cfg.runtime.forward_link_bundle_prose_threshold),

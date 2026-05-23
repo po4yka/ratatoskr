@@ -119,10 +119,16 @@ def build_platform_extractor_contributions(
 
 
 def _build_youtube_platform_extractor(context: PlatformExtractorContext) -> Any:
+    from app.adapters.transcription import get_or_create_transcription_service
     from app.adapters.youtube.platform_extractor import YouTubePlatformExtractor
     from app.infrastructure.persistence.repositories.video_download_repository import (
         VideoDownloadRepositoryAdapter,
     )
+
+    transcription_service = None
+    transcription_cfg = getattr(context.cfg, "transcription", None)
+    if transcription_cfg is not None and bool(getattr(transcription_cfg, "enabled", False)):
+        transcription_service = get_or_create_transcription_service(transcription_cfg)
 
     return YouTubePlatformExtractor(
         cfg=context.cfg,
@@ -132,6 +138,7 @@ def _build_youtube_platform_extractor(context: PlatformExtractorContext) -> Any:
         lifecycle=context.lifecycle,
         request_repo=context.message_persistence.request_repo,
         video_repo=VideoDownloadRepositoryAdapter(context.db),
+        transcription_service=transcription_service,
     )
 
 
