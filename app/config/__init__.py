@@ -28,6 +28,7 @@ from .runtime import RuntimeConfig
 from .scraper import ScraperConfig
 from .settings import AppConfig, Config, ConfigHelper, Settings, clear_config_cache, load_config
 from .signal_ingestion import SignalIngestionConfig
+from .social import SocialConfig
 from .telegram import TelegramConfig, TelegramLimitsConfig
 from .tts import ElevenLabsConfig
 from .twitter import TwitterConfig
@@ -66,6 +67,7 @@ __all__ = [
     "SentryConfig",
     "Settings",
     "SignalIngestionConfig",
+    "SocialConfig",
     "SyncConfig",
     "TelegramConfig",
     "TelegramLimitsConfig",

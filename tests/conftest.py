@@ -54,6 +54,7 @@ from app.config import (
     QdrantConfig,
     RedisConfig,
     RuntimeConfig,
+    SocialConfig,
     SyncConfig,
     TelegramConfig,
     TelegramLimitsConfig,
@@ -292,6 +293,7 @@ def make_test_app_config(
         "adaptive_timeout": AdaptiveTimeoutConfig(),
         "batch_analysis": BatchAnalysisConfig(),
         "twitter": TwitterConfig(),
+        "social": SocialConfig(),
     }
     defaults.update(overrides)
     return AppConfig(**defaults)

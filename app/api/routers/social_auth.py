@@ -22,6 +22,7 @@ from app.api.models.responses.social import (
     SocialDisconnectSuccessResponse,
 )
 from app.api.routers.auth import get_current_user
+from app.adapters.social.meta import ThreadsClient, ThreadsOAuthConfig
 from app.adapters.social.x import XOAuthClient, XOAuthConfig
 from app.application.services.social_auth_service import (
     DEFAULT_SOCIAL_SCOPES,
@@ -41,7 +42,9 @@ def get_social_oauth_clients() -> Any:
     X is backed by a real OAuth 2.0 PKCE client; providers without concrete implementations still use token-safe stubs.
     """
     clients = build_stub_social_oauth_clients()
-    twitter_cfg = load_config().twitter
+    cfg = load_config()
+    twitter_cfg = cfg.twitter
+    social_cfg = cfg.social
     clients["x"] = XOAuthClient(
         XOAuthConfig(
             client_id=twitter_cfg.x_oauth_client_id,
@@ -53,6 +56,17 @@ def get_social_oauth_clients() -> Any:
             api_base_url=twitter_cfg.x_api_base_url,
         )
     )
+    clients["threads"] = ThreadsClient(
+        ThreadsOAuthConfig(
+            client_id=social_cfg.threads_client_id,
+            client_secret=social_cfg.threads_client_secret.get_secret_value()
+            if social_cfg.threads_client_secret is not None
+            else None,
+            redirect_uri=social_cfg.threads_redirect_uri,
+            scopes=social_cfg.threads_scopes,
+            graph_base_url=social_cfg.threads_graph_base_url,
+        )
+    )
     return clients
 
 
@@ -60,7 +74,9 @@ def _get_social_auth_service(
     repository: Any = Depends(get_social_connection_repository),
     oauth_clients: Any = Depends(get_social_oauth_clients),
 ) -> SocialAuthService:
-    twitter_cfg = load_config().twitter
+    cfg = load_config()
+    twitter_cfg = cfg.twitter
+    social_cfg = cfg.social
     return SocialAuthService(
         repository=repository,
         oauth_clients=oauth_clients,
@@ -68,8 +84,12 @@ def _get_social_auth_service(
             provider_default_scopes={
                 **DEFAULT_SOCIAL_SCOPES,
                 "x": twitter_cfg.x_oauth_scopes,
+                "threads": social_cfg.threads_scopes,
             },
-            provider_redirect_uris={"x": twitter_cfg.x_oauth_redirect_uri},
+            provider_redirect_uris={
+                "x": twitter_cfg.x_oauth_redirect_uri,
+                "threads": social_cfg.threads_redirect_uri,
+            },
         ),
     )
 

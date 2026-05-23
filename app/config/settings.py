@@ -52,6 +52,7 @@ from .rss import RSSConfig
 from .runtime import RuntimeConfig
 from .scraper import ScraperConfig
 from .signal_ingestion import SignalIngestionConfig
+from .social import SocialConfig
 from .telegram import TelegramConfig, TelegramLimitsConfig
 from .tts import ElevenLabsConfig
 from .twitter import TwitterConfig
@@ -198,6 +199,7 @@ class AppConfig:
     model_routing: ModelRoutingConfig = field(default_factory=ModelRoutingConfig)
     rss: RSSConfig = field(default_factory=RSSConfig)
     signal_ingestion: SignalIngestionConfig = field(default_factory=SignalIngestionConfig)
+    social: SocialConfig = field(default_factory=SocialConfig)
     otel: OtelConfig = field(default_factory=OtelConfig)
     sentry: SentryConfig = field(default_factory=SentryConfig)
     github: GitHubConfig = field(default_factory=GitHubConfig)
@@ -258,6 +260,7 @@ class Settings(BaseSettings):
     model_routing: ModelRoutingConfig = Field(default_factory=ModelRoutingConfig)
     rss: RSSConfig = Field(default_factory=RSSConfig)
     signal_ingestion: SignalIngestionConfig = Field(default_factory=SignalIngestionConfig)
+    social: SocialConfig = Field(default_factory=SocialConfig)
     otel: OtelConfig = Field(default_factory=OtelConfig)
     sentry: SentryConfig = Field(default_factory=SentryConfig)
     github: GitHubConfig = Field(default_factory=GitHubConfig)
@@ -492,6 +495,7 @@ class Settings(BaseSettings):
             model_routing=self.model_routing,
             rss=self.rss,
             signal_ingestion=self.signal_ingestion,
+            social=self.social,
             otel=self.otel,
             sentry=self.sentry,
             github=self.github,
