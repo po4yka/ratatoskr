@@ -8,7 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from .aggregation import AggregationSourceBundle
-from .common import PaginationInfo
+from .common import PaginationInfo, SuccessResponse
 
 
 class SummaryCompact(BaseModel):
@@ -192,6 +192,12 @@ class SummaryListResponse(BaseModel):
     stats: SummaryListStats
 
 
+class SummaryRecommendationsResponse(BaseModel):
+    recommendations: list[SummaryCompact]
+    reason: str
+    count: int
+
+
 class SearchResult(BaseModel):
     request_id: int = Field(serialization_alias="requestId")
     summary_id: int = Field(serialization_alias="summaryId")
@@ -227,6 +233,12 @@ class UpdateSummaryResponse(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
+class SaveReadingPositionResponse(BaseModel):
+    id: int
+    progress: float
+    last_read_offset: int
+
+
 class DeleteSummaryResponse(BaseModel):
     id: int
     deleted_at: str = Field(serialization_alias="deletedAt")
@@ -243,3 +255,47 @@ class FeedbackResponse(BaseModel):
     issues: list[str] | None = None
     comment: str | None = None
     created_at: str = Field(serialization_alias="createdAt")
+
+
+class BulkSummaryUpdateResponse(BaseModel):
+    updated: int
+
+
+class SummaryListSuccessResponse(SuccessResponse):
+    data: SummaryListResponse
+
+
+class SummaryRecommendationsSuccessResponse(SuccessResponse):
+    data: SummaryRecommendationsResponse
+
+
+class SummaryDetailSuccessResponse(SuccessResponse):
+    data: SummaryDetail
+
+
+class SummaryContentSuccessResponse(SuccessResponse):
+    data: SummaryContentData
+
+
+class UpdateSummarySuccessResponse(SuccessResponse):
+    data: UpdateSummaryResponse
+
+
+class SaveReadingPositionSuccessResponse(SuccessResponse):
+    data: SaveReadingPositionResponse
+
+
+class DeleteSummarySuccessResponse(SuccessResponse):
+    data: DeleteSummaryResponse
+
+
+class BulkSummaryUpdateSuccessResponse(SuccessResponse):
+    data: BulkSummaryUpdateResponse
+
+
+class ToggleFavoriteSuccessResponse(SuccessResponse):
+    data: ToggleFavoriteResponse
+
+
+class FeedbackSuccessResponse(SuccessResponse):
+    data: FeedbackResponse

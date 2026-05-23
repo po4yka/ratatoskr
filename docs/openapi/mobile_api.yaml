@@ -1711,7 +1711,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summaries V1 Summaries Get
+                $ref: '#/components/schemas/SummaryListSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -1782,7 +1782,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Recommendations V1 Summaries Recommendations Get
+                $ref: '#/components/schemas/SummaryRecommendationsSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -1853,7 +1853,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Update Summary V1 Summaries  Summary Id  Patch
+                $ref: '#/components/schemas/UpdateSummarySuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -1885,7 +1885,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Delete Summary V1 Summaries  Summary Id  Delete
+                $ref: '#/components/schemas/DeleteSummarySuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -1926,7 +1926,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summary Content V1 Summaries  Summary Id  Content Get
+                $ref: '#/components/schemas/SummaryContentSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2006,7 +2006,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Save Reading Position V1 Summaries  Summary Id  Reading Position Patch
+                $ref: '#/components/schemas/SaveReadingPositionSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2043,7 +2043,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Bulk Mark Read V1 Summaries Bulk Mark Read Post
+                $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2080,7 +2080,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Bulk Favorite V1 Summaries Bulk Favorite Post
+                $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2112,7 +2112,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Bulk Delete V1 Summaries Bulk Delete Post
+                $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2147,7 +2147,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Toggle Favorite V1 Summaries  Summary Id  Favorite Post
+                $ref: '#/components/schemas/ToggleFavoriteSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2186,7 +2186,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Submit Feedback V1 Summaries  Summary Id  Feedback Post
+                $ref: '#/components/schemas/FeedbackSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2529,7 +2529,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summaries V1 Articles Get
+                $ref: '#/components/schemas/SummaryListSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2564,7 +2564,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summary By Url V1 Articles By Url Get
+                $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2600,7 +2600,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Recommendations V1 Articles Recommendations Get
+                $ref: '#/components/schemas/SummaryRecommendationsSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2633,7 +2633,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summary V1 Articles  Summary Id  Get
+                $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2671,7 +2671,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Update Summary V1 Articles  Summary Id  Patch
+                $ref: '#/components/schemas/UpdateSummarySuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2703,7 +2703,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Delete Summary V1 Articles  Summary Id  Delete
+                $ref: '#/components/schemas/DeleteSummarySuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2744,7 +2744,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Get Summary Content V1 Articles  Summary Id  Content Get
+                $ref: '#/components/schemas/SummaryContentSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2824,7 +2824,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Save Reading Position V1 Articles  Summary Id  Reading Position Patch
+                $ref: '#/components/schemas/SaveReadingPositionSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2861,7 +2861,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Bulk Mark Read V1 Articles Bulk Mark Read Post
+                $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2898,7 +2898,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Bulk Favorite V1 Articles Bulk Favorite Post
+                $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2930,7 +2930,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Bulk Delete V1 Articles Bulk Delete Post
+                $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -2965,7 +2965,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Toggle Favorite V1 Articles  Summary Id  Favorite Post
+                $ref: '#/components/schemas/ToggleFavoriteSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -3004,7 +3004,7 @@ paths:
           content:
             application/json:
               schema:
-                title: Response Submit Feedback V1 Articles  Summary Id  Feedback Post
+                $ref: '#/components/schemas/FeedbackSuccessResponse'
         '422':
           description: Validation Error
           content:
@@ -8278,6 +8278,29 @@ components:
       - subscription_ids
       title: BulkCategoryRequest
       description: Request to assign multiple subscriptions to a category.
+    BulkSummaryUpdateResponse:
+      properties:
+        updated:
+          type: integer
+          title: Updated
+      type: object
+      required:
+      - updated
+      title: BulkSummaryUpdateResponse
+    BulkSummaryUpdateSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/BulkSummaryUpdateResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: BulkSummaryUpdateSuccessResponse
     BulkUnsubscribeRequest:
       properties:
         channel_usernames:
@@ -8819,6 +8842,33 @@ components:
       - client_id
       title: CredentialsLoginRequest
       description: Request body for nickname/email + password login.
+    DeleteSummaryResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        deletedAt:
+          type: string
+          title: Deletedat
+      type: object
+      required:
+      - id
+      - deletedAt
+      title: DeleteSummaryResponse
+    DeleteSummarySuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/DeleteSummaryResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: DeleteSummarySuccessResponse
     DeviceFlowPollRequest:
       properties:
         device_code:
@@ -9266,6 +9316,78 @@ components:
           title: Details
       type: object
       title: DiagnosticsVectorIndexLag
+    DuplicateDetectionResponse:
+      properties:
+        isDuplicate:
+          type: boolean
+          title: Isduplicate
+        existingRequestId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Existingrequestid
+        existingSummaryId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Existingsummaryid
+        message:
+          type: string
+          title: Message
+        summarizedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summarizedat
+      type: object
+      required:
+      - isDuplicate
+      - message
+      title: DuplicateDetectionResponse
+    FeedbackResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        rating:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Rating
+        issues:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Issues
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+        createdAt:
+          type: string
+          title: Createdat
+      type: object
+      required:
+      - id
+      - createdAt
+      title: FeedbackResponse
+    FeedbackSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/FeedbackResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: FeedbackSuccessResponse
     ForwardMetadata:
       properties:
         from_chat_id:
@@ -9503,6 +9625,17 @@ components:
       - hasMore
       title: PaginationInfo
       description: Pagination metadata.
+    ProcessingStage:
+      type: string
+      enum:
+      - queued
+      - extracting
+      - summarizing
+      - validating
+      - persisting
+      - done
+      title: ProcessingStage
+      description: Canonical public processing stages for request status polling and streams.
     QuickSaveRequest:
       properties:
         url:
@@ -9858,6 +9991,275 @@ components:
       - full_name_asc
       title: RepositoryListSort
       description: Sort order for repository list.
+    RequestDetailCrawlResult:
+      properties:
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        httpStatus:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Httpstatus
+        latencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latencyms
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+      type: object
+      title: RequestDetailCrawlResult
+    RequestDetailLlmCall:
+      properties:
+        id:
+          type: integer
+          title: Id
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        tokensPrompt:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Tokensprompt
+        tokensCompletion:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Tokenscompletion
+        costUsd:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Costusd
+        latencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latencyms
+        createdAt:
+          type: string
+          title: Createdat
+      type: object
+      required:
+      - id
+      - createdAt
+      title: RequestDetailLlmCall
+    RequestDetailRequest:
+      properties:
+        id:
+          type: integer
+          title: Id
+        type:
+          type: string
+          title: Type
+        status:
+          $ref: '#/components/schemas/RequestStatus'
+        legacyStatus:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Legacystatus
+        correlationId:
+          type: string
+          title: Correlationid
+        inputUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Inputurl
+        normalizedUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Normalizedurl
+        dedupeHash:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dedupehash
+        createdAt:
+          type: string
+          title: Createdat
+        langDetected:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Langdetected
+      type: object
+      required:
+      - id
+      - type
+      - status
+      - correlationId
+      - createdAt
+      title: RequestDetailRequest
+    RequestDetailResponse:
+      properties:
+        request:
+          $ref: '#/components/schemas/RequestDetailRequest'
+        crawlResult:
+          anyOf:
+          - $ref: '#/components/schemas/RequestDetailCrawlResult'
+          - type: 'null'
+          default: null
+        llmCalls:
+          items:
+            $ref: '#/components/schemas/RequestDetailLlmCall'
+          title: Llmcalls
+          type: array
+        summary:
+          anyOf:
+          - $ref: '#/components/schemas/RequestDetailSummary'
+          - type: 'null'
+          default: null
+      required:
+      - request
+      title: RequestDetailResponse
+      type: object
+    RequestDetailSuccessResponse:
+      allOf:
+      - $ref: '#/components/schemas/BaseSuccessResponse'
+      - type: object
+        required:
+        - data
+        properties:
+          data:
+            $ref: '#/components/schemas/RequestDetailResponse'
+    RequestDetailSummary:
+      properties:
+        id:
+          type: integer
+          title: Id
+        status:
+          type: string
+          title: Status
+        createdAt:
+          type: string
+          title: Createdat
+      type: object
+      required:
+      - id
+      - status
+      - createdAt
+      title: RequestDetailSummary
+    RequestStatus:
+      type: string
+      enum:
+      - pending
+      - running
+      - succeeded
+      - failed
+      - cancelled
+      title: RequestStatus
+      description: Canonical public request lifecycle statuses.
+    RequestStatusData:
+      properties:
+        requestId:
+          title: Requestid
+          type: integer
+        status:
+          $ref: '#/components/schemas/RequestStatus'
+        legacyStatus:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Legacystatus
+        stage:
+          $ref: '#/components/schemas/ProcessingStage'
+        progress:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Progress
+        estimatedSecondsRemaining:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Estimatedsecondsremaining
+        queuePosition:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Queueposition
+        errorStage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Errorstage
+        errorType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Errortype
+        errorMessage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Errormessage
+        errorReasonCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Errorreasoncode
+        retryable:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Retryable
+        canRetry:
+          default: false
+          title: Canretry
+          type: boolean
+        correlationId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Correlationid
+        updatedAt:
+          title: Updatedat
+          type: string
+      required:
+      - requestId
+      - status
+      - stage
+      - updatedAt
+      - canRetry
+      title: RequestStatusData
+      type: object
+    RequestStatusSuccessResponse:
+      allOf:
+      - $ref: '#/components/schemas/BaseSuccessResponse'
+      - type: object
+        required:
+        - data
+        properties:
+          data:
+            $ref: '#/components/schemas/RequestStatusData'
     ResolveChannelRequest:
       properties:
         channel_username:
@@ -9870,6 +10272,41 @@ components:
       - channel_username
       title: ResolveChannelRequest
       description: Request to resolve/preview a channel before subscribing.
+    RetryRequestResponse:
+      properties:
+        newRequestId:
+          title: Newrequestid
+          type: integer
+        correlationId:
+          title: Correlationid
+          type: string
+        status:
+          $ref: '#/components/schemas/RequestStatus'
+        legacyStatus:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Legacystatus
+        createdAt:
+          title: Createdat
+          type: string
+      required:
+      - newRequestId
+      - correlationId
+      - status
+      - createdAt
+      title: RetryRequestResponse
+      type: object
+    RetryRequestSuccessResponse:
+      allOf:
+      - $ref: '#/components/schemas/BaseSuccessResponse'
+      - type: object
+        required:
+        - data
+        properties:
+          data:
+            $ref: '#/components/schemas/RetryRequestResponse'
     SaveReadingPositionRequest:
       properties:
         progress:
@@ -9889,6 +10326,37 @@ components:
       - progress
       title: SaveReadingPositionRequest
       description: Save reading progress for a summary.
+    SaveReadingPositionResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        progress:
+          type: number
+          title: Progress
+        last_read_offset:
+          type: integer
+          title: Last Read Offset
+      type: object
+      required:
+      - id
+      - progress
+      - last_read_offset
+      title: SaveReadingPositionResponse
+    SaveReadingPositionSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SaveReadingPositionResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SaveReadingPositionSuccessResponse
     SecretKeyCreateRequest:
       properties:
         user_id:
@@ -10098,6 +10566,63 @@ components:
       - forward_metadata
       title: SubmitForwardRequest
       description: Request body for submitting a forwarded message.
+    SubmitRequestData:
+      properties:
+        request:
+          $ref: '#/components/schemas/SubmitRequestResponse'
+      required:
+      - request
+      title: SubmitRequestData
+      type: object
+    SubmitRequestResponse:
+      properties:
+        requestId:
+          type: integer
+          title: Requestid
+        correlationId:
+          type: string
+          title: Correlationid
+        type:
+          type: string
+          enum:
+          - url
+          - forward
+          title: Type
+        status:
+          $ref: '#/components/schemas/RequestStatus'
+        legacyStatus:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Legacystatus
+        estimatedWaitSeconds:
+          type: integer
+          title: Estimatedwaitseconds
+        createdAt:
+          type: string
+          title: Createdat
+        isDuplicate:
+          type: boolean
+          title: Isduplicate
+          default: false
+      type: object
+      required:
+      - requestId
+      - correlationId
+      - type
+      - status
+      - estimatedWaitSeconds
+      - createdAt
+      title: SubmitRequestResponse
+    SubmitRequestSuccessResponse:
+      allOf:
+      - $ref: '#/components/schemas/BaseSuccessResponse'
+      - type: object
+        required:
+        - data
+        properties:
+          data:
+            $ref: '#/components/schemas/SubmitRequestData'
     SubmitURLRequest:
       properties:
         type:
@@ -10136,6 +10661,634 @@ components:
       - channel_username
       title: SubscribeRequest
       description: Request to subscribe to a channel.
+    SummaryCompact:
+      properties:
+        id:
+          type: integer
+          title: Id
+          description: Unique summary identifier
+        requestId:
+          type: integer
+          title: Requestid
+          description: Associated request ID
+        title:
+          type: string
+          title: Title
+          description: Article title
+        domain:
+          type: string
+          title: Domain
+          description: Source domain (e.g., example.com)
+        url:
+          type: string
+          title: Url
+          description: Original article URL
+        tldr:
+          type: string
+          title: Tldr
+          description: Concise multi-sentence summary
+        summary250:
+          type: string
+          title: Summary250
+          description: Short summary (<=250 chars)
+        readingTimeMin:
+          type: integer
+          title: Readingtimemin
+          description: Estimated reading time in minutes
+        topicTags:
+          items:
+            type: string
+          type: array
+          title: Topictags
+          description: Topic hashtags
+        isRead:
+          type: boolean
+          title: Isread
+          description: User read status
+        isFavorited:
+          type: boolean
+          title: Isfavorited
+          description: User favorite status
+          default: false
+        lang:
+          type: string
+          enum:
+          - en
+          - ru
+          - auto
+          title: Lang
+          description: Detected or preferred language
+        createdAt:
+          type: string
+          title: Createdat
+          description: ISO 8601 creation timestamp
+        confidence:
+          type: number
+          title: Confidence
+          description: LLM confidence score (0.0-1.0)
+        hallucinationRisk:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          - unknown
+          title: Hallucinationrisk
+          description: Assessed hallucination risk level
+        imageUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Imageurl
+        sourceCoverage:
+          type: string
+          enum:
+          - full
+          - partial
+          - abstract_only
+          - transcript_missing
+          - unknown
+          title: Sourcecoverage
+          default: unknown
+        repairAttempted:
+          type: boolean
+          title: Repairattempted
+          default: false
+        repairSucceeded:
+          type: boolean
+          title: Repairsucceeded
+          default: false
+        promptInjectionSuspected:
+          type: boolean
+          title: Promptinjectionsuspected
+          default: false
+        validationWarningCount:
+          type: integer
+          title: Validationwarningcount
+          default: 0
+      type: object
+      required:
+      - id
+      - requestId
+      - title
+      - domain
+      - url
+      - tldr
+      - summary250
+      - readingTimeMin
+      - topicTags
+      - isRead
+      - lang
+      - createdAt
+      - confidence
+      - hallucinationRisk
+      title: SummaryCompact
+    SummaryContent:
+      properties:
+        summaryId:
+          title: Summaryid
+          type: integer
+        requestId:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Requestid
+        format:
+          enum:
+          - markdown
+          - text
+          - html
+          title: Format
+          type: string
+        content:
+          title: Content
+          type: string
+        contentType:
+          enum:
+          - text/markdown
+          - text/plain
+          - text/html
+          title: Contenttype
+          type: string
+        lang:
+          anyOf:
+          - enum:
+            - en
+            - ru
+            - auto
+            type: string
+          - type: 'null'
+          default: null
+          title: Lang
+        sourceUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Sourceurl
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        domain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Domain
+        retrievedAt:
+          title: Retrievedat
+          type: string
+        sizeBytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Sizebytes
+        checksumSha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Checksumsha256
+      required:
+      - summaryId
+      - format
+      - content
+      - contentType
+      - retrievedAt
+      title: SummaryContent
+      type: object
+    SummaryContentData:
+      properties:
+        content:
+          $ref: '#/components/schemas/SummaryContent'
+      type: object
+      required:
+      - content
+      title: SummaryContentData
+    SummaryContentSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SummaryContentData'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SummaryContentSuccessResponse
+    SummaryDetail:
+      properties:
+        summary:
+          $ref: '#/components/schemas/SummaryDetailSummary'
+        request:
+          $ref: '#/components/schemas/SummaryDetailRequest'
+        source:
+          $ref: '#/components/schemas/SummaryDetailSource'
+        processing:
+          $ref: '#/components/schemas/SummaryDetailProcessing'
+        sourceBundle:
+          anyOf:
+          - $ref: '#/components/schemas/AggregationSourceBundle'
+          - type: 'null'
+          default: null
+        readingProgress:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Readingprogress
+        lastReadOffset:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Lastreadoffset
+      required:
+      - summary
+      - request
+      - source
+      - processing
+      title: SummaryDetail
+      type: object
+    SummaryDetailEntities:
+      properties:
+        people:
+          items:
+            type: string
+          type: array
+          title: People
+        organizations:
+          items:
+            type: string
+          type: array
+          title: Organizations
+        locations:
+          items:
+            type: string
+          type: array
+          title: Locations
+      type: object
+      title: SummaryDetailEntities
+    SummaryDetailKeyStat:
+      properties:
+        label:
+          type: string
+          title: Label
+        value:
+          type: number
+          title: Value
+        unit:
+          type: string
+          title: Unit
+        sourceExcerpt:
+          type: string
+          title: Sourceexcerpt
+      type: object
+      required:
+      - label
+      - value
+      - unit
+      - sourceExcerpt
+      title: SummaryDetailKeyStat
+    SummaryDetailProcessing:
+      properties:
+        modelUsed:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Modelused
+        tokensUsed:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Tokensused
+        processingTimeMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Processingtimems
+        crawlTimeMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Crawltimems
+        confidence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Confidence
+        hallucinationRisk:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Hallucinationrisk
+        quality:
+          anyOf:
+          - $ref: '#/components/schemas/SummaryDetailQuality'
+          - type: 'null'
+      type: object
+      title: SummaryDetailProcessing
+    SummaryDetailQuality:
+      properties:
+        validationWarnings:
+          items:
+            type: string
+          type: array
+          title: Validationwarnings
+        repairAttempted:
+          type: boolean
+          title: Repairattempted
+          default: false
+        repairSucceeded:
+          type: boolean
+          title: Repairsucceeded
+          default: false
+        structuredOutputMode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Structuredoutputmode
+        modelUsed:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Modelused
+        sourceCoverage:
+          type: string
+          enum:
+          - full
+          - partial
+          - abstract_only
+          - transcript_missing
+          - unknown
+          title: Sourcecoverage
+          default: unknown
+        extractionQuality:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Extractionquality
+        extractionConfidence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Extractionconfidence
+        promptInjectionSuspected:
+          type: boolean
+          title: Promptinjectionsuspected
+          default: false
+      type: object
+      title: SummaryDetailQuality
+    SummaryDetailReadability:
+      properties:
+        method:
+          type: string
+          title: Method
+        score:
+          type: number
+          title: Score
+        level:
+          type: string
+          title: Level
+      type: object
+      required:
+      - method
+      - score
+      - level
+      title: SummaryDetailReadability
+    SummaryDetailRequest:
+      properties:
+        id:
+          type: string
+          title: Id
+        type:
+          type: string
+          title: Type
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        normalizedUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Normalizedurl
+        dedupeHash:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dedupehash
+        status:
+          type: string
+          title: Status
+        langDetected:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Langdetected
+        createdAt:
+          type: string
+          title: Createdat
+        updatedAt:
+          type: string
+          title: Updatedat
+      type: object
+      required:
+      - id
+      - type
+      - status
+      - createdAt
+      - updatedAt
+      title: SummaryDetailRequest
+    SummaryDetailSource:
+      properties:
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        domain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Domain
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+        publishedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Publishedat
+        wordCount:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Wordcount
+        contentType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Contenttype
+      type: object
+      title: SummaryDetailSource
+    SummaryDetailSuccessResponse:
+      allOf:
+      - $ref: '#/components/schemas/BaseSuccessResponse'
+      - type: object
+        required:
+        - data
+        properties:
+          data:
+            $ref: '#/components/schemas/SummaryDetail'
+    SummaryDetailSummary:
+      properties:
+        summary250:
+          type: string
+          title: Summary250
+        summary1000:
+          type: string
+          title: Summary1000
+        tldr:
+          type: string
+          title: Tldr
+        keyIdeas:
+          items:
+            type: string
+          type: array
+          title: Keyideas
+        topicTags:
+          items:
+            type: string
+          type: array
+          title: Topictags
+        entities:
+          $ref: '#/components/schemas/SummaryDetailEntities'
+        estimatedReadingTimeMin:
+          type: integer
+          title: Estimatedreadingtimemin
+        keyStats:
+          items:
+            $ref: '#/components/schemas/SummaryDetailKeyStat'
+          type: array
+          title: Keystats
+        answeredQuestions:
+          items:
+            type: string
+          type: array
+          title: Answeredquestions
+        readability:
+          anyOf:
+          - $ref: '#/components/schemas/SummaryDetailReadability'
+          - type: 'null'
+        seoKeywords:
+          items:
+            type: string
+          type: array
+          title: Seokeywords
+      type: object
+      required:
+      - summary250
+      - summary1000
+      - tldr
+      - keyIdeas
+      - topicTags
+      - entities
+      - estimatedReadingTimeMin
+      title: SummaryDetailSummary
+    SummaryListResponse:
+      properties:
+        summaries:
+          items:
+            $ref: '#/components/schemas/SummaryCompact'
+          type: array
+          title: Summaries
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+        stats:
+          $ref: '#/components/schemas/SummaryListStats'
+      type: object
+      required:
+      - summaries
+      - pagination
+      - stats
+      title: SummaryListResponse
+    SummaryListStats:
+      properties:
+        totalSummaries:
+          type: integer
+          title: Totalsummaries
+        unreadCount:
+          type: integer
+          title: Unreadcount
+      type: object
+      required:
+      - totalSummaries
+      - unreadCount
+      title: SummaryListStats
+    SummaryListSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SummaryListResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SummaryListSuccessResponse
+    SummaryRecommendationsResponse:
+      properties:
+        recommendations:
+          items:
+            $ref: '#/components/schemas/SummaryCompact'
+          type: array
+          title: Recommendations
+        reason:
+          type: string
+          title: Reason
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - recommendations
+      - reason
+      - count
+      title: SummaryRecommendationsResponse
+    SummaryRecommendationsSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SummaryRecommendationsResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SummaryRecommendationsSuccessResponse
     SyncApplyItem:
       properties:
         entity_type:
@@ -10219,6 +11372,57 @@ components:
       type: object
       title: SyncSessionRequest
       description: Session creation options.
+    SystemMetaResponse:
+      properties:
+        apiVersion:
+          type: string
+          title: Apiversion
+          description: Backend API contract semver.
+          default: 1.0.0
+        appVersion:
+          type: string
+          title: Appversion
+          description: Deploy/application version.
+        build:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Build
+          description: Build identifier when supplied by deployment.
+        minSupportedClientApiVersion:
+          type: string
+          title: Minsupportedclientapiversion
+          description: Oldest client API contract version accepted by this backend.
+          default: 1.0.0
+        capabilities:
+          items:
+            type: string
+          type: array
+          title: Capabilities
+        featureFlags:
+          additionalProperties:
+            type: boolean
+          type: object
+          title: Featureflags
+          description: Server-side feature gates relevant to clients.
+        deprecatedRoutes:
+          items:
+            type: string
+          type: array
+          title: Deprecatedroutes
+          description: Routes that still exist but should no longer be used.
+      type: object
+      title: SystemMetaResponse
+      description: Public backend/client compatibility metadata.
+    SystemMetaSuccessResponse:
+      allOf:
+      - $ref: '#/components/schemas/BaseSuccessResponse'
+      - type: object
+        required:
+        - data
+        properties:
+          data:
+            $ref: '#/components/schemas/SystemMeta'
     TelegramLinkCompleteRequest:
       properties:
         id:
@@ -10323,6 +11527,33 @@ components:
       - summary_id
       title: TestRuleRequest
       description: Request body for dry-run testing a rule.
+    ToggleFavoriteResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+        isFavorited:
+          type: boolean
+          title: Isfavorited
+      type: object
+      required:
+      - success
+      - isFavorited
+      title: ToggleFavoriteResponse
+    ToggleFavoriteSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/ToggleFavoriteResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: ToggleFavoriteSuccessResponse
     TopicPreferenceRequest:
       properties:
         name:
@@ -10491,6 +11722,37 @@ components:
       type: object
       title: UpdateSummaryRequest
       description: Request body for updating a summary.
+    UpdateSummaryResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        isRead:
+          type: boolean
+          title: Isread
+        updatedAt:
+          type: string
+          title: Updatedat
+      type: object
+      required:
+      - id
+      - isRead
+      - updatedAt
+      title: UpdateSummaryResponse
+    UpdateSummarySuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/UpdateSummaryResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: UpdateSummarySuccessResponse
     UpdateTagRequest:
       properties:
         name:
@@ -10696,358 +11958,6 @@ components:
           title: Deprecatedroutes
           type: array
       title: SystemMetaResponse
-      type: object
-    RequestStatus:
-      description: Canonical public request lifecycle statuses.
-      enum:
-      - pending
-      - running
-      - succeeded
-      - failed
-      - cancelled
-      title: RequestStatus
-      type: string
-    SubmitRequestResponse:
-      properties:
-        requestId:
-          title: Requestid
-          type: integer
-        correlationId:
-          title: Correlationid
-          type: string
-        type:
-          enum:
-          - url
-          - forward
-          title: Type
-          type: string
-        status:
-          $ref: '#/components/schemas/RequestStatus'
-        legacyStatus:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Legacystatus
-        estimatedWaitSeconds:
-          title: Estimatedwaitseconds
-          type: integer
-        createdAt:
-          title: Createdat
-          type: string
-        isDuplicate:
-          default: false
-          title: Isduplicate
-          type: boolean
-      required:
-      - requestId
-      - correlationId
-      - type
-      - status
-      - estimatedWaitSeconds
-      - createdAt
-      title: SubmitRequestResponse
-      type: object
-    SubmitRequestData:
-      properties:
-        request:
-          $ref: '#/components/schemas/SubmitRequestResponse'
-      required:
-      - request
-      title: SubmitRequestData
-      type: object
-    ProcessingStage:
-      description: Canonical public processing stages for request status polling and streams.
-      enum:
-      - queued
-      - extracting
-      - summarizing
-      - validating
-      - persisting
-      - done
-      title: ProcessingStage
-      type: string
-    RequestStatusData:
-      properties:
-        requestId:
-          title: Requestid
-          type: integer
-        status:
-          $ref: '#/components/schemas/RequestStatus'
-        legacyStatus:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Legacystatus
-        stage:
-          $ref: '#/components/schemas/ProcessingStage'
-        progress:
-          anyOf:
-          - additionalProperties: true
-            type: object
-          - type: 'null'
-          default: null
-          title: Progress
-        estimatedSecondsRemaining:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Estimatedsecondsremaining
-        queuePosition:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Queueposition
-        errorStage:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Errorstage
-        errorType:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Errortype
-        errorMessage:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Errormessage
-        errorReasonCode:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Errorreasoncode
-        retryable:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Retryable
-        canRetry:
-          default: false
-          title: Canretry
-          type: boolean
-        correlationId:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Correlationid
-        updatedAt:
-          title: Updatedat
-          type: string
-      required:
-      - requestId
-      - status
-      - stage
-      - updatedAt
-      - canRetry
-      title: RequestStatusData
-      type: object
-    RequestDetailCrawlResult:
-      properties:
-        status:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Status
-        httpStatus:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Httpstatus
-        latencyMs:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Latencyms
-        error:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Error
-      title: RequestDetailCrawlResult
-      type: object
-    RequestDetailLlmCall:
-      properties:
-        id:
-          title: Id
-          type: integer
-        model:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Model
-        status:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Status
-        tokensPrompt:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Tokensprompt
-        tokensCompletion:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Tokenscompletion
-        costUsd:
-          anyOf:
-          - type: number
-          - type: 'null'
-          default: null
-          title: Costusd
-        latencyMs:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Latencyms
-        createdAt:
-          title: Createdat
-          type: string
-      required:
-      - id
-      - createdAt
-      title: RequestDetailLlmCall
-      type: object
-    RequestDetailRequest:
-      properties:
-        id:
-          title: Id
-          type: integer
-        type:
-          title: Type
-          type: string
-        status:
-          $ref: '#/components/schemas/RequestStatus'
-        legacyStatus:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Legacystatus
-        correlationId:
-          title: Correlationid
-          type: string
-        inputUrl:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Inputurl
-        normalizedUrl:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Normalizedurl
-        dedupeHash:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Dedupehash
-        createdAt:
-          title: Createdat
-          type: string
-        langDetected:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Langdetected
-      required:
-      - id
-      - type
-      - status
-      - correlationId
-      - createdAt
-      title: RequestDetailRequest
-      type: object
-    RequestDetailSummary:
-      properties:
-        id:
-          title: Id
-          type: integer
-        status:
-          title: Status
-          type: string
-        createdAt:
-          title: Createdat
-          type: string
-      required:
-      - id
-      - status
-      - createdAt
-      title: RequestDetailSummary
-      type: object
-    RequestDetailResponse:
-      properties:
-        request:
-          $ref: '#/components/schemas/RequestDetailRequest'
-        crawlResult:
-          anyOf:
-          - $ref: '#/components/schemas/RequestDetailCrawlResult'
-          - type: 'null'
-          default: null
-        llmCalls:
-          items:
-            $ref: '#/components/schemas/RequestDetailLlmCall'
-          title: Llmcalls
-          type: array
-        summary:
-          anyOf:
-          - $ref: '#/components/schemas/RequestDetailSummary'
-          - type: 'null'
-          default: null
-      required:
-      - request
-      title: RequestDetailResponse
-      type: object
-    RetryRequestResponse:
-      properties:
-        newRequestId:
-          title: Newrequestid
-          type: integer
-        correlationId:
-          title: Correlationid
-          type: string
-        status:
-          $ref: '#/components/schemas/RequestStatus'
-        legacyStatus:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Legacystatus
-        createdAt:
-          title: Createdat
-          type: string
-      required:
-      - newRequestId
-      - correlationId
-      - status
-      - createdAt
-      title: RetryRequestResponse
       type: object
     User:
       properties:
@@ -11279,142 +12189,6 @@ components:
       - hallucinationRisk
       title: SummaryCompact
       type: object
-    SummaryCompact:
-      properties:
-        id:
-          description: Unique summary identifier
-          title: Id
-          type: integer
-        requestId:
-          description: Associated request ID
-          title: Requestid
-          type: integer
-        title:
-          description: Article title
-          title: Title
-          type: string
-        domain:
-          description: Source domain (e.g., example.com)
-          title: Domain
-          type: string
-        url:
-          description: Original article URL
-          title: Url
-          type: string
-        tldr:
-          description: Concise multi-sentence summary
-          title: Tldr
-          type: string
-        summary250:
-          description: Short summary (<=250 chars)
-          title: Summary250
-          type: string
-        readingTimeMin:
-          description: Estimated reading time in minutes
-          title: Readingtimemin
-          type: integer
-        topicTags:
-          description: Topic hashtags
-          items:
-            type: string
-          title: Topictags
-          type: array
-        isRead:
-          description: User read status
-          title: Isread
-          type: boolean
-        isFavorited:
-          default: false
-          description: User favorite status
-          title: Isfavorited
-          type: boolean
-        lang:
-          description: Detected or preferred language
-          enum:
-          - en
-          - ru
-          - auto
-          title: Lang
-          type: string
-        createdAt:
-          description: ISO 8601 creation timestamp
-          title: Createdat
-          type: string
-        confidence:
-          description: LLM confidence score (0.0-1.0)
-          title: Confidence
-          type: number
-        hallucinationRisk:
-          description: Assessed hallucination risk level
-          enum:
-          - low
-          - medium
-          - high
-          - unknown
-          title: Hallucinationrisk
-          type: string
-        imageUrl:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Imageurl
-        sourceCoverage:
-          default: unknown
-          enum:
-          - full
-          - partial
-          - abstract_only
-          - transcript_missing
-          - unknown
-          title: Sourcecoverage
-          type: string
-        repairAttempted:
-          default: false
-          title: Repairattempted
-          type: boolean
-        repairSucceeded:
-          default: false
-          title: Repairsucceeded
-          type: boolean
-        promptInjectionSuspected:
-          default: false
-          title: Promptinjectionsuspected
-          type: boolean
-        validationWarningCount:
-          default: 0
-          title: Validationwarningcount
-          type: integer
-      required:
-      - id
-      - requestId
-      - title
-      - domain
-      - url
-      - tldr
-      - summary250
-      - readingTimeMin
-      - topicTags
-      - isRead
-      - lang
-      - createdAt
-      - confidence
-      - hallucinationRisk
-      title: SummaryCompact
-      type: object
-    SummaryListStats:
-      properties:
-        totalSummaries:
-          title: Totalsummaries
-          type: integer
-        unreadCount:
-          title: Unreadcount
-          type: integer
-      required:
-      - totalSummaries
-      - unreadCount
-      title: SummaryListStats
-      type: object
     PaginatedSummariesData:
       properties:
         summaries:
@@ -11431,427 +12205,6 @@ components:
       - pagination
       - stats
       title: SummaryListResponse
-      type: object
-    SummaryDetailEntities:
-      properties:
-        people:
-          items:
-            type: string
-          title: People
-          type: array
-        organizations:
-          items:
-            type: string
-          title: Organizations
-          type: array
-        locations:
-          items:
-            type: string
-          title: Locations
-          type: array
-      title: SummaryDetailEntities
-      type: object
-    SummaryDetailKeyStat:
-      properties:
-        label:
-          title: Label
-          type: string
-        value:
-          title: Value
-          type: number
-        unit:
-          title: Unit
-          type: string
-        sourceExcerpt:
-          title: Sourceexcerpt
-          type: string
-      required:
-      - label
-      - value
-      - unit
-      - sourceExcerpt
-      title: SummaryDetailKeyStat
-      type: object
-    SummaryDetailProcessing:
-      properties:
-        modelUsed:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Modelused
-        tokensUsed:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Tokensused
-        processingTimeMs:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Processingtimems
-        crawlTimeMs:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Crawltimems
-        confidence:
-          anyOf:
-          - type: number
-          - type: 'null'
-          default: null
-          title: Confidence
-        hallucinationRisk:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Hallucinationrisk
-        quality:
-          anyOf:
-          - $ref: '#/components/schemas/SummaryDetailQuality'
-          - type: 'null'
-          default: null
-      title: SummaryDetailProcessing
-      type: object
-    SummaryDetailQuality:
-      properties:
-        validationWarnings:
-          items:
-            type: string
-          title: Validationwarnings
-          type: array
-        repairAttempted:
-          default: false
-          title: Repairattempted
-          type: boolean
-        repairSucceeded:
-          default: false
-          title: Repairsucceeded
-          type: boolean
-        structuredOutputMode:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Structuredoutputmode
-        modelUsed:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Modelused
-        sourceCoverage:
-          default: unknown
-          enum:
-          - full
-          - partial
-          - abstract_only
-          - transcript_missing
-          - unknown
-          title: Sourcecoverage
-          type: string
-        extractionQuality:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Extractionquality
-        extractionConfidence:
-          anyOf:
-          - type: number
-          - type: 'null'
-          default: null
-          title: Extractionconfidence
-        promptInjectionSuspected:
-          default: false
-          title: Promptinjectionsuspected
-          type: boolean
-      title: SummaryDetailQuality
-      type: object
-    SummaryDetailReadability:
-      properties:
-        method:
-          title: Method
-          type: string
-        score:
-          title: Score
-          type: number
-        level:
-          title: Level
-          type: string
-      required:
-      - method
-      - score
-      - level
-      title: SummaryDetailReadability
-      type: object
-    SummaryDetailRequest:
-      properties:
-        id:
-          title: Id
-          type: string
-        type:
-          title: Type
-          type: string
-        url:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Url
-        normalizedUrl:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Normalizedurl
-        dedupeHash:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Dedupehash
-        status:
-          title: Status
-          type: string
-        langDetected:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Langdetected
-        createdAt:
-          title: Createdat
-          type: string
-        updatedAt:
-          title: Updatedat
-          type: string
-      required:
-      - id
-      - type
-      - status
-      - createdAt
-      - updatedAt
-      title: SummaryDetailRequest
-      type: object
-    SummaryDetailSource:
-      properties:
-        url:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Url
-        title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Title
-        domain:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Domain
-        author:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Author
-        publishedAt:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Publishedat
-        wordCount:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Wordcount
-        contentType:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Contenttype
-      title: SummaryDetailSource
-      type: object
-    SummaryDetailSummary:
-      properties:
-        summary250:
-          title: Summary250
-          type: string
-        summary1000:
-          title: Summary1000
-          type: string
-        tldr:
-          title: Tldr
-          type: string
-        keyIdeas:
-          items:
-            type: string
-          title: Keyideas
-          type: array
-        topicTags:
-          items:
-            type: string
-          title: Topictags
-          type: array
-        entities:
-          $ref: '#/components/schemas/SummaryDetailEntities'
-        estimatedReadingTimeMin:
-          title: Estimatedreadingtimemin
-          type: integer
-        keyStats:
-          items:
-            $ref: '#/components/schemas/SummaryDetailKeyStat'
-          title: Keystats
-          type: array
-        answeredQuestions:
-          items:
-            type: string
-          title: Answeredquestions
-          type: array
-        readability:
-          anyOf:
-          - $ref: '#/components/schemas/SummaryDetailReadability'
-          - type: 'null'
-          default: null
-        seoKeywords:
-          items:
-            type: string
-          title: Seokeywords
-          type: array
-      required:
-      - summary250
-      - summary1000
-      - tldr
-      - keyIdeas
-      - topicTags
-      - entities
-      - estimatedReadingTimeMin
-      title: SummaryDetailSummary
-      type: object
-    SummaryDetail:
-      properties:
-        summary:
-          $ref: '#/components/schemas/SummaryDetailSummary'
-        request:
-          $ref: '#/components/schemas/SummaryDetailRequest'
-        source:
-          $ref: '#/components/schemas/SummaryDetailSource'
-        processing:
-          $ref: '#/components/schemas/SummaryDetailProcessing'
-        sourceBundle:
-          anyOf:
-          - $ref: '#/components/schemas/AggregationSourceBundle'
-          - type: 'null'
-          default: null
-        readingProgress:
-          anyOf:
-          - type: number
-          - type: 'null'
-          default: null
-          title: Readingprogress
-        lastReadOffset:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Lastreadoffset
-      required:
-      - summary
-      - request
-      - source
-      - processing
-      title: SummaryDetail
-      type: object
-    SummaryContent:
-      properties:
-        summaryId:
-          title: Summaryid
-          type: integer
-        requestId:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Requestid
-        format:
-          enum:
-          - markdown
-          - text
-          - html
-          title: Format
-          type: string
-        content:
-          title: Content
-          type: string
-        contentType:
-          enum:
-          - text/markdown
-          - text/plain
-          - text/html
-          title: Contenttype
-          type: string
-        lang:
-          anyOf:
-          - enum:
-            - en
-            - ru
-            - auto
-            type: string
-          - type: 'null'
-          default: null
-          title: Lang
-        sourceUrl:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Sourceurl
-        title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Title
-        domain:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Domain
-        retrievedAt:
-          title: Retrievedat
-          type: string
-        sizeBytes:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          default: null
-          title: Sizebytes
-        checksumSha256:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Checksumsha256
-      required:
-      - summaryId
-      - format
-      - content
-      - contentType
-      - retrievedAt
-      title: SummaryContent
       type: object
     CollectionResponse:
       properties: &id001
@@ -12149,60 +12502,6 @@ components:
           $ref: '#/components/schemas/ErrorObject'
         meta:
           $ref: '#/components/schemas/Meta'
-    SubmitRequestSuccessResponse:
-      allOf:
-      - $ref: '#/components/schemas/BaseSuccessResponse'
-      - type: object
-        required:
-        - data
-        properties:
-          data:
-            $ref: '#/components/schemas/SubmitRequestData'
-    RequestStatusSuccessResponse:
-      allOf:
-      - $ref: '#/components/schemas/BaseSuccessResponse'
-      - type: object
-        required:
-        - data
-        properties:
-          data:
-            $ref: '#/components/schemas/RequestStatusData'
-    SystemMetaSuccessResponse:
-      allOf:
-      - $ref: '#/components/schemas/BaseSuccessResponse'
-      - type: object
-        required:
-        - data
-        properties:
-          data:
-            $ref: '#/components/schemas/SystemMeta'
-    RequestDetailSuccessResponse:
-      allOf:
-      - $ref: '#/components/schemas/BaseSuccessResponse'
-      - type: object
-        required:
-        - data
-        properties:
-          data:
-            $ref: '#/components/schemas/RequestDetailResponse'
-    SummaryDetailSuccessResponse:
-      allOf:
-      - $ref: '#/components/schemas/BaseSuccessResponse'
-      - type: object
-        required:
-        - data
-        properties:
-          data:
-            $ref: '#/components/schemas/SummaryDetail'
-    RetryRequestSuccessResponse:
-      allOf:
-      - $ref: '#/components/schemas/BaseSuccessResponse'
-      - type: object
-        required:
-        - data
-        properties:
-          data:
-            $ref: '#/components/schemas/RetryRequestResponse'
     StreamStageEvent:
       type: object
       required:

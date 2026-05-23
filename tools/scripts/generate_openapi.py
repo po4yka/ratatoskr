@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 YAML_PATH = ROOT / "docs" / "openapi" / "mobile_api.yaml"
@@ -93,27 +93,6 @@ def _success_envelope_schema(data_ref: str) -> dict[str, Any]:
                 "properties": {"data": {"$ref": data_ref}},
             },
         ]
-    }
-
-
-def _set_json_response(
-    spec: dict[str, Any],
-    *,
-    method: str,
-    path: str,
-    schema_ref: str,
-    description: str = "Successful Response",
-) -> None:
-    operation = spec.get("paths", {}).get(path, {}).get(method.lower())
-    if operation is None:
-        return
-    operation.setdefault("responses", {})["200"] = {
-        "description": description,
-        "content": {
-            "application/json": {
-                "schema": {"$ref": schema_ref},
-            }
-        },
     }
 
 
@@ -280,49 +259,6 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
                 },
             },
         )
-
-    _set_json_response(
-        spec,
-        method="POST",
-        path="/v1/requests",
-        schema_ref="#/components/schemas/SubmitRequestSuccessResponse",
-    )
-    _set_json_response(
-        spec,
-        method="GET",
-        path="/v1/requests/{request_id}",
-        schema_ref="#/components/schemas/RequestDetailSuccessResponse",
-    )
-    _set_json_response(
-        spec,
-        method="GET",
-        path="/v1/requests/{request_id}/status",
-        schema_ref="#/components/schemas/RequestStatusSuccessResponse",
-    )
-    _set_json_response(
-        spec,
-        method="POST",
-        path="/v1/requests/{request_id}/retry",
-        schema_ref="#/components/schemas/RetryRequestSuccessResponse",
-    )
-    _set_json_response(
-        spec,
-        method="GET",
-        path="/v1/meta",
-        schema_ref="#/components/schemas/SystemMetaSuccessResponse",
-    )
-    _set_json_response(
-        spec,
-        method="GET",
-        path="/v1/summaries/{summary_id}",
-        schema_ref="#/components/schemas/SummaryDetailSuccessResponse",
-    )
-    _set_json_response(
-        spec,
-        method="GET",
-        path="/v1/summaries/by-url",
-        schema_ref="#/components/schemas/SummaryDetailSuccessResponse",
-    )
 
     public_routes = {
         ("GET", "/health"),

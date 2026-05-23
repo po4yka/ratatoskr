@@ -18,11 +18,15 @@ from app.api.models.responses import (
     RequestDetailRequest,
     RequestDetailResponse,
     RequestDetailSummary,
+    RequestDetailSuccessResponse,
     RequestStatus as PublicRequestStatus,
     RequestStatusData,
+    RequestStatusSuccessResponse,
     RetryRequestResponse,
+    RetryRequestSuccessResponse,
     SubmitRequestData,
     SubmitRequestResponse,
+    SubmitRequestSuccessResponse,
     success_response,
 )
 from app.api.routers.auth import get_current_user
@@ -85,7 +89,7 @@ def _raise_api_exception(exc: Exception) -> None:
     raise exc
 
 
-@router.post("")
+@router.post("", response_model=SubmitRequestSuccessResponse)
 async def submit_request(
     request: Request,
     request_data: SubmitURLRequest | SubmitForwardRequest,
@@ -168,7 +172,7 @@ async def submit_request(
     )
 
 
-@router.get("/{request_id}")
+@router.get("/{request_id}", response_model=RequestDetailSuccessResponse)
 async def get_request(
     request_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -238,7 +242,7 @@ async def get_request(
     )
 
 
-@router.get("/{request_id}/status")
+@router.get("/{request_id}/status", response_model=RequestStatusSuccessResponse)
 async def get_request_status(
     request_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -272,7 +276,7 @@ async def get_request_status(
     )
 
 
-@router.post("/{request_id}/retry")
+@router.post("/{request_id}/retry", response_model=RetryRequestSuccessResponse)
 async def retry_request(
     request_id: int,
     request: Request,

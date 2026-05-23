@@ -9,7 +9,7 @@ import pytest
 from app.adapters.llm.anthropic import AnthropicClient
 from app.adapters.llm.openai import OpenAIClient
 from app.adapters.llm.protocol import LLMClientProtocol
-from app.adapters.openrouter.openrouter_client import OpenRouterClient
+from app.adapters.openrouter.openrouter_client import OpenRouterClient, OpenRouterClientConfig
 
 
 class TestLLMClientProtocol:
@@ -33,6 +33,22 @@ class TestLLMClientProtocol:
         assert hasattr(AnthropicClient, "provider_name")
         assert hasattr(AnthropicClient, "chat")
         assert hasattr(AnthropicClient, "aclose")
+
+    @pytest.mark.parametrize(
+        "client",
+        [
+            OpenRouterClient(
+                "test_api_key_12345",
+                OpenRouterClientConfig(max_retries=1),
+                model="test-model",
+            ),
+            OpenAIClient(api_key="sk-test-valid-api-key-123456789"),
+            AnthropicClient(api_key="sk-ant-test-valid-key-123456789"),
+        ],
+    )
+    def test_provider_instances_satisfy_protocol(self, client: LLMClientProtocol) -> None:
+        """Provider instances should satisfy the runtime protocol used by workflows."""
+        assert isinstance(client, LLMClientProtocol)
 
     @pytest.mark.parametrize(
         "client_cls",

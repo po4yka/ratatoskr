@@ -21,22 +21,35 @@ from app.api.models.requests import (
 )
 from app.api.models.responses import (
     AggregationSourceBundle,
+    BulkSummaryUpdateResponse,
+    BulkSummaryUpdateSuccessResponse,
     DeleteSummaryResponse,
+    DeleteSummarySuccessResponse,
     FeedbackResponse,
+    FeedbackSuccessResponse,
     PaginationInfo,
+    SaveReadingPositionResponse,
+    SaveReadingPositionSuccessResponse,
     SummaryCompact,
     SummaryContent,
     SummaryContentData,
+    SummaryContentSuccessResponse,
     SummaryDetail,
     SummaryDetailProcessing,
     SummaryDetailQuality,
     SummaryDetailRequest,
     SummaryDetailSource,
     SummaryDetailSummary,
+    SummaryDetailSuccessResponse,
     SummaryListResponse,
     SummaryListStats,
+    SummaryListSuccessResponse,
+    SummaryRecommendationsResponse,
+    SummaryRecommendationsSuccessResponse,
     ToggleFavoriteResponse,
+    ToggleFavoriteSuccessResponse,
     UpdateSummaryResponse,
+    UpdateSummarySuccessResponse,
     success_response,
 )
 from app.api.routers.auth import get_current_user
@@ -234,7 +247,7 @@ def _resolve_content(
     return content_value, content_mime, resolved_format
 
 
-@router.get("")
+@router.get("", response_model=SummaryListSuccessResponse)
 async def get_summaries(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -300,7 +313,7 @@ async def get_summaries(
     )
 
 
-@router.get("/by-url")
+@router.get("/by-url", response_model=SummaryDetailSuccessResponse)
 async def get_summary_by_url(
     url: str = Query(..., description="Original URL of the article"),
     user: dict[str, Any] = Depends(get_current_user),
@@ -314,7 +327,7 @@ async def get_summary_by_url(
     return await get_summary(summary_id=summary_id, user=user, use_case=use_case)
 
 
-@router.get("/recommendations")
+@router.get("/recommendations", response_model=SummaryRecommendationsSuccessResponse)
 async def get_recommendations(
     limit: int = Query(10, ge=1, le=50),
     user: dict[str, Any] = Depends(get_current_user),
@@ -360,15 +373,15 @@ async def get_recommendations(
     summary_list = [_build_summary_compact(s) for s in top]
 
     return success_response(
-        {
-            "recommendations": [s.model_dump(by_alias=True) for s in summary_list],
-            "reason": "based_on_reading_history" if interest_tags else "most_recent_unread",
-            "count": len(summary_list),
-        }
+        SummaryRecommendationsResponse(
+            recommendations=summary_list,
+            reason="based_on_reading_history" if interest_tags else "most_recent_unread",
+            count=len(summary_list),
+        )
     )
 
 
-@router.get("/{summary_id}")
+@router.get("/{summary_id}", response_model=SummaryDetailSuccessResponse)
 async def get_summary(
     summary_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -493,7 +506,7 @@ async def get_summary(
     )
 
 
-@router.get("/{summary_id}/content")
+@router.get("/{summary_id}/content", response_model=SummaryContentSuccessResponse)
 async def get_summary_content(
     summary_id: int,
     format: str = Query("markdown", pattern="^(markdown|text)$"),
@@ -607,7 +620,7 @@ async def export_summary(
     )
 
 
-@router.patch("/{summary_id}")
+@router.patch("/{summary_id}", response_model=UpdateSummarySuccessResponse)
 async def update_summary(
     summary_id: int,
     update: UpdateSummaryRequest,
@@ -634,7 +647,7 @@ async def update_summary(
     )
 
 
-@router.patch("/{summary_id}/reading-position")
+@router.patch("/{summary_id}/reading-position", response_model=SaveReadingPositionSuccessResponse)
 async def save_reading_position(
     summary_id: int,
     body: SaveReadingPositionRequest,
@@ -652,15 +665,15 @@ async def save_reading_position(
         raise ResourceNotFoundError("Summary", summary_id)
 
     return success_response(
-        {
-            "id": summary_id,
-            "progress": body.progress,
-            "last_read_offset": body.last_read_offset,
-        }
+        SaveReadingPositionResponse(
+            id=summary_id,
+            progress=body.progress,
+            last_read_offset=body.last_read_offset,
+        )
     )
 
 
-@router.delete("/{summary_id}")
+@router.delete("/{summary_id}", response_model=DeleteSummarySuccessResponse)
 async def delete_summary(
     summary_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -683,10 +696,6 @@ class _BulkMarkReadRequest(_BulkBaseModel):
     summary_ids: list[int] = Field(default_factory=list, max_length=BULK_SUMMARY_MAX_IDS)
 
 
-class _BulkMarkReadResponse(_BulkBaseModel):
-    updated: int
-
-
 class _BulkFavoriteRequest(_BulkBaseModel):
     summary_ids: list[int] = Field(default_factory=list, max_length=BULK_SUMMARY_MAX_IDS)
     value: bool = True
@@ -696,7 +705,7 @@ class _BulkDeleteRequest(_BulkBaseModel):
     summary_ids: list[int] = Field(default_factory=list, max_length=BULK_SUMMARY_MAX_IDS)
 
 
-@router.post("/bulk/mark-read")
+@router.post("/bulk/mark-read", response_model=BulkSummaryUpdateSuccessResponse)
 async def bulk_mark_read(
     body: _BulkMarkReadRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -714,10 +723,10 @@ async def bulk_mark_read(
         )
     except ValueError as exc:
         raise ValidationError(str(exc), details={"field": "summary_ids"}) from exc
-    return success_response(_BulkMarkReadResponse(updated=updated))
+    return success_response(BulkSummaryUpdateResponse(updated=updated))
 
 
-@router.post("/bulk/favorite")
+@router.post("/bulk/favorite", response_model=BulkSummaryUpdateSuccessResponse)
 async def bulk_favorite(
     body: _BulkFavoriteRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -736,10 +745,10 @@ async def bulk_favorite(
         )
     except ValueError as exc:
         raise ValidationError(str(exc), details={"field": "summary_ids"}) from exc
-    return success_response(_BulkMarkReadResponse(updated=updated))
+    return success_response(BulkSummaryUpdateResponse(updated=updated))
 
 
-@router.post("/bulk/delete")
+@router.post("/bulk/delete", response_model=BulkSummaryUpdateSuccessResponse)
 async def bulk_delete(
     body: _BulkDeleteRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -750,10 +759,10 @@ async def bulk_delete(
         deleted = await use_case.bulk_delete(user_id=user["user_id"], summary_ids=body.summary_ids)
     except ValueError as exc:
         raise ValidationError(str(exc), details={"field": "summary_ids"}) from exc
-    return success_response(_BulkMarkReadResponse(updated=deleted))
+    return success_response(BulkSummaryUpdateResponse(updated=deleted))
 
 
-@router.post("/{summary_id}/favorite")
+@router.post("/{summary_id}/favorite", response_model=ToggleFavoriteSuccessResponse)
 async def toggle_favorite(
     summary_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -766,7 +775,7 @@ async def toggle_favorite(
     return success_response(ToggleFavoriteResponse(success=True, is_favorited=is_favorited))
 
 
-@router.post("/{summary_id}/feedback")
+@router.post("/{summary_id}/feedback", response_model=FeedbackSuccessResponse)
 async def submit_feedback(
     summary_id: int,
     body: SubmitFeedbackRequest,

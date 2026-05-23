@@ -88,7 +88,7 @@ class SummarizationRuntime:
         self.workflow = LLMResponseWorkflow(
             cfg=cfg,
             db=db,
-            openrouter=openrouter,
+            llm_client=openrouter,
             response_formatter=response_formatter,
             audit_func=audit_func,
             sem=sem,

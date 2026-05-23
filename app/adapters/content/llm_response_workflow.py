@@ -134,10 +134,11 @@ class LLMResponseWorkflow(
         *,
         cfg: Any,
         db: Database,
-        openrouter: LLMClientProtocol,
         response_formatter: ResponseFormatter,
         audit_func: Callable[[str, str, dict[str, Any]], None],
         sem: Callable[[], Any],
+        llm_client: LLMClientProtocol | None = None,
+        openrouter: LLMClientProtocol | None = None,
         db_write_queue: DbWriteQueue | None = None,
         adaptive_timeout_service: Any | None = None,
         summary_repo: SummaryRepositoryPort | None = None,
@@ -146,10 +147,16 @@ class LLMResponseWorkflow(
         user_repo: UserRepositoryPort | None = None,
     ) -> None:
         """Initialize workflow dependencies and repositories."""
+        if llm_client is None:
+            llm_client = openrouter
+        if llm_client is None:
+            msg = "llm_client must be provided by the DI layer"
+            raise ValueError(msg)
+
         self.cfg = cfg
         self.db = db
-        self.llm_client = openrouter
-        self.openrouter = openrouter
+        self.llm_client = llm_client
+        self.openrouter = llm_client
         self.response_formatter = response_formatter
         self._audit = audit_func
         self._sem = sem

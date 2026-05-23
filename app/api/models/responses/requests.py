@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .common import ProcessingStage, RequestStatus
+from .common import ProcessingStage, RequestStatus, SuccessResponse
 
 
 class RequestStatusData(BaseModel):
@@ -131,3 +131,19 @@ class RetryRequestResponse(BaseModel):
     status: RequestStatus
     legacy_status: str | None = Field(default=None, serialization_alias="legacyStatus")
     created_at: str = Field(serialization_alias="createdAt")
+
+
+class SubmitRequestSuccessResponse(SuccessResponse):
+    data: SubmitRequestData | DuplicateDetectionResponse
+
+
+class RequestStatusSuccessResponse(SuccessResponse):
+    data: RequestStatusData
+
+
+class RequestDetailSuccessResponse(SuccessResponse):
+    data: RequestDetailResponse
+
+
+class RetryRequestSuccessResponse(SuccessResponse):
+    data: RetryRequestResponse

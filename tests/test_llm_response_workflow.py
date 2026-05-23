@@ -115,7 +115,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.workflow = LLMResponseWorkflow(
             cfg=self.cfg,
             db=self.db,
-            openrouter=self.openrouter,
+            llm_client=self.openrouter,
             response_formatter=self.response_formatter,
             audit_func=lambda *args, **kwargs: None,
             sem=lambda: _DummySemaphore(),
@@ -217,7 +217,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         workflow = LLMResponseWorkflow(
             cfg=self.cfg,
             db=self.db,
-            openrouter=fake_client,
+            llm_client=fake_client,
             response_formatter=self.response_formatter,
             audit_func=lambda *args, **kwargs: None,
             sem=lambda: _DummySemaphore(),
@@ -485,7 +485,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.workflow = LLMResponseWorkflow(
             cfg=self.cfg,
             db=self.db,
-            openrouter=self.openrouter,
+            llm_client=self.openrouter,
             response_formatter=self.response_formatter,
             audit_func=lambda *args, **kwargs: None,
             sem=lambda: _DummySemaphore(),
@@ -515,7 +515,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         workflow = LLMResponseWorkflow(
             cfg=self.cfg,
             db=self.db,
-            openrouter=self.openrouter,
+            llm_client=self.openrouter,
             response_formatter=self.response_formatter,
             audit_func=lambda *args, **kwargs: None,
             sem=lambda: _BlockingSemaphore(),
@@ -542,7 +542,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.workflow = LLMResponseWorkflow(
             cfg=self.cfg,
             db=self.db,
-            openrouter=self.openrouter,
+            llm_client=self.openrouter,
             response_formatter=self.response_formatter,
             audit_func=lambda *args, **kwargs: None,
             sem=lambda: _DummySemaphore(),

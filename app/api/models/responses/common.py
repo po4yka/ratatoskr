@@ -203,6 +203,12 @@ class SuccessResponse(BaseModel):
     meta: MetaInfo = Field(default_factory=MetaInfo)
 
 
+class SystemMetaSuccessResponse(SuccessResponse):
+    """Success envelope for public backend metadata."""
+
+    data: SystemMetaResponse
+
+
 class ErrorResponse(BaseModel):
     """Standard error response wrapper."""
 
