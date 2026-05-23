@@ -398,6 +398,8 @@ def _build_cloakbrowser(
             min_text_length=getattr(scraper_cfg, "min_content_length", 400),
             profile=getattr(scraper_cfg, "profile", "balanced"),
             js_heavy_hosts=getattr(scraper_cfg, "js_heavy_hosts", ()),
+            humanize=getattr(scraper_cfg, "cloakbrowser_humanize", True),
+            proxy=getattr(scraper_cfg, "cloakbrowser_proxy", ""),
             audit=audit,
         )
     except Exception as exc:

@@ -92,6 +92,10 @@ def build_scraper_diagnostics(cfg: AppConfig) -> dict[str, Any]:
             "effective_timeout_sec": round(
                 scraper_cfg.cloakbrowser_timeout_sec * profile_multiplier, 2
             ),
+            "humanize": scraper_cfg.cloakbrowser_humanize,
+            # Boolean only — proxy URL stays out of /health to avoid leaking
+            # credentials embedded in the URL via an unauthenticated endpoint.
+            "proxy_configured": bool(scraper_cfg.cloakbrowser_proxy),
             "kind": "browser_sidecar",
         },
         "playwright": {

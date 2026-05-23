@@ -244,6 +244,8 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | `SCRAPER_CLOAKBROWSER_ENABLED` | `true` | Enable CloakBrowser CDP-sidecar provider (stealth Chromium via `cloakserve`) |
 | `SCRAPER_CLOAKBROWSER_URL` | `http://cloakbrowser:9222` | CloakBrowser `cloakserve` HTTP endpoint; Playwright resolves the WebSocket debugger URL from `/json/version` on this host |
 | `SCRAPER_CLOAKBROWSER_TIMEOUT_SEC` | `60` | CloakBrowser request timeout (seconds) |
+| `SCRAPER_CLOAKBROWSER_HUMANIZE` | `true` | Apply post-connect humanize layer (bezier mouse/scroll pacing) so behavioral signals look human to Cloudflare/Turnstile scoring; disable to skip both the upstream `cloakbrowser.human` helper probe and the in-house bezier fallback |
+| `SCRAPER_CLOAKBROWSER_PROXY` | _(empty)_ | Optional proxy URL (`http://...` or `socks5://...`) forwarded to cloakserve via the per-request `?proxy=` query param; never logged to `/health` (only `proxy_configured: true/false` is reported there) |
 | `SCRAPER_PLAYWRIGHT_ENABLED` | `true` | Enable Playwright rendering fallback provider |
 | `SCRAPER_PLAYWRIGHT_HEADLESS` | `true` | Run Playwright browser headless in scraper fallback |
 | `SCRAPER_PLAYWRIGHT_TIMEOUT_SEC` | `30` | Playwright render timeout (seconds) |
@@ -264,7 +266,7 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 - Crawl4AI is a self-hosted Docker sidecar (`crawl4ai` service on port 11235). When the service is not reachable the provider is skipped automatically.
 - Firecrawl now only supports self-hosted mode (`FIRECRAWL_SELF_HOSTED_ENABLED=true`). Cloud Firecrawl (`FIRECRAWL_API_KEY`) is no longer used by the article scraper chain; it remains available for the web-search enrichment subsystem.
 - Defuddle is now enabled by default and points at the self-hosted Docker Compose service (`http://defuddle-api:3003`). Pointing it at `https://defuddle.md` logs a `defuddle_provider_cloud_url_deprecated` warning.
-- CloakBrowser is a self-hosted stealth-Chromium sidecar reached over CDP (`cloakhq/cloakbrowser` running `cloakserve`); it ships under the `with-scrapers` Docker profile. The upstream binary is licensed for use but not redistribution — pull the upstream image (pinned by tag), do not rebake. When the sidecar is absent the per-call CDP connection fails fast and the chain falls through to in-process `playwright`.
+- CloakBrowser is a self-hosted stealth-Chromium sidecar reached over CDP (`cloakhq/cloakbrowser` running `cloakserve`); it ships under the `with-scrapers` Docker profile. The upstream binary is licensed for use but not redistribution — pull the upstream image, pinned in compose by **multi-arch manifest digest** (`@sha256:...`), and do not rebake. `CLOAKBROWSER_AUTO_UPDATE=false` is set inside the container to keep deploys reproducible. Per-request stealth knobs (per-domain fingerprint seed, timezone/locale rotation, humanize-over-CDP) are applied client-side by the provider; see `docs/explanation/scraper-chain.md#stealth-configuration` for the full set. When the sidecar is absent the per-call CDP connection fails fast and the chain falls through to in-process `playwright`.
 - Playwright fallback is useful for JS-heavy pages that fail in HTTP-only extractors.
 - Crawlee fallback is a single-page advanced fallback (BeautifulSoup stage, then Playwright stage); it is not broad multi-page site crawling in this pipeline.
 - `direct_html` is a lightweight fallback using trafilatura for simple pages.

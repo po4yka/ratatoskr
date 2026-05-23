@@ -76,6 +76,7 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
 | `firecrawl` (self-hosted) | API 5xx / timeout | `docker compose ps firecrawl-api`; honors `SCRAPER_FIRECRAWL_TIMEOUT_SEC=90` |
 | `defuddle` | Empty markdown on JS-heavy pages | Expected -- chain falls through to `cloakbrowser` |
 | `cloakbrowser` | Sidecar unreachable / CDP connect refused | `docker compose --profile with-scrapers logs cloakbrowser`; check `SCRAPER_CLOAKBROWSER_URL=http://cloakbrowser:9222` resolves. Sidecar runs under `with-scrapers` profile only; without it the chain falls through to `playwright`. |
+| `cloakbrowser` | Same domain consistently fails / Cloudflare 1020 / Turnstile loop | Inspect `crawl_results.options_json` for `fingerprint_seed`, `humanize`, `proxy_configured` so the exact stealth config is correlatable. If `humanize` is `skipped`, confirm `SCRAPER_CLOAKBROWSER_HUMANIZE=true` (the in-house bezier fallback runs when the upstream `cloakbrowser.human` helper is not importable). For IP-reputation failures, attach a residential proxy via `SCRAPER_CLOAKBROWSER_PROXY=socks5://...` — it is forwarded per request via the cloakserve `?proxy=` query param. |
 | `playwright` | Browser crash / OOM | Restart container; the academic extractor relies on this for paywalled landings |
 | `crawlee` | Throttled | Lower concurrency; let `direct_html` catch trivial cases |
 | `direct_html` | Returns raw HTML, never structured | Final fallback before scrapegraph; OK for plain pages |

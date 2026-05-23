@@ -201,6 +201,22 @@ class ScraperConfig(BaseModel):
         default=60,
         validation_alias="SCRAPER_CLOAKBROWSER_TIMEOUT_SEC",
     )
+    cloakbrowser_humanize: bool = Field(
+        default=True,
+        validation_alias="SCRAPER_CLOAKBROWSER_HUMANIZE",
+        description=(
+            "Apply post-connect humanize layer (bezier mouse/scroll pacing) so "
+            "behavioral signals look human to Cloudflare/Turnstile scoring."
+        ),
+    )
+    cloakbrowser_proxy: str = Field(
+        default="",
+        validation_alias="SCRAPER_CLOAKBROWSER_PROXY",
+        description=(
+            "Optional proxy URL (HTTP/SOCKS5) forwarded to cloakserve per "
+            "request via the ?proxy= query param. Empty disables."
+        ),
+    )
 
     playwright_enabled: bool = Field(
         default=True,

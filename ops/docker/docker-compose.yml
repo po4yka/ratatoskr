@@ -66,6 +66,8 @@ services:
       - SCRAPER_DEFUDDLE_API_BASE_URL=${SCRAPER_DEFUDDLE_API_BASE_URL:-http://defuddle-api:3003}
       - SCRAPER_CRAWL4AI_URL=${SCRAPER_CRAWL4AI_URL:-http://crawl4ai:11235}
       - SCRAPER_CLOAKBROWSER_URL=${SCRAPER_CLOAKBROWSER_URL:-http://cloakbrowser:9222}
+      - SCRAPER_CLOAKBROWSER_HUMANIZE=${SCRAPER_CLOAKBROWSER_HUMANIZE:-true}
+      - SCRAPER_CLOAKBROWSER_PROXY=${SCRAPER_CLOAKBROWSER_PROXY:-}
       # Auth token forwarded to defuddle sidecar — empty by default (auth is opt-in)
       - SCRAPER_DEFUDDLE_TOKEN=${DEFUDDLE_AUTH_TOKEN:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
@@ -164,6 +166,8 @@ services:
       - SCRAPER_DEFUDDLE_API_BASE_URL=${SCRAPER_DEFUDDLE_API_BASE_URL:-http://defuddle-api:3003}
       - SCRAPER_CRAWL4AI_URL=${SCRAPER_CRAWL4AI_URL:-http://crawl4ai:11235}
       - SCRAPER_CLOAKBROWSER_URL=${SCRAPER_CLOAKBROWSER_URL:-http://cloakbrowser:9222}
+      - SCRAPER_CLOAKBROWSER_HUMANIZE=${SCRAPER_CLOAKBROWSER_HUMANIZE:-true}
+      - SCRAPER_CLOAKBROWSER_PROXY=${SCRAPER_CLOAKBROWSER_PROXY:-}
       - SCRAPER_DEFUDDLE_TOKEN=${DEFUDDLE_AUTH_TOKEN:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
@@ -312,6 +316,8 @@ services:
       - SCRAPER_DEFUDDLE_API_BASE_URL=${SCRAPER_DEFUDDLE_API_BASE_URL:-http://defuddle-api:3003}
       - SCRAPER_CRAWL4AI_URL=${SCRAPER_CRAWL4AI_URL:-http://crawl4ai:11235}
       - SCRAPER_CLOAKBROWSER_URL=${SCRAPER_CLOAKBROWSER_URL:-http://cloakbrowser:9222}
+      - SCRAPER_CLOAKBROWSER_HUMANIZE=${SCRAPER_CLOAKBROWSER_HUMANIZE:-true}
+      - SCRAPER_CLOAKBROWSER_PROXY=${SCRAPER_CLOAKBROWSER_PROXY:-}
       # Auth token forwarded to defuddle sidecar — empty by default (auth is opt-in)
       - SCRAPER_DEFUDDLE_TOKEN=${DEFUDDLE_AUTH_TOKEN:-}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
@@ -773,13 +779,25 @@ services:
   cloakbrowser:
     profiles:
       - with-scrapers
-    # Upstream stealth-Chromium sidecar (CloakHQ/CloakBrowser). Pin a specific
-    # tag rather than `latest` — the binary's BINARY-LICENSE.md forbids
-    # redistribution, so we never bake it into our own image. To upgrade: check
-    # https://hub.docker.com/r/cloakhq/cloakbrowser/tags
-    image: ${CLOAKBROWSER_IMAGE:-cloakhq/cloakbrowser:0.3.30}
+    # Upstream stealth-Chromium sidecar (CloakHQ/CloakBrowser). Pinned by
+    # multi-arch manifest digest (NOT by tag) — the binary's BINARY-LICENSE.md
+    # forbids redistribution, so we never bake it into our own image, and a
+    # mutable tag in a stealth tool is exactly the supply-chain surface to
+    # lock down. To upgrade: resolve the new digest with
+    #   curl -sI -H "Authorization: Bearer $(curl -s 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:cloakhq/cloakbrowser:pull' | jq -r .token)" \
+    #            -H "Accept: application/vnd.oci.image.index.v1+json" \
+    #            https://registry-1.docker.io/v2/cloakhq/cloakbrowser/manifests/<new-tag> \
+    #     | rg -i docker-content-digest
+    # then update the digest below. The 0.3.30 tag is preserved in a comment
+    # for human readability only — Docker uses the digest.
+    image: ${CLOAKBROWSER_IMAGE:-cloakhq/cloakbrowser@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1}  # 0.3.30
     container_name: ratatoskr-cloakbrowser
     command: ["cloakserve", "--host", "0.0.0.0", "--port", "9222"]
+    environment:
+      # Reproducible deploys: never let the binary self-update inside the
+      # container at runtime. Pinning the image digest is undone if the
+      # process rewrites itself on first run.
+      - CLOAKBROWSER_AUTO_UPDATE=false
     # Port is intentionally NOT published to the host — sidecar is only reached
     # over the internal compose network by the ratatoskr/worker/mobile-api
     # services. Exposing it would put an unauthenticated CDP endpoint on the
@@ -787,9 +805,14 @@ services:
     restart: unless-stopped
     deploy:
       resources:
+        # Sized for upstream's published footprint (~190 MB idle, ~280 MB with
+        # 3 tabs, +30 MB per tab). 512 MB covers idle + 4 concurrent tabs with
+        # comfortable headroom; bump if you start seeing OOM kills under load.
         limits:
-          memory: 2G
-          cpus: "1.0"
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
     healthcheck:
       test:
         [

@@ -59,6 +59,36 @@ def test_cloakbrowser_diagnostics_reports_endpoint_url() -> None:
     assert diagnostics["providers"]["cloakbrowser"]["kind"] == "browser_sidecar"
 
 
+def test_cloakbrowser_diagnostics_exposes_stealth_flags_without_proxy_url() -> None:
+    cfg = make_test_app_config(
+        scraper=ScraperConfig(
+            cloakbrowser_humanize=True,
+            cloakbrowser_proxy="socks5://secret:hunter2@10.0.0.5:1080",
+        )
+    )
+    diagnostics = build_scraper_diagnostics(cfg)
+    cb = diagnostics["providers"]["cloakbrowser"]
+
+    assert cb["humanize"] is True
+    assert cb["proxy_configured"] is True
+    # The proxy URL itself must never appear in diagnostics — /health is
+    # unauthenticated and the URL embeds credentials.
+    for value in cb.values():
+        assert "hunter2" not in str(value)
+        assert "10.0.0.5" not in str(value)
+
+
+def test_cloakbrowser_diagnostics_proxy_configured_false_when_empty() -> None:
+    cfg = make_test_app_config(
+        scraper=ScraperConfig(cloakbrowser_humanize=False, cloakbrowser_proxy="")
+    )
+    diagnostics = build_scraper_diagnostics(cfg)
+    cb = diagnostics["providers"]["cloakbrowser"]
+
+    assert cb["humanize"] is False
+    assert cb["proxy_configured"] is False
+
+
 def test_build_scraper_diagnostics_disabled_state() -> None:
     cfg = make_test_app_config(scraper=ScraperConfig(enabled=False))
     diagnostics = build_scraper_diagnostics(cfg)

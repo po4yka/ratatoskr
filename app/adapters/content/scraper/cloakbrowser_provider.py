@@ -2,8 +2,19 @@
 
 Connects to a CloakBrowser ``cloakserve`` instance over the Chrome DevTools
 Protocol (default ``http://cloakbrowser:9222``). The sidecar runs the upstream
-stealth Chromium build with C++ source-level fingerprint patches; we just
-drive it through the standard Playwright API.
+stealth Chromium build with C++ source-level fingerprint patches that apply
+automatically across CDP, so we drive it through the standard Playwright API.
+
+Per request we append ``?fingerprint=<seed>&timezone=<tz>&locale=<loc>`` to the
+CDP endpoint. ``cloakserve`` spawns one Chrome process per unique seed, so the
+seed is derived deterministically from the target's registrable domain — same
+domain reuses the same process; different domains get distinct fingerprints
+instead of all clustering on cloakserve's default seed.
+
+Humanize is a wrapper-level feature in the upstream package and does NOT apply
+over a bare CDP connection. We either (a) call the upstream Python helper if
+it is importable, or (b) issue a small bezier mouse-move + wheel sequence on
+the page ourselves before reading the HTML.
 
 See ``ops/docker/docker-compose.yml`` for the ``cloakbrowser`` service that
 this provider expects under the ``with-scrapers`` profile.
@@ -11,14 +22,18 @@ this provider expects under the ``with-scrapers`` profile.
 
 from __future__ import annotations
 
+import hashlib
+import random
 import time
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, urlsplit
 
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger
+from app.core.url_utils import extract_domain
 from app.security.ssrf import is_url_safe
 
 if TYPE_CHECKING:
@@ -39,6 +54,28 @@ _DESKTOP_UA = (
     "Chrome/125.0.0.0 Safari/537.36"
 )
 
+# Picked deterministically per-domain so that a host always sees the same
+# (timezone, locale) — same as a real returning user would.
+_LOCALE_POOL: tuple[tuple[str, str], ...] = (
+    ("UTC", "en-US"),
+    ("Europe/Berlin", "de-DE"),
+    ("Asia/Tokyo", "ja-JP"),
+    ("America/Sao_Paulo", "pt-BR"),
+)
+
+
+def _seed_for_url(url: str) -> str:
+    """Deterministic 12-hex-char fingerprint seed keyed on the registrable domain."""
+    # extract_domain is the project-wide normalizer; falls back to the raw
+    # netloc if parsing fails. The empty-string case is fine — sha1("") is
+    # still a valid hex digest.
+    domain = (extract_domain(url) or urlsplit(url).netloc or "").lower()
+    return hashlib.sha1(domain.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+
+
+def _locale_for_seed(seed: str) -> tuple[str, str]:
+    return _LOCALE_POOL[int(seed, 16) % len(_LOCALE_POOL)]
+
 
 class CloakBrowserProvider:
     """Stealth-browser provider backed by a CloakBrowser cloakserve sidecar."""
@@ -51,6 +88,8 @@ class CloakBrowserProvider:
         min_text_length: int = 400,
         profile: str = "balanced",
         js_heavy_hosts: tuple[str, ...] = (),
+        humanize: bool = True,
+        proxy: str = "",
         audit: Callable[[str, str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._endpoint_url = endpoint_url.rstrip("/")
@@ -58,11 +97,23 @@ class CloakBrowserProvider:
         self._min_text_length = min_text_length
         self._profile = profile
         self._js_heavy_hosts = js_heavy_hosts
+        self._humanize = humanize
+        self._proxy = proxy
         self._audit = audit
 
     @property
     def provider_name(self) -> str:
         return "cloakbrowser"
+
+    def _build_cdp_url(self, seed: str, timezone: str, locale: str) -> str:
+        params = [
+            f"fingerprint={seed}",
+            f"timezone={quote(timezone, safe='')}",
+            f"locale={quote(locale, safe='')}",
+        ]
+        if self._proxy:
+            params.append(f"proxy={quote(self._proxy, safe='')}")
+        return f"{self._endpoint_url}?{'&'.join(params)}"
 
     async def scrape_markdown(
         self,
@@ -88,6 +139,10 @@ class CloakBrowserProvider:
                 endpoint="cloakbrowser",
             )
 
+        seed = _seed_for_url(url)
+        timezone, locale = _locale_for_seed(seed)
+        cdp_url = self._build_cdp_url(seed, timezone, locale)
+
         effective_timeout = tuned_provider_timeout(
             base_timeout_sec=self._timeout_sec,
             profile=self._profile,
@@ -97,9 +152,13 @@ class CloakBrowserProvider:
         )
         timeout_ms = max(1_000, int(effective_timeout * 1000))
 
+        humanize_status = "skipped"
         try:
-            html, http_status = await self._render(
-                url, mobile=mobile, timeout_ms=timeout_ms
+            html, http_status, humanize_status = await self._render(
+                url,
+                cdp_url=cdp_url,
+                mobile=mobile,
+                timeout_ms=timeout_ms,
             )
         except TimeoutError:
             latency = int((time.perf_counter() - started) * 1000)
@@ -109,6 +168,7 @@ class CloakBrowserProvider:
                     "url": url,
                     "timeout_sec": round(effective_timeout, 2),
                     "request_id": request_id,
+                    "fingerprint_seed": seed,
                 },
             )
             if self._audit:
@@ -120,6 +180,7 @@ class CloakBrowserProvider:
                         "error": "timeout",
                         "timeout_sec": round(effective_timeout, 2),
                         "request_id": request_id,
+                        "fingerprint_seed": seed,
                     },
                 )
             return FirecrawlResult(
@@ -138,6 +199,7 @@ class CloakBrowserProvider:
                     "error": str(exc),
                     "error_type": type(exc).__name__,
                     "request_id": request_id,
+                    "fingerprint_seed": seed,
                 },
             )
             if self._audit:
@@ -149,6 +211,7 @@ class CloakBrowserProvider:
                         "error": str(exc),
                         "error_type": type(exc).__name__,
                         "request_id": request_id,
+                        "fingerprint_seed": seed,
                     },
                 )
             return FirecrawlResult(
@@ -160,6 +223,17 @@ class CloakBrowserProvider:
             )
 
         latency = int((time.perf_counter() - started) * 1000)
+        stealth_options: dict[str, Any] = {
+            "provider": "cloakbrowser",
+            "endpoint_url": self._endpoint_url,
+            "fingerprint_seed": seed,
+            "timezone": timezone,
+            "locale": locale,
+            "humanize": humanize_status,
+            "proxy_configured": bool(self._proxy),
+            "mobile": mobile,
+        }
+
         if not html:
             return FirecrawlResult(
                 status=CallStatus.ERROR,
@@ -167,6 +241,7 @@ class CloakBrowserProvider:
                 latency_ms=latency,
                 source_url=url,
                 endpoint="cloakbrowser",
+                options_json=stealth_options,
             )
 
         content_text = html_to_text(html)
@@ -179,6 +254,7 @@ class CloakBrowserProvider:
                 latency_ms=latency,
                 source_url=url,
                 endpoint="cloakbrowser",
+                options_json=stealth_options,
             )
 
         if self._audit:
@@ -190,6 +266,8 @@ class CloakBrowserProvider:
                     "latency_ms": latency,
                     "content_len": len(content_text),
                     "request_id": request_id,
+                    "fingerprint_seed": seed,
+                    "humanize": humanize_status,
                 },
             )
 
@@ -201,17 +279,18 @@ class CloakBrowserProvider:
             latency_ms=latency,
             source_url=url,
             endpoint="cloakbrowser",
-            options_json={
-                "provider": "cloakbrowser",
-                "endpoint_url": self._endpoint_url,
-                "mobile": mobile,
-            },
+            options_json=stealth_options,
         )
 
     async def _render(
-        self, url: str, *, mobile: bool, timeout_ms: int
-    ) -> tuple[str | None, int | None]:
-        """Connect to cloakserve over CDP, render the page, return (html, status)."""
+        self,
+        url: str,
+        *,
+        cdp_url: str,
+        mobile: bool,
+        timeout_ms: int,
+    ) -> tuple[str | None, int | None, str]:
+        """Connect to cloakserve over CDP, render the page, return (html, status, humanize_status)."""
         try:
             from playwright.async_api import (
                 Error as PlaywrightError,
@@ -226,7 +305,7 @@ class CloakBrowserProvider:
             raise ImportError(msg) from exc
 
         async with async_playwright() as p:
-            browser = await p.chromium.connect_over_cdp(self._endpoint_url)
+            browser = await p.chromium.connect_over_cdp(cdp_url)
             try:
                 context = await browser.new_context(
                     user_agent=_MOBILE_UA if mobile else _DESKTOP_UA,
@@ -269,6 +348,8 @@ class CloakBrowserProvider:
                             exc_info=True,
                         )
 
+                    humanize_status = await self._apply_humanize(page) if self._humanize else "skipped"
+
                     try:
                         await page.wait_for_load_state(
                             "networkidle", timeout=min(5_000, timeout_ms)
@@ -281,13 +362,75 @@ class CloakBrowserProvider:
                         )
 
                     html = await page.content()
-                    return html, http_status
+                    return html, http_status, humanize_status
                 finally:
                     await context.close()
             finally:
                 # Disconnect from cloakserve without shutting it down — sidecar
                 # is shared across many scrapes.
                 await browser.close()
+
+    async def _apply_humanize(self, page: Any) -> str:
+        """Apply post-connect humanize behavior; return the path that ran.
+
+        Upstream's ``humanize=True`` is a Python-wrapper feature and does not
+        cross the CDP boundary. We probe for an importable helper first, then
+        fall back to an in-house bezier mouse/wheel sequence so behavioral
+        signals look non-mechanical to Cloudflare/Turnstile scoring.
+        """
+        try:
+            from cloakbrowser.human import patch_page
+        except ImportError:
+            patch_page = None
+
+        if patch_page is not None:
+            try:
+                result = patch_page(page)
+                # patch_page may be sync or async depending on upstream version.
+                if hasattr(result, "__await__"):
+                    await result
+                return "patched"
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug(
+                    "cloakbrowser_humanize_upstream_helper_failed",
+                    extra={"error": str(exc), "error_type": type(exc).__name__},
+                )
+
+        try:
+            await self._humanize_in_house(page)
+            return "in_house"
+        except Exception as exc:
+            logger.debug(
+                "cloakbrowser_humanize_in_house_failed",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+            )
+            return "skipped"
+
+    @staticmethod
+    async def _humanize_in_house(page: Any) -> None:
+        """Move the mouse along a bezier curve and issue a few wheel deltas.
+
+        Total budget kept under ~200 ms so it does not blow the per-call
+        timeout. Deterministic-ish — we use a small random jitter but not the
+        per-domain seed, since the goal is "looks human across requests," not
+        "looks the same across requests."
+        """
+        # Bezier mouse path: 4 steps from (x0, y0) → (x3, y3) through (x1,y1),(x2,y2).
+        x0, y0 = 50.0, 50.0
+        x1, y1 = 200.0 + random.uniform(-30, 30), 150.0 + random.uniform(-30, 30)
+        x2, y2 = 450.0 + random.uniform(-40, 40), 320.0 + random.uniform(-40, 40)
+        x3, y3 = 600.0 + random.uniform(-40, 40), 500.0 + random.uniform(-40, 40)
+        steps = 5
+        for i in range(steps + 1):
+            t = i / steps
+            mt = 1.0 - t
+            x = mt**3 * x0 + 3 * mt**2 * t * x1 + 3 * mt * t**2 * x2 + t**3 * x3
+            y = mt**3 * y0 + 3 * mt**2 * t * y1 + 3 * mt * t**2 * y2 + t**3 * y3
+            await page.mouse.move(x, y, steps=1)
+
+        # 2-4 wheel deltas at varying magnitudes to mimic real scroll bursts.
+        for _ in range(random.randint(2, 4)):
+            await page.mouse.wheel(0, random.randint(180, 420))
 
     async def aclose(self) -> None:
         # Each scrape opens and closes its own async_playwright + CDP

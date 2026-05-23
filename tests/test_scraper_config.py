@@ -58,6 +58,18 @@ def test_cloakbrowser_defaults() -> None:
     assert cfg.cloakbrowser_enabled is True
     assert cfg.cloakbrowser_url == "http://cloakbrowser:9222"
     assert cfg.cloakbrowser_timeout_sec == 60
+    assert cfg.cloakbrowser_humanize is True
+    assert cfg.cloakbrowser_proxy == ""
+
+
+def test_cloakbrowser_humanize_can_be_disabled() -> None:
+    cfg = ScraperConfig(cloakbrowser_humanize=False)
+    assert cfg.cloakbrowser_humanize is False
+
+
+def test_cloakbrowser_proxy_passthrough() -> None:
+    cfg = ScraperConfig(cloakbrowser_proxy="socks5://proxy:1080")
+    assert cfg.cloakbrowser_proxy == "socks5://proxy:1080"
 
 
 def test_cloakbrowser_timeout_bounds_rejected() -> None:

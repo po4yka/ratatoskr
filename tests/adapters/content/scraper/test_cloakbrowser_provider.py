@@ -33,6 +33,9 @@ def _make_playwright_mocks(
     page.content = AsyncMock(return_value=html)
     page.wait_for_load_state = AsyncMock()
     page.route = AsyncMock()
+    page.mouse = MagicMock()
+    page.mouse.move = AsyncMock()
+    page.mouse.wheel = AsyncMock()
 
     context = MagicMock()
     context.new_page = AsyncMock(return_value=page)
@@ -100,7 +103,12 @@ class TestCloakBrowserProvider:
             await provider.scrape_markdown("https://example.com")
 
         connect_call = factory.return_value.__aenter__.return_value.chromium.connect_over_cdp
-        connect_call.assert_awaited_once_with("http://cb-host:9222")
+        connect_call.assert_awaited_once()
+        called_url = connect_call.await_args.args[0]
+        assert called_url.startswith("http://cb-host:9222?")
+        assert "fingerprint=" in called_url
+        assert "timezone=" in called_url
+        assert "locale=" in called_url
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_mobile_flag_drives_context_kwargs(self) -> None:
@@ -262,3 +270,154 @@ class TestCloakBrowserProvider:
     async def test_aclose_is_a_noop(self) -> None:
         provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222")
         await provider.aclose()  # Should not raise.
+
+
+class TestStealthKnobs:
+    def test_fingerprint_seed_is_stable_per_domain(self) -> None:
+        from app.adapters.content.scraper.cloakbrowser_provider import _seed_for_url
+
+        seed_a = _seed_for_url("https://example.com/foo")
+        seed_b = _seed_for_url("https://example.com/bar?x=1")
+        seed_c = _seed_for_url("https://other.example.org/baz")
+
+        assert seed_a == seed_b, "same domain must reuse the same fingerprint seed"
+        assert seed_a != seed_c, "different domains must get different seeds"
+        assert len(seed_a) == 12 and all(c in "0123456789abcdef" for c in seed_a)
+
+    def test_locale_pool_is_seed_indexed(self) -> None:
+        from app.adapters.content.scraper.cloakbrowser_provider import (
+            _LOCALE_POOL,
+            _locale_for_seed,
+            _seed_for_url,
+        )
+
+        seed = _seed_for_url("https://example.com/")
+        tz, loc = _locale_for_seed(seed)
+        assert (tz, loc) in _LOCALE_POOL
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_cdp_url_contains_seed_timezone_locale(self) -> None:
+        provider = CloakBrowserProvider(
+            endpoint_url="http://cb:9222", timeout_sec=5
+        )
+        factory, _browser, _page = _make_playwright_mocks()
+
+        with patch(
+            "playwright.async_api.async_playwright", factory
+        ), patch(
+            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+            return_value=(True, None),
+        ):
+            await provider.scrape_markdown("https://example.com/article")
+
+        from app.adapters.content.scraper.cloakbrowser_provider import (
+            _locale_for_seed,
+            _seed_for_url,
+        )
+
+        expected_seed = _seed_for_url("https://example.com/article")
+        expected_tz, expected_loc = _locale_for_seed(expected_seed)
+
+        connect = factory.return_value.__aenter__.return_value.chromium.connect_over_cdp
+        called = connect.await_args.args[0]
+        assert f"fingerprint={expected_seed}" in called
+        # timezone/locale are url-encoded — '/' becomes '%2F', '_' stays
+        from urllib.parse import quote
+
+        assert f"timezone={quote(expected_tz, safe='')}" in called
+        assert f"locale={quote(expected_loc, safe='')}" in called
+        # No proxy when none configured.
+        assert "proxy=" not in called
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_proxy_appended_when_configured(self) -> None:
+        provider = CloakBrowserProvider(
+            endpoint_url="http://cb:9222",
+            timeout_sec=5,
+            proxy="socks5://user:pass@10.0.0.5:1080",
+        )
+        factory, _browser, _page = _make_playwright_mocks()
+
+        with patch(
+            "playwright.async_api.async_playwright", factory
+        ), patch(
+            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+            return_value=(True, None),
+        ):
+            await provider.scrape_markdown("https://example.com")
+
+        connect = factory.return_value.__aenter__.return_value.chromium.connect_over_cdp
+        called = connect.await_args.args[0]
+        assert "proxy=socks5%3A%2F%2Fuser%3Apass%4010.0.0.5%3A1080" in called
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_in_house_humanize_runs_when_helper_unavailable(self) -> None:
+        provider = CloakBrowserProvider(
+            endpoint_url="http://cb:9222", timeout_sec=5, humanize=True
+        )
+        factory, _browser, page = _make_playwright_mocks()
+
+        # cloakbrowser package isn't installed in this venv, so the upstream
+        # import will fail and the in-house bezier path takes over.
+        with patch(
+            "playwright.async_api.async_playwright", factory
+        ), patch(
+            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+            return_value=(True, None),
+        ):
+            result = await provider.scrape_markdown("https://example.com")
+
+        assert page.mouse.move.await_count >= 1
+        assert page.mouse.wheel.await_count >= 1
+        assert result.options_json is not None
+        assert result.options_json["humanize"] == "in_house"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_humanize_skipped_when_flag_false(self) -> None:
+        provider = CloakBrowserProvider(
+            endpoint_url="http://cb:9222", timeout_sec=5, humanize=False
+        )
+        factory, _browser, page = _make_playwright_mocks()
+
+        with patch(
+            "playwright.async_api.async_playwright", factory
+        ), patch(
+            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+            return_value=(True, None),
+        ):
+            result = await provider.scrape_markdown("https://example.com")
+
+        page.mouse.move.assert_not_awaited()
+        page.mouse.wheel.assert_not_awaited()
+        assert result.options_json is not None
+        assert result.options_json["humanize"] == "skipped"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_options_json_records_stealth_config_on_success(self) -> None:
+        provider = CloakBrowserProvider(
+            endpoint_url="http://cb:9222",
+            timeout_sec=5,
+            humanize=True,
+            proxy="http://proxy:3128",
+        )
+        factory, _browser, _page = _make_playwright_mocks()
+
+        with patch(
+            "playwright.async_api.async_playwright", factory
+        ), patch(
+            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+            return_value=(True, None),
+        ):
+            result = await provider.scrape_markdown("https://example.com")
+
+        assert result.status == "ok"
+        opts = result.options_json or {}
+        assert opts["provider"] == "cloakbrowser"
+        assert opts["fingerprint_seed"]
+        assert opts["timezone"]
+        assert opts["locale"]
+        assert opts["humanize"] in {"patched", "in_house"}
+        assert opts["proxy_configured"] is True
+        # The proxy URL itself must NOT leak into options_json.
+        for value in opts.values():
+            assert "proxy:3128" not in str(value)
