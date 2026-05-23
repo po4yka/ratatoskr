@@ -117,6 +117,17 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
+        if cfg.fieldtheory.enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.fieldtheory.sync_bookmarks",
+                    cron=cfg.fieldtheory.sync_cron,
+                    labels={"job": "fieldtheory_sync"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+
         return tasks
 
     async def get_schedules(self) -> list[ScheduledTask]:

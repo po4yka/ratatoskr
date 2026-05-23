@@ -173,3 +173,45 @@ def test_vector_reconcile_schedule_skipped_when_disabled(monkeypatch):
     tasks = source._build_tasks()
 
     assert not any(t.task_name == "ratatoskr.vector.reconcile" for t in tasks)
+
+
+def test_fieldtheory_sync_schedule_added_when_enabled(monkeypatch):
+    mod = _load_scheduler_module(monkeypatch)
+
+    cfg = MagicMock()
+    cfg.digest.enabled = False
+    cfg.rss.enabled = False
+    cfg.signal_ingestion.any_enabled = False
+    cfg.github.sync_enabled = False
+    cfg.vector_reconcile.enabled = False
+    cfg.retention.enabled = False
+    cfg.fieldtheory.enabled = True
+    cfg.fieldtheory.sync_cron = "*/15 * * * *"
+
+    monkeypatch.setattr(mod, "load_config", lambda: cfg)
+    source = mod._AppConfigScheduleSource()
+    tasks = source._build_tasks()
+
+    ft_tasks = [t for t in tasks if t.task_name == "ratatoskr.fieldtheory.sync_bookmarks"]
+    assert len(ft_tasks) == 1
+    assert ft_tasks[0].cron == "*/15 * * * *"
+    assert ft_tasks[0].labels == {"job": "fieldtheory_sync"}
+
+
+def test_fieldtheory_sync_schedule_skipped_when_disabled(monkeypatch):
+    mod = _load_scheduler_module(monkeypatch)
+
+    cfg = MagicMock()
+    cfg.digest.enabled = False
+    cfg.rss.enabled = False
+    cfg.signal_ingestion.any_enabled = False
+    cfg.github.sync_enabled = False
+    cfg.vector_reconcile.enabled = False
+    cfg.retention.enabled = False
+    cfg.fieldtheory.enabled = False
+
+    monkeypatch.setattr(mod, "load_config", lambda: cfg)
+    source = mod._AppConfigScheduleSource()
+    tasks = source._build_tasks()
+
+    assert not any(t.task_name == "ratatoskr.fieldtheory.sync_bookmarks" for t in tasks)

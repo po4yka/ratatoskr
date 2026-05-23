@@ -18,7 +18,12 @@ from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
-from app.di.tasks import DigestTaskRuntime, RssPollTaskRuntime, VectorReconcileTaskRuntime
+from app.di.tasks import (
+    DigestTaskRuntime,
+    FieldTheoryTaskRuntime,
+    RssPollTaskRuntime,
+    VectorReconcileTaskRuntime,
+)
 
 # ── singleton providers ───────────────────────────────────────────────────────
 
@@ -141,5 +146,14 @@ def build_vector_reconcile_task_runtime(
     db: Database,
 ) -> VectorReconcileTaskRuntime:
     from app.di.tasks import build_vector_reconcile_task_runtime as _build_runtime
+
+    return _build_runtime(cfg, db)
+
+
+def build_fieldtheory_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> FieldTheoryTaskRuntime:
+    from app.di.tasks import build_fieldtheory_task_runtime as _build_runtime
 
     return _build_runtime(cfg, db)

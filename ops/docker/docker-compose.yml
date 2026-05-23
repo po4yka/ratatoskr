@@ -145,6 +145,7 @@ services:
       - app.tasks.github_sync
       - app.tasks.reconcile_vector_index
       - app.tasks.import_tasks
+      - app.tasks.fieldtheory_sync
       - "--workers"
       - "${TASKIQ_WORKER_CONCURRENCY:-4}"
     env_file:
@@ -248,6 +249,8 @@ services:
       - GITHUB_SYNC_CRON=${GITHUB_SYNC_CRON:-0 2 * * *}
       - VECTOR_RECONCILE_ENABLED=${VECTOR_RECONCILE_ENABLED:-true}
       - VECTOR_RECONCILE_CRON=${VECTOR_RECONCILE_CRON:-*/30 * * * *}
+      - FIELDTHEORY_SYNC_ENABLED=${FIELDTHEORY_SYNC_ENABLED:-false}
+      - FIELDTHEORY_SYNC_CRON=${FIELDTHEORY_SYNC_CRON:-*/15 * * * *}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - RATATOSKR_PROCESS_ROLE=scheduler

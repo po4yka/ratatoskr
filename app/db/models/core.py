@@ -9,6 +9,8 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
+    Computed,
     DateTime,
     Enum,
     Float,
@@ -22,7 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.db.types import JSONB, JSONValue, _next_server_version, _utcnow
+from app.db.types import JSONB, TSVECTOR, JSONValue, _next_server_version, _utcnow
 
 
 class LLMAttemptTrigger(enum.StrEnum):
@@ -874,6 +876,85 @@ class RefreshToken(Base):
     user: Mapped[User] = relationship(back_populates="refresh_tokens")
 
 
+class FieldTheoryCategory(enum.StrEnum):
+    """Classification vocabulary populated by ``ft`` at bookmark capture time.
+
+    Mirrored verbatim from ``ft``'s ``bookmarks.db.category`` column. The v2
+    vocabulary is closed; new values require a coordinated change in ``ft`` and
+    a follow-up migration to extend the CHECK constraint below.
+    """
+
+    TOOL = "tool"
+    SECURITY = "security"
+    TECHNIQUE = "technique"
+    LAUNCH = "launch"
+    RESEARCH = "research"
+    OPINION = "opinion"
+    COMMERCE = "commerce"
+
+
+_FIELDTHEORY_CATEGORY_VALUES = tuple(member.value for member in FieldTheoryCategory)
+
+
+class FieldTheoryBookmarkMetadata(Base):
+    """Sidecar row for a ``requests`` entry ingested via the fieldtheory sync path.
+
+    Schema source of truth: ``docs/explanation/fieldtheory-integration.md`` table at
+    lines 60-71. Lifecycle is shared with the parent ``Request`` (cascade delete).
+    The ``tweet_text_tsv`` column is a Postgres ``GENERATED ALWAYS AS ... STORED``
+    column that the MCP ``fieldtheory_search`` tool queries via ``ts_rank_cd``.
+
+    No lifecycle columns. Bookmarks are immortal once ingested (see the Q4 design
+    answer); the schema cannot express "no longer bookmarked" by design.
+    """
+
+    __tablename__ = "fieldtheory_bookmark_metadata"
+    __table_args__ = (
+        CheckConstraint(
+            "fieldtheory_category IN ("
+            + ", ".join(f"'{value}'" for value in _FIELDTHEORY_CATEGORY_VALUES)
+            + ")",
+            name="ck_fieldtheory_bookmark_metadata_category",
+        ),
+        Index(
+            "ix_fieldtheory_bookmark_metadata_fieldtheory_id",
+            "fieldtheory_id",
+            unique=True,
+        ),
+        Index(
+            "ix_fieldtheory_bookmark_metadata_category",
+            "fieldtheory_category",
+        ),
+        Index(
+            "ix_fieldtheory_bookmark_metadata_tweet_text_tsv",
+            "tweet_text_tsv",
+            postgresql_using="gin",
+        ),
+    )
+
+    request_id: Mapped[int] = mapped_column(
+        ForeignKey("requests.id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    fieldtheory_id: Mapped[str] = mapped_column(Text, nullable=False)
+    fieldtheory_category: Mapped[str] = mapped_column(Text, nullable=False)
+    tweet_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tweet_text_tsv: Mapped[Any] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('english', coalesce(tweet_text, ''))",
+            persisted=True,
+        ),
+    )
+    tweet_author: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tweet_url: Mapped[str] = mapped_column(Text, nullable=False)
+    posted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    synced_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
 CORE_MODELS: tuple[type[Base], ...] = (
     User,
     ClientSecret,
@@ -894,6 +975,7 @@ CORE_MODELS: tuple[type[Base], ...] = (
     AttachmentProcessing,
     UserDevice,
     RefreshToken,
+    FieldTheoryBookmarkMetadata,
 )
 
 __all__ = [
@@ -904,6 +986,8 @@ __all__ = [
     "Chat",
     "ClientSecret",
     "CrawlResult",
+    "FieldTheoryBookmarkMetadata",
+    "FieldTheoryCategory",
     "LLMAttemptTrigger",
     "LLMCall",
     "ProgressEvent",

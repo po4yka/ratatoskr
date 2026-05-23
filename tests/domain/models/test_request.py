@@ -266,3 +266,21 @@ class TestRequest:
         assert "Request(id=123" in str_repr
         assert "type=url" in str_repr
         assert "status=pending" in str_repr
+
+
+class TestRequestStatusFieldtheoryImported:
+    """Status value used by the fieldtheory bookmark ingestor."""
+
+    def test_fieldtheory_imported_value(self):
+        assert RequestStatus.FIELDTHEORY_IMPORTED.value == "fieldtheory_imported"
+        assert RequestStatus("fieldtheory_imported") is RequestStatus.FIELDTHEORY_IMPORTED
+
+    def test_request_constructible_with_fieldtheory_imported_status(self):
+        request = Request(
+            user_id=1,
+            chat_id=2,
+            request_type=RequestType.URL,
+            status=RequestStatus.FIELDTHEORY_IMPORTED,
+        )
+
+        assert request.status == RequestStatus.FIELDTHEORY_IMPORTED

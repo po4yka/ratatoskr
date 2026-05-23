@@ -274,7 +274,7 @@ async def test_feature_models_round_trip_against_postgres() -> None:
         assert stored_webhook.events_json == ["summary.created"]
         assert stored_tag is not None
         assert stored_tag.name == "AI"
-        assert len(ALL_MODELS) == 57
+        assert len(ALL_MODELS) == 63
     finally:
         async with database.engine.begin() as connection:
             await connection.run_sync(Base.metadata.drop_all, tables=list(reversed(_all_tables())))

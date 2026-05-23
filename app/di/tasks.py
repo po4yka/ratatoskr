@@ -67,6 +67,13 @@ class VectorReconcileTaskRuntime:
     embedding_generator: Any
 
 
+@dataclass(frozen=True)
+class FieldTheoryTaskRuntime:
+    cfg: AppConfig
+    db: Database
+    ingestor: Any
+
+
 def create_digest_userbot(cfg: AppConfig) -> Any:
     from app.adapters.digest.userbot_client import UserbotClient
 
@@ -224,20 +231,53 @@ def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
 
 def create_source_ingestion_runner(cfg: AppConfig, db: Database) -> Any:
     from app.adapters.ingestors.registry import create_source_ingesters
+    from app.adapters.social.meta import ThreadsClient, ThreadsOAuthConfig
+    from app.adapters.social.x import XOAuthClient, XOAuthConfig
     from app.adapters.ingestors.runner import SourceIngestionRunner
     from app.application.ports.source_ingestors import SourceIngesterBuildContext
+    from app.application.services.social_token_service import SocialAccessTokenResolver
     from app.di.repositories import build_social_connection_repository
     from app.infrastructure.persistence.repositories.signal_source_repository import (
         SignalSourceRepositoryAdapter,
     )
 
     subscriber_user_ids = tuple(int(user_id) for user_id in cfg.telegram.allowed_user_ids)
+    social_connection_repository = build_social_connection_repository(db)
+    x_client_secret = getattr(cfg.twitter, "x_oauth_client_secret", None)
+    social_token_resolver = SocialAccessTokenResolver(
+        repository=social_connection_repository,
+        oauth_clients={
+            "x": XOAuthClient(
+                XOAuthConfig(
+                    client_id=cfg.twitter.x_oauth_client_id,
+                    client_secret=x_client_secret.get_secret_value()
+                    if x_client_secret is not None
+                    else None,
+                    redirect_uri=cfg.twitter.x_oauth_redirect_uri,
+                    scopes=cfg.twitter.x_oauth_scopes,
+                    api_base_url=cfg.twitter.x_api_base_url,
+                )
+            ),
+            "threads": ThreadsClient(
+                ThreadsOAuthConfig(
+                    client_id=cfg.social.threads_client_id,
+                    client_secret=cfg.social.threads_client_secret.get_secret_value()
+                    if cfg.social.threads_client_secret is not None
+                    else None,
+                    redirect_uri=cfg.social.threads_redirect_uri,
+                    scopes=cfg.social.threads_scopes,
+                    graph_base_url=cfg.social.threads_graph_base_url,
+                )
+            ),
+        },
+    )
     return SourceIngestionRunner(
         repository=SignalSourceRepositoryAdapter(db),
         ingesters=create_source_ingesters(
             cfg.signal_ingestion,
             context=SourceIngesterBuildContext(
-                social_connection_repository=build_social_connection_repository(db),
+                social_connection_repository=social_connection_repository,
+                social_token_resolver=social_token_resolver,
                 subscriber_user_ids=subscriber_user_ids,
                 x_api_base_url=cfg.twitter.x_api_base_url,
                 threads_graph_base_url=cfg.social.threads_graph_base_url,
@@ -255,6 +295,22 @@ def build_rss_poll_task_runtime(cfg: AppConfig, db: Database) -> RssPollTaskRunt
         delivery_service_factory=create_rss_delivery_service,
         signal_worker_factory=create_signal_ingestion_worker,
         source_runner_factory=create_source_ingestion_runner,
+    )
+
+
+def build_fieldtheory_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> FieldTheoryTaskRuntime:
+    from app.adapters.ingestors.fieldtheory_ingestor import FieldTheoryBookmarkIngestor
+
+    return FieldTheoryTaskRuntime(
+        cfg=cfg,
+        db=db,
+        ingestor=FieldTheoryBookmarkIngestor(
+            database=db,
+            bookmarks_db_path=cfg.fieldtheory.bookmarks_db_path,
+        ),
     )
 
 
