@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -12,6 +13,7 @@ from app.application.ports.social_connections import (
 )
 from app.core.time_utils import UTC
 from app.core.urls.twitter import extract_tweet_id
+from app.observability.metrics import record_social_token_refresh
 from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
 if TYPE_CHECKING:
@@ -20,6 +22,8 @@ if TYPE_CHECKING:
         SocialConnectionRecord,
         SocialConnectionRepositoryPort,
     )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,8 +56,11 @@ class XApiPostExtractor:
         correlation_id: str | None,
         metadata: dict[str, Any],
     ) -> XApiExtractionResult:
-        del correlation_id
         post_id = extract_tweet_id(url_text)
+        logger.info(
+            "social_content_fetch_started",
+            extra={"cid": correlation_id, "provider": "x", "post_id": post_id},
+        )
         if not post_id or user_id is None:
             return XApiExtractionResult(
                 ok=False,
@@ -61,7 +68,11 @@ class XApiPostExtractor:
             )
 
         connection = await self._repository.get_by_user_and_provider(user_id, "x")
-        if connection is None or connection.status != "active" or connection.encrypted_access_token is None:
+        if (
+            connection is None
+            or connection.status != "active"
+            or connection.encrypted_access_token is None
+        ):
             return XApiExtractionResult(
                 ok=False,
                 metadata={"api_status": "no_connection", "provider_resource_id": post_id},
@@ -74,8 +85,15 @@ class XApiPostExtractor:
                 "api_status": "refresh_failed",
                 "provider_resource_id": post_id,
                 "connection_id": connection.id,
+                "correlation_id": correlation_id,
             }
-            await self._record_attempt(connection, user_id, "failed", refresh_metadata, "refresh_failed")
+            await self._record_attempt(
+                connection, user_id, "failed", refresh_metadata, "refresh_failed"
+            )
+            logger.warning(
+                "social_content_fetch_failed",
+                extra={"cid": correlation_id, "provider": "x", "reason": "refresh_failed"},
+            )
             return XApiExtractionResult(ok=False, metadata=refresh_metadata)
         access_token = decrypt_secret(connection.encrypted_access_token or b"")
         safe_metadata: dict[str, Any] = {
@@ -83,6 +101,7 @@ class XApiPostExtractor:
             "api_status": "started",
             "provider_resource_id": post_id,
             "connection_id": connection.id,
+            "correlation_id": correlation_id,
         }
 
         response = await self._x_client.get_post_by_id(post_id=post_id, access_token=access_token)
@@ -94,6 +113,10 @@ class XApiPostExtractor:
                 SocialConnectionUpdate(status="needs_reauth"),
             )
             await self._record_attempt(connection, user_id, "failed", safe_metadata, "unauthorized")
+            logger.warning(
+                "social_content_fetch_failed",
+                extra={"cid": correlation_id, "provider": "x", "reason": "unauthorized"},
+            )
             return XApiExtractionResult(ok=False, metadata=safe_metadata)
         if response.status_code in {403, 404, 429} or response.status_code >= 500:
             await self._record_attempt(
@@ -102,6 +125,14 @@ class XApiPostExtractor:
                 "failed",
                 safe_metadata,
                 _error_code_for_status(response.status_code),
+            )
+            logger.warning(
+                "social_content_fetch_failed",
+                extra={
+                    "cid": correlation_id,
+                    "provider": "x",
+                    "status_code": response.status_code,
+                },
             )
             return XApiExtractionResult(ok=False, metadata=safe_metadata)
         if response.status_code >= 400:
@@ -119,12 +150,20 @@ class XApiPostExtractor:
         except ValueError:
             safe_metadata["api_status"] = "invalid_json"
             await self._record_attempt(connection, user_id, "failed", safe_metadata, "invalid_json")
+            logger.warning(
+                "social_content_fetch_failed",
+                extra={"cid": correlation_id, "provider": "x", "reason": "invalid_json"},
+            )
             return XApiExtractionResult(ok=False, metadata=safe_metadata)
 
         mapped = _map_post_payload(payload, post_id)
         if not mapped["content_text"]:
             safe_metadata["api_status"] = "empty"
             await self._record_attempt(connection, user_id, "failed", safe_metadata, "empty")
+            logger.warning(
+                "social_content_fetch_failed",
+                extra={"cid": correlation_id, "provider": "x", "reason": "empty"},
+            )
             return XApiExtractionResult(ok=False, metadata=safe_metadata)
 
         safe_metadata.update(mapped["metadata"])
@@ -132,6 +171,10 @@ class XApiPostExtractor:
         safe_metadata["extraction_method"] = "x_api"
         safe_metadata["tier_outcomes"] = {**metadata.get("tier_outcomes", {}), "x_api": "success"}
         await self._record_attempt(connection, user_id, "succeeded", safe_metadata, None)
+        logger.info(
+            "social_content_fetch_succeeded",
+            extra={"cid": correlation_id, "provider": "x", "post_id": post_id},
+        )
         return XApiExtractionResult(
             ok=True,
             content_text=mapped["content_text"],
@@ -161,12 +204,14 @@ class XApiPostExtractor:
                 correlation_id=None,
             )
         except Exception:
+            record_social_token_refresh(provider="x", status="failed")
             updated = await self._repository.update_connection(
                 connection.user_id,
                 "x",
                 SocialConnectionUpdate(status="needs_reauth"),
             )
             return updated or connection
+        record_social_token_refresh(provider="x", status="succeeded")
 
         updated = await self._repository.update_connection(
             connection.user_id,
@@ -179,7 +224,10 @@ class XApiPostExtractor:
                 token_scopes=token_result.scopes or connection.token_scopes,
                 access_token_expires_at=_parse_datetime(token_result.access_token_expires_at),
                 status="active",
-                metadata_json={**(connection.metadata_json or {}), **(token_result.metadata_json or {})},
+                metadata_json={
+                    **(connection.metadata_json or {}),
+                    **(token_result.metadata_json or {}),
+                },
             ),
         )
         return updated or connection
@@ -256,10 +304,15 @@ def _map_post_payload(payload: dict[str, Any], post_id: str) -> dict[str, Any]:
         "urls": urls,
         "tweet_media": media_items,
     }
-    return {"content_text": "\n\n".join(line for line in content_lines if line), "metadata": metadata}
+    return {
+        "content_text": "\n\n".join(line for line in content_lines if line),
+        "metadata": metadata,
+    }
 
 
-def _map_media(data: dict[str, Any], media_by_key: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _map_media(
+    data: dict[str, Any], media_by_key: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
     attachments = data.get("attachments") if isinstance(data.get("attachments"), dict) else {}
     media_keys = attachments.get("media_keys") if isinstance(attachments, dict) else None
     if not isinstance(media_keys, list):
@@ -302,7 +355,9 @@ def _extract_urls(data: dict[str, Any]) -> list[str]:
 def _index_by_id(items: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(items, list):
         return {}
-    return {str(item.get("id")): item for item in items if isinstance(item, dict) and item.get("id")}
+    return {
+        str(item.get("id")): item for item in items if isinstance(item, dict) and item.get("id")
+    }
 
 
 def _index_by_key(items: Any) -> dict[str, dict[str, Any]]:
@@ -320,6 +375,7 @@ def _safe_attempt_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "auth_strategy",
         "api_status",
         "connection_id",
+        "correlation_id",
         "provider_resource_id",
         "rate_limit",
         "tweet_id",

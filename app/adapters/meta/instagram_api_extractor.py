@@ -23,6 +23,7 @@ from app.core.lang import detect_language
 from app.core.time_utils import UTC
 from app.core.urls.meta import extract_instagram_shortcode
 from app.domain.models.source import SourceItem, SourceKind
+from app.observability.metrics import record_social_token_refresh
 from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
 if TYPE_CHECKING:
@@ -244,12 +245,14 @@ class InstagramApiExtractor:
                 refresh_token=decrypt_secret(connection.encrypted_refresh_token),
             )
         except Exception:
+            record_social_token_refresh(provider="instagram", status="failed")
             updated = await self._repository.update_connection(
                 connection.user_id,
                 "instagram",
                 SocialConnectionUpdate(status="needs_reauth"),
             )
             return updated or connection
+        record_social_token_refresh(provider="instagram", status="succeeded")
 
         updated = await self._repository.update_connection(
             connection.user_id,

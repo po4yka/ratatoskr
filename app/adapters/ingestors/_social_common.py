@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 from app.application.ports.source_ingestors import RateLimitedSourceError, TransientSourceError
+from app.observability.metrics import record_social_rate_limit
 
 
 def parse_datetime(value: Any) -> datetime | None:
@@ -46,6 +47,7 @@ def rate_limit_retry_at(headers: Any, *, now: datetime | None = None) -> datetim
 
 def raise_for_social_response(response: Any, *, provider: str) -> None:
     if response.status_code == 429:
+        record_social_rate_limit(provider=provider)
         raise RateLimitedSourceError(
             f"{provider} API returned 429",
             retry_at=rate_limit_retry_at(response.headers),

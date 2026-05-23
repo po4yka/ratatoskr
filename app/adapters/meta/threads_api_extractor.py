@@ -22,6 +22,7 @@ from app.core.lang import detect_language
 from app.core.time_utils import UTC
 from app.core.urls.meta import extract_threads_post_id
 from app.domain.models.source import SourceItem, SourceKind
+from app.observability.metrics import record_social_token_refresh
 from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
 if TYPE_CHECKING:
@@ -182,12 +183,14 @@ class ThreadsApiExtractor:
                 correlation_id=None,
             )
         except Exception:
+            record_social_token_refresh(provider="threads", status="failed")
             updated = await self._repository.update_connection(
                 connection.user_id,
                 "threads",
                 SocialConnectionUpdate(status="needs_reauth"),
             )
             return updated or connection
+        record_social_token_refresh(provider="threads", status="succeeded")
 
         updated = await self._repository.update_connection(
             connection.user_id,

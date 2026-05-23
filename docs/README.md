@@ -7,7 +7,7 @@ Welcome to the Ratatoskr documentation. This guide helps you find the right docu
 ## Documentation freshness
 
 - Last documentation refresh: **2026-05-23**
-- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, and the existing LangGraph / CocoIndex / GitHub ingestion docs.
+- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, LLM provider protocol/factory behavior, and the existing LangGraph / CocoIndex / GitHub ingestion docs.
 
 ## Documentation by Audience
 
@@ -312,7 +312,7 @@ See the [Architecture Overview](explanation/architecture-overview.md) for an ann
 | **Docker** | [Deploy to Production](guides/deploy-production.md), [FAQ § Installation](explanation/faq.md#installation) |
 | **Firecrawl** | [Scraper chain explainer](explanation/scraper-chain.md), [Troubleshooting](reference/troubleshooting.md) |
 | **Installation** | [Deploy to Production](guides/deploy-production.md), [FAQ § Installation](explanation/faq.md#installation) |
-| **LLM models** | [Environment Variables](reference/environment-variables.md), [FAQ § Cost](explanation/faq.md#what-are-the-cheapest-models-that-work-well) |
+| **LLM providers and models** | [Environment Variables](reference/environment-variables.md), [Optional YAML Configuration](reference/config-file.md), [FAQ § Configuration](explanation/faq.md#can-i-use-openai-instead-of-openrouter), [FAQ § Cost](explanation/faq.md#what-are-the-cheapest-models-that-work-well) |
 | **MCP Server** | [reference/mcp-server.md](reference/mcp-server.md), [Troubleshooting § MCP](reference/troubleshooting.md#mcp-server-issues) |
 | **Mobile API** | [Mobile API Reference](reference/mobile-api.md), [First Mobile API Client Tutorial](guides/first-mobile-api-client.md) |
 | **Mixed-source aggregation** | [SPEC.md](SPEC.md), [Mobile API Reference](reference/mobile-api.md), [Environment Variables](reference/environment-variables.md) |

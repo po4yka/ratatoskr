@@ -28,7 +28,7 @@ This guide helps you diagnose and resolve common issues with Ratatoskr.
 - Telegram messages
 - Database requests
 - Scraper chain provider calls
-- OpenRouter LLM calls
+- LLM provider calls through `LLMClientProtocol` (OpenRouter by default)
 - Log entries
 
 ### How to Find Correlation IDs

@@ -179,6 +179,32 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    # ---- Social integration telemetry ----------------------------------
+    SOCIAL_FETCH_TOTAL = Counter(
+        "ratatoskr_social_fetch_total",
+        "Social provider content fetch attempts by provider, status, and auth tier",
+        ["provider", "status", "auth_tier"],
+        registry=REGISTRY,
+    )
+    SOCIAL_TOKEN_REFRESH_TOTAL = Counter(
+        "ratatoskr_social_token_refresh_total",
+        "Social provider token refresh attempts by provider and status",
+        ["provider", "status"],
+        registry=REGISTRY,
+    )
+    SOCIAL_RATE_LIMIT_TOTAL = Counter(
+        "ratatoskr_social_rate_limit_total",
+        "Social provider rate-limit responses by provider",
+        ["provider"],
+        registry=REGISTRY,
+    )
+    SOCIAL_CONNECTION_STATUS_TOTAL = Counter(
+        "ratatoskr_social_connection_status_total",
+        "Social connection status observations by provider and status",
+        ["provider", "status"],
+        registry=REGISTRY,
+    )
+
     # Circuit breaker metrics
     CIRCUIT_BREAKER_STATE = Gauge(
         "ratatoskr_circuit_breaker_state",
@@ -409,6 +435,10 @@ else:
     LLM_TIMEOUTS_TOTAL = None
     SCRAPER_ATTEMPTS_TOTAL = None
     SCRAPER_ATTEMPT_LATENCY_SECONDS = None
+    SOCIAL_FETCH_TOTAL = None
+    SOCIAL_TOKEN_REFRESH_TOTAL = None
+    SOCIAL_RATE_LIMIT_TOTAL = None
+    SOCIAL_CONNECTION_STATUS_TOTAL = None
 
 
 def get_metrics() -> bytes:
@@ -917,6 +947,49 @@ def record_scraper_attempt_latency(*, provider: str, latency_seconds: float) -> 
     if latency_seconds < 0:
         return
     SCRAPER_ATTEMPT_LATENCY_SECONDS.labels(provider=provider).observe(latency_seconds)
+
+
+def record_social_fetch(*, provider: str, status: str, auth_tier: str) -> None:
+    """Record a social provider content fetch attempt."""
+    if not PROMETHEUS_AVAILABLE:
+        return
+    SOCIAL_FETCH_TOTAL.labels(
+        provider=_metric_label(provider),
+        status=_metric_label(status),
+        auth_tier=_metric_label(auth_tier),
+    ).inc()
+
+
+def record_social_token_refresh(*, provider: str, status: str) -> None:
+    """Record a social provider OAuth token refresh attempt."""
+    if not PROMETHEUS_AVAILABLE:
+        return
+    SOCIAL_TOKEN_REFRESH_TOTAL.labels(
+        provider=_metric_label(provider),
+        status=_metric_label(status),
+    ).inc()
+
+
+def record_social_rate_limit(*, provider: str) -> None:
+    """Record a social provider rate-limit response."""
+    if not PROMETHEUS_AVAILABLE:
+        return
+    SOCIAL_RATE_LIMIT_TOTAL.labels(provider=_metric_label(provider)).inc()
+
+
+def record_social_connection_status(*, provider: str, status: str) -> None:
+    """Record an observed social connection status."""
+    if not PROMETHEUS_AVAILABLE:
+        return
+    SOCIAL_CONNECTION_STATUS_TOTAL.labels(
+        provider=_metric_label(provider),
+        status=_metric_label(status),
+    ).inc()
+
+
+def _metric_label(value: Any) -> str:
+    label = str(value or "unknown").strip().lower()
+    return label or "unknown"
 
 
 def record_vector_index_lag(report: dict[str, Any]) -> None:

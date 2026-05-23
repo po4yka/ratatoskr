@@ -27,6 +27,27 @@ from app.db.models.social import (
     SocialProvider,
 )
 from app.db.types import _utcnow
+from app.observability.metrics import (
+    record_social_connection_status,
+    record_social_fetch,
+    record_social_rate_limit,
+)
+
+_SAFE_FETCH_METADATA_KEYS = frozenset(
+    {
+        "api_status",
+        "api_supported_for_url",
+        "auth_strategy",
+        "connection_id",
+        "correlation_id",
+        "media_lookup_count",
+        "provider_resource_id",
+        "provider_shortcode",
+        "rate_limit",
+        "tweet_id",
+        "unsupported_reason",
+    }
+)
 
 if TYPE_CHECKING:
     from app.db.session import Database
@@ -60,7 +81,10 @@ class SocialConnectionRepositoryAdapter:
                     .order_by(SocialConnection.provider)
                 )
             ).scalars()
-            return [_to_record(row) for row in rows]
+            records = [_to_record(row) for row in rows]
+        for record in records:
+            record_social_connection_status(provider=record.provider, status=record.status)
+        return records
 
     async def upsert_connection(self, connection: SocialConnectionUpsert) -> SocialConnectionRecord:
         values = _upsert_values(connection)
@@ -88,7 +112,9 @@ class SocialConnectionRepositoryAdapter:
                 .returning(SocialConnection)
             )
             row = (await session.execute(stmt)).scalar_one()
-            return _to_record(row)
+            record = _to_record(row)
+        record_social_connection_status(provider=record.provider, status=record.status)
+        return record
 
     async def update_connection(
         self, user_id: int, provider: str, update: SocialConnectionUpdate
@@ -111,7 +137,9 @@ class SocialConnectionRepositoryAdapter:
             for key, value in values.items():
                 setattr(row, key, value)
             await session.flush()
-            return _to_record(row)
+            record = _to_record(row)
+        record_social_connection_status(provider=record.provider, status=record.status)
+        return record
 
     async def delete_connection(self, user_id: int, provider: str) -> bool:
         provider_value = _provider(provider)
@@ -124,7 +152,10 @@ class SocialConnectionRepositoryAdapter:
                 )
                 .returning(SocialConnection.id)
             )
-            return deleted_id is not None
+            deleted = deleted_id is not None
+        if deleted:
+            record_social_connection_status(provider=provider, status="disconnected")
+        return deleted
 
     async def create_auth_state(self, state: SocialAuthStateCreate) -> SocialAuthStateRecord:
         row = SocialAuthState(
@@ -178,6 +209,11 @@ class SocialConnectionRepositoryAdapter:
             return _auth_state_to_record(row) if row is not None else None
 
     async def record_fetch_attempt(self, attempt: SocialFetchAttemptCreate) -> None:
+        safe_metadata = _sanitize_fetch_attempt_metadata(attempt.metadata_json)
+        auth_tier = _auth_tier_from_metadata(safe_metadata)
+        record_social_fetch(provider=attempt.provider, status=attempt.status, auth_tier=auth_tier)
+        if attempt.error_code == "rate_limited" or safe_metadata.get("api_status") == "429":
+            record_social_rate_limit(provider=attempt.provider)
         row = SocialFetchAttempt(
             connection_id=attempt.connection_id,
             user_id=attempt.user_id,
@@ -186,14 +222,62 @@ class SocialConnectionRepositoryAdapter:
             status=_fetch_attempt_status(attempt.status),
             error_code=attempt.error_code,
             error_message=attempt.error_message,
-            metadata_json=dict(attempt.metadata_json)
-            if attempt.metadata_json is not None
-            else None,
+            metadata_json=safe_metadata or None,
         )
         if attempt.status in {"succeeded", "failed"}:
             row.finished_at = _utcnow()
         async with self._db.transaction() as session:
             session.add(row)
+
+
+def _sanitize_fetch_attempt_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    sanitized: dict[str, Any] = {}
+    for key in _SAFE_FETCH_METADATA_KEYS:
+        if key not in metadata:
+            continue
+        sanitized[key] = _sanitize_safe_metadata_value(metadata[key])
+    return sanitized
+
+
+def _sanitize_safe_metadata_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _sanitize_safe_metadata_value(item)
+            for key, item in value.items()
+            if _is_safe_nested_key(str(key))
+        }
+    if isinstance(value, list):
+        return [_sanitize_safe_metadata_value(item) for item in value[:20]]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _is_safe_nested_key(key: str) -> bool:
+    lowered = key.lower()
+    return not any(
+        marker in lowered
+        for marker in (
+            "access_token",
+            "refresh_token",
+            "authorization",
+            "cookie",
+            "secret",
+            "code",
+            "state",
+        )
+    )
+
+
+def _auth_tier_from_metadata(metadata: dict[str, Any]) -> str:
+    auth_strategy = metadata.get("auth_strategy")
+    if isinstance(auth_strategy, dict):
+        tier = auth_strategy.get("selected_tier")
+        if isinstance(tier, str) and tier.strip():
+            return tier
+    return "unknown"
 
 
 def _provider(value: str) -> SocialProvider:

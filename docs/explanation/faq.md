@@ -198,6 +198,16 @@ ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
 ```
 
+Or an OpenAI-compatible Ollama/cloud endpoint:
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=https://ollama.example.com/v1
+OLLAMA_API_KEY=provider-token
+OLLAMA_MODEL=llama3.3
+OLLAMA_ENABLE_STRUCTURED_OUTPUTS=false
+```
+
 ### How do I enable multi-user access?
 
 Add multiple user IDs to `ALLOWED_USER_IDS`:

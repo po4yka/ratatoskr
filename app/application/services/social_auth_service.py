@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import secrets
 import urllib.parse
 from dataclasses import dataclass
@@ -13,8 +14,8 @@ from typing import TYPE_CHECKING, Any
 from app.application.dto.social_auth import (
     OAuthTokenResult,
     SocialCallbackDTO,
-    SocialConnectUrlDTO,
     SocialConnectionListDTO,
+    SocialConnectUrlDTO,
     SocialDisconnectDTO,
     connection_record_to_dto,
 )
@@ -27,6 +28,7 @@ from app.application.ports.social_connections import (
 )
 from app.core.async_utils import raise_if_cancelled
 from app.core.time_utils import UTC
+from app.observability.metrics import record_social_rate_limit, record_social_token_refresh
 from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
 if TYPE_CHECKING:
@@ -45,6 +47,8 @@ DEFAULT_AUTHORIZATION_ENDPOINTS: dict[str, str] = {
     "instagram": "https://www.instagram.com/oauth/authorize",
     "threads": "https://threads.net/oauth/authorize",
 }
+
+logger = logging.getLogger(__name__)
 
 
 class SocialAuthError(ValueError):
@@ -293,13 +297,26 @@ class SocialAuthService:
             )
 
         scopes = record.scopes or []
-        token_result = await self._oauth_client(provider).exchange_code(
-            provider=provider,
-            code=code,
-            redirect_uri=redirect_uri,
-            code_verifier=decrypt_secret(record.encrypted_code_verifier),
-            scopes=scopes,
-            correlation_id=correlation_id,
+        try:
+            token_result = await self._oauth_client(provider).exchange_code(
+                provider=provider,
+                code=code,
+                redirect_uri=redirect_uri,
+                code_verifier=decrypt_secret(record.encrypted_code_verifier),
+                scopes=scopes,
+                correlation_id=correlation_id,
+            )
+        except SocialAuthError as exc:
+            if exc.status_code == 429:
+                record_social_rate_limit(provider=provider)
+            logger.warning(
+                "social_oauth_callback_exchange_failed",
+                extra={"cid": correlation_id, "provider": provider, "user_id": user_id},
+            )
+            raise
+        logger.info(
+            "social_oauth_callback_exchanged",
+            extra={"cid": correlation_id, "provider": provider, "user_id": user_id},
         )
         connection = await self._repository.upsert_connection(
             SocialConnectionUpsert(
@@ -318,6 +335,15 @@ class SocialAuthService:
                 status="active",
                 metadata_json=token_result.metadata_json,
             )
+        )
+        logger.info(
+            "social_connection_upserted",
+            extra={
+                "cid": correlation_id,
+                "provider": provider,
+                "user_id": user_id,
+                "status": connection.status,
+            },
         )
         return SocialCallbackDTO(connection=connection_record_to_dto(provider, connection))
 
@@ -342,6 +368,11 @@ class SocialAuthService:
                 provider,
                 SocialConnectionUpdate(status="needs_reauth"),
             )
+            record_social_token_refresh(provider=provider, status="missing_refresh_token")
+            logger.warning(
+                "social_token_refresh_missing_token",
+                extra={"cid": correlation_id, "provider": provider, "user_id": user_id},
+            )
             raise SocialAuthError(
                 "Social connection does not have a refresh token",
                 code="SOCIAL_REFRESH_TOKEN_MISSING",
@@ -355,13 +386,21 @@ class SocialAuthService:
                 scopes=record.token_scopes or [],
                 correlation_id=correlation_id,
             )
-        except SocialAuthError:
+        except SocialAuthError as exc:
+            record_social_token_refresh(provider=provider, status="failed")
+            if exc.status_code == 429:
+                record_social_rate_limit(provider=provider)
+            logger.warning(
+                "social_token_refresh_failed",
+                extra={"cid": correlation_id, "provider": provider, "user_id": user_id},
+            )
             await self._repository.update_connection(
                 user_id,
                 provider,
                 SocialConnectionUpdate(status="needs_reauth"),
             )
             raise
+        record_social_token_refresh(provider=provider, status="succeeded")
 
         connection = await self._repository.update_connection(
             user_id,
@@ -387,6 +426,15 @@ class SocialAuthService:
                 code="SOCIAL_CONNECTION_NOT_FOUND",
                 status_code=404,
             )
+        logger.info(
+            "social_token_refresh_succeeded",
+            extra={
+                "cid": correlation_id,
+                "provider": provider,
+                "user_id": user_id,
+                "status": connection.status,
+            },
+        )
         return SocialCallbackDTO(connection=connection_record_to_dto(provider, connection))
 
     async def disconnect(self, *, user_id: int, provider: str) -> SocialDisconnectDTO:

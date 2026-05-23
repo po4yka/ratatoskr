@@ -112,7 +112,7 @@ class WebSearchAgentOutput(BaseModel):
 from app.agents.web_search_agent import WebSearchAgent, WebSearchAgentInput
 
 agent = WebSearchAgent(
-    llm_client=openrouter,
+    llm_client=llm_client,
     search_service=topic_search,
     cfg=web_search_config,
     correlation_id="abc123",

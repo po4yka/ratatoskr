@@ -102,13 +102,13 @@ mcp:
 | `API_HASH` | Telegram API hash |
 | `BOT_TOKEN` | Telegram bot token (from BotFather) |
 | `ALLOWED_USER_IDS` | Comma-separated Telegram user IDs for allowlist-gated bot/API/MCP paths. When empty, JWT API and hosted MCP auth run fail-open, while Telegram bot access and some onboarding paths remain separately constrained. |
-| `OPENROUTER_API_KEY` | OpenRouter API key |
+| `OPENROUTER_API_KEY` | OpenRouter API key for the default `LLM_PROVIDER=openrouter` path |
 
 ## [OPTIONAL] LLM Provider Selection
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `LLM_PROVIDER` | `openrouter` | Active LLM backend: `openrouter`, `openai`, or `anthropic` |
+| `LLM_PROVIDER` | `openrouter` | Active LLM backend: `openrouter`, `openai`, `anthropic`, or `ollama` |
 | `OPENAI_API_KEY` | _(empty)_ | OpenAI API key (when using `openai` provider) |
 | `OPENAI_MODEL` | `gpt-4o` | OpenAI model name |
 | `OPENAI_FALLBACK_MODELS` | `gpt-4o-mini` | Comma-separated fallback models |
@@ -118,6 +118,12 @@ mcp:
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-5-20250929` | Anthropic model name |
 | `ANTHROPIC_FALLBACK_MODELS` | `claude-3-5-haiku-20241022` | Comma-separated fallback models |
 | `ANTHROPIC_ENABLE_STRUCTURED_OUTPUTS` | `true` | Enable structured output mode |
+| `OLLAMA_BASE_URL` | _(empty)_ | OpenAI-compatible Ollama/cloud endpoint base URL (when using `ollama` provider) |
+| `OLLAMA_API_KEY` | _(empty)_ | API key or bearer token for the Ollama-compatible endpoint |
+| `OLLAMA_MODEL` | `llama3.3` | Ollama-compatible model name |
+| `OLLAMA_FALLBACK_MODELS` | _(empty)_ | Comma-separated fallback models |
+| `OLLAMA_ENABLE_STRUCTURED_OUTPUTS` | `false` | Enable structured output mode for compatible hosted models |
+| `OLLAMA_MAX_RESPONSE_SIZE_MB` | `10` | Max response payload size (MB) for the Ollama-compatible client |
 
 ## [REQUIRED] OpenRouter (Default LLM Provider)
 
@@ -618,7 +624,7 @@ Configures scheduled nulling of raw artifact columns and cleanup of orphaned loc
 
 ## LLM Call Timeouts
 
-These knobs govern how long the OpenRouter chat engine spends per model and per call.
+These knobs govern how long the generic LLM response workflow spends per provider call and per model attempt. OpenRouter uses the full fallback ladder and per-model budget enforcement; OpenAI, Anthropic, and Ollama clients accept the same protocol kwargs so the workflow can pass them safely, even when a provider ignores unsupported streaming or timeout details.
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |

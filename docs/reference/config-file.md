@@ -19,7 +19,7 @@ Environment variables remain the final override for container platforms and secr
 
 ## Minimal `.env`
 
-Only these values are required for the Telegram bot + OpenRouter path:
+Only these values are required for the Telegram bot plus default OpenRouter LLM path:
 
 ```env
 API_ID=123456
@@ -112,6 +112,7 @@ mcp:
 ## Notes
 
 - OpenRouter is the primary supported provider path for first-run setup.
+- `LLM_PROVIDER` selects the active summarization backend. Valid values are `openrouter`, `openai`, `anthropic`, and `ollama`; every provider must implement `LLMClientProtocol.chat()` with the generic workflow kwargs (`stream`, `on_stream_delta`, `per_model_timeout_sec`, and `per_model_timeout_overrides`) so the summarization workflow can invoke it without adapter-specific branches.
 - Cloud Ollama uses an OpenAI-compatible `/v1` endpoint. Structured output quality varies by hosted model, so `ollama.enable_structured_outputs` defaults to `false`. When using `LLM_PROVIDER=ollama`, failures usually fall into four buckets: `/models` is unreachable, the model name is not installed by the remote provider, the provider times out on long articles, or the model returns weak/invalid JSON. Prefer models that advertise OpenAI-compatible chat completions and test summaries before using them unattended.
 - The default scraper chain order is Scrapling → Crawl4AI → Firecrawl → Defuddle → Playwright → Crawlee → direct HTML → Scrapegraph-AI. Each provider is skipped when its sidecar is unavailable or its enabled flag is false. See [`docs/explanation/scraper-chain.md`](../explanation/scraper-chain.md) for the full chain reference.
 - The `firecrawl` provider slot activates only when `scraper.firecrawl_self_hosted_enabled: true`; cloud Firecrawl is not used for article scraping. `FIRECRAWL_API_KEY` is only consumed by the web-search enrichment path (`TopicSearchService`), not by the scraper chain.

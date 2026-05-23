@@ -40,12 +40,13 @@ _URL_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 _AUTH_HEADER_RE = re.compile(
-    r"\b(authorization|cookie|set-cookie|x-api-key)\s*[:=]\s*([^,\s;]+)",
+    r"\b(authorization|cookie|set-cookie|x-api-key)\s*[:=]\s*([^,;\n]+)",
     re.IGNORECASE,
 )
 _TOKEN_ASSIGNMENT_RE = re.compile(
-    r"\b(access_token|refresh_token|api_key|telegram_token|github_token|bot_token|"
-    r"personal_access_token|pat|client_secret|device_code|token|secret)"
+    r"\b(access_token|refresh_token|authorization_code|oauth_code|oauth_state|api_key|"
+    r"telegram_token|github_token|bot_token|personal_access_token|pat|client_secret|"
+    r"device_code|cookie|cookies|code|state|token|secret)"
     r"\s*[:=]\s*([A-Za-z0-9._~:/+\-=]{8,})",
     re.IGNORECASE,
 )
@@ -59,13 +60,17 @@ _URL_WITH_SECRET_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 _URL_SECRET_QUERY_KEYS = {
     "access_token",
     "auth",
+    "authorization_code",
     "code",
     "key",
+    "oauth_code",
+    "oauth_state",
     "password",
     "refresh_token",
     "secret",
     "sig",
     "signature",
+    "state",
     "token",
 }
 _OPERATIONAL_KEY_EXACT = {
@@ -76,7 +81,14 @@ _OPERATIONAL_KEY_EXACT = {
     "tokens_total",
     "total_tokens",
 }
-_SENSITIVE_KEY_EXACT = {"pat"}
+_SENSITIVE_KEY_EXACT = {
+    "authorization_code",
+    "code",
+    "oauth_code",
+    "oauth_state",
+    "pat",
+    "state",
+}
 
 
 def _privacy_redact_urls_default() -> bool:

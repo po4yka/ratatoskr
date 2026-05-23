@@ -338,7 +338,7 @@ def create_url_processor() -> URLProcessor:
         cfg=cfg,
         db=db,
         firecrawl=scraper_chain,
-        openrouter=llm_client,
+        llm_client=llm_client,
         response_formatter=response_formatter,
         audit_func=audit_sink,
         sem=semaphore_factory,
@@ -353,21 +353,30 @@ def create_url_processor() -> URLProcessor:
 
 ### Strategy Pattern (Pluggable Algorithms)
 
-**Location:** `app/adapters/llm/providers/`
+**Location:** `app/adapters/llm/protocol.py`, `app/adapters/llm/factory.py`, `app/adapters/openrouter/`, `app/adapters/llm/openai/`, `app/adapters/llm/anthropic/`
 
 **Purpose:** Swap LLM providers without changing caller code.
 
 **Example:**
 
 ```python
-class LLMProvider(Protocol):
-    async def complete(self, prompt: str) -> str: ...
+class LLMClientProtocol(Protocol):
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        stream: bool = False,
+        on_stream_delta: Callable[[str], Awaitable[None] | None] | None = None,
+        per_model_timeout_sec: float | None = None,
+        per_model_timeout_overrides: dict[str, float] | None = None,
+    ) -> LLMCallResult: ...
 
-class OpenRouterProvider(LLMProvider): ...
-class AnthropicProvider(LLMProvider): ...
+class OpenRouterClient(LLMClientProtocol): ...
+class OpenAIClient(LLMClientProtocol): ...
+class AnthropicClient(LLMClientProtocol): ...
 ```
 
-**Benefits:** Add new LLM providers by implementing the protocol.
+**Benefits:** Add new LLM providers by implementing the real workflow protocol instead of accepting arbitrary kwargs in the generic summarization path.
 
 ---
 
