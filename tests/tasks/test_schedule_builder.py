@@ -215,3 +215,49 @@ def test_x_bookmarks_sync_schedule_skipped_when_disabled(monkeypatch):
     tasks = source._build_tasks()
 
     assert not any(t.task_name == "ratatoskr.x.sync_bookmarks" for t in tasks)
+
+
+def test_x_wiki_sync_schedule_added_when_enabled(monkeypatch):
+    """When ``x_bookmarks.enabled`` is True, both bookmark and wiki sync tasks are added."""
+    mod = _load_scheduler_module(monkeypatch)
+
+    cfg = MagicMock()
+    cfg.digest.enabled = False
+    cfg.rss.enabled = False
+    cfg.signal_ingestion.any_enabled = False
+    cfg.github.sync_enabled = False
+    cfg.vector_reconcile.enabled = False
+    cfg.retention.enabled = False
+    cfg.x_bookmarks.enabled = True
+    cfg.x_bookmarks.sync_cron = "*/15 * * * *"
+    cfg.x_bookmarks.wiki_sync_cron = "0 * * * *"
+
+    monkeypatch.setattr(mod, "load_config", lambda: cfg)
+    source = mod._AppConfigScheduleSource()
+    tasks = source._build_tasks()
+
+    wiki_tasks = [t for t in tasks if t.task_name == "ratatoskr.x.sync_wiki"]
+    assert len(wiki_tasks) == 1
+    assert wiki_tasks[0].cron == "0 * * * *"
+    assert wiki_tasks[0].labels == {"job": "x_wiki_sync"}
+
+
+def test_x_wiki_sync_schedule_skipped_when_disabled(monkeypatch):
+    """When ``x_bookmarks.enabled`` is False, neither bookmark nor wiki sync is added."""
+    mod = _load_scheduler_module(monkeypatch)
+
+    cfg = MagicMock()
+    cfg.digest.enabled = False
+    cfg.rss.enabled = False
+    cfg.signal_ingestion.any_enabled = False
+    cfg.github.sync_enabled = False
+    cfg.vector_reconcile.enabled = False
+    cfg.retention.enabled = False
+    cfg.x_bookmarks.enabled = False
+
+    monkeypatch.setattr(mod, "load_config", lambda: cfg)
+    source = mod._AppConfigScheduleSource()
+    tasks = source._build_tasks()
+
+    assert not any(t.task_name == "ratatoskr.x.sync_wiki" for t in tasks)
+    assert not any(t.task_name == "ratatoskr.x.sync_bookmarks" for t in tasks)

@@ -328,3 +328,82 @@ def test_delete_x_wiki_paths_noop_on_empty(
     store.delete_x_wiki_paths([])
 
     assert fake_client_with_hashes.delete_calls == []
+
+
+def test_path_hashes_returns_empty_when_store_unavailable() -> None:
+    """``get_indexed_x_wiki_path_hashes`` returns ``{}`` when the store is unavailable."""
+    with patch(
+        "app.infrastructure.vector.qdrant_store.QdrantClient",
+        side_effect=RuntimeError("connection refused"),
+    ):
+        store = QdrantVectorStore(
+            url="http://bad-host:6333",
+            api_key=None,
+            environment="test",
+            user_scope="unit",
+            embedding_dim=EMBEDDING_DIM,
+            required=False,
+        )
+
+    assert not store.available
+
+    with patch.object(QdrantVectorStore, "ensure_available", return_value=False) as ensure:
+        result = store.get_indexed_x_wiki_path_hashes()
+
+    assert result == {}
+    assert ensure.called
+
+
+def test_delete_x_wiki_paths_logs_warning_when_store_unavailable() -> None:
+    """``delete_x_wiki_paths`` skips the delete and logs when the store is unavailable."""
+    with patch(
+        "app.infrastructure.vector.qdrant_store.QdrantClient",
+        side_effect=RuntimeError("connection refused"),
+    ):
+        store = QdrantVectorStore(
+            url="http://bad-host:6333",
+            api_key=None,
+            environment="test",
+            user_scope="unit",
+            embedding_dim=EMBEDDING_DIM,
+            required=False,
+        )
+
+    assert not store.available
+
+    with patch.object(QdrantVectorStore, "ensure_available", return_value=False):
+        # Should not raise; should be a silent no-op when unavailable.
+        store.delete_x_wiki_paths(["/some/path.md"])
+
+    # No client was ever connected, so no delete occurred.
+    assert store._client is None
+
+
+def test_delete_x_wiki_paths_logs_and_marks_unavailable_on_error() -> None:
+    """When ``_client.delete`` raises, the store marks itself unavailable and swallows
+    the exception (``required=False`` graceful-degradation contract)."""
+    failing_client = MagicMock()
+    failing_client.get_collections.return_value = None
+    failing_client.collection_exists.return_value = True
+    failing_client.delete.side_effect = RuntimeError("qdrant delete failed")
+
+    with patch(
+        "app.infrastructure.vector.qdrant_store.QdrantClient",
+        return_value=failing_client,
+    ):
+        store = QdrantVectorStore(
+            url="http://localhost:6333",
+            api_key=None,
+            environment="test",
+            user_scope="unit",
+            embedding_dim=EMBEDDING_DIM,
+            required=False,
+        )
+
+    assert store.available
+
+    store.delete_x_wiki_paths(["/some/path.md"])
+
+    # After a failed delete the store self-marks as unavailable.
+    assert not store.available
+    failing_client.delete.assert_called_once()

@@ -242,6 +242,68 @@ async def test_graceful_missing_library_dir(
 
 
 @pytest.mark.asyncio
+async def test_oserror_on_read_is_logged_and_skipped(
+    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An OSError on ``path.read_text`` skips that file and logs a warning."""
+    library = tmp_path / "library"
+    library.mkdir()
+    path = _write_md(library, "unreadable.md", "body")
+
+    vector_store = _FakeVectorStore()
+    embedding = _FakeEmbeddingService()
+    service = XWikiSyncService(
+        library_path=library,
+        vector_store=vector_store,
+        embedding_service=embedding,
+    )
+
+    import unittest.mock as _mock
+
+    with _mock.patch.object(
+        pathlib.Path, "read_text", side_effect=OSError("permission denied")
+    ):
+        with caplog.at_level(logging.WARNING):
+            summary = await service.sync()
+
+    # File was seen but not changed (read failed, so upsert never called).
+    assert summary.files_seen == 1
+    assert summary.files_changed == 0
+    assert embedding.calls == []
+    assert vector_store.upsert_calls == []
+    assert any(
+        record.message == "x_wiki_sync_read_failed" for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_user_id_forwarded_to_vector_store(tmp_path: pathlib.Path) -> None:
+    """``user_id`` passed to the service is forwarded to ``get_indexed_x_wiki_path_hashes``."""
+    library = tmp_path / "library"
+    library.mkdir()
+
+    recorded_user_ids: list[int | None] = []
+
+    class _TrackingStore(_FakeVectorStore):
+        def get_indexed_x_wiki_path_hashes(
+            self, *, user_id: int | None = None, limit: int | None = 5000
+        ) -> dict[str, str]:
+            recorded_user_ids.append(user_id)
+            return {}
+
+    service = XWikiSyncService(
+        library_path=library,
+        vector_store=_TrackingStore(),
+        embedding_service=_FakeEmbeddingService(),
+        user_id=99,
+    )
+
+    await service.sync()
+
+    assert recorded_user_ids == [99]
+
+
+@pytest.mark.asyncio
 async def test_mixed_pass_skips_changes_and_orphans(tmp_path: pathlib.Path) -> None:
     library = tmp_path / "library"
     library.mkdir()

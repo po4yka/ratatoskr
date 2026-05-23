@@ -78,6 +78,49 @@ def _build_cfg(
     )
 
 
+def test_di_build_x_wiki_sync_task_runtime_constructs_service(monkeypatch) -> None:
+    """The DI factory wires an ``XWikiSyncService`` with the configured library path.
+
+    ``build_x_wiki_sync_task_runtime`` lazy-imports its collaborators inside the
+    function body via ``from X import Y``, so at call time it resolves names from
+    their source modules.  Patch at source-module level while the patches are
+    active around the call.
+    """
+    _stub_taskiq(monkeypatch)
+    _evict_app_tasks()
+
+    from unittest.mock import MagicMock, patch
+
+    fake_vector_store = MagicMock()
+    fake_embedding = MagicMock()
+
+    cfg = SimpleNamespace(
+        x_bookmarks=SimpleNamespace(
+            enabled=True,
+            wiki_sync_cron="0 * * * *",
+            library_path="/srv/ft/library",
+        ),
+        embedding=SimpleNamespace(),  # accessed as `cfg.embedding` by create_embedding_service
+    )
+    db = SimpleNamespace(name="db")
+
+    from app.di.tasks import build_x_wiki_sync_task_runtime
+
+    with (
+        patch("app.di.shared.build_qdrant_vector_store", return_value=fake_vector_store),
+        patch(
+            "app.infrastructure.embedding.embedding_factory.create_embedding_service",
+            return_value=fake_embedding,
+        ),
+    ):
+        runtime = build_x_wiki_sync_task_runtime(cfg, db)  # type: ignore[arg-type]
+
+    assert runtime.cfg is cfg
+    assert runtime.db is db
+    assert runtime.service is not None
+    assert str(runtime.service._library_path) == "/srv/ft/library"
+
+
 @pytest.mark.asyncio
 async def test_sync_short_circuits_when_disabled_else_delegates_to_service(monkeypatch):
     """Combined acceptance: short-circuit when disabled, delegate when enabled."""

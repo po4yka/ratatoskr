@@ -195,3 +195,45 @@ def test_di_build_x_bookmarks_task_runtime_constructs_ingestor(monkeypatch) -> N
     assert runtime.ingestor is not None
     # Path is normalized to pathlib.Path inside the ingestor.
     assert str(runtime.ingestor._bookmarks_db_path) == "/tmp/test-bookmarks.db"
+
+
+@pytest.mark.asyncio
+async def test_sync_body_summary_excludes_skipped_metadata_slot_taken(monkeypatch):
+    """``XBookmarksSyncSummary`` does not expose ``skipped_metadata_slot_taken``
+    (the field exists on ``XIngestStats`` but is not part of the task's public
+    summary shape).  The summary's accessible fields must map correctly from stats.
+    """
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.tasks.x_bookmarks_sync import _sync_body
+
+    ingestor = SimpleNamespace(
+        sync=AsyncMock(
+            return_value=_build_stats(
+                bookmarks_seen=2,
+                requests_created=1,
+                metadata_inserted=1,
+                metadata_updated=0,
+                skipped_invalid_category=0,
+                skipped_invalid_url=0,
+                skipped_metadata_slot_taken=1,  # present in XIngestStats but not summary
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "app.tasks.x_bookmarks_sync.build_x_bookmarks_task_runtime",
+        lambda cfg, db: SimpleNamespace(cfg=cfg, db=db, ingestor=ingestor),
+    )
+
+    summary = await _sync_body(_build_cfg(), MagicMock())
+
+    assert summary.bookmarks_seen == 2
+    assert summary.requests_created == 1
+    assert summary.metadata_inserted == 1
+    assert summary.metadata_updated == 0
+    assert summary.skipped_invalid_category == 0
+    assert summary.skipped_invalid_url == 0
+    # XBookmarksSyncSummary intentionally omits skipped_metadata_slot_taken.
+    assert not hasattr(summary, "skipped_metadata_slot_taken")

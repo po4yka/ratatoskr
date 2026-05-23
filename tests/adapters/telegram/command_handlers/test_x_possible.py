@@ -154,3 +154,160 @@ async def test_reports_empty_payload_when_no_nodes(tmp_path: pathlib.Path) -> No
     reply.assert_awaited_once()
     _, text = reply.await_args.args
     assert "no idea nodes" in text
+
+
+@pytest.mark.asyncio
+async def test_extract_nodes_from_ideas_container_key(tmp_path: pathlib.Path) -> None:
+    """``_extract_nodes`` must also recognise the ``ideas`` container key."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    (ideas / "run.json").write_text(
+        json.dumps({"ideas": [{"title": "From ideas key", "prompt": "details"}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "From ideas key" in text
+
+
+@pytest.mark.asyncio
+async def test_extract_nodes_from_items_container_key(tmp_path: pathlib.Path) -> None:
+    """``_extract_nodes`` must also recognise the ``items`` container key."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    (ideas / "run.json").write_text(
+        json.dumps({"items": [{"title": "From items key", "prompt": "details"}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "From items key" in text
+
+
+@pytest.mark.asyncio
+async def test_extract_nodes_from_results_container_key(tmp_path: pathlib.Path) -> None:
+    """``_extract_nodes`` must also recognise the ``results`` container key."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    (ideas / "run.json").write_text(
+        json.dumps({"results": [{"title": "From results key", "prompt": "details"}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "From results key" in text
+
+
+@pytest.mark.asyncio
+async def test_node_body_truncated_at_200_chars(tmp_path: pathlib.Path) -> None:
+    """Body strings longer than 200 chars must be truncated with an ellipsis."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    long_body = "X" * 250
+    (ideas / "run.json").write_text(
+        json.dumps({"nodes": [{"title": "Node A", "prompt": long_body}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "..." in text
+    # Exactly 197 Xs + "..."
+    assert "X" * 197 + "..." in text
+    assert "X" * 198 not in text
+
+
+@pytest.mark.asyncio
+async def test_node_id_field_shown_in_suffix(tmp_path: pathlib.Path) -> None:
+    """When a node has ``id``, the suffix ``(id: <value>)`` appears in the reply."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    (ideas / "run.json").write_text(
+        json.dumps({"nodes": [{"id": "abc-123", "title": "Node with id"}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "(id: abc-123)" in text
+
+
+@pytest.mark.asyncio
+async def test_node_node_id_field_shown_in_suffix(tmp_path: pathlib.Path) -> None:
+    """When a node has ``node_id`` (not ``id``), the suffix still appears."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    (ideas / "run.json").write_text(
+        json.dumps({"nodes": [{"node_id": "nid-42", "title": "Node with node_id"}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "(id: nid-42)" in text
+
+
+@pytest.mark.asyncio
+async def test_node_without_known_title_key_uses_fallback(tmp_path: pathlib.Path) -> None:
+    """A node with no recognised title key falls back to ``node #<n>``."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    (ideas / "run.json").write_text(
+        json.dumps({"nodes": [{"unknown_key": "value"}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "node #1" in text
+
+
+@pytest.mark.asyncio
+async def test_singular_node_count_label(tmp_path: pathlib.Path) -> None:
+    """Exactly one node uses the singular label ``(1 node)`` not ``(1 nodes)``."""
+    ideas = tmp_path / "ideas"
+    ideas.mkdir()
+    (ideas / "run.json").write_text(
+        json.dumps({"nodes": [{"title": "Solo"}]}),
+        encoding="utf-8",
+    )
+
+    handler = XPossibleHandler(_make_cfg(ideas))
+    reply = AsyncMock()
+
+    await _wrapped(handler)(handler, _make_ctx(reply))
+
+    _, text = reply.await_args.args
+    assert "(1 node)" in text
+    assert "(1 nodes)" not in text
