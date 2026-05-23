@@ -119,7 +119,9 @@ class _FakeSignalSourceRepository:
     def __init__(self, *, max_items_per_run: int | None = None) -> None:
         self.sources: list[dict[str, Any]] = []
         self.items: list[dict[str, Any]] = []
+        self.item_batches: list[dict[str, Any]] = []
         self.subscriptions: list[dict[str, Any]] = []
+        self.subscription_batches: list[dict[str, Any]] = []
         self.successes: list[int] = []
         self.errors: list[dict[str, Any]] = []
         self.run_state = {
@@ -137,12 +139,46 @@ class _FakeSignalSourceRepository:
         self.subscriptions.append(kwargs)
         return {"id": len(self.subscriptions), **kwargs}
 
+    async def async_subscribe_many(
+        self,
+        *,
+        source_id: int,
+        user_ids: list[int],
+        topic_constraints: dict[str, Any] | None = None,
+    ) -> None:
+        self.subscription_batches.append(
+            {
+                "source_id": source_id,
+                "user_ids": list(user_ids),
+                "topic_constraints": topic_constraints,
+            }
+        )
+        for user_id in user_ids:
+            row: dict[str, Any] = {"user_id": user_id, "source_id": source_id}
+            if topic_constraints is not None:
+                row["topic_constraints"] = topic_constraints
+            self.subscriptions.append(row)
+
     async def async_get_source_run_state(self, source_id: int) -> dict[str, Any]:
         return self.run_state
 
     async def async_upsert_feed_item(self, **kwargs: Any) -> dict[str, Any]:
         self.items.append(kwargs)
         return {"id": len(self.items), **kwargs}
+
+    async def async_upsert_feed_items(
+        self,
+        *,
+        source_id: int,
+        items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        self.item_batches.append({"source_id": source_id, "items": list(items)})
+        rows = []
+        for item in items:
+            row = {"source_id": source_id, **item}
+            self.items.append(row)
+            rows.append({"id": len(self.items), **row})
+        return rows
 
     async def async_record_source_fetch_success(self, source_id: int) -> None:
         self.successes.append(source_id)

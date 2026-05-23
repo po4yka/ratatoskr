@@ -31,6 +31,15 @@ class SignalSourceRepositoryPort(Protocol):
     ) -> dict[str, Any]:
         """Create or reactivate a user's source subscription."""
 
+    async def async_subscribe_many(
+        self,
+        *,
+        source_id: int,
+        user_ids: list[int],
+        topic_constraints: dict[str, Any] | None = None,
+    ) -> None:
+        """Create or reactivate many users' source subscriptions."""
+
     async def async_get_source(self, source_id: int) -> dict[str, Any] | None:
         """Return a source by ID."""
 
@@ -93,6 +102,14 @@ class SignalSourceRepositoryPort(Protocol):
     ) -> dict[str, Any]:
         """Create or update an ingested item."""
 
+    async def async_upsert_feed_items(
+        self,
+        *,
+        source_id: int,
+        items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Create or update many ingested items."""
+
     async def async_list_user_subscriptions(self, user_id: int) -> list[dict[str, Any]]:
         """List subscriptions visible to a user."""
 
@@ -139,6 +156,13 @@ class SignalSourceRepositoryPort(Protocol):
         llm_cost_usd: float | None = None,
     ) -> dict[str, Any]:
         """Persist one scored signal candidate."""
+
+    async def async_record_user_signals(
+        self,
+        *,
+        signals: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Persist many scored signal candidates."""
 
     async def async_update_user_signal_status(
         self,

@@ -6,7 +6,7 @@ import datetime as dt
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.time_utils import UTC, coerce_datetime
@@ -175,6 +175,8 @@ class CollectionRepositoryAdapter:
         item_positions: list[dict[str, int]],
     ) -> None:
         collection_ids = [item["collection_id"] for item in item_positions]
+        if not collection_ids:
+            return
         async with self._database.transaction() as session:
             stmt = select(Collection.id).where(
                 Collection.id.in_(collection_ids),
@@ -185,13 +187,25 @@ class CollectionRepositoryAdapter:
             else:
                 stmt = stmt.where(Collection.parent_id == parent_id)
             existing = set((await session.execute(stmt)).scalars())
-            for item in item_positions:
-                if item["collection_id"] in existing:
-                    await session.execute(
-                        update(Collection)
-                        .where(Collection.id == item["collection_id"])
-                        .values(position=item["position"], updated_at=_now())
-                    )
+            positions_by_id = {
+                item["collection_id"]: item["position"]
+                for item in item_positions
+                if item["collection_id"] in existing
+            }
+            if not positions_by_id:
+                return
+            await session.execute(
+                update(Collection)
+                .where(Collection.id.in_(positions_by_id))
+                .values(
+                    position=case(
+                        positions_by_id,
+                        value=Collection.id,
+                        else_=Collection.position,
+                    ),
+                    updated_at=_now(),
+                )
+            )
 
     async def async_move_collection(
         self,
@@ -389,25 +403,31 @@ class CollectionRepositoryAdapter:
                     await session.execute(select(Summary.id).where(Summary.id.in_(summary_ids)))
                 ).scalars()
             )
-            inserted = 0
+            values: list[dict[str, Any]] = []
+            seen_summary_ids: set[int] = set()
             for position, summary_id in enumerate(summary_ids, start=1):
-                if summary_id not in existing_summary_ids:
+                if summary_id not in existing_summary_ids or summary_id in seen_summary_ids:
                     continue
-                inserted_id = await session.scalar(
+                seen_summary_ids.add(summary_id)
+                values.append(
+                    {
+                        "collection_id": collection_id,
+                        "summary_id": summary_id,
+                        "position": position,
+                        "created_at": _now(),
+                    }
+                )
+            inserted = 0
+            if values:
+                result = await session.execute(
                     insert(CollectionItem)
-                    .values(
-                        collection_id=collection_id,
-                        summary_id=summary_id,
-                        position=position,
-                        created_at=_now(),
-                    )
+                    .values(values)
                     .on_conflict_do_nothing(
                         index_elements=[CollectionItem.collection_id, CollectionItem.summary_id]
                     )
                     .returning(CollectionItem.id)
                 )
-                if inserted_id is not None:
-                    inserted += 1
+                inserted = len(result.scalars().all())
             await _touch_collection(session, collection_id)
             return inserted
 
@@ -441,15 +461,16 @@ class CollectionRepositoryAdapter:
                     )
                 ).scalars()
             )
-
+            moving_summary_ids = [
+                summary_id for summary_id in summary_ids if summary_id in existing_summary_ids
+            ]
             moved: list[int] = []
-            for summary_id in summary_ids:
-                if summary_id not in existing_summary_ids:
-                    continue
+            if moving_summary_ids:
+                unique_moving_ids = list(dict.fromkeys(moving_summary_ids))
                 await session.execute(
                     delete(CollectionItem).where(
                         CollectionItem.collection_id == source_collection_id,
-                        CollectionItem.summary_id == summary_id,
+                        CollectionItem.summary_id.in_(unique_moving_ids),
                     )
                 )
                 if position is not None:
@@ -460,26 +481,71 @@ class CollectionRepositoryAdapter:
                             CollectionItem.position.is_not(None),
                             CollectionItem.position >= insert_pos,
                         )
-                        .values(position=CollectionItem.position + 1)
+                        .values(position=CollectionItem.position + len(moving_summary_ids))
                     )
-                inserted_id = await session.scalar(
-                    insert(CollectionItem)
-                    .values(
-                        collection_id=target_collection_id,
-                        summary_id=summary_id,
-                        position=insert_pos,
-                        created_at=_now(),
+
+                values: list[dict[str, Any]] = []
+                if source_collection_id == target_collection_id:
+                    final_positions: dict[int, int] = {}
+                    for offset, summary_id in enumerate(moving_summary_ids):
+                        final_positions[summary_id] = insert_pos + offset
+                    values = [
+                        {
+                            "collection_id": target_collection_id,
+                            "summary_id": summary_id,
+                            "position": final_positions[summary_id],
+                            "created_at": _now(),
+                        }
+                        for summary_id in dict.fromkeys(moving_summary_ids)
+                    ]
+                    moved = moving_summary_ids
+                else:
+                    target_summary_ids = set(
+                        (
+                            await session.execute(
+                                select(CollectionItem.summary_id).where(
+                                    CollectionItem.collection_id == target_collection_id,
+                                    CollectionItem.summary_id.in_(unique_moving_ids),
+                                )
+                            )
+                        ).scalars()
                     )
-                    .on_conflict_do_nothing(
-                        index_elements=[CollectionItem.collection_id, CollectionItem.summary_id]
+                    seen_target_ids = set(target_summary_ids)
+                    insert_order: list[int] = []
+                    for summary_id in moving_summary_ids:
+                        if summary_id in seen_target_ids:
+                            continue
+                        seen_target_ids.add(summary_id)
+                        insert_order.append(summary_id)
+                        values.append(
+                            {
+                                "collection_id": target_collection_id,
+                                "summary_id": summary_id,
+                                "position": insert_pos + len(insert_order) - 1,
+                                "created_at": _now(),
+                            }
+                        )
+                if values:
+                    result = await session.execute(
+                        insert(CollectionItem)
+                        .values(values)
+                        .on_conflict_do_nothing(
+                            index_elements=[
+                                CollectionItem.collection_id,
+                                CollectionItem.summary_id,
+                            ]
+                        )
+                        .returning(CollectionItem.summary_id)
                     )
-                    .returning(CollectionItem.id)
-                )
-                if inserted_id is not None:
-                    moved.append(summary_id)
-                    insert_pos += 1
-            await _touch_collection(session, source_collection_id)
-            await _touch_collection(session, target_collection_id)
+                    inserted_ids = set(result.scalars().all())
+                    if source_collection_id != target_collection_id:
+                        moved = [
+                            value["summary_id"]
+                            for value in values
+                            if value["summary_id"] in inserted_ids
+                        ]
+
+            await _touch_collections(session, [source_collection_id, target_collection_id])
             return moved
 
     async def async_get_role(self, collection_id: int, user_id: int) -> str | None:
@@ -766,8 +832,15 @@ def _invite_dict(invite: CollectionInvite) -> dict[str, Any]:
 
 
 async def _touch_collection(session: Any, collection_id: int) -> None:
+    await _touch_collections(session, [collection_id])
+
+
+async def _touch_collections(session: Any, collection_ids: list[int]) -> None:
+    unique_collection_ids = list(dict.fromkeys(collection_ids))
+    if not unique_collection_ids:
+        return
     await session.execute(
-        update(Collection).where(Collection.id == collection_id).values(updated_at=_now())
+        update(Collection).where(Collection.id.in_(unique_collection_ids)).values(updated_at=_now())
     )
 
 

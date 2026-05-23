@@ -36,6 +36,17 @@ async def _require_feed_subscription(repo: Any, *, user_id: int, feed_id: int) -
     return dict(subscription)
 
 
+def _feed_entry_payload(entry: Any) -> dict[str, Any]:
+    return {
+        "guid": entry.guid,
+        "title": entry.title,
+        "url": entry.url,
+        "content": entry.content,
+        "author": entry.author,
+        "published_at": entry.published_at,
+    }
+
+
 # --- Subscription endpoints ---
 
 
@@ -100,16 +111,10 @@ async def subscribe(
     )
 
     # Store initial items
-    for entry in result.entries:
-        await repo.async_create_feed_item(
-            feed_id=feed_id,
-            guid=entry.guid,
-            title=entry.title,
-            url=entry.url,
-            content=entry.content,
-            author=entry.author,
-            published_at=entry.published_at,
-        )
+    await repo.async_create_feed_items(
+        feed_id=feed_id,
+        items=[_feed_entry_payload(entry) for entry in result.entries],
+    )
 
     # Create subscription
     sub = await repo.async_create_subscription(
@@ -212,19 +217,11 @@ async def refresh_feed(
     if result.not_modified:
         return success_response({"feed_id": feed_id, "new_items": 0, "not_modified": True})
 
-    new_count = 0
-    for entry in result.entries:
-        item = await repo.async_create_feed_item(
-            feed_id=feed_id,
-            guid=entry.guid,
-            title=entry.title,
-            url=entry.url,
-            content=entry.content,
-            author=entry.author,
-            published_at=entry.published_at,
-        )
-        if item is not None:
-            new_count += 1
+    items = await repo.async_create_feed_items(
+        feed_id=feed_id,
+        items=[_feed_entry_payload(entry) for entry in result.entries],
+    )
+    new_count = len(items)
 
     # Update feed metadata
     from datetime import datetime

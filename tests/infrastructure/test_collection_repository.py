@@ -199,8 +199,17 @@ async def test_collection_repository_item_and_smart_collection_operations(
     moved = await repo.async_move_items(source_id, target_id, [summary_a.id], 1)
     assert moved == [summary_a.id]
 
-    inserted = await repo.async_bulk_set_items(target_id, [summary_b.id, summary_a.id])
+    missing_summary_id = max(summary_a.id, summary_b.id) + 100_000
+    inserted = await repo.async_bulk_set_items(
+        target_id,
+        [missing_summary_id, summary_b.id, summary_b.id, summary_a.id],
+    )
     assert inserted == 2
+    target_positions = {
+        item["summary"]: item["position"]
+        for item in await repo.async_list_items(target_id, limit=10, offset=0)
+    }
+    assert target_positions == {summary_b.id: 2, summary_a.id: 4}
 
     await repo.async_shift_item_positions(target_id, 1)
     target_items = await repo.async_list_items(target_id, limit=10, offset=0)
@@ -217,6 +226,44 @@ async def test_collection_repository_item_and_smart_collection_operations(
     request_ids = {row["request"]["id"] for row in rows}
     assert len(rows) == 2
     assert request_ids == {summary_a.request_id, summary_b.request_id}
+
+
+@pytest.mark.asyncio
+async def test_collection_repository_move_items_preserves_target_conflict_shift(
+    database: Database,
+) -> None:
+    repo = CollectionRepositoryAdapter(database)
+    owner = await _create_user(database, telegram_user_id=7012, username="owner-move-conflict")
+    source_id = await repo.async_create_collection(
+        user_id=owner.telegram_user_id,
+        name="Conflict Source",
+        description=None,
+        parent_id=None,
+        position=1,
+    )
+    target_id = await repo.async_create_collection(
+        user_id=owner.telegram_user_id,
+        name="Conflict Target",
+        description=None,
+        parent_id=None,
+        position=2,
+    )
+    summary_a = await _create_summary(database, user=owner, suffix="conflict-a")
+    summary_b = await _create_summary(database, user=owner, suffix="conflict-b")
+
+    assert await repo.async_add_item(source_id, summary_a.id, 1) is True
+    assert await repo.async_add_item(source_id, summary_b.id, 2) is True
+    assert await repo.async_add_item(target_id, summary_a.id, 1) is True
+
+    moved = await repo.async_move_items(source_id, target_id, [summary_a.id, summary_b.id], 1)
+
+    assert moved == [summary_b.id]
+    assert await repo.async_list_items(source_id, limit=10, offset=0) == []
+    target_items = await repo.async_list_items(target_id, limit=10, offset=0)
+    assert [(item["summary"], item["position"]) for item in target_items] == [
+        (summary_b.id, 1),
+        (summary_a.id, 3),
+    ]
 
 
 @pytest.mark.asyncio

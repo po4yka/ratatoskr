@@ -458,20 +458,33 @@ class DigestStore:
         return _run_sync(self.async_list_delivered_message_ids(user_id))
 
     async def async_persist_posts(self, channel: Any, posts: list[dict[str, Any]]) -> None:
+        message_ids = [post["message_id"] for post in posts]
         async with self._database().transaction() as session:
-            for post in posts:
-                existing = await session.scalar(
-                    select(ChannelPost).where(
-                        ChannelPost.channel_id == channel.id,
-                        ChannelPost.message_id == post["message_id"],
+            existing_message_ids: set[int] = set()
+            if message_ids:
+                existing_message_ids = set(
+                    (
+                        await session.execute(
+                            select(ChannelPost.message_id).where(
+                                ChannelPost.channel_id == channel.id,
+                                ChannelPost.message_id.in_(message_ids),
+                            )
+                        )
                     )
+                    .scalars()
+                    .all()
                 )
-                if existing is not None:
+
+            queued_message_ids = set(existing_message_ids)
+            for post in posts:
+                message_id = post["message_id"]
+                if message_id in queued_message_ids:
                     continue
+                queued_message_ids.add(message_id)
                 session.add(
                     ChannelPost(
                         channel_id=channel.id,
-                        message_id=post["message_id"],
+                        message_id=message_id,
                         text=post["text"],
                         media_type=post.get("media_type"),
                         date=post["date"],
@@ -526,22 +539,51 @@ class DigestStore:
             if subscription is None:
                 session.add(Subscription(user_id=user_id, source_id=source.id, is_active=True))
 
+            message_ids = [post["message_id"] for post in posts]
+            external_ids = [str(message_id) for message_id in message_ids]
+            channel_posts_by_message_id: dict[int, ChannelPost] = {}
+            feed_items_by_external_id: dict[str, FeedItem] = {}
+            if message_ids:
+                channel_posts_by_message_id = {
+                    channel_post.message_id: channel_post
+                    for channel_post in (
+                        (
+                            await session.execute(
+                                select(ChannelPost).where(
+                                    ChannelPost.channel_id == channel.id,
+                                    ChannelPost.message_id.in_(message_ids),
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                }
+                feed_items_by_external_id = {
+                    item.external_id: item
+                    for item in (
+                        (
+                            await session.execute(
+                                select(FeedItem).where(
+                                    FeedItem.source_id == source.id,
+                                    FeedItem.external_id.in_(external_ids),
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                }
+
             for post in posts:
-                channel_post = await session.scalar(
-                    select(ChannelPost).where(
-                        ChannelPost.channel_id == channel.id,
-                        ChannelPost.message_id == post["message_id"],
-                    )
-                )
-                item = await session.scalar(
-                    select(FeedItem).where(
-                        FeedItem.source_id == source.id,
-                        FeedItem.external_id == str(post["message_id"]),
-                    )
-                )
+                message_id = post["message_id"]
+                external_id = str(message_id)
+                channel_post = channel_posts_by_message_id.get(message_id)
+                item = feed_items_by_external_id.get(external_id)
                 if item is None:
-                    item = FeedItem(source_id=source.id, external_id=str(post["message_id"]))
+                    item = FeedItem(source_id=source.id, external_id=external_id)
                     session.add(item)
+                    feed_items_by_external_id[external_id] = item
 
                 item.canonical_url = post.get("url")
                 item.content_text = post.get("text")

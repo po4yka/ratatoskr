@@ -24,7 +24,9 @@ class _FakeRepository:
     def __init__(self) -> None:
         self.sources: list[dict] = []
         self.items: list[dict] = []
+        self.item_batches: list[dict] = []
         self.subscriptions: list[dict] = []
+        self.subscription_batches: list[dict] = []
         self.successes: list[int] = []
         self.errors: list[dict] = []
         self.run_state: dict | None = {
@@ -41,9 +43,32 @@ class _FakeRepository:
         self.items.append(kwargs)
         return {"id": len(self.items), **kwargs}
 
+    async def async_upsert_feed_items(self, *, source_id, items):
+        self.item_batches.append({"source_id": source_id, "items": list(items)})
+        rows = []
+        for item in items:
+            row = {"source_id": source_id, **item}
+            self.items.append(row)
+            rows.append({"id": len(self.items), **row})
+        return rows
+
     async def async_subscribe(self, **kwargs):
         self.subscriptions.append(kwargs)
         return {"id": len(self.subscriptions), **kwargs}
+
+    async def async_subscribe_many(self, *, source_id, user_ids, topic_constraints=None):
+        self.subscription_batches.append(
+            {
+                "source_id": source_id,
+                "user_ids": list(user_ids),
+                "topic_constraints": topic_constraints,
+            }
+        )
+        for user_id in user_ids:
+            row = {"user_id": user_id, "source_id": source_id}
+            if topic_constraints is not None:
+                row["topic_constraints"] = topic_constraints
+            self.subscriptions.append(row)
 
     async def async_record_source_fetch_success(self, source_id: int):
         self.successes.append(source_id)
@@ -122,7 +147,11 @@ async def test_runner_persists_normalized_items_and_subscriptions() -> None:
     assert repo.sources[0]["kind"] == "fake"
     assert repo.items[0]["external_id"] == "item-1"
     assert repo.items[0]["engagement"]["comments"] == 3
+    assert len(repo.item_batches) == 1
     assert repo.subscriptions == [{"user_id": 1001, "source_id": 1}]
+    assert repo.subscription_batches == [
+        {"source_id": 1, "user_ids": [1001], "topic_constraints": None}
+    ]
     assert repo.successes == [1]
 
 

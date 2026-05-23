@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.application.ports.source_ingestors import (
     AuthSourceError,
@@ -79,8 +79,14 @@ class SourceIngestionRunner:
                     metadata=identity.metadata,
                 )
                 source_id = int(source["id"])
-                for user_id in self._subscriber_user_ids:
-                    await self._repository.async_subscribe(user_id=user_id, source_id=source_id)
+                try:
+                    await self._repository.async_subscribe_many(
+                        source_id=source_id,
+                        user_ids=self._subscriber_user_ids,
+                    )
+                except Exception:
+                    for user_id in self._subscriber_user_ids:
+                        await self._repository.async_subscribe(user_id=user_id, source_id=source_id)
 
                 run_state = await self._repository.async_get_source_run_state(source_id)
                 if not _source_due(run_state, now=now):
@@ -103,19 +109,40 @@ class SourceIngestionRunner:
                     await self._repository.async_record_source_fetch_success(source_id)
                     continue
                 max_items_per_run = _max_items_per_run(run_state)
-                for item in result.items[:max_items_per_run]:
-                    await self._repository.async_upsert_feed_item(
-                        source_id=source_id,
-                        external_id=item.external_id,
-                        canonical_url=item.canonical_url,
-                        title=item.title,
-                        content_text=item.content_text,
-                        author=item.author,
-                        published_at=item.published_at,
-                        engagement=item.engagement,
-                        metadata=item.metadata,
-                    )
-                    items += 1
+                item_payloads: list[dict[str, Any]] = [
+                    {
+                        "external_id": item.external_id,
+                        "canonical_url": item.canonical_url,
+                        "title": item.title,
+                        "content_text": item.content_text,
+                        "author": item.author,
+                        "published_at": item.published_at,
+                        "engagement": item.engagement,
+                        "metadata": item.metadata,
+                    }
+                    for item in result.items[:max_items_per_run]
+                ]
+                if item_payloads:
+                    try:
+                        await self._repository.async_upsert_feed_items(
+                            source_id=source_id,
+                            items=item_payloads,
+                        )
+                        items += len(item_payloads)
+                    except Exception:
+                        for item in item_payloads:
+                            await self._repository.async_upsert_feed_item(
+                                source_id=source_id,
+                                external_id=item["external_id"],
+                                canonical_url=item["canonical_url"],
+                                title=item["title"],
+                                content_text=item["content_text"],
+                                author=item["author"],
+                                published_at=item["published_at"],
+                                engagement=item["engagement"],
+                                metadata=item["metadata"],
+                            )
+                            items += 1
                 await self._repository.async_record_source_fetch_success(source_id)
             except Exception as exc:
                 errors += 1

@@ -24,8 +24,10 @@ class _FakeTopicSimilarity:
 
 
 class _FakeSignalRepository:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_bulk: bool = False) -> None:
         self.recorded: list[dict] = []
+        self.recorded_batches: list[list[dict]] = []
+        self.fail_bulk = fail_bulk
 
     async def async_list_unscored_candidates(self, *, limit: int = 100) -> list[dict]:
         return [
@@ -61,6 +63,12 @@ class _FakeSignalRepository:
         self.recorded.append(dict(kwargs))
         return {"id": len(self.recorded), **kwargs}
 
+    async def async_record_user_signals(self, *, signals):
+        self.recorded_batches.append([dict(signal) for signal in signals])
+        if self.fail_bulk:
+            raise RuntimeError("bulk failed")
+        return [await self.async_record_user_signal(**signal) for signal in signals]
+
 
 @pytest.mark.asyncio
 async def test_signal_ingestion_worker_scores_and_persists_candidates() -> None:
@@ -73,6 +81,7 @@ async def test_signal_ingestion_worker_scores_and_persists_candidates() -> None:
     stats = await worker.run_once(limit=10, now=dt.datetime(2026, 4, 30, tzinfo=UTC))
 
     assert stats == {"candidates": 2, "persisted": 2, "errors": 0, "disabled": False}
+    assert len(repo.recorded_batches) == 1
     assert [row["feed_item_id"] for row in repo.recorded] == [1, 2]
     assert repo.recorded[0]["status"] == "candidate"
     assert repo.recorded[0]["filter_stage"] == "heuristic"
@@ -136,3 +145,18 @@ async def test_signal_ingestion_worker_applies_llm_judge_decisions() -> None:
     assert repo.recorded[0]["llm_score"] == 0.95
     assert repo.recorded[0]["llm_cost_usd"] == 0.02
     assert repo.recorded[0]["filter_stage"] == "llm_judge"
+
+
+@pytest.mark.asyncio
+async def test_signal_ingestion_worker_falls_back_when_bulk_persist_fails() -> None:
+    repo = _FakeSignalRepository(fail_bulk=True)
+    worker = SignalIngestionWorker(
+        repository=cast("SignalSourceRepositoryPort", repo),
+        scorer=SignalScoringService(topic_similarity=_FakeTopicSimilarity()),
+    )
+
+    stats = await worker.run_once(limit=10, now=dt.datetime(2026, 4, 30, tzinfo=UTC))
+
+    assert stats == {"candidates": 2, "persisted": 2, "errors": 0, "disabled": False}
+    assert len(repo.recorded_batches) == 1
+    assert [row["feed_item_id"] for row in repo.recorded] == [1, 2]

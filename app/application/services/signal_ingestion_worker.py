@@ -75,6 +75,7 @@ class SignalIngestionWorker:
             judge_decisions = await self._judge.judge(scored, rows_by_item_id=rows_by_item_id)
 
         scored_by_item = {item.feed_item_id: item for item in scored}
+        signal_records: list[dict[str, Any]] = []
         persisted = 0
         errors = 0
         for row in rows:
@@ -83,44 +84,37 @@ class SignalIngestionWorker:
                 continue
             try:
                 decision = judge_decisions.get(int(row["feed_item_id"]))
-                status = "candidate"
-                llm_score = None
-                llm_judge = None
-                llm_cost_usd = None
-                filter_stage = "heuristic"
-                final_score = score.score
-                evidence = dict(score.evidence)
-                if decision is not None:
-                    status = "queued" if decision.decision == "queue" else "dismissed"
-                    llm_score = decision.llm_score
-                    llm_judge = decision.evidence()
-                    llm_cost_usd = decision.cost_usd
-                    filter_stage = "llm_judge"
-                    final_score = decision.llm_score
-                    evidence["llm_judge"] = llm_judge
-                await self._repository.async_record_user_signal(
-                    user_id=int(row["user_id"]),
-                    feed_item_id=int(row["feed_item_id"]),
-                    status=status,
-                    heuristic_score=score.score,
-                    llm_score=llm_score,
-                    final_score=final_score,
-                    evidence=evidence,
-                    filter_stage=filter_stage,
-                    llm_judge=llm_judge,
-                    llm_cost_usd=llm_cost_usd,
-                )
-                persisted += 1
+                signal_records.append(self._signal_record_from_score(row, score, decision))
             except Exception:
                 errors += 1
                 logger.warning(
-                    "signal_ingestion_persist_failed",
+                    "signal_ingestion_record_build_failed",
                     extra={
                         "user_id": row.get("user_id"),
                         "feed_item_id": row.get("feed_item_id"),
                     },
                     exc_info=True,
                 )
+
+        if signal_records:
+            try:
+                await self._repository.async_record_user_signals(signals=signal_records)
+                persisted = len(signal_records)
+            except Exception:
+                for record in signal_records:
+                    try:
+                        await self._repository.async_record_user_signal(**record)
+                        persisted += 1
+                    except Exception:
+                        errors += 1
+                        logger.warning(
+                            "signal_ingestion_persist_failed",
+                            extra={
+                                "user_id": record.get("user_id"),
+                                "feed_item_id": record.get("feed_item_id"),
+                            },
+                            exc_info=True,
+                        )
 
         return SignalIngestionStats(
             candidates=len(candidates),
@@ -142,3 +136,37 @@ class SignalIngestionWorker:
             comments=row.get("comments"),
             metadata={"content_text": row.get("content_text")},
         )
+
+    @staticmethod
+    def _signal_record_from_score(
+        row: dict[str, Any],
+        score: Any,
+        decision: Any | None,
+    ) -> dict[str, Any]:
+        status = "candidate"
+        llm_score = None
+        llm_judge = None
+        llm_cost_usd = None
+        filter_stage = "heuristic"
+        final_score = score.score
+        evidence = dict(score.evidence)
+        if decision is not None:
+            status = "queued" if decision.decision == "queue" else "dismissed"
+            llm_score = decision.llm_score
+            llm_judge = decision.evidence()
+            llm_cost_usd = decision.cost_usd
+            filter_stage = "llm_judge"
+            final_score = decision.llm_score
+            evidence["llm_judge"] = llm_judge
+        return {
+            "user_id": int(row["user_id"]),
+            "feed_item_id": int(row["feed_item_id"]),
+            "status": status,
+            "heuristic_score": score.score,
+            "llm_score": llm_score,
+            "final_score": final_score,
+            "evidence": evidence,
+            "filter_stage": filter_stage,
+            "llm_judge": llm_judge,
+            "llm_cost_usd": llm_cost_usd,
+        }

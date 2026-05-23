@@ -421,11 +421,49 @@ async def test_signal_repository_bulk_feed_items_and_subscriptions(
     assert len(updated_items) == 1
     assert updated_items[0]["canonical_url"] == "https://example.com/two-updated"
 
+    first_signals = await repo.async_record_user_signals(
+        signals=[
+            {
+                "user_id": 1001,
+                "feed_item_id": first_items[0]["id"],
+                "status": "candidate",
+                "heuristic_score": 0.7,
+                "final_score": 0.7,
+                "evidence": {"matched": ["one"]},
+            }
+        ]
+    )
+    assert len(first_signals) == 1
+    assert first_signals[0]["status"] == "candidate"
+
+    updated_signals = await repo.async_record_user_signals(
+        signals=[
+            {
+                "user_id": 1001,
+                "feed_item_id": first_items[0]["id"],
+                "status": "queued",
+                "heuristic_score": 0.7,
+                "llm_score": 0.91,
+                "final_score": 0.91,
+                "evidence": {"matched": ["one"], "llm_judge": {"reason": "strong"}},
+                "filter_stage": "llm_judge",
+                "llm_judge": {"reason": "strong"},
+                "llm_cost_usd": 0.01,
+            }
+        ]
+    )
+    assert len(updated_signals) == 1
+    assert updated_signals[0]["status"] == "queued"
+    assert updated_signals[0]["llm_score"] == 0.91
+    assert updated_signals[0]["filter_stage"] == "llm_judge"
+
     async with database.session() as session:
         item_count = await session.scalar(select(func.count()).select_from(FeedItem))
         subscription_count = await session.scalar(select(func.count()).select_from(Subscription))
+        signal_count = await session.scalar(select(func.count()).select_from(UserSignal))
     assert item_count == 2
     assert subscription_count == 2
+    assert signal_count == 1
 
 
 @pytest.mark.asyncio

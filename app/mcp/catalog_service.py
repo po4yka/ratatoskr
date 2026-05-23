@@ -47,28 +47,45 @@ class CatalogReadService:
                     )
                 ).all()
 
+                collection_ids = [collection.id for collection in collections]
+                item_counts: dict[int, int] = {}
+                child_counts: dict[int, int] = {}
+                if collection_ids:
+                    item_count_rows = (
+                        await session.execute(
+                            select(CollectionItem.collection_id, func.count())
+                            .where(CollectionItem.collection_id.in_(collection_ids))
+                            .group_by(CollectionItem.collection_id)
+                        )
+                    ).all()
+                    item_counts = {
+                        collection_id: int(count or 0) for collection_id, count in item_count_rows
+                    }
+                    child_count_rows = (
+                        await session.execute(
+                            select(Collection.parent_id, func.count())
+                            .where(
+                                Collection.parent_id.in_(collection_ids),
+                                *self.context.collection_scope_filters(Collection),
+                            )
+                            .group_by(Collection.parent_id)
+                        )
+                    ).all()
+                    child_counts = {
+                        collection_id: int(count or 0)
+                        for collection_id, count in child_count_rows
+                        if collection_id is not None
+                    }
+
                 results = []
                 for collection in collections:
-                    item_count = await session.scalar(
-                        select(func.count())
-                        .select_from(CollectionItem)
-                        .where(CollectionItem.collection_id == collection.id)
-                    )
-                    child_count = await session.scalar(
-                        select(func.count())
-                        .select_from(Collection)
-                        .where(
-                            Collection.parent_id == collection.id,
-                            *self.context.collection_scope_filters(Collection),
-                        )
-                    )
                     results.append(
                         {
                             "collection_id": collection.id,
                             "name": collection.name,
                             "description": collection.description,
-                            "item_count": item_count or 0,
-                            "child_collections": child_count or 0,
+                            "item_count": item_counts.get(collection.id, 0),
+                            "child_collections": child_counts.get(collection.id, 0),
                             "is_shared": collection.is_shared,
                             "created_at": isotime(collection.created_at),
                             "updated_at": isotime(collection.updated_at),

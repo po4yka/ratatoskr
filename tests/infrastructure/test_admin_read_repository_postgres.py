@@ -137,6 +137,8 @@ async def _seed_admin_data(database: Database) -> dt.datetime:
                     request_id=failed.id,
                     endpoint="firecrawl",
                     firecrawl_success=False,
+                    firecrawl_error_code="AUTH",
+                    firecrawl_error_message="Authorization=Bearer scraper-secret failed",
                     latency_ms=200,
                     updated_at=now,
                 ),
@@ -157,6 +159,7 @@ async def _seed_admin_data(database: Database) -> dt.datetime:
                     provider="openrouter",
                     model="model-a",
                     status="error",
+                    error_text="token=llm-secret failed",
                     latency_ms=3000,
                     tokens_prompt=30,
                     tokens_completion=40,
@@ -242,3 +245,40 @@ async def test_admin_read_repository_reports_metrics_and_audit_log(database: Dat
     assert audit["total"] == 1
     assert audit["logs"][0]["event"] == "admin.test"
     assert audit["logs"][0]["details"] == {"user_id": 9001, "ok": True}
+
+
+@pytest.mark.asyncio
+async def test_admin_read_repository_reports_provider_diagnostics(database: Database) -> None:
+    today = await _seed_admin_data(database)
+
+    async with database.session() as session:
+        llm_stats = await AdminReadRepositoryAdapter._llm_provider_stats(session, since=today)
+        scraper_stats = await AdminReadRepositoryAdapter._scraper_provider_stats(
+            session, since=today
+        )
+
+    llm_by_provider = {stat["provider"]: stat for stat in llm_stats}
+    llm_openrouter = llm_by_provider["openrouter"]
+    assert llm_openrouter["last_failure_at"] is not None
+    assert llm_openrouter == {
+        "provider": "openrouter",
+        "status": "degraded",
+        "total_count": 2,
+        "failure_count": 1,
+        "last_error_code": "error",
+        "last_error_message": "token=[REDACTED] failed",
+        "last_failure_at": llm_openrouter["last_failure_at"],
+    }
+
+    scraper_by_provider = {stat["provider"]: stat for stat in scraper_stats}
+    scraper_firecrawl = scraper_by_provider["firecrawl"]
+    assert scraper_firecrawl["last_failure_at"] is not None
+    assert scraper_firecrawl == {
+        "provider": "firecrawl",
+        "status": "degraded",
+        "total_count": 2,
+        "failure_count": 1,
+        "last_error_code": "AUTH",
+        "last_error_message": "Authorization=[REDACTED] failed",
+        "last_failure_at": scraper_firecrawl["last_failure_at"],
+    }

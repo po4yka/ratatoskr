@@ -33,6 +33,7 @@ class _FakeRSSRepository:
             ]
         )
         self.async_create_feed_item = AsyncMock(return_value={"id": 2})
+        self.async_create_feed_items = AsyncMock(return_value=[{"id": 2}])
         self.async_update_feed = AsyncMock(return_value=None)
 
 

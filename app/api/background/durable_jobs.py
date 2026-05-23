@@ -287,58 +287,74 @@ class RequestProcessingJobRepository:
                 )
                 .limit(200)
             )
-            reconciled = 0
-            for request_id, correlation_id, summary_id in rows:
+            stale_rows = list(rows)
+            if not stale_rows:
+                return 0
+
+            succeeded_jobs: list[dict[str, Any]] = []
+            queued_jobs: list[dict[str, Any]] = []
+            succeeded_request_ids: list[int] = []
+            for request_id, correlation_id, summary_id in stale_rows:
                 if summary_id is not None:
-                    await session.execute(
-                        update(Request)
-                        .where(Request.id == request_id)
-                        .values(status="success", updated_at=now)
+                    succeeded_request_ids.append(request_id)
+                    succeeded_jobs.append(
+                        {
+                            "request_id": request_id,
+                            "status": "succeeded",
+                            "attempt_count": 0,
+                            "max_attempts": max_attempts,
+                            "correlation_id": correlation_id,
+                            "retry_after": None,
+                            "updated_at": now,
+                            "created_at": now,
+                        }
                     )
-                    await session.execute(
-                        insert(RequestProcessingJob)
-                        .values(
-                            request_id=request_id,
-                            status="succeeded",
-                            attempt_count=0,
-                            max_attempts=max_attempts,
-                            correlation_id=correlation_id,
-                            retry_after=None,
-                            updated_at=now,
-                            created_at=now,
-                        )
-                        .on_conflict_do_update(
-                            index_elements=[RequestProcessingJob.request_id],
-                            set_={"status": "succeeded", "updated_at": now},
-                        )
+                    continue
+                queued_jobs.append(
+                    {
+                        "request_id": request_id,
+                        "status": "queued",
+                        "attempt_count": 0,
+                        "max_attempts": max_attempts,
+                        "correlation_id": correlation_id,
+                        "retry_after": now,
+                        "updated_at": now,
+                        "created_at": now,
+                    }
+                )
+
+            if succeeded_request_ids:
+                await session.execute(
+                    update(Request)
+                    .where(Request.id.in_(succeeded_request_ids))
+                    .values(status="success", updated_at=now)
+                )
+            if succeeded_jobs:
+                await session.execute(
+                    insert(RequestProcessingJob)
+                    .values(succeeded_jobs)
+                    .on_conflict_do_update(
+                        index_elements=[RequestProcessingJob.request_id],
+                        set_={"status": "succeeded", "updated_at": now},
                     )
-                else:
-                    await session.execute(
-                        insert(RequestProcessingJob)
-                        .values(
-                            request_id=request_id,
-                            status="queued",
-                            attempt_count=0,
-                            max_attempts=max_attempts,
-                            correlation_id=correlation_id,
-                            retry_after=now,
-                            updated_at=now,
-                            created_at=now,
-                        )
-                        .on_conflict_do_update(
-                            index_elements=[RequestProcessingJob.request_id],
-                            set_={
-                                "status": "queued",
-                                "lease_owner": None,
-                                "lease_expires_at": None,
-                                "retry_after": now,
-                                "max_attempts": max_attempts,
-                                "updated_at": now,
-                            },
-                        )
+                )
+            if queued_jobs:
+                await session.execute(
+                    insert(RequestProcessingJob)
+                    .values(queued_jobs)
+                    .on_conflict_do_update(
+                        index_elements=[RequestProcessingJob.request_id],
+                        set_={
+                            "status": "queued",
+                            "lease_owner": None,
+                            "lease_expires_at": None,
+                            "retry_after": now,
+                            "max_attempts": max_attempts,
+                            "updated_at": now,
+                        },
                     )
-                reconciled += 1
-            return reconciled
+                )
+            return len(stale_rows)
 
     async def has_summary(self, request_id: int) -> bool:
         async with self._database.session() as session:

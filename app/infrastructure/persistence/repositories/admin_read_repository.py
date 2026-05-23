@@ -43,34 +43,89 @@ class AdminReadRepositoryAdapter:
 
     async def async_list_users(self) -> dict[str, Any]:
         async with self._database.session() as session:
+            summary_counts = (
+                select(
+                    Request.user_id.label("user_id"),
+                    func.count(Summary.id).label("summary_count"),
+                )
+                .join(Summary, Summary.request_id == Request.id)
+                .group_by(Request.user_id)
+                .subquery()
+            )
+            request_counts = (
+                select(
+                    Request.user_id.label("user_id"),
+                    func.count(Request.id).label("request_count"),
+                )
+                .group_by(Request.user_id)
+                .subquery()
+            )
+            tag_counts = (
+                select(
+                    Tag.user_id.label("user_id"),
+                    func.count(Tag.id).label("tag_count"),
+                )
+                .group_by(Tag.user_id)
+                .subquery()
+            )
+            collection_counts = (
+                select(
+                    Collection.user_id.label("user_id"),
+                    func.count(Collection.id).label("collection_count"),
+                )
+                .group_by(Collection.user_id)
+                .subquery()
+            )
+
+            rows = (
+                await session.execute(
+                    select(
+                        User.telegram_user_id,
+                        User.username,
+                        User.is_owner,
+                        User.created_at,
+                        func.coalesce(summary_counts.c.summary_count, 0),
+                        func.coalesce(request_counts.c.request_count, 0),
+                        func.coalesce(tag_counts.c.tag_count, 0),
+                        func.coalesce(collection_counts.c.collection_count, 0),
+                    )
+                    .outerjoin(
+                        summary_counts,
+                        summary_counts.c.user_id == User.telegram_user_id,
+                    )
+                    .outerjoin(
+                        request_counts,
+                        request_counts.c.user_id == User.telegram_user_id,
+                    )
+                    .outerjoin(tag_counts, tag_counts.c.user_id == User.telegram_user_id)
+                    .outerjoin(
+                        collection_counts,
+                        collection_counts.c.user_id == User.telegram_user_id,
+                    )
+                    .order_by(User.created_at.asc())
+                )
+            ).all()
             users_list: list[dict[str, Any]] = []
-            users = (await session.execute(select(User).order_by(User.created_at.asc()))).scalars()
-            for user in users:
-                uid = user.telegram_user_id
-                summary_count = await session.scalar(
-                    select(func.count(Summary.id))
-                    .join(Request, Summary.request_id == Request.id)
-                    .where(Request.user_id == uid)
-                )
-                request_count = await session.scalar(
-                    select(func.count(Request.id)).where(Request.user_id == uid)
-                )
-                tag_count = await session.scalar(
-                    select(func.count(Tag.id)).where(Tag.user_id == uid)
-                )
-                collection_count = await session.scalar(
-                    select(func.count(Collection.id)).where(Collection.user_id == uid)
-                )
+            for (
+                uid,
+                username,
+                is_owner,
+                created_at,
+                summary_count,
+                request_count,
+                tag_count,
+                collection_count,
+            ) in rows:
                 users_list.append(
                     {
                         "user_id": uid,
-                        "username": user.username,
-                        "is_owner": user.is_owner,
+                        "username": username,
+                        "is_owner": is_owner,
                         "summary_count": int(summary_count or 0),
                         "request_count": int(request_count or 0),
                         "tag_count": int(tag_count or 0),
                         "collection_count": int(collection_count or 0),
-                        "created_at": isotime(user.created_at),
+                        "created_at": isotime(created_at),
                     }
                 )
             return {"users": users_list, "total_users": len(users_list)}
@@ -562,33 +617,56 @@ class AdminReadRepositoryAdapter:
             ),
             else_=0,
         )
+        provider_totals = (
+            select(
+                LLMCall.provider.label("provider"),
+                func.count(LLMCall.id).label("total_count"),
+                func.sum(failure_expr).label("failure_count"),
+            )
+            .where(LLMCall.created_at >= since)
+            .group_by(LLMCall.provider)
+            .subquery()
+        )
+        latest_failures = (
+            select(
+                LLMCall.provider.label("provider"),
+                LLMCall.error_text.label("error_text"),
+                LLMCall.status.label("status"),
+                LLMCall.updated_at.label("updated_at"),
+                func.row_number()
+                .over(partition_by=LLMCall.provider, order_by=LLMCall.updated_at.desc())
+                .label("row_number"),
+            )
+            .where(
+                LLMCall.created_at >= since,
+                LLMCall.status.notin_(("ok", "success", "completed", "succeeded")),
+            )
+            .subquery()
+        )
+        latest_provider_matches = or_(
+            latest_failures.c.provider == provider_totals.c.provider,
+            latest_failures.c.provider.is_(None) & provider_totals.c.provider.is_(None),
+        )
         rows = (
             await session.execute(
                 select(
-                    LLMCall.provider,
-                    func.count(LLMCall.id),
-                    func.sum(failure_expr),
+                    provider_totals.c.provider,
+                    provider_totals.c.total_count,
+                    provider_totals.c.failure_count,
+                    latest_failures.c.error_text,
+                    latest_failures.c.status,
+                    latest_failures.c.updated_at,
                 )
-                .where(LLMCall.created_at >= since)
-                .group_by(LLMCall.provider)
+                .outerjoin(
+                    latest_failures,
+                    latest_provider_matches & (latest_failures.c.row_number == 1),
+                )
+                .select_from(provider_totals)
             )
         ).all()
         stats: list[dict[str, Any]] = []
-        for provider, total, failures in rows:
+        for provider, total, failures, error_text, status, updated_at in rows:
             provider_name = str(provider or "unknown")
-            latest = await session.execute(
-                select(LLMCall.error_text, LLMCall.status, LLMCall.updated_at)
-                .where(
-                    LLMCall.created_at >= since,
-                    LLMCall.provider.is_(None)
-                    if provider is None
-                    else LLMCall.provider == provider_name,
-                    LLMCall.status.notin_(("ok", "success", "completed", "succeeded")),
-                )
-                .order_by(LLMCall.updated_at.desc())
-                .limit(1)
-            )
-            error_text, status, updated_at = latest.first() or (None, None, None)
             failure_count = int(failures or 0)
             stats.append(
                 {
@@ -646,41 +724,60 @@ class AdminReadRepositoryAdapter:
             CrawlResult.firecrawl_error_code.is_not(None),
             CrawlResult.status.in_(("error", "failed", "timeout")),
         )
+        provider_totals = (
+            select(
+                provider_expr.label("provider"),
+                func.count(CrawlResult.id).label("total_count"),
+                func.sum(case((failure_condition, 1), else_=0)).label("failure_count"),
+            )
+            .where(CrawlResult.updated_at >= since)
+            .group_by(provider_expr)
+            .subquery()
+        )
+        latest_failures = (
+            select(
+                provider_expr.label("provider"),
+                CrawlResult.firecrawl_error_code.label("firecrawl_error_code"),
+                CrawlResult.error_text.label("error_text"),
+                CrawlResult.firecrawl_error_message.label("firecrawl_error_message"),
+                CrawlResult.updated_at.label("updated_at"),
+                func.row_number()
+                .over(partition_by=provider_expr, order_by=CrawlResult.updated_at.desc())
+                .label("row_number"),
+            )
+            .where(CrawlResult.updated_at >= since, failure_condition)
+            .subquery()
+        )
         rows = (
             await session.execute(
                 select(
-                    provider_expr.label("provider"),
-                    func.count(CrawlResult.id),
-                    func.sum(case((failure_condition, 1), else_=0)),
+                    provider_totals.c.provider,
+                    provider_totals.c.total_count,
+                    provider_totals.c.failure_count,
+                    latest_failures.c.firecrawl_error_code,
+                    latest_failures.c.error_text,
+                    latest_failures.c.firecrawl_error_message,
+                    latest_failures.c.updated_at,
                 )
-                .where(CrawlResult.updated_at >= since)
-                .group_by(provider_expr)
+                .outerjoin(
+                    latest_failures,
+                    (latest_failures.c.provider == provider_totals.c.provider)
+                    & (latest_failures.c.row_number == 1),
+                )
+                .select_from(provider_totals)
             )
         ).all()
         stats: list[dict[str, Any]] = []
-        for provider, total, failures in rows:
+        for (
+            provider,
+            total,
+            failures,
+            error_code,
+            error_text,
+            firecrawl_error,
+            updated_at,
+        ) in rows:
             provider_name = str(provider or "unknown")
-            latest = await session.execute(
-                select(
-                    CrawlResult.firecrawl_error_code,
-                    CrawlResult.error_text,
-                    CrawlResult.firecrawl_error_message,
-                    CrawlResult.updated_at,
-                )
-                .where(
-                    CrawlResult.updated_at >= since,
-                    provider_expr == provider_name,
-                    failure_condition,
-                )
-                .order_by(CrawlResult.updated_at.desc())
-                .limit(1)
-            )
-            error_code, error_text, firecrawl_error, updated_at = latest.first() or (
-                None,
-                None,
-                None,
-                None,
-            )
             failure_count = int(failures or 0)
             stats.append(
                 {

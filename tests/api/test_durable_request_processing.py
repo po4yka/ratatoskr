@@ -124,8 +124,14 @@ class FakeTransaction:
 
 
 class FakeSession:
-    def __init__(self, *, scalar_results: list[Any] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        scalar_results: list[Any] | None = None,
+        execute_results: list[Any] | None = None,
+    ) -> None:
         self.scalar_results = scalar_results or []
+        self.execute_results = execute_results or []
         self.executed: list[Any] = []
         self.flush_count = 0
 
@@ -135,6 +141,8 @@ class FakeSession:
 
     async def execute(self, statement: Any) -> Any:
         self.executed.append(statement)
+        if self.execute_results:
+            return self.execute_results.pop(0)
         return SimpleNamespace(rowcount=1)
 
     async def flush(self) -> None:
@@ -367,6 +375,27 @@ async def test_repository_enqueue_returns_durable_job_model() -> None:
     assert result["attempt_count"] == 0
     assert result["max_attempts"] == 3
     assert session.executed
+
+
+@pytest.mark.asyncio
+async def test_repository_reconcile_stuck_processing_requests_batches_rows() -> None:
+    session = FakeSession(
+        execute_results=[
+            [(41, "cid-done", 901), (42, "cid-queued", None)],
+            SimpleNamespace(rowcount=1),
+            SimpleNamespace(rowcount=1),
+            SimpleNamespace(rowcount=1),
+        ]
+    )
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    reconciled = await repository.reconcile_stuck_processing_requests(
+        older_than_seconds=60,
+        max_attempts=3,
+    )
+
+    assert reconciled == 2
+    assert len(session.executed) == 4
 
 
 @pytest.mark.asyncio

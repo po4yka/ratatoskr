@@ -536,40 +536,87 @@ class SignalSourceRepositoryAdapter:
         llm_judge: dict[str, Any] | None = None,
         llm_cost_usd: float | None = None,
     ) -> dict[str, Any]:
+        signals = await self.async_record_user_signals(
+            signals=[
+                {
+                    "user_id": user_id,
+                    "feed_item_id": feed_item_id,
+                    "topic_id": topic_id,
+                    "status": status,
+                    "heuristic_score": heuristic_score,
+                    "llm_score": llm_score,
+                    "final_score": final_score,
+                    "evidence": evidence,
+                    "filter_stage": filter_stage,
+                    "llm_judge": llm_judge,
+                    "llm_cost_usd": llm_cost_usd,
+                }
+            ]
+        )
+        return signals[0] if signals else {}
+
+    async def async_record_user_signals(
+        self,
+        *,
+        signals: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not signals:
+            return []
+
+        now = _utcnow()
+        values_by_key: dict[tuple[int, int], dict[str, Any]] = {}
+        for signal in signals:
+            user_id = int(signal["user_id"])
+            feed_item_id = int(signal["feed_item_id"])
+            values_by_key[(user_id, feed_item_id)] = {
+                "user_id": user_id,
+                "feed_item_id": feed_item_id,
+                "topic_id": signal.get("topic_id"),
+                "status": signal.get("status", "candidate"),
+                "heuristic_score": signal.get("heuristic_score"),
+                "llm_score": signal.get("llm_score"),
+                "final_score": signal.get("final_score"),
+                "evidence_json": signal.get("evidence"),
+                "filter_stage": signal.get("filter_stage", "heuristic"),
+                "llm_judge_json": signal.get("llm_judge"),
+                "llm_cost_usd": signal.get("llm_cost_usd"),
+                "updated_at": now,
+            }
+
+        values = list(values_by_key.values())
+        if not values:
+            return []
+
         async with self._database.transaction() as session:
-            now = _utcnow()
-            stmt = insert(UserSignal).values(
-                user_id=user_id,
-                feed_item_id=feed_item_id,
-                topic_id=topic_id,
-                status=status,
-                heuristic_score=heuristic_score,
-                llm_score=llm_score,
-                final_score=final_score,
-                evidence_json=evidence,
-                filter_stage=filter_stage,
-                llm_judge_json=llm_judge,
-                llm_cost_usd=llm_cost_usd,
-                updated_at=now,
+            stmt = insert(UserSignal).values(values)
+            rows = list(
+                (
+                    await session.execute(
+                        stmt.on_conflict_do_update(
+                            index_elements=[UserSignal.user_id, UserSignal.feed_item_id],
+                            set_={
+                                "topic_id": stmt.excluded.topic_id,
+                                "status": stmt.excluded.status,
+                                "heuristic_score": stmt.excluded.heuristic_score,
+                                "llm_score": stmt.excluded.llm_score,
+                                "final_score": stmt.excluded.final_score,
+                                "evidence_json": stmt.excluded.evidence_json,
+                                "filter_stage": stmt.excluded.filter_stage,
+                                "llm_judge_json": stmt.excluded.llm_judge_json,
+                                "llm_cost_usd": stmt.excluded.llm_cost_usd,
+                                "updated_at": now,
+                            },
+                        ).returning(UserSignal)
+                    )
+                ).scalars()
             )
-            signal = await session.scalar(
-                stmt.on_conflict_do_update(
-                    index_elements=[UserSignal.user_id, UserSignal.feed_item_id],
-                    set_={
-                        "topic_id": stmt.excluded.topic_id,
-                        "status": stmt.excluded.status,
-                        "heuristic_score": stmt.excluded.heuristic_score,
-                        "llm_score": stmt.excluded.llm_score,
-                        "final_score": stmt.excluded.final_score,
-                        "evidence_json": stmt.excluded.evidence_json,
-                        "filter_stage": stmt.excluded.filter_stage,
-                        "llm_judge_json": stmt.excluded.llm_judge_json,
-                        "llm_cost_usd": stmt.excluded.llm_cost_usd,
-                        "updated_at": now,
-                    },
-                ).returning(UserSignal)
-            )
-            return self._signal_dict(signal)
+
+        rows_by_key = {(row.user_id, row.feed_item_id): self._signal_dict(row) for row in rows}
+        return [
+            rows_by_key[(record["user_id"], record["feed_item_id"])]
+            for record in values
+            if (record["user_id"], record["feed_item_id"]) in rows_by_key
+        ]
 
     async def async_list_user_subscriptions(self, user_id: int) -> list[dict[str, Any]]:
         async with self._database.session() as session:
