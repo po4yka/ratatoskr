@@ -2,6 +2,10 @@
 
 Operating notes for Claude (and other AI assistants) working in this repo. Leads with non-obvious rules and gotchas; defers reference material to `docs/` and `.claude/skills/`.
 
+## Workspace skills
+
+Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. See `../CLAUDE.md` for the workspace overview and the cross-repo OpenAPI contract.
+
 ## Project Overview
 
 **Ratatoskr** is an async, single-tenant Telegram bot that:

@@ -19,6 +19,7 @@ from app.application.ports import (
     BatchSessionRepositoryPort,
     LLMRepositoryPort,
     RequestRepositoryPort,
+    SocialConnectionRepositoryPort,
     SummaryRepositoryPort,
     UserRepositoryPort,
 )
@@ -35,6 +36,9 @@ from app.application.ports.requests import (
     RequestRepositoryPort as RequestRepositoryPortDirect,
 )
 from app.application.ports.summaries import SummaryRepositoryPort as SummaryRepositoryPortDirect
+from app.application.ports.social_connections import (
+    SocialConnectionRepositoryPort as SocialConnectionRepositoryPortDirect,
+)
 from app.application.ports.users import UserRepositoryPort as UserRepositoryPortDirect
 
 
@@ -71,6 +75,13 @@ def test_llm_repository_factory_returns_port_instance(db) -> None:
     assert isinstance(repo, LLMRepositoryPort)
 
 
+def test_social_connection_repository_factory_returns_port_instance(db) -> None:
+    from app.di.repositories import build_social_connection_repository
+
+    repo = build_social_connection_repository(db)
+    assert isinstance(repo, SocialConnectionRepositoryPort)
+
+
 def test_summary_repository_critical_methods_are_async(db) -> None:
     from app.di.repositories import build_summary_repository
 
@@ -102,6 +113,7 @@ def test_root_facade_reexports_current_port_surface() -> None:
     assert BatchSessionRepositoryPort is BatchSessionRepositoryPortDirect
     assert LLMRepositoryPort is LLMRepositoryPortDirect
     assert RequestRepositoryPort is RequestRepositoryPortDirect
+    assert SocialConnectionRepositoryPort is SocialConnectionRepositoryPortDirect
     assert SummaryRepositoryPort is SummaryRepositoryPortDirect
     assert UserRepositoryPort is UserRepositoryPortDirect
 
@@ -118,6 +130,7 @@ def test_port_submodules_import_cleanly() -> None:
         requests,
         rules,
         search,
+        social_connections,
         summaries,
         users,
     )
@@ -133,6 +146,7 @@ def test_port_submodules_import_cleanly() -> None:
         requests,
         rules,
         search,
+        social_connections,
         summaries,
         users,
     )

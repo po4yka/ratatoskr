@@ -39,10 +39,18 @@ from .search import (
     VectorSearchPort,
 )
 from .signal_sources import SignalSourceRepositoryPort
+from .social_connections import (
+    SUPPORTED_SOCIAL_PROVIDERS,
+    SocialConnectionRecord,
+    SocialConnectionRepositoryPort,
+    SocialConnectionUpdate,
+    SocialConnectionUpsert,
+)
 from .summaries import SummaryRepositoryPort, TagRepositoryPort
 from .users import UserRepositoryPort
 
 __all__ = [
+    "SUPPORTED_SOCIAL_PROVIDERS",
     "AggregationSessionRepositoryPort",
     "AudioGenerationRepositoryPort",
     "AudioStoragePort",
@@ -64,6 +72,10 @@ __all__ = [
     "RuleRateLimiterPort",
     "RuleRepositoryPort",
     "SignalSourceRepositoryPort",
+    "SocialConnectionRecord",
+    "SocialConnectionRepositoryPort",
+    "SocialConnectionUpdate",
+    "SocialConnectionUpsert",
     "SummaryRepositoryPort",
     "TTSProviderPort",
     "TagRepositoryPort",

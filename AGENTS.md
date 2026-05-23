@@ -2,6 +2,10 @@
 
 This document provides project context for AI coding agents (Codex, Copilot, etc.). For the full guide see `CLAUDE.md`.
 
+## Workspace skills
+
+Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. See `../AGENTS.md` for the workspace overview and the cross-repo OpenAPI contract.
+
 ## Project Overview
 
 Async Telegram bot that summarizes web articles, YouTube videos, and forwarded channel posts. Returns structured JSON summaries with a strict contract. Single Docker container, owner-only access.

@@ -1468,7 +1468,7 @@ Unique constraint: `(repository_id)`.
 
 ### user_github_integrations
 
-**Purpose:** Per-user GitHub OAuth or PAT integration record. The encrypted token is stored here; the encryption key (`GITHUB_TOKEN_ENCRYPTION_KEY`) is required at runtime. Losing the key renders existing tokens unreadable -- see the MultiFernet rotation hint in `app/security/token_crypto.py`.
+**Purpose:** Per-user GitHub OAuth or PAT integration record. The encrypted token is stored here; the encryption key (`GITHUB_TOKEN_ENCRYPTION_KEY`) is required at runtime. Losing the key renders existing tokens unreadable -- see the MultiFernet rotation hint in `app/security/secret_crypto.py`. `app/security/token_crypto.py` remains the backward-compatible GitHub import facade.
 
 **Key columns:**
 
@@ -1491,6 +1491,52 @@ Unique constraint: `(repository_id)`.
 
 Unique constraint: `(user_id)`.
 
+### social_connections
+
+**Purpose:** Generic encrypted social provider credential storage for X, Instagram, and Threads. This table is intentionally persistence-only for now; it does not change Twitter/X, Instagram, or Threads extraction behavior and no OAuth endpoints are wired to it yet. Access and refresh tokens are Fernet ciphertext bytes produced through `app/security/secret_crypto.py` and must not be emitted in logs, audit payloads, or JSON responses.
+
+**Key columns:**
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | integer PK | Surrogate key |
+| `user_id` | bigint FK -> users | Owner of the connection |
+| `provider` | enum | `x`, `instagram`, or `threads` |
+| `auth_type` | enum | `oauth2`, `cookie`, or `manual` |
+| `provider_user_id` | text, nullable | Provider account identifier |
+| `provider_username` | text, nullable | Provider handle/display username |
+| `encrypted_access_token` | binary, nullable | Fernet-encrypted access token or equivalent secret |
+| `encrypted_refresh_token` | binary, nullable | Fernet-encrypted refresh token when available |
+| `token_scopes` | jsonb, nullable | Granted scopes as a string array |
+| `access_token_expires_at` | timestamp, nullable | Access token expiration |
+| `refresh_token_expires_at` | timestamp, nullable | Refresh token expiration |
+| `status` | enum | `active`, `needs_reauth`, `revoked`, or `disabled` |
+| `metadata_json` | jsonb, nullable | Non-secret provider metadata |
+| `created_at` | timestamp | Row creation |
+| `updated_at` | timestamp | Last update |
+
+Unique constraint: `(user_id, provider)`.
+
+Indexes: `(user_id, status)`, `(provider, provider_user_id)`.
+
+### social_auth_states
+
+**Purpose:** Future OAuth state persistence for social providers. The table stores hashed state values and optional encrypted PKCE verifier bytes so authorization endpoints can be added later without introducing raw verifier storage.
+
+**Key columns:** `user_id`, `provider`, `state_hash`, `encrypted_code_verifier`, `redirect_uri`, `scopes`, `status`, `metadata_json`, `expires_at`, `consumed_at`, `created_at`.
+
+Unique constraint: `(provider, state_hash)`.
+
+Indexes: `(user_id, provider)`, `(expires_at)`.
+
+### social_fetch_attempts
+
+**Purpose:** Future fetch/sync attempt audit trail for social connections. This is not used by extraction yet, but gives future background jobs a non-secret place to record provider, attempt type, status, timing, error code/message, and metadata.
+
+**Key columns:** `connection_id`, `user_id`, `provider`, `attempt_type`, `status`, `started_at`, `finished_at`, `error_code`, `error_message`, `metadata_json`, `created_at`.
+
+Indexes: `(connection_id, started_at)`, `(user_id, provider)`.
+
 ---
 
 ## See Also
@@ -1501,4 +1547,4 @@ Unique constraint: `(user_id)`.
 
 ---
 
-**Last Updated:** 2026-05-05
+**Last Updated:** 2026-05-23

@@ -32,6 +32,9 @@ from app.infrastructure.persistence.repositories.request_repository import (
 from app.infrastructure.persistence.repositories.rule_repository import (
     RuleRepositoryAdapter,
 )
+from app.infrastructure.persistence.repositories.social_connection_repository import (
+    SocialConnectionRepositoryAdapter,
+)
 from app.infrastructure.persistence.repositories.summary_repository import (
     SummaryRepositoryAdapter,
 )
@@ -66,6 +69,7 @@ if TYPE_CHECKING:
     from app.application.ports.rules import RuleRepositoryPort, WebhookRepositoryPort
     from app.application.ports.search import EmbeddingRepositoryPort, TopicSearchRepositoryPort
     from app.application.ports.summaries import SummaryRepositoryPort, TagRepositoryPort
+    from app.application.ports.social_connections import SocialConnectionRepositoryPort
     from app.application.ports.users import UserRepositoryPort
     from app.db.session import Database
 
@@ -134,6 +138,10 @@ def build_webhook_repository(db: Database) -> WebhookRepositoryPort:
 
 def build_backup_repository(db: Database) -> BackupRepositoryPort:
     return BackupRepositoryAdapter(db)
+
+
+def build_social_connection_repository(db: Database) -> SocialConnectionRepositoryPort:
+    return SocialConnectionRepositoryAdapter(db)
 
 
 def build_rss_feed_repository(db: Database) -> Any:
