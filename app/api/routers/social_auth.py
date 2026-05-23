@@ -6,7 +6,6 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.dependencies.database import get_social_connection_repository
 from app.api.exceptions import APIException, ErrorCode, ErrorType
 from app.api.models.requests import SocialCallbackRequest  # noqa: TC001 - FastAPI resolves body model
 from app.api.models.responses import success_response
@@ -22,94 +21,18 @@ from app.api.models.responses.social import (
     SocialDisconnectSuccessResponse,
 )
 from app.api.routers.auth import get_current_user
-from app.adapters.social.meta import (
-    InstagramClient,
-    InstagramOAuthConfig,
-    ThreadsClient,
-    ThreadsOAuthConfig,
-)
-from app.adapters.social.x import XOAuthClient, XOAuthConfig
-from app.application.services.social_auth_service import (
-    DEFAULT_SOCIAL_SCOPES,
-    SocialAuthConfig,
-    SocialAuthError,
-    SocialAuthService,
-    build_stub_social_oauth_clients,
-)
-from app.config import load_config
+from app.application.services.social_auth_service import SocialAuthError, SocialAuthService
+from app.di.api import resolve_api_runtime
 
 router = APIRouter(prefix="/v1/social", tags=["social-auth"])
 
 
-def get_social_oauth_clients() -> Any:
-    """Resolve provider-specific OAuth clients.
+def get_social_auth_service(request: Request) -> SocialAuthService:
+    """Resolve social auth service from the API runtime.
 
-    X is backed by a real OAuth 2.0 PKCE client; providers without concrete implementations still use token-safe stubs.
+    Kept as a named dependency so tests can override the service directly.
     """
-    clients = build_stub_social_oauth_clients()
-    cfg = load_config()
-    twitter_cfg = cfg.twitter
-    social_cfg = cfg.social
-    clients["x"] = XOAuthClient(
-        XOAuthConfig(
-            client_id=twitter_cfg.x_oauth_client_id,
-            client_secret=twitter_cfg.x_oauth_client_secret.get_secret_value()
-            if twitter_cfg.x_oauth_client_secret is not None
-            else None,
-            redirect_uri=twitter_cfg.x_oauth_redirect_uri,
-            scopes=twitter_cfg.x_oauth_scopes,
-            api_base_url=twitter_cfg.x_api_base_url,
-        )
-    )
-    clients["threads"] = ThreadsClient(
-        ThreadsOAuthConfig(
-            client_id=social_cfg.threads_client_id,
-            client_secret=social_cfg.threads_client_secret.get_secret_value()
-            if social_cfg.threads_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.threads_redirect_uri,
-            scopes=social_cfg.threads_scopes,
-            graph_base_url=social_cfg.threads_graph_base_url,
-        )
-    )
-    clients["instagram"] = InstagramClient(
-        InstagramOAuthConfig(
-            client_id=social_cfg.instagram_client_id,
-            client_secret=social_cfg.instagram_client_secret.get_secret_value()
-            if social_cfg.instagram_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.instagram_redirect_uri,
-            scopes=social_cfg.instagram_scopes,
-            graph_base_url=social_cfg.instagram_graph_base_url,
-        )
-    )
-    return clients
-
-
-def _get_social_auth_service(
-    repository: Any = Depends(get_social_connection_repository),
-    oauth_clients: Any = Depends(get_social_oauth_clients),
-) -> SocialAuthService:
-    cfg = load_config()
-    twitter_cfg = cfg.twitter
-    social_cfg = cfg.social
-    return SocialAuthService(
-        repository=repository,
-        oauth_clients=oauth_clients,
-        config=SocialAuthConfig(
-            provider_default_scopes={
-                **DEFAULT_SOCIAL_SCOPES,
-                "x": twitter_cfg.x_oauth_scopes,
-                "threads": social_cfg.threads_scopes,
-                "instagram": social_cfg.instagram_scopes,
-            },
-            provider_redirect_uris={
-                "x": twitter_cfg.x_oauth_redirect_uri,
-                "threads": social_cfg.threads_redirect_uri,
-                "instagram": social_cfg.instagram_redirect_uri,
-            },
-        ),
-    )
+    return cast("SocialAuthService", resolve_api_runtime(request).social_auth_service)
 
 
 def _correlation_id(request: Request) -> str | None:
@@ -188,7 +111,7 @@ def _raise_api_error(exc: SocialAuthError) -> None:
 async def list_social_connections(
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
-    service: SocialAuthService = Depends(_get_social_auth_service),
+    service: SocialAuthService = Depends(get_social_auth_service),
 ) -> dict[str, Any]:
     """List social account connection statuses for the authenticated user."""
     result = await service.list_connections(user["user_id"])
@@ -209,7 +132,7 @@ async def get_social_connect_url(
     ),
     scopes: list[str] | None = Query(default=None),
     user: dict[str, Any] = Depends(get_current_user),
-    service: SocialAuthService = Depends(_get_social_auth_service),
+    service: SocialAuthService = Depends(get_social_auth_service),
 ) -> dict[str, Any]:
     """Create a provider OAuth state and return the provider authorization URL."""
     try:
@@ -240,7 +163,7 @@ async def complete_social_callback(
     body: SocialCallbackRequest,
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
-    service: SocialAuthService = Depends(_get_social_auth_service),
+    service: SocialAuthService = Depends(get_social_auth_service),
 ) -> dict[str, Any]:
     """Validate a social OAuth callback and store encrypted provider credentials."""
     try:
@@ -265,7 +188,7 @@ async def disconnect_social_provider(
     provider: str,
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
-    service: SocialAuthService = Depends(_get_social_auth_service),
+    service: SocialAuthService = Depends(get_social_auth_service),
 ) -> dict[str, Any]:
     """Disconnect a social provider for the authenticated user."""
     try:

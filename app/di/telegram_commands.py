@@ -31,26 +31,15 @@ from app.adapters.telegram.command_handlers.tag_handler import TagHandler
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
 from app.adapters.transcription import TranscriptionService
-from app.adapters.social.meta import (
-    InstagramClient,
-    InstagramOAuthConfig,
-    ThreadsClient,
-    ThreadsOAuthConfig,
-)
-from app.adapters.social.x import XOAuthClient, XOAuthConfig
-from app.application.services.social_auth_service import (
-    DEFAULT_SOCIAL_SCOPES,
-    SocialAuthConfig,
-    SocialAuthService,
-    build_stub_social_oauth_clients,
-)
 from app.di.repositories import build_social_connection_repository
+from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
 if TYPE_CHECKING:
     from app.adapters.content.url_processor import URLProcessor
     from app.adapters.telegram.task_manager import UserTaskManager
     from app.adapters.telegram.url_handler import URLHandler
+    from app.application.services.social_auth_service import SocialAuthService
     from app.config import AppConfig
     from app.db.session import Database
 
@@ -462,65 +451,7 @@ def build_command_dispatcher_deps(
 
 
 def _build_social_auth_service(*, cfg: AppConfig, db: Database) -> SocialAuthService:
-    twitter_cfg = cfg.twitter
-    social_cfg = cfg.social
-    return SocialAuthService(
-        repository=build_social_connection_repository(db),
-        oauth_clients=_build_social_oauth_clients(cfg),
-        config=SocialAuthConfig(
-            provider_default_scopes={
-                **DEFAULT_SOCIAL_SCOPES,
-                "x": twitter_cfg.x_oauth_scopes,
-                "threads": social_cfg.threads_scopes,
-                "instagram": social_cfg.instagram_scopes,
-            },
-            provider_redirect_uris={
-                "x": twitter_cfg.x_oauth_redirect_uri,
-                "threads": social_cfg.threads_redirect_uri,
-                "instagram": social_cfg.instagram_redirect_uri,
-            },
-        ),
-    )
-
-
-def _build_social_oauth_clients(cfg: AppConfig) -> dict[str, Any]:
-    clients = build_stub_social_oauth_clients()
-    twitter_cfg = cfg.twitter
-    social_cfg = cfg.social
-    clients["x"] = XOAuthClient(
-        XOAuthConfig(
-            client_id=twitter_cfg.x_oauth_client_id,
-            client_secret=twitter_cfg.x_oauth_client_secret.get_secret_value()
-            if twitter_cfg.x_oauth_client_secret is not None
-            else None,
-            redirect_uri=twitter_cfg.x_oauth_redirect_uri,
-            scopes=twitter_cfg.x_oauth_scopes,
-            api_base_url=twitter_cfg.x_api_base_url,
-        )
-    )
-    clients["threads"] = ThreadsClient(
-        ThreadsOAuthConfig(
-            client_id=social_cfg.threads_client_id,
-            client_secret=social_cfg.threads_client_secret.get_secret_value()
-            if social_cfg.threads_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.threads_redirect_uri,
-            scopes=social_cfg.threads_scopes,
-            graph_base_url=social_cfg.threads_graph_base_url,
-        )
-    )
-    clients["instagram"] = InstagramClient(
-        InstagramOAuthConfig(
-            client_id=social_cfg.instagram_client_id,
-            client_secret=social_cfg.instagram_client_secret.get_secret_value()
-            if social_cfg.instagram_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.instagram_redirect_uri,
-            scopes=social_cfg.instagram_scopes,
-            graph_base_url=social_cfg.instagram_graph_base_url,
-        )
-    )
-    return clients
+    return build_social_auth_service(cfg, build_social_connection_repository(db))
 
 
 def _build_uid_handler(context_factory: CommandContextFactory, handler_method: Any) -> Any:

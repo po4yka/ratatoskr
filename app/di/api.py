@@ -33,6 +33,7 @@ from app.di.repositories import (
     build_tag_repository,
     build_topic_search_repository,
     build_user_repository,
+    build_social_connection_repository,
 )
 from app.di.search import build_search_dependencies
 from app.di.shared import (
@@ -41,6 +42,7 @@ from app.di.shared import (
     build_url_processor,
     close_runtime_resources,
 )
+from app.di.social import build_social_auth_service
 from app.di.types import ApiRuntime, DatabaseRuntimeServices, SyncDeps
 from app.infrastructure.persistence.sync_aux_read_adapter import SyncAuxReadAdapter
 from app.infrastructure.redis import get_redis
@@ -228,6 +230,8 @@ async def build_api_runtime(
     )
     tag_repo = build_tag_repository(database)
     rss_feed_repo = build_rss_feed_repository(database)
+    social_connection_repository = build_social_connection_repository(database)
+    social_auth_service = build_social_auth_service(app_cfg, social_connection_repository)
     return ApiRuntime(
         cfg=app_cfg,
         db=database,
@@ -242,6 +246,7 @@ async def build_api_runtime(
         search_read_model_use_case=search_read_model_use_case,
         request_service=request_service,
         sync_service=sync_service,
+        social_auth_service=social_auth_service,
         tag_repo=tag_repo,
         rss_feed_repo=rss_feed_repo,
     )

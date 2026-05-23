@@ -240,10 +240,11 @@ def test_authorization_url_uses_threads_auth_surface() -> None:
     assert query["state"] == ["state-123"]
 
 
-def test_social_auth_router_wires_threads_client_from_config(
+def test_social_di_wires_threads_client_from_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.api.routers.social_auth import get_social_oauth_clients
+    from app.config import load_config
+    from app.di.social import build_social_oauth_clients
 
     monkeypatch.setenv("THREADS_CLIENT_ID", "threads-client-id")
     monkeypatch.setenv("THREADS_CLIENT_SECRET", "threads-client-secret")
@@ -251,7 +252,7 @@ def test_social_auth_router_wires_threads_client_from_config(
     monkeypatch.setenv("THREADS_SCOPES", "threads_basic")
     clear_config_cache()
     try:
-        clients = get_social_oauth_clients()
+        clients = build_social_oauth_clients(load_config(allow_stub_telegram=True))
         url = clients["threads"].build_authorization_url(
             provider="threads",
             state="state-123",

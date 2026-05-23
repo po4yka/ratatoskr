@@ -231,46 +231,17 @@ def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
 
 def create_source_ingestion_runner(cfg: AppConfig, db: Database) -> Any:
     from app.adapters.ingestors.registry import create_source_ingesters
-    from app.adapters.social.meta import ThreadsClient, ThreadsOAuthConfig
-    from app.adapters.social.x import XOAuthClient, XOAuthConfig
     from app.adapters.ingestors.runner import SourceIngestionRunner
     from app.application.ports.source_ingestors import SourceIngesterBuildContext
-    from app.application.services.social_token_service import SocialAccessTokenResolver
     from app.di.repositories import build_social_connection_repository
+    from app.di.social import build_social_token_resolver
     from app.infrastructure.persistence.repositories.signal_source_repository import (
         SignalSourceRepositoryAdapter,
     )
 
     subscriber_user_ids = tuple(int(user_id) for user_id in cfg.telegram.allowed_user_ids)
     social_connection_repository = build_social_connection_repository(db)
-    x_client_secret = getattr(cfg.twitter, "x_oauth_client_secret", None)
-    social_token_resolver = SocialAccessTokenResolver(
-        repository=social_connection_repository,
-        oauth_clients={
-            "x": XOAuthClient(
-                XOAuthConfig(
-                    client_id=cfg.twitter.x_oauth_client_id,
-                    client_secret=x_client_secret.get_secret_value()
-                    if x_client_secret is not None
-                    else None,
-                    redirect_uri=cfg.twitter.x_oauth_redirect_uri,
-                    scopes=cfg.twitter.x_oauth_scopes,
-                    api_base_url=cfg.twitter.x_api_base_url,
-                )
-            ),
-            "threads": ThreadsClient(
-                ThreadsOAuthConfig(
-                    client_id=cfg.social.threads_client_id,
-                    client_secret=cfg.social.threads_client_secret.get_secret_value()
-                    if cfg.social.threads_client_secret is not None
-                    else None,
-                    redirect_uri=cfg.social.threads_redirect_uri,
-                    scopes=cfg.social.threads_scopes,
-                    graph_base_url=cfg.social.threads_graph_base_url,
-                )
-            ),
-        },
-    )
+    social_token_resolver = build_social_token_resolver(cfg, social_connection_repository)
     return SourceIngestionRunner(
         repository=SignalSourceRepositoryAdapter(db),
         ingesters=create_source_ingesters(

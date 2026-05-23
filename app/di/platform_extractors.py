@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.adapters.content.content_extractor import URL_ROUTE_VERSION
 from app.adapters.content.content_extractor_requests import schedule_crawl_persistence_task
@@ -161,41 +161,16 @@ def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
     from app.adapters.meta.instagram_api_extractor import InstagramApiExtractor
     from app.adapters.meta.platform_extractor import MetaPlatformExtractor
     from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
-    from app.adapters.social.meta import (
-        InstagramClient,
-        InstagramOAuthConfig,
-        ThreadsClient,
-        ThreadsOAuthConfig,
-    )
     from app.application.services.social_token_service import SocialAccessTokenResolver
+    from app.di.social import build_social_oauth_clients
     from app.infrastructure.persistence.repositories.social_connection_repository import (
         SocialConnectionRepositoryAdapter,
     )
 
-    social_cfg = context.cfg.social
     social_repository = SocialConnectionRepositoryAdapter(context.db)
-    threads_client = ThreadsClient(
-        ThreadsOAuthConfig(
-            client_id=social_cfg.threads_client_id,
-            client_secret=social_cfg.threads_client_secret.get_secret_value()
-            if social_cfg.threads_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.threads_redirect_uri,
-            scopes=social_cfg.threads_scopes,
-            graph_base_url=social_cfg.threads_graph_base_url,
-        )
-    )
-    instagram_client = InstagramClient(
-        InstagramOAuthConfig(
-            client_id=social_cfg.instagram_client_id,
-            client_secret=social_cfg.instagram_client_secret.get_secret_value()
-            if social_cfg.instagram_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.instagram_redirect_uri,
-            scopes=social_cfg.instagram_scopes,
-            graph_base_url=social_cfg.instagram_graph_base_url,
-        )
-    )
+    clients = build_social_oauth_clients(context.cfg)
+    threads_client = cast("Any", clients["threads"])
+    instagram_client = cast("Any", clients["instagram"])
     token_resolver = SocialAccessTokenResolver(
         repository=social_repository,
         oauth_clients={"threads": threads_client, "instagram": instagram_client},

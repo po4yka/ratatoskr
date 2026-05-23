@@ -13,8 +13,16 @@ from sqlalchemy import select
 
 from app.api.routers.auth.tokens import create_access_token
 from app.application.dto.social_auth import OAuthTokenResult
+from app.application.services.social_auth_service import (
+    DEFAULT_SOCIAL_SCOPES,
+    SocialAuthConfig,
+    SocialAuthService,
+)
 from app.core.time_utils import UTC
 from app.db.models import SocialAuthState, SocialConnection, SocialFetchAttempt
+from app.infrastructure.persistence.repositories.social_connection_repository import (
+    SocialConnectionRepositoryAdapter,
+)
 from app.security.secret_crypto import decrypt_secret, reset_secret_key_cache
 
 _USER_ID = 777_001
@@ -93,15 +101,32 @@ async def social_users(db: Any, user_factory: Any) -> tuple[Any, Any]:
 
 
 @pytest.fixture
-def fake_oauth_clients(client: Any) -> dict[str, FakeSocialOAuthClient]:
+def fake_oauth_clients(client: Any, db: Any) -> dict[str, FakeSocialOAuthClient]:
     from app.api.routers import social_auth
 
     clients = {provider: FakeSocialOAuthClient() for provider in ("x", "instagram", "threads")}
-    client.app.dependency_overrides[social_auth.get_social_oauth_clients] = lambda: clients
+    service = SocialAuthService(
+        repository=SocialConnectionRepositoryAdapter(db),
+        oauth_clients=clients,
+        config=SocialAuthConfig(
+            provider_default_scopes={
+                **DEFAULT_SOCIAL_SCOPES,
+                "x": ["tweet.read", "users.read", "offline.access"],
+                "threads": ["threads_basic"],
+                "instagram": ["instagram_business_basic"],
+            },
+            provider_redirect_uris={
+                "x": _REDIRECT_URI,
+                "threads": _REDIRECT_URI,
+                "instagram": _REDIRECT_URI,
+            },
+        ),
+    )
+    client.app.dependency_overrides[social_auth.get_social_auth_service] = lambda: service
     try:
         yield clients
     finally:
-        client.app.dependency_overrides.pop(social_auth.get_social_oauth_clients, None)
+        client.app.dependency_overrides.pop(social_auth.get_social_auth_service, None)
 
 
 def _auth_headers(user_id: int = _USER_ID) -> dict[str, str]:
