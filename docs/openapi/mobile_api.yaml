@@ -4030,6 +4030,208 @@ paths:
           $ref: '#/components/responses/InternalServerError'
       security:
       - HTTPBearer: []
+  /v1/social/connections:
+    get:
+      tags:
+      - social-auth
+      summary: List Social Connections
+      description: List social account connection statuses for the authenticated user.
+      operationId: list_social_connections_v1_social_connections_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_manager
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Session Manager
+      - name: request
+        in: query
+        required: false
+        schema:
+          title: Request
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialConnectionsSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/social/{provider}/connect-url:
+    get:
+      tags:
+      - social-auth
+      summary: Get Social Connect Url
+      description: Create a provider OAuth state and return the provider authorization URL.
+      operationId: get_social_connect_url_v1_social__provider__connect_url_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider
+      - name: redirectUri
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          title: Redirecturi
+      - name: scopes
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          title: Scopes
+      - name: session_manager
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Session Manager
+      - name: request
+        in: query
+        required: false
+        schema:
+          title: Request
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialConnectUrlSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/social/{provider}/callback:
+    post:
+      tags:
+      - social-auth
+      summary: Complete Social Callback
+      description: Validate a social OAuth callback and store encrypted provider credentials.
+      operationId: complete_social_callback_v1_social__provider__callback_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider
+      - name: session_manager
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Session Manager
+      - name: request
+        in: query
+        required: false
+        schema:
+          title: Request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialCallbackRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialCallbackSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/social/{provider}:
+    delete:
+      tags:
+      - social-auth
+      summary: Disconnect Social Provider
+      description: Disconnect a social provider for the authenticated user.
+      operationId: disconnect_social_provider_v1_social__provider__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider
+      - name: session_manager
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Session Manager
+      - name: request
+        in: query
+        required: false
+        schema:
+          title: Request
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialDisconnectSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/sync/sessions:
     post:
       tags:
@@ -10478,6 +10680,214 @@ components:
       required:
       - action
       title: SignalFeedbackRequest
+    SocialCallbackRequest:
+      properties:
+        code:
+          type: string
+          maxLength: 4096
+          minLength: 1
+          title: Code
+        state:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: State
+        redirectUri:
+          type: string
+          maxLength: 1000
+          minLength: 1
+          title: Redirecturi
+      type: object
+      required:
+      - code
+      - state
+      - redirectUri
+      title: SocialCallbackRequest
+      description: Request body for completing a social OAuth callback.
+    SocialCallbackResponse:
+      properties:
+        connection:
+          $ref: '#/components/schemas/SocialConnectionResponse'
+      type: object
+      required:
+      - connection
+      title: SocialCallbackResponse
+    SocialCallbackSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SocialCallbackResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SocialCallbackSuccessResponse
+    SocialConnectUrlResponse:
+      properties:
+        provider:
+          type: string
+          title: Provider
+        connectUrl:
+          type: string
+          title: Connecturl
+        state:
+          type: string
+          title: State
+        scopes:
+          items:
+            type: string
+          type: array
+          title: Scopes
+        redirectUri:
+          type: string
+          title: Redirecturi
+        expiresAt:
+          type: string
+          title: Expiresat
+      type: object
+      required:
+      - provider
+      - connectUrl
+      - state
+      - scopes
+      - redirectUri
+      - expiresAt
+      title: SocialConnectUrlResponse
+    SocialConnectUrlSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SocialConnectUrlResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SocialConnectUrlSuccessResponse
+    SocialConnectionResponse:
+      properties:
+        provider:
+          type: string
+          title: Provider
+        connected:
+          type: boolean
+          title: Connected
+        authType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authtype
+        providerUserId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provideruserid
+        providerUsername:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Providerusername
+        tokenScopes:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tokenscopes
+        accessTokenExpiresAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Accesstokenexpiresat
+        refreshTokenExpiresAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refreshtokenexpiresat
+        status:
+          type: string
+          title: Status
+        connectedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Connectedat
+        updatedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Updatedat
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
+      type: object
+      required:
+      - provider
+      - connected
+      - status
+      title: SocialConnectionResponse
+    SocialConnectionsResponse:
+      properties:
+        connections:
+          items:
+            $ref: '#/components/schemas/SocialConnectionResponse'
+          type: array
+          title: Connections
+      type: object
+      required:
+      - connections
+      title: SocialConnectionsResponse
+    SocialConnectionsSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SocialConnectionsResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SocialConnectionsSuccessResponse
+    SocialDisconnectResponse:
+      properties:
+        provider:
+          type: string
+          title: Provider
+        disconnected:
+          type: boolean
+          title: Disconnected
+      type: object
+      required:
+      - provider
+      - disconnected
+      title: SocialDisconnectResponse
+    SocialDisconnectSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/SocialDisconnectResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: SocialDisconnectSuccessResponse
     SourceActiveRequest:
       properties:
         is_active:

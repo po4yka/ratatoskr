@@ -55,6 +55,7 @@ from app.api.routers import (
     rules,
     search,
     signals,
+    social_auth,
     streams,
     summaries,
     sync,
@@ -283,6 +284,7 @@ app.include_router(requests.router, prefix="/v1/requests", tags=["Requests"])
 app.include_router(streams.router, prefix="/v1/requests", tags=["Streams"])
 app.include_router(search.router, prefix="/v1", tags=["Search"])
 app.include_router(signals.router, prefix="/v1/signals", tags=["Signals"])
+app.include_router(social_auth.router)
 app.include_router(sync.router, prefix="/v1/sync", tags=["Sync"])
 app.include_router(user.router, prefix="/v1/user", tags=["User"])
 app.include_router(system.router, prefix="/v1/system", tags=["System"])

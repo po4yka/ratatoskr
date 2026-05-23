@@ -161,6 +161,18 @@ def get_auth_repository(
     )
 
 
+def get_social_connection_repository(
+    session_manager: DatabaseDep | None = None,
+    request: Any = None,
+) -> Any:
+    """Build a social connection repository bound to the shared session manager."""
+    from app.infrastructure.persistence.repositories.social_connection_repository import (
+        SocialConnectionRepositoryAdapter,
+    )
+
+    return SocialConnectionRepositoryAdapter(resolve_repository_session(session_manager, request))
+
+
 def get_user_credential_repository(
     session_manager: DatabaseDep | None = None,
     request: Any = None,

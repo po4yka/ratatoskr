@@ -47,6 +47,19 @@ class SubmitForwardRequest(BaseModel):
     lang_preference: Literal["auto", "en", "ru"] = "auto"
 
 
+class SocialCallbackRequest(BaseModel):
+    """Request body for completing a social OAuth callback."""
+
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=1, max_length=512)
+    redirect_uri: str = Field(
+        min_length=1,
+        max_length=1000,
+        validation_alias="redirectUri",
+        serialization_alias="redirectUri",
+    )
+
+
 class UpdateSummaryRequest(BaseModel):
     """Request body for updating a summary."""
 
