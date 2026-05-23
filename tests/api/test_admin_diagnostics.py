@@ -161,6 +161,13 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
                 status="failed",
                 error_code="rate_limited",
                 error_message="fetch failed access_token=plain-token raw payload body",
+                source_url="https://graph.instagram.com/v21.0/1791",
+                normalized_url="https://graph.instagram.com/v21.0/1791",
+                provider_resource_id="1791",
+                http_status=429,
+                auth_tier="instagram_api",
+                rate_limit_reset_at=now + dt.timedelta(minutes=30),
+                correlation_id="cid-social-fetch",
                 metadata_json={
                     "rate_limit": {"reset": "1779522000"},
                     "source_payload": {"access_token": "plain-token"},
@@ -199,7 +206,17 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
     assert social["active_connection_count"] == 0
     assert social["needs_reauth_count"] == 1
     assert social["recent_fetch_failures"][0]["error_code"] == "rate_limited"
-    assert social["rate_limit_reset_summary"] == "1779522000"
+    assert (
+        social["recent_fetch_failures"][0]["source_url"] == "https://graph.instagram.com/v21.0/1791"
+    )
+    assert social["recent_fetch_failures"][0]["provider_resource_id"] == "1791"
+    assert social["recent_fetch_failures"][0]["http_status"] == 429
+    assert social["recent_fetch_failures"][0]["auth_tier"] == "instagram_api"
+    assert social["recent_fetch_failures"][0]["correlation_id"] == "cid-social-fetch"
+    assert (
+        social["rate_limit_reset_summary"]
+        == social["recent_fetch_failures"][0]["rate_limit_reset_at"]
+    )
     assert any(item["source"] == "rss" for item in data["latest_sync_failures"])
     assert any(item["source"] == "github" for item in data["latest_sync_failures"])
     assert any(item["source"] == "source" for item in data["latest_sync_failures"])

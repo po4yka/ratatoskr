@@ -494,13 +494,18 @@ class AdminReadRepositoryAdapter:
                     "error_code": attempt.error_code,
                     "error_message": _redact_message(attempt.error_message),
                     "occurred_at": attempt.finished_at or attempt.started_at,
+                    "source_url": attempt.source_url,
+                    "normalized_url": attempt.normalized_url,
+                    "provider_resource_id": attempt.provider_resource_id,
+                    "http_status": attempt.http_status,
+                    "auth_tier": attempt.auth_tier,
+                    "rate_limit_reset_at": attempt.rate_limit_reset_at,
+                    "correlation_id": attempt.correlation_id,
                     "metadata": _safe_social_attempt_metadata(metadata),
                 }
             )
-            rate_limit = metadata.get("rate_limit") if isinstance(metadata, dict) else None
-            reset = rate_limit.get("reset") if isinstance(rate_limit, dict) else None
-            if isinstance(reset, str) and reset:
-                latest_rate_limits.setdefault(provider_name, reset)
+            if attempt.rate_limit_reset_at is not None:
+                latest_rate_limits.setdefault(provider_name, isotime(attempt.rate_limit_reset_at))
 
         for provider_name, reset in latest_rate_limits.items():
             by_provider[provider_name]["rate_limit_reset_summary"] = reset

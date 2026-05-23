@@ -184,21 +184,29 @@ async def test_social_content_fetch_logs_correlation_id_without_token(
     assert "cid-social-redaction" in rendered_logs
     assert "old-access" not in rendered_logs
     assert "Bearer" not in rendered_logs
-    assert repo.attempts == [
-        SocialFetchAttemptCreate(
-            user_id=777,
-            provider="x",
-            connection_id=10,
-            attempt_type="post_lookup",
-            status="failed",
-            error_code="unauthorized",
-            error_message="unauthorized",
-            metadata_json={
-                "auth_strategy": {"selected_tier": "x_api"},
-                "api_status": "401",
-                "provider_resource_id": "123",
-                "connection_id": 10,
-                "correlation_id": "cid-social-redaction",
-            },
-        )
-    ]
+    assert len(repo.attempts) == 1
+    attempt = repo.attempts[0]
+    assert attempt.user_id == 777
+    assert attempt.provider == "x"
+    assert attempt.connection_id == 10
+    assert attempt.attempt_type == "post_lookup"
+    assert attempt.status == "failed"
+    assert attempt.error_code == "unauthorized"
+    assert attempt.error_message == "unauthorized"
+    assert attempt.source_url == "https://x.com/example/status/123"
+    assert attempt.normalized_url == "https://x.com/example/status/123"
+    assert attempt.provider_resource_id == "123"
+    assert attempt.http_status == 401
+    assert attempt.auth_tier == "x_api"
+    assert attempt.correlation_id == "cid-social-redaction"
+    assert attempt.metadata_json == {
+        "auth_strategy": {"selected_tier": "x_api"},
+        "api_status": "401",
+        "provider_resource_id": "123",
+        "source_url": "https://x.com/example/status/123",
+        "normalized_url": "https://x.com/example/status/123",
+        "connection_id": 10,
+        "correlation_id": "cid-social-redaction",
+    }
+    assert "old-access" not in str(attempt)
+    assert "Bearer" not in str(attempt)

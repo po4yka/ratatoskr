@@ -39,6 +39,13 @@ class DiagnosticsSocialFetchFailure(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     occurred_at: datetime | None = None
+    source_url: str | None = None
+    normalized_url: str | None = None
+    provider_resource_id: str | None = None
+    http_status: int | None = None
+    auth_tier: str | None = None
+    rate_limit_reset_at: datetime | None = None
+    correlation_id: str | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
 
 

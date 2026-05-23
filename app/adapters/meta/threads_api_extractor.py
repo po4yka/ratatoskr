@@ -17,6 +17,7 @@ from app.application.ports.social_connections import SocialFetchAttemptCreate
 from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.lang import detect_language
 from app.core.urls.meta import extract_threads_post_id
+from app.core.url_utils import normalize_url
 from app.domain.models.source import SourceItem, SourceKind
 
 if TYPE_CHECKING:
@@ -72,6 +73,8 @@ class ThreadsApiExtractor:
             "source": "meta",
             "platform": "threads",
             "platform_surface": SourceKind.THREADS_POST.value,
+            "source_url": url,
+            "normalized_url": _normalize_url_or_none(url),
             "provider_resource_id": media_id,
             "api_status": "skipped",
             "auth_strategy": {
@@ -173,6 +176,11 @@ class ThreadsApiExtractor:
                 status=status,
                 error_code=error_code,
                 error_message=error_code,
+                source_url=_string(metadata.get("source_url")),
+                normalized_url=_string(metadata.get("normalized_url")),
+                provider_resource_id=_string(metadata.get("provider_resource_id")),
+                http_status=_http_status(metadata.get("api_status")),
+                auth_tier=_selected_tier(metadata),
                 metadata_json=_safe_attempt_metadata(metadata),
             )
         )
@@ -334,10 +342,39 @@ def _safe_attempt_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "api_status",
         "auth_strategy",
         "connection_id",
+        "normalized_url",
         "provider_resource_id",
         "rate_limit",
+        "source_url",
     }
     return {key: value for key, value in metadata.items() if key in allowed}
+
+
+def _selected_tier(metadata: dict[str, Any]) -> str | None:
+    strategy = metadata.get("auth_strategy")
+    if not isinstance(strategy, dict):
+        return None
+    value = strategy.get("selected_tier")
+    return value if isinstance(value, str) and value else None
+
+
+def _http_status(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _string(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _normalize_url_or_none(value: str) -> str | None:
+    try:
+        return normalize_url(value)
+    except ValueError:
+        return None
 
 
 def _error_code_for_status(status_code: int) -> str:

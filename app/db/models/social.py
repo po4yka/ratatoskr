@@ -184,6 +184,10 @@ class SocialFetchAttempt(Base):
     __table_args__ = (
         Index("ix_social_fetch_attempts_connection_started", "connection_id", "started_at"),
         Index("ix_social_fetch_attempts_user_provider", "user_id", "provider"),
+        Index("ix_social_fetch_attempts_provider_resource", "provider", "provider_resource_id"),
+        Index("ix_social_fetch_attempts_normalized_url", "normalized_url"),
+        Index("ix_social_fetch_attempts_rate_limit_reset", "rate_limit_reset_at"),
+        Index("ix_social_fetch_attempts_correlation_id", "correlation_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -225,6 +229,15 @@ class SocialFetchAttempt(Base):
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    normalized_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    provider_resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    auth_tier: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    rate_limit_reset_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    correlation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

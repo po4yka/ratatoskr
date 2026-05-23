@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from app.application.ports.social_connections import SocialFetchAttemptCreate
 from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.urls.twitter import extract_tweet_id
+from app.core.url_utils import normalize_url
 
 if TYPE_CHECKING:
     from app.adapters.social.x import XOAuthClient
@@ -83,6 +84,8 @@ class XApiPostExtractor:
                 "auth_strategy": {"selected_tier": "x_api"},
                 "api_status": token.status,
                 "provider_resource_id": post_id,
+                "source_url": url_text,
+                "normalized_url": _normalize_url_or_none(url_text),
                 "correlation_id": correlation_id,
                 **token.safe_metadata(),
             }
@@ -99,6 +102,8 @@ class XApiPostExtractor:
             "auth_strategy": {"selected_tier": "x_api"},
             "api_status": "started",
             "provider_resource_id": post_id,
+            "source_url": url_text,
+            "normalized_url": _normalize_url_or_none(url_text),
             "connection_id": connection.id,
             "correlation_id": correlation_id,
         }
@@ -197,6 +202,12 @@ class XApiPostExtractor:
                 status=status,
                 error_code=error_code,
                 error_message=error_code,
+                source_url=_string(metadata.get("source_url")),
+                normalized_url=_string(metadata.get("normalized_url")),
+                provider_resource_id=_string(metadata.get("provider_resource_id")),
+                http_status=_http_status(metadata.get("api_status")),
+                auth_tier=_selected_tier(metadata),
+                correlation_id=_string(metadata.get("correlation_id")),
                 metadata_json=_safe_attempt_metadata(metadata),
             )
         )
@@ -324,11 +335,36 @@ def _safe_attempt_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "api_status",
         "connection_id",
         "correlation_id",
+        "normalized_url",
         "provider_resource_id",
         "rate_limit",
+        "source_url",
         "tweet_id",
     }
     return {key: value for key, value in metadata.items() if key in allowed}
+
+
+def _selected_tier(metadata: dict[str, Any]) -> str | None:
+    strategy = metadata.get("auth_strategy")
+    if not isinstance(strategy, dict):
+        return None
+    value = strategy.get("selected_tier")
+    return value if isinstance(value, str) and value else None
+
+
+def _http_status(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _normalize_url_or_none(value: str) -> str | None:
+    try:
+        return normalize_url(value)
+    except ValueError:
+        return None
 
 
 def _error_code_for_status(status_code: int) -> str:

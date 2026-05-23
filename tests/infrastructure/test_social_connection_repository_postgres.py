@@ -192,6 +192,12 @@ async def test_social_connection_repository_records_fetch_attempt(
             status="failed",
             error_code="rate_limited",
             error_message="rate_limited",
+            source_url="https://x.com/user/status/123?access_token=raw-token",
+            normalized_url="https://x.com/user/status/123?access_token=raw-token",
+            provider_resource_id="123",
+            http_status=429,
+            auth_tier="x_api",
+            correlation_id="cid-social-fetch",
             metadata_json={
                 "auth_strategy": {"selected_tier": "x_api"},
                 "api_status": "429",
@@ -209,6 +215,13 @@ async def test_social_connection_repository_records_fetch_attempt(
     assert row.attempt_type == "post_lookup"
     assert row.status == "failed"
     assert row.error_code == "rate_limited"
+    assert row.source_url == "https://x.com/user/status/123"
+    assert row.normalized_url == "https://x.com/user/status/123"
+    assert row.provider_resource_id == "123"
+    assert row.http_status == 429
+    assert row.auth_tier == "x_api"
+    assert row.rate_limit_reset_at is not None
+    assert row.correlation_id == "cid-social-fetch"
     assert row.metadata_json == {
         "auth_strategy": {"selected_tier": "x_api"},
         "api_status": "429",

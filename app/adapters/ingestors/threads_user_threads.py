@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from app.adapters.ingestors._social_common import parse_datetime, raise_for_social_response
+from app.adapters.ingestors._social_common import (
+    parse_datetime,
+    raise_for_social_response,
+    rate_limit_retry_at,
+)
+from app.application.ports.social_connections import SocialFetchAttemptCreate
 from app.application.ports.source_ingestors import (
     AuthSourceError,
     IngestedFeedItem,
@@ -18,6 +23,10 @@ from app.application.ports.source_ingestors import (
 from app.core.url_utils import normalize_url
 
 if TYPE_CHECKING:
+    from app.application.ports.social_connections import (
+        SocialConnectionRecord,
+        SocialConnectionRepositoryPort,
+    )
     from app.application.services.social_token_service import SocialAccessTokenResolver
 
 _THREADS_FIELDS = (
@@ -57,10 +66,12 @@ class ThreadsUserThreadsIngester:
         *,
         config: ThreadsUserThreadsIngestionConfig,
         token_resolver: SocialAccessTokenResolver,
+        social_connection_repository: SocialConnectionRepositoryPort | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.config = config
         self._token_resolver = token_resolver
+        self._social_connection_repository = social_connection_repository
         self._client = client
         self.name = f"threads_user_threads:{config.user_id}"
 
@@ -97,8 +108,11 @@ class ThreadsUserThreadsIngester:
                 f"Threads connection could not provide an access token: {token.status}"
             )
 
-        payload = await self._fetch_threads(access_token=token.access_token.get_secret_value())
         connection = token.connection
+        payload = await self._fetch_threads(
+            access_token=token.access_token.get_secret_value(),
+            connection=connection,
+        )
         return SourceFetchResult(
             source=IngestedSource(
                 kind="threads_user_threads",
@@ -119,12 +133,18 @@ class ThreadsUserThreadsIngester:
             items=_normalize_threads_items(payload),
         )
 
-    async def _fetch_threads(self, *, access_token: str) -> dict[str, Any]:
+    async def _fetch_threads(
+        self,
+        *,
+        access_token: str,
+        connection: SocialConnectionRecord,
+    ) -> dict[str, Any]:
         client = self._client or httpx.AsyncClient(timeout=httpx.Timeout(20.0))
         close_client = self._client is None
+        source_url = f"{self.config.graph_base_url.rstrip('/')}/me/threads"
         try:
             response = await client.get(
-                f"{self.config.graph_base_url.rstrip('/')}/me/threads",
+                source_url,
                 params={
                     "fields": ",".join(_THREADS_FIELDS),
                     "limit": str(max(1, min(int(self.config.limit), 100))),
@@ -134,6 +154,24 @@ class ThreadsUserThreadsIngester:
         finally:
             if close_client:
                 await client.aclose()
+        if response.status_code >= 400:
+            await self._record_attempt(
+                connection=connection,
+                status="failed",
+                source_url=source_url,
+                http_status=response.status_code,
+                rate_limit_reset_at=rate_limit_retry_at(response.headers),
+                error_code=_error_code_for_status(response.status_code),
+            )
+        else:
+            await self._record_attempt(
+                connection=connection,
+                status="succeeded",
+                source_url=source_url,
+                http_status=response.status_code,
+                rate_limit_reset_at=None,
+                error_code=None,
+            )
         raise_for_social_response(response, provider="Threads")
         try:
             payload = response.json()
@@ -143,6 +181,44 @@ class ThreadsUserThreadsIngester:
             raise TransientSourceError("Threads API response was not an object")
         return payload
 
+    async def _record_attempt(
+        self,
+        *,
+        connection: SocialConnectionRecord,
+        status: str,
+        source_url: str,
+        http_status: int,
+        rate_limit_reset_at: Any,
+        error_code: str | None,
+    ) -> None:
+        if self._social_connection_repository is None:
+            return
+        await self._social_connection_repository.record_fetch_attempt(
+            SocialFetchAttemptCreate(
+                user_id=self.config.user_id,
+                provider="threads",
+                connection_id=connection.id,
+                attempt_type="user_threads",
+                status=status,
+                error_code=error_code,
+                error_message=error_code,
+                source_url=source_url,
+                normalized_url=source_url,
+                provider_resource_id=connection.provider_user_id,
+                http_status=http_status,
+                auth_tier="threads_user_threads",
+                rate_limit_reset_at=rate_limit_reset_at,
+                metadata_json={
+                    "api_status": str(http_status),
+                    "auth_strategy": {"selected_tier": "threads_user_threads"},
+                    "provider_resource_id": connection.provider_user_id,
+                    "rate_limit": {"reset_at": rate_limit_reset_at.isoformat()}
+                    if rate_limit_reset_at is not None
+                    else {},
+                },
+            )
+        )
+
 
 def _token_skip_reason(status: str) -> str | None:
     if status == "no_connection":
@@ -150,6 +226,15 @@ def _token_skip_reason(status: str) -> str | None:
     if status in {"needs_reauth", "revoked", "disabled"}:
         return status
     return None
+
+
+def _error_code_for_status(status_code: int) -> str:
+    return {
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        429: "rate_limited",
+    }.get(status_code, "api_error")
 
 
 def _normalize_threads_items(payload: dict[str, Any]) -> list[IngestedFeedItem]:

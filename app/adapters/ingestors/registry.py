@@ -97,6 +97,7 @@ def _build_x_timeline_ingesters(
                 api_base_url=context.x_api_base_url,
             ),
             token_resolver=context.social_token_resolver,
+            social_connection_repository=context.social_connection_repository,
         )
         for user_id in context.subscriber_user_ids
     )
@@ -125,6 +126,7 @@ def _build_threads_user_threads_ingesters(
                 graph_base_url=context.threads_graph_base_url,
             ),
             token_resolver=context.social_token_resolver,
+            social_connection_repository=context.social_connection_repository,
         )
         for user_id in context.subscriber_user_ids
     )

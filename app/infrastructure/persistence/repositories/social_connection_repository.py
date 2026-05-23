@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -210,9 +212,19 @@ class SocialConnectionRepositoryAdapter:
 
     async def record_fetch_attempt(self, attempt: SocialFetchAttemptCreate) -> None:
         safe_metadata = _sanitize_fetch_attempt_metadata(attempt.metadata_json)
-        auth_tier = _auth_tier_from_metadata(safe_metadata)
+        auth_tier = _safe_text(attempt.auth_tier, max_length=100) or _auth_tier_from_metadata(
+            safe_metadata
+        )
+        http_status = attempt.http_status or _http_status_from_metadata(safe_metadata)
+        rate_limit_reset_at = attempt.rate_limit_reset_at or _rate_limit_reset_at_from_metadata(
+            safe_metadata
+        )
         record_social_fetch(provider=attempt.provider, status=attempt.status, auth_tier=auth_tier)
-        if attempt.error_code == "rate_limited" or safe_metadata.get("api_status") == "429":
+        if (
+            attempt.error_code == "rate_limited"
+            or http_status == 429
+            or safe_metadata.get("api_status") == "429"
+        ):
             record_social_rate_limit(provider=attempt.provider)
         row = SocialFetchAttempt(
             connection_id=attempt.connection_id,
@@ -222,6 +234,20 @@ class SocialConnectionRepositoryAdapter:
             status=_fetch_attempt_status(attempt.status),
             error_code=attempt.error_code,
             error_message=attempt.error_message,
+            source_url=_safe_url(attempt.source_url),
+            normalized_url=_safe_url(attempt.normalized_url),
+            provider_resource_id=_safe_text(
+                attempt.provider_resource_id
+                or _string_metadata_value(safe_metadata, "provider_resource_id"),
+                max_length=255,
+            ),
+            http_status=http_status,
+            auth_tier=auth_tier,
+            rate_limit_reset_at=rate_limit_reset_at,
+            correlation_id=_safe_text(
+                attempt.correlation_id or _string_metadata_value(safe_metadata, "correlation_id"),
+                max_length=128,
+            ),
             metadata_json=safe_metadata or None,
         )
         if attempt.status in {"succeeded", "failed"}:
@@ -278,6 +304,79 @@ def _auth_tier_from_metadata(metadata: dict[str, Any]) -> str:
         if isinstance(tier, str) and tier.strip():
             return tier
     return "unknown"
+
+
+def _http_status_from_metadata(metadata: dict[str, Any]) -> int | None:
+    status = metadata.get("api_status")
+    if isinstance(status, int):
+        return status
+    if isinstance(status, str) and status.isdigit():
+        return int(status)
+    return None
+
+
+def _rate_limit_reset_at_from_metadata(metadata: dict[str, Any]) -> dt.datetime | None:
+    rate_limit = metadata.get("rate_limit")
+    if not isinstance(rate_limit, dict):
+        return None
+    reset_at = rate_limit.get("reset_at")
+    if isinstance(reset_at, dt.datetime):
+        return reset_at if reset_at.tzinfo is not None else reset_at.replace(tzinfo=dt.UTC)
+    if isinstance(reset_at, str) and reset_at.strip():
+        parsed = _parse_datetime(reset_at)
+        if parsed is not None:
+            return parsed
+    reset = rate_limit.get("reset")
+    if isinstance(reset, int):
+        return dt.datetime.fromtimestamp(reset, tz=dt.UTC)
+    if isinstance(reset, str) and reset.isdigit():
+        return dt.datetime.fromtimestamp(int(reset), tz=dt.UTC)
+    return None
+
+
+def _parse_datetime(value: str) -> dt.datetime | None:
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
+
+
+def _string_metadata_value(metadata: dict[str, Any], key: str) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _safe_text(value: Any, *, max_length: int) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text[:max_length] if text else None
+
+
+def _safe_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        split = urlsplit(raw)
+    except ValueError:
+        return raw[:2000]
+    if not split.scheme or not split.netloc:
+        return raw[:2000]
+    netloc = split.hostname or ""
+    if split.port:
+        netloc = f"{netloc}:{split.port}"
+    safe_query = urlencode(
+        (key, val)
+        for key, val in parse_qsl(split.query, keep_blank_values=True)
+        if _is_safe_nested_key(key)
+    )
+    return urlunsplit((split.scheme, netloc, split.path, safe_query, ""))[:2000]
 
 
 def _provider(value: str) -> SocialProvider:

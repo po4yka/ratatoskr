@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from app.adapters.ingestors._social_common import parse_datetime, raise_for_social_response
+from app.adapters.ingestors._social_common import (
+    parse_datetime,
+    raise_for_social_response,
+    rate_limit_retry_at,
+)
+from app.application.ports.social_connections import SocialFetchAttemptCreate
 from app.application.ports.source_ingestors import (
     AuthSourceError,
     IngestedFeedItem,
@@ -18,6 +23,10 @@ from app.application.ports.source_ingestors import (
 from app.core.url_utils import normalize_url
 
 if TYPE_CHECKING:
+    from app.application.ports.social_connections import (
+        SocialConnectionRecord,
+        SocialConnectionRepositoryPort,
+    )
     from app.application.services.social_token_service import SocialAccessTokenResolver
 
 _REQUIRED_X_READ_SCOPES = frozenset({"tweet.read", "users.read"})
@@ -53,10 +62,12 @@ class XTimelineIngester:
         *,
         config: XTimelineIngestionConfig,
         token_resolver: SocialAccessTokenResolver,
+        social_connection_repository: SocialConnectionRepositoryPort | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.config = config
         self._token_resolver = token_resolver
+        self._social_connection_repository = social_connection_repository
         self._client = client
         self.name = f"x_timeline:{config.user_id}:{config.timeline_mode}"
 
@@ -97,6 +108,7 @@ class XTimelineIngester:
         payload = await self._fetch_timeline(
             provider_user_id=token.provider_user_id,
             access_token=token.access_token.get_secret_value(),
+            connection=token.connection,
         )
         connection = token.connection
         items = _normalize_x_items(
@@ -126,12 +138,19 @@ class XTimelineIngester:
             items=items,
         )
 
-    async def _fetch_timeline(self, *, provider_user_id: str, access_token: str) -> dict[str, Any]:
+    async def _fetch_timeline(
+        self,
+        *,
+        provider_user_id: str,
+        access_token: str,
+        connection: SocialConnectionRecord,
+    ) -> dict[str, Any]:
         path = (
             f"users/{provider_user_id}/timelines/reverse_chronological"
             if self.config.timeline_mode == "home_timeline"
             else f"users/{provider_user_id}/tweets"
         )
+        source_url = f"{self.config.api_base_url.rstrip('/')}/{path}"
         params = {
             "max_results": str(max(5, min(int(self.config.limit), 100))),
             "tweet.fields": ",".join(_TWEET_FIELDS),
@@ -142,13 +161,31 @@ class XTimelineIngester:
         close_client = self._client is None
         try:
             response = await client.get(
-                f"{self.config.api_base_url.rstrip('/')}/{path}",
+                source_url,
                 params=params,
                 headers={"Authorization": f"Bearer {access_token}"},
             )
         finally:
             if close_client:
                 await client.aclose()
+        if response.status_code >= 400:
+            await self._record_attempt(
+                connection=connection,
+                status="failed",
+                source_url=source_url,
+                http_status=response.status_code,
+                rate_limit_reset_at=rate_limit_retry_at(response.headers),
+                error_code=_error_code_for_status(response.status_code),
+            )
+        else:
+            await self._record_attempt(
+                connection=connection,
+                status="succeeded",
+                source_url=source_url,
+                http_status=response.status_code,
+                rate_limit_reset_at=None,
+                error_code=None,
+            )
         raise_for_social_response(response, provider="X")
         try:
             payload = response.json()
@@ -158,6 +195,44 @@ class XTimelineIngester:
             raise TransientSourceError("X API response was not an object")
         return payload
 
+    async def _record_attempt(
+        self,
+        *,
+        connection: SocialConnectionRecord,
+        status: str,
+        source_url: str,
+        http_status: int,
+        rate_limit_reset_at: Any,
+        error_code: str | None,
+    ) -> None:
+        if self._social_connection_repository is None:
+            return
+        await self._social_connection_repository.record_fetch_attempt(
+            SocialFetchAttemptCreate(
+                user_id=self.config.user_id,
+                provider="x",
+                connection_id=connection.id,
+                attempt_type=f"timeline:{self.config.timeline_mode}",
+                status=status,
+                error_code=error_code,
+                error_message=error_code,
+                source_url=source_url,
+                normalized_url=source_url,
+                provider_resource_id=connection.provider_user_id,
+                http_status=http_status,
+                auth_tier="x_timeline",
+                rate_limit_reset_at=rate_limit_reset_at,
+                metadata_json={
+                    "api_status": str(http_status),
+                    "auth_strategy": {"selected_tier": "x_timeline"},
+                    "provider_resource_id": connection.provider_user_id,
+                    "rate_limit": {"reset_at": rate_limit_reset_at.isoformat()}
+                    if rate_limit_reset_at is not None
+                    else {},
+                },
+            )
+        )
+
 
 def _token_skip_reason(status: str) -> str | None:
     if status == "no_connection":
@@ -165,6 +240,15 @@ def _token_skip_reason(status: str) -> str | None:
     if status in {"needs_reauth", "revoked", "disabled"}:
         return status
     return None
+
+
+def _error_code_for_status(status_code: int) -> str:
+    return {
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        429: "rate_limited",
+    }.get(status_code, "api_error")
 
 
 def _normalize_x_items(
