@@ -92,6 +92,8 @@ Common `error_context_json.reason_code` values:
 
 **Pro Tip**: `DEBUG_PAYLOADS=1` enables bounded debug previews only. Authorization headers, provider tokens, prompts, raw source content, and private URL path/query data remain redacted by default; use it only in controlled local debugging.
 
+Social OAuth and connected-account fetches follow the same rule. Access tokens, refresh tokens, authorization codes, OAuth state values, cookies, `Authorization` headers, and token-bearing callback URLs are redacted in structured logs. When debugging social provider failures, search by `cid`/correlation ID and provider labels, then inspect `social_fetch_attempts.metadata_json`; it contains only sanitized operational fields such as `api_status`, `auth_strategy.selected_tier`, provider resource IDs, and rate-limit reset hints.
+
 ---
 
 ## Installation Issues

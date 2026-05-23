@@ -1536,6 +1536,8 @@ Indexes: `(user_id, provider)`, `(expires_at)`.
 
 **Key columns:** `connection_id`, `user_id`, `provider`, `attempt_type`, `status`, `started_at`, `finished_at`, `error_code`, `error_message`, `metadata_json`, `created_at`.
 
+`metadata_json` is sanitized by `SocialConnectionRepositoryAdapter.record_fetch_attempt()` before persistence. Allowed top-level keys are `api_status`, `api_supported_for_url`, `auth_strategy`, `connection_id`, `correlation_id`, `media_lookup_count`, `provider_resource_id`, `provider_shortcode`, `rate_limit`, `tweet_id`, and `unsupported_reason`; nested keys containing token, secret, authorization, cookie, code, or state markers are removed. Raw provider payloads, HTTP headers, cookies, access tokens, refresh tokens, authorization codes, and OAuth state values are not valid contents for this column.
+
 Indexes: `(connection_id, started_at)`, `(user_id, provider)`.
 
 ---

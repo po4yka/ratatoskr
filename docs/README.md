@@ -7,7 +7,7 @@ Welcome to the Ratatoskr documentation. This guide helps you find the right docu
 ## Documentation freshness
 
 - Last documentation refresh: **2026-05-23**
-- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, LLM provider protocol/factory behavior, and the existing LangGraph / CocoIndex / GitHub ingestion docs.
+- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, LLM provider protocol/factory behavior, social observability/privacy guardrails, and the existing LangGraph / CocoIndex / GitHub ingestion docs.
 
 ## Documentation by Audience
 
@@ -322,6 +322,7 @@ See the [Architecture Overview](explanation/architecture-overview.md) for an ann
 | **Redis** | [How to setup Redis](guides/setup-redis-caching.md), [Troubleshooting § Redis](reference/troubleshooting.md#redis-issues) |
 | **Search** | [SPEC.md § Search](SPEC.md#search), [How to setup Qdrant](guides/setup-qdrant-vector-search.md) |
 | **Security** | [FAQ § Security](explanation/faq.md#security) |
+| **Social integrations** | [Social Integrations](reference/social-integrations.md), [Environment Variables](reference/environment-variables.md#social-integrations), [Observability Strategy](explanation/observability-strategy.md#social-integration-metrics) |
 | **Summary contract** | [Summary Contract](reference/summary-contract.md), [Summary Contract Design](explanation/summary-contract-design.md) |
 | **Testing** | [Local Development Tutorial § Testing](guides/local-development.md), [CLAUDE.md § Testing](../CLAUDE.md#testing) |
 | **Troubleshooting** | [Troubleshooting](reference/troubleshooting.md), [FAQ](explanation/faq.md) |

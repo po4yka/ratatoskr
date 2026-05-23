@@ -115,7 +115,7 @@ React SPA serving contract, routes, hybrid auth modes, and local development wor
 
 ## Observability
 
-Prometheus metrics, structured logs, correlation-ID tracing, owner-safe diagnostics, and the Loki/Promtail/Grafana monitoring stack. Owner diagnostics for `/v1/admin/diagnostics` are composed by `DiagnosticsService`, which gathers health checks, scraper configuration, vector lag, queue backlog, storage growth, integration failures, social provider connection summaries, and redacted provider status behind a short process-local cache.
+Prometheus metrics, structured logs, correlation-ID tracing, owner-safe diagnostics, and the Loki/Promtail/Grafana monitoring stack. Owner diagnostics for `/v1/admin/diagnostics` are composed by `DiagnosticsService`, which gathers health checks, scraper configuration, vector lag, queue backlog, storage growth, integration failures, social provider connection summaries, and redacted provider status behind a short process-local cache. Connected social auth/content paths additionally expose provider fetch, token-refresh, rate-limit, and connection-status counters while keeping fetch-attempt metadata sanitized.
 
 → [Observability Strategy](explanation/observability-strategy.md)
 

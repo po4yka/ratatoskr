@@ -10,6 +10,14 @@ Proactive connected-account feed ingestion is opt-in. X ingestion requires `SIGN
 
 Reference links: [X timelines](https://docs.x.com/x-api/posts/timelines/introduction), [X OAuth 2.0 endpoint mapping](https://docs.x.com/fundamentals/authentication/guides/v2-authentication-mapping), [Threads API](https://developers.facebook.com/docs/threads/).
 
+## Observability and Privacy Guardrails
+
+Social integrations emit provider-level Prometheus counters from `app/observability/metrics.py`: `ratatoskr_social_fetch_total{provider,status,auth_tier}` for content fetch attempts, `ratatoskr_social_token_refresh_total{provider,status}` for OAuth refreshes, `ratatoskr_social_rate_limit_total{provider}` for provider 429s, and `ratatoskr_social_connection_status_total{provider,status}` for connection-state observations. Fetch counters are recorded at the `SocialFetchAttempt` persistence boundary so X, Threads, Instagram, and future social providers share the same telemetry contract.
+
+`social_fetch_attempts.metadata_json` is intentionally not a raw provider payload store. The repository adapter keeps only safe operational keys: `api_status`, `api_supported_for_url`, `auth_strategy`, `connection_id`, `correlation_id`, `media_lookup_count`, `provider_resource_id`, `provider_shortcode`, `rate_limit`, `tweet_id`, and `unsupported_reason`. Nested metadata keys containing token, secret, authorization, cookie, code, or state markers are dropped. Raw provider responses, request headers, cookies, access tokens, refresh tokens, authorization codes, OAuth state values, and bearer credentials must not be persisted there.
+
+Social auth and content-fetch logs preserve the standard structured logging format and include `cid`/correlation ID where one exists. `app/core/logging_utils.py` redacts social OAuth secrets in dictionaries, free text, URLs, and headers, including `access_token`, `refresh_token`, authorization `code`, OAuth `state`, cookies, and `Authorization` header values.
+
 ## Instagram API Scaffold
 
 This project currently keeps public Instagram URL summarization on the existing unauthenticated Meta scraper fallback. The Instagram API client scaffold is for connected-account OAuth and read-only professional-account media lookups only; it is not wired into production content extraction.

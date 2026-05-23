@@ -231,6 +231,21 @@ Use one of:
 2. Could this `extra` payload include auth headers or token-like fields?
 3. If this is a fallback path, is there enough context to debug without exposing sensitive values?
 
+Social OAuth and content-fetch paths are covered by the same guardrail. Redaction includes access tokens, refresh tokens, authorization codes, OAuth state values, cookies, `Authorization` headers, and token-bearing callback URLs. Social auth/fetch logs should carry `cid` for correlation and provider/status context, but not decrypted token material or raw provider payloads.
+
+### Social Integration Metrics
+
+Connected-account social workflows expose four Prometheus counters:
+
+| Metric | Labels | Meaning |
+| ------ | ------ | ------- |
+| `ratatoskr_social_fetch_total` | `provider`, `status`, `auth_tier` | Content fetch attempts recorded through `SocialFetchAttempt` |
+| `ratatoskr_social_token_refresh_total` | `provider`, `status` | OAuth token refresh outcomes |
+| `ratatoskr_social_rate_limit_total` | `provider` | Provider rate-limit responses, including authenticated feed ingestors |
+| `ratatoskr_social_connection_status_total` | `provider`, `status` | Observed connection states from list/upsert/update/delete paths |
+
+The fetch counter is intentionally emitted at the persistence boundary in `SocialConnectionRepositoryAdapter.record_fetch_attempt()`. This makes the metric provider-neutral and keeps adapters from duplicating status/auth-tier labeling logic. If `prometheus_client` is not installed, these recorder functions no-op like the rest of `app/observability/metrics.py`.
+
 ### Aggregation API Audit Events
 
 External aggregation creation now emits explicit audit events so operators can correlate expensive bundle creation with the authenticated actor that triggered it.
