@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.social.meta import InstagramOAuthError
@@ -15,20 +14,14 @@ from app.application.dto.aggregation import (
     SourceProvenance,
     SourceTextBlock,
 )
-from app.application.ports.social_connections import (
-    SocialConnectionUpdate,
-    SocialFetchAttemptCreate,
-)
+from app.application.ports.social_connections import SocialFetchAttemptCreate
+from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.lang import detect_language
-from app.core.time_utils import UTC
 from app.core.urls.meta import extract_instagram_shortcode
 from app.domain.models.source import SourceItem, SourceKind
-from app.observability.metrics import record_social_token_refresh
-from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
 if TYPE_CHECKING:
     from app.adapters.social.meta import InstagramClient, InstagramMedia
-    from app.application.dto.social_auth import OAuthTokenResult
     from app.application.ports.social_connections import (
         SocialConnectionRecord,
         SocialConnectionRepositoryPort,
@@ -57,10 +50,15 @@ class InstagramApiExtractor:
         repository: SocialConnectionRepositoryPort,
         instagram_client: InstagramClient,
         media_lookup_page_limit: int = 5,
+        token_resolver: SocialAccessTokenResolver | None = None,
     ) -> None:
         self._repository = repository
         self._instagram_client = instagram_client
         self._media_lookup_page_limit = media_lookup_page_limit
+        self._token_resolver = token_resolver or SocialAccessTokenResolver(
+            repository=repository,
+            oauth_clients={"instagram": instagram_client},
+        )
 
     async def extract(
         self,
@@ -91,37 +89,33 @@ class InstagramApiExtractor:
             base_metadata["unsupported_reason"] = "no_user_context"
             return InstagramApiExtractionResult(ok=False, metadata=base_metadata)
 
-        connection = await self._repository.get_by_user_and_provider(user_id, "instagram")
-        if (
-            connection is None
-            or connection.status != "active"
-            or connection.encrypted_access_token is None
-        ):
+        token = await self._token_resolver.resolve(
+            user_id=user_id,
+            provider="instagram",
+            required_scopes=("instagram_business_basic",),
+        )
+        if token.status in {"skipped", "no_connection"}:
             base_metadata["api_status"] = "no_connection"
             base_metadata["unsupported_reason"] = "no_active_connection"
             await self._record_attempt(None, user_id, "failed", base_metadata, "no_connection")
             return InstagramApiExtractionResult(ok=False, metadata=base_metadata)
 
-        connection = await self._refresh_if_needed(connection)
-        if connection.status != "active" or connection.encrypted_access_token is None:
-            base_metadata["api_status"] = "refresh_failed"
-            base_metadata["connection_id"] = connection.id
-            base_metadata["unsupported_reason"] = "token_refresh_failed"
-            await self._record_attempt(
-                connection,
-                user_id,
-                "failed",
-                base_metadata,
-                "refresh_failed",
+        connection = token.connection
+        if not token.ok or connection is None or token.access_token is None:
+            base_metadata.update(token.safe_metadata())
+            base_metadata["unsupported_reason"] = (
+                "token_refresh_failed" if token.status == "refresh_failed" else token.status
             )
+            if connection is not None:
+                await self._record_attempt(
+                    connection, user_id, "failed", base_metadata, token.status
+                )
             return InstagramApiExtractionResult(ok=False, metadata=base_metadata)
 
-        access_token = decrypt_secret(connection.encrypted_access_token)
+        access_token = token.access_token.get_secret_value()
         metadata = {**base_metadata, "connection_id": connection.id}
         try:
-            ig_user_id = connection.provider_user_id or await self._get_current_user_id(
-                access_token
-            )
+            ig_user_id = token.provider_user_id or await self._get_current_user_id(access_token)
             if not ig_user_id:
                 metadata["api_status"] = "unsupported"
                 metadata["unsupported_reason"] = "connected_account_id_unavailable"
@@ -226,41 +220,6 @@ class InstagramApiExtractor:
             after = next_after
         return None
 
-    async def _refresh_if_needed(
-        self,
-        connection: SocialConnectionRecord,
-    ) -> SocialConnectionRecord:
-        expires_at = connection.access_token_expires_at
-        if expires_at is None or expires_at > datetime.now(UTC):
-            return connection
-        if connection.encrypted_refresh_token is None:
-            updated = await self._repository.update_connection(
-                connection.user_id,
-                "instagram",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
-            return updated or connection
-        try:
-            token_result = await self._instagram_client.refresh_token(
-                refresh_token=decrypt_secret(connection.encrypted_refresh_token),
-            )
-        except Exception:
-            record_social_token_refresh(provider="instagram", status="failed")
-            updated = await self._repository.update_connection(
-                connection.user_id,
-                "instagram",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
-            return updated or connection
-        record_social_token_refresh(provider="instagram", status="succeeded")
-
-        updated = await self._repository.update_connection(
-            connection.user_id,
-            "instagram",
-            _token_result_to_update(connection, token_result),
-        )
-        return updated or connection
-
     async def _handle_oauth_failure(
         self,
         connection: SocialConnectionRecord,
@@ -273,11 +232,7 @@ class InstagramApiExtractor:
         error_code = _error_code_for_status(exc.status_code)
         if exc.status_code == 401:
             metadata["unsupported_reason"] = "token_invalid"
-            await self._repository.update_connection(
-                user_id,
-                "instagram",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
+            await self._token_resolver.mark_needs_reauth(user_id=user_id, provider="instagram")
         await self._record_attempt(connection, user_id, "failed", metadata, error_code)
 
     async def _record_attempt(
@@ -452,23 +407,6 @@ def _shortcode_from_permalink(value: Any) -> str | None:
     return extract_instagram_shortcode(value)
 
 
-def _token_result_to_update(
-    connection: SocialConnectionRecord,
-    token_result: OAuthTokenResult,
-) -> SocialConnectionUpdate:
-    return SocialConnectionUpdate(
-        encrypted_access_token=encrypt_secret(token_result.access_token),
-        encrypted_refresh_token=encrypt_secret(token_result.refresh_token)
-        if token_result.refresh_token
-        else None,
-        token_scopes=token_result.scopes or connection.token_scopes,
-        access_token_expires_at=_parse_datetime(token_result.access_token_expires_at),
-        refresh_token_expires_at=_parse_datetime(token_result.refresh_token_expires_at),
-        status="active",
-        metadata_json={**(connection.metadata_json or {}), **(token_result.metadata_json or {})},
-    )
-
-
 def _safe_attempt_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         "api_status",
@@ -490,12 +428,3 @@ def _error_code_for_status(status_code: int) -> str:
         404: "not_found",
         429: "rate_limited",
     }.get(status_code, "api_error")
-
-
-def _parse_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)

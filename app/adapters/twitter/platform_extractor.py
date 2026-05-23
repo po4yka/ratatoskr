@@ -10,6 +10,7 @@ from app.adapters.twitter.firecrawl_extractor import TwitterFirecrawlExtractor
 from app.adapters.twitter.playwright_extractor import TwitterPlaywrightExtractor
 from app.adapters.twitter.tier_policy import TwitterTierPolicy
 from app.adapters.social.x import XOAuthClient, XOAuthConfig
+from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.urls.twitter import is_twitter_url
 from app.infrastructure.persistence.repositories.social_connection_repository import (
     SocialConnectionRepositoryAdapter,
@@ -48,22 +49,28 @@ class TwitterPlatformExtractor(PlatformExtractor):
         from app.adapters.twitter.api_extractor import XApiPostExtractor
 
         x_client_secret = getattr(twitter_cfg, "x_oauth_client_secret", None)
+        social_repository = SocialConnectionRepositoryAdapter(db)
+        x_client = XOAuthClient(
+            XOAuthConfig(
+                client_id=getattr(twitter_cfg, "x_oauth_client_id", None),
+                client_secret=x_client_secret.get_secret_value()
+                if x_client_secret is not None
+                else None,
+                redirect_uri=getattr(twitter_cfg, "x_oauth_redirect_uri", None),
+                scopes=getattr(twitter_cfg, "x_oauth_scopes", None),
+                api_base_url=getattr(
+                    twitter_cfg,
+                    "x_api_base_url",
+                    "https://api.x.com/2",
+                ),
+            )
+        )
         x_api_extractor = XApiPostExtractor(
-            repository=SocialConnectionRepositoryAdapter(db),
-            x_client=XOAuthClient(
-                XOAuthConfig(
-                    client_id=getattr(twitter_cfg, "x_oauth_client_id", None),
-                    client_secret=x_client_secret.get_secret_value()
-                    if x_client_secret is not None
-                    else None,
-                    redirect_uri=getattr(twitter_cfg, "x_oauth_redirect_uri", None),
-                    scopes=getattr(twitter_cfg, "x_oauth_scopes", None),
-                    api_base_url=getattr(
-                        twitter_cfg,
-                        "x_api_base_url",
-                        "https://api.x.com/2",
-                    ),
-                )
+            repository=social_repository,
+            x_client=x_client,
+            token_resolver=SocialAccessTokenResolver(
+                repository=social_repository,
+                oauth_clients={"x": x_client},
             ),
         )
         firecrawl_extractor = TwitterFirecrawlExtractor(

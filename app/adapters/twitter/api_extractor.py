@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from app.application.ports.social_connections import (
-    SocialConnectionUpdate,
-    SocialFetchAttemptCreate,
-)
-from app.core.time_utils import UTC
+from app.application.ports.social_connections import SocialFetchAttemptCreate
+from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.urls.twitter import extract_tweet_id
-from app.observability.metrics import record_social_token_refresh
-from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
 if TYPE_CHECKING:
     from app.adapters.social.x import XOAuthClient
@@ -44,9 +38,14 @@ class XApiPostExtractor:
         *,
         repository: SocialConnectionRepositoryPort,
         x_client: XOAuthClient,
+        token_resolver: SocialAccessTokenResolver | None = None,
     ) -> None:
         self._repository = repository
         self._x_client = x_client
+        self._token_resolver = token_resolver or SocialAccessTokenResolver(
+            repository=repository,
+            oauth_clients={"x": x_client},
+        )
 
     async def extract(
         self,
@@ -67,35 +66,35 @@ class XApiPostExtractor:
                 metadata={"api_status": "skipped", "provider_resource_id": post_id},
             )
 
-        connection = await self._repository.get_by_user_and_provider(user_id, "x")
-        if (
-            connection is None
-            or connection.status != "active"
-            or connection.encrypted_access_token is None
-        ):
+        token = await self._token_resolver.resolve(
+            user_id=user_id,
+            provider="x",
+            required_scopes=("tweet.read", "users.read"),
+            correlation_id=correlation_id,
+        )
+        if token.status in {"skipped", "no_connection"}:
             return XApiExtractionResult(
                 ok=False,
-                metadata={"api_status": "no_connection", "provider_resource_id": post_id},
+                metadata={"api_status": token.status, "provider_resource_id": post_id},
             )
-
-        connection = await self._refresh_if_needed(connection)
-        if connection.status != "active" or connection.encrypted_access_token is None:
+        connection = token.connection
+        if not token.ok or connection is None or token.access_token is None:
             refresh_metadata = {
                 "auth_strategy": {"selected_tier": "x_api"},
-                "api_status": "refresh_failed",
+                "api_status": token.status,
                 "provider_resource_id": post_id,
-                "connection_id": connection.id,
                 "correlation_id": correlation_id,
+                **token.safe_metadata(),
             }
-            await self._record_attempt(
-                connection, user_id, "failed", refresh_metadata, "refresh_failed"
-            )
+            if connection is not None:
+                await self._record_attempt(
+                    connection, user_id, "failed", refresh_metadata, token.status
+                )
             logger.warning(
                 "social_content_fetch_failed",
-                extra={"cid": correlation_id, "provider": "x", "reason": "refresh_failed"},
+                extra={"cid": correlation_id, "provider": "x", "reason": token.status},
             )
             return XApiExtractionResult(ok=False, metadata=refresh_metadata)
-        access_token = decrypt_secret(connection.encrypted_access_token or b"")
         safe_metadata: dict[str, Any] = {
             "auth_strategy": {"selected_tier": "x_api"},
             "api_status": "started",
@@ -104,14 +103,13 @@ class XApiPostExtractor:
             "correlation_id": correlation_id,
         }
 
-        response = await self._x_client.get_post_by_id(post_id=post_id, access_token=access_token)
+        response = await self._x_client.get_post_by_id(
+            post_id=post_id,
+            access_token=token.access_token.get_secret_value(),
+        )
         safe_metadata.update(_response_metadata(response.status_code, response.headers, post_id))
         if response.status_code == 401:
-            await self._repository.update_connection(
-                user_id,
-                "x",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
+            await self._token_resolver.mark_needs_reauth(user_id=user_id, provider="x")
             await self._record_attempt(connection, user_id, "failed", safe_metadata, "unauthorized")
             logger.warning(
                 "social_content_fetch_failed",
@@ -181,56 +179,6 @@ class XApiPostExtractor:
             content_source="x_api",
             metadata=safe_metadata,
         )
-
-    async def _refresh_if_needed(
-        self,
-        connection: SocialConnectionRecord,
-    ) -> SocialConnectionRecord:
-        expires_at = connection.access_token_expires_at
-        if expires_at is None or expires_at > datetime.now(UTC):
-            return connection
-        if connection.encrypted_refresh_token is None:
-            updated = await self._repository.update_connection(
-                connection.user_id,
-                "x",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
-            return updated or connection
-        try:
-            token_result = await self._x_client.refresh_access_token(
-                provider="x",
-                refresh_token=decrypt_secret(connection.encrypted_refresh_token),
-                scopes=connection.token_scopes or [],
-                correlation_id=None,
-            )
-        except Exception:
-            record_social_token_refresh(provider="x", status="failed")
-            updated = await self._repository.update_connection(
-                connection.user_id,
-                "x",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
-            return updated or connection
-        record_social_token_refresh(provider="x", status="succeeded")
-
-        updated = await self._repository.update_connection(
-            connection.user_id,
-            "x",
-            SocialConnectionUpdate(
-                encrypted_access_token=encrypt_secret(token_result.access_token),
-                encrypted_refresh_token=encrypt_secret(token_result.refresh_token)
-                if token_result.refresh_token
-                else None,
-                token_scopes=token_result.scopes or connection.token_scopes,
-                access_token_expires_at=_parse_datetime(token_result.access_token_expires_at),
-                status="active",
-                metadata_json={
-                    **(connection.metadata_json or {}),
-                    **(token_result.metadata_json or {}),
-                },
-            ),
-        )
-        return updated or connection
 
     async def _record_attempt(
         self,
@@ -390,15 +338,6 @@ def _error_code_for_status(status_code: int) -> str:
         404: "not_found",
         429: "rate_limited",
     }.get(status_code, "api_error")
-
-
-def _parse_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
 
 
 def _string(value: Any) -> str | None:

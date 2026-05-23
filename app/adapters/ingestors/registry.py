@@ -82,7 +82,7 @@ def _build_x_timeline_ingesters(
 ) -> Iterable[SourceIngester]:
     if not (cfg.enabled and cfg.social_x_ingestion_enabled):
         return ()
-    if context.social_connection_repository is None:
+    if context.social_token_resolver is None:
         return ()
 
     from app.adapters.ingestors.x_timeline import XTimelineIngester, XTimelineIngestionConfig
@@ -96,7 +96,7 @@ def _build_x_timeline_ingesters(
                 limit=cfg.max_items_per_source,
                 api_base_url=context.x_api_base_url,
             ),
-            social_connections=context.social_connection_repository,
+            token_resolver=context.social_token_resolver,
         )
         for user_id in context.subscriber_user_ids
     )
@@ -108,7 +108,7 @@ def _build_threads_user_threads_ingesters(
 ) -> Iterable[SourceIngester]:
     if not (cfg.enabled and cfg.social_threads_ingestion_enabled):
         return ()
-    if context.social_connection_repository is None:
+    if context.social_token_resolver is None:
         return ()
 
     from app.adapters.ingestors.threads_user_threads import (
@@ -124,7 +124,7 @@ def _build_threads_user_threads_ingesters(
                 limit=cfg.max_items_per_source,
                 graph_base_url=context.threads_graph_base_url,
             ),
-            social_connections=context.social_connection_repository,
+            token_resolver=context.social_token_resolver,
         )
         for user_id in context.subscriber_user_ids
     )

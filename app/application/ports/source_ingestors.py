@@ -92,6 +92,7 @@ class SourceIngesterBuildContext:
     """Optional dependencies available to registry-built ingestors."""
 
     social_connection_repository: Any | None = None
+    social_token_resolver: Any | None = None
     subscriber_user_ids: tuple[int, ...] = ()
     x_api_base_url: str = "https://api.x.com/2"
     threads_graph_base_url: str = "https://graph.threads.net/v1.0"

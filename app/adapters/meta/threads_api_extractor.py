@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.application.dto.aggregation import (
@@ -14,16 +13,11 @@ from app.application.dto.aggregation import (
     SourceProvenance,
     SourceTextBlock,
 )
-from app.application.ports.social_connections import (
-    SocialConnectionUpdate,
-    SocialFetchAttemptCreate,
-)
+from app.application.ports.social_connections import SocialFetchAttemptCreate
+from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.lang import detect_language
-from app.core.time_utils import UTC
 from app.core.urls.meta import extract_threads_post_id
 from app.domain.models.source import SourceItem, SourceKind
-from app.observability.metrics import record_social_token_refresh
-from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
 if TYPE_CHECKING:
     import httpx
@@ -56,9 +50,14 @@ class ThreadsApiExtractor:
         *,
         repository: SocialConnectionRepositoryPort,
         threads_client: ThreadsClient,
+        token_resolver: SocialAccessTokenResolver | None = None,
     ) -> None:
         self._repository = repository
         self._threads_client = threads_client
+        self._token_resolver = token_resolver or SocialAccessTokenResolver(
+            repository=repository,
+            oauth_clients={"threads": threads_client},
+        )
 
     async def extract(
         self,
@@ -83,27 +82,27 @@ class ThreadsApiExtractor:
         if not media_id or user_id is None:
             return ThreadsApiExtractionResult(ok=False, metadata=base_metadata)
 
-        connection = await self._repository.get_by_user_and_provider(user_id, "threads")
-        if (
-            connection is None
-            or connection.status != "active"
-            or connection.encrypted_access_token is None
-        ):
-            base_metadata["api_status"] = "no_connection"
+        token = await self._token_resolver.resolve(
+            user_id=user_id,
+            provider="threads",
+            required_scopes=("threads_basic",),
+        )
+        if token.status in {"skipped", "no_connection"}:
+            base_metadata["api_status"] = token.status
             return ThreadsApiExtractionResult(ok=False, metadata=base_metadata)
 
-        connection = await self._refresh_if_needed(connection)
-        if connection.status != "active" or connection.encrypted_access_token is None:
-            base_metadata["api_status"] = "refresh_failed"
-            base_metadata["connection_id"] = connection.id
-            await self._record_attempt(
-                connection, user_id, "failed", base_metadata, "refresh_failed"
-            )
+        connection = token.connection
+        if not token.ok or connection is None or token.access_token is None:
+            base_metadata.update(token.safe_metadata())
+            if connection is not None:
+                await self._record_attempt(
+                    connection, user_id, "failed", base_metadata, token.status
+                )
             return ThreadsApiExtractionResult(ok=False, metadata=base_metadata)
 
         response = await self._threads_client.get_media_response(
             media_id,
-            access_token=decrypt_secret(connection.encrypted_access_token),
+            access_token=token.access_token.get_secret_value(),
         )
         metadata = {
             **base_metadata,
@@ -111,11 +110,7 @@ class ThreadsApiExtractor:
             "connection_id": connection.id,
         }
         if response.status_code == 401:
-            await self._repository.update_connection(
-                user_id,
-                "threads",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
+            await self._token_resolver.mark_needs_reauth(user_id=user_id, provider="threads")
             await self._record_attempt(connection, user_id, "failed", metadata, "unauthorized")
             return ThreadsApiExtractionResult(ok=False, metadata=metadata)
         if response.status_code in {403, 404, 429} or response.status_code >= 500:
@@ -160,57 +155,6 @@ class ThreadsApiExtractor:
             None,
         )
         return result
-
-    async def _refresh_if_needed(
-        self,
-        connection: SocialConnectionRecord,
-    ) -> SocialConnectionRecord:
-        expires_at = connection.access_token_expires_at
-        if expires_at is None or expires_at > datetime.now(UTC):
-            return connection
-        if connection.encrypted_refresh_token is None:
-            updated = await self._repository.update_connection(
-                connection.user_id,
-                "threads",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
-            return updated or connection
-        try:
-            token_result = await self._threads_client.refresh_access_token(
-                provider="threads",
-                refresh_token=decrypt_secret(connection.encrypted_refresh_token),
-                scopes=connection.token_scopes or [],
-                correlation_id=None,
-            )
-        except Exception:
-            record_social_token_refresh(provider="threads", status="failed")
-            updated = await self._repository.update_connection(
-                connection.user_id,
-                "threads",
-                SocialConnectionUpdate(status="needs_reauth"),
-            )
-            return updated or connection
-        record_social_token_refresh(provider="threads", status="succeeded")
-
-        updated = await self._repository.update_connection(
-            connection.user_id,
-            "threads",
-            SocialConnectionUpdate(
-                encrypted_access_token=encrypt_secret(token_result.access_token),
-                encrypted_refresh_token=encrypt_secret(token_result.refresh_token)
-                if token_result.refresh_token
-                else None,
-                token_scopes=token_result.scopes or connection.token_scopes,
-                access_token_expires_at=_parse_datetime(token_result.access_token_expires_at),
-                refresh_token_expires_at=_parse_datetime(token_result.refresh_token_expires_at),
-                status="active",
-                metadata_json={
-                    **(connection.metadata_json or {}),
-                    **(token_result.metadata_json or {}),
-                },
-            ),
-        )
-        return updated or connection
 
     async def _record_attempt(
         self,
@@ -403,12 +347,3 @@ def _error_code_for_status(status_code: int) -> str:
         404: "not_found",
         429: "rate_limited",
     }.get(status_code, "api_error")
-
-
-def _parse_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)

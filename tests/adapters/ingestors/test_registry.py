@@ -81,6 +81,7 @@ def test_registry_builds_social_ingesters_only_with_explicit_flags_and_context()
         social_threads_ingestion_enabled=True,
     )
     social_repo = object()
+    social_token_resolver = object()
 
     ingesters_without_context = create_source_ingesters(cfg)
     assert [ingester.name for ingester in ingesters_without_context] == ["twitter"]
@@ -90,6 +91,7 @@ def test_registry_builds_social_ingesters_only_with_explicit_flags_and_context()
         cfg,
         context=SourceIngesterBuildContext(
             social_connection_repository=social_repo,
+            social_token_resolver=social_token_resolver,
             subscriber_user_ids=(1001,),
         ),
     )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 import pytest
@@ -14,8 +14,10 @@ from app.adapters.ingestors.threads_user_threads import (
     ThreadsUserThreadsIngestionConfig,
 )
 from app.adapters.ingestors.x_timeline import XTimelineIngester, XTimelineIngestionConfig
+from app.application.dto.social_auth import SocialOAuthClientProtocol
 from app.application.ports.signal_sources import SignalSourceRepositoryPort
 from app.application.ports.social_connections import SocialConnectionRecord
+from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.time_utils import UTC
 from app.security.secret_crypto import encrypt_secret, reset_secret_key_cache
 
@@ -51,6 +53,7 @@ class _FakeClient:
 class _FakeSocialConnectionRepository:
     def __init__(self, connection: SocialConnectionRecord | None) -> None:
         self.connection = connection
+        self.updates: list[Any] = []
 
     async def get_by_user_and_provider(
         self,
@@ -64,6 +67,52 @@ class _FakeSocialConnectionRepository:
         ):
             return self.connection
         return None
+
+    async def update_connection(
+        self,
+        user_id: int,
+        provider: str,
+        update: Any,
+    ) -> SocialConnectionRecord | None:
+        assert self.connection is not None
+        assert self.connection.user_id == user_id
+        assert self.connection.provider == provider
+        self.updates.append(update)
+        self.connection = replace(
+            self.connection,
+            encrypted_access_token=update.encrypted_access_token
+            if update.encrypted_access_token is not None
+            else self.connection.encrypted_access_token,
+            encrypted_refresh_token=update.encrypted_refresh_token
+            if update.encrypted_refresh_token is not None
+            else self.connection.encrypted_refresh_token,
+            token_scopes=update.token_scopes
+            if update.token_scopes is not None
+            else self.connection.token_scopes,
+            access_token_expires_at=update.access_token_expires_at
+            if update.access_token_expires_at is not None
+            else self.connection.access_token_expires_at,
+            refresh_token_expires_at=update.refresh_token_expires_at
+            if update.refresh_token_expires_at is not None
+            else self.connection.refresh_token_expires_at,
+            status=update.status if update.status is not None else self.connection.status,
+            metadata_json=update.metadata_json
+            if update.metadata_json is not None
+            else self.connection.metadata_json,
+        )
+        return self.connection
+
+
+class _FakeOAuthClient:
+    async def refresh_access_token(
+        self,
+        *,
+        provider: str,
+        refresh_token: str,
+        scopes: list[str],
+        correlation_id: str | None,
+    ) -> Any:
+        raise AssertionError("refresh_access_token should not be called")
 
 
 class _FakeSignalSourceRepository:
@@ -130,6 +179,17 @@ def _connection(
     )
 
 
+def _resolver(
+    connection: SocialConnectionRecord | None,
+    *,
+    provider: str,
+) -> SocialAccessTokenResolver:
+    return SocialAccessTokenResolver(
+        repository=cast("Any", _FakeSocialConnectionRepository(connection)),
+        oauth_clients={provider: cast("SocialOAuthClientProtocol", _FakeOAuthClient())},
+    )
+
+
 @pytest.mark.asyncio
 async def test_x_timeline_ingester_persists_items_and_respects_max_items_per_run() -> None:
     client = _FakeClient(
@@ -166,11 +226,9 @@ async def test_x_timeline_ingester_persists_items_and_respects_max_items_per_run
             limit=30,
             api_base_url="https://api.x.test/2",
         ),
-        social_connections=cast(
-            "Any",
-            _FakeSocialConnectionRepository(
-                _connection(provider="x", scopes=["tweet.read", "users.read"])
-            ),
+        token_resolver=_resolver(
+            _connection(provider="x", scopes=["tweet.read", "users.read"]),
+            provider="x",
         ),
         client=cast("Any", client),
     )
@@ -203,11 +261,9 @@ async def test_x_home_timeline_uses_reverse_chronological_endpoint() -> None:
             timeline_mode="home_timeline",
             api_base_url="https://api.x.test/2",
         ),
-        social_connections=cast(
-            "Any",
-            _FakeSocialConnectionRepository(
-                _connection(provider="x", scopes=["tweet.read", "users.read"])
-            ),
+        token_resolver=_resolver(
+            _connection(provider="x", scopes=["tweet.read", "users.read"]),
+            provider="x",
         ),
         client=cast("Any", client),
     )
@@ -248,11 +304,9 @@ async def test_threads_user_threads_ingester_persists_me_threads_items() -> None
             limit=30,
             graph_base_url="https://graph.threads.test/v1.0",
         ),
-        social_connections=cast(
-            "Any",
-            _FakeSocialConnectionRepository(
-                _connection(provider="threads", scopes=["threads_basic"])
-            ),
+        token_resolver=_resolver(
+            _connection(provider="threads", scopes=["threads_basic"]),
+            provider="threads",
         ),
         client=cast("Any", client),
     )
@@ -286,11 +340,9 @@ async def test_rate_limit_reset_is_recorded_as_source_backoff() -> None:
     )
     ingester = XTimelineIngester(
         config=XTimelineIngestionConfig(enabled=True, user_id=1001),
-        social_connections=cast(
-            "Any",
-            _FakeSocialConnectionRepository(
-                _connection(provider="x", scopes=["tweet.read", "users.read"])
-            ),
+        token_resolver=_resolver(
+            _connection(provider="x", scopes=["tweet.read", "users.read"]),
+            provider="x",
         ),
         client=cast("Any", client),
     )
@@ -312,15 +364,13 @@ async def test_needs_reauth_connection_is_skipped_without_provider_call() -> Non
     client = _FakeClient([])
     ingester = ThreadsUserThreadsIngester(
         config=ThreadsUserThreadsIngestionConfig(enabled=True, user_id=1001),
-        social_connections=cast(
-            "Any",
-            _FakeSocialConnectionRepository(
-                _connection(
-                    provider="threads",
-                    status="needs_reauth",
-                    scopes=["threads_basic"],
-                )
+        token_resolver=_resolver(
+            _connection(
+                provider="threads",
+                status="needs_reauth",
+                scopes=["threads_basic"],
             ),
+            provider="threads",
         ),
         client=cast("Any", client),
     )

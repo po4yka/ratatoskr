@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -118,6 +118,54 @@ class SocialFetchAttemptCreate:
     error_code: str | None = None
     error_message: str | None = None
     metadata_json: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSocialAccessToken:
+    """Opaque access token wrapper that stays redacted in reprs and comparisons."""
+
+    _value: str = field(repr=False, compare=False)
+
+    def get_secret_value(self) -> str:
+        return self._value
+
+
+@dataclass(frozen=True, slots=True)
+class SocialAccessTokenResolution:
+    """Internal token lookup result with safe status fields for metadata/logs."""
+
+    provider: str
+    status: str
+    access_token: ResolvedSocialAccessToken | None = None
+    connection: SocialConnectionRecord | None = None
+    reason: str | None = None
+    missing_scopes: tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok" and self.access_token is not None and self.connection is not None
+
+    @property
+    def connection_id(self) -> int | None:
+        return self.connection.id if self.connection is not None else None
+
+    @property
+    def provider_user_id(self) -> str | None:
+        return self.connection.provider_user_id if self.connection is not None else None
+
+    @property
+    def provider_username(self) -> str | None:
+        return self.connection.provider_username if self.connection is not None else None
+
+    def safe_metadata(self) -> dict[str, Any]:
+        metadata: dict[str, Any] = {"api_status": self.status}
+        if self.connection_id is not None:
+            metadata["connection_id"] = self.connection_id
+        if self.reason:
+            metadata["auth_reason"] = self.reason
+        if self.missing_scopes:
+            metadata["missing_scopes"] = list(self.missing_scopes)
+        return metadata
 
 
 @runtime_checkable

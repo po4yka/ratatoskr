@@ -16,13 +16,9 @@ from app.application.ports.source_ingestors import (
     TransientSourceError,
 )
 from app.core.url_utils import normalize_url
-from app.security.secret_crypto import decrypt_secret
 
 if TYPE_CHECKING:
-    from app.application.ports.social_connections import (
-        SocialConnectionRecord,
-        SocialConnectionRepositoryPort,
-    )
+    from app.application.services.social_token_service import SocialAccessTokenResolver
 
 _REQUIRED_X_READ_SCOPES = frozenset({"tweet.read", "users.read"})
 _TWEET_FIELDS = (
@@ -56,11 +52,11 @@ class XTimelineIngester:
         self,
         *,
         config: XTimelineIngestionConfig,
-        social_connections: SocialConnectionRepositoryPort,
+        token_resolver: SocialAccessTokenResolver,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.config = config
-        self._social_connections = social_connections
+        self._token_resolver = token_resolver
         self._client = client
         self.name = f"x_timeline:{config.user_id}:{config.timeline_mode}"
 
@@ -77,29 +73,32 @@ class XTimelineIngester:
         )
 
     async def fetch(self) -> SourceFetchResult:
-        connection = await self._social_connections.get_by_user_and_provider(
-            self.config.user_id,
-            "x",
+        token = await self._token_resolver.resolve(
+            user_id=self.config.user_id,
+            provider="x",
+            required_scopes=tuple(_REQUIRED_X_READ_SCOPES),
         )
-        skip = _connection_skip_reason(connection)
+        skip = _token_skip_reason(token.status)
         if skip is not None:
             return SourceFetchResult(
                 source=self.source_identity(),
                 not_modified=True,
                 metadata={"connection_status": skip},
             )
-        assert connection is not None
-        if not _REQUIRED_X_READ_SCOPES.issubset(set(connection.token_scopes or [])):
+        if token.status == "missing_scope":
             raise AuthSourceError("X connection is missing tweet.read/users.read scopes")
-        if not connection.provider_user_id:
-            raise AuthSourceError("X connection is missing provider user ID")
-        if connection.encrypted_access_token is None:
+        if token.status == "missing_access_token":
             raise AuthSourceError("X connection is missing access token")
+        if not token.ok or token.access_token is None or token.connection is None:
+            raise AuthSourceError(f"X connection could not provide an access token: {token.status}")
+        if not token.provider_user_id:
+            raise AuthSourceError("X connection is missing provider user ID")
 
         payload = await self._fetch_timeline(
-            provider_user_id=connection.provider_user_id,
-            access_token=decrypt_secret(connection.encrypted_access_token),
+            provider_user_id=token.provider_user_id,
+            access_token=token.access_token.get_secret_value(),
         )
+        connection = token.connection
         items = _normalize_x_items(
             payload,
             provider_username=connection.provider_username,
@@ -160,11 +159,11 @@ class XTimelineIngester:
         return payload
 
 
-def _connection_skip_reason(connection: SocialConnectionRecord | None) -> str | None:
-    if connection is None:
+def _token_skip_reason(status: str) -> str | None:
+    if status == "no_connection":
         return "missing"
-    if connection.status != "active":
-        return connection.status
+    if status in {"needs_reauth", "revoked", "disabled"}:
+        return status
     return None
 
 

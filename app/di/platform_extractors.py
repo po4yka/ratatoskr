@@ -167,11 +167,39 @@ def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
         ThreadsClient,
         ThreadsOAuthConfig,
     )
+    from app.application.services.social_token_service import SocialAccessTokenResolver
     from app.infrastructure.persistence.repositories.social_connection_repository import (
         SocialConnectionRepositoryAdapter,
     )
 
     social_cfg = context.cfg.social
+    social_repository = SocialConnectionRepositoryAdapter(context.db)
+    threads_client = ThreadsClient(
+        ThreadsOAuthConfig(
+            client_id=social_cfg.threads_client_id,
+            client_secret=social_cfg.threads_client_secret.get_secret_value()
+            if social_cfg.threads_client_secret is not None
+            else None,
+            redirect_uri=social_cfg.threads_redirect_uri,
+            scopes=social_cfg.threads_scopes,
+            graph_base_url=social_cfg.threads_graph_base_url,
+        )
+    )
+    instagram_client = InstagramClient(
+        InstagramOAuthConfig(
+            client_id=social_cfg.instagram_client_id,
+            client_secret=social_cfg.instagram_client_secret.get_secret_value()
+            if social_cfg.instagram_client_secret is not None
+            else None,
+            redirect_uri=social_cfg.instagram_redirect_uri,
+            scopes=social_cfg.instagram_scopes,
+            graph_base_url=social_cfg.instagram_graph_base_url,
+        )
+    )
+    token_resolver = SocialAccessTokenResolver(
+        repository=social_repository,
+        oauth_clients={"threads": threads_client, "instagram": instagram_client},
+    )
 
     return MetaPlatformExtractor(
         cfg=context.cfg,
@@ -179,32 +207,14 @@ def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
         firecrawl_sem=context.sem,
         lifecycle=context.lifecycle,
         threads_api_extractor=ThreadsApiExtractor(
-            repository=SocialConnectionRepositoryAdapter(context.db),
-            threads_client=ThreadsClient(
-                ThreadsOAuthConfig(
-                    client_id=social_cfg.threads_client_id,
-                    client_secret=social_cfg.threads_client_secret.get_secret_value()
-                    if social_cfg.threads_client_secret is not None
-                    else None,
-                    redirect_uri=social_cfg.threads_redirect_uri,
-                    scopes=social_cfg.threads_scopes,
-                    graph_base_url=social_cfg.threads_graph_base_url,
-                )
-            ),
+            repository=social_repository,
+            threads_client=threads_client,
+            token_resolver=token_resolver,
         ),
         instagram_api_extractor=InstagramApiExtractor(
-            repository=SocialConnectionRepositoryAdapter(context.db),
-            instagram_client=InstagramClient(
-                InstagramOAuthConfig(
-                    client_id=social_cfg.instagram_client_id,
-                    client_secret=social_cfg.instagram_client_secret.get_secret_value()
-                    if social_cfg.instagram_client_secret is not None
-                    else None,
-                    redirect_uri=social_cfg.instagram_redirect_uri,
-                    scopes=social_cfg.instagram_scopes,
-                    graph_base_url=social_cfg.instagram_graph_base_url,
-                )
-            ),
+            repository=social_repository,
+            instagram_client=instagram_client,
+            token_resolver=token_resolver,
         ),
     )
 

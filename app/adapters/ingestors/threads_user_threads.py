@@ -16,13 +16,9 @@ from app.application.ports.source_ingestors import (
     TransientSourceError,
 )
 from app.core.url_utils import normalize_url
-from app.security.secret_crypto import decrypt_secret
 
 if TYPE_CHECKING:
-    from app.application.ports.social_connections import (
-        SocialConnectionRecord,
-        SocialConnectionRepositoryPort,
-    )
+    from app.application.services.social_token_service import SocialAccessTokenResolver
 
 _THREADS_FIELDS = (
     "id",
@@ -60,11 +56,11 @@ class ThreadsUserThreadsIngester:
         self,
         *,
         config: ThreadsUserThreadsIngestionConfig,
-        social_connections: SocialConnectionRepositoryPort,
+        token_resolver: SocialAccessTokenResolver,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.config = config
-        self._social_connections = social_connections
+        self._token_resolver = token_resolver
         self._client = client
         self.name = f"threads_user_threads:{config.user_id}"
 
@@ -80,26 +76,29 @@ class ThreadsUserThreadsIngester:
         )
 
     async def fetch(self) -> SourceFetchResult:
-        connection = await self._social_connections.get_by_user_and_provider(
-            self.config.user_id,
-            "threads",
+        token = await self._token_resolver.resolve(
+            user_id=self.config.user_id,
+            provider="threads",
+            required_scopes=("threads_basic",),
         )
-        skip = _connection_skip_reason(connection)
+        skip = _token_skip_reason(token.status)
         if skip is not None:
             return SourceFetchResult(
                 source=self.source_identity(),
                 not_modified=True,
                 metadata={"connection_status": skip},
             )
-        assert connection is not None
-        if "threads_basic" not in set(connection.token_scopes or []):
+        if token.status == "missing_scope":
             raise AuthSourceError("Threads connection is missing threads_basic scope")
-        if connection.encrypted_access_token is None:
+        if token.status == "missing_access_token":
             raise AuthSourceError("Threads connection is missing access token")
+        if not token.ok or token.access_token is None or token.connection is None:
+            raise AuthSourceError(
+                f"Threads connection could not provide an access token: {token.status}"
+            )
 
-        payload = await self._fetch_threads(
-            access_token=decrypt_secret(connection.encrypted_access_token),
-        )
+        payload = await self._fetch_threads(access_token=token.access_token.get_secret_value())
+        connection = token.connection
         return SourceFetchResult(
             source=IngestedSource(
                 kind="threads_user_threads",
@@ -145,11 +144,11 @@ class ThreadsUserThreadsIngester:
         return payload
 
 
-def _connection_skip_reason(connection: SocialConnectionRecord | None) -> str | None:
-    if connection is None:
+def _token_skip_reason(status: str) -> str | None:
+    if status == "no_connection":
         return "missing"
-    if connection.status != "active":
-        return connection.status
+    if status in {"needs_reauth", "revoked", "disabled"}:
+        return status
     return None
 
 
