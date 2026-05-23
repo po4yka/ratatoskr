@@ -12,9 +12,12 @@ import random
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
+
+if TYPE_CHECKING:
+    from app.core.summary_contract import SummaryContractId
 
 logger = get_logger(__name__)
 
@@ -107,6 +110,37 @@ class PromptManager:
                 prompt = self._inject_examples(prompt, examples, lang)
 
         return prompt
+
+    def get_contract_system_prompt(
+        self,
+        contract_id: SummaryContractId = "default",
+        lang: str = "en",
+        *,
+        include_examples: bool = True,
+        num_examples: int = 2,
+        example_types: list[str] | None = None,
+    ) -> str:
+        """Get a paired system prompt for a summary contract."""
+        from app.core.summary_contract import get_summary_contract_descriptor
+
+        descriptor = get_summary_contract_descriptor(contract_id)
+        normalized_lang = self._normalize_language(lang)
+        if normalized_lang not in descriptor.supported_languages:
+            logger.warning(
+                "summary_contract_language_fallback",
+                extra={
+                    "contract_id": descriptor.contract_id,
+                    "requested": normalized_lang,
+                    "fallback": "en",
+                },
+            )
+            normalized_lang = "en"
+        return self.get_system_prompt(
+            normalized_lang,
+            include_examples=include_examples,
+            num_examples=num_examples,
+            example_types=example_types,
+        )
 
     def get_prompt_version(self, lang: str = "en") -> str | None:
         """Extract version string from prompt file header.
@@ -440,6 +474,21 @@ def get_system_prompt(lang: str = "en", *, include_examples: bool = True) -> str
     """
     manager = get_prompt_manager()
     return manager.get_system_prompt(lang, include_examples=include_examples)
+
+
+def get_contract_system_prompt(
+    contract_id: SummaryContractId = "default",
+    lang: str = "en",
+    *,
+    include_examples: bool = True,
+) -> str:
+    """Convenience function to get a system prompt for a summary contract."""
+    manager = get_prompt_manager()
+    return manager.get_contract_system_prompt(
+        contract_id,
+        lang,
+        include_examples=include_examples,
+    )
 
 
 def reset_prompt_manager() -> None:

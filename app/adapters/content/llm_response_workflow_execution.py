@@ -209,20 +209,10 @@ class LLMWorkflowExecutionMixin:
     def build_structured_response_format(self, mode: str | None = None) -> dict[str, Any]:
         """Build response format configuration for structured outputs."""
         try:
-            from app.core.summary_contract import get_summary_json_schema
+            from app.core.summary_contract import get_summary_contract_descriptor
 
             current_mode = mode or self.cfg.openrouter.structured_output_mode
-
-            if current_mode == "json_schema":
-                return {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "summary_schema",
-                        "schema": get_summary_json_schema(),
-                        "strict": True,
-                    },
-                }
-            return {"type": "json_object"}
+            return get_summary_contract_descriptor().response_format(current_mode)
         except (AttributeError, ValueError, RuntimeError):
             return {"type": "json_object"}
 

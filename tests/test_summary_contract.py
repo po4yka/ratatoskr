@@ -1,7 +1,12 @@
 import logging
 import unittest
 
-from app.core.summary_contract import validate_and_shape_summary
+from app.core.summary_contract import (
+    get_summary_contract_descriptor,
+    get_summary_json_schema,
+    validate_and_shape_summary,
+)
+from app.prompts.manager import PromptManager
 
 
 def _minimal_summary_payload(**overrides):
@@ -223,3 +228,43 @@ def test_malformed_quality_fields_create_persisted_validation_warnings():
         "extraction_confidence_invalid",
     }.issubset(warnings)
     assert out["summary_quality"]["source_coverage"] == "unknown"
+
+
+def test_default_summary_contract_descriptor_matches_current_wire_schema():
+    descriptor = get_summary_contract_descriptor()
+
+    assert descriptor.contract_id == "default"
+    assert descriptor.schema_name == "summary_schema"
+    assert descriptor.schema_loader() == get_summary_json_schema()
+    assert descriptor.response_format("json_schema") == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "summary_schema",
+            "schema": get_summary_json_schema(),
+            "strict": True,
+        },
+    }
+    assert descriptor.response_format("json_object") == {"type": "json_object"}
+    assert descriptor.repair_response_format() == {"type": "json_object"}
+
+
+def test_default_summary_contract_compatibility_mapper_is_current_validator():
+    payload = _minimal_summary_payload(topic_tags=["Tech", "tech"])
+    descriptor = get_summary_contract_descriptor()
+
+    assert descriptor.compatibility_mapper(payload) == validate_and_shape_summary(payload)
+
+
+def test_default_summary_contract_prompt_parity_for_en_ru():
+    descriptor = get_summary_contract_descriptor()
+    manager = PromptManager(validate_on_load=True)
+
+    assert descriptor.supported_languages == ("en", "ru")
+    assert manager.get_prompt_version("en") == manager.get_prompt_version("ru")
+    assert manager.get_prompt_fields("en") == manager.get_prompt_fields("ru")
+    assert manager.get_contract_system_prompt("default", "en", include_examples=False) == (
+        descriptor.prompt_loader("en", include_examples=False)
+    )
+    assert manager.get_contract_system_prompt("default", "ru", include_examples=False) == (
+        descriptor.prompt_loader("ru", include_examples=False)
+    )

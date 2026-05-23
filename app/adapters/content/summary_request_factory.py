@@ -23,6 +23,7 @@ from app.core.content_cleaner import (
 )
 from app.core.lang import LANG_RU
 from app.core.logging_utils import bounded_debug_preview, get_logger
+from app.core.summary_contract import get_summary_contract_descriptor
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -379,9 +380,7 @@ class SummaryRequestFactory:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            repair_response_format=self._runtime.workflow.build_structured_response_format(
-                mode="json_object"
-            ),
+            repair_response_format=get_summary_contract_descriptor().repair_response_format(),
             repair_max_tokens=self._select_max_tokens(user_content),
             default_prompt=(
                 "Your previous message was not a valid JSON object. Respond with ONLY a corrected JSON "
@@ -462,10 +461,11 @@ class SummaryRequestFactory:
         silent: bool,
     ) -> list[LLMRequestConfig]:
         """Construct ordered LLM attempts for summary generation."""
-        response_format_schema = self._runtime.workflow.build_structured_response_format()
-        response_format_json = self._runtime.workflow.build_structured_response_format(
-            mode="json_object"
+        contract = get_summary_contract_descriptor()
+        response_format_schema = contract.response_format(
+            self._runtime.cfg.openrouter.structured_output_mode
         )
+        response_format_json = contract.response_format("json_object")
         max_tokens_schema = self._select_max_tokens(content_for_summary)
         max_tokens_json = self._select_max_tokens(user_content)
 
