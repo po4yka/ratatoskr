@@ -11,6 +11,7 @@ from app.mcp.aggregation_service import AggregationMcpService
 from app.mcp.article_service import ArticleReadService
 from app.mcp.catalog_service import CatalogReadService
 from app.mcp.context import McpServerContext
+from app.mcp.fieldtheory_search_service import FieldTheorySearchService
 from app.mcp.http_auth import McpHttpAuthMiddleware
 from app.mcp.resource_registrations import register_resources
 from app.mcp.semantic_service import SemanticSearchService
@@ -63,6 +64,7 @@ def create_mcp_server(context: McpServerContext | None = None) -> FastMCP:
     catalog_service = CatalogReadService(server_context)
     semantic_service = SemanticSearchService(server_context, article_service)
     signal_service = SignalMcpService(server_context)
+    fieldtheory_service = FieldTheorySearchService(server_context)
 
     register_tools(
         mcp,
@@ -71,6 +73,7 @@ def create_mcp_server(context: McpServerContext | None = None) -> FastMCP:
         catalog_service=catalog_service,
         semantic_service=semantic_service,
         signal_service=signal_service,
+        fieldtheory_service=fieldtheory_service,
     )
     register_resources(
         mcp,

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
     from app.mcp.article_service import ArticleReadService
     from app.mcp.catalog_service import CatalogReadService
+    from app.mcp.fieldtheory_search_service import FieldTheorySearchService
     from app.mcp.semantic_service import SemanticSearchService
     from app.mcp.signal_service import SignalMcpService
 
@@ -69,8 +70,12 @@ def register_tools(
     catalog_service: CatalogReadService,
     semantic_service: SemanticSearchService,
     signal_service: SignalMcpService | None = None,
+    fieldtheory_service: FieldTheorySearchService | None = None,
 ) -> None:
     signal_runtime: Any = signal_service if signal_service is not None else _NullSignalService()
+    fieldtheory_runtime: Any = (
+        fieldtheory_service if fieldtheory_service is not None else _NullFieldTheorySearchService()
+    )
     contributions: list[McpToolContribution] = []
     contribute_tool = _contribute_tool(contributions)
 
@@ -217,6 +222,23 @@ def register_tools(
         return to_json(
             await _call_async(
                 "find_by_entity", article_service.find_by_entity, entity_name, entity_type, limit
+            )
+        )
+
+    @contribute_tool
+    async def fieldtheory_search(
+        query: str,
+        category: str | None = None,
+        limit: int = 10,
+    ) -> str:
+        """Search ingested fieldtheory bookmarks via Postgres full-text search."""
+        return to_json(
+            await _call_async(
+                "fieldtheory_search",
+                fieldtheory_runtime.search,
+                query,
+                category,
+                limit,
             )
         )
 
@@ -404,3 +426,13 @@ class _NullSignalService:
 
     async def set_source_active(self, source_id: int, is_active: bool) -> dict[str, Any]:
         return {"error": "Signal service is not configured"}
+
+
+class _NullFieldTheorySearchService:
+    async def search(
+        self,
+        query: str,
+        category: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        return {"error": "Fieldtheory search service is not configured"}

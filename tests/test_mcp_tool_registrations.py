@@ -105,12 +105,13 @@ async def test_mcp_tool_registration_records_success_metrics() -> None:
         signal_service=cast("Any", signal_service),
     )
 
-    assert len(mcp.tools) == 25
+    assert len(mcp.tools) == 26
     assert {
         "list_signal_sources",
         "list_user_signals",
         "update_signal_feedback",
         "set_signal_source_active",
+        "fieldtheory_search",
     } <= set(mcp.tools)
 
     with patch("app.mcp.tool_registrations.record_request") as metrics_mock:
