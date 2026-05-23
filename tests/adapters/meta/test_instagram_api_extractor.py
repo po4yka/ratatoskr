@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -25,6 +26,12 @@ from app.application.ports.social_connections import (
 from app.core.time_utils import UTC
 from app.domain.models.source import SourceKind
 from app.security.secret_crypto import encrypt_secret, reset_secret_key_cache
+
+_ACCESS_TOKEN = "old-access"
+_REFRESH_TOKEN = "old-refresh"
+_NEW_ACCESS_TOKEN = "new-access"
+_NEW_REFRESH_TOKEN = "new-refresh"
+_AUTHORIZATION_HEADER = "Authorization"
 
 
 class FakeSocialConnectionRepository:
@@ -125,8 +132,8 @@ class FakeInstagramClient:
     async def refresh_token(self, *, refresh_token: str) -> OAuthTokenResult:
         del refresh_token
         return OAuthTokenResult(
-            access_token="new-access",
-            refresh_token="new-refresh",
+            access_token=_NEW_ACCESS_TOKEN,
+            refresh_token=_NEW_REFRESH_TOKEN,
             scopes=["instagram_business_basic"],
             access_token_expires_at=(dt.datetime.now(UTC) + dt.timedelta(hours=1)).isoformat(),
         )
@@ -159,8 +166,8 @@ def _connection(*, status: str = "active") -> SocialConnectionRecord:
         auth_type="oauth2",
         provider_user_id="17841400000000000",
         provider_username="ig_user",
-        encrypted_access_token=encrypt_secret("old-access"),
-        encrypted_refresh_token=encrypt_secret("old-refresh"),
+        encrypted_access_token=encrypt_secret(_ACCESS_TOKEN),
+        encrypted_refresh_token=encrypt_secret(_REFRESH_TOKEN),
         token_scopes=["instagram_business_basic"],
         access_token_expires_at=now + dt.timedelta(hours=1),
         refresh_token_expires_at=None,
@@ -227,6 +234,34 @@ async def test_supported_connected_media_path_maps_official_media_document() -> 
     assert repo.attempts[0].status == "succeeded"
     assert repo.attempts[0].metadata_json is not None
     assert "instagram_media" not in repo.attempts[0].metadata_json
+    _assert_safe_metadata(result.metadata or {})
+    _assert_safe_metadata(repo.attempts[0].metadata_json)
+
+
+@pytest.mark.asyncio
+async def test_no_connection_falls_back_with_safe_unsupported_reason() -> None:
+    repo = FakeSocialConnectionRepository(None)
+    extractor = InstagramApiExtractor(
+        repository=repo,
+        instagram_client=FakeInstagramClient(),
+    )
+
+    result = await extractor.extract(
+        url="https://www.instagram.com/p/ABC123/",
+        kind_hint=SourceKind.INSTAGRAM_POST,
+        user_id=777,
+        request_id=99,
+        dedupe_hash="dedupe",
+    )
+
+    assert result.ok is False
+    assert result.metadata is not None
+    assert result.metadata["api_status"] == "no_connection"
+    assert result.metadata["unsupported_reason"] == "no_active_connection"
+    assert result.metadata["auth_strategy"]["selected_tier"] == "meta_scraper_fallback"
+    assert repo.attempts[0].error_code == "no_connection"
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json or {})
 
 
 @pytest.mark.asyncio
@@ -260,6 +295,8 @@ async def test_connected_media_resolution_rejects_non_owned_shortcode() -> None:
     assert result.metadata["unsupported_reason"] == "not_connected_account_media"
     assert repo.attempts[0].status == "failed"
     assert repo.attempts[0].error_code == "unsupported"
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json or {})
 
 
 @pytest.mark.asyncio
@@ -388,6 +425,7 @@ async def test_unsupported_public_url_path_falls_back_to_scraper_with_metadata()
     assert result.metadata["auth_strategy"]["selected_tier"] == "meta_scraper_fallback"
     instagram_api.extract.assert_awaited_once()
     scraper.scrape_markdown.assert_awaited_once()
+    _assert_safe_metadata(result.metadata)
 
 
 @pytest.mark.asyncio
@@ -436,6 +474,7 @@ async def test_metadata_fallback_selected_when_scraper_has_only_metadata_after_a
 
     assert result.content_source == "meta_metadata_fallback"
     assert result.metadata["auth_strategy"]["selected_tier"] == "metadata_fallback"
+    _assert_safe_metadata(result.metadata)
 
 
 @pytest.mark.asyncio
@@ -466,3 +505,18 @@ async def test_token_failure_marks_needs_reauth_and_records_failed_attempt() -> 
     assert repo.connection.status == "needs_reauth"
     assert repo.attempts[0].status == "failed"
     assert repo.attempts[0].error_code == "unauthorized"
+    assert result.metadata["auth_strategy"]["selected_tier"] == "meta_scraper_fallback"
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json or {})
+
+
+def _assert_safe_metadata(metadata: dict[str, object]) -> None:
+    rendered = json.dumps(metadata, default=str)
+    for secret in (
+        _ACCESS_TOKEN,
+        _REFRESH_TOKEN,
+        _NEW_ACCESS_TOKEN,
+        _NEW_REFRESH_TOKEN,
+        _AUTHORIZATION_HEADER,
+    ):
+        assert secret not in rendered

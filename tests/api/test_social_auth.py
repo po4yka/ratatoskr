@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import logging
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 import pytest_asyncio
@@ -19,6 +21,7 @@ _USER_ID = 777_001
 _OTHER_USER_ID = 777_002
 _FERNET_KEY = Fernet.generate_key().decode("ascii")
 _REDIRECT_URI = "https://app.example.com/social/callback"
+_AUTH_CODE = "provider-auth-code-secret"
 
 
 @dataclass
@@ -133,6 +136,15 @@ async def test_connect_url_creates_encrypted_oauth_state(
     assert data["state"]
     assert data["scopes"] == ["profile.read", "offline.access"]
     assert data["redirectUri"] == _REDIRECT_URI
+    parsed = urlparse(data["connectUrl"])
+    query = parse_qs(parsed.query)
+    assert query["state"] == [data["state"]]
+    assert query["code_challenge"]
+    rendered = response_text(data)
+    assert "code_verifier" not in rendered
+    assert "access-token-secret" not in rendered
+    assert "refresh-token-secret" not in rendered
+    assert "Authorization" not in rendered
 
     async with db.session() as session:
         states = list((await session.execute(select(SocialAuthState))).scalars())
@@ -153,12 +165,14 @@ async def test_callback_success_stores_connection_without_returning_raw_tokens(
     db: Any,
     social_users: Any,
     fake_oauth_clients: dict[str, FakeSocialOAuthClient],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     connect = _create_connect_url(client, provider="instagram")
+    caplog.set_level(logging.INFO)
 
     response = client.post(
         "/v1/social/instagram/callback",
-        json={"code": "provider-code", "state": connect["state"], "redirectUri": _REDIRECT_URI},
+        json={"code": _AUTH_CODE, "state": connect["state"], "redirectUri": _REDIRECT_URI},
         headers=_auth_headers(),
     )
 
@@ -177,6 +191,7 @@ async def test_callback_success_stores_connection_without_returning_raw_tokens(
     assert "encrypted" not in response.text
     assert "access-token-secret" not in response.text
     assert "refresh-token-secret" not in response.text
+    assert _AUTH_CODE not in response.text
     assert "encrypted_access_token" not in response.text
 
     async with db.session() as session:
@@ -196,7 +211,16 @@ async def test_callback_success_stores_connection_without_returning_raw_tokens(
     assert row.token_scopes == ["profile.read", "offline.access"]
     assert auth_state is not None
     assert auth_state.status == "consumed"
-    assert fake_oauth_clients["instagram"].exchanges[0]["correlation_id"] == "cid-social-test"
+    exchange = fake_oauth_clients["instagram"].exchanges[0]
+    assert exchange["code"] == _AUTH_CODE
+    assert exchange["code_verifier"]
+    assert exchange["correlation_id"] == "cid-social-test"
+    rendered_logs = caplog.text
+    assert _AUTH_CODE not in rendered_logs
+    assert exchange["code_verifier"] not in rendered_logs
+    assert "instagram-access-token-secret" not in rendered_logs
+    assert "instagram-refresh-token-secret" not in rendered_logs
+    assert "Authorization" not in rendered_logs
 
 
 async def test_connections_list_returns_safe_status_without_tokens(

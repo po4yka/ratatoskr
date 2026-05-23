@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import replace
 
 import httpx
@@ -17,6 +18,12 @@ from app.application.ports.social_connections import (
 from app.core.time_utils import UTC
 from app.domain.models.source import SourceKind
 from app.security.secret_crypto import decrypt_secret, encrypt_secret, reset_secret_key_cache
+
+_ACCESS_TOKEN = "old-access"
+_REFRESH_TOKEN = "old-refresh"
+_NEW_ACCESS_TOKEN = "new-access"
+_NEW_REFRESH_TOKEN = "new-refresh"
+_AUTHORIZATION_HEADER = "Authorization"
 
 
 class FakeSocialConnectionRepository:
@@ -94,8 +101,8 @@ class FakeThreadsClient:
         del provider, scopes, correlation_id
         self.refreshes.append(refresh_token)
         return OAuthTokenResult(
-            access_token="new-access",
-            refresh_token="new-refresh",
+            access_token=_NEW_ACCESS_TOKEN,
+            refresh_token=_NEW_REFRESH_TOKEN,
             scopes=["threads_basic", "threads_content_publish"],
             access_token_expires_at=(dt.datetime.now(UTC) + dt.timedelta(hours=1)).isoformat(),
         )
@@ -122,8 +129,8 @@ def _connection(
         auth_type="oauth2",
         provider_user_id="threads-user",
         provider_username="threads_user",
-        encrypted_access_token=encrypt_secret("old-access"),
-        encrypted_refresh_token=encrypt_secret("old-refresh"),
+        encrypted_access_token=encrypt_secret(_ACCESS_TOKEN),
+        encrypted_refresh_token=encrypt_secret(_REFRESH_TOKEN),
         token_scopes=["threads_basic", "threads_content_publish"],
         access_token_expires_at=expires_at or now + dt.timedelta(hours=1),
         refresh_token_expires_at=None,
@@ -186,6 +193,31 @@ async def test_active_connection_fetches_threads_media_and_maps_document() -> No
     assert repo.attempts[0].status == "succeeded"
     assert repo.attempts[0].metadata_json is not None
     assert "threads_media" not in repo.attempts[0].metadata_json
+    _assert_safe_metadata(result.metadata or {})
+    _assert_safe_metadata(repo.attempts[0].metadata_json)
+
+
+@pytest.mark.asyncio
+async def test_no_connection_selects_scraper_fallback_metadata_without_fetch_attempt() -> None:
+    repo = FakeSocialConnectionRepository(None)
+    extractor = ThreadsApiExtractor(
+        repository=repo,
+        threads_client=FakeThreadsClient(_media_response()),
+    )
+
+    result = await extractor.extract(
+        url="https://www.threads.net/@user/post/C8abc123",
+        user_id=777,
+        request_id=99,
+        dedupe_hash="dedupe",
+    )
+
+    assert result.ok is False
+    assert result.metadata is not None
+    assert result.metadata["api_status"] == "no_connection"
+    assert result.metadata["auth_strategy"]["selected_tier"] == "meta_scraper_fallback"
+    assert repo.attempts == []
+    _assert_safe_metadata(result.metadata)
 
 
 @pytest.mark.asyncio
@@ -204,11 +236,13 @@ async def test_expired_token_refreshes_before_media_lookup() -> None:
     )
 
     assert result.ok is True
-    assert client.refreshes == ["old-refresh"]
-    assert client.media_tokens == ["new-access"]
+    assert client.refreshes == [_REFRESH_TOKEN]
+    assert client.media_tokens == [_NEW_ACCESS_TOKEN]
     assert repo.connection is not None
     assert repo.connection.encrypted_access_token is not None
-    assert decrypt_secret(repo.connection.encrypted_access_token) == "new-access"
+    assert decrypt_secret(repo.connection.encrypted_access_token) == _NEW_ACCESS_TOKEN
+    _assert_safe_metadata(result.metadata or {})
+    _assert_safe_metadata(repo.attempts[0].metadata_json or {})
 
 
 @pytest.mark.asyncio
@@ -233,6 +267,10 @@ async def test_unauthorized_marks_needs_reauth_and_records_failed_attempt() -> N
     assert repo.attempts[0].error_code == "unauthorized"
     assert repo.attempts[0].metadata_json is not None
     assert repo.attempts[0].metadata_json["api_status"] == "401"
+    assert result.metadata is not None
+    assert result.metadata["auth_strategy"]["selected_tier"] == "meta_scraper_fallback"
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json)
 
 
 @pytest.mark.asyncio
@@ -257,3 +295,17 @@ async def test_rate_limited_records_reset_metadata_for_scraper_fallback() -> Non
     assert result.metadata["api_status"] == "429"
     assert result.metadata["rate_limit"]["reset"] == "1779519999"
     assert repo.attempts[0].error_code == "rate_limited"
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json or {})
+
+
+def _assert_safe_metadata(metadata: dict[str, object]) -> None:
+    rendered = json.dumps(metadata, default=str)
+    for secret in (
+        _ACCESS_TOKEN,
+        _REFRESH_TOKEN,
+        _NEW_ACCESS_TOKEN,
+        _NEW_REFRESH_TOKEN,
+        _AUTHORIZATION_HEADER,
+    ):
+        assert secret not in rendered

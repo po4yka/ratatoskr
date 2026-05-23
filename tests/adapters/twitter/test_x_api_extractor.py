@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import replace
 
 import httpx
@@ -16,6 +17,12 @@ from app.application.ports.social_connections import (
 )
 from app.core.time_utils import UTC
 from app.security.secret_crypto import decrypt_secret, encrypt_secret, reset_secret_key_cache
+
+_ACCESS_TOKEN = "old-access"
+_REFRESH_TOKEN = "old-refresh"
+_NEW_ACCESS_TOKEN = "new-access"
+_NEW_REFRESH_TOKEN = "new-refresh"
+_AUTHORIZATION_HEADER = "Authorization"
 
 
 class FakeSocialConnectionRepository:
@@ -89,8 +96,8 @@ class FakeXClient:
         del provider, scopes, correlation_id
         self.refreshes.append(refresh_token)
         return OAuthTokenResult(
-            access_token="new-access",
-            refresh_token="new-refresh",
+            access_token=_NEW_ACCESS_TOKEN,
+            refresh_token=_NEW_REFRESH_TOKEN,
             scopes=["tweet.read", "users.read", "offline.access"],
             access_token_expires_at=(dt.datetime.now(UTC) + dt.timedelta(hours=1)).isoformat(),
         )
@@ -115,8 +122,8 @@ def _connection(
         auth_type="oauth2",
         provider_user_id="x-user",
         provider_username="x_user",
-        encrypted_access_token=encrypt_secret("old-access"),
-        encrypted_refresh_token=encrypt_secret("old-refresh"),
+        encrypted_access_token=encrypt_secret(_ACCESS_TOKEN),
+        encrypted_refresh_token=encrypt_secret(_REFRESH_TOKEN),
         token_scopes=["tweet.read", "users.read", "offline.access"],
         access_token_expires_at=expires_at or now + dt.timedelta(hours=1),
         refresh_token_expires_at=None,
@@ -182,6 +189,8 @@ async def test_active_connection_fetches_post_and_maps_normalized_metadata() -> 
     assert repo.attempts[0].status == "succeeded"
     assert repo.attempts[0].metadata_json is not None
     assert "data" not in repo.attempts[0].metadata_json
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json)
 
 
 @pytest.mark.asyncio
@@ -200,11 +209,13 @@ async def test_expired_token_refreshes_before_post_lookup() -> None:
     )
 
     assert result.ok is True
-    assert client.refreshes == ["old-refresh"]
-    assert client.post_tokens == ["new-access"]
+    assert client.refreshes == [_REFRESH_TOKEN]
+    assert client.post_tokens == [_NEW_ACCESS_TOKEN]
     assert repo.connection is not None
     assert repo.connection.encrypted_access_token is not None
-    assert decrypt_secret(repo.connection.encrypted_access_token) == "new-access"
+    assert decrypt_secret(repo.connection.encrypted_access_token) == _NEW_ACCESS_TOKEN
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json or {})
 
 
 @pytest.mark.asyncio
@@ -226,6 +237,8 @@ async def test_unauthorized_marks_needs_reauth_and_records_failed_attempt() -> N
     assert repo.attempts[0].error_code == "unauthorized"
     assert repo.attempts[0].metadata_json is not None
     assert repo.attempts[0].metadata_json["api_status"] == "401"
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json)
 
 
 @pytest.mark.asyncio
@@ -247,3 +260,17 @@ async def test_rate_limited_records_reset_metadata_for_fallback() -> None:
     assert result.metadata["api_status"] == "429"
     assert result.metadata["rate_limit"]["reset"] == "1779519999"
     assert repo.attempts[0].error_code == "rate_limited"
+    _assert_safe_metadata(result.metadata)
+    _assert_safe_metadata(repo.attempts[0].metadata_json or {})
+
+
+def _assert_safe_metadata(metadata: dict[str, object]) -> None:
+    rendered = json.dumps(metadata, default=str)
+    for secret in (
+        _ACCESS_TOKEN,
+        _REFRESH_TOKEN,
+        _NEW_ACCESS_TOKEN,
+        _NEW_REFRESH_TOKEN,
+        _AUTHORIZATION_HEADER,
+    ):
+        assert secret not in rendered
