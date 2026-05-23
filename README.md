@@ -10,7 +10,7 @@ A self-hosted Telegram bot that turns the things you read, watch, and forward in
 
 - **Self-hosted, single-tenant.** Your data, your server, your Telegram-API quota. The bot only answers IDs in `ALLOWED_USER_IDS`.
 - **Pluggable cost.** Bring your own OpenRouter key (or OpenAI / Anthropic). Free DeepSeek / Gemini Flash models cover most workloads out of the box; paid models are an opt-in upgrade.
-- **Built for triage, not bookmarking.** Each summary is a strict 35+ field JSON contract — TLDR, key ideas, entities, key stats, topics, reading time — so search and downstream automation actually work.
+- **Built for triage, not bookmarking.** Each summary is a strict 35+ field JSON contract — TLDR, key ideas, entities, key stats, topics, reading time — bound through an explicit default contract descriptor so prompts, schemas, and validation stay in sync as providers evolve.
 - **Multi-source aggregation.** Bundle a YouTube clip with two web articles and a forwarded post, get one synthesized output with per-source provenance.
 
 ## 30-second install

@@ -238,10 +238,10 @@ All users share the same database (no per-user isolation). This is designed for 
 Yes. Supports **English and Russian** out of the box:
 
 - Language detection (`PREFERRED_LANG=auto` by default)
-- Separate prompts for English (`app/prompts/en/`) and Russian (`app/prompts/ru/`)
+- Separate prompts for English (`app/prompts/summary_system_en.txt`) and Russian (`app/prompts/summary_system_ru.txt`)
 - Russian content gets Russian summary and vice versa
 
-**Adding new languages**: Copy `app/prompts/en/summary_system.txt` to new language directory, translate prompt, update `app/core/lang.py`.
+**Adding new languages**: add a paired prompt file under `app/prompts/`, extend the supported-language handling in `PromptManager`, and register the language in the relevant summary contract descriptor.
 
 ### Can I search my summaries?
 

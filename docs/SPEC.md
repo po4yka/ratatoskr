@@ -26,7 +26,7 @@ Telethon session files are the only intentional SQLite carve-out. They are clien
 
 ## Summary JSON Contract
 
-Strict JSON schema enforced on every summary: field definitions, character limits, array lengths, enums, validation rules, self-correction loop, backward-compatibility policy, and a complete example.
+Strict JSON schema enforced on every summary: field definitions, character limits, array lengths, enums, validation rules, self-correction loop, backward-compatibility policy, and a complete example. Runtime integration goes through `SummaryContractDescriptor` in `app/core/summary_contract.py`; the current `default` descriptor pairs the `summary_schema` provider response format, EN/RU system prompts loaded by `PromptManager`, and `validate_and_shape_summary()` as the compatibility mapper so future contract variants can be added without changing the default wire shape.
 
 → [Summary Contract Reference](reference/summary-contract.md) · [Contract Design](explanation/summary-contract-design.md)
 
@@ -115,7 +115,7 @@ React SPA serving contract, routes, hybrid auth modes, and local development wor
 
 ## Observability
 
-Prometheus metrics, structured logs, correlation-ID tracing, and the Loki/Promtail/Grafana monitoring stack.
+Prometheus metrics, structured logs, correlation-ID tracing, owner-safe diagnostics, and the Loki/Promtail/Grafana monitoring stack. Owner diagnostics for `/v1/admin/diagnostics` are composed by `DiagnosticsService`, which gathers health checks, scraper configuration, vector lag, queue backlog, storage growth, integration failures, and redacted provider status behind a short process-local cache.
 
 → [Observability Strategy](explanation/observability-strategy.md)
 
@@ -204,4 +204,4 @@ When CocoIndex is enabled, analyzed repository rows (`analysis_json IS NOT NULL`
 
 ---
 
-*Last updated: 2026-05-08*
+*Last updated: 2026-05-23*

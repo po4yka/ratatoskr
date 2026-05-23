@@ -8,9 +8,24 @@ Complete specification for the strict JSON schema enforced by Ratatoskr for all 
 
 ## Contract Version
 
-**Current Version:** 3.0 **Last Updated:** 2026-03-05
+**Current Version:** 3.0 **Last Updated:** 2026-05-23
 
-**Validation Location:** `app/core/summary_contract.py` **Pydantic Model:** `app/core/summary_schema.py`
+**Validation Location:** `app/core/summary_contract.py` **Pydantic Model:** `app/core/summary_schema.py` **Runtime Descriptor:** `SummaryContractDescriptor(default)`
+
+---
+
+## Runtime Binding
+
+The default summary contract is registered through `DEFAULT_SUMMARY_CONTRACT_DESCRIPTOR` in `app/core/summary_contract.py`. The descriptor is the single runtime bundle for the current contract shape:
+
+- `contract_id="default"` and `schema_name="summary_schema"`
+- `supported_languages=("en", "ru")`
+- `schema_loader=get_summary_json_schema`
+- `prompt_loader=PromptManager.get_system_prompt` through the contract prompt wrapper
+- `compatibility_mapper=validate_and_shape_summary`
+- `response_format("json_schema")` returns a strict provider-native JSON Schema response format; the generic and repair paths still use JSON object response formats where provider support requires it
+
+Workflow code should fetch the descriptor with `get_summary_contract_descriptor()` instead of manually pairing prompt files, schema names, and validation functions. This keeps the existing 3.0 payload backward-compatible while making future summary variants explicit rather than hidden behind ad hoc kwargs or duplicated schema literals.
 
 ---
 
@@ -447,6 +462,10 @@ Complete specification for the strict JSON schema enforced by Ratatoskr for all 
 ### Python (app/core/summary_contract.py)
 
 ```python
+descriptor = get_summary_contract_descriptor("default")
+response_format = descriptor.response_format("json_schema")
+system_prompt = descriptor.prompt_loader(lang="en")
+
 def validate_and_shape_summary(summary: dict) -> dict:
     """Validate and backfill summary JSON against contract."""
     # Enforce character limits
@@ -519,4 +538,4 @@ summary_v2 = {
 
 ---
 
-**Last Updated:** 2026-03-05
+**Last Updated:** 2026-05-23

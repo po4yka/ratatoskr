@@ -1,7 +1,7 @@
 # Mobile API Specification (Ratatoskr)
 
 - Version: 1.3
-- Last Updated: 2026-04-30
+- Last Updated: 2026-05-23
 - Canonical machine-readable contract: `docs/openapi/mobile_api.yaml` and `docs/openapi/mobile_api.json`
 
 ## Overview
@@ -102,9 +102,12 @@ FastAPI routers are transport-focused and delegate orchestration to service coll
 
 - `app/api/routers/digest.py` delegates digest workflow construction and trigger queueing through `DigestFacade`.
 - `app/api/routers/system.py` delegates DB dump/info/cache orchestration through `SystemMaintenanceService`.
+- `app/api/routers/admin.py` delegates owner diagnostics composition to `DiagnosticsService`; `AdminReadService` is intentionally limited to admin read screens such as users, job status, content health, LLM costs, and audit logs.
 - System cache clearing uses `RedisCache.clear_prefix("url")` through the service layer rather than direct inline Redis scan/delete in router handlers.
 
 This keeps auth/input/output mapping in routers while DB/Redis/file logic remains in dedicated service classes.
+
+`GET /v1/admin/diagnostics` remains owner-only and returns `DiagnosticsSuccessResponse`. `DiagnosticsService` owns the 30-second process-local cache, redacted health/error details, scraper configuration diagnostics, vector lag from `VectorIndexReconciler`, queue backlog, storage growth, integration-health status, and provider failure summaries.
 
 ## Envelope and Error Contract
 

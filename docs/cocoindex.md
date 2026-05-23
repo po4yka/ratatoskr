@@ -1,6 +1,6 @@
 # Vector-Index Sync: CocoIndex + Reconciler
 
-Ratatoskr keeps the Qdrant vector store in sync with Postgres `summaries` and analyzed GitHub `repositories`. Summary vectors still have three cooperating paths. Repository vectors are written immediately by the GitHub analysis fast path and reconciled by CocoIndex when the live updater is enabled.
+Ratatoskr keeps the Qdrant vector store in sync with Postgres `summaries` and analyzed GitHub `repositories`. Summary vectors still have three cooperating paths. Repository vectors are written immediately by the GitHub analysis fast path and reconciled by CocoIndex when the live updater is enabled. Operational drift checks are handled by `VectorIndexReconciler`, which inspects each indexed entity type through a `VectorIndexedEntityAdapter` rather than hard-coding one query path per model.
 
 ## Quick start
 
@@ -58,6 +58,15 @@ On a subsequent generate call the generator short-circuits when an existing row'
 | `VECTOR_RECONCILE_BATCH_SIZE` | `100` | Maximum stale summaries re-embedded per run |
 
 The reconciler runs in the Taskiq worker process. When CocoIndex is enabled the two paths overlap harmlessly — both produce the same UUIDs. To rely solely on CocoIndex, set `VECTOR_RECONCILE_ENABLED=false`.
+
+## Reconciliation adapter seam
+
+`app/infrastructure/vector/reconciliation.py` is the shared diagnostics and repair-inspection layer. The default reconciler is configured with two adapters:
+
+- `SummaryVectorIndexedEntityAdapter` checks non-deleted `summaries`, `summary_embeddings`, model-version staleness, pending embeddings, and missing Qdrant summary points.
+- `RepositoryVectorIndexedEntityAdapter` checks analyzed `repositories`, `repository_embeddings`, model-version staleness, pending analysis, and missing Qdrant repository points.
+
+Each adapter returns `VectorIndexedEntityStats`; the reconciler aggregates them into `VectorReconciliationReport` and emits per-entity details under `details.entities`. The legacy top-level diagnostic fields (`expected_summaries`, `missing_summary_vectors`, `expected_repositories`, `missing_repository_vectors`, etc.) are preserved for dashboards, metrics, and existing tests. To add another vectorized entity type, implement `VectorIndexedEntityAdapter` and pass it via the `adapters=` constructor argument; do not fork the reconciler or add entity-specific branching to the report aggregation.
 
 ## Connection budget
 

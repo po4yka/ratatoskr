@@ -37,7 +37,9 @@ Summarize this article in 2-3 paragraphs. Include key points and interesting fac
 
 ### Contract Definition
 
-**Location:** `app/core/summary_contract.py` (validation), `app/core/summary_schema.py` (Pydantic model)
+**Location:** `app/core/summary_contract.py` (descriptor registry and validation), `app/core/summary_schema.py` (Pydantic model)
+
+`app/core/summary_contract.py` now exposes a small descriptor registry around the contract rather than only standalone validation helpers. The current `default` descriptor carries the schema loader, schema name, supported languages, prompt loader, provider response-format builder, and compatibility mapper. Existing callers still use `validate_and_shape_summary()` for the default payload, but generic workflow code should depend on the descriptor so prompt/schema/repair behavior stays paired when a future contract variant is introduced.
 
 **35+ Required Fields** (grouped by category):
 
@@ -169,7 +171,7 @@ if summary.quality_scores.accuracy < 0.8:
 **Application:**
 
 - Filter search results by language preference
-- Use language-specific prompts (`app/prompts/en/` vs `app/prompts/ru/`)
+- Use language-specific prompts (`app/prompts/summary_system_en.txt` vs `app/prompts/summary_system_ru.txt`)
 - Apply language-specific readability formulas (Flesch-Kincaid for English, different for Russian)
 
 ---
@@ -196,7 +198,7 @@ if existing_summary:
 
 ### 1. LLM Prompt Constraints
 
-**Location:** `app/prompts/en/summary_system.txt`, `app/prompts/ru/summary_system.txt`
+**Location:** `app/prompts/summary_system_en.txt`, `app/prompts/summary_system_ru.txt`, loaded through `PromptManager.get_contract_system_prompt()`
 
 **Technique:** Explicit field definitions with character limits, type constraints, examples.
 
@@ -225,6 +227,7 @@ Return a JSON object with the following fields:
 
 **Functions:**
 
+- `get_summary_contract_descriptor(contract_id)` - Returns the schema/prompt/compatibility bundle for a registered contract
 - `validate_and_shape_summary(summary_dict)` - Validates and backfills missing fields
 - `validate_field_char_limits(summary_dict)` - Enforces character limits
 - `deduplicate_arrays(summary_dict)` - Removes duplicate values in arrays
@@ -233,9 +236,11 @@ Return a JSON object with the following fields:
 **Enforcement:** Every summary passes through validation before persistence.
 
 ```python
-# app/adapters/content/llm_summarizer.py
-raw_summary = await llm_client.complete(prompt)
-validated_summary = validate_and_shape_summary(raw_summary)  # May raise ValidationError
+# app/adapters/content/llm_response_workflow_execution.py
+descriptor = get_summary_contract_descriptor()
+response_format = descriptor.response_format("json_schema")
+raw_summary = await llm_client.complete(prompt, response_format=response_format)
+validated_summary = descriptor.compatibility_mapper(raw_summary)  # May raise ValidationError
 db.summaries.save(validated_summary)
 ```
 
@@ -373,7 +378,7 @@ summary.metadata = {
 **After Contract:**
 
 - `lang = "ru"` detected automatically
-- Russian prompt used (`app/prompts/ru/summary_system.txt`)
+- Russian prompt used (`app/prompts/summary_system_ru.txt`)
 - Search filtered by language preference
 
 **Impact:** Seamless multi-language experience.
@@ -521,4 +526,4 @@ class SourceType(str, Enum):
 
 ---
 
-**Last Updated:** 2026-02-09
+**Last Updated:** 2026-05-23

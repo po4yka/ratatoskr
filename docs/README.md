@@ -6,8 +6,8 @@ Welcome to the Ratatoskr documentation. This guide helps you find the right docu
 
 ## Documentation freshness
 
-- Last documentation refresh: **2026-05-11**
-- This refresh aligns docs with: - LangChain structured-output repository analysis and LangGraph summarize/validate retry flow - CocoIndex summary + repository vector reconciliation, including one-shot CLI usage - Qdrant setup and backup commands that match the current `backfill_vector_store` CLI - GitHub repository ingestion schema, API source values, and repository embedding behavior - AI-agent instructions in `AGENTS.md` and `CLAUDE.md`
+- Last documentation refresh: **2026-05-23**
+- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, and the existing LangGraph / CocoIndex / GitHub ingestion docs.
 
 ## Documentation by Audience
 
@@ -341,6 +341,6 @@ Found a typo? Documentation unclear? Want to add a tutorial?
 
 ---
 
-**Last Updated**: 2026-04-28
+**Last Updated**: 2026-05-23
 
 **Questions?** Check [FAQ](explanation/faq.md) or open an [issue](https://github.com/po4yka/ratatoskr/issues).

@@ -40,9 +40,9 @@ Operating notes for Claude (and other AI assistants) working in this repo. Leads
 | API contract drift | FastAPI source is `app.api.main:app`; request/response models live under `app/api/models/`, routers under `app/api/routers/`, generated artifacts under `docs/openapi/mobile_api.yaml` and `.json`; never patch generated OpenAPI by hand. Run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`. |
 | Sync drift | Sync v2 entrypoints are `app/api/routers/sync.py`, service collaborators are under `app/api/services/sync/`, DB reads for sync live in `app/infrastructure/persistence/sync_aux_read_adapter.py`, and the contract map is `docs/reference/sync-protocol.md`. |
 | Request stuck in processing | Start with `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob`, and `docs/reference/troubleshooting.md#request-stuck-in-processing`; keep correlation IDs intact across any repair. |
-| LLM parse failure | Parse/repair lives in `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, and `app/core/summary_contract.py`; LangGraph retry topology is `app/agents/langgraph/graph.py`; failure recipe is `docs/reference/troubleshooting.md#json-parsing-failures`. |
+| LLM parse failure | Parse/repair lives in `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, and `app/core/summary_contract.py`; runtime prompt/schema binding is `SummaryContractDescriptor` plus `PromptManager.get_contract_system_prompt()`; LangGraph retry topology is `app/agents/langgraph/graph.py`; failure recipe is `docs/reference/troubleshooting.md#json-parsing-failures`. |
 | Extraction provider behavior | Generic URL extraction is `app/adapters/content/scraper/` plus `app/adapters/content/platform_extraction/`; platform-specific bypasses are `app/adapters/youtube/`, `app/adapters/twitter/`, and `app/adapters/academic/`; provider docs are `docs/explanation/scraper-chain.md`. |
-| Source ingestion and vector repair | Source ingestors live in `app/adapters/ingestors/`, RSS/digest helpers in `app/adapters/rss/` and `app/adapters/digest/`, signal API in `app/api/routers/social/signals.py`, vector reconciliation in `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/cli/backfill_vector_store.py`; vector drift docs are `docs/cocoindex.md`. |
+| Source ingestion and vector repair | Source ingestors live in `app/adapters/ingestors/`, RSS/digest helpers in `app/adapters/rss/` and `app/adapters/digest/`, signal API in `app/api/routers/social/signals.py`, vector reconciliation in `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/cli/backfill_vector_store.py`; new vectorized entity types should implement `VectorIndexedEntityAdapter`; vector drift docs are `docs/cocoindex.md`. |
 
 ## Directory Structure
 
@@ -66,7 +66,7 @@ app/
 +-- api/                # Mobile API (FastAPI, JWT, sync, collections, streams, digest, ...)
 +-- application/        # DDD application layer (DTOs, use cases)
 +-- config/             # Settings, scraper config, runtime tuning
-+-- core/               # URL utils, JSON utils, summary contract/schema, lang detection
++-- core/               # URL utils, JSON utils, summary contract descriptors/schema, lang detection
 +-- db/                 # Models + Database session manager + Alembic migrations
 +-- di/                 # Runtime composition
 +-- domain/             # Domain models and services
@@ -185,7 +185,7 @@ python -m app.cli.migrate_db          # apply Alembic migrations
 | `app/adapters/telegram/message_router.py` | Central routing |
 | `app/adapters/content/url_processor.py` | URL processing orchestration |
 | `app/adapters/content/scraper/` | Scraper protocol, chain, factory, providers |
-| `app/core/summary_contract.py` | Strict summary validation |
+| `app/core/summary_contract.py` | Summary contract descriptors and strict validation |
 | `app/core/summary_schema.py` | Pydantic model for the contract |
 | `app/core/url_utils.py` | URL normalization + `dedupe_hash` |
 | `app/db/session.py` | `Database` -- sole DB entry point |
@@ -193,6 +193,7 @@ python -m app.cli.migrate_db          # apply Alembic migrations
 | `app/config/settings.py` | Configuration loading |
 | `app/agents/langgraph/graph.py` | Summarize/validate/repair retry graph |
 | `app/api/main.py` | Mobile API entrypoint |
+| `app/di/tasks.py` | Taskiq runtime dependency bundles for digest, RSS/source ingestion, and vector reconciliation |
 | `app/mcp/server.py` | MCP server for AI agents |
 | `docs/SPEC.md` | Documentation navigation hub |
 
@@ -245,6 +246,6 @@ When implementing a task, also update any CLAUDE.md or skill content that the ch
 
 ---
 
-**Last Updated:** 2026-05-18
+**Last Updated:** 2026-05-23
 
 Reading order for orientation: this file → `docs/SPEC.md` → relevant `docs/explanation/*.md` or `docs/reference/*.md` → matching `.claude/skills/<name>/SKILL.md`.
