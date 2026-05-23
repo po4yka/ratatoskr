@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
-class PlatformExtractorContext:
+class PlatformExtractorBuildContext:
     """Runtime dependencies available to platform extractor factories."""
 
     cfg: AppConfig
@@ -39,29 +39,33 @@ class PlatformExtractorContext:
 
 
 @dataclass(frozen=True, slots=True)
-class PlatformExtractorContribution:
+class PlatformExtractorDescriptor:
     """Descriptor for one lazily-created platform extractor route."""
 
     name: str
     predicate: Callable[[str], bool]
-    factory: Callable[[PlatformExtractorContext], PlatformExtractor]
+    factory: Callable[[PlatformExtractorBuildContext], PlatformExtractor]
+
+
+PlatformExtractorContext = PlatformExtractorBuildContext
+PlatformExtractorContribution = PlatformExtractorDescriptor
 
 
 def build_platform_extraction_router(
-    contributions: Sequence[PlatformExtractorContribution],
-    context: PlatformExtractorContext,
+    descriptors: Sequence[PlatformExtractorDescriptor],
+    context: PlatformExtractorBuildContext,
 ) -> PlatformExtractionRouter:
-    """Build a router from platform extractor contributions in declared order."""
+    """Build a router from platform extractor descriptors in declared order."""
     router = PlatformExtractionRouter()
 
     def bind_factory(
-        contribution: PlatformExtractorContribution,
+        descriptor: PlatformExtractorDescriptor,
     ) -> Callable[[], PlatformExtractor]:
-        return lambda: contribution.factory(context)
+        return lambda: descriptor.factory(context)
 
-    for contribution in contributions:
+    for descriptor in descriptors:
         router.register(
-            predicate=contribution.predicate,
-            factory=bind_factory(contribution),
+            predicate=descriptor.predicate,
+            factory=bind_factory(descriptor),
         )
     return router

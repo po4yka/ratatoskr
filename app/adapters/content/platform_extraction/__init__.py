@@ -8,8 +8,10 @@ from app.adapters.content.platform_extraction.models import (
 )
 from app.adapters.content.platform_extraction.protocol import PlatformExtractor
 from app.adapters.content.platform_extraction.registry import (
+    PlatformExtractorBuildContext,
     PlatformExtractorContext,
     PlatformExtractorContribution,
+    PlatformExtractorDescriptor,
     build_platform_extraction_router,
 )
 from app.adapters.content.platform_extraction.router import PlatformExtractionRouter
@@ -20,8 +22,10 @@ __all__ = [
     "PlatformExtractionResult",
     "PlatformExtractionRouter",
     "PlatformExtractor",
+    "PlatformExtractorBuildContext",
     "PlatformExtractorContext",
     "PlatformExtractorContribution",
+    "PlatformExtractorDescriptor",
     "PlatformRequestLifecycle",
     "build_platform_extraction_router",
 ]

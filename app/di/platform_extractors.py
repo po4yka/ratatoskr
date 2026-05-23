@@ -8,8 +8,8 @@ from app.adapters.content.content_extractor import URL_ROUTE_VERSION
 from app.adapters.content.content_extractor_requests import schedule_crawl_persistence_task
 from app.adapters.content.platform_extraction import (
     PlatformExtractionRouter,
-    PlatformExtractorContext,
-    PlatformExtractorContribution,
+    PlatformExtractorBuildContext,
+    PlatformExtractorDescriptor,
     PlatformRequestLifecycle,
     build_platform_extraction_router,
 )
@@ -48,7 +48,7 @@ def build_registered_platform_router(
         audit_func=audit_func,
         route_version=URL_ROUTE_VERSION,
     )
-    context = PlatformExtractorContext(
+    context = PlatformExtractorBuildContext(
         cfg=cfg,
         db=db,
         scraper=scraper,
@@ -69,15 +69,15 @@ def build_registered_platform_router(
         ),
     )
     return build_platform_extraction_router(
-        build_platform_extractor_contributions(cfg),
+        build_platform_extractor_descriptors(cfg),
         context,
     )
 
 
-def build_platform_extractor_contributions(
+def build_platform_extractor_descriptors(
     cfg: AppConfig,
-) -> Sequence[PlatformExtractorContribution]:
-    """Return built-in platform extractor contributions in routing order."""
+) -> Sequence[PlatformExtractorDescriptor]:
+    """Return built-in platform extractor descriptors in routing order."""
     from app.adapters.academic.url_patterns import is_academic_paper_url
     from app.adapters.github.url_patterns import is_github_repo_url
     from app.core.urls.meta import is_instagram_url, is_threads_url
@@ -85,29 +85,29 @@ def build_platform_extractor_contributions(
     from app.core.urls.youtube import is_youtube_url
 
     return (
-        PlatformExtractorContribution(
+        PlatformExtractorDescriptor(
             name="github",
             predicate=is_github_repo_url,
             factory=_build_github_platform_extractor,
         ),
-        PlatformExtractorContribution(
+        PlatformExtractorDescriptor(
             name="academic",
             predicate=is_academic_paper_url,
             factory=_build_academic_platform_extractor,
         ),
-        PlatformExtractorContribution(
+        PlatformExtractorDescriptor(
             name="youtube",
             predicate=is_youtube_url,
             factory=_build_youtube_platform_extractor,
         ),
-        PlatformExtractorContribution(
+        PlatformExtractorDescriptor(
             name="twitter",
             predicate=lambda normalized_url: (
                 bool(cfg.twitter.enabled) and is_twitter_url(normalized_url)
             ),
             factory=_build_twitter_platform_extractor,
         ),
-        PlatformExtractorContribution(
+        PlatformExtractorDescriptor(
             name="meta",
             predicate=lambda normalized_url: (
                 bool(getattr(cfg.runtime, "aggregation_meta_extractors_enabled", True))
@@ -118,7 +118,14 @@ def build_platform_extractor_contributions(
     )
 
 
-def _build_youtube_platform_extractor(context: PlatformExtractorContext) -> Any:
+def build_platform_extractor_contributions(
+    cfg: AppConfig,
+) -> Sequence[PlatformExtractorDescriptor]:
+    """Compatibility alias for callers using the former contribution name."""
+    return build_platform_extractor_descriptors(cfg)
+
+
+def _build_youtube_platform_extractor(context: PlatformExtractorBuildContext) -> Any:
     from app.adapters.transcription import get_or_create_transcription_service
     from app.adapters.youtube.platform_extractor import YouTubePlatformExtractor
     from app.infrastructure.persistence.repositories.video_download_repository import (
@@ -142,7 +149,7 @@ def _build_youtube_platform_extractor(context: PlatformExtractorContext) -> Any:
     )
 
 
-def _build_twitter_platform_extractor(context: PlatformExtractorContext) -> Any:
+def _build_twitter_platform_extractor(context: PlatformExtractorBuildContext) -> Any:
     from app.adapters.twitter.platform_extractor import TwitterPlatformExtractor
 
     return TwitterPlatformExtractor(
@@ -157,7 +164,7 @@ def _build_twitter_platform_extractor(context: PlatformExtractorContext) -> Any:
     )
 
 
-def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
+def _build_meta_platform_extractor(context: PlatformExtractorBuildContext) -> Any:
     from app.adapters.meta.instagram_api_extractor import InstagramApiExtractor
     from app.adapters.meta.platform_extractor import MetaPlatformExtractor
     from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
@@ -194,7 +201,7 @@ def _build_meta_platform_extractor(context: PlatformExtractorContext) -> Any:
     )
 
 
-def _build_academic_platform_extractor(context: PlatformExtractorContext) -> Any:
+def _build_academic_platform_extractor(context: PlatformExtractorBuildContext) -> Any:
     from app.adapters.academic.platform_extractor import AcademicPlatformExtractor
 
     return AcademicPlatformExtractor(
@@ -205,7 +212,7 @@ def _build_academic_platform_extractor(context: PlatformExtractorContext) -> Any
     )
 
 
-def _build_github_platform_extractor(context: PlatformExtractorContext) -> Any:
+def _build_github_platform_extractor(context: PlatformExtractorBuildContext) -> Any:
     from app.adapters.github.platform_extractor import GitHubPlatformExtractor
     from app.agents.repo_analysis_agent import RepoAnalysisAgent
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
