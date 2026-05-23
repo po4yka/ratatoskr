@@ -28,7 +28,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Scraper-chain fallback design | `docs/explanation/scraper-chain.md` |
 | Why the summary contract is shaped that way | `docs/explanation/summary-contract-design.md` |
 | GitHub repo ingestion subsystem | `docs/explanation/github-repository-ingestion.md` |
-| fieldtheory-cli integration (bookmarks, wiki, MCP search, Telegram) | `docs/explanation/fieldtheory-integration.md` |
+| fieldtheory-cli integration (bookmarks, wiki, MCP search, Telegram) | `docs/explanation/x-bookmarks-integration.md` |
 | Vector index + CocoIndex sync | `docs/cocoindex.md` |
 | Authoritative env-var reference (820 lines) | `docs/reference/environment-variables.md` |
 | Authoritative DB schema | `docs/reference/data-model.md` |
@@ -238,8 +238,8 @@ Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bear
 | `GITHUB_TOKEN_ENCRYPTION_KEY` | Fernet key for at-rest GitHub PAT / OAuth tokens |
 | `EMBEDDING_PROVIDER` | `local` (sentence-transformers) or `gemini` -- switching invalidates all existing vectors |
 | `RATATOSKR_COCOINDEX_ENABLED`, `VECTOR_RECONCILE_ENABLED` | Vector-index sync writers |
-| `FIELDTHEORY_SYNC_ENABLED`, `FIELDTHEORY_SYNC_CRON`, `FIELDTHEORY_WIKI_SYNC_CRON` | Master switch + cron for the two fieldtheory delta-scan Taskiq jobs (bookmark + wiki). Both jobs share the `enabled` flag. |
-| `FIELDTHEORY_BOOKMARKS_DB_PATH`, `FIELDTHEORY_LIBRARY_PATH`, `FIELDTHEORY_IDEAS_PATH` | Container-side paths to the host-mounted `~/.fieldtheory/` subtrees (`bookmarks.db`, `library/`, `ideas/`). Defaults: `/fieldtheory/...` — bind-mounted read-only by the operator. |
+| `X_BOOKMARKS_SYNC_ENABLED`, `X_BOOKMARKS_SYNC_CRON`, `X_WIKI_SYNC_CRON` | Master switch + cron for the two x_bookmarks delta-scan Taskiq jobs (bookmark + wiki). Both jobs share the `enabled` flag. |
+| `X_BOOKMARKS_DB_PATH`, `X_WIKI_LIBRARY_PATH`, `X_IDEAS_PATH` | Container-side paths to the host-mounted `~/.fieldtheory/` subtrees (`bookmarks.db`, `library/`, `ideas/`). Defaults: `/x_bookmarks/...` — bind-mounted read-only by the operator. |
 
 ## Task Board
 

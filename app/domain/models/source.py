@@ -44,7 +44,7 @@ class SourceKind(StrEnum):
     TELEGRAM_POST_WITH_IMAGES = "telegram_post_with_images"
     TELEGRAM_ALBUM = "telegram_album"
     YOUTUBE_VIDEO = "youtube_video"
-    FIELDTHEORY_BOOKMARK = "fieldtheory_bookmark"
+    X_BOOKMARK = "x_bookmark"
     UNKNOWN = "unknown"
 
 

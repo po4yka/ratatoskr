@@ -1,4 +1,4 @@
-"""Unit tests for QdrantVectorStore fieldtheory_wiki helpers."""
+"""Unit tests for QdrantVectorStore x_wiki helpers."""
 
 from __future__ import annotations
 
@@ -75,19 +75,19 @@ def fake_client() -> _FakeQdrantClient:
         scroll_records=[
             SimpleNamespace(
                 payload={
-                    "entity_type": "fieldtheory_wiki",
-                    "wiki_path": "/fieldtheory/library/alpha.md",
+                    "entity_type": "x_wiki",
+                    "wiki_path": "/x_bookmarks/library/alpha.md",
                 }
             ),
             SimpleNamespace(
                 payload={
-                    "entity_type": "fieldtheory_wiki",
-                    "wiki_path": "/fieldtheory/library/beta.md",
+                    "entity_type": "x_wiki",
+                    "wiki_path": "/x_bookmarks/library/beta.md",
                 }
             ),
             SimpleNamespace(payload={"entity_type": "repository", "repository_id": 7}),
-            SimpleNamespace(payload={"entity_type": "fieldtheory_wiki"}),  # missing path
-            SimpleNamespace(payload={"entity_type": "fieldtheory_wiki", "wiki_path": None}),
+            SimpleNamespace(payload={"entity_type": "x_wiki"}),  # missing path
+            SimpleNamespace(payload={"entity_type": "x_wiki", "wiki_path": None}),
         ]
     )
 
@@ -117,21 +117,21 @@ def test_returns_only_wiki_path_strings_from_mixed_payloads(
 ) -> None:
     store, _client = store_with_fake
 
-    paths = store.get_indexed_fieldtheory_wiki_paths()
+    paths = store.get_indexed_x_wiki_paths()
 
     assert paths == {
-        "/fieldtheory/library/alpha.md",
-        "/fieldtheory/library/beta.md",
+        "/x_bookmarks/library/alpha.md",
+        "/x_bookmarks/library/beta.md",
     }
     assert all(isinstance(p, str) for p in paths)
 
 
-def test_constructs_filter_with_entity_type_fieldtheory_wiki(
+def test_constructs_filter_with_entity_type_x_wiki(
     store_with_fake: tuple[QdrantVectorStore, _FakeQdrantClient],
 ) -> None:
     store, client = store_with_fake
 
-    store.get_indexed_fieldtheory_wiki_paths(user_id=42)
+    store.get_indexed_x_wiki_paths(user_id=42)
 
     assert len(client.scroll_calls) == 1
     call = client.scroll_calls[0]
@@ -140,7 +140,7 @@ def test_constructs_filter_with_entity_type_fieldtheory_wiki(
     must = list(scroll_filter.must or [])
 
     entity_type_condition = FieldCondition(
-        key="entity_type", match=MatchValue(value="fieldtheory_wiki")
+        key="entity_type", match=MatchValue(value="x_wiki")
     )
     assert entity_type_condition in must
 
@@ -172,7 +172,7 @@ def test_returns_empty_set_when_store_unavailable() -> None:
     assert not store.available
 
     with patch.object(QdrantVectorStore, "ensure_available", return_value=False) as ensure:
-        paths = store.get_indexed_fieldtheory_wiki_paths()
+        paths = store.get_indexed_x_wiki_paths()
 
     assert paths == set()
     assert ensure.called
@@ -196,7 +196,7 @@ def test_returns_empty_set_when_scroll_raises() -> None:
             embedding_dim=EMBEDDING_DIM,
         )
 
-    paths = store.get_indexed_fieldtheory_wiki_paths()
+    paths = store.get_indexed_x_wiki_paths()
 
     assert paths == set()
 
@@ -207,28 +207,28 @@ def fake_client_with_hashes() -> _FakeQdrantClient:
         scroll_records=[
             SimpleNamespace(
                 payload={
-                    "entity_type": "fieldtheory_wiki",
-                    "wiki_path": "/fieldtheory/library/alpha.md",
+                    "entity_type": "x_wiki",
+                    "wiki_path": "/x_bookmarks/library/alpha.md",
                     "content_hash": "hash-a",
                 }
             ),
             SimpleNamespace(
                 payload={
-                    "entity_type": "fieldtheory_wiki",
-                    "wiki_path": "/fieldtheory/library/beta.md",
+                    "entity_type": "x_wiki",
+                    "wiki_path": "/x_bookmarks/library/beta.md",
                     "content_hash": "hash-b",
                 }
             ),
             SimpleNamespace(
                 payload={
-                    "entity_type": "fieldtheory_wiki",
-                    "wiki_path": "/fieldtheory/library/no-hash.md",
+                    "entity_type": "x_wiki",
+                    "wiki_path": "/x_bookmarks/library/no-hash.md",
                     # content_hash missing — must be dropped
                 }
             ),
             SimpleNamespace(
                 payload={
-                    "entity_type": "fieldtheory_wiki",
+                    "entity_type": "x_wiki",
                     "wiki_path": None,
                     "content_hash": "hash-x",
                 }
@@ -252,11 +252,11 @@ def test_path_hashes_returns_only_paths_with_hash(
             embedding_dim=EMBEDDING_DIM,
         )
 
-    result = store.get_indexed_fieldtheory_wiki_path_hashes()
+    result = store.get_indexed_x_wiki_path_hashes()
 
     assert result == {
-        "/fieldtheory/library/alpha.md": "hash-a",
-        "/fieldtheory/library/beta.md": "hash-b",
+        "/x_bookmarks/library/alpha.md": "hash-a",
+        "/x_bookmarks/library/beta.md": "hash-b",
     }
     assert len(fake_client_with_hashes.scroll_calls) == 1
     call = fake_client_with_hashes.scroll_calls[0]
@@ -281,10 +281,10 @@ def test_path_hashes_returns_empty_when_scroll_raises() -> None:
             embedding_dim=EMBEDDING_DIM,
         )
 
-    assert store.get_indexed_fieldtheory_wiki_path_hashes() == {}
+    assert store.get_indexed_x_wiki_path_hashes() == {}
 
 
-def test_delete_fieldtheory_wiki_paths_uses_deterministic_uuids(
+def test_delete_x_wiki_paths_uses_deterministic_uuids(
     fake_client_with_hashes: _FakeQdrantClient,
 ) -> None:
     with patch(
@@ -299,8 +299,8 @@ def test_delete_fieldtheory_wiki_paths_uses_deterministic_uuids(
             embedding_dim=EMBEDDING_DIM,
         )
 
-    paths = ["/fieldtheory/library/alpha.md", "/fieldtheory/library/beta.md"]
-    store.delete_fieldtheory_wiki_paths(paths)
+    paths = ["/x_bookmarks/library/alpha.md", "/x_bookmarks/library/beta.md"]
+    store.delete_x_wiki_paths(paths)
 
     assert len(fake_client_with_hashes.delete_calls) == 1
     call = fake_client_with_hashes.delete_calls[0]
@@ -310,7 +310,7 @@ def test_delete_fieldtheory_wiki_paths_uses_deterministic_uuids(
     assert call["wait"] is True
 
 
-def test_delete_fieldtheory_wiki_paths_noop_on_empty(
+def test_delete_x_wiki_paths_noop_on_empty(
     fake_client_with_hashes: _FakeQdrantClient,
 ) -> None:
     with patch(
@@ -325,6 +325,6 @@ def test_delete_fieldtheory_wiki_paths_noop_on_empty(
             embedding_dim=EMBEDDING_DIM,
         )
 
-    store.delete_fieldtheory_wiki_paths([])
+    store.delete_x_wiki_paths([])
 
     assert fake_client_with_hashes.delete_calls == []

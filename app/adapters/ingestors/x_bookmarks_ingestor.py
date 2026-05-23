@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.core.logging_utils import get_logger
 from app.core.url_utils import compute_dedupe_hash, normalize_url
-from app.db.models.core import FieldTheoryBookmarkMetadata, FieldTheoryCategory, Request
+from app.db.models.core import XBookmarkMetadata, XCategory, Request
 from app.domain.models.request import RequestStatus
 from app.domain.models.source import SourceKind
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_VALID_CATEGORIES = frozenset(member.value for member in FieldTheoryCategory)
+_VALID_CATEGORIES = frozenset(member.value for member in XCategory)
 
 _BOOKMARKS_QUERY_ALL = (
     "SELECT id, url, text, author_handle, primary_category, posted_at, synced_at "
@@ -39,14 +39,14 @@ _BOOKMARKS_QUERY_DELTA = (
 
 
 @dataclass(frozen=True, slots=True)
-class FieldTheoryBookmarkRow:
+class XBookmarkRow:
     """Single row read from ft's ``bookmarks.db`` (read-only).
 
     Mirrors the subset of columns the ingestor cares about; full column list
     in ``fieldtheory-cli/src/bookmarks-db.ts``.
     """
 
-    fieldtheory_id: str
+    bookmark_external_id: str
     url: str
     tweet_text: str | None
     tweet_author: str | None
@@ -56,7 +56,7 @@ class FieldTheoryBookmarkRow:
 
 
 @dataclass(frozen=True, slots=True)
-class FieldTheoryIngestStats:
+class XIngestStats:
     """Summary of one ``sync()`` invocation."""
 
     bookmarks_seen: int = 0
@@ -76,13 +76,13 @@ class _UpsertOutcome:
     skipped_metadata_slot_taken: int = 0
 
 
-class FieldTheoryBookmarkIngestor:
+class XBookmarksIngestor:
     """Sync ft bookmarks into Postgres as ``requests`` + sidecar metadata rows.
 
     Per DEC-001 (Option C) this ingestor writes directly to ``requests`` and
-    ``fieldtheory_bookmark_metadata``. It does not invoke the URLProcessor,
+    ``x_bookmark_metadata``. It does not invoke the URLProcessor,
     Twitter adapter, scraper chain, or summarizer; ingested rows land in a
-    terminal ``RequestStatus.FIELDTHEORY_IMPORTED`` state.
+    terminal ``RequestStatus.X_IMPORTED`` state.
 
     Concurrency: ft owns the writer side of ``bookmarks.db``; this class is
     a read-only consumer. The connection is opened with the ``?mode=ro``
@@ -98,7 +98,7 @@ class FieldTheoryBookmarkIngestor:
         self._database = database
         self._bookmarks_db_path = pathlib.Path(bookmarks_db_path)
 
-    async def sync(self) -> FieldTheoryIngestStats:
+    async def sync(self) -> XIngestStats:
         """Run one delta scan + idempotent upsert pass."""
         async with self._database.session() as session:
             after = await self._latest_synced_at(session)
@@ -117,9 +117,9 @@ class FieldTheoryBookmarkIngestor:
                 if row.primary_category not in _VALID_CATEGORIES:
                     skipped_invalid_category += 1
                     logger.debug(
-                        "fieldtheory_ingest_skipped_category",
+                        "x_bookmarks_ingest_skipped_category",
                         extra={
-                            "fieldtheory_id": row.fieldtheory_id,
+                            "bookmark_external_id": row.bookmark_external_id,
                             "category": row.primary_category,
                         },
                     )
@@ -131,9 +131,9 @@ class FieldTheoryBookmarkIngestor:
                 except ValueError:
                     skipped_invalid_url += 1
                     logger.warning(
-                        "fieldtheory_ingest_skipped_url",
+                        "x_bookmarks_ingest_skipped_url",
                         extra={
-                            "fieldtheory_id": row.fieldtheory_id,
+                            "bookmark_external_id": row.bookmark_external_id,
                             "url": row.url[:200],
                         },
                     )
@@ -152,7 +152,7 @@ class FieldTheoryBookmarkIngestor:
 
             await session.commit()
 
-            return FieldTheoryIngestStats(
+            return XIngestStats(
                 bookmarks_seen=seen,
                 requests_created=requests_created,
                 metadata_inserted=metadata_inserted,
@@ -165,8 +165,8 @@ class FieldTheoryBookmarkIngestor:
     async def _latest_synced_at(self, session: AsyncSession) -> dt.datetime | None:
         """Watermark: highest ``synced_at`` already mirrored into Postgres."""
         stmt = (
-            select(FieldTheoryBookmarkMetadata.synced_at)
-            .order_by(FieldTheoryBookmarkMetadata.synced_at.desc())
+            select(XBookmarkMetadata.synced_at)
+            .order_by(XBookmarkMetadata.synced_at.desc())
             .limit(1)
         )
         result = await session.execute(stmt)
@@ -176,7 +176,7 @@ class FieldTheoryBookmarkIngestor:
         self,
         *,
         after: dt.datetime | None,
-    ) -> AsyncIterator[FieldTheoryBookmarkRow]:
+    ) -> AsyncIterator[XBookmarkRow]:
         """Stream rows from ft's ``bookmarks.db`` newer than the watermark.
 
         Override in tests to inject deterministic rows without a real SQLite
@@ -200,18 +200,18 @@ class FieldTheoryBookmarkIngestor:
         self,
         session: AsyncSession,
         *,
-        row: FieldTheoryBookmarkRow,
+        row: XBookmarkRow,
         normalized_url: str,
         dedupe_hash: str,
     ) -> _UpsertOutcome:
         # Path C: ft bookmark already known — refresh metadata, leave Request.
         existing_metadata = await session.scalar(
-            select(FieldTheoryBookmarkMetadata).where(
-                FieldTheoryBookmarkMetadata.fieldtheory_id == row.fieldtheory_id
+            select(XBookmarkMetadata).where(
+                XBookmarkMetadata.bookmark_external_id == row.bookmark_external_id
             )
         )
         if existing_metadata is not None:
-            existing_metadata.fieldtheory_category = row.primary_category or ""
+            existing_metadata.x_category = row.primary_category or ""
             existing_metadata.tweet_text = row.tweet_text
             existing_metadata.tweet_author = row.tweet_author
             existing_metadata.tweet_url = row.url
@@ -226,31 +226,31 @@ class FieldTheoryBookmarkIngestor:
         )
         if existing_request is not None:
             # The metadata table is keyed by request_id (one Request : one FT
-            # metadata row by design — see docs/explanation/fieldtheory-integration.md
+            # metadata row by design — see docs/explanation/x-bookmarks-integration.md
             # line 62). If a prior FT bookmark already claimed this slot under
-            # a different fieldtheory_id (rare: two ft bookmarks whose URLs
+            # a different bookmark_external_id (rare: two ft bookmarks whose URLs
             # normalize to the same dedupe_hash), keep the first claim and
             # log the collision. ft itself stores both rows on its side; this
             # is just our 1:1 mirror.
             already_claimed = await session.scalar(
-                select(FieldTheoryBookmarkMetadata.fieldtheory_id).where(
-                    FieldTheoryBookmarkMetadata.request_id == existing_request.id
+                select(XBookmarkMetadata.bookmark_external_id).where(
+                    XBookmarkMetadata.request_id == existing_request.id
                 )
             )
             if already_claimed is not None:
                 logger.warning(
-                    "fieldtheory_ingest_metadata_slot_taken",
+                    "x_bookmarks_ingest_metadata_slot_taken",
                     extra={
-                        "fieldtheory_id": row.fieldtheory_id,
-                        "existing_fieldtheory_id": already_claimed,
+                        "bookmark_external_id": row.bookmark_external_id,
+                        "existing_bookmark_external_id": already_claimed,
                         "request_id": existing_request.id,
                     },
                 )
                 return _UpsertOutcome(skipped_metadata_slot_taken=1)
-            metadata = FieldTheoryBookmarkMetadata(
+            metadata = XBookmarkMetadata(
                 request_id=existing_request.id,
-                fieldtheory_id=row.fieldtheory_id,
-                fieldtheory_category=row.primary_category or "",
+                bookmark_external_id=row.bookmark_external_id,
+                x_category=row.primary_category or "",
                 tweet_text=row.tweet_text,
                 tweet_author=row.tweet_author,
                 tweet_url=row.url,
@@ -263,8 +263,8 @@ class FieldTheoryBookmarkIngestor:
 
         # Path A: brand new — INSERT Request with fresh correlation_id, then metadata.
         request = Request(
-            type=SourceKind.FIELDTHEORY_BOOKMARK.value,
-            status=RequestStatus.FIELDTHEORY_IMPORTED.value,
+            type=SourceKind.X_BOOKMARK.value,
+            status=RequestStatus.X_IMPORTED.value,
             correlation_id=uuid4().hex,
             input_url=row.url,
             normalized_url=normalized_url,
@@ -273,10 +273,10 @@ class FieldTheoryBookmarkIngestor:
         session.add(request)
         await session.flush()
 
-        metadata = FieldTheoryBookmarkMetadata(
+        metadata = XBookmarkMetadata(
             request_id=request.id,
-            fieldtheory_id=row.fieldtheory_id,
-            fieldtheory_category=row.primary_category or "",
+            bookmark_external_id=row.bookmark_external_id,
+            x_category=row.primary_category or "",
             tweet_text=row.tweet_text,
             tweet_author=row.tweet_author,
             tweet_url=row.url,
@@ -288,11 +288,11 @@ class FieldTheoryBookmarkIngestor:
         return _UpsertOutcome(request_created=1, metadata_inserted=1)
 
 
-def _parse_row(raw: Sequence[object]) -> FieldTheoryBookmarkRow | None:
+def _parse_row(raw: Sequence[object]) -> XBookmarkRow | None:
     """Convert a raw aiosqlite row into a typed row, dropping malformed entries."""
     if len(raw) < 7:
         return None
-    fieldtheory_id = raw[0]
+    bookmark_external_id = raw[0]
     url = raw[1]
     text_value = raw[2]
     author_handle = raw[3]
@@ -300,7 +300,7 @@ def _parse_row(raw: Sequence[object]) -> FieldTheoryBookmarkRow | None:
     posted_at = raw[5]
     synced_at = raw[6]
 
-    if not isinstance(fieldtheory_id, str) or not fieldtheory_id:
+    if not isinstance(bookmark_external_id, str) or not bookmark_external_id:
         return None
     if not isinstance(url, str) or not url:
         return None
@@ -308,8 +308,8 @@ def _parse_row(raw: Sequence[object]) -> FieldTheoryBookmarkRow | None:
     if synced_at_dt is None:
         return None
 
-    return FieldTheoryBookmarkRow(
-        fieldtheory_id=fieldtheory_id,
+    return XBookmarkRow(
+        bookmark_external_id=bookmark_external_id,
         url=url,
         tweet_text=text_value if isinstance(text_value, str) else None,
         tweet_author=author_handle if isinstance(author_handle, str) else None,
@@ -340,7 +340,7 @@ def _format_iso(value: dt.datetime) -> str:
 
 
 __all__ = [
-    "FieldTheoryBookmarkIngestor",
-    "FieldTheoryBookmarkRow",
-    "FieldTheoryIngestStats",
+    "XBookmarksIngestor",
+    "XBookmarkRow",
+    "XIngestStats",
 ]

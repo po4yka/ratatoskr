@@ -1,4 +1,4 @@
-"""Tests for app.tasks.fieldtheory_sync (Taskiq bookmark delta-scan)."""
+"""Tests for app.tasks.x_bookmarks_sync (Taskiq bookmark delta-scan)."""
 
 from __future__ import annotations
 
@@ -54,10 +54,10 @@ def _evict_app_tasks() -> None:
 def _build_cfg(
     *,
     enabled: bool = True,
-    bookmarks_db_path: str = "/fieldtheory/bookmarks.db",
+    bookmarks_db_path: str = "/x_bookmarks/bookmarks.db",
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        fieldtheory=SimpleNamespace(
+        x_bookmarks=SimpleNamespace(
             enabled=enabled,
             sync_cron="*/15 * * * *",
             bookmarks_db_path=bookmarks_db_path,
@@ -66,9 +66,9 @@ def _build_cfg(
 
 
 def _build_stats(**overrides):
-    from app.adapters.ingestors.fieldtheory_ingestor import FieldTheoryIngestStats
+    from app.adapters.ingestors.x_bookmarks_ingestor import XIngestStats
 
-    return FieldTheoryIngestStats(**overrides)
+    return XIngestStats(**overrides)
 
 
 @pytest.mark.asyncio
@@ -77,11 +77,11 @@ async def test_sync_short_circuits_when_disabled(monkeypatch):
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
     _evict_app_tasks()
 
-    from app.tasks.fieldtheory_sync import _sync_body
+    from app.tasks.x_bookmarks_sync import _sync_body
 
     runtime_spy = MagicMock()
     monkeypatch.setattr(
-        "app.tasks.fieldtheory_sync.build_fieldtheory_task_runtime",
+        "app.tasks.x_bookmarks_sync.build_x_bookmarks_task_runtime",
         runtime_spy,
     )
 
@@ -100,7 +100,7 @@ async def test_sync_returns_ingestor_stats_on_happy_path(monkeypatch):
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
     _evict_app_tasks()
 
-    from app.tasks.fieldtheory_sync import _sync_body
+    from app.tasks.x_bookmarks_sync import _sync_body
 
     ingestor = SimpleNamespace(
         sync=AsyncMock(
@@ -115,7 +115,7 @@ async def test_sync_returns_ingestor_stats_on_happy_path(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "app.tasks.fieldtheory_sync.build_fieldtheory_task_runtime",
+        "app.tasks.x_bookmarks_sync.build_x_bookmarks_task_runtime",
         lambda cfg, db: SimpleNamespace(cfg=cfg, db=db, ingestor=ingestor),
     )
 
@@ -136,13 +136,13 @@ async def test_sync_swallows_sqlite_operational_error(monkeypatch):
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
     _evict_app_tasks()
 
-    from app.tasks.fieldtheory_sync import _sync_body
+    from app.tasks.x_bookmarks_sync import _sync_body
 
     ingestor = SimpleNamespace(
         sync=AsyncMock(side_effect=sqlite3.OperationalError("unable to open database file"))
     )
     monkeypatch.setattr(
-        "app.tasks.fieldtheory_sync.build_fieldtheory_task_runtime",
+        "app.tasks.x_bookmarks_sync.build_x_bookmarks_task_runtime",
         lambda cfg, db: SimpleNamespace(cfg=cfg, db=db, ingestor=ingestor),
     )
 
@@ -160,11 +160,11 @@ async def test_sync_propagates_unexpected_exception(monkeypatch):
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
     _evict_app_tasks()
 
-    from app.tasks.fieldtheory_sync import _sync_body
+    from app.tasks.x_bookmarks_sync import _sync_body
 
     ingestor = SimpleNamespace(sync=AsyncMock(side_effect=RuntimeError("unexpected")))
     monkeypatch.setattr(
-        "app.tasks.fieldtheory_sync.build_fieldtheory_task_runtime",
+        "app.tasks.x_bookmarks_sync.build_x_bookmarks_task_runtime",
         lambda cfg, db: SimpleNamespace(cfg=cfg, db=db, ingestor=ingestor),
     )
 
@@ -172,15 +172,15 @@ async def test_sync_propagates_unexpected_exception(monkeypatch):
         await _sync_body(_build_cfg(), MagicMock())
 
 
-def test_di_build_fieldtheory_task_runtime_constructs_ingestor(monkeypatch) -> None:
+def test_di_build_x_bookmarks_task_runtime_constructs_ingestor(monkeypatch) -> None:
     """The DI factory wires the ingestor with the configured bookmarks path."""
     _stub_taskiq(monkeypatch)
     _evict_app_tasks()
 
-    from app.di.tasks import build_fieldtheory_task_runtime
+    from app.di.tasks import build_x_bookmarks_task_runtime
 
     cfg = SimpleNamespace(
-        fieldtheory=SimpleNamespace(
+        x_bookmarks=SimpleNamespace(
             enabled=True,
             sync_cron="*/15 * * * *",
             bookmarks_db_path="/tmp/test-bookmarks.db",
@@ -188,7 +188,7 @@ def test_di_build_fieldtheory_task_runtime_constructs_ingestor(monkeypatch) -> N
     )
     db = SimpleNamespace(name="db")
 
-    runtime = build_fieldtheory_task_runtime(cfg, db)  # type: ignore[arg-type]
+    runtime = build_x_bookmarks_task_runtime(cfg, db)  # type: ignore[arg-type]
 
     assert runtime.cfg is cfg
     assert runtime.db is db

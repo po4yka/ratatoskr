@@ -20,8 +20,8 @@ from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints a
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.di.tasks import (
     DigestTaskRuntime,
-    FieldTheoryTaskRuntime,
-    FieldTheoryWikiSyncTaskRuntime,
+    XBookmarksTaskRuntime,
+    XWikiSyncTaskRuntime,
     RssPollTaskRuntime,
     VectorReconcileTaskRuntime,
 )
@@ -151,19 +151,19 @@ def build_vector_reconcile_task_runtime(
     return _build_runtime(cfg, db)
 
 
-def build_fieldtheory_task_runtime(
+def build_x_bookmarks_task_runtime(
     cfg: AppConfig,
     db: Database,
-) -> FieldTheoryTaskRuntime:
-    from app.di.tasks import build_fieldtheory_task_runtime as _build_runtime
+) -> XBookmarksTaskRuntime:
+    from app.di.tasks import build_x_bookmarks_task_runtime as _build_runtime
 
     return _build_runtime(cfg, db)
 
 
-def build_fieldtheory_wiki_sync_task_runtime(
+def build_x_wiki_sync_task_runtime(
     cfg: AppConfig,
     db: Database,
-) -> FieldTheoryWikiSyncTaskRuntime:
-    from app.di.tasks import build_fieldtheory_wiki_sync_task_runtime as _build_runtime
+) -> XWikiSyncTaskRuntime:
+    from app.di.tasks import build_x_wiki_sync_task_runtime as _build_runtime
 
     return _build_runtime(cfg, db)

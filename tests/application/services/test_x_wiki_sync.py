@@ -1,4 +1,4 @@
-"""Unit tests for FieldTheoryWikiSyncService."""
+"""Unit tests for XWikiSyncService."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from app.application.services.fieldtheory_wiki_sync import (
-    FieldTheoryWikiSyncService,
+from app.application.services.x_wiki_sync import (
+    XWikiSyncService,
     WikiSyncSummary,
-    fieldtheory_wiki_point_id,
+    x_wiki_point_id,
 )
 from app.infrastructure.vector.point_ids import str_to_uuid
 
@@ -31,7 +31,7 @@ class _FakeVectorStore:
     upsert_calls: list[dict[str, object]] = field(default_factory=list)
     delete_calls: list[list[str]] = field(default_factory=list)
 
-    def get_indexed_fieldtheory_wiki_path_hashes(
+    def get_indexed_x_wiki_path_hashes(
         self, *, user_id: int | None = None, limit: int | None = 5000
     ) -> dict[str, str]:
         del user_id, limit
@@ -57,7 +57,7 @@ class _FakeVectorStore:
             if isinstance(content_hash, str):
                 self.indexed[raw_id] = content_hash
 
-    def delete_fieldtheory_wiki_paths(self, wiki_paths: Sequence[str]) -> None:
+    def delete_x_wiki_paths(self, wiki_paths: Sequence[str]) -> None:
         paths = list(wiki_paths)
         self.delete_calls.append(paths)
         for p in paths:
@@ -68,7 +68,7 @@ class _FakeEmbeddingService:
     """Records embedding generation calls and returns a deterministic vector.
 
     Honors the ``EmbeddingProviderPort`` protocol so mypy accepts it as a
-    drop-in collaborator in ``FieldTheoryWikiSyncService.__init__``.
+    drop-in collaborator in ``XWikiSyncService.__init__``.
     """
 
     def __init__(self) -> None:
@@ -104,8 +104,8 @@ def test_deterministic_point_id_same_path_yields_same_uuid(tmp_path: pathlib.Pat
     library.mkdir()
     path = _write_md(library, "alpha.md", "hello world")
 
-    first = fieldtheory_wiki_point_id(path)
-    second = fieldtheory_wiki_point_id(path)
+    first = x_wiki_point_id(path)
+    second = x_wiki_point_id(path)
 
     assert first == second
     assert first == str_to_uuid(str(path.absolute()))
@@ -121,7 +121,7 @@ async def test_skip_on_unchanged_hash(tmp_path: pathlib.Path) -> None:
 
     vector_store = _FakeVectorStore(indexed={str(path): expected_hash})
     embedding = _FakeEmbeddingService()
-    service = FieldTheoryWikiSyncService(
+    service = XWikiSyncService(
         library_path=library,
         vector_store=vector_store,
         embedding_service=embedding,
@@ -146,7 +146,7 @@ async def test_re_embed_on_hash_drift(tmp_path: pathlib.Path) -> None:
 
     vector_store = _FakeVectorStore(indexed={str(path): "stale-hash"})
     embedding = _FakeEmbeddingService()
-    service = FieldTheoryWikiSyncService(
+    service = XWikiSyncService(
         library_path=library,
         vector_store=vector_store,
         embedding_service=embedding,
@@ -165,7 +165,7 @@ async def test_re_embed_on_hash_drift(tmp_path: pathlib.Path) -> None:
     metadatas = call["metadatas"]
     assert isinstance(metadatas, list)
     metadata = metadatas[0]
-    assert metadata["entity_type"] == "fieldtheory_wiki"
+    assert metadata["entity_type"] == "x_wiki"
     assert metadata["wiki_path"] == str(path)
     assert metadata["content_hash"] == fresh_hash
 
@@ -178,7 +178,7 @@ async def test_re_embed_on_new_file(tmp_path: pathlib.Path) -> None:
 
     vector_store = _FakeVectorStore()
     embedding = _FakeEmbeddingService()
-    service = FieldTheoryWikiSyncService(
+    service = XWikiSyncService(
         library_path=library,
         vector_store=vector_store,
         embedding_service=embedding,
@@ -201,7 +201,7 @@ async def test_orphan_delete(tmp_path: pathlib.Path) -> None:
     missing_path = str((library / "ghost.md").resolve())
     vector_store = _FakeVectorStore(indexed={missing_path: "doesnt-matter"})
     embedding = _FakeEmbeddingService()
-    service = FieldTheoryWikiSyncService(
+    service = XWikiSyncService(
         library_path=library,
         vector_store=vector_store,
         embedding_service=embedding,
@@ -223,7 +223,7 @@ async def test_graceful_missing_library_dir(
     missing = tmp_path / "does-not-exist"
     vector_store = _FakeVectorStore()
     embedding = _FakeEmbeddingService()
-    service = FieldTheoryWikiSyncService(
+    service = XWikiSyncService(
         library_path=missing,
         vector_store=vector_store,
         embedding_service=embedding,
@@ -237,7 +237,7 @@ async def test_graceful_missing_library_dir(
     assert vector_store.upsert_calls == []
     assert vector_store.delete_calls == []
     assert any(
-        record.message == "fieldtheory_wiki_sync_library_missing" for record in caplog.records
+        record.message == "x_wiki_sync_library_missing" for record in caplog.records
     )
 
 
@@ -259,7 +259,7 @@ async def test_mixed_pass_skips_changes_and_orphans(tmp_path: pathlib.Path) -> N
         }
     )
     embedding = _FakeEmbeddingService()
-    service = FieldTheoryWikiSyncService(
+    service = XWikiSyncService(
         library_path=library,
         vector_store=vector_store,
         embedding_service=embedding,

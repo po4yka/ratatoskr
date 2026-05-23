@@ -1,8 +1,8 @@
-"""`/fieldtheory_possible` handler: surface the newest Possible-run idea nodes.
+"""`/x_possible` handler: surface the newest Possible-run idea nodes.
 
 The host runs `ft possible run --defaults --background` on its own cadence;
 this handler is **read-only** against the bind-mounted ``ideas/`` directory
-(see ``docs/explanation/fieldtheory-integration.md`` Telegram Surface section).
+(see ``docs/explanation/x-bookmarks-integration.md`` Telegram Surface section).
 It picks the newest ``*.json`` file by mtime, parses its node list, and
 formats the top-N entries as a Telegram reply.
 
@@ -34,7 +34,7 @@ _NODE_BODY_KEYS = ("prompt", "description", "rationale", "body", "text")
 _NODES_CONTAINER_KEYS = ("nodes", "ideas", "items", "results")
 
 
-class FieldTheoryPossibleHandler:
+class XPossibleHandler:
     """Read the newest ft Possible-run output and reply with its top nodes.
 
     Owner-gating is inherited from ``AccessController.check_access`` which
@@ -45,17 +45,17 @@ class FieldTheoryPossibleHandler:
         self._cfg = cfg
         self._top_n = top_n
 
-    @combined_handler("command_fieldtheory_possible", "fieldtheory_possible")
-    async def handle_fieldtheory_possible(self, ctx: CommandExecutionContext) -> None:
+    @combined_handler("command_x_possible", "x_possible")
+    async def handle_x_possible(self, ctx: CommandExecutionContext) -> None:
         """List newest ideas/*.json, format top-N node summaries as a reply."""
-        ideas_path = pathlib.Path(self._cfg.fieldtheory.ideas_path)
+        ideas_path = pathlib.Path(self._cfg.x_bookmarks.ideas_path)
         correlation_id = getattr(ctx, "correlation_id", None) or "unknown"
 
         newest = await asyncio.to_thread(_find_newest_ideas_file, ideas_path)
         if newest is None:
             await ctx.response_formatter.safe_reply(ctx.message, _NO_IDEAS_REPLY)
             logger.info(
-                "fieldtheory_possible_no_ideas",
+                "x_possible_no_ideas",
                 extra={"cid": correlation_id, "ideas_path": str(ideas_path)},
             )
             return
@@ -64,7 +64,7 @@ class FieldTheoryPossibleHandler:
             payload = await asyncio.to_thread(_read_json, newest)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(
-                "fieldtheory_possible_parse_failed",
+                "x_possible_parse_failed",
                 extra={
                     "cid": correlation_id,
                     "ideas_file": str(newest),
@@ -81,7 +81,7 @@ class FieldTheoryPossibleHandler:
         if not nodes:
             await ctx.response_formatter.safe_reply(ctx.message, _NO_NODES_REPLY)
             logger.info(
-                "fieldtheory_possible_empty_payload",
+                "x_possible_empty_payload",
                 extra={"cid": correlation_id, "ideas_file": str(newest)},
             )
             return
@@ -89,7 +89,7 @@ class FieldTheoryPossibleHandler:
         text = _format_reply(newest.name, nodes[: self._top_n], len(nodes))
         await ctx.response_formatter.safe_reply(ctx.message, text)
         logger.info(
-            "fieldtheory_possible_served",
+            "x_possible_served",
             extra={
                 "cid": correlation_id,
                 "ideas_file": str(newest),

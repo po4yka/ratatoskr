@@ -165,21 +165,41 @@ CREATE INDEX idx_requests_status ON requests(status);
 
 ### transcription_jobs
 
-**Purpose:** One row per attempted Telegram transcription run. Jobs are operational state, not summaries, and they do not store raw audio or local media paths.
+**Purpose:** One row per durable transcription job. Jobs are operational state, not summaries, and they do not store raw audio or local media paths.
 
 **Fields:**
 
 - `user_id` (int, FK) - Telegram user that requested or sent the audio
 - `request_id` (int, nullable FK) - Optional request row when transcription is attached to a broader request pipeline
 - `telegram_chat_id` / `telegram_message_id` (int, nullable) - Telegram source identifiers for command replies and auto voice messages
+- `source_url` (text, nullable) - Redacted URL source for URL transcription jobs
 - `source_type` (str) - Entry point such as `url`, `telegram_reply`, or `telegram_voice`
+- `idempotency_key` (str, nullable, unique) - Deduplication key for non-terminal URL, Telegram message, or audio-hash jobs
 - `language`, `backend`, `tokens_mode`, `model_identifier` (str, nullable) - ASR configuration snapshot used for the run
-- `status` (str) - Job lifecycle status (`started`, `completed`, `failed`)
+- `status` (str) - Queue lifecycle status (`queued`, `running`, `failed`, `dead_letter`, `completed`, `done`)
+- `current_stage` / `progress` - Latest replayable progress stage and coarse completion ratio
+- `attempt_count`, `max_attempts`, `lease_owner`, `lease_expires_at`, `retry_after` - Durable worker leasing and retry state
+- `queued_at`, `started_at`, `completed_at` - Queue lifecycle timestamps
 - `duration_sec` (float, nullable) - Probed media duration when available
 - `audio_hash` (str, nullable) - SHA-256 of the downloaded audio/media payload, used for lookup without storing the payload
 - `correlation_id` (str, nullable) - Request correlation ID for traceability
 - `error_code` / `error_message` (nullable) - Failure details when the run fails
 - `metadata_json` (json, nullable) - Redacted operational metadata
+
+---
+
+### transcription_progress_events
+
+**Purpose:** Append-only, replayable progress stream for durable transcription jobs. Events expose stage transitions without raw audio, local paths, authorization headers, or token-like metadata.
+
+**Fields:**
+
+- `event_id` (str, unique) - Stable event identifier
+- `job_id` (int, FK) - Owning `transcription_jobs` row
+- `sequence` (int) - Monotonic per-job event sequence
+- `stage` (str) - One of `queued`, `downloading_media`, `probing_audio`, `decoding_audio`, `loading_model`, `transcribing`, `diarizing`, `persisting`, `done`, or `error`
+- `status` (str) - Event status such as `queued`, `running`, `done`, or `error`
+- `message`, `progress`, `payload`, `correlation_id`, `created_at` - Redacted UI/diagnostic metadata
 
 ---
 

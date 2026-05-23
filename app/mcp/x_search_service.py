@@ -1,6 +1,6 @@
-"""MCP fieldtheory search service.
+"""MCP x_bookmarks search service.
 
-Serves the ``fieldtheory_search`` MCP tool via Postgres full-text search over ``fieldtheory_bookmark_metadata.tweet_text_tsv``. Never spawns the host-side ``ft`` binary — design decision DEC-001b mandates Postgres-only reads (see ``docs/explanation/fieldtheory-integration.md`` "Why Postgres FTS instead of ``ft search`` subprocess").
+Serves the ``x_search`` MCP tool via Postgres full-text search over ``x_bookmark_metadata.tweet_text_tsv``. Never spawns the host-side ``ft`` binary — design decision DEC-001b mandates Postgres-only reads (see ``docs/explanation/x-bookmarks-integration.md`` "Why Postgres FTS instead of ``ft search`` subprocess").
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
-from app.db.models.core import FieldTheoryCategory
+from app.db.models.core import XCategory
 from app.mcp.helpers import McpErrorResult, isotime
 
 logger = logging.getLogger("ratatoskr.mcp")
@@ -19,11 +19,11 @@ if TYPE_CHECKING:
     from app.mcp.context import McpServerContext
 
 
-_VALID_CATEGORY_VALUES: frozenset[str] = frozenset(member.value for member in FieldTheoryCategory)
+_VALID_CATEGORY_VALUES: frozenset[str] = frozenset(member.value for member in XCategory)
 
 
-class FieldTheorySearchService:
-    """Postgres-backed full-text search for ingested fieldtheory bookmarks."""
+class XSearchService:
+    """Postgres-backed full-text search for ingested x_bookmarks bookmarks."""
 
     def __init__(self, context: McpServerContext) -> None:
         self.context = context
@@ -34,11 +34,11 @@ class FieldTheorySearchService:
         category: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any] | McpErrorResult:
-        """Search ingested fieldtheory bookmarks by full-text relevance.
+        """Search ingested x_bookmarks bookmarks by full-text relevance.
 
-        Returns the top ``limit`` matches ranked by ``ts_rank_cd`` over the ``tweet_text_tsv`` GIN-indexed column, joined to ``requests`` for the canonical URL. ``category`` (when provided) must be a valid ``FieldTheoryCategory`` value or an MCP error result is returned without touching the database.
+        Returns the top ``limit`` matches ranked by ``ts_rank_cd`` over the ``tweet_text_tsv`` GIN-indexed column, joined to ``requests`` for the canonical URL. ``category`` (when provided) must be a valid ``XCategory`` value or an MCP error result is returned without touching the database.
         """
-        from app.db.models import FieldTheoryBookmarkMetadata, Request
+        from app.db.models import XBookmarkMetadata, Request
 
         clamped_limit = max(1, min(50, int(limit)))
         query_text = query.strip()
@@ -57,33 +57,33 @@ class FieldTheorySearchService:
             runtime = self.context.ensure_runtime()
             async with runtime.database.session() as session:
                 ts_query = func.plainto_tsquery("english", query_text)
-                rank = func.ts_rank_cd(FieldTheoryBookmarkMetadata.tweet_text_tsv, ts_query)
+                rank = func.ts_rank_cd(XBookmarkMetadata.tweet_text_tsv, ts_query)
                 stmt = (
                     select(
                         Request.id.label("request_id"),
                         Request.normalized_url.label("canonical_url"),
-                        FieldTheoryBookmarkMetadata.fieldtheory_category.label("category"),
-                        FieldTheoryBookmarkMetadata.tweet_text,
-                        FieldTheoryBookmarkMetadata.tweet_author,
-                        FieldTheoryBookmarkMetadata.posted_at,
+                        XBookmarkMetadata.x_category.label("category"),
+                        XBookmarkMetadata.tweet_text,
+                        XBookmarkMetadata.tweet_author,
+                        XBookmarkMetadata.posted_at,
                         rank.label("rank"),
                     )
                     .join(
-                        FieldTheoryBookmarkMetadata,
-                        FieldTheoryBookmarkMetadata.request_id == Request.id,
+                        XBookmarkMetadata,
+                        XBookmarkMetadata.request_id == Request.id,
                     )
                     .where(
-                        FieldTheoryBookmarkMetadata.tweet_text_tsv.op("@@")(ts_query),
+                        XBookmarkMetadata.tweet_text_tsv.op("@@")(ts_query),
                         *self.context.request_scope_filters(Request),
                     )
                     .order_by(
                         rank.desc(),
-                        FieldTheoryBookmarkMetadata.posted_at.desc().nullslast(),
+                        XBookmarkMetadata.posted_at.desc().nullslast(),
                     )
                     .limit(clamped_limit)
                 )
                 if category is not None:
-                    stmt = stmt.where(FieldTheoryBookmarkMetadata.fieldtheory_category == category)
+                    stmt = stmt.where(XBookmarkMetadata.x_category == category)
 
                 rows = (await session.execute(stmt)).all()
 
@@ -105,5 +105,5 @@ class FieldTheorySearchService:
                 "category": category,
             }
         except Exception as exc:
-            logger.exception("fieldtheory_search failed")
+            logger.exception("x_search failed")
             return {"error": str(exc), "query": query, "category": category}

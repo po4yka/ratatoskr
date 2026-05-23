@@ -23,7 +23,7 @@ from .content import ContentLimitsConfig
 from .database import DatabaseConfig
 from .deployment import DeploymentConfig
 from .digest import ChannelDigestConfig
-from .fieldtheory import FieldTheoryConfig
+from .x_bookmarks import XBookmarksConfig
 from .firecrawl import FirecrawlConfig  # noqa: TC001
 from .github import GitHubConfig
 from .import_export import ImportConfig
@@ -212,7 +212,7 @@ class AppConfig:
     backup: BackupConfig = field(default_factory=BackupConfig)
     import_export: ImportConfig = field(default_factory=ImportConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
-    fieldtheory: FieldTheoryConfig = field(default_factory=FieldTheoryConfig)
+    x_bookmarks: XBookmarksConfig = field(default_factory=XBookmarksConfig)
 
 
 class Settings(BaseSettings):
@@ -275,7 +275,7 @@ class Settings(BaseSettings):
     backup: BackupConfig = Field(default_factory=BackupConfig)
     import_export: ImportConfig = Field(default_factory=ImportConfig)
     deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
-    fieldtheory: FieldTheoryConfig = Field(default_factory=FieldTheoryConfig)
+    x_bookmarks: XBookmarksConfig = Field(default_factory=XBookmarksConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -512,7 +512,7 @@ class Settings(BaseSettings):
             backup=self.backup,
             import_export=self.import_export,
             deployment=self.deployment,
-            fieldtheory=self.fieldtheory,
+            x_bookmarks=self.x_bookmarks,
         )
 
 

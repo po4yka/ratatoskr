@@ -54,9 +54,9 @@ def test_source_bundle_reports_duplicate_positions_and_unique_items() -> None:
     assert bundle.unique_items == (first, second)
 
 
-def test_source_kind_includes_fieldtheory_bookmark() -> None:
-    assert SourceKind.FIELDTHEORY_BOOKMARK.value == "fieldtheory_bookmark"
-    assert SourceKind("fieldtheory_bookmark") is SourceKind.FIELDTHEORY_BOOKMARK
+def test_source_kind_includes_x_bookmark() -> None:
+    assert SourceKind.X_BOOKMARK.value == "x_bookmark"
+    assert SourceKind("x_bookmark") is SourceKind.X_BOOKMARK
 
 
 def test_aggregation_request_exposes_total_items() -> None:

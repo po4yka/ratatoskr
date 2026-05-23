@@ -197,7 +197,7 @@ def test_create_mcp_server_registers_expected_tools_and_resources(
         "get_article_content",
         "get_stats",
         "find_by_entity",
-        "fieldtheory_search",
+        "x_search",
         "list_collections",
         "get_collection",
         "list_videos",

@@ -1,4 +1,4 @@
-"""Behavioural tests for ``FieldTheoryBookmarkIngestor``.
+"""Behavioural tests for ``XBookmarksIngestor``.
 
 Postgres-gated: the ``session`` fixture skips when ``TEST_DATABASE_URL`` is
 unset, so these tests run in the integration job rather than every laptop
@@ -16,12 +16,12 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.adapters.ingestors.fieldtheory_ingestor import (
-    FieldTheoryBookmarkIngestor,
-    FieldTheoryBookmarkRow,
+from app.adapters.ingestors.x_bookmarks_ingestor import (
+    XBookmarksIngestor,
+    XBookmarkRow,
 )
 from app.core.url_utils import compute_dedupe_hash, normalize_url
-from app.db.models.core import FieldTheoryBookmarkMetadata, FieldTheoryCategory, Request
+from app.db.models.core import XBookmarkMetadata, XCategory, Request
 from app.domain.models.request import RequestStatus
 from app.domain.models.source import SourceKind
 from tests.db_helpers_async import create_request
@@ -37,16 +37,16 @@ pytestmark = pytest.mark.asyncio
 
 def _row(
     *,
-    fieldtheory_id: str,
+    bookmark_external_id: str,
     url: str,
     primary_category: str | None = "tool",
     tweet_text: str | None = "hello world",
     tweet_author: str | None = "alice",
     posted_at: dt.datetime | None = None,
     synced_at: dt.datetime | None = None,
-) -> FieldTheoryBookmarkRow:
-    return FieldTheoryBookmarkRow(
-        fieldtheory_id=fieldtheory_id,
+) -> XBookmarkRow:
+    return XBookmarkRow(
+        bookmark_external_id=bookmark_external_id,
         url=url,
         tweet_text=tweet_text,
         tweet_author=tweet_author,
@@ -56,14 +56,14 @@ def _row(
     )
 
 
-class _StubIngestor(FieldTheoryBookmarkIngestor):
+class _StubIngestor(XBookmarksIngestor):
     """Test variant that injects deterministic rows instead of reading a file."""
 
     def __init__(
         self,
         *,
         database: Database,
-        rows: list[FieldTheoryBookmarkRow],
+        rows: list[XBookmarkRow],
     ) -> None:
         super().__init__(database=database, bookmarks_db_path=pathlib.Path("/nonexistent"))
         self._rows = rows
@@ -82,7 +82,7 @@ async def test_miss_path_inserts_request_and_metadata(
         database=database,
         rows=[
             _row(
-                fieldtheory_id="ft-1",
+                bookmark_external_id="ft-1",
                 url="https://twitter.com/alice/status/1",
                 primary_category="tool",
             ),
@@ -103,21 +103,21 @@ async def test_miss_path_inserts_request_and_metadata(
                 select(Request).where(Request.input_url == "https://twitter.com/alice/status/1")
             )
         ).scalar_one()
-        assert request.type == SourceKind.FIELDTHEORY_BOOKMARK.value
-        assert request.status == RequestStatus.FIELDTHEORY_IMPORTED.value
+        assert request.type == SourceKind.X_BOOKMARK.value
+        assert request.status == RequestStatus.X_IMPORTED.value
         assert request.correlation_id and len(request.correlation_id) == 32
         assert request.dedupe_hash == compute_dedupe_hash("https://twitter.com/alice/status/1")
         assert request.normalized_url == normalize_url("https://twitter.com/alice/status/1")
 
         metadata = (
             await verify.execute(
-                select(FieldTheoryBookmarkMetadata).where(
-                    FieldTheoryBookmarkMetadata.fieldtheory_id == "ft-1"
+                select(XBookmarkMetadata).where(
+                    XBookmarkMetadata.bookmark_external_id == "ft-1"
                 )
             )
         ).scalar_one()
         assert metadata.request_id == request.id
-        assert metadata.fieldtheory_category == "tool"
+        assert metadata.x_category == "tool"
         assert metadata.tweet_text == "hello world"
         assert metadata.tweet_url == "https://twitter.com/alice/status/1"
         assert metadata.tweet_author == "alice"
@@ -144,7 +144,7 @@ async def test_hit_path_upserts_metadata_and_preserves_request(
         database=database,
         rows=[
             _row(
-                fieldtheory_id="ft-42",
+                bookmark_external_id="ft-42",
                 url=url,
                 primary_category="security",
                 tweet_text="bob's tweet",
@@ -169,13 +169,13 @@ async def test_hit_path_upserts_metadata_and_preserves_request(
 
         metadata = (
             await verify.execute(
-                select(FieldTheoryBookmarkMetadata).where(
-                    FieldTheoryBookmarkMetadata.fieldtheory_id == "ft-42"
+                select(XBookmarkMetadata).where(
+                    XBookmarkMetadata.bookmark_external_id == "ft-42"
                 )
             )
         ).scalar_one()
         assert metadata.request_id == existing_id
-        assert metadata.fieldtheory_category == "security"
+        assert metadata.x_category == "security"
         assert metadata.tweet_text == "bob's tweet"
 
 
@@ -184,7 +184,7 @@ async def test_re_run_is_a_no_op_and_preserves_correlation_id(
     database: Database,
 ) -> None:
     row = _row(
-        fieldtheory_id="ft-noop",
+        bookmark_external_id="ft-noop",
         url="https://twitter.com/carol/status/7",
         primary_category="technique",
         tweet_text="initial",
@@ -208,7 +208,7 @@ async def test_re_run_is_a_no_op_and_preserves_correlation_id(
     # Identical re-run: the watermark advanced past row.synced_at on the first
     # pass (``WHERE synced_at > :after``), so the stub yields nothing — a true
     # no-op. Path C is exercised separately by
-    # ``test_path_c_updates_metadata_when_fieldtheory_id_resyncs``.
+    # ``test_path_c_updates_metadata_when_bookmark_external_id_resyncs``.
     assert second.bookmarks_seen == 0
     assert second.requests_created == 0
     assert second.metadata_inserted == 0
@@ -235,7 +235,7 @@ async def test_re_run_is_a_no_op_and_preserves_correlation_id(
         assert rows[0].correlation_id == first_correlation_id
 
 
-async def test_path_c_updates_metadata_when_fieldtheory_id_resyncs(
+async def test_path_c_updates_metadata_when_bookmark_external_id_resyncs(
     session: AsyncSession,
     database: Database,
 ) -> None:
@@ -247,7 +247,7 @@ async def test_path_c_updates_metadata_when_fieldtheory_id_resyncs(
     refreshed_synced_at = dt.datetime(2026, 1, 2, 12, 0, tzinfo=dt.UTC)
 
     first_row = _row(
-        fieldtheory_id="ft-resync",
+        bookmark_external_id="ft-resync",
         url="https://twitter.com/diana/status/8",
         primary_category="tool",
         tweet_text="initial body",
@@ -260,7 +260,7 @@ async def test_path_c_updates_metadata_when_fieldtheory_id_resyncs(
     assert first.metadata_updated == 0
 
     refreshed_row = _row(
-        fieldtheory_id="ft-resync",
+        bookmark_external_id="ft-resync",
         url="https://twitter.com/diana/status/8",
         primary_category="research",
         tweet_text="refreshed body",
@@ -276,12 +276,12 @@ async def test_path_c_updates_metadata_when_fieldtheory_id_resyncs(
     async with database.session() as verify:
         metadata = (
             await verify.execute(
-                select(FieldTheoryBookmarkMetadata).where(
-                    FieldTheoryBookmarkMetadata.fieldtheory_id == "ft-resync"
+                select(XBookmarkMetadata).where(
+                    XBookmarkMetadata.bookmark_external_id == "ft-resync"
                 )
             )
         ).scalar_one()
-        assert metadata.fieldtheory_category == "research"
+        assert metadata.x_category == "research"
         assert metadata.tweet_text == "refreshed body"
         assert metadata.synced_at == refreshed_synced_at
 
@@ -294,17 +294,17 @@ async def test_invalid_category_is_skipped_not_raised(
         database=database,
         rows=[
             _row(
-                fieldtheory_id="ft-bogus",
+                bookmark_external_id="ft-bogus",
                 url="https://twitter.com/dave/status/9",
                 primary_category="bogus",
             ),
             _row(
-                fieldtheory_id="ft-unclassified",
+                bookmark_external_id="ft-unclassified",
                 url="https://twitter.com/eve/status/10",
                 primary_category="unclassified",
             ),
             _row(
-                fieldtheory_id="ft-valid",
+                bookmark_external_id="ft-valid",
                 url="https://twitter.com/frank/status/11",
                 primary_category="research",
             ),
@@ -319,8 +319,8 @@ async def test_invalid_category_is_skipped_not_raised(
     assert stats.metadata_inserted == 1
 
     async with database.session() as verify:
-        count = (await verify.execute(select(FieldTheoryBookmarkMetadata))).scalars().all()
-        assert {meta.fieldtheory_id for meta in count} == {"ft-valid"}
+        count = (await verify.execute(select(XBookmarkMetadata))).scalars().all()
+        assert {meta.bookmark_external_id for meta in count} == {"ft-valid"}
 
 
 _BOOKMARKS_FIXTURE_DDL = """
@@ -387,7 +387,7 @@ async def test_real_bookmarks_db_fixture_round_trip_is_idempotent(
         ],
     )
 
-    ingestor = FieldTheoryBookmarkIngestor(database=database, bookmarks_db_path=fixture)
+    ingestor = XBookmarksIngestor(database=database, bookmarks_db_path=fixture)
 
     first = await ingestor.sync()
     assert first.bookmarks_seen == 2
@@ -409,10 +409,10 @@ async def test_real_bookmarks_db_fixture_round_trip_is_idempotent(
         request_count = await verify.scalar(
             select(func.count())
             .select_from(Request)
-            .where(Request.type == SourceKind.FIELDTHEORY_BOOKMARK.value)
+            .where(Request.type == SourceKind.X_BOOKMARK.value)
         )
         metadata_count = await verify.scalar(
-            select(func.count()).select_from(FieldTheoryBookmarkMetadata)
+            select(func.count()).select_from(XBookmarkMetadata)
         )
     assert request_count == 2
     assert metadata_count == 2
@@ -428,8 +428,8 @@ async def test_db_check_constraint_rejects_unknown_category(
     """
     request_id = await create_request(
         session,
-        type_=SourceKind.FIELDTHEORY_BOOKMARK.value,
-        status=RequestStatus.FIELDTHEORY_IMPORTED.value,
+        type_=SourceKind.X_BOOKMARK.value,
+        status=RequestStatus.X_IMPORTED.value,
         correlation_id="ck-test-correlation-id-00000000",
         input_url="https://twitter.com/zoe/status/999",
         normalized_url=normalize_url("https://twitter.com/zoe/status/999"),
@@ -439,10 +439,10 @@ async def test_db_check_constraint_rejects_unknown_category(
 
     async with database.session() as insert_session:
         insert_session.add(
-            FieldTheoryBookmarkMetadata(
+            XBookmarkMetadata(
                 request_id=request_id,
-                fieldtheory_id="ft-ck-bogus",
-                fieldtheory_category="bogus_not_in_enum",
+                bookmark_external_id="ft-ck-bogus",
+                x_category="bogus_not_in_enum",
                 tweet_text="will not land",
                 tweet_author="zoe",
                 tweet_url="https://twitter.com/zoe/status/999",
@@ -459,7 +459,7 @@ async def test_url_normalization_drives_dedupe_across_tracking_params(
     database: Database,
 ) -> None:
     """Two FT bookmarks whose URLs differ only in tracking params dedupe to a
-    single ``requests`` row. Because ``fieldtheory_bookmark_metadata.request_id``
+    single ``requests`` row. Because ``x_bookmark_metadata.request_id``
     is the PK (1:1 with Request — see design doc table at line 62), the second
     FT bookmark cannot claim the same metadata slot: the ingestor logs the
     collision and increments ``skipped_metadata_slot_taken``. The first
@@ -475,14 +475,14 @@ async def test_url_normalization_drives_dedupe_across_tracking_params(
         database=database,
         rows=[
             _row(
-                fieldtheory_id="ft-dedupe-1",
+                bookmark_external_id="ft-dedupe-1",
                 url=url_clean,
                 primary_category="tool",
                 tweet_text="clean variant",
                 synced_at=dt.datetime(2026, 1, 1, 9, 0, tzinfo=dt.UTC),
             ),
             _row(
-                fieldtheory_id="ft-dedupe-2",
+                bookmark_external_id="ft-dedupe-2",
                 url=url_tracked,
                 primary_category="tool",
                 tweet_text="tracked variant",
@@ -512,28 +512,28 @@ async def test_url_normalization_drives_dedupe_across_tracking_params(
         assert len(requests) == 1
         shared_request_id = requests[0].id
 
-        metadata_rows = (await verify.execute(select(FieldTheoryBookmarkMetadata))).scalars().all()
+        metadata_rows = (await verify.execute(select(XBookmarkMetadata))).scalars().all()
         # First-wins: only ft-dedupe-1 is mirrored; ft-dedupe-2 collides and is
         # logged-and-skipped rather than overwriting the first claim.
-        assert {m.fieldtheory_id for m in metadata_rows} == {"ft-dedupe-1"}
+        assert {m.bookmark_external_id for m in metadata_rows} == {"ft-dedupe-1"}
         assert metadata_rows[0].request_id == shared_request_id
         assert metadata_rows[0].tweet_text == "clean variant"
 
 
-async def test_all_seven_fieldtheory_categories_round_trip(
+async def test_all_seven_x_categories_round_trip(
     session: AsyncSession,
     database: Database,
 ) -> None:
     """The closed v2 category vocabulary has exactly seven members; the
     ingestor must accept every one and persist its string value verbatim.
     """
-    categories = list(FieldTheoryCategory)
+    categories = list(XCategory)
     assert len(categories) == 7, "Category enum drift — update test + migration in lockstep"
 
     base_synced_at = dt.datetime(2026, 1, 1, 8, 0, tzinfo=dt.UTC)
     rows = [
         _row(
-            fieldtheory_id=f"ft-cat-{idx}",
+            bookmark_external_id=f"ft-cat-{idx}",
             url=f"https://twitter.com/user{idx}/status/{1000 + idx}",
             primary_category=category.value,
             tweet_text=f"sample for {category.value}",
@@ -552,6 +552,6 @@ async def test_all_seven_fieldtheory_categories_round_trip(
     assert stats.skipped_invalid_category == 0
 
     async with database.session() as verify:
-        stored = (await verify.execute(select(FieldTheoryBookmarkMetadata))).scalars().all()
-    stored_categories = {meta.fieldtheory_category for meta in stored}
+        stored = (await verify.execute(select(XBookmarkMetadata))).scalars().all()
+    stored_categories = {meta.x_category for meta in stored}
     assert stored_categories == {category.value for category in categories}

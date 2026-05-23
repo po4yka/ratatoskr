@@ -68,14 +68,14 @@ class VectorReconcileTaskRuntime:
 
 
 @dataclass(frozen=True)
-class FieldTheoryTaskRuntime:
+class XBookmarksTaskRuntime:
     cfg: AppConfig
     db: Database
     ingestor: Any
 
 
 @dataclass(frozen=True)
-class FieldTheoryWikiSyncTaskRuntime:
+class XWikiSyncTaskRuntime:
     cfg: AppConfig
     db: Database
     service: Any
@@ -276,35 +276,35 @@ def build_rss_poll_task_runtime(cfg: AppConfig, db: Database) -> RssPollTaskRunt
     )
 
 
-def build_fieldtheory_task_runtime(
+def build_x_bookmarks_task_runtime(
     cfg: AppConfig,
     db: Database,
-) -> FieldTheoryTaskRuntime:
-    from app.adapters.ingestors.fieldtheory_ingestor import FieldTheoryBookmarkIngestor
+) -> XBookmarksTaskRuntime:
+    from app.adapters.ingestors.x_bookmarks_ingestor import XBookmarksIngestor
 
-    return FieldTheoryTaskRuntime(
+    return XBookmarksTaskRuntime(
         cfg=cfg,
         db=db,
-        ingestor=FieldTheoryBookmarkIngestor(
+        ingestor=XBookmarksIngestor(
             database=db,
-            bookmarks_db_path=cfg.fieldtheory.bookmarks_db_path,
+            bookmarks_db_path=cfg.x_bookmarks.bookmarks_db_path,
         ),
     )
 
 
-def build_fieldtheory_wiki_sync_task_runtime(
+def build_x_wiki_sync_task_runtime(
     cfg: AppConfig,
     db: Database,
-) -> FieldTheoryWikiSyncTaskRuntime:
-    from app.application.services.fieldtheory_wiki_sync import FieldTheoryWikiSyncService
+) -> XWikiSyncTaskRuntime:
+    from app.application.services.x_wiki_sync import XWikiSyncService
     from app.di.shared import build_qdrant_vector_store
     from app.infrastructure.embedding.embedding_factory import create_embedding_service
 
-    return FieldTheoryWikiSyncTaskRuntime(
+    return XWikiSyncTaskRuntime(
         cfg=cfg,
         db=db,
-        service=FieldTheoryWikiSyncService(
-            library_path=cfg.fieldtheory.library_path,
+        service=XWikiSyncService(
+            library_path=cfg.x_bookmarks.library_path,
             vector_store=build_qdrant_vector_store(cfg),
             embedding_service=create_embedding_service(cfg.embedding),
         ),

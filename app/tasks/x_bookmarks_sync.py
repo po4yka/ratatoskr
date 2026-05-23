@@ -2,12 +2,12 @@
 
 Mirrors the simpler reconcile-style pattern (lock + delegate to a single
 adapter) — no per-user fanout, no token plumbing. The
-:class:`FieldTheoryBookmarkIngestor` itself maintains the watermark via
-``MAX(synced_at)`` from ``fieldtheory_bookmark_metadata``, so this task carries
+:class:`XBookmarksIngestor` itself maintains the watermark via
+``MAX(synced_at)`` from ``x_bookmark_metadata``, so this task carries
 no cursor state.
 
 The ingestor opens ``bookmarks.db`` read-only via aiosqlite, never contending
-with ft's own writer process. See ``app/adapters/ingestors/fieldtheory_ingestor.py``.
+with ft's own writer process. See ``app/adapters/ingestors/x_bookmarks_ingestor.py``.
 """
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ from app.db.session import Database  # noqa: TC001 — taskiq resolves type hint
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
 from app.tasks.broker import broker
-from app.tasks.deps import build_fieldtheory_task_runtime, get_app_config, get_db
+from app.tasks.deps import build_x_bookmarks_task_runtime, get_app_config, get_db
 
 logger = get_logger(__name__)
 
 
 @dataclass
-class FieldTheorySyncSummary:
-    """Per-run statistics emitted by the fieldtheory bookmark sync task."""
+class XBookmarksSyncSummary:
+    """Per-run statistics emitted by the x_bookmarks bookmark sync task."""
 
     bookmarks_seen: int = 0
     requests_created: int = 0
@@ -41,46 +41,46 @@ class FieldTheorySyncSummary:
     skipped_invalid_url: int = 0
 
 
-_FIELDTHEORY_SYNC_LOCK_KEY = "task_lock:fieldtheory_sync"
+_X_BOOKMARKS_SYNC_LOCK_KEY = "task_lock:x_bookmarks_sync"
 # TTL covers the maximum expected run: ft typically holds < 5000 rows, the
 # delta scan touches only what's new since last run, and aiosqlite reads are
 # O(rows). 10 min is generous; the lock auto-releases on completion anyway.
-_FIELDTHEORY_SYNC_LOCK_TTL = 600
+_X_BOOKMARKS_SYNC_LOCK_TTL = 600
 
 
-@broker.task(task_name="ratatoskr.fieldtheory.sync_bookmarks")
-async def sync_fieldtheory_bookmarks(
+@broker.task(task_name="ratatoskr.x.sync_bookmarks")
+async def sync_x_bookmarks(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),
-) -> FieldTheorySyncSummary:
+) -> XBookmarksSyncSummary:
     """Run one delta-scan pass over ft's read-only bookmarks database."""
     redis_client = await get_redis(cfg)
     async with RedisDistributedLock(
-        redis_client, _FIELDTHEORY_SYNC_LOCK_KEY, _FIELDTHEORY_SYNC_LOCK_TTL
+        redis_client, _X_BOOKMARKS_SYNC_LOCK_KEY, _X_BOOKMARKS_SYNC_LOCK_TTL
     ) as acquired:
         if not acquired:
             logger.info(
-                "fieldtheory_sync_skipped_lock_held",
-                extra={"key": _FIELDTHEORY_SYNC_LOCK_KEY},
+                "x_bookmarks_sync_skipped_lock_held",
+                extra={"key": _X_BOOKMARKS_SYNC_LOCK_KEY},
             )
-            return FieldTheorySyncSummary()
+            return XBookmarksSyncSummary()
         return await _sync_body(cfg, db)
 
 
-async def _sync_body(cfg: AppConfig, db: Database) -> FieldTheorySyncSummary:
-    correlation_id = f"fieldtheory-sync-{uuid4()}"
-    if not cfg.fieldtheory.enabled:
-        logger.info("fieldtheory_sync_disabled", extra={"cid": correlation_id})
-        return FieldTheorySyncSummary()
+async def _sync_body(cfg: AppConfig, db: Database) -> XBookmarksSyncSummary:
+    correlation_id = f"x-bookmarks-sync-{uuid4()}"
+    if not cfg.x_bookmarks.enabled:
+        logger.info("x_bookmarks_sync_disabled", extra={"cid": correlation_id})
+        return XBookmarksSyncSummary()
 
-    runtime = build_fieldtheory_task_runtime(cfg, db)
+    runtime = build_x_bookmarks_task_runtime(cfg, db)
     ingestor = runtime.ingestor
 
     logger.info(
-        "fieldtheory_sync_starting",
+        "x_bookmarks_sync_starting",
         extra={
             "cid": correlation_id,
-            "bookmarks_db_path": cfg.fieldtheory.bookmarks_db_path,
+            "bookmarks_db_path": cfg.x_bookmarks.bookmarks_db_path,
         },
     )
 
@@ -91,16 +91,16 @@ async def _sync_body(cfg: AppConfig, db: Database) -> FieldTheorySyncSummary:
         # not yet run `ft sync` to create the SQLite file. A single missed run
         # is preferable to a crash loop; the next scheduled tick will retry.
         logger.warning(
-            "fieldtheory_sync_db_unavailable",
+            "x_bookmarks_sync_db_unavailable",
             extra={
                 "cid": correlation_id,
-                "bookmarks_db_path": cfg.fieldtheory.bookmarks_db_path,
+                "bookmarks_db_path": cfg.x_bookmarks.bookmarks_db_path,
                 "error": str(exc),
             },
         )
-        return FieldTheorySyncSummary()
+        return XBookmarksSyncSummary()
 
-    summary = FieldTheorySyncSummary(
+    summary = XBookmarksSyncSummary(
         bookmarks_seen=stats.bookmarks_seen,
         requests_created=stats.requests_created,
         metadata_inserted=stats.metadata_inserted,
@@ -109,7 +109,7 @@ async def _sync_body(cfg: AppConfig, db: Database) -> FieldTheorySyncSummary:
         skipped_invalid_url=stats.skipped_invalid_url,
     )
     logger.info(
-        "fieldtheory_sync_complete",
+        "x_bookmarks_sync_complete",
         extra={
             "cid": correlation_id,
             "bookmarks_seen": summary.bookmarks_seen,

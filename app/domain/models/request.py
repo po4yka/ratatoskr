@@ -27,10 +27,10 @@ class RequestStatus(StrEnum):
     COMPLETED = "ok"
     ERROR = "error"
     CANCELLED = "cancelled"
-    # Terminal status for rows created by the fieldtheory bookmark ingestor:
+    # Terminal status for rows created by the x_bookmarks bookmark ingestor:
     # bookmark metadata is mirrored from `ft sync` without invoking the
     # scraper chain or summarizer; the row never enters the URL processor.
-    FIELDTHEORY_IMPORTED = "fieldtheory_imported"
+    X_IMPORTED = "x_imported"
 
 
 @dataclass

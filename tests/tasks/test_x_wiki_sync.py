@@ -1,14 +1,14 @@
-"""Tests for app.tasks.fieldtheory_wiki_sync (Taskiq wiki delta-scan).
+"""Tests for app.tasks.x_wiki_sync (Taskiq wiki delta-scan).
 
 ONE focused test, two assertions per the Step 5.4 acceptance criteria:
 
-  * The task body short-circuits when ``cfg.fieldtheory.enabled`` is False
+  * The task body short-circuits when ``cfg.x_bookmarks.enabled`` is False
     (no runtime construction, empty summary).
-  * When enabled, the task body delegates to ``FieldTheoryWikiSyncService.sync()``
+  * When enabled, the task body delegates to ``XWikiSyncService.sync()``
     via the runtime and returns its ``WikiSyncSummary`` unchanged.
 
-Mirrors the shape of ``tests/tasks/test_fieldtheory_sync.py``: fake taskiq
-modules so importing ``app.tasks.fieldtheory_wiki_sync`` does not require the
+Mirrors the shape of ``tests/tasks/test_x_bookmarks_sync.py``: fake taskiq
+modules so importing ``app.tasks.x_wiki_sync`` does not require the
 real Taskiq runtime, then a fake runtime + fake service injected via
 ``monkeypatch``.
 """
@@ -66,11 +66,11 @@ def _evict_app_tasks() -> None:
 def _build_cfg(
     *,
     enabled: bool = True,
-    library_path: str = "/fieldtheory/library",
+    library_path: str = "/x_bookmarks/library",
     wiki_sync_cron: str = "0 * * * *",
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        fieldtheory=SimpleNamespace(
+        x_bookmarks=SimpleNamespace(
             enabled=enabled,
             wiki_sync_cron=wiki_sync_cron,
             library_path=library_path,
@@ -85,13 +85,13 @@ async def test_sync_short_circuits_when_disabled_else_delegates_to_service(monke
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
     _evict_app_tasks()
 
-    from app.application.services.fieldtheory_wiki_sync import WikiSyncSummary
-    from app.tasks.fieldtheory_wiki_sync import _wiki_sync_body
+    from app.application.services.x_wiki_sync import WikiSyncSummary
+    from app.tasks.x_wiki_sync import _wiki_sync_body
 
     # --- short-circuit when disabled ------------------------------------------------
     runtime_spy = MagicMock()
     monkeypatch.setattr(
-        "app.tasks.fieldtheory_wiki_sync.build_fieldtheory_wiki_sync_task_runtime",
+        "app.tasks.x_wiki_sync.build_x_wiki_sync_task_runtime",
         runtime_spy,
     )
 
@@ -109,7 +109,7 @@ async def test_sync_short_circuits_when_disabled_else_delegates_to_service(monke
     )
     service = SimpleNamespace(sync=AsyncMock(return_value=expected))
     monkeypatch.setattr(
-        "app.tasks.fieldtheory_wiki_sync.build_fieldtheory_wiki_sync_task_runtime",
+        "app.tasks.x_wiki_sync.build_x_wiki_sync_task_runtime",
         lambda cfg, db: SimpleNamespace(cfg=cfg, db=db, service=service),
     )
 

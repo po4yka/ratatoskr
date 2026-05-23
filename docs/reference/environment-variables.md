@@ -734,21 +734,21 @@ Per-user GitHub credential storage, OAuth Device Flow, and daily stars sync. Con
 
 ---
 
-## Fieldtheory Integration
+## X Integration
 
-Local X/Twitter bookmark sync via the host-side `fieldtheory-cli` (`ft`). The container reads the read-only `ft` SQLite database on a Taskiq schedule and ingests new bookmarks into `requests` + `fieldtheory_bookmark_metadata`. See `docs/explanation/fieldtheory-integration.md` for the full design. Configuration owner: `app/config/fieldtheory.py::FieldTheoryConfig`.
+Local X/Twitter bookmark sync via the host-side `x_bookmarks-cli` (`ft`). The container reads the read-only `ft` SQLite database on a Taskiq schedule and ingests new bookmarks into `requests` + `x_bookmark_metadata`. See `docs/explanation/x-bookmarks-integration.md` for the full design. Configuration owner: `app/config/x_bookmarks.py::XBookmarksConfig`.
 
 | Variable | Default | Required | Description | Used by |
 |----------|---------|----------|-------------|---------|
-| `FIELDTHEORY_SYNC_ENABLED` | `true` | No | Master switch for the Taskiq bookmark delta-scan job; when `false`, the job is not registered with the scheduler | `app/tasks/scheduler.py` |
-| `FIELDTHEORY_SYNC_CRON` | `*/15 * * * *` | No | UTC cron expression for the bookmark delta-scan job (default: every 15 minutes) | `app/tasks/scheduler.py` |
-| `FIELDTHEORY_BOOKMARKS_DB_PATH` | `/fieldtheory/bookmarks.db` | No | Path to the read-only `ft` SQLite bookmarks database inside the container; typically the mount target of `~/.fieldtheory/bookmarks.db` on the host | `app/adapters/ingestors/fieldtheory_ingestor.py` |
+| `X_BOOKMARKS_SYNC_ENABLED` | `true` | No | Master switch for the Taskiq bookmark delta-scan job; when `false`, the job is not registered with the scheduler | `app/tasks/scheduler.py` |
+| `X_BOOKMARKS_SYNC_CRON` | `*/15 * * * *` | No | UTC cron expression for the bookmark delta-scan job (default: every 15 minutes) | `app/tasks/scheduler.py` |
+| `X_BOOKMARKS_DB_PATH` | `/x_bookmarks/bookmarks.db` | No | Path to the read-only `ft` SQLite bookmarks database inside the container; typically the mount target of `~/.fieldtheory/bookmarks.db` on the host | `app/adapters/ingestors/x_bookmarks_ingestor.py` |
 
 **Notes:**
 
-- The host runs `ft sync` on its own schedule (typically hourly via launchd/systemd). The container-side delta-scan picks up host syncs and manual `ft sync` gestures within one `FIELDTHEORY_SYNC_CRON` interval.
-- `bookmarks.db` must be mounted read-only into the container (`/fieldtheory/bookmarks.db:ro`); the ingestor opens it with `aiosqlite` in URI read-only mode and never writes.
-- `FIELDTHEORY_SYNC_ENABLED=false` disables only the scheduled Taskiq job; nothing else in the pipeline references the fieldtheory mount.
+- The host runs `ft sync` on its own schedule (typically hourly via launchd/systemd). The container-side delta-scan picks up host syncs and manual `ft sync` gestures within one `X_BOOKMARKS_SYNC_CRON` interval.
+- `bookmarks.db` must be mounted read-only into the container (`/x_bookmarks/bookmarks.db:ro`); the ingestor opens it with `aiosqlite` in URI read-only mode and never writes.
+- `X_BOOKMARKS_SYNC_ENABLED=false` disables only the scheduled Taskiq job; nothing else in the pipeline references the x_bookmarks mount.
 
 ---
 

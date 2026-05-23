@@ -876,7 +876,7 @@ class RefreshToken(Base):
     user: Mapped[User] = relationship(back_populates="refresh_tokens")
 
 
-class FieldTheoryCategory(enum.StrEnum):
+class XCategory(enum.StrEnum):
     """Classification vocabulary populated by ``ft`` at bookmark capture time.
 
     Mirrored verbatim from ``ft``'s ``bookmarks.db.category`` column. The v2
@@ -893,40 +893,40 @@ class FieldTheoryCategory(enum.StrEnum):
     COMMERCE = "commerce"
 
 
-_FIELDTHEORY_CATEGORY_VALUES = tuple(member.value for member in FieldTheoryCategory)
+_X_CATEGORY_VALUES = tuple(member.value for member in XCategory)
 
 
-class FieldTheoryBookmarkMetadata(Base):
-    """Sidecar row for a ``requests`` entry ingested via the fieldtheory sync path.
+class XBookmarkMetadata(Base):
+    """Sidecar row for a ``requests`` entry ingested via the x_bookmarks sync path.
 
-    Schema source of truth: ``docs/explanation/fieldtheory-integration.md`` table at
+    Schema source of truth: ``docs/explanation/x-bookmarks-integration.md`` table at
     lines 60-71. Lifecycle is shared with the parent ``Request`` (cascade delete).
     The ``tweet_text_tsv`` column is a Postgres ``GENERATED ALWAYS AS ... STORED``
-    column that the MCP ``fieldtheory_search`` tool queries via ``ts_rank_cd``.
+    column that the MCP ``x_search`` tool queries via ``ts_rank_cd``.
 
     No lifecycle columns. Bookmarks are immortal once ingested (see the Q4 design
     answer); the schema cannot express "no longer bookmarked" by design.
     """
 
-    __tablename__ = "fieldtheory_bookmark_metadata"
+    __tablename__ = "x_bookmark_metadata"
     __table_args__ = (
         CheckConstraint(
-            "fieldtheory_category IN ("
-            + ", ".join(f"'{value}'" for value in _FIELDTHEORY_CATEGORY_VALUES)
+            "x_category IN ("
+            + ", ".join(f"'{value}'" for value in _X_CATEGORY_VALUES)
             + ")",
-            name="ck_fieldtheory_bookmark_metadata_category",
+            name="ck_x_bookmark_metadata_category",
         ),
         Index(
-            "ix_fieldtheory_bookmark_metadata_fieldtheory_id",
-            "fieldtheory_id",
+            "ix_x_bookmark_metadata_bookmark_external_id",
+            "bookmark_external_id",
             unique=True,
         ),
         Index(
-            "ix_fieldtheory_bookmark_metadata_category",
-            "fieldtheory_category",
+            "ix_x_bookmark_metadata_category",
+            "x_category",
         ),
         Index(
-            "ix_fieldtheory_bookmark_metadata_tweet_text_tsv",
+            "ix_x_bookmark_metadata_tweet_text_tsv",
             "tweet_text_tsv",
             postgresql_using="gin",
         ),
@@ -937,8 +937,8 @@ class FieldTheoryBookmarkMetadata(Base):
         primary_key=True,
         autoincrement=False,
     )
-    fieldtheory_id: Mapped[str] = mapped_column(Text, nullable=False)
-    fieldtheory_category: Mapped[str] = mapped_column(Text, nullable=False)
+    bookmark_external_id: Mapped[str] = mapped_column(Text, nullable=False)
+    x_category: Mapped[str] = mapped_column(Text, nullable=False)
     tweet_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     tweet_text_tsv: Mapped[Any] = mapped_column(
         TSVECTOR,
@@ -975,7 +975,7 @@ CORE_MODELS: tuple[type[Base], ...] = (
     AttachmentProcessing,
     UserDevice,
     RefreshToken,
-    FieldTheoryBookmarkMetadata,
+    XBookmarkMetadata,
 )
 
 __all__ = [
@@ -986,8 +986,8 @@ __all__ = [
     "Chat",
     "ClientSecret",
     "CrawlResult",
-    "FieldTheoryBookmarkMetadata",
-    "FieldTheoryCategory",
+    "XBookmarkMetadata",
+    "XCategory",
     "LLMAttemptTrigger",
     "LLMCall",
     "ProgressEvent",

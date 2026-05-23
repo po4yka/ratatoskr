@@ -111,7 +111,7 @@ async def test_mcp_tool_registration_records_success_metrics() -> None:
         "list_user_signals",
         "update_signal_feedback",
         "set_signal_source_active",
-        "fieldtheory_search",
+        "x_search",
     } <= set(mcp.tools)
 
     with patch("app.mcp.tool_registrations.record_request") as metrics_mock:

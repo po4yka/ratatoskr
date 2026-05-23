@@ -1,6 +1,6 @@
-"""Behavioural tests for ``FieldTheorySearchService``.
+"""Behavioural tests for ``XSearchService``.
 
-Most tests are Postgres-gated (mirroring ``tests/adapters/ingestors/test_fieldtheory_ingestor.py``): the ``session`` and ``database`` fixtures skip when ``TEST_DATABASE_URL`` is unset, so the Postgres FTS path is exercised in the integration job rather than every laptop ``pytest`` invocation. The invalid-category test runs without Postgres because the service short-circuits before any SQL is built.
+Most tests are Postgres-gated (mirroring ``tests/adapters/ingestors/test_x_bookmarks_ingestor.py``): the ``session`` and ``database`` fixtures skip when ``TEST_DATABASE_URL`` is unset, so the Postgres FTS path is exercised in the integration job rather than every laptop ``pytest`` invocation. The invalid-category test runs without Postgres because the service short-circuits before any SQL is built.
 """
 
 from __future__ import annotations
@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from app.core.url_utils import compute_dedupe_hash, normalize_url
-from app.db.models.core import FieldTheoryBookmarkMetadata
+from app.db.models.core import XBookmarkMetadata
 from app.domain.models.request import RequestStatus
 from app.domain.models.source import SourceKind
-from app.mcp.fieldtheory_search_service import FieldTheorySearchService
+from app.mcp.x_search_service import XSearchService
 from tests.db_helpers_async import create_request
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ def _context(database: Database) -> SimpleNamespace:
 async def _seed_bookmark(
     session: AsyncSession,
     *,
-    fieldtheory_id: str,
+    bookmark_external_id: str,
     url: str,
     tweet_text: str,
     category: str = "tool",
@@ -48,21 +48,21 @@ async def _seed_bookmark(
     posted_at: dt.datetime | None = None,
     correlation_id: str | None = None,
 ) -> int:
-    """Insert a Request + FieldTheoryBookmarkMetadata pair and return request_id."""
+    """Insert a Request + XBookmarkMetadata pair and return request_id."""
     request_id = await create_request(
         session,
-        type_=SourceKind.FIELDTHEORY_BOOKMARK.value,
-        status=RequestStatus.FIELDTHEORY_IMPORTED.value,
-        correlation_id=correlation_id or f"corr-{fieldtheory_id}",
+        type_=SourceKind.X_BOOKMARK.value,
+        status=RequestStatus.X_IMPORTED.value,
+        correlation_id=correlation_id or f"corr-{bookmark_external_id}",
         input_url=url,
         normalized_url=normalize_url(url),
         dedupe_hash=compute_dedupe_hash(url),
     )
     session.add(
-        FieldTheoryBookmarkMetadata(
+        XBookmarkMetadata(
             request_id=request_id,
-            fieldtheory_id=fieldtheory_id,
-            fieldtheory_category=category,
+            bookmark_external_id=bookmark_external_id,
+            x_category=category,
             tweet_text=tweet_text,
             tweet_author=author,
             tweet_url=url,
@@ -79,7 +79,7 @@ async def test_empty_corpus_returns_empty_results(
     database: Database,
 ) -> None:
     """No bookmarks in the corpus → search returns an empty results list."""
-    service = FieldTheorySearchService(context=cast("Any", _context(database)))
+    service = XSearchService(context=cast("Any", _context(database)))
 
     result = await service.search("anything")
 
@@ -97,7 +97,7 @@ async def test_single_match_returns_single_row(
     url = "https://twitter.com/alice/status/1"
     request_id = await _seed_bookmark(
         session,
-        fieldtheory_id="ft-kelly",
+        bookmark_external_id="ft-kelly",
         url=url,
         tweet_text="kelly criterion betting strategy explained",
         category="tool",
@@ -105,7 +105,7 @@ async def test_single_match_returns_single_row(
         posted_at=dt.datetime(2026, 1, 5, 12, 0, tzinfo=dt.UTC),
     )
 
-    service = FieldTheorySearchService(context=cast("Any", _context(database)))
+    service = XSearchService(context=cast("Any", _context(database)))
     result = await service.search("kelly")
 
     assert "error" not in result
@@ -137,7 +137,7 @@ async def test_category_filter_narrows_results(
     body = "foo bar baz unique phrase"
     rid_tool = await _seed_bookmark(
         session,
-        fieldtheory_id="ft-cat-tool",
+        bookmark_external_id="ft-cat-tool",
         url="https://twitter.com/a/status/1",
         tweet_text=body,
         category="tool",
@@ -146,7 +146,7 @@ async def test_category_filter_narrows_results(
     )
     rid_research = await _seed_bookmark(
         session,
-        fieldtheory_id="ft-cat-research",
+        bookmark_external_id="ft-cat-research",
         url="https://twitter.com/b/status/2",
         tweet_text=body,
         category="research",
@@ -154,7 +154,7 @@ async def test_category_filter_narrows_results(
         posted_at=dt.datetime(2026, 1, 2, 12, 0, tzinfo=dt.UTC),
     )
 
-    service = FieldTheorySearchService(context=cast("Any", _context(database)))
+    service = XSearchService(context=cast("Any", _context(database)))
 
     unfiltered = await service.search("foo bar baz")
     assert "error" not in unfiltered
@@ -184,7 +184,7 @@ async def test_rank_ordering_by_ts_rank_cd_then_posted_at(
     """
     rid_a = await _seed_bookmark(
         session,
-        fieldtheory_id="ft-rank-A",
+        bookmark_external_id="ft-rank-A",
         url="https://twitter.com/x/status/1",
         tweet_text="rust async runtime tokio deep dive",
         category="tool",
@@ -193,7 +193,7 @@ async def test_rank_ordering_by_ts_rank_cd_then_posted_at(
     )
     rid_b = await _seed_bookmark(
         session,
-        fieldtheory_id="ft-rank-B",
+        bookmark_external_id="ft-rank-B",
         url="https://twitter.com/y/status/2",
         tweet_text="rust async runtime tokio deep dive",
         category="tool",
@@ -202,7 +202,7 @@ async def test_rank_ordering_by_ts_rank_cd_then_posted_at(
     )
     rid_c = await _seed_bookmark(
         session,
-        fieldtheory_id="ft-rank-C",
+        bookmark_external_id="ft-rank-C",
         url="https://twitter.com/z/status/3",
         # All 3 query lexemes present but spread out across a long sentence — the cover span (first-to-last matched lexeme) is much larger than in A/B, so ts_rank_cd is strictly lower.
         tweet_text=(
@@ -215,7 +215,7 @@ async def test_rank_ordering_by_ts_rank_cd_then_posted_at(
         posted_at=dt.datetime(2026, 1, 20, 12, 0, tzinfo=dt.UTC),
     )
 
-    service = FieldTheorySearchService(context=cast("Any", _context(database)))
+    service = XSearchService(context=cast("Any", _context(database)))
     result = await service.search("rust async runtime")
 
     assert "error" not in result
@@ -243,7 +243,7 @@ async def test_invalid_category_returns_error_envelope_without_db_call() -> None
         ensure_runtime=lambda: runtime,
         request_scope_filters=lambda _model: [],
     )
-    service = FieldTheorySearchService(context=cast("Any", context))
+    service = XSearchService(context=cast("Any", context))
 
     result = await service.search("anything", category="not-a-real-category")
 

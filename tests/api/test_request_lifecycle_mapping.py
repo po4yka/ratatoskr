@@ -27,7 +27,7 @@ from app.application.dto.request_lifecycle import (
         ("error", "failed", "done", "error"),
         ("failed", "failed", "done", "error"),
         ("cancelled", "cancelled", "done", "error"),
-        ("fieldtheory_imported", "succeeded", "done", "done"),
+        ("x_imported", "succeeded", "done", "done"),
     ],
 )
 def test_request_lifecycle_mapper_covers_every_legacy_status(

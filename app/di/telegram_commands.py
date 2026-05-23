@@ -19,8 +19,8 @@ from app.adapters.telegram.command_handlers.backup_handler import BackupHandler
 from app.adapters.telegram.command_handlers.content_handler import ContentHandler
 from app.adapters.telegram.command_handlers.digest_handler import DigestHandler
 from app.adapters.telegram.command_handlers.export_command import ExportHandler
-from app.adapters.telegram.command_handlers.fieldtheory_possible import (
-    FieldTheoryPossibleHandler,
+from app.adapters.telegram.command_handlers.x_possible import (
+    XPossibleHandler,
 )
 from app.adapters.telegram.command_handlers.init_session_handler import InitSessionHandler
 from app.adapters.telegram.command_handlers.listen_handler import ListenHandler
@@ -34,6 +34,7 @@ from app.adapters.telegram.command_handlers.tag_handler import TagHandler
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
 from app.adapters.transcription import TranscriptionService
+from app.application.services.transcription_job_service import TranscriptionJobService
 from app.di.repositories import build_social_connection_repository, build_transcription_repository
 from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
@@ -65,6 +66,7 @@ def build_command_dispatcher_deps(
     repositories: TelegramRepositories,
     tts_service_factory: Any | None,
     transcription_service: TranscriptionService | None = None,
+    transcription_job_service: TranscriptionJobService | None = None,
 ) -> TelegramCommandDispatcherDeps:
     runtime_state = TelegramCommandRuntimeState(
         url_processor=url_processor,
@@ -159,7 +161,7 @@ def build_command_dispatcher_deps(
         db=db,
         response_formatter=response_formatter,
     )
-    fieldtheory_possible_handler = FieldTheoryPossibleHandler(cfg=cfg)
+    x_possible_handler = XPossibleHandler(cfg=cfg)
 
     transcribe_handler: TranscribeHandler | None = None
     if cfg.transcription.enabled:
@@ -169,6 +171,7 @@ def build_command_dispatcher_deps(
             response_formatter=response_formatter,
             transcription_service=service,
             transcription_repository=build_transcription_repository(db),
+            transcription_job_service=transcription_job_service,
         )
 
     contributions = (
@@ -413,13 +416,13 @@ def build_command_dispatcher_deps(
             ),
         ),
         TelegramCommandContribution(
-            name="fieldtheory_possible",
+            name="x_possible",
             post_summarize_text=(
                 TextCommandRoute(
-                    "/fieldtheory_possible",
+                    "/x_possible",
                     _build_text_handler(
                         context_factory,
-                        fieldtheory_possible_handler.handle_fieldtheory_possible,
+                        x_possible_handler.handle_x_possible,
                     ),
                 ),
             ),

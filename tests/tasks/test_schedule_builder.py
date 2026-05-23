@@ -175,7 +175,7 @@ def test_vector_reconcile_schedule_skipped_when_disabled(monkeypatch):
     assert not any(t.task_name == "ratatoskr.vector.reconcile" for t in tasks)
 
 
-def test_fieldtheory_sync_schedule_added_when_enabled(monkeypatch):
+def test_x_bookmarks_sync_schedule_added_when_enabled(monkeypatch):
     mod = _load_scheduler_module(monkeypatch)
 
     cfg = MagicMock()
@@ -185,20 +185,20 @@ def test_fieldtheory_sync_schedule_added_when_enabled(monkeypatch):
     cfg.github.sync_enabled = False
     cfg.vector_reconcile.enabled = False
     cfg.retention.enabled = False
-    cfg.fieldtheory.enabled = True
-    cfg.fieldtheory.sync_cron = "*/15 * * * *"
+    cfg.x_bookmarks.enabled = True
+    cfg.x_bookmarks.sync_cron = "*/15 * * * *"
 
     monkeypatch.setattr(mod, "load_config", lambda: cfg)
     source = mod._AppConfigScheduleSource()
     tasks = source._build_tasks()
 
-    ft_tasks = [t for t in tasks if t.task_name == "ratatoskr.fieldtheory.sync_bookmarks"]
+    ft_tasks = [t for t in tasks if t.task_name == "ratatoskr.x.sync_bookmarks"]
     assert len(ft_tasks) == 1
     assert ft_tasks[0].cron == "*/15 * * * *"
-    assert ft_tasks[0].labels == {"job": "fieldtheory_sync"}
+    assert ft_tasks[0].labels == {"job": "x_bookmarks_sync"}
 
 
-def test_fieldtheory_sync_schedule_skipped_when_disabled(monkeypatch):
+def test_x_bookmarks_sync_schedule_skipped_when_disabled(monkeypatch):
     mod = _load_scheduler_module(monkeypatch)
 
     cfg = MagicMock()
@@ -208,10 +208,10 @@ def test_fieldtheory_sync_schedule_skipped_when_disabled(monkeypatch):
     cfg.github.sync_enabled = False
     cfg.vector_reconcile.enabled = False
     cfg.retention.enabled = False
-    cfg.fieldtheory.enabled = False
+    cfg.x_bookmarks.enabled = False
 
     monkeypatch.setattr(mod, "load_config", lambda: cfg)
     source = mod._AppConfigScheduleSource()
     tasks = source._build_tasks()
 
-    assert not any(t.task_name == "ratatoskr.fieldtheory.sync_bookmarks" for t in tasks)
+    assert not any(t.task_name == "ratatoskr.x.sync_bookmarks" for t in tasks)

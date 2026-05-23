@@ -117,21 +117,21 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
-        if cfg.fieldtheory.enabled:
+        if cfg.x_bookmarks.enabled:
             tasks.append(
                 ScheduledTask(
-                    task_name="ratatoskr.fieldtheory.sync_bookmarks",
-                    cron=cfg.fieldtheory.sync_cron,
-                    labels={"job": "fieldtheory_sync"},
+                    task_name="ratatoskr.x.sync_bookmarks",
+                    cron=cfg.x_bookmarks.sync_cron,
+                    labels={"job": "x_bookmarks_sync"},
                     args=[],
                     kwargs={},
                 )
             )
             tasks.append(
                 ScheduledTask(
-                    task_name="ratatoskr.fieldtheory.sync_wiki",
-                    cron=cfg.fieldtheory.wiki_sync_cron,
-                    labels={"job": "fieldtheory_wiki_sync"},
+                    task_name="ratatoskr.x.sync_wiki",
+                    cron=cfg.x_bookmarks.wiki_sync_cron,
+                    labels={"job": "x_wiki_sync"},
                     args=[],
                     kwargs={},
                 )

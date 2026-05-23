@@ -76,7 +76,7 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
-      - FIELDTHEORY_IDEAS_PATH=${FIELDTHEORY_IDEAS_PATH:-/fieldtheory/ideas}
+      - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       - RATATOSKR_PROCESS_ROLE=bot
     dns:
       - 1.1.1.1
@@ -146,8 +146,8 @@ services:
       - app.tasks.github_sync
       - app.tasks.reconcile_vector_index
       - app.tasks.import_tasks
-      - app.tasks.fieldtheory_sync
-      - app.tasks.fieldtheory_wiki_sync
+      - app.tasks.x_bookmarks_sync
+      - app.tasks.x_wiki_sync
       - "--workers"
       - "${TASKIQ_WORKER_CONCURRENCY:-4}"
     env_file:
@@ -251,11 +251,11 @@ services:
       - GITHUB_SYNC_CRON=${GITHUB_SYNC_CRON:-0 2 * * *}
       - VECTOR_RECONCILE_ENABLED=${VECTOR_RECONCILE_ENABLED:-true}
       - VECTOR_RECONCILE_CRON=${VECTOR_RECONCILE_CRON:-*/30 * * * *}
-      - FIELDTHEORY_SYNC_ENABLED=${FIELDTHEORY_SYNC_ENABLED:-false}
-      - FIELDTHEORY_SYNC_CRON=${FIELDTHEORY_SYNC_CRON:-*/15 * * * *}
-      - FIELDTHEORY_WIKI_SYNC_CRON=${FIELDTHEORY_WIKI_SYNC_CRON:-0 * * * *}
-      - FIELDTHEORY_LIBRARY_PATH=${FIELDTHEORY_LIBRARY_PATH:-/fieldtheory/library}
-      - FIELDTHEORY_IDEAS_PATH=${FIELDTHEORY_IDEAS_PATH:-/fieldtheory/ideas}
+      - X_BOOKMARKS_SYNC_ENABLED=${X_BOOKMARKS_SYNC_ENABLED:-false}
+      - X_BOOKMARKS_SYNC_CRON=${X_BOOKMARKS_SYNC_CRON:-*/15 * * * *}
+      - X_WIKI_SYNC_CRON=${X_WIKI_SYNC_CRON:-0 * * * *}
+      - X_WIKI_LIBRARY_PATH=${X_WIKI_LIBRARY_PATH:-/x_bookmarks/library}
+      - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - RATATOSKR_PROCESS_ROLE=scheduler
