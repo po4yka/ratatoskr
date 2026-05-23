@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         ResponseFormatterFacade as ResponseFormatter,
     )
     from app.adapters.twitter.firecrawl_extractor import TwitterFirecrawlExtractor
+    from app.adapters.twitter.api_extractor import XApiPostExtractor
     from app.adapters.twitter.playwright_extractor import TwitterPlaywrightExtractor
     from app.adapters.twitter.tier_policy import TwitterTierPolicy
 
@@ -68,6 +69,7 @@ class TwitterExtractionCoordinator:
         request_repo: Any,
         lifecycle: PlatformRequestLifecycle,
         tier_policy: TwitterTierPolicy,
+        x_api_extractor: XApiPostExtractor | None = None,
         firecrawl_extractor: TwitterFirecrawlExtractor,
         playwright_extractor: TwitterPlaywrightExtractor,
     ) -> None:
@@ -76,6 +78,7 @@ class TwitterExtractionCoordinator:
         self._request_repo = request_repo
         self._lifecycle = lifecycle
         self._tier_policy = tier_policy
+        self._x_api_extractor = x_api_extractor
         self._firecrawl_extractor = firecrawl_extractor
         self._playwright_extractor = playwright_extractor
 
@@ -83,9 +86,6 @@ class TwitterExtractionCoordinator:
         tweet_id = extract_tweet_id(request.url_text)
         is_article = is_twitter_article_url(request.url_text)
         article_id = extract_twitter_article_id(request.url_text) if is_article else None
-
-        if not self._cfg.twitter.prefer_firecrawl and not self._cfg.twitter.playwright_enabled:
-            raise ValueError(self._tier_policy.build_extraction_error_message())
 
         extraction_url, article_resolution = await self._resolve_article_link(
             url_text=request.url_text,
@@ -118,11 +118,35 @@ class TwitterExtractionCoordinator:
         )
         content_text = ""
         content_source = "none"
+        x_api_ok = False
+
+        if self._x_api_extractor is not None and not is_article:
+            x_api_result = await self._x_api_extractor.extract(
+                url_text=extraction_url,
+                user_id=request.user_id,
+                correlation_id=request.correlation_id,
+                metadata=metadata,
+            )
+            metadata.update(x_api_result.metadata)
+            metadata["tier_outcomes"]["x_api"] = "success" if x_api_result.ok else "failed"
+            if x_api_result.ok:
+                content_text = x_api_result.content_text
+                content_source = x_api_result.content_source
+                x_api_ok = True
+                metadata["auth_strategy"] = {"selected_tier": "x_api"}
+            elif x_api_result.metadata.get("api_status") in {"skipped", "no_connection"}:
+                metadata["tier_outcomes"]["x_api"] = "skipped"
+        else:
+            metadata["tier_outcomes"]["x_api"] = "disabled" if is_article else "unconfigured"
 
         use_firecrawl_tier = self._tier_policy.should_use_firecrawl_tier()
         use_playwright_tier = self._tier_policy.should_use_playwright_tier()
+        if not x_api_ok and not use_firecrawl_tier and not use_playwright_tier:
+            raise ValueError(self._tier_policy.build_extraction_error_message())
         firecrawl_ok = False
-        if use_firecrawl_tier:
+        if x_api_ok:
+            metadata["tier_outcomes"]["firecrawl"] = "skipped"
+        elif use_firecrawl_tier:
             firecrawl_ok, content_text, content_source = await self._firecrawl_extractor.extract(
                 url_text=extraction_url,
                 req_id=req_id,
@@ -133,12 +157,14 @@ class TwitterExtractionCoordinator:
                 persist_result=request.mode == "interactive",
             )
             metadata["tier_outcomes"]["firecrawl"] = "success" if firecrawl_ok else "failed"
+            if firecrawl_ok:
+                metadata["auth_strategy"] = {"selected_tier": "firecrawl"}
         else:
             metadata["tier_outcomes"]["firecrawl"] = (
                 "forced_skip" if self._tier_policy.force_tier() == "playwright" else "disabled"
             )
 
-        should_try_playwright = use_playwright_tier and (
+        should_try_playwright = not x_api_ok and use_playwright_tier and (
             self._tier_policy.force_tier() == "playwright"
             or not firecrawl_ok
             or self._should_enrich_with_playwright_media(
@@ -162,6 +188,7 @@ class TwitterExtractionCoordinator:
                 if pw_metadata is not metadata:
                     metadata.update(pw_metadata)
                 metadata["tier_outcomes"]["playwright"] = "success"
+                metadata["auth_strategy"] = {"selected_tier": "playwright"}
             except Exception as exc:
                 metadata["tier_outcomes"]["playwright"] = "failed"
                 logger.warning(
@@ -247,7 +274,10 @@ class TwitterExtractionCoordinator:
             "article_resolved_url": article_resolution.resolved_url,
             "article_canonical_url": article_resolution.canonical_url,
             "article_extraction_stage": None,
-            "tier_outcomes": {"firecrawl": "skipped", "playwright": "skipped"},
+            "auth_strategy": {"selected_tier": None},
+            "api_status": None,
+            "provider_resource_id": tweet_id or article_id,
+            "tier_outcomes": {"x_api": "skipped", "firecrawl": "skipped", "playwright": "skipped"},
         }
 
     def _should_enrich_with_playwright_media(

@@ -90,6 +90,67 @@ class XOAuthClient:
             raise _to_social_auth_error(exc, refresh=True) from exc
         return token_response.to_oauth_result()
 
+    async def get_post_by_id(self, *, post_id: str, access_token: str) -> httpx.Response:
+        """Fetch one X API v2 post using an OAuth 2.0 user access token."""
+        url = f"{self._config.normalized_api_base_url}/tweets/{post_id}"
+        params = {
+            "expansions": ",".join(
+                [
+                    "author_id",
+                    "attachments.media_keys",
+                    "entities.mentions.username",
+                    "referenced_tweets.id",
+                    "referenced_tweets.id.author_id",
+                ]
+            ),
+            "tweet.fields": ",".join(
+                [
+                    "attachments",
+                    "author_id",
+                    "conversation_id",
+                    "created_at",
+                    "entities",
+                    "id",
+                    "lang",
+                    "possibly_sensitive",
+                    "public_metrics",
+                    "referenced_tweets",
+                    "text",
+                ]
+            ),
+            "user.fields": ",".join(
+                [
+                    "id",
+                    "name",
+                    "profile_image_url",
+                    "public_metrics",
+                    "username",
+                    "verified",
+                ]
+            ),
+            "media.fields": ",".join(
+                [
+                    "alt_text",
+                    "duration_ms",
+                    "height",
+                    "media_key",
+                    "preview_image_url",
+                    "public_metrics",
+                    "type",
+                    "url",
+                    "width",
+                ]
+            ),
+        }
+        headers = {"Authorization": f"Bearer {access_token}"}
+        close_client = self._http_client is None
+        client = self._http_client or httpx.AsyncClient(timeout=httpx.Timeout(self._config.timeout_sec))
+        try:
+            return await client.get(url, params=params, headers=headers)
+        finally:
+            if close_client:
+                await client.aclose()
+
     async def _get_me(self, access_token: str) -> dict[str, str | None]:
         url = f"{self._config.normalized_api_base_url}/users/me"
         headers = {"Authorization": f"Bearer {access_token}"}

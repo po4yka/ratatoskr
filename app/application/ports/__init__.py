@@ -45,6 +45,7 @@ from .social_connections import (
     SocialConnectionRepositoryPort,
     SocialConnectionUpdate,
     SocialConnectionUpsert,
+    SocialFetchAttemptCreate,
 )
 from .summaries import SummaryRepositoryPort, TagRepositoryPort
 from .users import UserRepositoryPort
@@ -76,6 +77,7 @@ __all__ = [
     "SocialConnectionRepositoryPort",
     "SocialConnectionUpdate",
     "SocialConnectionUpsert",
+    "SocialFetchAttemptCreate",
     "SummaryRepositoryPort",
     "TTSProviderPort",
     "TagRepositoryPort",

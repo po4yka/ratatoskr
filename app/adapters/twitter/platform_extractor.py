@@ -9,7 +9,11 @@ from app.adapters.twitter.extraction_coordinator import TwitterExtractionCoordin
 from app.adapters.twitter.firecrawl_extractor import TwitterFirecrawlExtractor
 from app.adapters.twitter.playwright_extractor import TwitterPlaywrightExtractor
 from app.adapters.twitter.tier_policy import TwitterTierPolicy
+from app.adapters.social.x import XOAuthClient, XOAuthConfig
 from app.core.urls.twitter import is_twitter_url
+from app.infrastructure.persistence.repositories.social_connection_repository import (
+    SocialConnectionRepositoryAdapter,
+)
 
 if TYPE_CHECKING:
     from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
@@ -38,9 +42,30 @@ class TwitterPlatformExtractor(PlatformExtractor):
         schedule_crawl_persistence: Any,
         lifecycle: PlatformRequestLifecycle,
     ) -> None:
-        _ = db
         request_repo = message_persistence.request_repo
         tier_policy = TwitterTierPolicy(cfg=cfg)
+        twitter_cfg = cfg.twitter
+        from app.adapters.twitter.api_extractor import XApiPostExtractor
+
+        x_client_secret = getattr(twitter_cfg, "x_oauth_client_secret", None)
+        x_api_extractor = XApiPostExtractor(
+            repository=SocialConnectionRepositoryAdapter(db),
+            x_client=XOAuthClient(
+                XOAuthConfig(
+                    client_id=getattr(twitter_cfg, "x_oauth_client_id", None),
+                    client_secret=x_client_secret.get_secret_value()
+                    if x_client_secret is not None
+                    else None,
+                    redirect_uri=getattr(twitter_cfg, "x_oauth_redirect_uri", None),
+                    scopes=getattr(twitter_cfg, "x_oauth_scopes", None),
+                    api_base_url=getattr(
+                        twitter_cfg,
+                        "x_api_base_url",
+                        "https://api.x.com/2",
+                    ),
+                )
+            ),
+        )
         firecrawl_extractor = TwitterFirecrawlExtractor(
             firecrawl=firecrawl,
             firecrawl_sem=firecrawl_sem,
@@ -57,6 +82,7 @@ class TwitterPlatformExtractor(PlatformExtractor):
             request_repo=request_repo,
             lifecycle=lifecycle,
             tier_policy=tier_policy,
+            x_api_extractor=x_api_extractor,
             firecrawl_extractor=firecrawl_extractor,
             playwright_extractor=playwright_extractor,
         )

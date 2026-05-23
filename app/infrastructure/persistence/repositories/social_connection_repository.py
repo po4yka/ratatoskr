@@ -14,6 +14,7 @@ from app.application.ports.social_connections import (
     SocialConnectionRecord,
     SocialConnectionUpdate,
     SocialConnectionUpsert,
+    SocialFetchAttemptCreate,
 )
 from app.db.models.social import (
     SocialAuthState,
@@ -21,6 +22,8 @@ from app.db.models.social import (
     SocialAuthType,
     SocialConnection,
     SocialConnectionStatus,
+    SocialFetchAttempt,
+    SocialFetchAttemptStatus,
     SocialProvider,
 )
 from app.db.types import _utcnow
@@ -173,6 +176,24 @@ class SocialConnectionRepositoryAdapter:
             )
             return _auth_state_to_record(row) if row is not None else None
 
+    async def record_fetch_attempt(self, attempt: SocialFetchAttemptCreate) -> None:
+        row = SocialFetchAttempt(
+            connection_id=attempt.connection_id,
+            user_id=attempt.user_id,
+            provider=_provider(attempt.provider),
+            attempt_type=attempt.attempt_type,
+            status=_fetch_attempt_status(attempt.status),
+            error_code=attempt.error_code,
+            error_message=attempt.error_message,
+            metadata_json=dict(attempt.metadata_json)
+            if attempt.metadata_json is not None
+            else None,
+        )
+        if attempt.status in {"succeeded", "failed"}:
+            row.finished_at = _utcnow()
+        async with self._db.transaction() as session:
+            session.add(row)
+
 
 def _provider(value: str) -> SocialProvider:
     if value not in SUPPORTED_SOCIAL_PROVIDERS:
@@ -192,6 +213,13 @@ def _status(value: str) -> SocialConnectionStatus:
         return SocialConnectionStatus(value)
     except ValueError as exc:
         raise ValueError(f"Unsupported social connection status: {value}") from exc
+
+
+def _fetch_attempt_status(value: str) -> SocialFetchAttemptStatus:
+    try:
+        return SocialFetchAttemptStatus(value)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported social fetch attempt status: {value}") from exc
 
 
 def _auth_state_status(row: SocialAuthState) -> str:

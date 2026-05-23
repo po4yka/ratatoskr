@@ -103,6 +103,20 @@ class SocialAuthStateCreate:
     metadata_json: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SocialFetchAttemptCreate:
+    """Create payload for a social provider fetch attempt."""
+
+    user_id: int
+    provider: str
+    attempt_type: str
+    status: str
+    connection_id: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    metadata_json: dict[str, Any] | None = None
+
+
 @runtime_checkable
 class SocialConnectionRepositoryPort(Protocol):
     """Persistence operations for encrypted social provider connections."""
@@ -137,3 +151,6 @@ class SocialConnectionRepositoryPort(Protocol):
 
     async def mark_auth_state_expired(self, state_id: int) -> SocialAuthStateRecord | None:
         """Mark an OAuth state expired."""
+
+    async def record_fetch_attempt(self, attempt: SocialFetchAttemptCreate) -> None:
+        """Persist a social provider fetch attempt."""

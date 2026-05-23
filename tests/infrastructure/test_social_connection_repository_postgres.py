@@ -11,10 +11,11 @@ from app.application.ports.social_connections import (
     SocialConnectionRepositoryPort,
     SocialConnectionUpdate,
     SocialConnectionUpsert,
+    SocialFetchAttemptCreate,
 )
 from app.config.database import DatabaseConfig
 from app.core.time_utils import UTC
-from app.db.models import SocialConnection, User
+from app.db.models import SocialConnection, SocialFetchAttempt, User
 from app.db.session import Database
 from app.infrastructure.persistence.repositories.social_connection_repository import (
     SocialConnectionRepositoryAdapter,
@@ -47,6 +48,7 @@ async def database() -> AsyncGenerator[Database]:
 
 async def _clear(database: Database) -> None:
     async with database.transaction() as session:
+        await session.execute(delete(SocialFetchAttempt))
         await session.execute(delete(SocialConnection))
         await session.execute(delete(User))
 
@@ -173,3 +175,44 @@ async def test_social_connection_repository_rejects_unsupported_provider(
 
     with pytest.raises(ValueError, match="Unsupported social provider"):
         await repo.get_by_user_and_provider(user_id, "github")
+
+
+@pytest.mark.asyncio
+async def test_social_connection_repository_records_fetch_attempt(
+    database: Database,
+) -> None:
+    user_id = await _create_user(database, user_id=9704)
+    repo = SocialConnectionRepositoryAdapter(database)
+
+    await repo.record_fetch_attempt(
+        SocialFetchAttemptCreate(
+            user_id=user_id,
+            provider="x",
+            attempt_type="post_lookup",
+            status="failed",
+            error_code="rate_limited",
+            error_message="rate_limited",
+            metadata_json={
+                "auth_strategy": {"selected_tier": "x_api"},
+                "api_status": "429",
+                "provider_resource_id": "123",
+                "rate_limit": {"reset": "1779519999"},
+            },
+        )
+    )
+
+    async with database.session() as session:
+        row = await session.scalar(select(SocialFetchAttempt))
+
+    assert row is not None
+    assert row.provider == "x"
+    assert row.attempt_type == "post_lookup"
+    assert row.status == "failed"
+    assert row.error_code == "rate_limited"
+    assert row.metadata_json == {
+        "auth_strategy": {"selected_tier": "x_api"},
+        "api_status": "429",
+        "provider_resource_id": "123",
+        "rate_limit": {"reset": "1779519999"},
+    }
+    assert row.finished_at is not None
