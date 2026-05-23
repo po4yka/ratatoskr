@@ -35,13 +35,13 @@ if TYPE_CHECKING:
 
 DEFAULT_SOCIAL_SCOPES: dict[str, list[str]] = {
     "x": ["tweet.read", "users.read", "offline.access"],
-    "instagram": ["instagram_basic"],
+    "instagram": ["instagram_business_basic"],
     "threads": ["threads_basic"],
 }
 
 DEFAULT_AUTHORIZATION_ENDPOINTS: dict[str, str] = {
     "x": "https://x.com/i/oauth2/authorize",
-    "instagram": "https://api.instagram.com/oauth/authorize",
+    "instagram": "https://www.instagram.com/oauth/authorize",
     "threads": "https://threads.net/oauth/authorize",
 }
 
@@ -363,7 +363,10 @@ class SocialAuthService:
                 access_token_expires_at=_parse_datetime(token_result.access_token_expires_at),
                 refresh_token_expires_at=_parse_datetime(token_result.refresh_token_expires_at),
                 status="active",
-                metadata_json={**(record.metadata_json or {}), **(token_result.metadata_json or {})},
+                metadata_json={
+                    **(record.metadata_json or {}),
+                    **(token_result.metadata_json or {}),
+                },
             ),
         )
         if connection is None:

@@ -651,6 +651,18 @@ These knobs bound LLM spend for self-hosted deployments. The per-request token l
 | `AGGREGATION_ARTICLE_MEDIA_ENABLED` | `true` | Attach curated article/X image assets to aggregation documents and multimodal summary requests |
 | `AGGREGATION_NON_YOUTUBE_VIDEO_ENABLED` | `true` | Enable shared Telegram/Meta video normalization with transcript/audio/OCR fallbacks |
 
+## Social Integrations
+
+These variables configure connected social-account OAuth clients. Instagram configuration currently supports the read-only Instagram API with Instagram Login scaffold documented in `docs/reference/social-integrations.md`; it does not enable private-feed access or replace the unauthenticated Meta scraper fallback.
+
+| Variable | Default | Description |
+| ---------- | --------- | ------------- |
+| `INSTAGRAM_CLIENT_ID` | _(none)_ | Instagram App ID for Business Login for Instagram |
+| `INSTAGRAM_CLIENT_SECRET` | _(none)_ | Instagram App Secret; stored as `SecretStr`, never logged |
+| `INSTAGRAM_REDIRECT_URI` | _(none)_ | Redirect URI registered for Instagram Login |
+| `INSTAGRAM_SCOPES` | `instagram_business_basic` | Read-only Instagram professional-account profile/media scope; publish, messaging, and moderation scopes are intentionally rejected |
+| `INSTAGRAM_GRAPH_BASE_URL` | `https://graph.instagram.com/v25.0` | Instagram Graph API base URL for profile and media reads |
+
 ## GitHub Integration
 
 Per-user GitHub credential storage, OAuth Device Flow, and daily stars sync. Configuration owner: `app/config/github.py::GitHubConfig`. Generate the Fernet key with: `python tools/scripts/generate_github_encryption_key.py`.

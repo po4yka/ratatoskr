@@ -22,7 +22,12 @@ from app.api.models.responses.social import (
     SocialDisconnectSuccessResponse,
 )
 from app.api.routers.auth import get_current_user
-from app.adapters.social.meta import ThreadsClient, ThreadsOAuthConfig
+from app.adapters.social.meta import (
+    InstagramClient,
+    InstagramOAuthConfig,
+    ThreadsClient,
+    ThreadsOAuthConfig,
+)
 from app.adapters.social.x import XOAuthClient, XOAuthConfig
 from app.application.services.social_auth_service import (
     DEFAULT_SOCIAL_SCOPES,
@@ -67,6 +72,17 @@ def get_social_oauth_clients() -> Any:
             graph_base_url=social_cfg.threads_graph_base_url,
         )
     )
+    clients["instagram"] = InstagramClient(
+        InstagramOAuthConfig(
+            client_id=social_cfg.instagram_client_id,
+            client_secret=social_cfg.instagram_client_secret.get_secret_value()
+            if social_cfg.instagram_client_secret is not None
+            else None,
+            redirect_uri=social_cfg.instagram_redirect_uri,
+            scopes=social_cfg.instagram_scopes,
+            graph_base_url=social_cfg.instagram_graph_base_url,
+        )
+    )
     return clients
 
 
@@ -85,10 +101,12 @@ def _get_social_auth_service(
                 **DEFAULT_SOCIAL_SCOPES,
                 "x": twitter_cfg.x_oauth_scopes,
                 "threads": social_cfg.threads_scopes,
+                "instagram": social_cfg.instagram_scopes,
             },
             provider_redirect_uris={
                 "x": twitter_cfg.x_oauth_redirect_uri,
                 "threads": social_cfg.threads_redirect_uri,
+                "instagram": social_cfg.instagram_redirect_uri,
             },
         ),
     )
@@ -161,7 +179,9 @@ async def list_social_connections(
 async def get_social_connect_url(
     provider: str,
     request: Request,
-    redirect_uri: str | None = Query(default=None, alias="redirectUri", min_length=1, max_length=1000),
+    redirect_uri: str | None = Query(
+        default=None, alias="redirectUri", min_length=1, max_length=1000
+    ),
     scopes: list[str] | None = Query(default=None),
     user: dict[str, Any] = Depends(get_current_user),
     service: SocialAuthService = Depends(_get_social_auth_service),
