@@ -64,6 +64,7 @@ class TelegramCommandDispatcherDeps:
     listen_handler: Any
     digest_handler: Any
     init_session_handler: Any
+    social_handler: Any
     settings_handler: Any
     tag_handler: Any
     rules_handler: Any

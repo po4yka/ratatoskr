@@ -57,6 +57,7 @@ def test_command_dispatcher_routes_preserve_expected_precedence_order() -> None:
         mark_summary_as_read=MagicMock(),
         event_bus=MagicMock(),
         search_topics=MagicMock(),
+        social_auth=MagicMock(),
     )
 
     deps = _build_command_dispatcher_deps(
@@ -114,6 +115,11 @@ def test_command_dispatcher_routes_preserve_expected_precedence_order() -> None:
         "/subscribe",
         "/unsubscribe",
         "/init_session",
+        "/social",
+        "/connect_x",
+        "/connect_threads",
+        "/connect_instagram",
+        "/disconnect_social",
         "/settings",
         "/rules",
         "/export",

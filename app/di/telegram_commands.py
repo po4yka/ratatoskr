@@ -26,8 +26,23 @@ from app.adapters.telegram.command_handlers.rss_handler import RSSHandler
 from app.adapters.telegram.command_handlers.rules_handler import RulesHandler
 from app.adapters.telegram.command_handlers.search_handler import SearchHandler
 from app.adapters.telegram.command_handlers.settings_handler import SettingsHandler
+from app.adapters.telegram.command_handlers.social_handler import SocialHandler
 from app.adapters.telegram.command_handlers.tag_handler import TagHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
+from app.adapters.social.meta import (
+    InstagramClient,
+    InstagramOAuthConfig,
+    ThreadsClient,
+    ThreadsOAuthConfig,
+)
+from app.adapters.social.x import XOAuthClient, XOAuthConfig
+from app.application.services.social_auth_service import (
+    DEFAULT_SOCIAL_SCOPES,
+    SocialAuthConfig,
+    SocialAuthService,
+    build_stub_social_oauth_clients,
+)
+from app.di.repositories import build_social_connection_repository
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
 if TYPE_CHECKING:
@@ -112,6 +127,10 @@ def build_command_dispatcher_deps(
     init_session_handler = InitSessionHandler(
         cfg=cfg,
         response_formatter=response_formatter,
+    )
+    social_handler = SocialHandler(
+        getattr(application_services, "social_auth", None)
+        or _build_social_auth_service(cfg=cfg, db=db)
     )
     settings_handler = SettingsHandler(
         verbosity_resolver=verbosity_resolver,
@@ -308,6 +327,30 @@ def build_command_dispatcher_deps(
             ),
         ),
         TelegramCommandContribution(
+            name="social",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/social", _build_text_handler(context_factory, social_handler.handle_social)
+                ),
+                TextCommandRoute(
+                    "/connect_x",
+                    _build_text_handler(context_factory, social_handler.handle_connect_x),
+                ),
+                TextCommandRoute(
+                    "/connect_threads",
+                    _build_text_handler(context_factory, social_handler.handle_connect_threads),
+                ),
+                TextCommandRoute(
+                    "/connect_instagram",
+                    _build_text_handler(context_factory, social_handler.handle_connect_instagram),
+                ),
+                TextCommandRoute(
+                    "/disconnect_social",
+                    _build_text_handler(context_factory, social_handler.handle_disconnect_social),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
             name="settings",
             post_summarize_text=(
                 TextCommandRoute(
@@ -379,12 +422,75 @@ def build_command_dispatcher_deps(
         listen_handler=listen_handler,
         digest_handler=digest_handler,
         init_session_handler=init_session_handler,
+        social_handler=social_handler,
         settings_handler=settings_handler,
         tag_handler=tag_handler,
         rules_handler=rules_handler,
         export_handler=export_handler,
         backup_handler=backup_handler,
     )
+
+
+def _build_social_auth_service(*, cfg: AppConfig, db: Database) -> SocialAuthService:
+    twitter_cfg = cfg.twitter
+    social_cfg = cfg.social
+    return SocialAuthService(
+        repository=build_social_connection_repository(db),
+        oauth_clients=_build_social_oauth_clients(cfg),
+        config=SocialAuthConfig(
+            provider_default_scopes={
+                **DEFAULT_SOCIAL_SCOPES,
+                "x": twitter_cfg.x_oauth_scopes,
+                "threads": social_cfg.threads_scopes,
+                "instagram": social_cfg.instagram_scopes,
+            },
+            provider_redirect_uris={
+                "x": twitter_cfg.x_oauth_redirect_uri,
+                "threads": social_cfg.threads_redirect_uri,
+                "instagram": social_cfg.instagram_redirect_uri,
+            },
+        ),
+    )
+
+
+def _build_social_oauth_clients(cfg: AppConfig) -> dict[str, Any]:
+    clients = build_stub_social_oauth_clients()
+    twitter_cfg = cfg.twitter
+    social_cfg = cfg.social
+    clients["x"] = XOAuthClient(
+        XOAuthConfig(
+            client_id=twitter_cfg.x_oauth_client_id,
+            client_secret=twitter_cfg.x_oauth_client_secret.get_secret_value()
+            if twitter_cfg.x_oauth_client_secret is not None
+            else None,
+            redirect_uri=twitter_cfg.x_oauth_redirect_uri,
+            scopes=twitter_cfg.x_oauth_scopes,
+            api_base_url=twitter_cfg.x_api_base_url,
+        )
+    )
+    clients["threads"] = ThreadsClient(
+        ThreadsOAuthConfig(
+            client_id=social_cfg.threads_client_id,
+            client_secret=social_cfg.threads_client_secret.get_secret_value()
+            if social_cfg.threads_client_secret is not None
+            else None,
+            redirect_uri=social_cfg.threads_redirect_uri,
+            scopes=social_cfg.threads_scopes,
+            graph_base_url=social_cfg.threads_graph_base_url,
+        )
+    )
+    clients["instagram"] = InstagramClient(
+        InstagramOAuthConfig(
+            client_id=social_cfg.instagram_client_id,
+            client_secret=social_cfg.instagram_client_secret.get_secret_value()
+            if social_cfg.instagram_client_secret is not None
+            else None,
+            redirect_uri=social_cfg.instagram_redirect_uri,
+            scopes=social_cfg.instagram_scopes,
+            graph_base_url=social_cfg.instagram_graph_base_url,
+        )
+    )
+    return clients
 
 
 def _build_uid_handler(context_factory: CommandContextFactory, handler_method: Any) -> Any:

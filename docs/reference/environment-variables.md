@@ -653,7 +653,7 @@ These knobs bound LLM spend for self-hosted deployments. The per-request token l
 
 ## Social Integrations
 
-These variables configure connected social-account OAuth clients. Instagram configuration currently supports the read-only Instagram API with Instagram Login scaffold documented in `docs/reference/social-integrations.md`; it does not enable private-feed access or replace the unauthenticated Meta scraper fallback.
+These variables configure connected social-account OAuth clients used by the Mobile API social-auth routes and the Telegram `/social`, `/connect_x`, `/connect_threads`, `/connect_instagram`, and `/disconnect_social <provider>` commands. Instagram configuration currently supports the read-only Instagram API with Instagram Login scaffold documented in `docs/reference/social-integrations.md`; it does not enable private-feed access or replace the unauthenticated Meta scraper fallback.
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |

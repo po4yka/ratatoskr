@@ -177,6 +177,7 @@ Try these commands to confirm full functionality:
 /help          → See all commands
 /stats         → See usage statistics
 /search python → Search past summaries
+/social        → See connected X, Instagram, and Threads account status
 ```
 
 ---

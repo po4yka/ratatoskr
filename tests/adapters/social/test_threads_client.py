@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterator
 from dataclasses import replace
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -162,7 +163,7 @@ class InMemorySocialRepository:
 
 
 @pytest.fixture(autouse=True)
-def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
     reset_secret_key_cache()
     yield
@@ -178,6 +179,44 @@ def _client() -> ThreadsClient:
             scopes=["threads_basic"],
         )
     )
+
+
+class _BrokenAuthorizationClient:
+    def build_authorization_url(
+        self,
+        *,
+        provider: str,
+        state: str,
+        code_challenge: str,
+        redirect_uri: str,
+        scopes: list[str],
+    ) -> str:
+        del provider, state, code_challenge, redirect_uri, scopes
+        raise RuntimeError("provider URL includes https://example.com/callback?code=raw-code")
+
+    async def exchange_code(
+        self,
+        *,
+        provider: str,
+        code: str,
+        redirect_uri: str,
+        code_verifier: str,
+        scopes: list[str],
+        correlation_id: str | None,
+    ) -> Any:
+        del provider, code, redirect_uri, code_verifier, scopes, correlation_id
+        raise AssertionError("exchange_code should not be called")
+
+    async def refresh_access_token(
+        self,
+        *,
+        provider: str,
+        refresh_token: str,
+        scopes: list[str],
+        correlation_id: str | None,
+    ) -> Any:
+        del provider, refresh_token, scopes, correlation_id
+        raise AssertionError("refresh_access_token should not be called")
 
 
 def test_authorization_url_uses_threads_auth_surface() -> None:
@@ -226,6 +265,27 @@ def test_social_auth_router_wires_threads_client_from_config(
     query = parse_qs(urlparse(url).query)
     assert query["client_id"] == ["threads-client-id"]
     assert query["scope"] == ["threads_basic"]
+
+
+@pytest.mark.asyncio
+async def test_social_auth_service_wraps_authorization_url_errors_without_leaking_url() -> None:
+    service = SocialAuthService(
+        repository=InMemorySocialRepository(),
+        oauth_clients={"threads": _BrokenAuthorizationClient()},
+    )
+
+    with pytest.raises(SocialAuthError) as exc_info:
+        await service.create_connect_url(
+            user_id=_USER_ID,
+            provider="threads",
+            redirect_uri=_REDIRECT_URI,
+        )
+
+    exc = exc_info.value
+    assert exc.code == "SOCIAL_AUTHORIZATION_URL_FAILED"
+    assert exc.details == {"provider": "threads"}
+    assert "raw-code" not in exc.message
+    assert "callback" not in exc.message
 
 
 @pytest.mark.asyncio

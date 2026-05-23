@@ -1,5 +1,9 @@
 # Social Integrations
 
+## User-Facing Surfaces
+
+Connected X, Instagram, and Threads accounts are managed through the Mobile API social-auth routes and through Telegram commands. In Telegram, `/social` lists token-safe provider status, `/connect_x`, `/connect_threads`, and `/connect_instagram` return OAuth connect URLs, and `/disconnect_social <provider>` deletes local token state for `x`, `threads`, or `instagram`.
+
 ## Instagram API Scaffold
 
 This project currently keeps public Instagram URL summarization on the existing unauthenticated Meta scraper fallback. The Instagram API client scaffold is for connected-account OAuth and read-only professional-account media lookups only; it is not wired into production content extraction.

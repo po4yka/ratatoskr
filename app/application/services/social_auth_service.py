@@ -25,6 +25,7 @@ from app.application.ports.social_connections import (
     SocialConnectionUpdate,
     SocialConnectionUpsert,
 )
+from app.core.async_utils import raise_if_cancelled
 from app.core.time_utils import UTC
 from app.security.secret_crypto import decrypt_secret, encrypt_secret
 
@@ -205,13 +206,24 @@ class SocialAuthService:
         )
 
         client = self._oauth_client(provider)
-        connect_url = client.build_authorization_url(
-            provider=provider,
-            state=state,
-            code_challenge=code_challenge,
-            redirect_uri=redirect_uri,
-            scopes=requested_scopes,
-        )
+        try:
+            connect_url = client.build_authorization_url(
+                provider=provider,
+                state=state,
+                code_challenge=code_challenge,
+                redirect_uri=redirect_uri,
+                scopes=requested_scopes,
+            )
+        except SocialAuthError:
+            raise
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            raise SocialAuthError(
+                "Social OAuth authorization URL could not be created",
+                code="SOCIAL_AUTHORIZATION_URL_FAILED",
+                status_code=502,
+                details={"provider": provider},
+            ) from exc
         return SocialConnectUrlDTO(
             provider=provider,
             connect_url=connect_url,
