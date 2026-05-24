@@ -33,7 +33,7 @@ class TestRecordLlmRequestTotalLatency:
         before = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="url")
         m.record_llm_request_total_latency(
             request_type="url",
-            total_latency_seconds=m.LLM_REQUEST_SLOW_THRESHOLD_SECONDS,
+            total_latency_seconds=300.0,
         )
         after = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="url")
         assert after == before + 1
@@ -42,7 +42,7 @@ class TestRecordLlmRequestTotalLatency:
         before = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="url")
         m.record_llm_request_total_latency(
             request_type="url",
-            total_latency_seconds=m.LLM_REQUEST_SLOW_THRESHOLD_SECONDS * 4,
+            total_latency_seconds=300.0 * 4,
         )
         after = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="url")
         assert after == before + 1
@@ -60,7 +60,19 @@ class TestRecordLlmRequestTotalLatency:
         before = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="rss")
         m.record_llm_request_total_latency(
             request_type="  RSS  ",
-            total_latency_seconds=m.LLM_REQUEST_SLOW_THRESHOLD_SECONDS + 10,
+            total_latency_seconds=310.0,
         )
         after = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="rss")
+        assert after == before + 1
+
+    def test_custom_threshold_triggers_slow_counter(self) -> None:
+        # A non-default threshold (60 s) must flip the slow counter when
+        # latency crosses it, even though the default 300 s would not fire.
+        before = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="url")
+        m.record_llm_request_total_latency(
+            request_type="url",
+            total_latency_seconds=90.0,
+            slow_threshold_seconds=60.0,
+        )
+        after = _counter_value(m.LLM_REQUEST_SLOW_TOTAL, request_type="url")
         assert after == before + 1

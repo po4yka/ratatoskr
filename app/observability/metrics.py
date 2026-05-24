@@ -1037,19 +1037,19 @@ def record_vector_write(*, operation: str, status: str) -> None:
     VECTOR_WRITES_TOTAL.labels(operation=operation, status=status).inc()
 
 
-# Threshold above which a request is considered "slow" for the per-request
-# LLM total-latency counter. Sized to flag pathological cascades (12+ min
-# Habr vision-routing incident) without firing on legitimate long extracts.
-LLM_REQUEST_SLOW_THRESHOLD_SECONDS = 300.0
-
-
-def record_llm_request_total_latency(*, request_type: str, total_latency_seconds: float) -> None:
+def record_llm_request_total_latency(
+    *,
+    request_type: str,
+    total_latency_seconds: float,
+    slow_threshold_seconds: float = 300.0,
+) -> None:
     """Record the end-to-end LLM wall time for a single user request.
 
     ``request_type`` is a coarse bucket label (e.g. ``url``, ``forward``,
     ``rss``) so dashboards can filter without enumerating every pipeline
     variant. Increments ``LLM_REQUEST_SLOW_TOTAL`` when the latency exceeds
-    ``LLM_REQUEST_SLOW_THRESHOLD_SECONDS``.
+    ``slow_threshold_seconds`` (default 300 s; override via
+    ``LLM_REQUEST_SLOW_THRESHOLD_SEC`` env var on ``RuntimeConfig``).
     """
     if not PROMETHEUS_AVAILABLE:
         return
@@ -1057,5 +1057,5 @@ def record_llm_request_total_latency(*, request_type: str, total_latency_seconds
         return
     label = _metric_label(request_type)
     LLM_REQUEST_TOTAL_LATENCY_SECONDS.labels(request_type=label).observe(total_latency_seconds)
-    if total_latency_seconds >= LLM_REQUEST_SLOW_THRESHOLD_SECONDS:
+    if total_latency_seconds >= slow_threshold_seconds:
         LLM_REQUEST_SLOW_TOTAL.labels(request_type=label).inc()

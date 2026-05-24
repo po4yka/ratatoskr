@@ -499,12 +499,14 @@ class URLProcessor:
         DB write each fail closed (logged + swallowed) so observability
         bugs cannot break user-visible URL handling.
         """
+        slow_threshold = float(getattr(self.cfg.runtime, "llm_request_slow_threshold_sec", 300.0))
         try:
             from app.observability.metrics import record_llm_request_total_latency
 
             record_llm_request_total_latency(
                 request_type="url",
                 total_latency_seconds=elapsed_seconds,
+                slow_threshold_seconds=slow_threshold,
             )
         except Exception as exc:
             logger.warning(
@@ -514,9 +516,7 @@ class URLProcessor:
         # Log a slow-request warning so the signal is visible without a
         # metrics scrape. Threshold matches the histogram counter so log
         # lines and metric increments are paired.
-        from app.observability.metrics import LLM_REQUEST_SLOW_THRESHOLD_SECONDS
-
-        if elapsed_seconds >= LLM_REQUEST_SLOW_THRESHOLD_SECONDS:
+        if elapsed_seconds >= slow_threshold:
             logger.warning(
                 "url_flow_slow_request",
                 extra={

@@ -71,6 +71,18 @@ class RuntimeConfig(BaseModel):
         default=60.0, validation_alias="RUNTIME_DEDUPE_RETRY_GRACE_SEC"
     )
     llm_call_max_retries: int = Field(default=2, validation_alias="LLM_CALL_MAX_RETRIES")
+    llm_request_slow_threshold_sec: float = Field(
+        default=300.0,
+        ge=1.0,
+        validation_alias="LLM_REQUEST_SLOW_THRESHOLD_SEC",
+        description=(
+            "Wall-time threshold above which a URL request is considered slow. "
+            "Crossing this triggers a 'url_flow_slow_request' warning log and "
+            "increments ratatoskr_llm_request_slow_total. Sized to flag "
+            "pathological LLM cascades (12+ min Habr-vision incident) without "
+            "firing on legitimate long extracts."
+        ),
+    )
     summarization_max_retries: int = Field(
         default=3,
         ge=1,

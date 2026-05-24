@@ -41,6 +41,20 @@ class TestSummarizationMaxRetries:
             RuntimeConfig.model_validate({"SUMMARIZATION_MAX_RETRIES": "11"})
 
 
+class TestLlmRequestSlowThresholdSec:
+    def test_default_is_300(self) -> None:
+        cfg = RuntimeConfig.model_validate({})
+        assert cfg.llm_request_slow_threshold_sec == 300.0
+
+    def test_env_override_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_REQUEST_SLOW_THRESHOLD_SEC": "60"})
+        assert cfg.llm_request_slow_threshold_sec == 60.0
+
+    def test_below_minimum_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"LLM_REQUEST_SLOW_THRESHOLD_SEC": "0.5"})
+
+
 class TestArticleVisionMinImages:
     def test_default_is_one(self) -> None:
         cfg = AttachmentConfig.model_validate({})
