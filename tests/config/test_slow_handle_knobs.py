@@ -155,3 +155,17 @@ class TestArticleVisionMinImages:
     def test_negative_rejected(self) -> None:
         with pytest.raises(ValidationError):
             AttachmentConfig.model_validate({"ARTICLE_VISION_MIN_IMAGES": "-1"})
+
+
+class TestLlmStickyFailureForceFallback:
+    def test_default_is_true(self) -> None:
+        cfg = RuntimeConfig.model_validate({})
+        assert cfg.llm_sticky_failure_force_fallback is True
+
+    def test_env_override_false(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_STICKY_FAILURE_FORCE_FALLBACK": "false"})
+        assert cfg.llm_sticky_failure_force_fallback is False
+
+    def test_env_override_true_explicit(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_STICKY_FAILURE_FORCE_FALLBACK": "true"})
+        assert cfg.llm_sticky_failure_force_fallback is True

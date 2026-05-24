@@ -128,6 +128,31 @@ class PureSummaryService:
             extraction_confidence=request.extraction_confidence,
         )
 
+    @staticmethod
+    def _classify_sticky_error(exc: Exception) -> str | None:
+        """Return the sticky-class label if *exc* represents a sticky failure, else None.
+
+        Sticky classes are the three error strings that chat_attempt_runner sets on
+        ``state.last_error_text`` when a model should be abandoned rather than
+        retried with the same override:
+
+        - ``per_model_timeout``
+        - ``repeated_truncation``
+        - ``truncation_recovery_skipped_budget_tight``
+
+        The exception text is inspected because that is what bubbles up through
+        instructor/OpenAI to this layer.
+        """
+        text = str(exc)
+        for label in (
+            "per_model_timeout",
+            "repeated_truncation",
+            "truncation_recovery_skipped_budget_tight",
+        ):
+            if label in text:
+                return label
+        return None
+
     async def _summarize_with_instructor(
         self,
         messages: list[dict[str, Any]],
@@ -144,22 +169,62 @@ class PureSummaryService:
         # SUMMARIZATION_MAX_RETRIES env var lets operators dial this down on
         # constrained hosts (e.g. Pi) where 2 attempts is the right balance.
         max_retries = int(getattr(self._runtime.cfg.runtime, "summarization_max_retries", 3))
-        try:
-            async with self._runtime.sem():
-                result = await self._runtime.openrouter.chat_structured(
-                    messages,
-                    response_model=SummaryModel,
-                    max_retries=max_retries,
-                    temperature=self._runtime.cfg.openrouter.temperature,
-                    max_tokens=max_tokens,
-                    model_override=model_override,
+        sticky_fallback_enabled = bool(
+            getattr(self._runtime.cfg.runtime, "llm_sticky_failure_force_fallback", True)
+        )
+
+        result = None
+        last_error: Exception | None = None
+        override_dropped = False
+
+        for attempt in range(2):  # at most one retry
+            current_override = None if override_dropped else model_override
+            try:
+                async with self._runtime.sem():
+                    result = await self._runtime.openrouter.chat_structured(
+                        messages,
+                        response_model=SummaryModel,
+                        max_retries=max_retries,
+                        temperature=self._runtime.cfg.openrouter.temperature,
+                        max_tokens=max_tokens,
+                        model_override=current_override,
+                    )
+                break
+            except Exception as exc:
+                last_error = exc
+                sticky_class = self._classify_sticky_error(exc)
+                # Retry once: only on sticky errors, only when the flag is on,
+                # only when there is an override to drop, and only on the first attempt.
+                if (
+                    sticky_fallback_enabled
+                    and sticky_class is not None
+                    and not override_dropped
+                    and attempt == 0
+                    and current_override is not None
+                ):
+                    override_dropped = True
+                    logger.warning(
+                        "summarize_sticky_failure_force_fallback",
+                        extra={
+                            "cid": correlation_id,
+                            "failed_model": current_override,
+                            "error_class": sticky_class,
+                            "next_action": "drop_model_override",
+                        },
+                    )
+                    continue
+                logger.error(
+                    "summarize_pure_instructor_failed",
+                    extra={"cid": correlation_id, "error": str(exc)},
                 )
-        except Exception as exc:
+                raise ValueError(f"Instructor LLM call failed: {exc}") from exc
+
+        if result is None:
             logger.error(
                 "summarize_pure_instructor_failed",
-                extra={"cid": correlation_id, "error": str(exc)},
+                extra={"cid": correlation_id, "error": str(last_error)},
             )
-            raise ValueError(f"Instructor LLM call failed: {exc}") from exc
+            raise ValueError(f"Instructor LLM call failed: {last_error}") from last_error
 
         summary = mark_prompt_injection_metadata(result.parsed.model_dump(), source_content)
         merge_summary_quality_metadata(
