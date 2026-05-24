@@ -1,0 +1,86 @@
+# Ratatoskr operational config.
+#
+# Convention (post env/YAML refactor):
+#   .env carries SECRETS ONLY (API keys, tokens, JWT, DB credentials, PII).
+#   Every other tunable lives here. The YAML file is the source of truth on
+#   disk: non-secret YAML values override matching env vars at startup.
+#
+# Loaded by `app/config/config_file.py:load_ratatoskr_yaml`. Section names
+# match Pydantic submodel attributes on `Settings`; field names match the
+# Pydantic field names within each section. Validation aliases (UPPER_SNAKE
+# env-var names) are mapped automatically.
+#
+# To override a value on a specific host without editing the committed file,
+# set the corresponding env var on that host. Env vars only win for fields
+# marked `json_schema_extra=SECRET_MARKER` (see app/config/_secret_marker.py).
+# Trying to put a secret here is harmless: the loader drops the key with a
+# `yaml_secret_keys_ignored` warning at startup.
+
+runtime:
+  log_level: INFO
+  preferred_lang: auto
+  debug_payloads: true
+  # NOTE: TEXTACY_ENABLED is hardcoded per-service in docker-compose
+  # (worker + mobile-api set 1) so it's intentionally NOT in YAML — moving
+  # it here would broadcast a single value across services that need
+  # different settings. Same for REDIS_ENABLED below.
+  request_timeout_sec: 60
+  llm_call_timeout_sec: 720
+  # Dict-typed env var; the YAML loader serialises to env-var string form,
+  # which is what the field validator expects.
+  llm_per_model_timeout_overrides: "deepseek/deepseek-v3.2=180,deepseek/deepseek-v4-pro=180"
+  max_concurrent_calls: 2
+  rate_limit_max_concurrent: 2
+
+openrouter:
+  model: qwen/qwen3.5-flash-02-23
+  fallback_models:
+    - qwen/qwen3.5-plus-02-15
+    - deepseek/deepseek-v3.2
+    - deepseek/deepseek-v4-pro
+    - moonshotai/kimi-k2.5
+  http_referer: https://github.com/po4yka/bite-size-reader
+  x_title: Bite-Size Reader
+
+telegram:
+  api_base_url: https://bitsizereaderapi.po4yka.com
+
+database:
+  pool_size: 2
+  max_overflow: 1
+
+redis:
+  # NOTE: REDIS_ENABLED is hardcoded per-service in docker-compose (worker,
+  # mobile-api, scheduler all set it to 1) so it's intentionally NOT in YAML.
+  # The legacy .env had REDIS_ENABLED=0 set for the bot; that line is dropped
+  # in Pass 2 of the env/YAML refactor — the bot picks up the field's default
+  # (false) when nothing in env or compose overrides it.
+  required: false
+
+auth:
+  secret_login_enabled: true
+
+digest:
+  enabled: true
+  digest_times: "10:00,19:00"
+  timezone: Asia/Tbilisi
+
+github:
+  llm_concurrency: 1
+  sync_batch_size: 20
+
+vector_reconcile:
+  cron: "0 */6 * * *"
+  batch_size: 25
+
+scraper:
+  profile: fast
+  browser_enabled: false
+  scrapling_stealth_fallback: false
+  crawl4ai_enabled: false
+  defuddle_enabled: false
+  cloakbrowser_enabled: false
+  playwright_enabled: false
+  crawlee_enabled: false
+  firecrawl_self_hosted_enabled: false
+  js_heavy_hosts: techradar.com

@@ -88,6 +88,11 @@ RUN set -eux; \
 COPY app ./app
 COPY bot.py ./
 COPY alembic.ini ./
+# Operational config (non-secret tunables). Baked into the image so
+# `load_ratatoskr_yaml` finds it at /app/config/ratatoskr.yaml. Secrets
+# still flow through .env / process env per the precedence convention in
+# app/config/_secret_marker.py.
+COPY config ./config
 
 # Web assets are built by ratatoskr-web and deployed into app/static/web/ via CI/CD.
 
