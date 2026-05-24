@@ -502,6 +502,8 @@ class OpenRouterClient:
         on_stream_delta: Callable[[str], Any] | None = None,
         per_model_timeout_sec: float | None = None,
         per_model_timeout_overrides: dict[str, float] | None = None,
+        budget_tight_ratio: float = 0.6,
+        truncation_max_count: int = 2,
     ) -> LLMCallResult:
         from app.observability.otel import get_tracer
 
@@ -526,6 +528,8 @@ class OpenRouterClient:
                 on_stream_delta=on_stream_delta,
                 per_model_timeout_sec=per_model_timeout_sec,
                 per_model_timeout_overrides=per_model_timeout_overrides,
+                budget_tight_ratio=budget_tight_ratio,
+                truncation_max_count=truncation_max_count,
             )
             if hasattr(result, "cost_usd") and result.cost_usd:
                 span.set_attribute("llm.cost_usd", result.cost_usd)

@@ -145,6 +145,10 @@ class LLMWorkflowRepairMixin:
                         model_override=request_config.model_override,
                         per_model_timeout_sec=llm_timeout,
                         per_model_timeout_overrides=per_model_overrides or None,
+                        budget_tight_ratio=getattr(self.cfg.runtime, "llm_budget_tight_ratio", 0.6),
+                        truncation_max_count=getattr(
+                            self.cfg.runtime, "llm_truncation_max_count", 2
+                        ),
                     )
             except TimeoutError:
                 logger.error(

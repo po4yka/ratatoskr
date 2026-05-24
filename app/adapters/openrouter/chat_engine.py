@@ -111,6 +111,8 @@ class OpenRouterChatEngine:
         on_stream_delta: Any | None = None,
         per_model_timeout_sec: float | None = None,
         per_model_timeout_overrides: Mapping[str, float] | None = None,
+        budget_tight_ratio: float = 0.6,
+        truncation_max_count: int = 2,
     ) -> LLMCallResult:
         import time as _time
 
@@ -256,6 +258,8 @@ class OpenRouterChatEngine:
                                 structured_output_state=structured_output_state,
                                 on_stream_delta=on_stream_delta,
                                 per_model_timeout_sec=effective_timeout,
+                                budget_tight_ratio=budget_tight_ratio,
+                                truncation_max_count=truncation_max_count,
                             )
                     except TimeoutError:
                         elapsed = _time.monotonic() - model_start

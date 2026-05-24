@@ -115,6 +115,8 @@ class ChatAttemptRunner:
         structured_output_state: StructuredOutputState,
         on_stream_delta: Any | None = None,
         per_model_timeout_sec: float | None = None,
+        budget_tight_ratio: float = 0.6,
+        truncation_max_count: int = 2,
     ) -> ModelRunState:
         rf_mode_current = initial_rf_mode
         response_format_current = response_format_initial
@@ -195,7 +197,7 @@ class ChatAttemptRunner:
                     # as the next attempt is unlikely to finish in time.
                     if per_model_timeout_sec is not None:
                         elapsed = time.monotonic() - model_started
-                        if elapsed / per_model_timeout_sec > 0.6:
+                        if elapsed / per_model_timeout_sec > budget_tight_ratio:
                             logger.warning(
                                 "truncation_recovery_skipped_budget_tight",
                                 extra={
@@ -210,7 +212,7 @@ class ChatAttemptRunner:
                             break
 
                     truncation_count += 1
-                    if truncation_count >= 2:
+                    if truncation_count >= truncation_max_count:
                         logger.warning(
                             "truncation_limit_reached",
                             extra={

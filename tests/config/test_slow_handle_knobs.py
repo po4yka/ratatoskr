@@ -55,6 +55,58 @@ class TestLlmRequestSlowThresholdSec:
             RuntimeConfig.model_validate({"LLM_REQUEST_SLOW_THRESHOLD_SEC": "0.5"})
 
 
+class TestLlmBudgetTightRatio:
+    def test_default_is_0_6(self) -> None:
+        cfg = RuntimeConfig.model_validate({})
+        assert cfg.llm_budget_tight_ratio == 0.6
+
+    def test_env_override_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_BUDGET_TIGHT_RATIO": "0.8"})
+        assert cfg.llm_budget_tight_ratio == 0.8
+
+    def test_lower_value_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_BUDGET_TIGHT_RATIO": "0.3"})
+        assert cfg.llm_budget_tight_ratio == 0.3
+
+    def test_one_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_BUDGET_TIGHT_RATIO": "1.0"})
+        assert cfg.llm_budget_tight_ratio == 1.0
+
+    def test_zero_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"LLM_BUDGET_TIGHT_RATIO": "0.0"})
+
+    def test_above_one_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"LLM_BUDGET_TIGHT_RATIO": "1.1"})
+
+    def test_negative_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"LLM_BUDGET_TIGHT_RATIO": "-0.5"})
+
+
+class TestLlmTruncationMaxCount:
+    def test_default_is_two(self) -> None:
+        cfg = RuntimeConfig.model_validate({})
+        assert cfg.llm_truncation_max_count == 2
+
+    def test_env_override_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_TRUNCATION_MAX_COUNT": "3"})
+        assert cfg.llm_truncation_max_count == 3
+
+    def test_one_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"LLM_TRUNCATION_MAX_COUNT": "1"})
+        assert cfg.llm_truncation_max_count == 1
+
+    def test_zero_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"LLM_TRUNCATION_MAX_COUNT": "0"})
+
+    def test_negative_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"LLM_TRUNCATION_MAX_COUNT": "-1"})
+
+
 class TestArticleVisionMinImages:
     def test_default_is_one(self) -> None:
         cfg = AttachmentConfig.model_validate({})

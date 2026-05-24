@@ -83,6 +83,29 @@ class RuntimeConfig(BaseModel):
             "firing on legitimate long extracts."
         ),
     )
+    llm_budget_tight_ratio: float = Field(
+        default=0.6,
+        gt=0.0,
+        le=1.0,
+        validation_alias="LLM_BUDGET_TIGHT_RATIO",
+        description=(
+            "Fraction of per-model timeout budget at which truncation recovery "
+            "is skipped (Budget-Tight Guard in chat_attempt_runner.py). On hosts "
+            "where the budget trips on every VL attempt, lower this to give "
+            "recovery a chance to run."
+        ),
+    )
+    llm_truncation_max_count: int = Field(
+        default=2,
+        ge=1,
+        validation_alias="LLM_TRUNCATION_MAX_COUNT",
+        description=(
+            "Maximum consecutive truncated completions from the same model "
+            "before the cascade falls through to the next fallback. Lower "
+            "values fail-fast on hostile model behaviour; raise on hosts "
+            "where genuine retry is worth the wall-time."
+        ),
+    )
     summarization_max_retries: int = Field(
         default=3,
         ge=1,
