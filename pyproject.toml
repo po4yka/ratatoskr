@@ -406,11 +406,11 @@ parallel = true
 precision = 2
 show_missing = true
 skip_covered = false
-# Enforced floor. Measured baseline: ~15 % from the API test subset; the full
+# Enforced floor. Measured baseline: >=25 % from the API test subset; the full
 # CI run (all non-integration tests, all deps installed) lands higher.
 # Target: 80 %. Raise this value in a dedicated commit whenever a test
 # expansion sprint pushes the real number up — never lower it.
-fail_under = 15
+fail_under = 25
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
