@@ -945,7 +945,7 @@ services:
       - /:/host/root:ro
 
   qdrant:
-    image: qdrant/qdrant:v1.13.6
+    image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.13.6}
     container_name: ratatoskr-qdrant
     restart: unless-stopped
     volumes:
