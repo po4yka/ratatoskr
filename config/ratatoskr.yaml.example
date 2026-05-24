@@ -1,0 +1,227 @@
+# config/ratatoskr.yaml.example
+#
+# Copy this file to config/ratatoskr.yaml and adjust values for your deployment.
+# This file is the operator's authoritative on-disk config for non-secret tunables.
+#
+# Convention:
+#   config/ratatoskr.yaml  -- non-secret operational settings (this file)
+#   .env                   -- secrets only (API keys, tokens, DB credentials, PII)
+#
+# Precedence at startup:
+#   non-secret YAML  >  os.environ  >  .env / ctor args  >  defaults
+#   secret env       >  defaults    (YAML secret keys are dropped with a warning)
+#
+# Missing file: if config/ratatoskr.yaml is absent, all fields fall back to
+# their Field(default=...) values. The file is entirely opt-in.
+#
+# Fields NOT in this file (set them in docker-compose environment instead):
+#   REDIS_ENABLED    -- set per-service in compose (worker/mobile-api need 1,
+#                       the bot needs 0); a single YAML value would broadcast
+#                       across services that need different settings.
+#   TEXTACY_ENABLED  -- same reason; worker and mobile-api set 1, bot uses 0.
+#
+# For a full list of all supported env vars see docs/reference/environment-variables.md.
+# For the YAML loader and search-order details see docs/reference/config-file.md.
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+runtime:
+  # Logging level: DEBUG, INFO, WARNING, ERROR
+  log_level: INFO
+  # Language for summaries: "auto" (detect per-article), "en", "ru"
+  preferred_lang: auto
+  # Maximum wall-clock seconds for a full URL processing request
+  request_timeout_sec: 60
+  # Maximum wall-clock seconds for the LLM call within a request
+  llm_call_timeout_sec: 420
+  # Maximum concurrent in-flight summarization requests
+  max_concurrent_calls: 4
+  # Active LLM provider: openrouter | openai | anthropic | ollama
+  llm_provider: openrouter
+
+# ---------------------------------------------------------------------------
+# OpenRouter (primary LLM provider)
+# Secrets (OPENROUTER_API_KEY) go in .env, not here.
+# ---------------------------------------------------------------------------
+openrouter:
+  # Primary model for summarization
+  model: deepseek/deepseek-v4-flash
+  # Fallback cascade — tried in order when primary fails or times out
+  fallback_models:
+    - qwen/qwen3.6-flash
+    - qwen/qwen3.6-plus-04-02
+    - moonshotai/kimi-k2-0905
+    - minimax/minimax-m2
+  # Fast model for lightweight tasks (key extraction, flash summaries)
+  flash_model: qwen/qwen3.6-flash
+  flash_fallback_models:
+    - qwen/qwen3.6-plus-04-02
+  # Model used when input exceeds the primary model's context window
+  long_context_model: minimax/minimax-m2
+  # Sampling temperature (0.0–1.0); lower = more deterministic
+  temperature: 0.2
+
+# ---------------------------------------------------------------------------
+# Ollama (alternative LLM provider — only used when llm_provider: ollama)
+# api_key is a secret; place it in .env as OLLAMA_API_KEY.
+# ---------------------------------------------------------------------------
+# ollama:
+#   base_url: http://localhost:11434/v1
+#   model: llama3.3
+#   enable_structured_outputs: false
+
+# ---------------------------------------------------------------------------
+# Telegram
+# Bot credentials (API_ID, API_HASH, BOT_TOKEN) must stay in .env.
+# ---------------------------------------------------------------------------
+# telegram:
+#   # Override the public base URL for the Mini App (web UI callback).
+#   # Required only when the Mobile API is exposed under a custom domain.
+#   # api_base_url: https://your-domain.example.com
+
+# ---------------------------------------------------------------------------
+# Database
+# DATABASE_URL (DSN with credentials) must stay in .env.
+# ---------------------------------------------------------------------------
+database:
+  # SQLAlchemy async connection pool size
+  pool_size: 8
+  # Additional connections allowed beyond pool_size
+  max_overflow: 4
+
+# ---------------------------------------------------------------------------
+# Redis
+# Redis connection string (REDIS_URL) must stay in .env.
+# Note: REDIS_ENABLED is intentionally absent — set it per-service in compose.
+# ---------------------------------------------------------------------------
+redis:
+  # Set to true to fail startup if Redis is unreachable (recommended for prod)
+  required: false
+
+# ---------------------------------------------------------------------------
+# Auth
+# JWT_SECRET_KEY must stay in .env.
+# ---------------------------------------------------------------------------
+auth:
+  # Enable the secret-code login flow (used by the Mini App browser extension)
+  secret_login_enabled: false
+
+# ---------------------------------------------------------------------------
+# Channel Digest (opt-in; requires a separate Telethon userbot session)
+# See docs/reference/digest-subsystem-ops.md for setup.
+# ---------------------------------------------------------------------------
+digest:
+  enabled: false
+  # Comma-separated delivery times in HH:MM format
+  digest_times: "10:00,19:00"
+  # IANA timezone for the scheduler
+  timezone: UTC
+
+# ---------------------------------------------------------------------------
+# GitHub ingestion
+# GITHUB_TOKEN and GITHUB_TOKEN_ENCRYPTION_KEY must stay in .env.
+# ---------------------------------------------------------------------------
+github:
+  # Max parallel LLM calls during repository analysis
+  llm_concurrency: 2
+  # Repositories to process per sync batch
+  sync_batch_size: 20
+
+# ---------------------------------------------------------------------------
+# Vector index reconciliation (Qdrant)
+# QDRANT_URL / QDRANT_API_KEY must stay in .env.
+# ---------------------------------------------------------------------------
+vector_reconcile:
+  # Cron expression for scheduled reconciliation runs
+  cron: "0 */6 * * *"
+  # Summaries to process per reconcile batch
+  batch_size: 50
+
+# ---------------------------------------------------------------------------
+# Scraper chain
+# Controls the multi-provider article extraction pipeline.
+# See docs/explanation/scraper-chain.md for the full provider reference.
+# ---------------------------------------------------------------------------
+scraper:
+  # Tuning profile: fast | balanced | robust
+  profile: balanced
+  # Master switch for browser-based providers (Playwright, Crawlee)
+  browser_enabled: true
+  # Provider execution order (omit to use the built-in default order)
+  # provider_order:
+  #   - scrapling
+  #   - crawl4ai
+  #   - firecrawl
+  #   - defuddle
+  #   - playwright
+  #   - crawlee
+  #   - direct_html
+  #   - scrapegraph_ai
+
+  # Individual provider switches (all default to enabled where applicable)
+  defuddle_enabled: true
+  # Set true only when running the self-hosted Firecrawl sidecar
+  firecrawl_self_hosted_enabled: false
+  playwright_enabled: false
+  crawlee_enabled: false
+
+# ---------------------------------------------------------------------------
+# Firecrawl (web-search enrichment path only — not the scraper chain)
+# FIRECRAWL_API_KEY must stay in .env.
+# ---------------------------------------------------------------------------
+# firecrawl:
+#   timeout_sec: 90
+#   wait_for_ms: 3000
+
+# ---------------------------------------------------------------------------
+# YouTube
+# ---------------------------------------------------------------------------
+youtube:
+  enabled: true
+  # Local filesystem path for downloaded video files
+  storage_path: /data/videos
+  # Preferred download quality: 360p | 480p | 720p | 1080p
+  preferred_quality: 1080p
+  subtitle_languages:
+    - en
+    - ru
+
+# ---------------------------------------------------------------------------
+# Twitter / X
+# Keep disabled unless you have confirmed cost acceptance (API calls are billed).
+# ---------------------------------------------------------------------------
+twitter:
+  enabled: false
+  prefer_firecrawl: true
+  playwright_enabled: false
+
+# ---------------------------------------------------------------------------
+# Signal ingestion (proactive source ingestors: HN, Reddit, X timeline)
+# All sources are disabled by default; opt in per-source.
+# ---------------------------------------------------------------------------
+signal_ingestion:
+  enabled: false
+  max_items_per_source: 30
+  hn_enabled: false
+  hn_feeds:
+    - top
+    - best
+  reddit_enabled: false
+  reddit_subreddits: []
+  reddit_listing: hot
+  reddit_requests_per_minute: 60
+  twitter_enabled: false
+  twitter_ack_cost: false
+  social_x_ingestion_enabled: false
+  social_x_timeline_mode: user_posts
+  social_threads_ingestion_enabled: false
+
+# ---------------------------------------------------------------------------
+# MCP server (Model Context Protocol)
+# Expose Ratatoskr tools to AI agents over stdio or SSE transport.
+# ---------------------------------------------------------------------------
+mcp:
+  enabled: false
+  # Transport: stdio (subprocess) or sse (HTTP server)
+  transport: stdio
