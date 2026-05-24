@@ -1,6 +1,6 @@
 # X Bookmarks Integration
 
-How Ratatoskr adopts [`fieldtheory-cli`](https://github.com/po4yka/fieldtheory-cli) (`ft`) as a first-class content source: bookmark ingestion as a peer source kind, MCP search backed by Postgres FTS, semantic indexing of the wiki corpus, Telegram-surface access to "Possible run" idea output, and a Claude Code skill for agent integration.
+How Ratatoskr adopts the private `fieldtheory-cli` tool (`ft`) as a first-class content source: bookmark ingestion as a peer source kind, MCP search backed by Postgres FTS, semantic indexing of the wiki corpus, Telegram-surface access to "Possible run" idea output, and a Claude Code skill for agent integration.
 
 **Audience:** Contributors implementing the integration (Steps 2–7 of the rollout), operators wiring up host-side `ft` scheduling, integrators querying the bookmark corpus via MCP. **Type:** Explanation. **Related:** [`docs/SPEC.md`](../SPEC.md) (navigation hub), [`docs/explanation/architecture-overview.md`](architecture-overview.md) (subsystem index), [`docs/explanation/github-repository-ingestion.md`](github-repository-ingestion.md) (peer ingestion subsystem), [`docs/explanation/scraper-chain.md`](scraper-chain.md) (the chain this subsystem deliberately bypasses), [`docs/reference/data-model.md`](../reference/data-model.md) (canonical schema).
 
