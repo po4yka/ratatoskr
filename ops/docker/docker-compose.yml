@@ -46,6 +46,7 @@ services:
       # hot-reload and config overrides, use the dev overlay explicitly:
       #   docker compose -f ops/docker/docker-compose.yml \
       #                  -f ops/docker/docker-compose.dev.yml up -d ratatoskr
+      - ${X_HOST_DATA_DIR:-/var/lib/x_bookmarks_stub}:/x_bookmarks:ro
       - ../../data:/data
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
@@ -180,6 +181,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - RATATOSKR_PROCESS_ROLE=worker
     volumes:
+      - ${X_HOST_DATA_DIR:-/var/lib/x_bookmarks_stub}:/x_bookmarks:ro
       - ../../data:/data
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
@@ -408,6 +410,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - RATATOSKR_PROCESS_ROLE=mcp
     volumes:
+      - ${X_HOST_DATA_DIR:-/var/lib/x_bookmarks_stub}:/x_bookmarks:ro
       - ../../data:/data:ro
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
@@ -462,6 +465,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
+      - ${X_HOST_DATA_DIR:-/var/lib/x_bookmarks_stub}:/x_bookmarks:ro
       - ../../data:/data
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
@@ -947,7 +951,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     ports:
-      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:${QDRANT_HOST_PORT:-6333}:6333"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
       interval: 10s
