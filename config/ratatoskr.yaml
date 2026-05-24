@@ -84,3 +84,12 @@ scraper:
   crawlee_enabled: false
   firecrawl_self_hosted_enabled: false
   js_heavy_hosts: techradar.com
+
+attachment:
+  # Image-density gate on vision-model routing for HTML articles.
+  # Default in code is 1 (any image routes to vision); on the Pi this is
+  # too aggressive — Habr-class articles ship a single OG header image,
+  # which forces the slow qwen3-vl-32b-instruct path and then truncates
+  # the JSON contract, slow-burning the request for ~12 min.
+  # Threshold of 3 keeps vision for genuinely image-rich content.
+  article_vision_min_images: 3
