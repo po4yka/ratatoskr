@@ -13,9 +13,12 @@ Ratatoskr loads the first file found:
 
 Merge precedence is:
 
-`code defaults < config/models.yaml < ratatoskr.yaml < .env < process env`
+```
+non-secret YAML  >  os.environ  >  .env / ctor args  >  defaults
+secret env       >  defaults    (YAML secret keys are dropped and logged)
+```
 
-Environment variables remain the final override for container platforms and secret managers. Deprecated env vars fail startup with an actionable message.
+`config/ratatoskr.yaml` is the operator's authoritative on-disk config; `.env` carries secrets only. Fields marked as secrets in `app/config/_secret_marker.py` are stripped from YAML at load time and logged as `yaml_secret_keys_ignored` — place those in `.env` instead. Deprecated env vars fail startup with an actionable message.
 
 ## Minimal `.env`
 

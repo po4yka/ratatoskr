@@ -1,7 +1,14 @@
 """Optional ratatoskr.yaml loader.
 
-The YAML file is the operator's authoritative on-disk config. Non-secret YAML
-values override matching env vars at startup (see ``_secret_marker.py``).
+The YAML file is the operator's authoritative on-disk config for non-secret
+tunables.  Precedence (post-secret-marker refactor):
+
+    non-secret YAML  >  os.environ  >  .env / ctor args  >  defaults
+    secret env       >  defaults                (YAML secret keys ignored)
+
+Secret-marked fields (see ``_secret_marker.py``) are stripped from YAML values
+and logged as ``yaml_secret_keys_ignored``; place those in ``.env`` only.
+
 Section names match ``Settings`` top-level attributes; field names match the
 Pydantic field names within each sub-model. Validation aliases (UPPER_SNAKE
 env-var names) are mapped automatically.

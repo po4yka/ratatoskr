@@ -865,14 +865,23 @@ sudo apt-get install ffmpeg
 
 ## Environment Variable Precedence
 
-Variables are loaded in this order (later overrides earlier):
+Two separate chains apply depending on whether a field is secret-marked (see `app/config/_secret_marker.py`):
 
-1. **Default values** (in `app/config/settings.py`)
-2. **System environment** (`export VAR=value`)
-3. **`.env` file** (in project root or specified via `--env-file`)
-4. **CLI arguments** (for CLI tools only, e.g., `--log-level DEBUG`)
+**Non-secret fields** (operational tunables — models, timeouts, scraper settings, etc.):
 
-**Best Practice**: Use `.env` file for all configuration (easier to manage and version-control-friendly).
+```
+non-secret YAML  >  os.environ  >  .env / ctor args  >  defaults
+```
+
+**Secret fields** (API keys, tokens, credentials, PII):
+
+```
+secret env (os.environ / .env)  >  defaults
+```
+
+YAML values for secret-marked fields are dropped at load time and logged as `yaml_secret_keys_ignored`. Place all secrets in `.env` only.
+
+`config/ratatoskr.yaml` is the operator's authoritative on-disk config for non-secret tunables; it is opt-in (missing file is silently skipped). `.env` carries secrets only. See [`docs/reference/config-file.md`](config-file.md) for the YAML search order and a full example.
 
 ---
 
