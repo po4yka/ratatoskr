@@ -11,7 +11,6 @@ import pytest
 
 from app.observability import metrics as m
 
-
 pytestmark = pytest.mark.skipif(
     not m.PROMETHEUS_AVAILABLE,
     reason="prometheus_client not installed in this environment",

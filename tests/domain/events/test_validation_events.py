@@ -23,7 +23,6 @@ from app.domain.events.tag_events import (
 )
 from app.domain.models.request import RequestStatus
 
-
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from app.config.llm import OpenRouterConfig
 
-
 _API_KEY = "or_" + "z" * 20
 
 
