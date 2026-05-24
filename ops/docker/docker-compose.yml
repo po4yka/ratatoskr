@@ -953,7 +953,9 @@ services:
     ports:
       - "127.0.0.1:${QDRANT_HOST_PORT:-6333}:6333"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      # wget is present in both upstream qdrant images and distroless rebuilds
+      # (Pi 5 16K-page custom builds); curl is not in every variant.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
