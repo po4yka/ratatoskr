@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from ._secret_marker import SECRET_MARKER
+
 SCRAPER_PROVIDER_TOKENS = {
     "scrapling",
     "defuddle",
@@ -135,6 +137,7 @@ class ScraperConfig(BaseModel):
         default="",
         validation_alias="SCRAPER_DEFUDDLE_TOKEN",
         description="Bearer token for self-hosted Defuddle sidecar; empty disables auth",
+        json_schema_extra=SECRET_MARKER,
     )
 
     firecrawl_self_hosted_enabled: bool = Field(
@@ -148,6 +151,7 @@ class ScraperConfig(BaseModel):
     firecrawl_self_hosted_api_key: str = Field(
         default="fc-ratatoskr-local",
         validation_alias="FIRECRAWL_SELF_HOSTED_API_KEY",
+        json_schema_extra=SECRET_MARKER,
     )
 
     firecrawl_timeout_sec: int = Field(
@@ -286,6 +290,7 @@ class ScraperConfig(BaseModel):
     crawl4ai_token: str = Field(
         default="",
         validation_alias="SCRAPER_CRAWL4AI_TOKEN",
+        json_schema_extra=SECRET_MARKER,
     )
     crawl4ai_timeout_sec: int = Field(
         default=60,

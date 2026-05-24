@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from ._secret_marker import SECRET_MARKER
+
 
 class RedisConfig(BaseModel):
     """Shared Redis connection settings."""
@@ -21,7 +23,9 @@ class RedisConfig(BaseModel):
     host: str = Field(default="127.0.0.1", validation_alias="REDIS_HOST")
     port: int = Field(default=6379, validation_alias="REDIS_PORT")
     db: int = Field(default=0, validation_alias="REDIS_DB")
-    password: str | None = Field(default=None, validation_alias="REDIS_PASSWORD")
+    password: str | None = Field(
+        default=None, validation_alias="REDIS_PASSWORD", json_schema_extra=SECRET_MARKER
+    )
     prefix: str = Field(default="ratatoskr", validation_alias="REDIS_PREFIX")
     socket_timeout: float = Field(default=5.0, validation_alias="REDIS_SOCKET_TIMEOUT")
     cache_timeout_sec: float = Field(default=0.3, validation_alias="REDIS_CACHE_TIMEOUT_SEC")

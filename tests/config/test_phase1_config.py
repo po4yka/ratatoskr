@@ -92,9 +92,15 @@ def test_ratatoskr_yaml_loads_nested_power_user_sections(
     assert result["OLLAMA_ENABLE_STRUCTURED_OUTPUTS"] == "false"
 
 
-def test_ratatoskr_yaml_is_below_process_environment(
+def test_ratatoskr_yaml_overrides_process_environment_for_non_secrets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Post-refactor: YAML wins over env for non-secret fields.
+
+    The reverse case (secrets stay in env, YAML secret keys are ignored) is
+    covered by tests/config/test_yaml_secret_precedence.py. Pre-refactor this
+    test asserted env > YAML; the new precedence is non-secret YAML > env.
+    """
     cfg = tmp_path / "ratatoskr.yaml"
     cfg.write_text(
         dedent(
@@ -126,8 +132,9 @@ def test_ratatoskr_yaml_is_below_process_environment(
         settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     app_config = settings.as_app_config()
-    assert app_config.runtime.log_level == "WARNING"
-    assert app_config.openrouter.model == "deepseek/deepseek-v4-flash"
+    # Both LOG_LEVEL and OPENROUTER_MODEL are non-secret -> YAML wins.
+    assert app_config.runtime.log_level == "DEBUG"
+    assert app_config.openrouter.model == "qwen/qwen3-max"
 
 
 def test_missing_required_startup_config_lists_exact_names(

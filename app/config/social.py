@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from ._secret_marker import SECRET_MARKER
+
 _DEFAULT_THREADS_SCOPES = ("threads_basic",)
 _DEFAULT_INSTAGRAM_SCOPES = ("instagram_business_basic",)
 
@@ -24,6 +26,7 @@ class SocialConfig(BaseModel):
         default=None,
         validation_alias="THREADS_CLIENT_SECRET",
         description="Threads OAuth client secret",
+        json_schema_extra=SECRET_MARKER,
     )
     threads_redirect_uri: str | None = Field(
         default=None,
@@ -49,6 +52,7 @@ class SocialConfig(BaseModel):
         default=None,
         validation_alias="INSTAGRAM_CLIENT_SECRET",
         description="Instagram OAuth client secret",
+        json_schema_extra=SECRET_MARKER,
     )
     instagram_redirect_uri: str | None = Field(
         default=None,

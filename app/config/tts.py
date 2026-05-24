@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ._secret_marker import SECRET_MARKER
+
 
 class ElevenLabsConfig(BaseModel):
     """ElevenLabs text-to-speech integration configuration."""
@@ -13,7 +15,9 @@ class ElevenLabsConfig(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     enabled: bool = Field(default=False, validation_alias="ELEVENLABS_ENABLED")
-    api_key: str = Field(default="", validation_alias="ELEVENLABS_API_KEY")
+    api_key: str = Field(
+        default="", validation_alias="ELEVENLABS_API_KEY", json_schema_extra=SECRET_MARKER
+    )
     voice_id: str = Field(
         default="21m00Tcm4TlvDq8ikWAM",
         validation_alias="ELEVENLABS_VOICE_ID",

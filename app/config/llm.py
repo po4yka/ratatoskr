@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.logging_utils import get_logger
 
+from ._secret_marker import SECRET_MARKER
 from ._validators import _ensure_api_key, parse_fallback_models, validate_model_name
 
 logger = get_logger(__name__)
@@ -106,7 +107,9 @@ class LLMUsageBudgetConfig(BaseModel):
 class OpenRouterConfig(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
-    api_key: str = Field(..., validation_alias="OPENROUTER_API_KEY")
+    api_key: str = Field(
+        ..., validation_alias="OPENROUTER_API_KEY", json_schema_extra=SECRET_MARKER
+    )
     model: str = Field(default="deepseek/deepseek-v4-flash", validation_alias="OPENROUTER_MODEL")
     # Order: fastest to most-capable; fastest-first ensures the user gets a response
     # before the outer per-URL timeout fires when the primary stalls.
@@ -650,7 +653,9 @@ class OpenAIConfig(_FallbackModelsMixin, BaseModel):
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
-    api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
+    api_key: str = Field(
+        default="", validation_alias="OPENAI_API_KEY", json_schema_extra=SECRET_MARKER
+    )
     model: str = Field(default="gpt-4o", validation_alias="OPENAI_MODEL")
     fallback_models: tuple[str, ...] = Field(
         default_factory=lambda: ("gpt-4o-mini",),
@@ -705,6 +710,7 @@ class OllamaConfig(_FallbackModelsMixin, BaseModel):
         default="ollama",
         validation_alias="OLLAMA_API_KEY",
         description="Bearer token for cloud Ollama endpoints; local Ollama accepts any value",
+        json_schema_extra=SECRET_MARKER,
     )
     model: str = Field(default="llama3.3", validation_alias="OLLAMA_MODEL")
     fallback_models: tuple[str, ...] = Field(
@@ -773,7 +779,9 @@ class AnthropicConfig(_FallbackModelsMixin, BaseModel):
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
-    api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
+    api_key: str = Field(
+        default="", validation_alias="ANTHROPIC_API_KEY", json_schema_extra=SECRET_MARKER
+    )
     model: str = Field(default="claude-sonnet-4-5-20250929", validation_alias="ANTHROPIC_MODEL")
     fallback_models: tuple[str, ...] = Field(
         default_factory=lambda: ("claude-3-5-haiku-20241022",),

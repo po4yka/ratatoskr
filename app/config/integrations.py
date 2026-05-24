@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from ._secret_marker import SECRET_MARKER
+
 
 class WebSearchConfig(BaseModel):
     """Web search enrichment configuration for LLM summarization."""
@@ -150,6 +152,7 @@ class McpConfig(BaseModel):
         default=None,
         validation_alias="MCP_USER_ID",
         description="Optional user ID scope for MCP queries",
+        json_schema_extra=SECRET_MARKER,
     )
     allow_remote_sse: bool = Field(
         default=False,
@@ -180,6 +183,7 @@ class McpConfig(BaseModel):
         default=None,
         validation_alias="MCP_FORWARDING_SECRET",
         description="Optional shared secret required when trusting forwarded bearer tokens",
+        json_schema_extra=SECRET_MARKER,
     )
 
     @field_validator("transport", mode="before")
@@ -333,7 +337,9 @@ class EmbeddingConfig(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     provider: str = Field(default="local", validation_alias="EMBEDDING_PROVIDER")
-    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    gemini_api_key: str = Field(
+        default="", validation_alias="GEMINI_API_KEY", json_schema_extra=SECRET_MARKER
+    )
     gemini_model: str = Field(
         default="gemini-embedding-2-preview",
         validation_alias="GEMINI_EMBEDDING_MODEL",
@@ -404,6 +410,7 @@ class QdrantConfig(BaseModel):
         default=None,
         validation_alias="QDRANT_API_KEY",
         description="Optional API key for secured Qdrant deployments",
+        json_schema_extra=SECRET_MARKER,
     )
     environment: str = Field(
         default="dev",

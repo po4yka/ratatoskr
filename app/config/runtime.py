@@ -11,6 +11,7 @@ from pydantic import (
     field_validator,
 )
 
+from app.config._secret_marker import SECRET_MARKER
 from app.config.validation_helpers import parse_positive_int
 from app.core.logging_utils import get_logger
 
@@ -42,7 +43,9 @@ class RuntimeConfig(BaseModel):
         default="openrouter", validation_alias="SUMMARY_STREAMING_PROVIDER_SCOPE"
     )
     jwt_secret_key: str = Field(
-        default="", validation_alias=AliasChoices("JWT_SECRET_KEY", "JWT_SECRET")
+        default="",
+        validation_alias=AliasChoices("JWT_SECRET_KEY", "JWT_SECRET"),
+        json_schema_extra=SECRET_MARKER,
     )
     db_backup_enabled: bool = Field(default=True, validation_alias="DB_BACKUP_ENABLED")
     db_backup_interval_minutes: int = Field(

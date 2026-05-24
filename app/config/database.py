@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from app.config._secret_marker import SECRET_MARKER
 from app.config.validation_helpers import parse_positive_int
 
 
@@ -17,6 +18,7 @@ class DatabaseConfig(BaseModel):
         default="",
         validation_alias="DATABASE_URL",
         description="SQLAlchemy asyncpg PostgreSQL DSN",
+        json_schema_extra=SECRET_MARKER,
     )
     pool_size: int = Field(
         default=8,

@@ -14,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 
+from ._secret_marker import SECRET_MARKER
+
 _SCRAPER_PROFILES = {"fast", "balanced", "robust", "inherit"}
 _FORCE_TIERS = {"auto", "firecrawl", "playwright"}
 _DEFAULT_X_OAUTH_SCOPES = ("tweet.read", "users.read", "offline.access")
@@ -104,6 +106,7 @@ class TwitterConfig(BaseModel):
         default=None,
         validation_alias="X_OAUTH_CLIENT_SECRET",
         description="Optional X OAuth 2.0 client secret for confidential clients",
+        json_schema_extra=SECRET_MARKER,
     )
     x_oauth_redirect_uri: str | None = Field(
         default=None,

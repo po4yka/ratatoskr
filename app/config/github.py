@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from ._secret_marker import SECRET_MARKER
+
 
 class GitHubConfig(BaseModel):
     """GitHub integration configuration."""
@@ -43,6 +45,7 @@ class GitHubConfig(BaseModel):
         default=None,
         validation_alias="GITHUB_OAUTH_APP_CLIENT_SECRET",
         description="GitHub OAuth App client secret (required for Device Flow)",
+        json_schema_extra=SECRET_MARKER,
     )
 
     # Token encryption (REQUIRED for PAT or OAuth — Fernet key, 32 url-safe base64 bytes)
@@ -50,6 +53,7 @@ class GitHubConfig(BaseModel):
         default=None,
         validation_alias="GITHUB_TOKEN_ENCRYPTION_KEY",
         description="Fernet encryption key (32 url-safe base64 bytes) for stored tokens",
+        json_schema_extra=SECRET_MARKER,
     )
     # Previous Fernet keys for zero-downtime rotation (comma-separated; see token_crypto.py)
     token_previous_keys: SecretStr | None = Field(
@@ -59,6 +63,7 @@ class GitHubConfig(BaseModel):
             "Comma-separated previous Fernet keys still needed to decrypt existing rows. "
             "Remove each key only after running `python -m app.cli.rotate_github_tokens`."
         ),
+        json_schema_extra=SECRET_MARKER,
     )
 
     # Daily stars sync

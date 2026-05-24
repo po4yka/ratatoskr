@@ -5,6 +5,8 @@ from __future__ import annotations
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
+from ._secret_marker import SECRET_MARKER
+
 
 class OtelConfig(BaseSettings):
     model_config = {"populate_by_name": True, "extra": "ignore"}
@@ -33,7 +35,9 @@ class SentryConfig(BaseSettings):
 
     model_config = {"populate_by_name": True, "extra": "ignore"}
 
-    sentry_dsn: str | None = Field(default=None, validation_alias="SENTRY_DSN")
+    sentry_dsn: str | None = Field(
+        default=None, validation_alias="SENTRY_DSN", json_schema_extra=SECRET_MARKER
+    )
     traces_sample_rate: float = Field(default=0.1, validation_alias="SENTRY_TRACES_SAMPLE_RATE")
 
     @classmethod

@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from ._secret_marker import SECRET_MARKER
 from ._validators import _ensure_api_key
 
 
@@ -14,6 +15,7 @@ class FirecrawlConfig(BaseModel):
         default="",
         validation_alias="FIRECRAWL_API_KEY",
         description="Firecrawl API key (optional when using only Scrapling + self-hosted)",
+        json_schema_extra=SECRET_MARKER,
     )
     timeout_sec: int = Field(
         default=90,

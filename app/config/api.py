@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from app.config._secret_marker import SECRET_MARKER
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -130,6 +131,7 @@ class AuthConfig(BaseModel):
         default=None,
         validation_alias="SECRET_LOGIN_PEPPER",
         description="Optional pepper used when hashing secret keys",
+        json_schema_extra=SECRET_MARKER,
     )
 
     credentials_pepper: str | None = Field(
@@ -142,6 +144,7 @@ class AuthConfig(BaseModel):
             "returns 503 Configuration error -- the pepper presence is the "
             "only gate."
         ),
+        json_schema_extra=SECRET_MARKER,
     )
     credentials_max_failed_attempts: int = Field(
         default=5,

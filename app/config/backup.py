@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
+from ._secret_marker import SECRET_MARKER
+
 
 class BackupConfig(BaseModel):
     """Encryption key, feature flag, and ZIP safety limits for the backup subsystem."""
@@ -18,6 +20,7 @@ class BackupConfig(BaseModel):
             'Generate with: python -c "from cryptography.fernet import Fernet; '
             'print(Fernet.generate_key().decode())"'
         ),
+        json_schema_extra=SECRET_MARKER,
     )
     encryption_enabled: bool | None = Field(
         default=None,

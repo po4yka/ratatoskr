@@ -291,20 +291,58 @@ class Settings(BaseSettings):
 
         result = dict(data)
 
-        # Load YAML model config (lowest priority layer)
+        # Load YAML config layers.
+        from app.config._secret_marker import (
+            collect_secret_env_names,
+            filter_yaml_to_non_secrets,
+        )
         from app.config.config_file import load_ratatoskr_yaml
         from app.config.models_file import load_models_yaml
 
         yaml_data = load_models_yaml()
         config_file_data = load_ratatoskr_yaml(cls)
 
-        # Merge: YAML < .env / constructor args < os.environ
-        # ``data`` includes .env file values loaded by pydantic-settings, so
-        # os.environ must come last to preserve the standard precedence
-        # (env vars override .env file).
+        # Precedence (post-secret-marker refactor):
+        #
+        #   non-secret YAML  >  os.environ  >  .env / constructor args  >  defaults
+        #   secret env       >  defaults                (YAML secret keys ignored)
+        #
+        # Rationale: secrets belong in .env (or process env, e.g. Docker
+        # secrets); operational tunables live in ratatoskr.yaml so the YAML
+        # file is the source of truth on disk and survives env-var drift
+        # between hosts. Secrets that accidentally land in YAML are dropped
+        # and logged so credentials cannot leak into a committed file.
         env_data: dict[str, Any] = dict(os.environ)
-        merged_source = {**yaml_data, **config_file_data, **data, **env_data}
-        cls._fail_on_deprecated_envs(merged_source)
+        base_source: dict[str, Any] = {**data, **env_data}
+        cls._fail_on_deprecated_envs(base_source)
+
+        secret_env_names = collect_secret_env_names(cls)
+        models_yaml_non_secret, models_yaml_secret = filter_yaml_to_non_secrets(
+            yaml_data, secret_env_names
+        )
+        ratatoskr_yaml_non_secret, ratatoskr_yaml_secret = filter_yaml_to_non_secrets(
+            config_file_data, secret_env_names
+        )
+        ignored_yaml_secrets = sorted({*models_yaml_secret, *ratatoskr_yaml_secret})
+        if ignored_yaml_secrets:
+            logger.warning(
+                "yaml_secret_keys_ignored",
+                extra={
+                    "keys": ignored_yaml_secrets,
+                    "guidance": "Secret-marked fields must live in .env, not YAML.",
+                },
+            )
+
+        # YAML wins for non-secret keys: layered AFTER env so it overrides.
+        # models.yaml still loses to ratatoskr.yaml because the latter is the
+        # full power-user file; both lose to anything that did NOT get marked
+        # as a secret in the original env source (i.e. existing env vars still
+        # work for back-compat until operators migrate to the YAML file).
+        merged_source: dict[str, Any] = {
+            **base_source,
+            **models_yaml_non_secret,
+            **ratatoskr_yaml_non_secret,
+        }
 
         for field_name, field_info in cls.model_fields.items():
             if field_name in ("allow_stub_telegram",):

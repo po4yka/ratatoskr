@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from ._secret_marker import SECRET_MARKER
 from ._validators import _ensure_api_key, _parse_allowed_user_ids
 from .validation_helpers import parse_positive_int
 
@@ -15,21 +16,25 @@ class TelegramConfig(BaseModel):
         ...,
         validation_alias=AliasChoices("API_ID", "TELEGRAM_API_ID"),
         description="Telegram API ID",
+        json_schema_extra=SECRET_MARKER,
     )
     api_hash: str = Field(
         ...,
         validation_alias=AliasChoices("API_HASH", "TELEGRAM_API_HASH"),
         description="Telegram API hash",
+        json_schema_extra=SECRET_MARKER,
     )
     bot_token: str = Field(
         ...,
         validation_alias=AliasChoices("BOT_TOKEN", "TELEGRAM_BOT_TOKEN"),
         description="Telegram bot token",
+        json_schema_extra=SECRET_MARKER,
     )
     allowed_user_ids: tuple[int, ...] = Field(
         default_factory=tuple,
         validation_alias=AliasChoices("ALLOWED_USER_IDS", "TELEGRAM_ALLOWED_USER_IDS"),
         description="Comma separated list of Telegram user IDs that may interact with the bot",
+        json_schema_extra=SECRET_MARKER,
     )
     admin_log_chat_id: int | None = Field(
         default=None,
