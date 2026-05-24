@@ -161,6 +161,26 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    # ---- Per-request total LLM cost -------------------------------------
+    # End-to-end wall time spent across every LLM call for a single user
+    # request (sum of llm_calls.latency_ms for the request). Pathological
+    # cases like the 2026-05-22 Habr-vision-routing incident showed 700+s
+    # of LLM thrash on one request; this metric makes such regressions
+    # visible on dashboards instead of surfacing only via complaints.
+    LLM_REQUEST_TOTAL_LATENCY_SECONDS = Histogram(
+        "ratatoskr_llm_request_total_latency_seconds",
+        "Total per-request LLM wall time across all attempts in seconds",
+        ["request_type"],
+        buckets=[1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0],
+        registry=REGISTRY,
+    )
+    LLM_REQUEST_SLOW_TOTAL = Counter(
+        "ratatoskr_llm_request_slow_total",
+        "Requests whose total LLM wall time exceeded the slow-request threshold",
+        ["request_type"],
+        registry=REGISTRY,
+    )
+
     # ---- Scraper chain telemetry ---------------------------------------
     # Per-provider attempt counter (status: success | error | timeout |
     # skipped) and per-provider latency histogram. Lets operators see
@@ -1015,3 +1035,27 @@ def record_vector_write(*, operation: str, status: str) -> None:
     if not PROMETHEUS_AVAILABLE or VECTOR_WRITES_TOTAL is None:
         return
     VECTOR_WRITES_TOTAL.labels(operation=operation, status=status).inc()
+
+
+# Threshold above which a request is considered "slow" for the per-request
+# LLM total-latency counter. Sized to flag pathological cascades (12+ min
+# Habr vision-routing incident) without firing on legitimate long extracts.
+LLM_REQUEST_SLOW_THRESHOLD_SECONDS = 300.0
+
+
+def record_llm_request_total_latency(*, request_type: str, total_latency_seconds: float) -> None:
+    """Record the end-to-end LLM wall time for a single user request.
+
+    ``request_type`` is a coarse bucket label (e.g. ``url``, ``forward``,
+    ``rss``) so dashboards can filter without enumerating every pipeline
+    variant. Increments ``LLM_REQUEST_SLOW_TOTAL`` when the latency exceeds
+    ``LLM_REQUEST_SLOW_THRESHOLD_SECONDS``.
+    """
+    if not PROMETHEUS_AVAILABLE:
+        return
+    if total_latency_seconds < 0:
+        return
+    label = _metric_label(request_type)
+    LLM_REQUEST_TOTAL_LATENCY_SECONDS.labels(request_type=label).observe(total_latency_seconds)
+    if total_latency_seconds >= LLM_REQUEST_SLOW_THRESHOLD_SECONDS:
+        LLM_REQUEST_SLOW_TOTAL.labels(request_type=label).inc()

@@ -115,6 +115,18 @@ class AttachmentConfig(BaseModel):
         description="Send extracted article images to a vision model for richer summaries",
     )
 
+    article_vision_min_images: int = Field(
+        default=1,
+        ge=1,
+        validation_alias="ARTICLE_VISION_MIN_IMAGES",
+        description=(
+            "Minimum number of extracted images required to route an HTML article to the "
+            "vision model. Articles with fewer images use the text path. Defaults to 1 "
+            "(any image triggers vision); raise to 2-3 to skip vision for articles that "
+            "only have a header/OG image."
+        ),
+    )
+
     vision_model: str = Field(
         default="qwen/qwen3-vl-32b-instruct",
         validation_alias="ATTACHMENT_VISION_MODEL",

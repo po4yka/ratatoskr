@@ -68,6 +68,17 @@ class RuntimeConfig(BaseModel):
         default=60.0, validation_alias="RUNTIME_DEDUPE_RETRY_GRACE_SEC"
     )
     llm_call_max_retries: int = Field(default=2, validation_alias="LLM_CALL_MAX_RETRIES")
+    summarization_max_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        validation_alias="SUMMARIZATION_MAX_RETRIES",
+        description=(
+            "Max attempts for the SummarizationAgent self-correction loop. Each retry "
+            "re-runs the full LLM call cascade for one summary, so lowering this is the "
+            "main lever for cutting total LLM cost on validation-failing summaries."
+        ),
+    )
     json_parse_timeout_sec: float = Field(default=60.0, validation_alias="JSON_PARSE_TIMEOUT_SEC")
     summary_two_pass_enabled: bool = Field(
         default=False, validation_alias="SUMMARY_TWO_PASS_ENABLED"

@@ -222,6 +222,65 @@ class RequestProcessingJobRepository:
             )
         return status
 
+    async def record_synchronous_outcome(
+        self,
+        *,
+        request_id: int,
+        correlation_id: str | None,
+        status: str,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Insert or update a terminal job row for an in-process synchronous run.
+
+        Bot-originated URL requests execute synchronously inside the Telethon
+        event loop and never pass through the worker poll/lease lifecycle, so
+        they would otherwise leave no row in ``request_processing_jobs``. This
+        method writes a single terminal row (``succeeded`` | ``failed`` |
+        ``dead_letter``) so failed bot requests show up in the same operator
+        view as worker-driven jobs. It does NOT change the execution model;
+        retries remain unavailable for synchronous runs until a separate PR
+        moves bot execution onto the worker.
+        """
+        if status not in {"succeeded", "failed", "dead_letter"}:
+            msg = f"record_synchronous_outcome: invalid status {status!r}"
+            raise ValueError(msg)
+        now = _utcnow()
+        truncated_message = (error_message or "")[:2000] or None
+        base_values = {
+            "request_id": request_id,
+            "status": status,
+            "attempt_count": 1,
+            "max_attempts": 1,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "retry_after": None,
+            "last_error_code": error_code,
+            "last_error_message": truncated_message,
+            "correlation_id": correlation_id,
+            "updated_at": now,
+            "created_at": now,
+        }
+        async with self._database.transaction() as session:
+            stmt = (
+                insert(RequestProcessingJob)
+                .values(**base_values)
+                .on_conflict_do_update(
+                    index_elements=[RequestProcessingJob.request_id],
+                    set_={
+                        "status": status,
+                        "lease_owner": None,
+                        "lease_expires_at": None,
+                        "retry_after": None,
+                        "last_error_code": error_code,
+                        "last_error_message": truncated_message,
+                        "correlation_id": correlation_id,
+                        "updated_at": now,
+                    },
+                )
+            )
+            await session.execute(stmt)
+
     async def requeue_expired_leases(self) -> int:
         now = _utcnow()
         async with self._database.transaction() as session:

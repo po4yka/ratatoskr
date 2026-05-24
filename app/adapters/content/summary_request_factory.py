@@ -405,7 +405,19 @@ class SummaryRequestFactory:
         content_for_summary = strip_markdown_images(content_text)
         attachment_cfg = self._runtime.cfg.attachment
         article_vision_enabled = bool(getattr(attachment_cfg, "article_vision_enabled", True))
-        use_vision = bool(images) and article_vision_enabled
+        min_images = int(getattr(attachment_cfg, "article_vision_min_images", 1))
+        image_count = len(images) if images else 0
+        use_vision = article_vision_enabled and image_count >= max(1, min_images)
+        if article_vision_enabled and image_count > 0 and image_count < min_images:
+            logger.info(
+                "vision_routing_gated",
+                extra={
+                    "cid": correlation_id,
+                    "image_count": image_count,
+                    "min_required": min_images,
+                    "url": url,
+                },
+            )
         model_override = getattr(attachment_cfg, "vision_model", None) if use_vision else None
         if not use_vision:
             images = None
@@ -569,16 +581,37 @@ class SummaryRequestFactory:
         top_p: float | None,
         silent: bool,
     ) -> LLMRequestConfig:
+        clamped_max_tokens = self._clamp_max_tokens_for_model(
+            model_name=model_name, max_tokens=max_tokens
+        )
         return LLMRequestConfig(
             preset_name=preset,
             messages=messages,
             response_format=response_format,
-            max_tokens=max_tokens,
+            max_tokens=clamped_max_tokens,
             temperature=temperature,
             top_p=top_p,
             model_override=model_name,
             silent=silent,
         )
+
+    def _clamp_max_tokens_for_model(self, *, model_name: str, max_tokens: int | None) -> int | None:
+        """Apply the per-model max_tokens override (clamp-down only).
+
+        Used to cap the completion budget for models that consistently truncate
+        the contract output (e.g. vision models with tight per-call ceilings).
+        The override never raises ``max_tokens`` above the computed value so we
+        cannot accidentally exceed the model's true limit.
+        """
+        overrides = getattr(self._runtime.cfg.openrouter, "per_model_max_tokens_overrides", None)
+        if not overrides:
+            return max_tokens
+        cap = overrides.get(model_name)
+        if cap is None or cap <= 0:
+            return max_tokens
+        if max_tokens is None:
+            return cap
+        return min(int(max_tokens), int(cap))
 
     def _summary_streaming_enabled(self, *, silent: bool) -> bool:
         if silent:

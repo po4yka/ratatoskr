@@ -139,12 +139,17 @@ class PureSummaryService:
     ) -> dict[str, Any]:
         from app.core.summary_schema import SummaryModel
 
+        # Each retry re-runs the full model cascade for one summary, so a high
+        # cap multiplies wall-clock cost when validation keeps failing. The
+        # SUMMARIZATION_MAX_RETRIES env var lets operators dial this down on
+        # constrained hosts (e.g. Pi) where 2 attempts is the right balance.
+        max_retries = int(getattr(self._runtime.cfg.runtime, "summarization_max_retries", 3))
         try:
             async with self._runtime.sem():
                 result = await self._runtime.openrouter.chat_structured(
                     messages,
                     response_model=SummaryModel,
-                    max_retries=3,
+                    max_retries=max_retries,
                     temperature=self._runtime.cfg.openrouter.temperature,
                     max_tokens=max_tokens,
                     model_override=model_override,

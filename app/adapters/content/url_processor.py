@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.cached_summary_responder import CachedSummaryResponder
@@ -241,6 +242,10 @@ class URLProcessor:
     ) -> URLProcessingFlowResult:
         """Inner URL processing pipeline, wrapped by _run_url_flow span."""
         context: URLFlowContext | None = None
+        started_at = time.monotonic()
+        terminal_status: str = "succeeded"
+        terminal_error_code: str | None = None
+        terminal_error_message: str | None = None
         try:
             context = await self.context_builder.build(request)
 
@@ -416,6 +421,9 @@ class URLProcessor:
                 logger.exception("url_processing_failed", extra=_compact_extra)
             else:
                 logger.warning("url_processing_failed", extra=_compact_extra)
+            terminal_status = "failed"
+            terminal_error_code = _error_class
+            terminal_error_message = _error_message
             # Safety-net: ensure request is marked as failed in DB
             req_id = context.req_id if context is not None else None
             if req_id is not None:
@@ -461,3 +469,86 @@ class URLProcessor:
                         request.correlation_id or "unknown",
                     )
             return URLProcessingFlowResult(success=False)
+        finally:
+            elapsed_seconds = max(0.0, time.monotonic() - started_at)
+            await self._record_url_flow_terminal(
+                request=request,
+                req_id=context.req_id if context is not None else None,
+                elapsed_seconds=elapsed_seconds,
+                status=terminal_status,
+                error_code=terminal_error_code,
+                error_message=terminal_error_message,
+            )
+
+    async def _record_url_flow_terminal(
+        self,
+        *,
+        request: URLFlowRequest,
+        req_id: int | None,
+        elapsed_seconds: float,
+        status: str,
+        error_code: str | None,
+        error_message: str | None,
+    ) -> None:
+        """Emit per-request wall-time metric and record terminal job row.
+
+        Run in the ``_run_url_flow_inner`` ``finally`` so we capture both the
+        happy path and exceptions. Bot-originated URL requests do not pass
+        through the worker queue (no enqueue at submit time), so the job row
+        here is the only persistence marker for synchronous runs. Metric +
+        DB write each fail closed (logged + swallowed) so observability
+        bugs cannot break user-visible URL handling.
+        """
+        try:
+            from app.observability.metrics import record_llm_request_total_latency
+
+            record_llm_request_total_latency(
+                request_type="url",
+                total_latency_seconds=elapsed_seconds,
+            )
+        except Exception as exc:
+            logger.warning(
+                "url_flow_metric_emit_failed",
+                extra={"cid": request.correlation_id, "error": str(exc)},
+            )
+        # Log a slow-request warning so the signal is visible without a
+        # metrics scrape. Threshold matches the histogram counter so log
+        # lines and metric increments are paired.
+        from app.observability.metrics import LLM_REQUEST_SLOW_THRESHOLD_SECONDS
+
+        if elapsed_seconds >= LLM_REQUEST_SLOW_THRESHOLD_SECONDS:
+            logger.warning(
+                "url_flow_slow_request",
+                extra={
+                    "cid": request.correlation_id,
+                    "req_id": req_id,
+                    "elapsed_seconds": round(elapsed_seconds, 1),
+                    "status": status,
+                    "url": redact_url_for_logging(request.url_text),
+                },
+            )
+
+        if req_id is None:
+            return
+        try:
+            from app.api.background.durable_jobs import RequestProcessingJobRepository
+
+            repo = RequestProcessingJobRepository(self.db)
+            await repo.record_synchronous_outcome(
+                request_id=req_id,
+                correlation_id=request.correlation_id,
+                status=status,
+                error_code=error_code,
+                error_message=error_message,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "url_flow_job_outcome_record_failed",
+                extra={
+                    "cid": request.correlation_id,
+                    "req_id": req_id,
+                    "error": str(exc),
+                },
+            )

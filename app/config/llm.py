@@ -4,7 +4,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.logging_utils import get_logger
+
 from ._validators import _ensure_api_key, parse_fallback_models, validate_model_name
+
+logger = get_logger(__name__)
 
 
 class _FallbackModelsMixin:
@@ -118,6 +122,17 @@ class OpenRouterConfig(BaseModel):
     http_referer: str | None = Field(default=None, validation_alias="OPENROUTER_HTTP_REFERER")
     x_title: str | None = Field(default=None, validation_alias="OPENROUTER_X_TITLE")
     max_tokens: int | None = Field(default=None, validation_alias="OPENROUTER_MAX_TOKENS")
+    per_model_max_tokens_overrides: dict[str, int] = Field(
+        default_factory=dict,
+        validation_alias="OPENROUTER_PER_MODEL_MAX_TOKENS_OVERRIDES",
+        description=(
+            "Per-model completion-budget clamp. Comma-separated 'model=tokens' pairs, "
+            "e.g. 'qwen/qwen3-vl-32b-instruct=3072'. Lowers (never raises) the per-call "
+            "max_tokens for the named model so models with tight output budgets don't "
+            "burn the entire per-model timeout producing a truncated response. Malformed "
+            "entries are logged and skipped; an empty value disables the override."
+        ),
+    )
     top_p: float | None = Field(default=None, validation_alias="OPENROUTER_TOP_P")
     temperature: float = Field(default=0.2, validation_alias="OPENROUTER_TEMPERATURE")
     provider_order: tuple[str, ...] = Field(
@@ -246,6 +261,74 @@ class OpenRouterConfig(BaseModel):
             msg = "Max tokens too large"
             raise ValueError(msg)
         return tokens
+
+    @field_validator("per_model_max_tokens_overrides", mode="before")
+    @classmethod
+    def _validate_per_model_max_tokens_overrides(cls, value: Any) -> dict[str, int]:
+        """Parse comma-separated ``model=tokens`` pairs into a dict.
+
+        Mirrors ``RuntimeConfig._validate_llm_per_model_timeout_overrides``: accepts
+        either a pre-built dict (YAML config) or a raw env-var string. Malformed
+        entries are logged and skipped so a bad value never prevents startup.
+        """
+        if isinstance(value, dict):
+            result: dict[str, int] = {}
+            for k, v in value.items():
+                try:
+                    parsed = int(v)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "openrouter_per_model_max_tokens_overrides_bad_entry",
+                        extra={"key": k, "value": v},
+                    )
+                    continue
+                if parsed <= 0:
+                    logger.warning(
+                        "openrouter_per_model_max_tokens_overrides_bad_entry",
+                        extra={"key": k, "value": v, "reason": "non_positive"},
+                    )
+                    continue
+                result[str(k).strip()] = parsed
+            return result
+        raw = str(value or "").strip()
+        if not raw:
+            return {}
+        result = {}
+        for entry in raw.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            if "=" not in entry:
+                logger.warning(
+                    "openrouter_per_model_max_tokens_overrides_bad_entry",
+                    extra={"entry": entry},
+                )
+                continue
+            model_name, _, tokens_str = entry.partition("=")
+            model_name = model_name.strip()
+            tokens_str = tokens_str.strip()
+            if not model_name or not tokens_str:
+                logger.warning(
+                    "openrouter_per_model_max_tokens_overrides_bad_entry",
+                    extra={"entry": entry},
+                )
+                continue
+            try:
+                parsed = int(tokens_str)
+            except ValueError:
+                logger.warning(
+                    "openrouter_per_model_max_tokens_overrides_bad_entry",
+                    extra={"entry": entry, "tokens_str": tokens_str},
+                )
+                continue
+            if parsed <= 0:
+                logger.warning(
+                    "openrouter_per_model_max_tokens_overrides_bad_entry",
+                    extra={"entry": entry, "reason": "non_positive"},
+                )
+                continue
+            result[model_name] = parsed
+        return result
 
     @field_validator("top_p", mode="before")
     @classmethod
