@@ -9,7 +9,7 @@ budget on a model that has already demonstrated it cannot handle the
 request.
 
 Pure decision module: the policy does not perform the retry itself.
-The caller (SummarizationAgent's self-correction loop, or the
+The caller (the instructor retry loop in pure_summary_service.py, or the
 OpenRouter chat response handler) consumes the
 :class:`EscalationDecision` and either advances the model or falls
 back to same-model retry.

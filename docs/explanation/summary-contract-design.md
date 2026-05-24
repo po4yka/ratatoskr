@@ -271,17 +271,17 @@ class SummaryOutput(BaseModel):
 
 ---
 
-### 4. Self-Correction Loop (Summarization Agent)
+### 4. Self-Correction Loop
 
-**Location:** `app/agents/summarization_agent.py`
+**Location:** `app/adapters/content/pure_summary_service.py` (`_summarize_with_instructor`)
 
-**Pattern:** Retry with error feedback (up to 3 attempts).
+**Pattern:** Retry with error feedback via `instructor`'s `chat_structured(max_retries=N)`.
 
 **Flow:**
 
 1. LLM generates summary JSON
 2. Validation fails: "Field `key_ideas` is missing"
-3. Retry with error appended to prompt: "Previous attempt failed: missing `key_ideas`. Ensure all required fields are present."
+3. `instructor` retries with error feedback (up to configured max retries)
 4. LLM generates corrected summary
 5. Validation passes → Success
 

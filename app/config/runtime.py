@@ -89,7 +89,7 @@ class RuntimeConfig(BaseModel):
         le=10,
         validation_alias="SUMMARIZATION_MAX_RETRIES",
         description=(
-            "Max attempts for the SummarizationAgent self-correction loop. Each retry "
+            "Max attempts for the instructor self-correction loop. Each retry "
             "re-runs the full LLM call cascade for one summary, so lowering this is the "
             "main lever for cutting total LLM cost on validation-failing summaries."
         ),

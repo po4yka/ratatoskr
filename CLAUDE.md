@@ -15,7 +15,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 - Persists every artifact -- Telegram messages, scraper responses, LLM calls (success and failure), summaries, embeddings -- in PostgreSQL via SQLAlchemy 2.0 + asyncpg.
 - Ships as a single Docker container with an owner-only access whitelist.
 
-**Core stack:** Python 3.13, Telethon, SQLAlchemy 2.0 + asyncpg, OpenRouter, Qdrant (with sentence-transformers or Gemini Embedding 2), FastAPI + JWT (Mobile API), LangGraph (summarize/repair retry graph), React + TypeScript + Vite (web frontend). Full dependency list lives in `pyproject.toml`.
+**Core stack:** Python 3.13, Telethon, SQLAlchemy 2.0 + asyncpg, OpenRouter, Qdrant (with sentence-transformers or Gemini Embedding 2), FastAPI + JWT (Mobile API), React + TypeScript + Vite (web frontend). Full dependency list lives in `pyproject.toml`.
 
 ## Architecture & Docs Index
 
@@ -24,7 +24,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Need | Doc |
 |---|---|
 | Bird's-eye view, request lifecycle | `docs/explanation/architecture-overview.md` |
-| Multi-agent / LangGraph retry loop | `docs/explanation/multi-agent-architecture.md` |
+| Multi-agent architecture | `docs/explanation/multi-agent-architecture.md` |
 | Scraper-chain fallback design | `docs/explanation/scraper-chain.md` |
 | Why the summary contract is shaped that way | `docs/explanation/summary-contract-design.md` |
 | GitHub repo ingestion subsystem | `docs/explanation/github-repository-ingestion.md` |
@@ -45,7 +45,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | API contract drift | FastAPI source is `app.api.main:app`; request/response models live under `app/api/models/`, routers under `app/api/routers/`, generated artifacts under `docs/openapi/mobile_api.yaml` and `.json`; never patch generated OpenAPI by hand. Run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`. |
 | Sync drift | Sync v2 entrypoints are `app/api/routers/sync.py`, service collaborators are under `app/api/services/sync/`, DB reads for sync live in `app/infrastructure/persistence/sync_aux_read_adapter.py`, and the contract map is `docs/reference/sync-protocol.md`. |
 | Request stuck in processing | Start with `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob`, and `docs/reference/troubleshooting.md#request-stuck-in-processing`; keep correlation IDs intact across any repair. |
-| LLM parse failure | Parse/repair lives in `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, and `app/core/summary_contract.py`; runtime prompt/schema binding is `SummaryContractDescriptor` plus `PromptManager.get_contract_system_prompt()`; LangGraph retry topology is `app/agents/langgraph/graph.py`; failure recipe is `docs/reference/troubleshooting.md#json-parsing-failures`. |
+| LLM parse failure | Parse/repair lives in `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, and `app/core/summary_contract.py`; runtime prompt/schema binding is `SummaryContractDescriptor` plus `PromptManager.get_contract_system_prompt()`; retry loop is `app/adapters/content/pure_summary_service.py:_summarize_with_instructor`; failure recipe is `docs/reference/troubleshooting.md#json-parsing-failures`. |
 | Extraction provider behavior | Generic URL extraction is `app/adapters/content/scraper/` plus `app/adapters/content/platform_extraction/`; platform-specific bypasses are `app/adapters/youtube/`, `app/adapters/twitter/`, and `app/adapters/academic/`; provider docs are `docs/explanation/scraper-chain.md`. |
 | Source ingestion and vector repair | Source ingestors live in `app/adapters/ingestors/`, RSS/digest helpers in `app/adapters/rss/` and `app/adapters/digest/`, signal API in `app/api/routers/social/signals.py`, vector reconciliation in `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/cli/backfill_vector_store.py`; new vectorized entity types should implement `VectorIndexedEntityAdapter`; vector drift docs are `docs/cocoindex.md`. |
 
@@ -67,7 +67,7 @@ app/
 |   +-- telegram/       # Bot logic, command_handlers/, access controller
 |   +-- twitter/        # Twitter/X two-tier extractor (Firecrawl + Playwright)
 |   +-- youtube/        # yt-dlp + transcript extraction
-+-- agents/             # Classic agents + LangGraph summarize/validate/repair graph
++-- agents/             # Classic agents (extraction, validation, web search, repo analysis)
 +-- api/                # Mobile API (FastAPI, JWT, sync, collections, streams, digest, ...)
 +-- application/        # DDD application layer (DTOs, use cases)
 +-- config/             # Settings, scraper config, runtime tuning
@@ -129,7 +129,7 @@ Task-oriented skills under `.claude/skills/`. Each carries its own workflow, tri
 | `inspecting-database` | querying Postgres for requests, summaries, LLM calls, crawl results |
 | `debugging-apis` | Firecrawl / OpenRouter request-response inspection, retry / cost / rate-limit triage |
 | `validating-summaries` | summary JSON contract checks, character-limit failures |
-| `langgraph-summarize-loop` | retry / repair-loop / `attempt_trigger` debugging |
+| `langgraph-summarize-loop` | retry / repair-loop / `attempt_trigger` debugging (skill covers instructor retry loop, not LangGraph) |
 | `vector-index-sync` | Qdrant + `summary_embeddings` + CocoIndex reconciliation |
 | `scraper-chain-debugging` | content-scraper fallback chain failures |
 | `digest-subsystem-ops` | channel digest userbot, `/init_session` flow, scheduling |
@@ -196,7 +196,7 @@ python -m app.cli.migrate_db          # apply Alembic migrations
 | `app/db/session.py` | `Database` -- sole DB entry point |
 | `app/db/models/` | SQLAlchemy 2.0 typed models, grouped by area |
 | `app/config/settings.py` | Configuration loading |
-| `app/agents/langgraph/graph.py` | Summarize/validate/repair retry graph |
+| `app/adapters/content/pure_summary_service.py` | Summarize/validate/repair retry loop (`_summarize_with_instructor`) |
 | `app/api/main.py` | Mobile API entrypoint |
 | `app/di/tasks.py` | Taskiq runtime dependency bundles for digest, RSS/source ingestion, and vector reconciliation |
 | `app/mcp/server.py` | MCP server for AI agents |
@@ -220,7 +220,7 @@ SQLAlchemy 2.0 typed declarative models registered in `ALL_MODELS` (`app/db/mode
 | `topic_search.py` | `TopicSearchIndex` (Postgres TSVECTOR + GIN) |
 | `user_content.py` | `SummaryFeedback`, `CustomDigest`, `SummaryHighlight`, `UserGoal`, `Tag`, `SummaryTag` |
 
-`LLMCall` rows carry `attempt_index` (1-based, monotonic per `request_id`) and `attempt_trigger` (Postgres enum: `initial`, `user_retry`, `auto_backfill`, `repair_loop`, `stream_fallback_retry`) so retries and the LangGraph repair loop are queryable without timestamp inference.
+`LLMCall` rows carry `attempt_index` (1-based, monotonic per `request_id`) and `attempt_trigger` (Postgres enum: `initial`, `user_retry`, `auto_backfill`, `repair_loop`, `stream_fallback_retry`) so retries and the instructor repair loop are queryable without timestamp inference.
 
 Schema and migration workflow: `alembic-migrations` skill + `docs/reference/data-model.md`.
 

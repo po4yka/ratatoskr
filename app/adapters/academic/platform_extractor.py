@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # Effectively disabled per the 2026-05-13 design decision: the downstream
-# chunker in app/agents/summarization_agent.py owns the token-budget cap.
+# LLM caller owns the token-budget cap via instructor's chat_structured.
 # We still cap absurdly long inputs (book-length reports, multi-paper
 # compilations) so one request can't exhaust pymupdf memory on the Pi.
 _DEFAULT_PDF_MAX_PAGES = 1000

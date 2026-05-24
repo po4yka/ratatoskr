@@ -75,7 +75,7 @@ Scholarly-paper URLs (arXiv, SSRN, NBER, OSF preprints, ResearchGate, RePEc) are
 
 ## Multi-Agent Architecture
 
-Four specialized agents (ContentExtraction, Summarization, Validation, WebSearch) coordinated by AgentOrchestrator; self-correction feedback loop; signal-scoring v0 integration; usage examples and test hints.
+ContentExtraction, Validation, and WebSearch agents; self-correction retry loop via `instructor`'s `chat_structured` at `app/adapters/content/pure_summary_service.py`; signal-scoring v0 integration; usage examples and test hints.
 
 → [Multi-Agent Architecture](explanation/multi-agent-architecture.md)
 
