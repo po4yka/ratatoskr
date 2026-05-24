@@ -221,17 +221,30 @@ class PushNotificationService:
                     ),
                 ),
             )
+        elif platform == "android":
+            kwargs["android"] = messaging.AndroidConfig(
+                notification=messaging.AndroidNotification(sound="default"),
+            )
 
         return messaging.Message(**kwargs)
+
+    @staticmethod
+    def _invalid_token_error_types() -> tuple[type[BaseException], ...]:
+        exceptions_module = getattr(firebase_admin, "exceptions", None)
+        if exceptions_module is None:
+            from firebase_admin import exceptions as exceptions_module
+
+        return (
+            exceptions_module.NotFoundError,
+            exceptions_module.InvalidArgumentError,
+        )
 
     def _handle_token_error(self, exc: Exception, token: str) -> None:
         """Deactivate a device token when Firebase reports it as invalid."""
         if not _FIREBASE_AVAILABLE:
             return
 
-        from firebase_admin import exceptions as fb_exceptions
-
-        if isinstance(exc, (fb_exceptions.NotFoundError, fb_exceptions.InvalidArgumentError)):
+        if isinstance(exc, self._invalid_token_error_types()):
             logger.info(
                 "push_deactivating_invalid_token",
                 extra={"token_prefix": token[:8] + "..."},

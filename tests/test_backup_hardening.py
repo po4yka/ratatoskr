@@ -13,6 +13,16 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from app.config.backup import BackupConfig
+from app.db.models import (
+    Collection,
+    CollectionItem,
+    Request,
+    Summary,
+    SummaryHighlight,
+    SummaryTag,
+    Tag,
+    User,
+)
 
 # ---------------------------------------------------------------------------
 # BackupConfig
@@ -263,6 +273,72 @@ def _minimal_backup_zip() -> bytes:
     return buf.getvalue()
 
 
+def _populated_backup_zip() -> bytes:
+    """Backup ZIP with one row per restorable entity and linked old IDs."""
+    payloads: dict[str, Any] = {
+        "requests": [
+            {
+                "id": 10,
+                "type": "url",
+                "status": "completed",
+                "input_url": "https://example.com/post",
+                "normalized_url": "https://example.com/post",
+                "dedupe_hash": "dedupe-1",
+                "lang_detected": "en",
+            }
+        ],
+        "summaries": [
+            {
+                "id": 20,
+                "request_id": 10,
+                "lang": "en",
+                "json_payload": {"summary_250": "A useful summary"},
+                "is_read": True,
+                "is_deleted": False,
+            }
+        ],
+        "tags": [{"id": 30, "name": "AI", "normalized_name": "ai", "color": "#fff"}],
+        "summary_tags": [{"id": 40, "summary_id": 20, "tag_id": 30, "source": "manual"}],
+        "collections": [
+            {
+                "id": 50,
+                "name": "Reading list",
+                "description": "Saved",
+                "position": 2,
+                "collection_type": "manual",
+                "query_conditions_json": None,
+                "query_match_mode": "all",
+            }
+        ],
+        "collection_items": [{"id": 60, "collection_id": 50, "summary_id": 20, "position": 1}],
+        "highlights": [
+            {
+                "id": 70,
+                "summary_id": 20,
+                "text": "important",
+                "start_offset": 0,
+                "end_offset": 9,
+                "color": "yellow",
+                "note": "remember",
+            }
+        ],
+    }
+    manifest = {
+        "version": "1.0",
+        "schema_version": "1.0",
+        "user_id": 1,
+        "created_at": "2024-01-01T00:00:00+00:00",
+        "counts": {key: len(value) for key, value in payloads.items()},
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+        for name, value in payloads.items():
+            zf.writestr(f"{name}.json", json.dumps(value))
+        zf.writestr("preferences.json", "{}")
+    return buf.getvalue()
+
+
 def _make_mock_db() -> MagicMock:
     """Minimal DB mock that satisfies async_restore_from_archive."""
 
@@ -276,6 +352,141 @@ def _make_mock_db() -> MagicMock:
 
     db = MagicMock()
     db.transaction = fake_transaction
+    return db
+
+
+def _make_restore_db() -> MagicMock:
+    """Fake DB that records restore objects and assigns primary keys on add."""
+    sessions: list[MagicMock] = []
+
+    @asynccontextmanager
+    async def fake_transaction():
+        session = MagicMock()
+        session.scalar = AsyncMock(return_value=None)
+        session.execute = AsyncMock(return_value=MagicMock())
+        session.flush = AsyncMock()
+        session.added = []
+        next_ids = {
+            "Request": 100,
+            "Summary": 200,
+            "Tag": 300,
+            "SummaryTag": 400,
+            "Collection": 500,
+            "CollectionItem": 600,
+            "SummaryHighlight": 700,
+        }
+
+        def add(instance: Any) -> None:
+            name = type(instance).__name__
+            if getattr(instance, "id", None) is None and name in next_ids:
+                instance.id = next_ids[name]
+                next_ids[name] += 1
+            session.added.append(instance)
+
+        session.add.side_effect = add
+        sessions.append(session)
+        yield session
+
+    db = MagicMock()
+    db.transaction = fake_transaction
+    db.sessions = sessions
+    return db
+
+
+class _ScalarRows:
+    def __init__(self, rows: list[Any]) -> None:
+        self._rows = rows
+
+    def all(self) -> list[Any]:
+        return self._rows
+
+
+class _ExecuteRows:
+    def __init__(self, rows: list[Any] | None = None) -> None:
+        self._rows = rows or []
+
+    def scalars(self) -> _ScalarRows:
+        return _ScalarRows(self._rows)
+
+
+def _make_backup_create_db() -> MagicMock:
+    """Fake DB for archive creation with one populated row per exported file."""
+    rows_by_table: dict[str, list[Any]] = {
+        "requests": [
+            Request(
+                id=10,
+                user_id=1,
+                type="url",
+                status="completed",
+                input_url="https://example.com/post",
+                normalized_url="https://example.com/post",
+                dedupe_hash="dedupe-1",
+                lang_detected="en",
+            )
+        ],
+        "summaries": [
+            Summary(
+                id=20,
+                request_id=10,
+                lang="en",
+                json_payload={"summary_250": "A useful summary"},
+                is_deleted=False,
+                is_read=True,
+            )
+        ],
+        "tags": [Tag(id=30, user_id=1, name="AI", normalized_name="ai", color="#fff")],
+        "summary_tags": [SummaryTag(id=40, summary_id=20, tag_id=30, source="manual")],
+        "collections": [
+            Collection(
+                id=50,
+                user_id=1,
+                name="Reading list",
+                description="Saved",
+                position=2,
+                collection_type="manual",
+                query_match_mode="all",
+            )
+        ],
+        "collection_items": [CollectionItem(id=60, collection_id=50, summary_id=20, position=1)],
+        "summary_highlights": [
+            SummaryHighlight(
+                id="00000000-0000-0000-0000-000000000070",
+                user_id=1,
+                summary_id=20,
+                text="important",
+                start_offset=0,
+                end_offset=9,
+                color="yellow",
+                note="remember",
+            )
+        ],
+        "user_backups": [],
+    }
+    sessions: list[MagicMock] = []
+
+    @asynccontextmanager
+    async def fake_transaction():
+        session = MagicMock()
+        session.executed = []
+        session.get = AsyncMock(
+            return_value=User(telegram_user_id=1, preferences_json={"backup_retention_count": 1})
+        )
+        sessions.append(session)
+
+        async def execute(statement: Any) -> _ExecuteRows:
+            session.executed.append(statement)
+            statement_text = str(statement)
+            for table_name, rows in rows_by_table.items():
+                if f"FROM {table_name}" in statement_text:
+                    return _ExecuteRows(rows)
+            return _ExecuteRows()
+
+        session.execute = AsyncMock(side_effect=execute)
+        yield session
+
+    db = MagicMock()
+    db.transaction = fake_transaction
+    db.sessions = sessions
     return db
 
 
@@ -336,6 +547,82 @@ class TestRestoreHardening:
         result = await async_restore_from_archive(1, bomb, cfg=cfg)
         assert len(result["errors"]) == 1
         assert "ratio" in result["errors"][0].lower()
+
+    async def test_restore_imports_rows_and_remaps_dependent_ids(self) -> None:
+        from app.infrastructure.persistence.backup_archive_service import (
+            async_restore_from_archive,
+        )
+
+        db = _make_restore_db()
+        result = await async_restore_from_archive(
+            1,
+            _populated_backup_zip(),
+            db=db,
+            cfg=BackupConfig(),
+        )
+
+        assert result["errors"] == []
+        assert result["restored"] == {
+            "requests": 1,
+            "summaries": 1,
+            "tags": 1,
+            "summary_tags": 1,
+            "collections": 1,
+            "collection_items": 1,
+            "highlights": 1,
+        }
+
+        added_by_type = {type(instance).__name__: instance for instance in db.sessions[0].added}
+        assert added_by_type["Summary"].request_id == 100
+        assert added_by_type["SummaryTag"].summary_id == 200
+        assert added_by_type["SummaryTag"].tag_id == 300
+        assert added_by_type["CollectionItem"].collection_id == 500
+        assert added_by_type["CollectionItem"].summary_id == 200
+        assert added_by_type["SummaryHighlight"].summary_id == 200
+
+    async def test_create_backup_archive_exports_user_data_and_updates_metadata(
+        self, tmp_path
+    ) -> None:
+        from app.infrastructure.persistence.backup_archive_service import (
+            async_create_backup_archive,
+            verify_backup_archive,
+        )
+
+        db = _make_backup_create_db()
+        await async_create_backup_archive(
+            1,
+            99,
+            db=db,
+            data_dir=str(tmp_path),
+            cfg=BackupConfig(),
+        )
+
+        backup_files = list((tmp_path / "backups" / "1").glob("ratatoskr-backup-1-*.zip"))
+        assert len(backup_files) == 1
+        payload = backup_files[0].read_bytes()
+        verification = verify_backup_archive(payload, cfg=BackupConfig())
+        assert verification["verification_status"] == "verified"
+        assert verification["item_counts"] == {
+            "requests": 1,
+            "summaries": 1,
+            "tags": 1,
+            "summary_tags": 1,
+            "collections": 1,
+            "collection_items": 1,
+            "highlights": 1,
+        }
+
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            assert json.loads(archive.read("preferences.json")) == {"backup_retention_count": 1}
+            assert json.loads(archive.read("requests.json"))[0]["dedupe_hash"] == "dedupe-1"
+            assert json.loads(archive.read("summaries.json"))[0]["json_payload"] == {
+                "summary_250": "A useful summary"
+            }
+
+        assert len(db.sessions) == 3
+        completed_update = str(db.sessions[1].executed[0])
+        assert "file_size_bytes" in completed_update
+        assert "verification_status" in completed_update
 
 
 # ---------------------------------------------------------------------------
