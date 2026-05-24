@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from app.core.logging_utils import get_logger
-from app.infrastructure.vector.point_ids import str_to_uuid
+from app.core.uuid_utils import str_to_uuid
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

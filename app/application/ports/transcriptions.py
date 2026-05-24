@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from datetime import datetime
 
 
@@ -222,3 +225,57 @@ class TranscriptionRepositoryPort(Protocol):
         limit: int = 50,
     ) -> list[TranscriptionArtifactRecord]:
         """Return recent persisted transcripts for a user."""
+
+
+# ---------------------------------------------------------------------------
+# Pure value types and helpers that belong in the application layer.
+# These were originally co-located with adapter code; they live here so
+# application services can import them without crossing the hexagonal boundary.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class TranscribeOptions:
+    """Per-call knobs that override ``TranscriptionConfig`` defaults.
+
+    Defined here (application ports) so ``TranscriptionJobService`` and other
+    application-layer callers can reference it without importing the adapter.
+    The adapter re-exports this class unchanged.
+    """
+
+    with_diarization: bool | None = None
+    speed: float | None = None
+    num_speakers: int | None = None
+
+
+async def audio_sha256(path: Path) -> str:
+    """Return the SHA-256 hex digest of a local audio file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def redact_local_paths(value: str) -> str:
+    """Replace absolute filesystem paths with ``[redacted-path]``."""
+    return re.sub(r"(?<!\w)/(?:private/)?(?:tmp|var|Users|data)/[^\s:]+", "[redacted-path]", value)
+
+
+def sentences_to_json(result: Any) -> list[dict[str, Any]]:
+    """Serialise ``TranscriptionResult.sentences`` to a plain list of dicts."""
+    return [{"start_sec": s.start_sec, "text": s.text} for s in result.sentences]
+
+
+def speaker_turns_to_json(result: Any) -> list[dict[str, Any]]:
+    """Serialise ``TranscriptionResult.speaker_turns`` to a plain list of dicts."""
+    return [
+        {"start": t.start, "end": t.end, "speaker": t.speaker, "label": t.label}
+        for t in result.speaker_turns
+    ]
+
+
+def transcription_model_identifier(cfg: Any) -> str:
+    """Build a human-readable model identifier string from a ``TranscriptionConfig``."""
+    model_name = cfg.model_path.name or "model"
+    return f"{cfg.language}:{cfg.backend}:{cfg.tokens_mode}:{model_name}"

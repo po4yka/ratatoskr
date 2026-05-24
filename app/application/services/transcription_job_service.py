@@ -11,19 +11,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app.adapters.telegram.transcription_persistence import (
+from app.application.ports.transcriptions import (
+    LeasedTranscriptionJob,
+    TranscribeOptions,
+    TranscriptionArtifactCreate,
+    TranscriptionJobCreate,
+    TranscriptionJobRecord,
     audio_sha256,
     redact_local_paths,
     sentences_to_json,
     speaker_turns_to_json,
     transcription_model_identifier,
-)
-from app.adapters.transcription import TranscribeOptions, fetch_url_to_local_sync
-from app.application.ports.transcriptions import (
-    LeasedTranscriptionJob,
-    TranscriptionArtifactCreate,
-    TranscriptionJobCreate,
-    TranscriptionJobRecord,
 )
 from app.core.logging_utils import get_logger, log_exception
 
@@ -73,6 +71,7 @@ class TranscriptionJobService:
         | None = None,
         local_media_resolver: Callable[[LeasedTranscriptionJob], Awaitable[Path] | Path]
         | None = None,
+        url_media_downloader: Callable[[str, Path], Awaitable[Path]] | None = None,
     ) -> None:
         self._repo = repository
         self._service = transcription_service
@@ -83,6 +82,7 @@ class TranscriptionJobService:
         self._poll_interval_seconds = poll_interval_seconds
         self._telegram_media_downloader = telegram_media_downloader
         self._local_media_resolver = local_media_resolver
+        self._url_media_downloader = url_media_downloader
         self._owner = f"{socket.gethostname()}:{uuid.uuid4().hex}"
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -280,12 +280,10 @@ class TranscriptionJobService:
     async def _resolve_media(self, job: LeasedTranscriptionJob, workdir: Path) -> Path:
         workdir.mkdir(parents=True, exist_ok=True)
         if job.source_type == "url" and job.source_url:
-            return await asyncio.to_thread(
-                fetch_url_to_local_sync,
-                job.source_url,
-                workdir,
-                correlation_id=job.correlation_id,
-            )
+            if self._url_media_downloader is None:
+                msg = "url media downloader is not configured for transcription worker"
+                raise RuntimeError(msg)
+            return await self._url_media_downloader(job.source_url, workdir)
         if job.source_type.startswith("telegram_"):
             if self._telegram_media_downloader is None:
                 msg = "telegram media downloader is not configured for transcription worker"

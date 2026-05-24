@@ -23,9 +23,9 @@ from .diarization_engine import DiarizationApiUnavailableError
 from .media_fetcher import MediaFetchError, fetch_url_to_local_sync
 from .model_resolver import ModelDirectoryError, ModelDownloadError
 from .sentence_grouper import format_mmss
+from app.application.ports.transcriptions import TranscribeOptions
 from .service import (
     TimestampsUnavailableError,
-    TranscribeOptions,
     TranscriptionDisabledError,
     TranscriptionDurationExceededError,
     TranscriptionService,

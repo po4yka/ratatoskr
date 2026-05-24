@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import uuid
+from app.core.uuid_utils import str_to_uuid
 
-_UUID_NAMESPACE = uuid.NAMESPACE_OID
-
-
-def str_to_uuid(value: str) -> str:
-    """Hash an arbitrary string to a deterministic UUID string."""
-    return str(uuid.uuid5(_UUID_NAMESPACE, value))
+__all__ = ["repository_point_id", "str_to_uuid", "summary_point_id"]
 
 
 def summary_point_id(request_id: int, summary_id: int) -> str:

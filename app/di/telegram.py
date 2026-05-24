@@ -425,6 +425,7 @@ def _build_telegram_interface_stack(
             retry_delay_seconds=cfg.background.durable_retry_delay_seconds,
             poll_interval_seconds=cfg.background.durable_poll_interval_ms / 1000,
             telegram_media_downloader=_build_telegram_media_downloader(telegram_client),
+            url_media_downloader=_build_url_media_downloader(),
         )
         if cfg.transcription.auto_on_voice_message:
             voice_processor = VoiceMessageProcessor(
@@ -600,6 +601,17 @@ def _compute_llm_cascade_floor(cfg: AppConfig) -> float:
         },
     )
     return floor
+
+
+def _build_url_media_downloader() -> Any:
+    import asyncio
+
+    from app.adapters.transcription import fetch_url_to_local_sync
+
+    async def _download(url: str, workdir: Any) -> Any:
+        return await asyncio.to_thread(fetch_url_to_local_sync, url, workdir)
+
+    return _download
 
 
 def _build_telegram_media_downloader(telegram_client: TelegramClient) -> Any:

@@ -16,9 +16,9 @@ Threading model:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.application.ports.transcriptions import TranscribeOptions
 from app.core.logging_utils import get_logger
 
 from .asr_engine import AsrEngine, OfflineAsrEngine, StreamingAsrEngine
@@ -68,15 +68,6 @@ class TranscriptionDurationExceededError(RuntimeError):
 
 class TimestampsUnavailableError(RuntimeError):
     """Raised when diarization is requested but the ASR build lacks alignment data."""
-
-
-@dataclass(frozen=True, slots=True)
-class TranscribeOptions:
-    """Per-call knobs that override ``TranscriptionConfig`` defaults."""
-
-    with_diarization: bool | None = None
-    speed: float | None = None
-    num_speakers: int | None = None
 
 
 class TranscriptionService:

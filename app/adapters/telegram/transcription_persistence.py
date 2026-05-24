@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +9,11 @@ from app.application.ports.transcriptions import (
     TranscriptionArtifactCreate,
     TranscriptionJobCreate,
     TranscriptionJobRecord,
+    audio_sha256,
+    redact_local_paths,
+    sentences_to_json,
+    speaker_turns_to_json,
+    transcription_model_identifier,
 )
 from app.core.logging_utils import get_logger
 
@@ -22,6 +25,14 @@ if TYPE_CHECKING:
     from app.config.transcription import TranscriptionConfig
 
 logger = get_logger(__name__)
+
+__all__ = [
+    "audio_sha256",
+    "redact_local_paths",
+    "sentences_to_json",
+    "speaker_turns_to_json",
+    "transcription_model_identifier",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,36 +143,6 @@ async def mark_transcription_job_failed(
             "transcription_job_fail_persist_failed",
             extra={"cid": correlation_id, "error": type(exc).__name__},
         )
-
-
-async def audio_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def redact_local_paths(value: str) -> str:
-    return re.sub(r"(?<!\w)/(?:private/)?(?:tmp|var|Users|data)/[^\s:]+", "[redacted-path]", value)
-
-
-def sentences_to_json(result: TranscriptionResult) -> list[dict[str, Any]]:
-    return [
-        {"start_sec": sentence.start_sec, "text": sentence.text} for sentence in result.sentences
-    ]
-
-
-def speaker_turns_to_json(result: TranscriptionResult) -> list[dict[str, Any]]:
-    return [
-        {"start": turn.start, "end": turn.end, "speaker": turn.speaker, "label": turn.label}
-        for turn in result.speaker_turns
-    ]
-
-
-def transcription_model_identifier(cfg: TranscriptionConfig) -> str:
-    model_name = cfg.model_path.name or "model"
-    return f"{cfg.language}:{cfg.backend}:{cfg.tokens_mode}:{model_name}"
 
 
 def telegram_chat_id(message: Any) -> int | None:
