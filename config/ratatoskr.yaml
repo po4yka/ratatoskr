@@ -26,9 +26,9 @@ runtime:
   # different settings. Same for REDIS_ENABLED below.
   request_timeout_sec: 60
   llm_call_timeout_sec: 720
-  # Dict-typed env var; the YAML loader serialises to env-var string form,
-  # which is what the field validator expects.
-  llm_per_model_timeout_overrides: "deepseek/deepseek-v3.2=180,deepseek/deepseek-v4-pro=180"
+  llm_per_model_timeout_overrides:
+    deepseek/deepseek-v3.2: 180
+    deepseek/deepseek-v4-pro: 180
   max_concurrent_calls: 2
   rate_limit_max_concurrent: 2
 

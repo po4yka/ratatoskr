@@ -1,17 +1,23 @@
 """Optional ratatoskr.yaml loader.
 
-The YAML file is a power-user layer below environment variables. It uses the
-same top-level section names as ``Settings`` and nested field names from each
-Pydantic config model, then returns env-var-style keys so the existing
-validation path remains canonical.
+The YAML file is the operator's authoritative on-disk config. Non-secret YAML
+values override matching env vars at startup (see ``_secret_marker.py``).
+Section names match ``Settings`` top-level attributes; field names match the
+Pydantic field names within each sub-model. Validation aliases (UPPER_SNAKE
+env-var names) are mapped automatically.
+
+The loader returns either ``str`` values (for scalar/list fields that feed the
+existing env-var validation path) or native ``dict`` objects for fields whose
+annotation is ``dict[K, V]``. Pydantic's field validators for those fields
+already accept the dict form — serialising to a JSON string and round-tripping
+through the env-var parser would silently discard them.
 """
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin
 
 from pydantic import AliasChoices, BaseModel
 
@@ -27,13 +33,29 @@ DEFAULT_CONFIG_PATHS = (
 )
 
 
-def _serialize_value(value: Any) -> str:
+def _is_dict_annotation(annotation: Any) -> bool:
+    """Return True when *annotation* resolves to a ``dict[K, V]`` origin."""
+    return get_origin(annotation) is dict
+
+
+def _serialize_value(value: Any, annotation: Any = None) -> Any:
+    """Convert a YAML value for injection into the Settings merge chain.
+
+    For ``dict``-typed fields the value is returned as-is so the field's own
+    validator receives the native dict (which it already handles).  All other
+    types are serialised to a plain string matching the env-var convention.
+    """
+    if isinstance(value, dict) and annotation is not None and _is_dict_annotation(annotation):
+        # Pass the dict through verbatim; the field validator handles it.
+        return value
     if isinstance(value, bool):
         return str(value).lower()
     if isinstance(value, list | tuple):
         return ",".join(str(item) for item in value)
     if isinstance(value, dict):
-        return json.dumps(value, separators=(",", ":"), sort_keys=True)
+        # dict-typed field annotation not provided or not a plain dict[K,V] —
+        # fall back to the comma-separated key=value string form.
+        return ",".join(f"{k}={v}" for k, v in value.items())
     return str(value)
 
 
@@ -118,7 +140,7 @@ def load_ratatoskr_yaml(
             env_name = _primary_env_alias(nested_field)
             if env_name is None:
                 continue
-            result[env_name] = _serialize_value(section[nested_name])
+            result[env_name] = _serialize_value(section[nested_name], nested_field.annotation)
 
     if result:
         logger.info(

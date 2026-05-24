@@ -230,3 +230,85 @@ class TestPrecedenceMatrix:
 
         # ARTICLE_VISION_MIN_IMAGES default is 1; no env, no YAML => default.
         assert cfg_obj.attachment.article_vision_min_images == 1
+
+
+class TestYamlDictRoundTrip:
+    """Dict-typed YAML fields must round-trip without the env-string workaround.
+
+    Regression guard for the ``_serialize_value`` fix: a YAML dict must reach
+    the field validator as a native ``dict``, not as a JSON string (which would
+    silently drop every entry because the validator's string path expects
+    ``"model=seconds"`` pairs, not JSON).
+    """
+
+    def test_llm_per_model_timeout_overrides_dict_form(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Natural dict YAML form is accepted and produces correct float values."""
+        cfg = _write_yaml(
+            tmp_path,
+            """\
+            runtime:
+              llm_per_model_timeout_overrides:
+                deepseek/deepseek-v3.2: 180
+                qwen/qwen3-max: 120
+            """,
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            _apply_baseline(mp)
+            mp.setenv("RATATOSKR_CONFIG", str(cfg))
+            cfg_obj = Settings(_env_file=None).as_app_config()  # type: ignore[call-arg]
+
+        overrides = cfg_obj.runtime.llm_per_model_timeout_overrides
+        assert overrides == {
+            "deepseek/deepseek-v3.2": 180.0,
+            "qwen/qwen3-max": 120.0,
+        }
+
+    def test_per_model_max_tokens_overrides_dict_form(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """openrouter.per_model_max_tokens_overrides accepts the dict YAML form."""
+        cfg = _write_yaml(
+            tmp_path,
+            """\
+            openrouter:
+              per_model_max_tokens_overrides:
+                qwen/qwen3-vl-32b-instruct: 3072
+                deepseek/deepseek-v4-pro: 8192
+            """,
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            _apply_baseline(mp)
+            mp.setenv("RATATOSKR_CONFIG", str(cfg))
+            cfg_obj = Settings(_env_file=None).as_app_config()  # type: ignore[call-arg]
+
+        overrides = cfg_obj.openrouter.per_model_max_tokens_overrides
+        assert overrides == {
+            "qwen/qwen3-vl-32b-instruct": 3072,
+            "deepseek/deepseek-v4-pro": 8192,
+        }
+
+    def test_env_string_form_still_works(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The legacy env-var string form ``model=N,model=N`` still parses correctly.
+
+        Uses an empty tmp-YAML to neutralise the committed ``config/ratatoskr.yaml``
+        which otherwise wins over env for this key under the new precedence.
+        """
+        cfg = _write_yaml(tmp_path, "")
+        with pytest.MonkeyPatch.context() as mp:
+            _apply_baseline(mp)
+            mp.setenv("RATATOSKR_CONFIG", str(cfg))
+            mp.setenv(
+                "LLM_PER_MODEL_TIMEOUT_OVERRIDES",
+                "deepseek/deepseek-v3.2=200,qwen/qwen3-max=90",
+            )
+            cfg_obj = Settings(_env_file=None).as_app_config()  # type: ignore[call-arg]
+
+        overrides = cfg_obj.runtime.llm_per_model_timeout_overrides
+        assert overrides == {
+            "deepseek/deepseek-v3.2": 200.0,
+            "qwen/qwen3-max": 90.0,
+        }
