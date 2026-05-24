@@ -175,12 +175,30 @@ docker-deploy: docker-build docker-stop docker-run
 	@echo "=== Deployment complete ==="
 	@echo "Check logs with: make docker-logs"
 
+# Build the SPA in the sibling ratatoskr-web/ checkout and stage it into
+# app/static/web/ so the next image build bakes it via `COPY app ./app`.
+# Without this step, the mobile-api image ships an empty /web/ -- a silent
+# regression that's only caught by hitting the browser. `--delete` clears
+# stale assets that no longer ship.
+.PHONY: stage-web
+WEB_REPO ?= ../ratatoskr-web
+
+stage-web:
+	@test -d "$(WEB_REPO)" || { echo "WEB_REPO=$(WEB_REPO) not found; clone ratatoskr-web alongside ratatoskr/" >&2; exit 1; }
+	cd "$(WEB_REPO)" && npm ci && npm run build
+	rm -rf app/static/web
+	mkdir -p app/static/web
+	rsync -a --delete "$(WEB_REPO)/dist/" app/static/web/
+	@echo "==> staged $$(du -sh app/static/web | cut -f1) into app/static/web"
+
 # Build the arm64 image locally (Mac) and stream it to the Pi over SSH so the
 # Pi never has to run the heavy build. Override SERVICE=mobile-api to ship
 # the API image instead. See tools/scripts/build-and-deploy-pi.sh for flags
 # and env vars (RASPI_HOST, RASPI_REMOTE_PATH, COMPOSE_PROJECT).
-.PHONY: pi-deploy pi-deploy-no-cache pi-build-only
+.PHONY: pi-deploy pi-deploy-no-cache pi-build-only pi-deploy-all pi-smoke
 SERVICE ?= ratatoskr
+RASPI_HOST ?= raspi
+PI_SMOKE_PORT ?= 18000
 
 pi-deploy:
 	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE)
@@ -190,6 +208,32 @@ pi-deploy-no-cache:
 
 pi-build-only:
 	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE) --no-restart
+
+# End-to-end: stage the freshly-built SPA into app/static/web/, then
+# build+ship+restart the four ratatoskr services (bot/worker/scheduler/
+# mobile-api) in one pass with single-build dedup for the shared Dockerfile,
+# then HTTP-smoke /web/ and /healthz from the Pi host. Fails loudly on any
+# step. Run from `ratatoskr/`; expects ratatoskr-web/ as a sibling repo.
+pi-deploy-all: stage-web
+	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api"
+	$(MAKE) pi-smoke
+
+# Smoke-test mobile-api on the Pi via its mapped host port. /healthz exercises
+# the DB; /web/ confirms the SPA bundle is present. Retries briefly because
+# uvicorn binds a few seconds after the container reports healthy.
+pi-smoke:
+	@echo "==> Smoke-testing http://${RASPI_HOST}:${PI_SMOKE_PORT}"
+	@for i in 1 2 3 4 5 6 7 8; do \
+	  out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/healthz 2>/dev/null || echo "000"); \
+	  echo "    /healthz attempt $$i -> $$out"; \
+	  [ "$$out" = "200" ] && break; \
+	  [ $$i -eq 8 ] && { echo "ERROR: /healthz never returned 200" >&2; exit 1; }; \
+	  sleep 4; \
+	done
+	@out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/web/ 2>/dev/null || echo "000"); \
+	  echo "    /web/    -> $$out"; \
+	  [ "$$out" = "200" ] || { echo "ERROR: /web/ returned $$out" >&2; exit 1; }
+	@echo "==> Smoke OK"
 
 docker-health:
 	@docker compose -f $(COMPOSE_FILE) ps
