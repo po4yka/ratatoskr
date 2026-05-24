@@ -248,6 +248,7 @@ class URLProcessor:
         terminal_error_message: str | None = None
         try:
             context = await self.context_builder.build(request)
+            await self._record_url_flow_start(request=request, req_id=context.req_id)
 
             # Resolve the model that will actually be used (routing-aware)
             display_model = self.cfg.openrouter.model
@@ -478,6 +479,40 @@ class URLProcessor:
                 status=terminal_status,
                 error_code=terminal_error_code,
                 error_message=terminal_error_message,
+            )
+
+    async def _record_url_flow_start(
+        self,
+        *,
+        request: URLFlowRequest,
+        req_id: int,
+    ) -> None:
+        """Write a `running` job row at URL flow entry for crash-recovery.
+
+        If the bot process dies mid-flow (OOM, signal, container restart) the
+        worker's reconcile_stuck_processing_requests will reap rows whose lease
+        expired without a terminal status and re-queue the request. Fails closed
+        (logged + swallowed) so observability bugs cannot break URL handling.
+        """
+        try:
+            from app.api.background.durable_jobs import RequestProcessingJobRepository
+
+            repo = RequestProcessingJobRepository(self.db)
+            await repo.record_synchronous_start(
+                request_id=req_id,
+                correlation_id=request.correlation_id,
+                lease_ttl_seconds=int(getattr(self.cfg.runtime, "url_flow_lease_ttl_sec", 900)),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "url_flow_job_start_record_failed",
+                extra={
+                    "cid": request.correlation_id,
+                    "req_id": req_id,
+                    "error": str(exc),
+                },
             )
 
     async def _record_url_flow_terminal(

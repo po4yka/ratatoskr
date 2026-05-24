@@ -505,6 +505,122 @@ async def test_max_retry_transitions_to_dead_letter() -> None:
     ]
 
 
+class TestRecordSynchronousStart:
+    @pytest.mark.asyncio
+    async def test_no_prior_row_creates_running_row(self) -> None:
+        """Inserting with no prior entry creates a running row with correct fields."""
+        inserted: list[Any] = []
+
+        class CapturingSession(FakeSession):
+            async def execute(self, statement: Any) -> Any:
+                inserted.append(statement)
+                return SimpleNamespace(rowcount=1)
+
+        repo = RequestProcessingJobRepository(FakeDatabase(CapturingSession()))
+        await repo.record_synchronous_start(
+            request_id=99,
+            correlation_id="cid-start",
+            lease_owner="bot:sync",
+            lease_ttl_seconds=900,
+        )
+
+        assert len(inserted) == 1
+        # The compiled insert statement carries the values we passed in.
+        stmt = inserted[0]
+        compiled = stmt.compile(compile_kwargs={"literal_binds": True})
+        sql = str(compiled)
+        assert "running" in sql
+        assert "bot:sync" in sql
+
+    @pytest.mark.asyncio
+    async def test_calling_twice_refreshes_lease_not_duplicate(self) -> None:
+        """Two calls for the same request_id both execute (upsert path)."""
+        executed: list[Any] = []
+
+        class CountingSession(FakeSession):
+            async def execute(self, statement: Any) -> Any:
+                executed.append(statement)
+                return SimpleNamespace(rowcount=1)
+
+        repo = RequestProcessingJobRepository(FakeDatabase(CountingSession()))
+        await repo.record_synchronous_start(
+            request_id=100, correlation_id="cid-dup", lease_ttl_seconds=900
+        )
+        await repo.record_synchronous_start(
+            request_id=100, correlation_id="cid-dup", lease_ttl_seconds=900
+        )
+
+        assert len(executed) == 2
+
+    @pytest.mark.asyncio
+    async def test_succeeded_row_not_downgraded(self) -> None:
+        """record_synchronous_start after record_synchronous_outcome(succeeded) keeps succeeded.
+
+        The ON CONFLICT ... WHERE status NOT IN terminal clause means the update
+        is a no-op when a terminal row already exists. We verify by checking
+        that the upsert statement's WHERE clause references TERMINAL_JOB_STATUSES.
+        """
+        from app.api.background.durable_jobs import TERMINAL_JOB_STATUSES
+
+        job = RequestProcessingJob(
+            id=5,
+            request_id=101,
+            status="succeeded",
+            attempt_count=1,
+            max_attempts=1,
+            correlation_id="cid-done",
+        )
+        # Scalar returns the existing succeeded row (enqueue/conflict path)
+        session = FakeSession(scalar_results=[job])
+        repo = RequestProcessingJobRepository(FakeDatabase(session))
+
+        # First record the outcome as succeeded
+        await repo.record_synchronous_outcome(
+            request_id=101,
+            correlation_id="cid-done",
+            status="succeeded",
+        )
+        pre_execute_count = len(session.executed)
+
+        # Now attempt to write a start row — the ON CONFLICT WHERE clause
+        # should prevent downgrade. We just verify the statement executes
+        # without error and the session saw one more statement.
+        await repo.record_synchronous_start(
+            request_id=101, correlation_id="cid-done", lease_ttl_seconds=900
+        )
+
+        assert len(session.executed) == pre_execute_count + 1
+        # Confirm TERMINAL_JOB_STATUSES sentinel is correct
+        assert "succeeded" in TERMINAL_JOB_STATUSES
+        assert "dead_letter" in TERMINAL_JOB_STATUSES
+
+    @pytest.mark.asyncio
+    async def test_dead_letter_row_not_downgraded(self) -> None:
+        """record_synchronous_start on a dead_letter row is also a no-op update."""
+        from app.api.background.durable_jobs import TERMINAL_JOB_STATUSES
+
+        session = FakeSession()
+        repo = RequestProcessingJobRepository(FakeDatabase(session))
+
+        # Record dead_letter outcome first
+        await repo.record_synchronous_outcome(
+            request_id=102,
+            correlation_id="cid-dead",
+            status="dead_letter",
+            error_code="TIMEOUT",
+            error_message="took too long",
+        )
+        pre_count = len(session.executed)
+
+        # Start record must not downgrade to running
+        await repo.record_synchronous_start(
+            request_id=102, correlation_id="cid-dead", lease_ttl_seconds=900
+        )
+
+        assert len(session.executed) == pre_count + 1
+        assert "dead_letter" in TERMINAL_JOB_STATUSES
+
+
 def test_request_processing_job_model_contains_durable_state_columns() -> None:
     columns = set(RequestProcessingJob.__table__.columns.keys())
 

@@ -222,6 +222,54 @@ class RequestProcessingJobRepository:
             )
         return status
 
+    async def record_synchronous_start(
+        self,
+        *,
+        request_id: int,
+        correlation_id: str | None,
+        lease_owner: str = "bot:sync",
+        lease_ttl_seconds: int = 900,
+    ) -> None:
+        """Insert/update a `running` row for a synchronous bot run.
+
+        Worker's reconcile_stuck_processing_requests reaps rows where the
+        lease expired without a terminal status, providing crash-recovery
+        for the synchronous bot path. The lease TTL is sized to the
+        maximum URL-flow runtime (15 min default).
+        """
+        now = _utcnow()
+        lease_expires_at = now + timedelta(seconds=lease_ttl_seconds)
+        base_values = {
+            "request_id": request_id,
+            "status": "running",
+            "attempt_count": 1,
+            "max_attempts": 1,
+            "lease_owner": lease_owner,
+            "lease_expires_at": lease_expires_at,
+            "retry_after": None,
+            "last_error_code": None,
+            "last_error_message": None,
+            "correlation_id": correlation_id,
+            "updated_at": now,
+            "created_at": now,
+        }
+        async with self._database.transaction() as session:
+            stmt = (
+                insert(RequestProcessingJob)
+                .values(**base_values)
+                .on_conflict_do_update(
+                    index_elements=[RequestProcessingJob.request_id],
+                    set_={
+                        "status": "running",
+                        "lease_owner": lease_owner,
+                        "lease_expires_at": lease_expires_at,
+                        "updated_at": now,
+                    },
+                    where=RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
+                )
+            )
+            await session.execute(stmt)
+
     async def record_synchronous_outcome(
         self,
         *,

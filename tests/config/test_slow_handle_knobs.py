@@ -107,6 +107,32 @@ class TestLlmTruncationMaxCount:
             RuntimeConfig.model_validate({"LLM_TRUNCATION_MAX_COUNT": "-1"})
 
 
+class TestUrlFlowLeaseTtlSec:
+    def test_default_is_900(self) -> None:
+        cfg = RuntimeConfig.model_validate({})
+        assert cfg.url_flow_lease_ttl_sec == 900
+
+    def test_env_override_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"URL_FLOW_LEASE_TTL_SEC": "1800"})
+        assert cfg.url_flow_lease_ttl_sec == 1800
+
+    def test_below_minimum_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"URL_FLOW_LEASE_TTL_SEC": "30"})
+
+    def test_above_maximum_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RuntimeConfig.model_validate({"URL_FLOW_LEASE_TTL_SEC": "7200"})
+
+    def test_minimum_boundary_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"URL_FLOW_LEASE_TTL_SEC": "60"})
+        assert cfg.url_flow_lease_ttl_sec == 60
+
+    def test_maximum_boundary_accepted(self) -> None:
+        cfg = RuntimeConfig.model_validate({"URL_FLOW_LEASE_TTL_SEC": "3600"})
+        assert cfg.url_flow_lease_ttl_sec == 3600
+
+
 class TestArticleVisionMinImages:
     def test_default_is_one(self) -> None:
         cfg = AttachmentConfig.model_validate({})

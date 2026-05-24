@@ -71,6 +71,19 @@ class RuntimeConfig(BaseModel):
         default=60.0, validation_alias="RUNTIME_DEDUPE_RETRY_GRACE_SEC"
     )
     llm_call_max_retries: int = Field(default=2, validation_alias="LLM_CALL_MAX_RETRIES")
+    url_flow_lease_ttl_sec: int = Field(
+        default=900,
+        ge=60,
+        le=3600,
+        validation_alias="URL_FLOW_LEASE_TTL_SEC",
+        description=(
+            "Lease TTL for the request_processing_jobs row created at URL "
+            "flow entry on the bot path. The worker's reconcile_stuck_"
+            "processing_requests reaps rows whose lease expired without a "
+            "terminal status, providing crash-recovery for synchronous bot "
+            "runs. Size this above the longest expected URL flow runtime."
+        ),
+    )
     llm_request_slow_threshold_sec: float = Field(
         default=300.0,
         ge=1.0,
@@ -115,6 +128,17 @@ class RuntimeConfig(BaseModel):
             "Max attempts for the instructor self-correction loop. Each retry "
             "re-runs the full LLM call cascade for one summary, so lowering this is the "
             "main lever for cutting total LLM cost on validation-failing summaries."
+        ),
+    )
+    llm_sticky_failure_force_fallback: bool = Field(
+        default=True,
+        validation_alias="LLM_STICKY_FAILURE_FORCE_FALLBACK",
+        description=(
+            "When the first chat_structured attempt fails with a sticky error "
+            "(per_model_timeout, repeated_truncation, "
+            "truncation_recovery_skipped_budget_tight), drop the model_override "
+            "and retry once so the cascade picks a different primary. Default on; "
+            "set false to preserve the legacy single-attempt behaviour."
         ),
     )
     json_parse_timeout_sec: float = Field(default=60.0, validation_alias="JSON_PARSE_TIMEOUT_SEC")
