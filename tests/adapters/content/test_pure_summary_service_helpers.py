@@ -42,7 +42,9 @@ def _service(openrouter: _OpenRouter | None = None) -> PureSummaryService:
             long_context_model=None,
             structured_output_mode="json",
         ),
-        model_routing=SimpleNamespace(enabled=False, long_context_threshold_tokens=100, long_context_model=None),
+        model_routing=SimpleNamespace(
+            enabled=False, long_context_threshold_tokens=100, long_context_model=None
+        ),
         runtime=SimpleNamespace(summarization_max_retries=1),
     )
     runtime = SimpleNamespace(
@@ -58,20 +60,25 @@ def test_parse_summary_from_llm_result_handles_json_shapes() -> None:
     service = _service()
 
     assert service.parse_summary_from_llm_result(
-        SimpleNamespace(response_json={"choices": [{"message": {"parsed": {"a": 1}}}]}, response_text=None)
+        SimpleNamespace(
+            response_json={"choices": [{"message": {"parsed": {"a": 1}}}]}, response_text=None
+        )
     ) == {"a": 1}
     assert service.parse_summary_from_llm_result(
         SimpleNamespace(
-            response_json={"choices": [{"message": {"content": "prefix {\"b\":2}"}}]},
+            response_json={"choices": [{"message": {"content": 'prefix {"b":2}'}}]},
             response_text=None,
         )
     ) == {"b": 2}
     assert service.parse_summary_from_llm_result(
-        SimpleNamespace(response_json=None, response_text="prefix {\"c\":3}")
+        SimpleNamespace(response_json=None, response_text='prefix {"c":3}')
     ) == {"c": 3}
-    assert service.parse_summary_from_llm_result(
-        SimpleNamespace(response_json={"choices": []}, response_text=None)
-    ) is None
+    assert (
+        service.parse_summary_from_llm_result(
+            SimpleNamespace(response_json={"choices": []}, response_text=None)
+        )
+        is None
+    )
 
 
 def test_select_max_tokens_uses_dynamic_and_configured_limits() -> None:
@@ -149,16 +156,24 @@ async def test_enrich_two_pass_merges_selected_fields() -> None:
 @pytest.mark.asyncio
 async def test_enrich_two_pass_returns_original_on_failure() -> None:
     summary = {"summary_250": "s"}
-    failed = SimpleNamespace(status=CallStatus.ERROR, error_text="bad", response_json=None, response_text=None)
-    assert await _service(_OpenRouter(failed)).enrich_two_pass(
-        summary,
-        content_text="content",
-        chosen_lang="en",
-        correlation_id="cid",
-    ) is summary
-    assert await _service(_OpenRouter(exc=RuntimeError("down"))).enrich_two_pass(
-        summary,
-        content_text="content",
-        chosen_lang="en",
-        correlation_id="cid",
-    ) is summary
+    failed = SimpleNamespace(
+        status=CallStatus.ERROR, error_text="bad", response_json=None, response_text=None
+    )
+    assert (
+        await _service(_OpenRouter(failed)).enrich_two_pass(
+            summary,
+            content_text="content",
+            chosen_lang="en",
+            correlation_id="cid",
+        )
+        is summary
+    )
+    assert (
+        await _service(_OpenRouter(exc=RuntimeError("down"))).enrich_two_pass(
+            summary,
+            content_text="content",
+            chosen_lang="en",
+            correlation_id="cid",
+        )
+        is summary
+    )

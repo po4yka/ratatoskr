@@ -232,7 +232,9 @@ class PushNotificationService:
     def _invalid_token_error_types() -> tuple[type[BaseException], ...]:
         exceptions_module = getattr(firebase_admin, "exceptions", None)
         if exceptions_module is None:
-            from firebase_admin import exceptions as exceptions_module
+            from firebase_admin import exceptions as imported_exceptions_module
+
+            exceptions_module = imported_exceptions_module
 
         return (
             exceptions_module.NotFoundError,

@@ -23,7 +23,9 @@ class _FakeDeliveryService:
     def __init__(self) -> None:
         self.messages: list[tuple[int, str]] = []
 
-    async def deliver_new_items(self, send_message: object, *, new_item_ids: list[int]) -> dict[str, int]:
+    async def deliver_new_items(
+        self, send_message: object, *, new_item_ids: list[int]
+    ) -> dict[str, int]:
         await send_message(10, f"items: {new_item_ids}")  # type: ignore[misc]
         return {"delivered": len(new_item_ids)}
 
@@ -53,7 +55,9 @@ class _FakeRunner:
 
 
 class _FakeRuntime:
-    def __init__(self, *, worker: _FakeWorker | None = None, runner: _FakeRunner | None = None) -> None:
+    def __init__(
+        self, *, worker: _FakeWorker | None = None, runner: _FakeRunner | None = None
+    ) -> None:
         self.worker = worker or _FakeWorker()
         self.runner = runner or _FakeRunner()
         self.delivery = _FakeDeliveryService()
@@ -72,7 +76,9 @@ class _FakeRuntime:
         return self.bot
 
 
-def _cfg(*, rss_enabled: bool = True, auto_summarize: bool = True, signals: bool = True) -> SimpleNamespace:
+def _cfg(
+    *, rss_enabled: bool = True, auto_summarize: bool = True, signals: bool = True
+) -> SimpleNamespace:
     return SimpleNamespace(
         rss=SimpleNamespace(
             enabled=rss_enabled,

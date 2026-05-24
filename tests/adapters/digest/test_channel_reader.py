@@ -4,12 +4,18 @@ from typing import Any
 
 import pytest
 
-from app.adapters.digest.channel_reader import ChannelReader, _channel_source_due, _max_items_per_run
+from app.adapters.digest.channel_reader import (
+    ChannelReader,
+    _channel_source_due,
+    _max_items_per_run,
+)
 from app.core.time_utils import UTC
 
 
 class _FakeStore:
-    def __init__(self, subscriptions: list[Any] | None = None, delivered: set[int] | None = None) -> None:
+    def __init__(
+        self, subscriptions: list[Any] | None = None, delivered: set[int] | None = None
+    ) -> None:
         self.subscriptions = subscriptions or []
         self.delivered = delivered or set()
         self.persisted: list[tuple[Any, list[dict[str, Any]]]] = []

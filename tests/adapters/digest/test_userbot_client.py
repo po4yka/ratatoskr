@@ -104,7 +104,9 @@ async def test_fetch_channel_posts_filters_by_date_and_length() -> None:
             media=SimpleNamespace(__class__=type("PhotoMedia", (), {})),
         ),
         SimpleNamespace(id=2, date=now, message="short", views=None, forwards=None, media=None),
-        SimpleNamespace(id=3, date=(now - timedelta(hours=30)).replace(tzinfo=None), text="old text", media=None),
+        SimpleNamespace(
+            id=3, date=(now - timedelta(hours=30)).replace(tzinfo=None), text="old text", media=None
+        ),
     ]
     subject._client = client
 

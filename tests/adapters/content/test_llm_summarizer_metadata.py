@@ -34,7 +34,9 @@ class _SemanticHelper:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    async def enrich_with_rag_fields(self, summary: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    async def enrich_with_rag_fields(
+        self, summary: dict[str, Any], **kwargs: Any
+    ) -> dict[str, Any]:
         self.calls.append(kwargs)
         summary["rag"] = True
         return summary
@@ -199,14 +201,14 @@ def test_metadata_helper_pure_parsers_and_extractors() -> None:
     assert helper._extract_heading_title("Title: Explicit title | metadata") == "Explicit title"
     assert helper._extract_heading_title("[source: x]\nDuration: 1m\nLead line") == "Lead line"
     assert helper._extract_heading_title("") is None
-    assert helper._parse_metadata_completion({"choices": [{"message": {"parsed": {"title": "T"}}}]}, None) == {
-        "title": "T"
-    }
     assert helper._parse_metadata_completion(
-        {"choices": [{"message": {"content": "prefix {\"title\":\"T\"}"}}]},
+        {"choices": [{"message": {"parsed": {"title": "T"}}}]}, None
+    ) == {"title": "T"}
+    assert helper._parse_metadata_completion(
+        {"choices": [{"message": {"content": 'prefix {"title":"T"}'}}]},
         None,
     ) == {"title": "T"}
-    assert helper._parse_metadata_completion(None, "prefix {\"author\":\"A\"}") == {"author": "A"}
+    assert helper._parse_metadata_completion(None, 'prefix {"author":"A"}') == {"author": "A"}
 
 
 @pytest.mark.asyncio

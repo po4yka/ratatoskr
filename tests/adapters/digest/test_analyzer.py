@@ -34,7 +34,9 @@ class _FakeStore:
 
 
 class _FakeLLM:
-    def __init__(self, payload: dict[str, object] | None = None, exc: Exception | None = None) -> None:
+    def __init__(
+        self, payload: dict[str, object] | None = None, exc: Exception | None = None
+    ) -> None:
         self.payload = payload or {
             "real_topic": "Topic",
             "tldr": "Short summary",
@@ -102,7 +104,9 @@ async def test_analyze_single_uses_cache_without_calling_llm() -> None:
 
 @pytest.mark.asyncio
 async def test_analyze_single_persists_valid_llm_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}"))
+    monkeypatch.setattr(
+        analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}")
+    )
     store = _FakeStore()
     llm = _FakeLLM()
     subject = _analyzer(llm, store)
@@ -139,7 +143,9 @@ async def test_analyze_posts_skips_failed_items(monkeypatch: pytest.MonkeyPatch)
 
 @pytest.mark.asyncio
 async def test_analyze_single_returns_none_on_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}"))
+    monkeypatch.setattr(
+        analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}")
+    )
     subject = _analyzer(_FakeLLM(exc=RuntimeError("down")))
 
     result = await subject._analyze_single({"message_id": 1, "text": "body"}, "cid", "en")

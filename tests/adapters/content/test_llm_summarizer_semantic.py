@@ -41,7 +41,9 @@ async def test_enrich_with_rag_fields_generates_missing_semantic_fields(
 
 
 @pytest.mark.asyncio
-async def test_enrich_with_rag_fields_trims_existing_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_enrich_with_rag_fields_trims_existing_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     helper = LLMSemanticHelper()
     summary = {
         "language": "ru",

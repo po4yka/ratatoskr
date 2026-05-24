@@ -13,7 +13,9 @@ from app.adapters.digest.digest_service import (
 
 
 class _Reader:
-    def __init__(self, posts: list[dict[str, Any]] | None = None, exc: Exception | None = None) -> None:
+    def __init__(
+        self, posts: list[dict[str, Any]] | None = None, exc: Exception | None = None
+    ) -> None:
         self.posts = posts or []
         self.exc = exc
 
@@ -29,7 +31,9 @@ class _Reader:
 
 
 class _Analyzer:
-    def __init__(self, analyzed: list[dict[str, Any]] | None = None, exc: Exception | None = None) -> None:
+    def __init__(
+        self, analyzed: list[dict[str, Any]] | None = None, exc: Exception | None = None
+    ) -> None:
         self.analyzed = analyzed or []
         self.exc = exc
 
@@ -42,7 +46,9 @@ class _Analyzer:
 
 
 class _Formatter:
-    def format_digest(self, analyzed: list[dict[str, Any]]) -> list[tuple[str, list[list[dict[str, str]]]]]:
+    def format_digest(
+        self, analyzed: list[dict[str, Any]]
+    ) -> list[tuple[str, list[list[dict[str, str]]]]]:
         return [
             (
                 f"digest: {len(analyzed)}",
@@ -113,10 +119,9 @@ def test_deduplicate_posts_pairwise_and_bucketed() -> None:
     assert "" in _topic_bucket_keys("")
     assert "first:ai" in _topic_bucket_keys("ai regulation future")
 
-    large = [
-        {"real_topic": f"topic {i}", "relevance_score": float(i)}
-        for i in range(70)
-    ] + [{"real_topic": "topic 69", "relevance_score": 100.0}]
+    large = [{"real_topic": f"topic {i}", "relevance_score": float(i)} for i in range(70)] + [
+        {"real_topic": "topic 69", "relevance_score": 100.0}
+    ]
     assert len(_deduplicate_posts(large)) < 70
 
 
@@ -155,7 +160,9 @@ async def test_generate_channel_digest_handles_empty_and_fetch_failure() -> None
 async def test_run_digest_pipeline_filters_delivers_and_persists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(digest_module, "_build_inline_keyboard", lambda buttons: {"buttons": buttons})
+    monkeypatch.setattr(
+        digest_module, "_build_inline_keyboard", lambda buttons: {"buttons": buttons}
+    )
     analyzed = [
         {
             "message_id": 1,
@@ -220,7 +227,14 @@ async def test_run_digest_pipeline_records_analysis_send_and_persist_errors() ->
     subject, sender, _store = _service(
         reader=_Reader(posts=[{"message_id": 1}]),
         analyzer=_Analyzer(
-            [{"message_id": 1, "real_topic": "Topic", "relevance_score": 0.9, "content_type": "news"}]
+            [
+                {
+                    "message_id": 1,
+                    "real_topic": "Topic",
+                    "relevance_score": 0.9,
+                    "content_type": "news",
+                }
+            ]
         ),
         store=_Store(exc=RuntimeError("db failed")),
     )
