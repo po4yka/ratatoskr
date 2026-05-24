@@ -158,6 +158,7 @@ dependencies = [
   "pydantic-settings>=2.14.1",
   "pyyaml>=6.0.3",
   "scrapling>=0.4.8",
+  "msgspec>=0.21.1",
   "browserforge>=1.2.4",
   "curl_cffi>=0.15.0",
   "trafilatura>=2.0.0",

@@ -40,7 +40,11 @@ def build_scraper_diagnostics(cfg: AppConfig) -> dict[str, Any]:
     providers: dict[str, dict[str, Any]] = {
         "scrapling": {
             "enabled": bool(scraper_cfg.enabled and scraper_cfg.scrapling_enabled),
-            "dependency_ready": _module_ready("scrapling") and _module_ready("trafilatura"),
+            "dependency_ready": (
+                _module_ready("scrapling")
+                and _module_ready("msgspec")
+                and _module_ready("trafilatura")
+            ),
             "base_timeout_sec": scraper_cfg.scrapling_timeout_sec,
             "effective_timeout_sec": round(
                 scraper_cfg.scrapling_timeout_sec * profile_multiplier, 2
