@@ -72,6 +72,7 @@ RUN set -eux; \
 
 # Copy application source
 COPY app ./app
+COPY alembic.ini ./
 
 # Web assets are built by ratatoskr-web and deployed into app/static/web/ via CI/CD.
 
