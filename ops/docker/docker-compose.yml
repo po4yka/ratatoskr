@@ -241,6 +241,13 @@ services:
       - scheduler
       - "app.tasks.scheduler:scheduler"
       - "--skip-first-run"
+    env_file:
+      # load_config() validates the full AppConfig (API_ID, API_HASH,
+      # BOT_TOKEN, ALLOWED_USER_IDS, OPENROUTER_API_KEY, DATABASE_URL)
+      # even when the scheduler only enqueues to Redis, so the .env
+      # must reach this container too. Overrides below still win.
+      - path: ../../.env
+        required: false
     environment:
       # DATABASE_URL intentionally absent: scheduler only enqueues to Redis; workers own DB access.
       - REDIS_ENABLED=1
