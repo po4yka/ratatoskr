@@ -367,14 +367,14 @@ services:
         required: false
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-m", "app.cli.healthcheck"]
+      # HTTP probe against the live FastAPI app -- `/healthz` already calls
+      # `db.healthcheck()` via `_check_database`, so this is strictly stronger
+      # than the previous `python -m app.cli.healthcheck` (which was DB-only
+      # and reported "healthy" while uvicorn was still warming up and refusing
+      # TCP connections). curl is already in the runtime image.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/healthz"]
       interval: 30s
-      # Cold healthcheck has to spin up the Python interpreter, import
-      # FastAPI/SQLAlchemy/asyncpg, run an Alembic plugin scan, and ping
-      # Postgres. On a Pi 5 this measures ~15 s for mobile-api and ~3 s
-      # for the bot; 30 s gives sufficient headroom over the prior 10 s
-      # ceiling that produced spurious "unhealthy" verdicts post-cutover.
-      timeout: 30s
+      timeout: 10s
       retries: 5
       start_period: 60s
     logging:
