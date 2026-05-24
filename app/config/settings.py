@@ -297,12 +297,10 @@ class Settings(BaseSettings):
             filter_yaml_to_non_secrets,
         )
         from app.config.config_file import load_ratatoskr_yaml
-        from app.config.models_file import load_models_yaml
 
-        yaml_data = load_models_yaml()
         config_file_data = load_ratatoskr_yaml(cls)
 
-        # Precedence (post-secret-marker refactor):
+        # Precedence:
         #
         #   non-secret YAML  >  os.environ  >  .env / constructor args  >  defaults
         #   secret env       >  defaults                (YAML secret keys ignored)
@@ -317,13 +315,10 @@ class Settings(BaseSettings):
         cls._fail_on_deprecated_envs(base_source)
 
         secret_env_names = collect_secret_env_names(cls)
-        models_yaml_non_secret, models_yaml_secret = filter_yaml_to_non_secrets(
-            yaml_data, secret_env_names
-        )
         ratatoskr_yaml_non_secret, ratatoskr_yaml_secret = filter_yaml_to_non_secrets(
             config_file_data, secret_env_names
         )
-        ignored_yaml_secrets = sorted({*models_yaml_secret, *ratatoskr_yaml_secret})
+        ignored_yaml_secrets = sorted(ratatoskr_yaml_secret)
         if ignored_yaml_secrets:
             logger.warning(
                 "yaml_secret_keys_ignored",
@@ -334,13 +329,8 @@ class Settings(BaseSettings):
             )
 
         # YAML wins for non-secret keys: layered AFTER env so it overrides.
-        # models.yaml still loses to ratatoskr.yaml because the latter is the
-        # full power-user file; both lose to anything that did NOT get marked
-        # as a secret in the original env source (i.e. existing env vars still
-        # work for back-compat until operators migrate to the YAML file).
         merged_source: dict[str, Any] = {
             **base_source,
-            **models_yaml_non_secret,
             **ratatoskr_yaml_non_secret,
         }
 

@@ -280,7 +280,7 @@ class AdminHandler:
         try:
             parts = (ctx.text or "").strip().split(None, 2)
             if len(parts) < 3:
-                from app.config.models_file import _SECTION_MAP
+                from app.config.config_file import SECTION_MAP as _SECTION_MAP
 
                 valid = ", ".join(sorted(_SECTION_MAP))
                 await ctx.response_formatter.safe_reply(
@@ -299,7 +299,7 @@ class AdminHandler:
                 await ctx.response_formatter.safe_reply(ctx.message, f"Invalid model: {exc}")
                 return
 
-            from app.config.models_file import save_model_to_yaml
+            from app.config.config_file import save_model_to_yaml
 
             old_value, new_value = save_model_to_yaml(section, new_model)
 

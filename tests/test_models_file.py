@@ -1,4 +1,4 @@
-"""Tests for YAML model config loader."""
+"""Tests for YAML model config loader (load_models_yaml shim in config_file)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from app.config.models_file import _serialize_value, load_models_yaml
+from app.config.config_file import load_models_yaml
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _serialize_value(value: object) -> str:
+    """Local copy of the serializer used inside load_models_yaml."""
+    if isinstance(value, list):
+        return ",".join(str(item) for item in value)
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value)
 
 
 @pytest.fixture
@@ -152,7 +161,7 @@ class TestLoadModelsYaml:
                   model: "custom/model"
             """)
         )
-        monkeypatch.setenv("MODELS_CONFIG_PATH", str(cfg))
+        monkeypatch.setenv("RATATOSKR_CONFIG", str(cfg))
         result = load_models_yaml()
         assert result["OPENROUTER_MODEL"] == "custom/model"
 

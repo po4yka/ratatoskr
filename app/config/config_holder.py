@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_DEFAULT_MODELS_PATH = "config/models.yaml"
+_DEFAULT_MODELS_PATH = "config/ratatoskr.yaml"
 
 
 class ConfigHolder:
@@ -132,8 +132,10 @@ class ConfigReloader:
     ) -> None:
         self._holder = holder
         self._poll_interval = poll_interval
+        from app.config.config_file import CONFIG_PATH_ENV
+
         self._models_path = Path(
-            models_path or os.environ.get("MODELS_CONFIG_PATH", _DEFAULT_MODELS_PATH)
+            models_path or os.environ.get(CONFIG_PATH_ENV, _DEFAULT_MODELS_PATH)
         )
         self._last_mtime: float = 0.0
         self._task: asyncio.Task[None] | None = None
@@ -179,7 +181,7 @@ class ConfigReloader:
 
     def _try_reload(self) -> bool:
         """Attempt to reload models config. Returns True if changed."""
-        from app.config.models_file import load_models_yaml
+        from app.config.config_file import load_models_yaml
 
         new_env = load_models_yaml(self._models_path)
         if not new_env:

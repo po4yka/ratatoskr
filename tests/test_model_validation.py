@@ -53,6 +53,10 @@ class TestModelValidation(unittest.TestCase):
             "OPENROUTER_MODEL": "qwen/qwen3-max",
             # fallback/model is valid (no invalid chars), invalid|name has pipe which is invalid
             "OPENROUTER_FALLBACK_MODELS": "fallback/model,google/gemini-3.1-pro-preview, invalid|name",
+            # Neutralise the committed config/ratatoskr.yaml: non-secret YAML now
+            # overrides env (see _secret_marker.py), but this test asserts env
+            # values, so disable YAML loading by pointing at a non-existent file.
+            "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
         }
 
         with patch.dict(os.environ, test_env, clear=True):
@@ -81,6 +85,7 @@ class TestModelValidation(unittest.TestCase):
             "OPENROUTER_TOP_P": "0.75",
             "LOG_LEVEL": "debug",
             "DEBUG_PAYLOADS": "true",
+            "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
         }
 
         with patch.dict(os.environ, test_env, clear=True):
@@ -104,7 +109,7 @@ class TestModelValidation(unittest.TestCase):
             "FIRECRAWL_API_KEY": "fc_" + "h" * 20,
             "OPENROUTER_API_KEY": "or_" + "i" * 20,
             "ALLOWED_USER_IDS": "77",
-            "MODELS_CONFIG_PATH": "/nonexistent/models.yaml",
+            "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
         }
 
         with patch.dict(os.environ, test_env, clear=True):
@@ -205,6 +210,7 @@ class TestModelValidation(unittest.TestCase):
             "OPENROUTER_API_KEY": "or_" + "o" * 20,
             "ALLOWED_USER_IDS": "77",
             "LOG_LEVEL": "INFO",
+            "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
         }
 
         with patch.dict(os.environ, test_env, clear=True):
