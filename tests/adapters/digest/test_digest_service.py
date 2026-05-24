@@ -1,0 +1,244 @@
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from app.adapters.digest import digest_service as digest_module
+from app.adapters.digest.digest_service import (
+    DigestResult,
+    DigestService,
+    _deduplicate_posts,
+    _topic_bucket_keys,
+)
+
+
+class _Reader:
+    def __init__(self, posts: list[dict[str, Any]] | None = None, exc: Exception | None = None) -> None:
+        self.posts = posts or []
+        self.exc = exc
+
+    async def fetch_posts_for_user(self, user_id: int) -> list[dict[str, Any]]:
+        if self.exc:
+            raise self.exc
+        return self.posts
+
+    async def fetch_posts_for_channel(self, channel: object, user_id: int) -> list[dict[str, Any]]:
+        if self.exc:
+            raise self.exc
+        return self.posts
+
+
+class _Analyzer:
+    def __init__(self, analyzed: list[dict[str, Any]] | None = None, exc: Exception | None = None) -> None:
+        self.analyzed = analyzed or []
+        self.exc = exc
+
+    async def analyze_posts(
+        self, posts: list[dict[str, Any]], correlation_id: str, lang: str
+    ) -> list[dict[str, Any]]:
+        if self.exc:
+            raise self.exc
+        return self.analyzed
+
+
+class _Formatter:
+    def format_digest(self, analyzed: list[dict[str, Any]]) -> list[tuple[str, list[list[dict[str, str]]]]]:
+        return [
+            (
+                f"digest: {len(analyzed)}",
+                [[{"text": "Open", "callback_data": "open:1"}]],
+            )
+        ]
+
+
+class _Store:
+    def __init__(self, exc: Exception | None = None) -> None:
+        self.exc = exc
+        self.deliveries: list[dict[str, Any]] = []
+
+    async def async_create_delivery(self, **kwargs: Any) -> None:
+        if self.exc:
+            raise self.exc
+        self.deliveries.append(kwargs)
+
+    async def async_get_users_with_subscriptions(self) -> list[int]:
+        return [1, 2]
+
+    def get_users_with_subscriptions(self) -> list[int]:
+        return [3]
+
+
+class _Sender:
+    def __init__(self, exc: Exception | None = None) -> None:
+        self.exc = exc
+        self.messages: list[tuple[int, str, Any]] = []
+
+    async def __call__(self, user_id: int, text: str, reply_markup: Any = None) -> None:
+        if self.exc:
+            raise self.exc
+        self.messages.append((user_id, text, reply_markup))
+
+
+def _service(
+    *,
+    reader: _Reader | None = None,
+    analyzer: _Analyzer | None = None,
+    sender: _Sender | None = None,
+    store: _Store | None = None,
+) -> tuple[DigestService, _Sender, _Store]:
+    sender = sender or _Sender()
+    store = store or _Store()
+    cfg = SimpleNamespace(digest=SimpleNamespace(min_relevance_score=0.5))
+    subject = DigestService(
+        cfg,
+        reader or _Reader(),
+        analyzer or _Analyzer(),
+        _Formatter(),
+        sender,
+    )  # type: ignore[arg-type]
+    subject._store = store
+    return subject, sender, store
+
+
+def test_deduplicate_posts_pairwise_and_bucketed() -> None:
+    posts = [
+        {"real_topic": "AI regulation", "relevance_score": 0.7},
+        {"real_topic": "AI regulations", "relevance_score": 0.9},
+        {"real_topic": "Space launch", "relevance_score": 0.8},
+    ]
+
+    result = _deduplicate_posts(posts)
+
+    assert [post["real_topic"] for post in result] == ["AI regulations", "Space launch"]
+    assert "" in _topic_bucket_keys("")
+    assert "first:ai" in _topic_bucket_keys("ai regulation future")
+
+    large = [
+        {"real_topic": f"topic {i}", "relevance_score": float(i)}
+        for i in range(70)
+    ] + [{"real_topic": "topic 69", "relevance_score": 100.0}]
+    assert len(_deduplicate_posts(large)) < 70
+
+
+@pytest.mark.asyncio
+async def test_generate_digest_handles_fetch_failure_and_empty_posts() -> None:
+    subject, _sender, _store = _service(reader=_Reader(exc=RuntimeError("down")))
+
+    result = await subject.generate_digest(10, "cid")
+
+    assert result.errors == ["Fetch failed: down"]
+
+    subject, sender, _store = _service(reader=_Reader(posts=[]))
+    result = await subject.generate_digest(10, "cid")
+
+    assert result.messages_sent == 1
+    assert sender.messages[0][0] == 10
+
+
+@pytest.mark.asyncio
+async def test_generate_channel_digest_handles_empty_and_fetch_failure() -> None:
+    channel = SimpleNamespace(username="news")
+    subject, sender, _store = _service(reader=_Reader(posts=[]))
+
+    result = await subject.generate_channel_digest(10, channel, "cid")
+
+    assert result.messages_sent == 1
+    assert "@news" in sender.messages[0][1]
+
+    subject, _sender, _store = _service(reader=_Reader(exc=RuntimeError("down")))
+    result = await subject.generate_channel_digest(10, channel, "cid")
+
+    assert result.errors == ["Fetch failed: down"]
+
+
+@pytest.mark.asyncio
+async def test_run_digest_pipeline_filters_delivers_and_persists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(digest_module, "_build_inline_keyboard", lambda buttons: {"buttons": buttons})
+    analyzed = [
+        {
+            "message_id": 1,
+            "real_topic": "Topic one",
+            "relevance_score": 0.9,
+            "_channel_username": "one",
+            "content_type": "news",
+        },
+        {
+            "message_id": 2,
+            "real_topic": "Topic one duplicate",
+            "relevance_score": 0.8,
+            "_channel_username": "two",
+            "content_type": "news",
+        },
+        {
+            "message_id": 3,
+            "real_topic": "Ad",
+            "relevance_score": 1.0,
+            "_channel_username": "ads",
+            "is_ad": True,
+        },
+        {
+            "message_id": 4,
+            "real_topic": "Low relevance",
+            "relevance_score": 0.1,
+            "_channel_username": "low",
+            "content_type": "news",
+        },
+    ]
+    subject, sender, store = _service(
+        reader=_Reader(posts=[{"message_id": 1}]),
+        analyzer=_Analyzer(analyzed),
+    )
+
+    result = await subject.generate_digest(10, "cid", lang="en")
+
+    assert result.post_count == 2
+    assert result.channel_count == 2
+    assert result.messages_sent == 1
+    assert sender.messages[0][2] == {"buttons": [[{"text": "Open", "callback_data": "open:1"}]]}
+    assert store.deliveries[0]["post_ids"] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_run_digest_pipeline_records_analysis_send_and_persist_errors() -> None:
+    subject, _sender, _store = _service(
+        reader=_Reader(posts=[{"message_id": 1}]),
+        analyzer=_Analyzer(exc=RuntimeError("bad analysis")),
+    )
+    result = await subject.generate_digest(10, "cid")
+    assert result.errors == ["Analysis failed: bad analysis"]
+
+    subject, _sender, _store = _service(
+        reader=_Reader(posts=[{"message_id": 1}]),
+        analyzer=_Analyzer([{"message_id": 1, "is_ad": True, "content_type": "news"}]),
+        sender=_Sender(exc=RuntimeError("send failed")),
+    )
+    result = await subject.generate_digest(10, "cid")
+    assert result.errors == ["Send failed: send failed"]
+
+    subject, sender, _store = _service(
+        reader=_Reader(posts=[{"message_id": 1}]),
+        analyzer=_Analyzer(
+            [{"message_id": 1, "real_topic": "Topic", "relevance_score": 0.9, "content_type": "news"}]
+        ),
+        store=_Store(exc=RuntimeError("db failed")),
+    )
+    result = await subject.generate_digest(10, "cid")
+    assert sender.messages
+    assert result.errors == ["Delivery record not saved: db failed"]
+
+
+@pytest.mark.asyncio
+async def test_subscription_classmethods(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(digest_module, "DigestStore", _Store)
+
+    assert await DigestService.async_get_users_with_subscriptions() == [1, 2]
+    assert DigestService.get_users_with_subscriptions() == [3]
+
+
+def test_digest_result_defaults() -> None:
+    result = DigestResult(user_id=1)
+
+    assert result.post_count == 0
+    assert result.errors == []
