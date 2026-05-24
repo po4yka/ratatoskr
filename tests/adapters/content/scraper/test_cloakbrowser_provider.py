@@ -66,16 +66,15 @@ class TestCloakBrowserProvider:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_successful_scrape_returns_html(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cloakbrowser:9222", timeout_sec=5
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222", timeout_sec=5)
         factory, browser, page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             result = await provider.scrape_markdown("https://example.com")
 
@@ -89,16 +88,15 @@ class TestCloakBrowserProvider:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_connects_to_configured_cdp_endpoint(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cb-host:9222", timeout_sec=5
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cb-host:9222", timeout_sec=5)
         factory, _browser, _page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             await provider.scrape_markdown("https://example.com")
 
@@ -112,16 +110,15 @@ class TestCloakBrowserProvider:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_mobile_flag_drives_context_kwargs(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cloakbrowser:9222", timeout_sec=5
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222", timeout_sec=5)
         factory, browser, _page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             await provider.scrape_markdown("https://example.com", mobile=False)
 
@@ -141,11 +138,12 @@ class TestCloakBrowserProvider:
             html="<html><body><p>tiny</p></body></html>"
         )
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             result = await provider.scrape_markdown("https://example.com")
 
@@ -155,16 +153,15 @@ class TestCloakBrowserProvider:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_ssrf_preflight_blocks_request(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cloakbrowser:9222", timeout_sec=5
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222", timeout_sec=5)
         factory, browser, _page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(False, "private network"),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(False, "private network"),
+            ),
         ):
             result = await provider.scrape_markdown("http://10.0.0.1/internal")
 
@@ -177,19 +174,18 @@ class TestCloakBrowserProvider:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_timeout_returns_error(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cloakbrowser:9222", timeout_sec=5
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222", timeout_sec=5)
         factory, _browser, _page = _make_playwright_mocks()
         factory.return_value.__aenter__.return_value.chromium.connect_over_cdp.side_effect = (
             TimeoutError("connect timed out")
         )
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             result = await provider.scrape_markdown("https://example.com")
 
@@ -199,19 +195,18 @@ class TestCloakBrowserProvider:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_generic_exception_returns_error(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cloakbrowser:9222", timeout_sec=5
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222", timeout_sec=5)
         factory, _browser, _page = _make_playwright_mocks()
         factory.return_value.__aenter__.return_value.chromium.connect_over_cdp.side_effect = (
             ConnectionRefusedError("sidecar down")
         )
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             result = await provider.scrape_markdown("https://example.com")
 
@@ -231,11 +226,12 @@ class TestCloakBrowserProvider:
         )
         factory, _browser, _page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             await provider.scrape_markdown("https://example.com")
 
@@ -256,11 +252,12 @@ class TestCloakBrowserProvider:
             ConnectionRefusedError("sidecar down")
         )
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             await provider.scrape_markdown("https://example.com")
 
@@ -297,16 +294,15 @@ class TestStealthKnobs:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_cdp_url_contains_seed_timezone_locale(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cb:9222", timeout_sec=5
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cb:9222", timeout_sec=5)
         factory, _browser, _page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             await provider.scrape_markdown("https://example.com/article")
 
@@ -338,11 +334,12 @@ class TestStealthKnobs:
         )
         factory, _browser, _page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             await provider.scrape_markdown("https://example.com")
 
@@ -352,18 +349,17 @@ class TestStealthKnobs:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_in_house_humanize_runs_when_helper_unavailable(self) -> None:
-        provider = CloakBrowserProvider(
-            endpoint_url="http://cb:9222", timeout_sec=5, humanize=True
-        )
+        provider = CloakBrowserProvider(endpoint_url="http://cb:9222", timeout_sec=5, humanize=True)
         factory, _browser, page = _make_playwright_mocks()
 
         # cloakbrowser package isn't installed in this venv, so the upstream
         # import will fail and the in-house bezier path takes over.
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             result = await provider.scrape_markdown("https://example.com")
 
@@ -379,11 +375,12 @@ class TestStealthKnobs:
         )
         factory, _browser, page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             result = await provider.scrape_markdown("https://example.com")
 
@@ -402,11 +399,12 @@ class TestStealthKnobs:
         )
         factory, _browser, _page = _make_playwright_mocks()
 
-        with patch(
-            "playwright.async_api.async_playwright", factory
-        ), patch(
-            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-            return_value=(True, None),
+        with (
+            patch("playwright.async_api.async_playwright", factory),
+            patch(
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
+                return_value=(True, None),
+            ),
         ):
             result = await provider.scrape_markdown("https://example.com")
 

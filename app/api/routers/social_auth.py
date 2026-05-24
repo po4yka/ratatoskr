@@ -7,7 +7,9 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.exceptions import APIException, ErrorCode, ErrorType
-from app.api.models.requests import SocialCallbackRequest  # noqa: TC001 - FastAPI resolves body model
+from app.api.models.requests import (  # noqa: TC001 - FastAPI resolves body model
+    SocialCallbackRequest,
+)
 from app.api.models.responses import success_response
 from app.api.models.responses.social import (
     SocialCallbackResponse,
@@ -21,8 +23,8 @@ from app.api.models.responses.social import (
     SocialDisconnectSuccessResponse,
     SocialProviderCapabilitiesResponse,
 )
-from app.application.dto.social_capabilities import get_social_provider_capabilities
 from app.api.routers.auth import get_current_user
+from app.application.dto.social_capabilities import get_social_provider_capabilities
 from app.application.services.social_auth_service import SocialAuthError, SocialAuthService
 from app.di.api import resolve_api_runtime
 

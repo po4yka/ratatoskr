@@ -54,8 +54,7 @@ class AsrEngine(Protocol):
         samples: np.ndarray,
         *,
         speed: float,
-    ) -> tuple[str, tuple[Sentence, ...] | None]:
-        ...
+    ) -> tuple[str, tuple[Sentence, ...] | None]: ...
 
 
 class StreamingAsrEngine:

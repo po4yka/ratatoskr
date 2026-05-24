@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 _SCRAPER_PROFILES = {"fast", "balanced", "robust", "inherit"}
 _FORCE_TIERS = {"auto", "firecrawl", "playwright"}

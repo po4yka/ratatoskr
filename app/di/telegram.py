@@ -14,11 +14,11 @@ from app.adapters.telegram.multi_source_aggregation_handler import (
     MultiSourceAggregationHandler,
 )
 from app.adapters.telegram.routing.voice_message_processor import VoiceMessageProcessor
-from app.adapters.transcription import TranscriptionService, get_or_create_transcription_service
 from app.adapters.telegram.task_manager import UserTaskManager
 from app.adapters.telegram.telegram_client import TelegramClient
 from app.adapters.telegram.url_batch_policy_service import URLBatchPolicyService
 from app.adapters.telegram.url_handler import URLHandler
+from app.adapters.transcription import TranscriptionService, get_or_create_transcription_service
 from app.application.services.adaptive_timeout import AdaptiveTimeoutService
 from app.application.services.aggregation_rollout import AggregationRolloutGate
 from app.application.services.multi_source_aggregation_service import (

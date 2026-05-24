@@ -40,9 +40,9 @@ if TYPE_CHECKING:
         SyncEntityEnvelope,
         SyncSessionData,
     )
+    from app.api.services.sync.adapters import SyncEntityAdapter
     from app.api.services.sync.collector import SyncAuxReadPort
     from app.api.services.sync.session_store import SyncSessionStorePort
-    from app.api.services.sync.adapters import SyncEntityAdapter
 
 else:
 

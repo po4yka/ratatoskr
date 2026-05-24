@@ -14,6 +14,15 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from app.adapters.telegram.transcription_persistence import (
+    TranscriptionSourceContext,
+    create_transcription_job,
+    mark_transcription_job_failed,
+    persist_transcription_artifact,
+    telegram_chat_id,
+    telegram_message_id,
+    telegram_user_id,
+)
 from app.adapters.transcription import (
     AudioDecodeError,
     FfmpegNotInstalledError,
@@ -26,15 +35,6 @@ from app.adapters.transcription import (
     format_mmss,
 )
 from app.adapters.transcription.diarization_engine import speaker_at
-from app.adapters.telegram.transcription_persistence import (
-    TranscriptionSourceContext,
-    create_transcription_job,
-    mark_transcription_job_failed,
-    persist_transcription_artifact,
-    telegram_chat_id,
-    telegram_message_id,
-    telegram_user_id,
-)
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:

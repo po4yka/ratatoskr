@@ -20,10 +20,10 @@ from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints a
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.di.tasks import (
     DigestTaskRuntime,
-    XBookmarksTaskRuntime,
-    XWikiSyncTaskRuntime,
     RssPollTaskRuntime,
     VectorReconcileTaskRuntime,
+    XBookmarksTaskRuntime,
+    XWikiSyncTaskRuntime,
 )
 
 # ── singleton providers ───────────────────────────────────────────────────────

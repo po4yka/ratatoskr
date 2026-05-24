@@ -91,7 +91,9 @@ class TranscriptionRepositoryAdapter:
             await session.flush()
             return _job_to_record(row)
 
-    async def lease_next(self, *, lease_owner: str, lease_ttl_seconds: int):
+    async def lease_next(
+        self, *, lease_owner: str, lease_ttl_seconds: int
+    ) -> LeasedTranscriptionJob | None:
         now = _utcnow()
         async with self._db.transaction() as session:
             job = await session.scalar(
@@ -152,7 +154,9 @@ class TranscriptionRepositoryAdapter:
             await session.flush()
             return _artifact_to_record(row)
 
-    async def fail_job(self, job_id: int, *, error_code: str, error_message: str):
+    async def fail_job(
+        self, job_id: int, *, error_code: str, error_message: str
+    ) -> TranscriptionJobRecord | None:
         async with self._db.transaction() as session:
             job = await session.get(TranscriptionJob, job_id)
             if job is None:
@@ -237,7 +241,7 @@ class TranscriptionRepositoryAdapter:
                     updated_at=now,
                 )
             )
-            return int(result.rowcount or 0)
+            return int(getattr(result, "rowcount", 0) or 0)
 
     async def append_progress_event(
         self,
@@ -286,7 +290,9 @@ class TranscriptionRepositoryAdapter:
             await session.flush()
             return _progress_to_record(row)
 
-    async def list_progress_events(self, job_id: int, *, after_sequence: int = 0, limit: int = 100):
+    async def list_progress_events(
+        self, job_id: int, *, after_sequence: int = 0, limit: int = 100
+    ) -> list[TranscriptionProgressEventRecord]:
         async with self._db.session() as session:
             rows = (
                 await session.execute(
@@ -301,7 +307,9 @@ class TranscriptionRepositoryAdapter:
             ).scalars()
             return [_progress_to_record(row) for row in rows]
 
-    async def list_artifacts_for_user(self, user_id: int, *, limit: int = 50):
+    async def list_artifacts_for_user(
+        self, user_id: int, *, limit: int = 50
+    ) -> list[TranscriptionArtifactRecord]:
         async with self._db.session() as session:
             rows = (
                 await session.execute(

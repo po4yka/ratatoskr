@@ -22,7 +22,9 @@ if TYPE_CHECKING:
 class XOAuthClient:
     """X OAuth 2.0 Authorization Code with PKCE client."""
 
-    def __init__(self, config: XOAuthConfig, *, http_client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self, config: XOAuthConfig, *, http_client: httpx.AsyncClient | None = None
+    ) -> None:
         self._config = config
         self._http_client = http_client
 
@@ -144,7 +146,9 @@ class XOAuthClient:
         }
         headers = {"Authorization": f"Bearer {access_token}"}
         close_client = self._http_client is None
-        client = self._http_client or httpx.AsyncClient(timeout=httpx.Timeout(self._config.timeout_sec))
+        client = self._http_client or httpx.AsyncClient(
+            timeout=httpx.Timeout(self._config.timeout_sec)
+        )
         try:
             return await client.get(url, params=params, headers=headers)
         finally:
@@ -155,7 +159,9 @@ class XOAuthClient:
         url = f"{self._config.normalized_api_base_url}/users/me"
         headers = {"Authorization": f"Bearer {access_token}"}
         close_client = self._http_client is None
-        client = self._http_client or httpx.AsyncClient(timeout=httpx.Timeout(self._config.timeout_sec))
+        client = self._http_client or httpx.AsyncClient(
+            timeout=httpx.Timeout(self._config.timeout_sec)
+        )
         try:
             response = await client.get(url, headers=headers)
         except httpx.HTTPError:

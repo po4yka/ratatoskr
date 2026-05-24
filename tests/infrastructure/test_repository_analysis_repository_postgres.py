@@ -11,7 +11,6 @@ from app.infrastructure.persistence.repositories.repository_analysis_repository 
     RepositoryAnalysisRepositoryAdapter,
 )
 
-
 USER_ID = 951_001
 
 

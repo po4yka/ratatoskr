@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.platform_extraction.protocol import PlatformExtractor
+from app.adapters.social.x import XOAuthClient, XOAuthConfig
 from app.adapters.twitter.extraction_coordinator import TwitterExtractionCoordinator
 from app.adapters.twitter.firecrawl_extractor import TwitterFirecrawlExtractor
 from app.adapters.twitter.playwright_extractor import TwitterPlaywrightExtractor
 from app.adapters.twitter.tier_policy import TwitterTierPolicy
-from app.adapters.social.x import XOAuthClient, XOAuthConfig
 from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.urls.twitter import is_twitter_url
 from app.infrastructure.persistence.repositories.social_connection_repository import (

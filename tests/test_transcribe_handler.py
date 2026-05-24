@@ -152,9 +152,7 @@ async def test_url_form_invokes_service_and_replies_with_transcript() -> None:
         from pathlib import Path
 
         fetch_mock.return_value = Path("/tmp/clip.mp3")
-        await handler.handle_transcribe(
-            _make_ctx("/transcribe https://example.com/clip.mp3")
-        )
+        await handler.handle_transcribe(_make_ctx("/transcribe https://example.com/clip.mp3"))
 
     service.transcribe_media_path.assert_awaited_once()
     # Should send at least: "Fetching audio..." + "Transcribing..." + final transcript
@@ -199,9 +197,7 @@ async def test_max_duration_error_relays_friendly_message() -> None:
         from pathlib import Path
 
         fetch_mock.return_value = Path("/tmp/long.mp3")
-        await handler.handle_transcribe(
-            _make_ctx("/transcribe https://example.com/long.mp3")
-        )
+        await handler.handle_transcribe(_make_ctx("/transcribe https://example.com/long.mp3"))
 
     sent_texts = [call.args[1] for call in formatter.safe_reply.await_args_list]
     assert any("max" in text.lower() and "900" in text for text in sent_texts)
@@ -219,9 +215,7 @@ async def test_transcription_disabled_during_call_surfaces_error() -> None:
         from pathlib import Path
 
         fetch_mock.return_value = Path("/tmp/clip.mp3")
-        await handler.handle_transcribe(
-            _make_ctx("/transcribe https://example.com/clip.mp3")
-        )
+        await handler.handle_transcribe(_make_ctx("/transcribe https://example.com/clip.mp3"))
 
     sent_texts = [call.args[1] for call in formatter.safe_reply.await_args_list]
     assert any("disabled" in text.lower() for text in sent_texts)
@@ -238,9 +232,7 @@ async def test_blank_transcript_emits_no_speech_message(plain_text: str) -> None
         from pathlib import Path
 
         fetch_mock.return_value = Path("/tmp/silent.mp3")
-        await handler.handle_transcribe(
-            _make_ctx("/transcribe https://example.com/silent.mp3")
-        )
+        await handler.handle_transcribe(_make_ctx("/transcribe https://example.com/silent.mp3"))
 
     sent_texts = [call.args[1] for call in formatter.safe_reply.await_args_list]
     assert any("no recognizable speech" in text.lower() for text in sent_texts)

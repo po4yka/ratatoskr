@@ -4037,22 +4037,6 @@ paths:
       summary: List Social Connections
       description: List social account connection statuses for the authenticated user.
       operationId: list_social_connections_v1_social_connections_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -4060,16 +4044,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SocialConnectionsSuccessResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
   /v1/social/{provider}/connect-url:
     get:
       tags:
@@ -4106,19 +4088,6 @@ paths:
               type: string
           - type: 'null'
           title: Scopes
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -4152,19 +4121,6 @@ paths:
         schema:
           type: string
           title: Provider
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       requestBody:
         required: true
         content:
@@ -4204,19 +4160,6 @@ paths:
         schema:
           type: string
           title: Provider
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -9330,6 +9273,8 @@ components:
           title: Social Connections
         queue_backlog:
           $ref: '#/components/schemas/DiagnosticsQueueBacklog'
+        transcription_queue:
+          $ref: '#/components/schemas/DiagnosticsTranscriptionQueue'
         vector_indexing_lag:
           $ref: '#/components/schemas/DiagnosticsVectorIndexLag'
         latest_sync_failures:
@@ -9348,6 +9293,7 @@ components:
       - llm_providers
       - social_connections
       - queue_backlog
+      - transcription_queue
       - vector_indexing_lag
       - latest_sync_failures
       - storage_growth
@@ -9376,6 +9322,42 @@ components:
             format: date-time
           - type: 'null'
           title: Occurred At
+        source_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Url
+        normalized_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Normalized Url
+        provider_resource_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Resource Id
+        http_status:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Http Status
+        auth_tier:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Auth Tier
+        rate_limit_reset_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Rate Limit Reset At
+        correlation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Correlation Id
         metadata:
           additionalProperties: true
           type: object
@@ -9412,6 +9394,10 @@ components:
           - type: string
           - type: 'null'
           title: Rate Limit Reset Summary
+        capabilities:
+          additionalProperties: true
+          type: object
+          title: Capabilities
       type: object
       required:
       - provider
@@ -9504,6 +9490,70 @@ components:
       - source
       - event_id
       title: DiagnosticsSyncFailure
+    DiagnosticsTranscriptionQueue:
+      properties:
+        enabled:
+          type: boolean
+          title: Enabled
+          default: false
+        model_status:
+          type: string
+          enum:
+          - healthy
+          - degraded
+          - unhealthy
+          - disabled
+          - unavailable
+          - unknown
+          title: Model Status
+          default: disabled
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        backend:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Backend
+        tokens_mode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tokens Mode
+        model_identifier:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Identifier
+        by_status:
+          additionalProperties:
+            type: integer
+          type: object
+          title: By Status
+        runnable_count:
+          type: integer
+          title: Runnable Count
+          default: 0
+        expired_running_leases:
+          type: integer
+          title: Expired Running Leases
+          default: 0
+        oldest_queued_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Oldest Queued At
+        latest_event_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Latest Event At
+      type: object
+      title: DiagnosticsTranscriptionQueue
     DiagnosticsVectorIndexLag:
       properties:
         status:
@@ -10926,10 +10976,13 @@ components:
             type: object
           - type: 'null'
           title: Metadata
+        capabilities:
+          $ref: '#/components/schemas/SocialProviderCapabilitiesResponse'
       type: object
       required:
       - provider
       - status
+      - capabilities
       title: SocialConnectionResponse
     SocialConnectionsResponse:
       properties:
@@ -10983,6 +11036,47 @@ components:
       required:
       - data
       title: SocialDisconnectSuccessResponse
+    SocialProviderCapabilitiesResponse:
+      properties:
+        provider:
+          type: string
+          title: Provider
+        supportsSingleUrlLookup:
+          type: boolean
+          title: Supportssingleurllookup
+        supportsOwnedMediaLookup:
+          type: boolean
+          title: Supportsownedmedialookup
+        supportsPublicMediaLookup:
+          type: boolean
+          title: Supportspublicmedialookup
+        supportsTimelineIngestion:
+          type: boolean
+          title: Supportstimelineingestion
+        supportsRefreshTokens:
+          type: boolean
+          title: Supportsrefreshtokens
+        supportedScopes:
+          items:
+            type: string
+          type: array
+          title: Supportedscopes
+        unsupportedNotes:
+          items:
+            type: string
+          type: array
+          title: Unsupportednotes
+      type: object
+      required:
+      - provider
+      - supportsSingleUrlLookup
+      - supportsOwnedMediaLookup
+      - supportsPublicMediaLookup
+      - supportsTimelineIngestion
+      - supportsRefreshTokens
+      - supportedScopes
+      - unsupportedNotes
+      title: SocialProviderCapabilitiesResponse
     SourceActiveRequest:
       properties:
         is_active:

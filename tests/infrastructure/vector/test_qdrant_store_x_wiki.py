@@ -139,9 +139,7 @@ def test_constructs_filter_with_entity_type_x_wiki(
     assert isinstance(scroll_filter, Filter)
     must = list(scroll_filter.must or [])
 
-    entity_type_condition = FieldCondition(
-        key="entity_type", match=MatchValue(value="x_wiki")
-    )
+    entity_type_condition = FieldCondition(key="entity_type", match=MatchValue(value="x_wiki"))
     assert entity_type_condition in must
 
     environment_condition = FieldCondition(key="environment", match=MatchValue(value="test"))

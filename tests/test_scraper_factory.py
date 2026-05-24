@@ -29,7 +29,9 @@ class TestContentScraperFactory:
         assert descriptor_names == SCRAPER_PROVIDER_TOKENS
         assert all(descriptor.diagnostics_metadata for descriptor in SCRAPER_PROVIDER_DESCRIPTORS)
         assert {
-            descriptor.name for descriptor in SCRAPER_PROVIDER_DESCRIPTORS if descriptor.requires_browser
+            descriptor.name
+            for descriptor in SCRAPER_PROVIDER_DESCRIPTORS
+            if descriptor.requires_browser
         } == {"cloakbrowser", "playwright", "crawlee"}
 
     def test_default_config_creates_chain_with_eight_providers_when_firecrawl_disabled(

@@ -11,7 +11,6 @@ import pytest
 from cryptography.fernet import Fernet
 
 from app.adapters.social.meta import ThreadsClient, ThreadsOAuthConfig
-from app.config import clear_config_cache
 from app.application.ports.social_connections import (
     SocialAuthStateCreate,
     SocialAuthStateRecord,
@@ -20,6 +19,7 @@ from app.application.ports.social_connections import (
     SocialConnectionUpsert,
 )
 from app.application.services.social_auth_service import SocialAuthError, SocialAuthService
+from app.config import clear_config_cache
 from app.core.time_utils import UTC
 from app.security.secret_crypto import decrypt_secret, encrypt_secret, reset_secret_key_cache
 

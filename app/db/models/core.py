@@ -911,9 +911,7 @@ class XBookmarkMetadata(Base):
     __tablename__ = "x_bookmark_metadata"
     __table_args__ = (
         CheckConstraint(
-            "x_category IN ("
-            + ", ".join(f"'{value}'" for value in _X_CATEGORY_VALUES)
-            + ")",
+            "x_category IN (" + ", ".join(f"'{value}'" for value in _X_CATEGORY_VALUES) + ")",
             name="ck_x_bookmark_metadata_category",
         ),
         Index(
@@ -986,8 +984,6 @@ __all__ = [
     "Chat",
     "ClientSecret",
     "CrawlResult",
-    "XBookmarkMetadata",
-    "XCategory",
     "LLMAttemptTrigger",
     "LLMCall",
     "ProgressEvent",
@@ -1002,4 +998,6 @@ __all__ = [
     "UserDevice",
     "UserInteraction",
     "VideoDownload",
+    "XBookmarkMetadata",
+    "XCategory",
 ]

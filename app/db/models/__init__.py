@@ -24,8 +24,6 @@ from app.db.models.core import (
     Chat,
     ClientSecret,
     CrawlResult,
-    XBookmarkMetadata,
-    XCategory,
     LLMAttemptTrigger,
     LLMCall,
     ProgressEvent,
@@ -40,6 +38,8 @@ from app.db.models.core import (
     UserDevice,
     UserInteraction,
     VideoDownload,
+    XBookmarkMetadata,
+    XCategory,
 )
 from app.db.models.digest import (
     DIGEST_MODELS,

@@ -2,7 +2,7 @@
 
 How Ratatoskr adopts [`fieldtheory-cli`](https://github.com/po4yka/fieldtheory-cli) (`ft`) as a first-class content source: bookmark ingestion as a peer source kind, MCP search backed by Postgres FTS, semantic indexing of the wiki corpus, Telegram-surface access to "Possible run" idea output, and a Claude Code skill for agent integration.
 
-**Audience:** Contributors implementing the integration (Steps 2–7 of the rollout), operators wiring up host-side `ft` scheduling, integrators querying the bookmark corpus via MCP. **Type:** Explanation. **Related:** [`docs/SPEC.md`](../SPEC.md) (navigation hub), [`docs/explanation/architecture-overview.md`](architecture-overview.md) (subsystem index), [`docs/explanation/github-repository-ingestion.md`](github-repository-ingestion.md) (peer ingestion subsystem), [`docs/explanation/scraper-chain.md`](scraper-chain.md) (the chain this subsystem deliberately bypasses), [`docs/reference/data-model.md`](../reference/data-model.md) (canonical schema), [`docs/reference/x-bookmarks-host-setup.md`](../reference/x-bookmarks-host-setup.md) (host-side `ft` deployment, written in Step 7).
+**Audience:** Contributors implementing the integration (Steps 2–7 of the rollout), operators wiring up host-side `ft` scheduling, integrators querying the bookmark corpus via MCP. **Type:** Explanation. **Related:** [`docs/SPEC.md`](../SPEC.md) (navigation hub), [`docs/explanation/architecture-overview.md`](architecture-overview.md) (subsystem index), [`docs/explanation/github-repository-ingestion.md`](github-repository-ingestion.md) (peer ingestion subsystem), [`docs/explanation/scraper-chain.md`](scraper-chain.md) (the chain this subsystem deliberately bypasses), [`docs/reference/data-model.md`](../reference/data-model.md) (canonical schema).
 
 ---
 
@@ -20,7 +20,7 @@ The six integration areas — bookmark ingestor, MCP search tool, wiki indexer, 
 
 `ft` is a Node + Playwright + Chromium toolchain. It is **never installed inside the Ratatoskr container images**. Instead:
 
-- The host runs `ft sync`, `ft possible run`, `ft auth`, and `ft skill install` via OS-native scheduling (launchd on macOS, systemd user units on Linux, cron on the Pi). Host setup is documented in [`docs/reference/x-bookmarks-host-setup.md`](../reference/x-bookmarks-host-setup.md).
+- The host runs `ft sync`, `ft possible run`, `ft auth`, and `ft skill install` via OS-native scheduling (launchd on macOS, systemd user units on Linux, cron on the Pi). The planned host setup reference is listed in Step 7 below.
 - `~/.fieldtheory/` is bind-mounted **read-only** as `/x_bookmarks:ro` into the `worker`, `ratatoskr` bot, and `mcp` / `mcp-write` containers. It is **not** mounted into `mobile-api` — the mobile API reads through Postgres + Qdrant, which the worker already populates.
 - Container code reads `bookmarks.db` via `aiosqlite` in read-only mode (`?mode=ro` URI flag), walks `library/*.md` via `pathlib`, and reads the newest JSON file in `ideas/`. **The container performs zero `ft` subprocess invocations.** Operating Rule 6's `asyncio.to_thread(subprocess.run, ["ft", ...])` guidance is vacuously satisfied — no such call exists in the container.
 
@@ -289,7 +289,7 @@ Workspace documentation (`CLAUDE.md` at the workspace root, and `ratatoskr/CLAUD
 
 - The skill is available and how to invoke it.
 - `ft sync` should be run before starting an agent session that relies on bookmark context.
-- The host-setup reference at `docs/reference/x-bookmarks-host-setup.md` covers the launchd/systemd/cron configuration.
+- The host-setup reference planned for `docs/reference/x-bookmarks-host-setup.md` covers the launchd/systemd/cron configuration.
 
 The skill itself is not modified by ratatoskr; `ft skill install` is the integration boundary.
 

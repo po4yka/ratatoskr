@@ -8,8 +8,7 @@ from typing import Any, cast
 import pytest
 from cryptography.fernet import Fernet
 
-from app.application.dto.social_auth import OAuthTokenResult
-from app.application.dto.social_auth import SocialOAuthClientProtocol
+from app.application.dto.social_auth import OAuthTokenResult, SocialOAuthClientProtocol
 from app.application.ports.social_connections import (
     SocialConnectionRecord,
     SocialConnectionRepositoryPort,

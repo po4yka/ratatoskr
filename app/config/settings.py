@@ -23,7 +23,6 @@ from .content import ContentLimitsConfig
 from .database import DatabaseConfig
 from .deployment import DeploymentConfig
 from .digest import ChannelDigestConfig
-from .x_bookmarks import XBookmarksConfig
 from .firecrawl import FirecrawlConfig  # noqa: TC001
 from .github import GitHubConfig
 from .import_export import ImportConfig
@@ -58,6 +57,7 @@ from .telegram import TelegramConfig, TelegramLimitsConfig
 from .transcription import TranscriptionConfig
 from .tts import ElevenLabsConfig
 from .twitter import TwitterConfig
+from .x_bookmarks import XBookmarksConfig
 
 logger = get_logger(__name__)
 _CONFIG_CACHE_LOCK = threading.Lock()

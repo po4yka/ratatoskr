@@ -127,6 +127,7 @@ def _setup_openrouter_mock(bot: TelegramBot, mock_instance: MagicMock) -> None:
             runtime = bot.url_processor.summarization_runtime
             runtime.openrouter = mock_instance
             runtime.workflow.openrouter = mock_instance
+            runtime.workflow.llm_client = mock_instance
             runtime.insights_generator._openrouter = mock_instance
             runtime.article_generator._openrouter = mock_instance
             runtime.metadata_helper._openrouter = mock_instance
@@ -182,7 +183,7 @@ class TestJsonRepair(unittest.TestCase):
         self.cfg = make_test_app_config(db_path=":memory:")
         self.db = _create_mock_db()
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_json_repair_success(self, mock_openrouter_client):
         async def run_test():
             bot = TelegramBot(self.cfg, self.db)
@@ -266,7 +267,7 @@ class TestJsonRepair(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_json_repair_failure(self, mock_openrouter_client):
         async def run_test():
             bot = TelegramBot(self.cfg, self.db)
@@ -331,7 +332,7 @@ class TestJsonRepair(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_json_repair_with_extra_text(self, mock_openrouter_client):
         async def run_test():
             bot = TelegramBot(self.cfg, self.db)
@@ -389,7 +390,7 @@ class TestJsonRepair(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_json_repair_sends_original_content(self, mock_openrouter_client):
         async def run_test():
             bot = TelegramBot(self.cfg, self.db)
@@ -469,7 +470,7 @@ class TestJsonRepair(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_local_json_repair_library_used(self, mock_openrouter_client):
         async def run_test():
             bot = TelegramBot(self.cfg, self.db)

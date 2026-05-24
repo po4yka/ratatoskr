@@ -8,7 +8,7 @@ manager; a startup failure must not prevent the API from serving requests.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.core.logging_utils import get_logger
 
@@ -45,8 +45,9 @@ class CocoIndexRuntime:
         dsn = coco_cfg.dsn_override or db_cfg.dsn
         dsn = dsn.replace("postgresql+asyncpg://", "postgresql://")
 
-        cocoindex.init(
-            cocoindex.Settings(
+        cocoindex_api = cast("Any", cocoindex)
+        cocoindex_api.init(
+            cocoindex_api.Settings(
                 database_url=dsn,
                 target_schema="cocoindex",
             )
@@ -84,12 +85,11 @@ class CocoIndexRuntime:
         )
 
         # Start live updaters in background
-        live_updater_cls = cocoindex.FlowLiveUpdater
         self._updaters = []
         for flow in self._flows:
-            updater = live_updater_cls(
+            updater = cocoindex_api.FlowLiveUpdater(
                 flow,
-                cocoindex.FlowLiveUpdaterOptions(live_mode=True),
+                cocoindex_api.FlowLiveUpdaterOptions(live_mode=True),
             )
             await asyncio.to_thread(updater.__enter__)
             self._updaters.append(updater)

@@ -136,6 +136,7 @@ def _setup_openrouter_mock(bot: TelegramBot, mock_instance: MagicMock) -> None:
             runtime = bot.url_processor.summarization_runtime
             runtime.openrouter = mock_instance
             runtime.workflow.openrouter = mock_instance
+            runtime.workflow.llm_client = mock_instance
             runtime.insights_generator._openrouter = mock_instance
             runtime.article_generator._openrouter = mock_instance
             runtime.metadata_helper._openrouter = mock_instance
@@ -149,6 +150,7 @@ def _setup_openrouter_mock(bot: TelegramBot, mock_instance: MagicMock) -> None:
             fp.summarizer.openrouter = mock_instance
             if hasattr(fp.summarizer, "_workflow"):
                 fp.summarizer._workflow.openrouter = mock_instance
+                fp.summarizer._workflow.llm_client = mock_instance
             if hasattr(fp.summarizer, "_insights_helper"):
                 fp.summarizer._insights_helper._openrouter = mock_instance
 
@@ -198,7 +200,7 @@ class TestJsonParsing(unittest.TestCase):
         mock.error_text = None
         return mock
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_local_repair_success(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
             bot = TelegramBot(self.cfg, self.db)
@@ -260,7 +262,7 @@ class TestJsonParsing(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_local_repair_failure(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
             bot = TelegramBot(self.cfg, self.db)
@@ -295,7 +297,7 @@ class TestJsonParsing(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_parsing_with_extra_text(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
             bot = TelegramBot(self.cfg, self.db)
@@ -354,7 +356,7 @@ class TestJsonParsing(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_salvage_from_structured_error(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
             bot = TelegramBot(self.cfg, self.db)
@@ -418,7 +420,7 @@ class TestJsonParsing(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    @patch("app.adapters.openrouter.openrouter_client.OpenRouterClient")
+    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_forward_salvage_from_structured_error(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
             bot = TelegramBot(self.cfg, self.db)

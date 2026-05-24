@@ -19,9 +19,6 @@ from app.adapters.telegram.command_handlers.backup_handler import BackupHandler
 from app.adapters.telegram.command_handlers.content_handler import ContentHandler
 from app.adapters.telegram.command_handlers.digest_handler import DigestHandler
 from app.adapters.telegram.command_handlers.export_command import ExportHandler
-from app.adapters.telegram.command_handlers.x_possible import (
-    XPossibleHandler,
-)
 from app.adapters.telegram.command_handlers.init_session_handler import InitSessionHandler
 from app.adapters.telegram.command_handlers.listen_handler import ListenHandler
 from app.adapters.telegram.command_handlers.onboarding_handler import OnboardingHandler
@@ -33,17 +30,20 @@ from app.adapters.telegram.command_handlers.social_handler import SocialHandler
 from app.adapters.telegram.command_handlers.tag_handler import TagHandler
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
+from app.adapters.telegram.command_handlers.x_possible import (
+    XPossibleHandler,
+)
 from app.adapters.transcription import TranscriptionService
 from app.di.repositories import build_social_connection_repository, build_transcription_repository
 from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
 if TYPE_CHECKING:
-    from app.application.services.transcription_job_service import TranscriptionJobService
     from app.adapters.content.url_processor import URLProcessor
     from app.adapters.telegram.task_manager import UserTaskManager
     from app.adapters.telegram.url_handler import URLHandler
     from app.application.services.social_auth_service import SocialAuthService
+    from app.application.services.transcription_job_service import TranscriptionJobService
     from app.config import AppConfig
     from app.db.session import Database
 

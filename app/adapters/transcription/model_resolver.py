@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from app.core.logging_utils import get_logger
 
@@ -134,12 +135,16 @@ def _download(url: str, dest: Path) -> None:
     they are almost certainly HTTP error pages, not real models.
     """
     logger.info("transcription_model_download_start", extra={"url": url, "dest": str(dest)})
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        msg = f"refusing non-HTTPS model download URL: {url}"
+        raise ModelDownloadError(msg)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
 
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req)  # nosec B310
     except urllib.error.HTTPError as exc:
         msg = f"HTTP {exc.code} {exc.reason} for {url}"
         raise ModelDownloadError(msg) from exc
@@ -178,7 +183,7 @@ def _extract_tar_bz2(archive: Path, dest_dir: Path) -> None:
             if not str(target).startswith(str(base)):
                 msg = f"unsafe path in archive: {member.name}"
                 raise ModelDownloadError(msg)
-        tf.extractall(dest_dir.parent)
+        tf.extractall(dest_dir.parent, filter="data")
 
 
 # ---------------------------------------------------------------------------
@@ -209,10 +214,7 @@ def ensure_asr_model(model_path: Path, language: str = "en") -> Path:
     canonical ``encoder/decoder/joiner/tokens.txt`` layout.
     """
     if language not in _ASR_BUNDLES:
-        msg = (
-            f"unknown TRANSCRIPTION_LANGUAGE {language!r}; "
-            f"known: {sorted(_ASR_BUNDLES)}"
-        )
+        msg = f"unknown TRANSCRIPTION_LANGUAGE {language!r}; known: {sorted(_ASR_BUNDLES)}"
         raise UnknownLanguageError(msg)
     bundle = _ASR_BUNDLES[language]
 
@@ -221,9 +223,7 @@ def ensure_asr_model(model_path: Path, language: str = "en") -> Path:
         return model_path
 
     missing = [
-        (remote, local)
-        for (remote, local) in bundle.files
-        if not (model_path / local).is_file()
+        (remote, local) for (remote, local) in bundle.files if not (model_path / local).is_file()
     ]
     if not missing:
         return model_path

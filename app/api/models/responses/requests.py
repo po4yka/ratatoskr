@@ -1,4 +1,3 @@
-# ruff: noqa: TC001
 """Request API response models."""
 
 from __future__ import annotations

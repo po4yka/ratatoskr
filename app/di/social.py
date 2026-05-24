@@ -20,8 +20,8 @@ from app.application.services.social_auth_service import (
 from app.application.services.social_token_service import SocialAccessTokenResolver
 
 if TYPE_CHECKING:
-    from app.config import AppConfig
     from app.application.ports.social_connections import SocialConnectionRepositoryPort
+    from app.config import AppConfig
 
 
 def build_social_oauth_clients(cfg: AppConfig) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from app.application.dto.request_lifecycle import project_request_lifecycle
 from app.application.dto.request_workflow import (
     CrawlResultDTO,
     DuplicateRequestMatchDTO,
@@ -15,7 +16,6 @@ from app.application.dto.request_workflow import (
     RequestStatusDTO,
     SummaryRecordDTO,
 )
-from app.application.dto.request_lifecycle import project_request_lifecycle
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.core.url_utils import compute_dedupe_hash, normalize_url

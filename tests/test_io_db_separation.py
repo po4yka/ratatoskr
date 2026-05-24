@@ -140,7 +140,7 @@ async def test_summary_persistence_deferred_from_llm_flow() -> None:
             ),
         ),
         db=SimpleNamespace(),  # type: ignore[arg-type]  # Mock db, won't be used
-        openrouter=None,
+        llm_client=MagicMock(),
         response_formatter=None,
         audit_func=lambda *args, **kwargs: None,
         sem=lambda: _DummySemaphore(),

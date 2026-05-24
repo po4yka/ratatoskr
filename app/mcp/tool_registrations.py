@@ -12,17 +12,18 @@ import time
 from collections.abc import Callable  # noqa: TC003
 from typing import TYPE_CHECKING, Any, Protocol
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.mcp.helpers import to_json
 from app.observability.metrics import record_request
-from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
     from app.mcp.article_service import ArticleReadService
     from app.mcp.catalog_service import CatalogReadService
-    from app.mcp.x_search_service import XSearchService
     from app.mcp.semantic_service import SemanticSearchService
     from app.mcp.signal_service import SignalMcpService
+    from app.mcp.x_search_service import XSearchService
 
 
 class McpToolRegistrar(Protocol):

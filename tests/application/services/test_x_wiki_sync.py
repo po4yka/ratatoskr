@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from app.application.services.x_wiki_sync import (
-    XWikiSyncService,
     WikiSyncSummary,
+    XWikiSyncService,
     x_wiki_point_id,
 )
 from app.infrastructure.vector.point_ids import str_to_uuid
@@ -236,9 +236,7 @@ async def test_graceful_missing_library_dir(
     assert embedding.calls == []
     assert vector_store.upsert_calls == []
     assert vector_store.delete_calls == []
-    assert any(
-        record.message == "x_wiki_sync_library_missing" for record in caplog.records
-    )
+    assert any(record.message == "x_wiki_sync_library_missing" for record in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -260,9 +258,7 @@ async def test_oserror_on_read_is_logged_and_skipped(
 
     import unittest.mock as _mock
 
-    with _mock.patch.object(
-        pathlib.Path, "read_text", side_effect=OSError("permission denied")
-    ):
+    with _mock.patch.object(pathlib.Path, "read_text", side_effect=OSError("permission denied")):
         with caplog.at_level(logging.WARNING):
             summary = await service.sync()
 
@@ -271,9 +267,7 @@ async def test_oserror_on_read_is_logged_and_skipped(
     assert summary.files_changed == 0
     assert embedding.calls == []
     assert vector_store.upsert_calls == []
-    assert any(
-        record.message == "x_wiki_sync_read_failed" for record in caplog.records
-    )
+    assert any(record.message == "x_wiki_sync_read_failed" for record in caplog.records)
 
 
 @pytest.mark.asyncio

@@ -153,7 +153,9 @@ def _make_extractor_with_cfg(
 
 def _router_for(url: str, extractor: _FakePlatformExtractor) -> PlatformExtractionRouter:
     router = PlatformExtractionRouter()
-    router.register(predicate=lambda normalized_url: normalized_url == url, factory=lambda: extractor)
+    router.register(
+        predicate=lambda normalized_url: normalized_url == url, factory=lambda: extractor
+    )
     return router
 
 

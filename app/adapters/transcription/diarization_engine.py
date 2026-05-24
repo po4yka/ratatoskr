@@ -119,8 +119,7 @@ def diarize_pcm_sync(
 
     result = sd.process(contiguous).sort_by_start_time()
     return tuple(
-        SpeakerTurn(start=float(r.start), end=float(r.end), speaker=int(r.speaker))
-        for r in result
+        SpeakerTurn(start=float(r.start), end=float(r.end), speaker=int(r.speaker)) for r in result
     )
 
 

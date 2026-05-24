@@ -110,13 +110,35 @@ class ContentExtractorRequestsMixin:
         self, req_id: int, crawl: Any, correlation_id: str | None
     ) -> asyncio.Task[None] | None:
         """Run crawl persistence off the network path."""
-        return schedule_crawl_persistence_task(
-            cfg=self.cfg,
-            message_persistence=self.message_persistence,
-            req_id=req_id,
-            crawl=crawl,
-            correlation_id=correlation_id,
-        )
+        try:
+            task = asyncio.create_task(self._persist_crawl_result(req_id, crawl, correlation_id))
+
+            def _log_err(t: asyncio.Task[Any]) -> None:
+                if not t.cancelled() and t.exception():
+                    logger.error(
+                        "persist_crawl_error",
+                        extra={"cid": correlation_id, "error": str(t.exception())},
+                    )
+                    try:
+                        from app.observability.metrics import (
+                            EXTRACTION_FAILURES,
+                            PROMETHEUS_AVAILABLE,
+                        )
+
+                        if PROMETHEUS_AVAILABLE:
+                            EXTRACTION_FAILURES.labels(
+                                stage="persist_crawl",
+                                component="background_task",
+                                reason_code="exception",
+                                retryable="false",
+                            ).inc()
+                    except Exception:
+                        pass
+
+            task.add_done_callback(_log_err)
+            return task
+        except RuntimeError:
+            return None
 
     async def _persist_crawl_result(
         self, req_id: int, crawl: Any, correlation_id: str | None

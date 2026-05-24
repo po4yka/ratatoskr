@@ -40,7 +40,7 @@ _URL_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 _AUTH_HEADER_RE = re.compile(
-    r"\b(authorization|cookie|set-cookie|x-api-key)\s*[:=]\s*([^,;\n]+)",
+    r"\b(authorization|cookie|set-cookie|x-api-key)\s*[:=]\s*([^\s,;\n]+)",
     re.IGNORECASE,
 )
 _TOKEN_ASSIGNMENT_RE = re.compile(
@@ -473,9 +473,9 @@ def _redact_url_query(query: str) -> str:
 
 
 def _redact_sensitive_text(text: str, *, redact_urls: bool) -> str:
-    redacted = _AUTH_HEADER_RE.sub(lambda match: f"{match.group(1)}: {_REDACTED}", text)
+    redacted = _BEARER_RE.sub(lambda match: f"{match.group(1)} {_REDACTED}", text)
+    redacted = _AUTH_HEADER_RE.sub(lambda match: f"{match.group(1)}: {_REDACTED}", redacted)
     redacted = _TOKEN_ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}={_REDACTED}", redacted)
-    redacted = _BEARER_RE.sub(lambda match: f"{match.group(1)} {_REDACTED}", redacted)
     redacted = _TELEGRAM_BOT_TOKEN_RE.sub(_REDACTED, redacted)
     redacted = _GITHUB_TOKEN_RE.sub(_REDACTED, redacted)
     redacted = _API_KEY_RE.sub(_REDACTED, redacted)

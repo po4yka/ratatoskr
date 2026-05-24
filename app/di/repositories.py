@@ -71,8 +71,8 @@ if TYPE_CHECKING:
     )
     from app.application.ports.rules import RuleRepositoryPort, WebhookRepositoryPort
     from app.application.ports.search import EmbeddingRepositoryPort, TopicSearchRepositoryPort
-    from app.application.ports.summaries import SummaryRepositoryPort, TagRepositoryPort
     from app.application.ports.social_connections import SocialConnectionRepositoryPort
+    from app.application.ports.summaries import SummaryRepositoryPort, TagRepositoryPort
     from app.application.ports.transcriptions import TranscriptionRepositoryPort
     from app.application.ports.users import UserRepositoryPort
     from app.db.session import Database

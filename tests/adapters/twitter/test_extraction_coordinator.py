@@ -63,7 +63,9 @@ def _coordinator(
     playwright_enabled: bool = True,
 ) -> tuple[Any, Any, Any, Any]:
     api = SimpleNamespace(extract=AsyncMock(return_value=api_result)) if api_result else None
-    firecrawl = SimpleNamespace(extract=AsyncMock(return_value=(True, "firecrawl body", "markdown")))
+    firecrawl = SimpleNamespace(
+        extract=AsyncMock(return_value=(True, "firecrawl body", "markdown"))
+    )
     playwright = SimpleNamespace(
         extract=AsyncMock(return_value=("playwright body", "twitter_graphql", {}))
     )

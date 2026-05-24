@@ -63,7 +63,7 @@ class LLMWorkflowStorageMixin:
             "tokens_completion": llm.tokens_completion,
             "cost_usd": llm.cost_usd,
             "latency_ms": llm.latency_ms,
-            "status": llm.status,
+            "status": getattr(llm.status, "value", llm.status),
             "error_text": llm.error_text,
             "structured_output_used": getattr(llm, "structured_output_used", None),
             "structured_output_mode": getattr(llm, "structured_output_mode", None),

@@ -50,9 +50,7 @@ def test_cloakbrowser_diagnostics_filtered_when_browser_disabled() -> None:
 
 
 def test_cloakbrowser_diagnostics_reports_endpoint_url() -> None:
-    cfg = make_test_app_config(
-        scraper=ScraperConfig(cloakbrowser_url="http://example-cb:9222")
-    )
+    cfg = make_test_app_config(scraper=ScraperConfig(cloakbrowser_url="http://example-cb:9222"))
     diagnostics = build_scraper_diagnostics(cfg)
 
     assert diagnostics["providers"]["cloakbrowser"]["endpoint_url"] == "http://example-cb:9222"

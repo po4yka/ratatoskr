@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import logging
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 

@@ -9,8 +9,8 @@ import pytest_asyncio
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
-from app.api.routers.auth.tokens import create_access_token
 from app.adapters.social.x import XOAuthClient, XOAuthConfig
+from app.api.routers.auth.tokens import create_access_token
 from app.application.ports.social_connections import SocialConnectionUpsert
 from app.application.services.social_auth_service import SocialAuthError, SocialAuthService
 from app.config import clear_config_cache

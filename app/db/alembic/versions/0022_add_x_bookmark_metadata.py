@@ -67,9 +67,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["request_id"], ["requests.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("request_id"),
         sa.CheckConstraint(
-            "x_category IN ("
-            + ", ".join(f"'{value}'" for value in _X_CATEGORY_VALUES)
-            + ")",
+            "x_category IN (" + ", ".join(f"'{value}'" for value in _X_CATEGORY_VALUES) + ")",
             name="ck_x_bookmark_metadata_category",
         ),
     )

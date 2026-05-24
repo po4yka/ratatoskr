@@ -11,8 +11,9 @@ from __future__ import annotations
 from collections.abc import Callable  # noqa: TC003
 from typing import TYPE_CHECKING, Any, Protocol
 
-from app.mcp.helpers import to_json
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.mcp.helpers import to_json
 
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService

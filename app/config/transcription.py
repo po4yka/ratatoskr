@@ -27,7 +27,7 @@ _DEFAULT_EMBEDDING_FILE = "3dspeaker_speech_campplus_sv_zh_en_16k-common_advance
 # users only need to flip ``TRANSCRIPTION_LANGUAGE``. Power users can still
 # override via ``TRANSCRIPTION_BACKEND`` / ``TRANSCRIPTION_TOKENS_MODE``.
 _LANGUAGE_PRESETS: dict[Language, tuple[Backend, TokensMode]] = {
-    "en": ("streaming", "bpe"),     # Kroko streaming Zipformer
+    "en": ("streaming", "bpe"),  # Kroko streaming Zipformer
     "ru": ("offline_transducer", "char"),  # GigaAM-v3 e2e RNN-T
 }
 
@@ -257,8 +257,7 @@ class TranscriptionConfig(BaseModel):
         normalized = str(value).strip().lower()
         if normalized not in _LANGUAGE_PRESETS:
             msg = (
-                f"TRANSCRIPTION_LANGUAGE must be one of "
-                f"{sorted(_LANGUAGE_PRESETS)}; got {value!r}"
+                f"TRANSCRIPTION_LANGUAGE must be one of {sorted(_LANGUAGE_PRESETS)}; got {value!r}"
             )
             raise ValueError(msg)
         return normalized

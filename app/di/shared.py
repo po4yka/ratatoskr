@@ -9,6 +9,7 @@ from app.adapters.external.firecrawl.client import FirecrawlClient
 from app.adapters.external.response_formatter import ResponseFormatter
 from app.adapters.llm import LLMClientFactory
 from app.core.logging_utils import get_logger
+from app.di.platform_extractors import build_registered_platform_router
 from app.di.repositories import (
     build_audit_log_repository,
     build_crawl_result_repository,
@@ -17,7 +18,6 @@ from app.di.repositories import (
     build_summary_repository,
     build_user_repository,
 )
-from app.di.platform_extractors import build_registered_platform_router
 from app.di.types import CoreDependencies
 
 if TYPE_CHECKING:

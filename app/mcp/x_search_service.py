@@ -38,7 +38,7 @@ class XSearchService:
 
         Returns the top ``limit`` matches ranked by ``ts_rank_cd`` over the ``tweet_text_tsv`` GIN-indexed column, joined to ``requests`` for the canonical URL. ``category`` (when provided) must be a valid ``XCategory`` value or an MCP error result is returned without touching the database.
         """
-        from app.db.models import XBookmarkMetadata, Request
+        from app.db.models import Request, XBookmarkMetadata
 
         clamped_limit = max(1, min(50, int(limit)))
         query_text = query.strip()

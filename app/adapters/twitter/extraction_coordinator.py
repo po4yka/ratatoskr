@@ -41,8 +41,8 @@ if TYPE_CHECKING:
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
-    from app.adapters.twitter.firecrawl_extractor import TwitterFirecrawlExtractor
     from app.adapters.twitter.api_extractor import XApiPostExtractor
+    from app.adapters.twitter.firecrawl_extractor import TwitterFirecrawlExtractor
     from app.adapters.twitter.playwright_extractor import TwitterPlaywrightExtractor
     from app.adapters.twitter.tier_policy import TwitterTierPolicy
 
@@ -164,12 +164,16 @@ class TwitterExtractionCoordinator:
                 "forced_skip" if self._tier_policy.force_tier() == "playwright" else "disabled"
             )
 
-        should_try_playwright = not x_api_ok and use_playwright_tier and (
-            self._tier_policy.force_tier() == "playwright"
-            or not firecrawl_ok
-            or self._should_enrich_with_playwright_media(
-                is_article=is_article,
-                firecrawl_ok=firecrawl_ok,
+        should_try_playwright = (
+            not x_api_ok
+            and use_playwright_tier
+            and (
+                self._tier_policy.force_tier() == "playwright"
+                or not firecrawl_ok
+                or self._should_enrich_with_playwright_media(
+                    is_article=is_article,
+                    firecrawl_ok=firecrawl_ok,
+                )
             )
         )
         if should_try_playwright:

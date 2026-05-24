@@ -17,11 +17,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.adapters.ingestors.x_bookmarks_ingestor import (
-    XBookmarksIngestor,
     XBookmarkRow,
+    XBookmarksIngestor,
 )
 from app.core.url_utils import compute_dedupe_hash, normalize_url
-from app.db.models.core import XBookmarkMetadata, XCategory, Request
+from app.db.models.core import Request, XBookmarkMetadata, XCategory
 from app.domain.models.request import RequestStatus
 from app.domain.models.source import SourceKind
 from tests.db_helpers_async import create_request
@@ -111,9 +111,7 @@ async def test_miss_path_inserts_request_and_metadata(
 
         metadata = (
             await verify.execute(
-                select(XBookmarkMetadata).where(
-                    XBookmarkMetadata.bookmark_external_id == "ft-1"
-                )
+                select(XBookmarkMetadata).where(XBookmarkMetadata.bookmark_external_id == "ft-1")
             )
         ).scalar_one()
         assert metadata.request_id == request.id
@@ -169,9 +167,7 @@ async def test_hit_path_upserts_metadata_and_preserves_request(
 
         metadata = (
             await verify.execute(
-                select(XBookmarkMetadata).where(
-                    XBookmarkMetadata.bookmark_external_id == "ft-42"
-                )
+                select(XBookmarkMetadata).where(XBookmarkMetadata.bookmark_external_id == "ft-42")
             )
         ).scalar_one()
         assert metadata.request_id == existing_id
@@ -411,9 +407,7 @@ async def test_real_bookmarks_db_fixture_round_trip_is_idempotent(
             .select_from(Request)
             .where(Request.type == SourceKind.X_BOOKMARK.value)
         )
-        metadata_count = await verify.scalar(
-            select(func.count()).select_from(XBookmarkMetadata)
-        )
+        metadata_count = await verify.scalar(select(func.count()).select_from(XBookmarkMetadata))
     assert request_count == 2
     assert metadata_count == 2
 

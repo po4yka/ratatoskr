@@ -156,7 +156,9 @@ async def _post_token(
     try:
         response = await client.post(config.token_endpoint, data=request_data, headers=headers)
     except httpx.HTTPError as exc:
-        raise XOAuthError("X OAuth token request failed", code="X_OAUTH_TOKEN_REQUEST_FAILED") from exc
+        raise XOAuthError(
+            "X OAuth token request failed", code="X_OAUTH_TOKEN_REQUEST_FAILED"
+        ) from exc
     finally:
         if close_client:
             await client.aclose()
@@ -171,7 +173,9 @@ async def _post_token(
     try:
         payload = response.json()
     except ValueError as exc:
-        raise XOAuthError("X OAuth token response was not JSON", code="X_OAUTH_TOKEN_INVALID_JSON") from exc
+        raise XOAuthError(
+            "X OAuth token response was not JSON", code="X_OAUTH_TOKEN_INVALID_JSON"
+        ) from exc
     return parse_x_token_response(payload)
 
 
@@ -219,7 +223,11 @@ def _basic_auth_header(client_id: str, client_secret: str) -> str:
 def _require_client_id(config: XOAuthConfig) -> str:
     client_id = (config.client_id or "").strip()
     if not client_id:
-        raise XOAuthError("X OAuth client ID is not configured", code="X_OAUTH_CLIENT_NOT_CONFIGURED", status_code=501)
+        raise XOAuthError(
+            "X OAuth client ID is not configured",
+            code="X_OAUTH_CLIENT_NOT_CONFIGURED",
+            status_code=501,
+        )
     return client_id
 
 

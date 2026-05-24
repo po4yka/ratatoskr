@@ -21,8 +21,8 @@ from app.api.models.responses.diagnostics import (
     DiagnosticsVectorIndexLag,
     HealthStatus,
 )
-from app.application.dto.social_capabilities import get_social_provider_capabilities
 from app.api.services.system_maintenance_service import SystemMaintenanceService
+from app.application.dto.social_capabilities import get_social_provider_capabilities
 from app.core.time_utils import UTC
 from app.db.session import Database  # noqa: TC001  # used at runtime in __init__ signature
 from app.infrastructure.embedding.embedding_service import DEFAULT_MODELS

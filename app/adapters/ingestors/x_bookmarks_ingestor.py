@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.core.logging_utils import get_logger
 from app.core.url_utils import compute_dedupe_hash, normalize_url
-from app.db.models.core import XBookmarkMetadata, XCategory, Request
+from app.db.models.core import Request, XBookmarkMetadata, XCategory
 from app.domain.models.request import RequestStatus
 from app.domain.models.source import SourceKind
 

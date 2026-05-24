@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.ports.social_connections import SocialFetchAttemptCreate
 from app.application.services.social_token_service import SocialAccessTokenResolver
-from app.core.urls.twitter import extract_tweet_id
 from app.core.url_utils import normalize_url
+from app.core.urls.twitter import extract_tweet_id
 
 if TYPE_CHECKING:
     from app.adapters.social.x import XOAuthClient

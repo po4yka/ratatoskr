@@ -21,7 +21,6 @@ from app.adapters.transcription.sentence_grouper import (
 )
 from app.config.transcription import TranscriptionConfig
 
-
 # ---------------------------------------------------------------------------
 # Language preset + override behaviour on TranscriptionConfig
 # ---------------------------------------------------------------------------
@@ -125,9 +124,7 @@ def test_english_bundle_layout_unchanged() -> None:
 def test_ensure_asr_model_skips_when_tokens_present(tmp_path: Path) -> None:
     """If tokens.txt already exists, treat as custom model and skip download."""
     (tmp_path / "tokens.txt").write_text("dummy")
-    with patch(
-        "app.adapters.transcription.model_resolver._download"
-    ) as download_mock:
+    with patch("app.adapters.transcription.model_resolver._download") as download_mock:
         ensure_asr_model(tmp_path, "ru")
     download_mock.assert_not_called()
 
@@ -197,9 +194,7 @@ def test_offline_engine_calls_offline_recognizer_loader(
     engine = OfflineAsrEngine(model_dir=tmp_path, num_threads=2, tokens_mode="char")
     import numpy as np
 
-    text, sentences = engine.transcribe_sync(
-        np.ones(16000, dtype=np.float32), speed=1.0
-    )
+    text, sentences = engine.transcribe_sync(np.ones(16000, dtype=np.float32), speed=1.0)
 
     fake_sherpa.OfflineRecognizer.from_transducer.assert_called_once()
     kwargs = fake_sherpa.OfflineRecognizer.from_transducer.call_args.kwargs

@@ -127,5 +127,6 @@ def test_command_dispatcher_routes_preserve_expected_precedence_order() -> None:
         "/backup",
         "/substack",
         "/rss",
+        "/x_possible",
     ]
     assert [route.prefix for route in deps.routes.tail_uid] == ["/debug"]

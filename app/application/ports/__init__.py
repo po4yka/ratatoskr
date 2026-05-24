@@ -13,6 +13,7 @@ from .audit import AuditLogRepositoryPort
 from .backups import BackupRepositoryPort
 from .batch_sessions import BatchSessionRepositoryPort
 from .imports import BookmarkImportPort, ImportJobRepositoryPort
+from .repository_analysis import RepositoryAnalysisRecord, RepositoryAnalysisRepositoryPort
 from .requests import (
     CrawlResultRepositoryPort,
     LLMCallRecord,
@@ -20,7 +21,6 @@ from .requests import (
     RequestRepositoryPort,
     VideoDownloadRepositoryPort,
 )
-from .repository_analysis import RepositoryAnalysisRecord, RepositoryAnalysisRepositoryPort
 from .rules import (
     CollectionMembershipPort,
     RuleContextPort,

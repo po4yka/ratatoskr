@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, cast
 
+from app.adapters.transcription import get_or_create_transcription_service
 from app.api.background import (
     DurableRequestProcessingQueue,
     ProgressEventRepository,
@@ -18,7 +19,6 @@ from app.api.services.sync import (
     SyncRecordCollector,
 )
 from app.api.services.sync_service import SyncService
-from app.adapters.transcription import get_or_create_transcription_service
 from app.application.services.request_service import RequestService
 from app.application.services.transcription_job_service import TranscriptionJobService
 from app.application.use_cases.search_read_model import SearchReadModelUseCase
@@ -31,12 +31,12 @@ from app.di.repositories import (
     build_llm_repository,
     build_request_repository,
     build_rss_feed_repository,
+    build_social_connection_repository,
     build_summary_repository,
     build_tag_repository,
     build_topic_search_repository,
     build_transcription_repository,
     build_user_repository,
-    build_social_connection_repository,
 )
 from app.di.search import build_search_dependencies
 from app.di.shared import (

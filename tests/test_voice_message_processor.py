@@ -47,9 +47,7 @@ def test_has_transcribable_voice_media_discriminates_correctly() -> None:
     assert has_transcribable_voice_media(MagicMock(voice=object(), audio=None, video_note=None))
     assert has_transcribable_voice_media(MagicMock(voice=None, audio=object(), video_note=None))
     assert has_transcribable_voice_media(MagicMock(voice=None, audio=None, video_note=object()))
-    assert not has_transcribable_voice_media(
-        MagicMock(voice=None, audio=None, video_note=None)
-    )
+    assert not has_transcribable_voice_media(MagicMock(voice=None, audio=None, video_note=None))
 
 
 async def test_non_voice_message_falls_through() -> None:

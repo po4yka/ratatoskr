@@ -9,9 +9,9 @@ import pytest
 from app.adapters.telegram.command_handlers.execution_context import CommandExecutionContext
 from app.adapters.telegram.command_handlers.social_handler import SocialHandler
 from app.application.dto.social_auth import (
-    SocialConnectUrlDTO,
     SocialConnectionDTO,
     SocialConnectionListDTO,
+    SocialConnectUrlDTO,
     SocialDisconnectDTO,
 )
 

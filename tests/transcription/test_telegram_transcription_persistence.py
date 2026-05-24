@@ -12,13 +12,13 @@ import pytest
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.routing.voice_message_processor import VoiceMessageProcessor
 from app.adapters.transcription import Sentence, SpeakerTurn, TranscriptionResult
-from app.application.services.transcription_job_service import EnqueuedTranscription
 from app.application.ports.transcriptions import (
     TranscriptionArtifactCreate,
     TranscriptionArtifactRecord,
     TranscriptionJobCreate,
     TranscriptionJobRecord,
 )
+from app.application.services.transcription_job_service import EnqueuedTranscription
 from app.config.transcription import TranscriptionConfig
 
 

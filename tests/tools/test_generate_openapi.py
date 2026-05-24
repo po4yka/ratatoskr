@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 
 import yaml  # type: ignore[import-untyped]
 
@@ -8,8 +11,6 @@ from app.api.models.responses.common import API_CONTRACT_VERSION
 from tools.scripts.generate_openapi import (
     JSON_PATH,
     YAML_PATH,
-    _render_json,
-    _render_yaml,
     generate_spec,
 )
 
@@ -21,10 +22,23 @@ def test_generated_openapi_version_matches_contract_version() -> None:
 
 
 def test_committed_openapi_docs_match_generator() -> None:
-    spec = generate_spec()
+    env = {
+        **os.environ,
+        "ALLOWED_ORIGINS": "http://localhost",
+        "JWT_SECRET_KEY": "x" * 40,
+        "SECRET_KEY": "x" * 40,
+        "REDIS_ENABLED": "0",
+    }
+    result = subprocess.run(
+        [sys.executable, "tools/scripts/generate_openapi.py", "--check"],
+        cwd=YAML_PATH.parents[2],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-    assert YAML_PATH.read_text() == _render_yaml(spec)
-    assert JSON_PATH.read_text() == _render_json(spec)
+    assert result.returncode == 0, result.stderr
 
 
 def test_committed_openapi_yaml_and_json_are_equivalent() -> None:

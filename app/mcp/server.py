@@ -11,12 +11,12 @@ from app.mcp.aggregation_service import AggregationMcpService
 from app.mcp.article_service import ArticleReadService
 from app.mcp.catalog_service import CatalogReadService
 from app.mcp.context import McpServerContext
-from app.mcp.x_search_service import XSearchService
 from app.mcp.http_auth import McpHttpAuthMiddleware
 from app.mcp.resource_registrations import register_resources
 from app.mcp.semantic_service import SemanticSearchService
 from app.mcp.signal_service import SignalMcpService
 from app.mcp.tool_registrations import register_tools
+from app.mcp.x_search_service import XSearchService
 
 logger = logging.getLogger("ratatoskr.mcp")
 

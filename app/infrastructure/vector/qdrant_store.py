@@ -586,9 +586,7 @@ class QdrantVectorStore:
                     wiki_paths.add(raw)
             return wiki_paths
         except Exception as exc:
-            logger.error(
-                "vector_get_indexed_x_wiki_paths_failed", extra={"error": str(exc)}
-            )
+            logger.error("vector_get_indexed_x_wiki_paths_failed", extra={"error": str(exc)})
             if self._required:
                 raise VectorStoreError(str(exc)) from exc
             return set()

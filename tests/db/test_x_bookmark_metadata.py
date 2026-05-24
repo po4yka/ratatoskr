@@ -94,9 +94,7 @@ def test_x_bookmark_metadata_indexes_present() -> None:
 def test_bookmark_external_id_index_is_unique() -> None:
     table = _table()
     unique_index = next(
-        idx
-        for idx in table.indexes
-        if idx.name == "ix_x_bookmark_metadata_bookmark_external_id"
+        idx for idx in table.indexes if idx.name == "ix_x_bookmark_metadata_bookmark_external_id"
     )
     assert unique_index.unique is True
     assert [col.name for col in unique_index.columns] == ["bookmark_external_id"]
@@ -105,9 +103,7 @@ def test_bookmark_external_id_index_is_unique() -> None:
 def test_tweet_text_tsv_index_uses_gin() -> None:
     table = _table()
     tsv_index = next(
-        idx
-        for idx in table.indexes
-        if idx.name == "ix_x_bookmark_metadata_tweet_text_tsv"
+        idx for idx in table.indexes if idx.name == "ix_x_bookmark_metadata_tweet_text_tsv"
     )
     assert tsv_index.dialect_kwargs.get("postgresql_using") == "gin"
 
@@ -128,9 +124,7 @@ def test_category_check_constraint_pins_v2_vocabulary() -> None:
     table = _table()
     checks = [c for c in table.constraints if isinstance(c, CheckConstraint)]
     matched = [c for c in checks if c.name == "ck_x_bookmark_metadata_category"]
-    assert len(matched) == 1, (
-        "expected one CHECK constraint named ck_x_bookmark_metadata_category"
-    )
+    assert len(matched) == 1, "expected one CHECK constraint named ck_x_bookmark_metadata_category"
     sqltext = str(matched[0].sqltext).lower()
     for value in (
         "tool",

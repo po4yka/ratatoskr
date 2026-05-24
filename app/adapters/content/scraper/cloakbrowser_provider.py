@@ -310,9 +310,7 @@ class CloakBrowserProvider:
                 context = await browser.new_context(
                     user_agent=_MOBILE_UA if mobile else _DESKTOP_UA,
                     viewport=(
-                        {"width": 390, "height": 844}
-                        if mobile
-                        else {"width": 1366, "height": 768}
+                        {"width": 390, "height": 844} if mobile else {"width": 1366, "height": 768}
                     ),
                     is_mobile=mobile,
                     has_touch=mobile,
@@ -348,7 +346,9 @@ class CloakBrowserProvider:
                             exc_info=True,
                         )
 
-                    humanize_status = await self._apply_humanize(page) if self._humanize else "skipped"
+                    humanize_status = (
+                        await self._apply_humanize(page) if self._humanize else "skipped"
+                    )
 
                     try:
                         await page.wait_for_load_state(

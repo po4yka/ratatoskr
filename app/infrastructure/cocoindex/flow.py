@@ -16,7 +16,7 @@ against the installed package's documentation.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from app.core.logging_utils import get_logger
 from app.infrastructure.cocoindex.embedding_bridge import (
@@ -241,12 +241,15 @@ def build_summaries_flow(
     _collection_name = collection_name
     _qdrant_url = qdrant_url
     _qdrant_api_key = qdrant_api_key
+    cocoindex_api = cast("Any", cocoindex)
+    coco_sources = cocoindex_api.sources
+    coco_targets = cocoindex_api.targets
 
     @cocoindex.flow_def(name="ratatoskr_summaries_to_qdrant")  # type: ignore[attr-defined, untyped-decorator, unused-ignore]
     def summaries_to_qdrant(flow_builder: Any, data_scope: Any) -> None:
         """CocoIndex flow: incrementally sync summaries -> Qdrant."""
         data_scope["summaries"] = flow_builder.add_source(
-            cocoindex.sources.Postgres(
+            coco_sources.Postgres(
                 table_name="summaries",
                 ordinal_field="updated_at",
                 primary_key_fields=["id", "request_id"],
@@ -284,7 +287,7 @@ def build_summaries_flow(
 
         qdrant_sink.export(
             "qdrant_points",
-            cocoindex.targets.Qdrant(
+            coco_targets.Qdrant(
                 collection_name=_collection_name,
                 url=_qdrant_url,
                 api_key=_qdrant_api_key,
@@ -316,12 +319,15 @@ def build_repositories_flow(
     _collection_name = collection_name
     _qdrant_url = qdrant_url
     _qdrant_api_key = qdrant_api_key
+    cocoindex_api = cast("Any", cocoindex)
+    coco_sources = cocoindex_api.sources
+    coco_targets = cocoindex_api.targets
 
     @cocoindex.flow_def(name="ratatoskr_repositories_to_qdrant")  # type: ignore[attr-defined, untyped-decorator, unused-ignore]
     def repositories_to_qdrant(flow_builder: Any, data_scope: Any) -> None:
         """CocoIndex flow: incrementally sync analyzed repositories -> Qdrant."""
         data_scope["repositories"] = flow_builder.add_source(
-            cocoindex.sources.Postgres(
+            coco_sources.Postgres(
                 table_name="repositories",
                 ordinal_field="updated_at",
                 primary_key_fields=["id"],
@@ -371,7 +377,7 @@ def build_repositories_flow(
 
         qdrant_sink.export(
             "qdrant_repository_points",
-            cocoindex.targets.Qdrant(
+            coco_targets.Qdrant(
                 collection_name=_collection_name,
                 url=_qdrant_url,
                 api_key=_qdrant_api_key,

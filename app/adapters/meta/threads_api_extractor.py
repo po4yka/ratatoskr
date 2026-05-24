@@ -16,8 +16,8 @@ from app.application.dto.aggregation import (
 from app.application.ports.social_connections import SocialFetchAttemptCreate
 from app.application.services.social_token_service import SocialAccessTokenResolver
 from app.core.lang import detect_language
-from app.core.urls.meta import extract_threads_post_id
 from app.core.url_utils import normalize_url
+from app.core.urls.meta import extract_threads_post_id
 from app.domain.models.source import SourceItem, SourceKind
 
 if TYPE_CHECKING:
