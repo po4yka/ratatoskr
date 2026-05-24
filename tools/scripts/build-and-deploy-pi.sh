@@ -155,6 +155,23 @@ COMPOSE_CMD="${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${SERVICE}"
 if [[ $RESTART -eq 1 ]]; then
   echo "==> Restarting ${SERVICE} on ${RASPI_HOST} (project: ${COMPOSE_PROJECT})"
   ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_CMD}"
+
+  # Workaround for a `compose up --no-deps --force-recreate` quirk observed
+  # 2026-05-24: `ratatoskr-mobile-api` ended up attached to only the external
+  # `firecrawl_internal` network, with `docker_default` (where postgres/redis
+  # live) dropped. Bot/worker/scheduler didn't reproduce, but the mobile-api
+  # crash-loop was silent — alembic plugins logged, then TCP connect to
+  # postgres hung until the container died with exit 1 at ~17 s, no traceback.
+  # `docker network connect` errors with "already exists" when the container
+  # is correctly attached, so the `|| true` keeps the script idempotent across
+  # services that may or may not need docker_default.
+  echo "==> Ensuring ${SERVICE} is attached to docker_default"
+  ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+    CID=\$(${COMPOSE_RUN[*]} ps -q ${SERVICE} 2>/dev/null) && \
+    [ -n \"\$CID\" ] && \
+    docker network connect docker_default \"\$CID\" 2>/dev/null \
+    && echo '    attached docker_default' \
+    || echo '    docker_default already attached or not declared'"
 else
   echo "==> Skipping restart (--no-restart). To start manually on the Pi:"
   echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_CMD}'"
