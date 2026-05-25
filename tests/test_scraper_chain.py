@@ -277,13 +277,15 @@ class TestContentScraperChain:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_playwright_success_stops_before_direct_html(self):
-        """When Playwright succeeds, lower-priority direct_html is not invoked."""
+        """Legacy serial mode: Playwright succeeds, lower-priority direct_html is not invoked."""
         scrapling = _MockProvider(name="scrapling", result=_error_result(error="scrapling failed"))
         firecrawl = _MockProvider(name="firecrawl", result=_error_result(error="firecrawl failed"))
         playwright = _MockProvider(name="playwright", result=_ok_result(markdown="# Rendered"))
         direct_html = _MockProvider(name="direct_html", result=_ok_result(markdown="# Direct"))
 
-        chain = ContentScraperChain([scrapling, firecrawl, playwright, direct_html])
+        chain = ContentScraperChain(
+            [scrapling, firecrawl, playwright, direct_html], race_enabled=False
+        )
         result = await chain.scrape_markdown("https://example.com")
 
         assert result.status == "ok"
@@ -295,7 +297,7 @@ class TestContentScraperChain:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_crawlee_success_stops_before_direct_html(self):
-        """When Crawlee succeeds, direct_html is not invoked."""
+        """Legacy serial mode: Crawlee succeeds, direct_html is not invoked."""
         scrapling = _MockProvider(name="scrapling", result=_error_result(error="scrapling failed"))
         firecrawl = _MockProvider(name="firecrawl", result=_error_result(error="firecrawl failed"))
         playwright = _MockProvider(
@@ -304,7 +306,9 @@ class TestContentScraperChain:
         crawlee = _MockProvider(name="crawlee", result=_ok_result(markdown="# Crawlee"))
         direct_html = _MockProvider(name="direct_html", result=_ok_result(markdown="# Direct"))
 
-        chain = ContentScraperChain([scrapling, firecrawl, playwright, crawlee, direct_html])
+        chain = ContentScraperChain(
+            [scrapling, firecrawl, playwright, crawlee, direct_html], race_enabled=False
+        )
         result = await chain.scrape_markdown("https://example.com")
 
         assert result.status == "ok"

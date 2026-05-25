@@ -78,6 +78,16 @@ class ScraperConfig(BaseModel):
         validation_alias="SCRAPER_BROWSER_ENABLED",
         description="Master switch for browser-based providers (playwright/crawlee)",
     )
+    race_enabled: bool = Field(
+        default=True,
+        validation_alias="SCRAPER_RACE_ENABLED",
+        description=(
+            "Race free providers (scrapling/defuddle/direct_html/crawl4ai) and "
+            "browser providers (playwright/crawlee/cloakbrowser) in parallel "
+            "instead of trying them serially. The paid Firecrawl tier remains "
+            "serial. Disable to restore the legacy ordered-fallback behaviour."
+        ),
+    )
     force_provider: str | None = Field(
         default=None,
         validation_alias="SCRAPER_FORCE_PROVIDER",

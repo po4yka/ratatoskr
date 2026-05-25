@@ -84,6 +84,13 @@ scraper:
   crawlee_enabled: false
   firecrawl_self_hosted_enabled: false
   js_heavy_hosts: techradar.com
+  # Race providers within each tier (free, paid, browser) instead of trying
+  # them serially. Free tier (scrapling/defuddle/direct_html/crawl4ai) is
+  # the high-leverage race; Firecrawl stays serial to avoid burning the
+  # billed call when a free provider would have won; browser providers
+  # race only inside their own tier. Flip to false to restore the legacy
+  # ordered-fallback if a provider misbehaves under cancellation.
+  race_enabled: true
 
 attachment:
   # Image-density gate on vision-model routing for HTML articles.

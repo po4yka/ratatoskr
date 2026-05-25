@@ -211,6 +211,7 @@ class ContentScraperFactory:
             audit=audit,
             min_content_length=getattr(scraper_cfg, "min_content_length", 400),
             js_heavy_hosts=getattr(scraper_cfg, "js_heavy_hosts", ()),
+            race_enabled=bool(getattr(scraper_cfg, "race_enabled", True)),
         )
 
 

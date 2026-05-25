@@ -198,6 +198,17 @@ if PROMETHEUS_AVAILABLE:
         buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
         registry=REGISTRY,
     )
+    # End-to-end wall time for a full chain invocation (sum of all tier
+    # attempts, including races). Tier-1 of the speedup plan racing free
+    # providers and reading P50/P95 movement here is how we know the win
+    # actually landed.
+    SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS = Histogram(
+        "ratatoskr_scraper_chain_total_latency_seconds",
+        "Total wall time for one scraper chain invocation in seconds",
+        ["mode", "outcome"],
+        buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 40.0, 60.0, 90.0, 120.0],
+        registry=REGISTRY,
+    )
 
     # ---- Social integration telemetry ----------------------------------
     SOCIAL_FETCH_TOTAL = Counter(
@@ -1035,6 +1046,31 @@ def record_vector_write(*, operation: str, status: str) -> None:
     if not PROMETHEUS_AVAILABLE or VECTOR_WRITES_TOTAL is None:
         return
     VECTOR_WRITES_TOTAL.labels(operation=operation, status=status).inc()
+
+
+def record_scraper_chain_total_latency(
+    *,
+    mode: str,
+    outcome: str,
+    total_latency_seconds: float,
+) -> None:
+    """Record end-to-end wall time of one scraper chain invocation.
+
+    Args:
+        mode: ``serial`` (legacy ordered fallback) or ``tiered_race`` (the
+            free/paid/browser tier-based race introduced in Tier 1 of the
+            speedup plan).
+        outcome: ``success`` | ``empty`` | ``ssrf_blocked``.
+        total_latency_seconds: Wall time from the chain entry to the
+            returned ``FirecrawlResult`` (success or final error).
+    """
+    if not PROMETHEUS_AVAILABLE or SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS is None:
+        return
+    if total_latency_seconds < 0:
+        return
+    SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS.labels(
+        mode=mode, outcome=outcome
+    ).observe(total_latency_seconds)
 
 
 def record_llm_request_total_latency(
