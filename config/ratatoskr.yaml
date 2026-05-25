@@ -34,7 +34,13 @@ runtime:
   # Worker handoff knobs (Tier 2 of the URL-processing speedup plan).
   # Set url_worker_enqueue_enabled to false to fall back to the legacy
   # inline bot path without redeploying (safety valve).
-  url_worker_enqueue_enabled: true
+  #
+  # FLIPPED TO FALSE 2026-05-25 after discovering the worker silently
+  # fails to import `app/tasks/url_processing.py` (forward-ref
+  # NameError on URLProcessingTaskRuntime, swallowed by taskiq).
+  # Submitted URLs would queue but never run. Re-enable once the
+  # url_processing import is fixed.
+  url_worker_enqueue_enabled: false
   url_worker_concurrency: 4
 
 openrouter:
