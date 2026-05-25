@@ -87,8 +87,15 @@ scraper:
   cloakbrowser_enabled: false
   playwright_enabled: false
   crawlee_enabled: false
-  firecrawl_self_hosted_enabled: false
-  js_heavy_hosts: techradar.com
+  # Self-hosted Firecrawl sidecar (firecrawl-api on the Pi) is the
+  # browser-capable rung of the chain. Required for habr.com and other
+  # JS-rendered SPAs where Scrapling fetches HTTP 200 but trafilatura
+  # extracts 0 chars from the JS shell. The managed cloud Firecrawl
+  # is not wired into the chain — only the self-hosted instance is used.
+  firecrawl_self_hosted_enabled: true
+  # JS-heavy hosts: the chain reorders browser tier ahead of free for
+  # these so the slow-but-correct provider runs first. CSV.
+  js_heavy_hosts: techradar.com,habr.com
   # Race providers within each tier (free, paid, browser) instead of trying
   # them serially. Free tier (scrapling/defuddle/direct_html/crawl4ai) is
   # the high-leverage race; Firecrawl stays serial to avoid burning the
