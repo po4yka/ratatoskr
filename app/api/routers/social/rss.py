@@ -10,6 +10,14 @@ from starlette.responses import StreamingResponse
 
 from app.api.exceptions import ResourceNotFoundError, ValidationError
 from app.api.models.responses import success_response
+from app.api.models.responses.rss import (
+    RssDeleteSuccessResponse,
+    RssFeedItemsSuccessResponse,
+    RssFeedsListSuccessResponse,
+    RssImportSuccessResponse,
+    RssRefreshSuccessResponse,
+    RssSubscribeSuccessResponse,
+)
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
 from app.core.logging_utils import get_logger
@@ -50,7 +58,7 @@ def _feed_entry_payload(entry: Any) -> dict[str, Any]:
 # --- Subscription endpoints ---
 
 
-@router.get("/feeds")
+@router.get("/feeds", response_model=RssFeedsListSuccessResponse, response_model_exclude_none=True)
 async def list_feeds(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -74,7 +82,12 @@ async def list_feeds(
     return success_response({"feeds": items})
 
 
-@router.post("/feeds/subscribe", status_code=201)
+@router.post(
+    "/feeds/subscribe",
+    status_code=201,
+    response_model=RssSubscribeSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def subscribe(
     body: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
@@ -132,7 +145,11 @@ async def subscribe(
     )
 
 
-@router.delete("/feeds/{subscription_id}")
+@router.delete(
+    "/feeds/{subscription_id}",
+    response_model=RssDeleteSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def unsubscribe(
     subscription_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -153,7 +170,11 @@ async def unsubscribe(
 # --- Feed item endpoints ---
 
 
-@router.get("/feeds/{feed_id}/items")
+@router.get(
+    "/feeds/{feed_id}/items",
+    response_model=RssFeedItemsSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def list_feed_items(
     feed_id: int,
     limit: int = Query(default=20, ge=1, le=100),
@@ -185,7 +206,11 @@ async def list_feed_items(
     )
 
 
-@router.post("/feeds/{feed_id}/refresh")
+@router.post(
+    "/feeds/{feed_id}/refresh",
+    response_model=RssRefreshSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def refresh_feed(
     feed_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -280,7 +305,7 @@ async def export_opml(
     )
 
 
-@router.post("/import/opml")
+@router.post("/import/opml", response_model=RssImportSuccessResponse)
 async def import_opml(
     file: UploadFile,
     user: dict[str, Any] = Depends(get_current_user),

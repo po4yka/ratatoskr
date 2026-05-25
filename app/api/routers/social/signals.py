@@ -8,8 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.dependencies.signals import get_signal_source_repository
 from app.api.models.responses import success_response
-from app.api.models.signals import (  # noqa: TC001
+from app.api.models.signals import (
     SignalFeedbackRequest,
+    SignalHealthSuccessResponse,
+    SignalListSuccessResponse,
+    SignalQueuedSuccessResponse,
+    SignalSourcesHealthSuccessResponse,
+    SignalTopicSuccessResponse,
+    SignalUpdatedSuccessResponse,
     SourceActiveRequest,
     SourceControlRequest,
     TopicPreferenceRequest,
@@ -28,7 +34,7 @@ def _user_id(user: dict[str, Any]) -> int:
     return int(user["user_id"])
 
 
-@router.get("")
+@router.get("", response_model=SignalListSuccessResponse, response_model_exclude_none=True)
 async def list_signals(
     repo: SignalSourceRepositoryPort = Depends(get_signal_source_repository),
     user: dict[str, Any] = Depends(get_current_user),
@@ -37,7 +43,7 @@ async def list_signals(
     return success_response({"signals": signals})
 
 
-@router.get("/health")
+@router.get("/health", response_model=SignalHealthSuccessResponse, response_model_exclude_none=True)
 async def signal_health(
     request: Request,
     repo: SignalSourceRepositoryPort = Depends(get_signal_source_repository),
@@ -75,7 +81,11 @@ async def signal_health(
     )
 
 
-@router.get("/sources/health")
+@router.get(
+    "/sources/health",
+    response_model=SignalSourcesHealthSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def source_health(
     repo: SignalSourceRepositoryPort = Depends(get_signal_source_repository),
     user: dict[str, Any] = Depends(get_current_user),
@@ -84,7 +94,11 @@ async def source_health(
     return success_response({"sources": rows})
 
 
-@router.post("/sources/{source_id}/active")
+@router.post(
+    "/sources/{source_id}/active",
+    response_model=SignalUpdatedSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def set_source_active(
     source_id: int,
     body: SourceActiveRequest,
@@ -101,7 +115,11 @@ async def set_source_active(
     return success_response({"updated": True, "is_active": body.is_active})
 
 
-@router.patch("/sources/{source_id}/controls")
+@router.patch(
+    "/sources/{source_id}/controls",
+    response_model=SignalUpdatedSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def update_source_controls(
     source_id: int,
     body: SourceControlRequest,
@@ -121,7 +139,11 @@ async def update_source_controls(
     return success_response({"updated": True})
 
 
-@router.post("/sources/{source_id}/retry")
+@router.post(
+    "/sources/{source_id}/retry",
+    response_model=SignalQueuedSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def retry_source(
     source_id: int,
     repo: SignalSourceRepositoryPort = Depends(get_signal_source_repository),
@@ -133,7 +155,11 @@ async def retry_source(
     return success_response({"queued": True})
 
 
-@router.post("/{signal_id}/feedback")
+@router.post(
+    "/{signal_id}/feedback",
+    response_model=SignalUpdatedSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def update_signal_feedback(
     signal_id: int,
     body: SignalFeedbackRequest,
@@ -166,7 +192,7 @@ async def update_signal_feedback(
     return success_response({"updated": True})
 
 
-@router.post("/topics")
+@router.post("/topics", response_model=SignalTopicSuccessResponse, response_model_exclude_none=True)
 async def upsert_topic(
     body: TopicPreferenceRequest,
     request: Request,

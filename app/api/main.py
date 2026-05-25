@@ -240,8 +240,10 @@ def _resolve_allowed_origins() -> list[str]:
         )
         return [
             "http://localhost:3000",
+            "http://localhost:5173",
             "http://localhost:8080",
             "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
             "http://127.0.0.1:8080",
         ]
     logger.info("cors_allowed_origins_configured", extra={"cors_origins_count": len(origins)})
