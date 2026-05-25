@@ -190,7 +190,7 @@ async def _run_url_task(
             "url_task_summary_already_exists",
             extra={"request_id": request_id, "cid": cid},
         )
-        summary_text = _format_summary_for_edit(summary_data, cid=cid)
+        summary_text = _format_summary_for_edit(summary_data, cid=cid, runtime=runtime)
         if chat_id is not None and bot_reply_message_id is not None:
             await _edit_placeholder(
                 chat_id=chat_id,
@@ -232,7 +232,7 @@ async def _run_url_task(
 
     # Reload the summary that the pipeline just persisted.
     summary_data = await _load_summary(request_id=request_id, db=db)
-    summary_text = _format_summary_for_edit(summary_data, cid=cid)
+    summary_text = _format_summary_for_edit(summary_data, cid=cid, runtime=runtime)
 
     if chat_id is not None and bot_reply_message_id is not None:
         await _edit_placeholder(
@@ -283,40 +283,46 @@ async def _load_summary(*, request_id: int, db: Database) -> dict[str, Any] | No
         row = await session.scalar(select(Summary).where(Summary.request_id == request_id))
         if row is None:
             return None
-        return {"summary_json": getattr(row, "summary_json", None) or {}}
+        return {"json_payload": row.json_payload or {}}
 
 
 def _format_summary_for_edit(
     summary_data: dict[str, Any] | None,
     *,
     cid: str | None,
+    runtime: "URLProcessingTaskRuntime",
 ) -> str:
     """Format a persisted summary dict into Telegram message text.
 
-    Falls back to a minimal text if the summary JSON is missing or unparseable.
-    Delegates to the summary formatter when available, otherwise builds a
-    minimal plain-text representation from the contract fields.
+    Uses the same ``build_card_sections`` path as the bot so the worker
+    produces identical output to the non-silent bot path.  Falls back to a
+    minimal placeholder only when the summary JSON is absent.
     """
     if summary_data is None:
         return f"Summary ready (Error ID: {cid or 'unknown'})"
 
-    summary_json = summary_data.get("summary_json") or {}
+    summary_json = summary_data.get("json_payload") or {}
     if not summary_json:
         return f"Summary ready (Error ID: {cid or 'unknown'})"
 
-    # Build a minimal plain-text representation from the contract fields.
-    parts: list[str] = []
-    title = str(summary_json.get("title") or "").strip()
-    if title:
-        parts.append(title)
-    tldr = str(summary_json.get("tldr") or "").strip()
-    if tldr:
-        parts.append(tldr)
-    summary_text = str(summary_json.get("summary_250") or "").strip()
-    if summary_text:
-        parts.append(summary_text)
-    if parts:
-        return "\n\n".join(parts)
+    try:
+        from app.adapters.external.formatting.summary.card_renderer import build_card_sections
+
+        sections = build_card_sections(
+            summary_json,
+            None,  # llm stub — not available at edit time; model info line is skipped when None
+            None,  # chunks
+            reader=False,
+            text_processor=runtime.response_formatter._text_processor,
+            data_formatter=runtime.response_formatter._data_formatter,
+            lang=runtime.response_formatter._lang,
+        )
+        text = "\n\n".join(sections).strip()
+        if text:
+            return text
+    except Exception:
+        logger.warning("format_summary_card_failed", exc_info=True)
+
     return f"Summary ready (Error ID: {cid or 'unknown'})"
 
 
@@ -418,9 +424,11 @@ class URLProcessingTaskRuntime:
         *,
         url_processor: Any,
         telegram_sender: Any,
+        response_formatter: Any,
     ) -> None:
         self.url_processor = url_processor
         self.telegram_sender = telegram_sender
+        self.response_formatter = response_formatter
 
 
 def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessingTaskRuntime:
@@ -465,4 +473,5 @@ def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessing
     return URLProcessingTaskRuntime(
         url_processor=url_processor,
         telegram_sender=telegram_sender,
+        response_formatter=response_formatter,
     )

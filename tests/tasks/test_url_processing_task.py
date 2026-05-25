@@ -5,6 +5,7 @@ Covers:
 - Lease not acquired: task returns early without calling the processor
 - Idempotency: if summary already exists when the task runs, LLM is skipped
 - Failure path: job is marked failed and placeholder is edited with error text
+- Canonical card formatting: _format_summary_for_edit uses build_card_sections output
 """
 
 from __future__ import annotations
@@ -90,6 +91,34 @@ def _make_leased_job(request_id: int = 1, cid: str = "test-cid"):
     )
 
 
+# ── Runtime stub helper ───────────────────────────────────────────────────────
+
+
+def _make_runtime(url_processor=None, telegram_sender=None, response_formatter=None):
+    """Build a minimal URLProcessingTaskRuntime-shaped namespace for tests."""
+    if url_processor is None:
+        url_processor = MagicMock()
+        url_processor.handle_url_flow = AsyncMock()
+    if telegram_sender is None:
+        telegram_sender = MagicMock()
+        telegram_sender.edit_message_text = AsyncMock()
+    if response_formatter is None:
+        # Minimal stub: build_card_sections uses _text_processor, _data_formatter, _lang
+        text_proc = MagicMock()
+        text_proc.sanitize_summary_text = lambda x: x
+        data_fmt = MagicMock()
+        data_fmt.format_key_stats_compact = MagicMock(return_value=[])
+        response_formatter = MagicMock()
+        response_formatter._text_processor = text_proc
+        response_formatter._data_formatter = data_fmt
+        response_formatter._lang = "en"
+    return SimpleNamespace(
+        url_processor=url_processor,
+        telegram_sender=telegram_sender,
+        response_formatter=response_formatter,
+    )
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 
@@ -106,10 +135,7 @@ async def test_process_url_request_lease_not_acquired(monkeypatch):
     job_repo = MagicMock()
     job_repo.lease_next = AsyncMock(return_value=None)
 
-    url_processor = MagicMock()
-    url_processor.handle_url_flow = AsyncMock()
-    telegram_sender = MagicMock()
-    runtime = SimpleNamespace(url_processor=url_processor, telegram_sender=telegram_sender)
+    runtime = _make_runtime()
 
     from app.tasks.url_processing import _process_url_request_body
 
@@ -124,7 +150,7 @@ async def test_process_url_request_lease_not_acquired(monkeypatch):
             runtime=runtime,
         )
 
-    url_processor.handle_url_flow.assert_not_awaited()
+    runtime.url_processor.handle_url_flow.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -154,7 +180,7 @@ async def test_process_url_request_happy_path(monkeypatch):
     )
     telegram_sender = MagicMock()
     telegram_sender.edit_message_text = AsyncMock()
-    runtime = SimpleNamespace(url_processor=url_processor, telegram_sender=telegram_sender)
+    runtime = _make_runtime(url_processor=url_processor, telegram_sender=telegram_sender)
 
     request_data = {
         "chat_id": 100,
@@ -163,7 +189,7 @@ async def test_process_url_request_happy_path(monkeypatch):
         "correlation_id": "cid-happy",
     }
     # First _load_summary returns None (not done yet); second returns data after processing.
-    summary_after = {"summary_json": {"title": "T", "tldr": "TL", "summary_250": "S"}}
+    summary_after = {"json_payload": {"title": "T", "tldr": "TL", "summary_250": "S"}}
 
     from app.tasks.url_processing import _process_url_request_body
 
@@ -212,7 +238,7 @@ async def test_process_url_request_idempotent_when_summary_exists(monkeypatch):
     url_processor.handle_url_flow = AsyncMock()
     telegram_sender = MagicMock()
     telegram_sender.edit_message_text = AsyncMock()
-    runtime = SimpleNamespace(url_processor=url_processor, telegram_sender=telegram_sender)
+    runtime = _make_runtime(url_processor=url_processor, telegram_sender=telegram_sender)
 
     request_data = {
         "chat_id": 100,
@@ -220,7 +246,7 @@ async def test_process_url_request_idempotent_when_summary_exists(monkeypatch):
         "bot_reply_message_id": 66,
         "correlation_id": "cid-idem",
     }
-    existing_summary = {"summary_json": {"title": "Cached", "tldr": "c", "summary_250": "cs"}}
+    existing_summary = {"json_payload": {"title": "Cached", "tldr": "c", "summary_250": "cs"}}
 
     from app.tasks.url_processing import _process_url_request_body
 
@@ -270,7 +296,7 @@ async def test_process_url_request_marks_failed_on_exception(monkeypatch):
     url_processor.handle_url_flow = AsyncMock(side_effect=RuntimeError("scraper blew up"))
     telegram_sender = MagicMock()
     telegram_sender.edit_message_text = AsyncMock()
-    runtime = SimpleNamespace(url_processor=url_processor, telegram_sender=telegram_sender)
+    runtime = _make_runtime(url_processor=url_processor, telegram_sender=telegram_sender)
 
     request_data = {
         "chat_id": 100,
@@ -306,3 +332,52 @@ async def test_process_url_request_marks_failed_on_exception(monkeypatch):
     job_repo.mark_succeeded.assert_not_awaited()
     # Placeholder edit with error text is best-effort so we check it was called.
     telegram_sender.edit_message_text.assert_awaited()
+
+
+def test_format_summary_uses_card_sections_canonical_output(monkeypatch):
+    """_format_summary_for_edit produces the canonical card text via build_card_sections."""
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    summary_json = {
+        "tldr": "The article argues X.",
+        "summary_250": "A longer summary.",
+        "metadata": {"title": "Test Article", "canonical_url": "https://example.com/a", "domain": "example.com"},
+        "key_ideas": ["Idea one", "Idea two"],
+    }
+
+    # Build a real ResponseFormatter (no Telegram client) to test the actual code path.
+    from app.adapters.external.formatting.data_formatter import DataFormatterImpl
+    from app.adapters.external.formatting.message_validator import MessageValidatorImpl
+    from app.adapters.external.formatting.response_sender import ResponseSenderImpl
+    from app.adapters.external.formatting.text_processor import TextProcessorImpl
+
+    validator = MessageValidatorImpl()
+    sender = ResponseSenderImpl(validator)
+    text_proc = TextProcessorImpl(sender)
+    data_fmt = DataFormatterImpl(lang="en")
+
+    rf = MagicMock()
+    rf._text_processor = text_proc
+    rf._data_formatter = data_fmt
+    rf._lang = "en"
+
+    runtime = _make_runtime(response_formatter=rf)
+
+    from app.tasks.url_processing import _format_summary_for_edit
+
+    result = _format_summary_for_edit(
+        {"json_payload": summary_json},
+        cid="test-cid",
+        runtime=runtime,
+    )
+
+    # The result should contain the title and tldr from the canonical card.
+    assert "Test Article" in result
+    assert "The article argues X." in result
+    # Should NOT be the fallback placeholder.
+    assert "Summary ready" not in result
