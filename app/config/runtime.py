@@ -191,6 +191,26 @@ class RuntimeConfig(BaseModel):
     forward_link_bundle_prose_threshold: int = Field(
         default=200, validation_alias="FORWARD_LINK_BUNDLE_PROSE_THRESHOLD"
     )
+    url_worker_enqueue_enabled: bool = Field(
+        default=True,
+        validation_alias="URL_WORKER_ENQUEUE_ENABLED",
+        description=(
+            "When true, the bot hands URL requests to the Taskiq worker "
+            "instead of processing them inline. Set to false to fall back "
+            "to the synchronous inline path without redeploying."
+        ),
+    )
+    url_worker_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        validation_alias="URL_WORKER_CONCURRENCY",
+        description=(
+            "Maximum number of process_url_request tasks the worker may "
+            "execute concurrently.  Wire into Taskiq ``--max-async-tasks`` "
+            "at worker startup; see ops/docker/docker-compose.yml."
+        ),
+    )
 
     @field_validator("llm_provider", mode="before")
     @classmethod

@@ -94,35 +94,55 @@ class RequestProcessingJobRepository:
         *,
         lease_owner: str,
         lease_ttl_seconds: int,
+        by_id: int | None = None,
     ) -> LeasedRequestJob | None:
+        """Acquire a lease on the next eligible job (or a specific job by request_id).
+
+        When ``by_id`` is supplied, the query targets exactly the row with
+        ``request_id = by_id`` and ``status = 'pending'`` instead of polling
+        the full queue.  The ``FOR UPDATE SKIP LOCKED`` guarantee still
+        applies so a concurrent reconciler cannot grab the same row.
+        """
         now = _utcnow()
         lease_expires_at = now + timedelta(seconds=lease_ttl_seconds)
         async with self._database.transaction() as session:
-            stmt: Select[tuple[RequestProcessingJob]] = (
-                select(RequestProcessingJob)
-                .where(
-                    or_(
-                        RequestProcessingJob.status == "queued",
-                        (
-                            (RequestProcessingJob.status == "failed")
-                            & (
-                                (RequestProcessingJob.retry_after.is_(None))
-                                | (RequestProcessingJob.retry_after <= now)
-                            )
-                        ),
-                        (
-                            (RequestProcessingJob.status == "running")
-                            & (RequestProcessingJob.lease_expires_at <= now)
-                        ),
-                    ),
-                    RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
+            if by_id is not None:
+                stmt: Select[tuple[RequestProcessingJob]] = (
+                    select(RequestProcessingJob)
+                    .where(
+                        RequestProcessingJob.request_id == by_id,
+                        RequestProcessingJob.status == "pending",
+                        RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
+                    )
+                    .with_for_update(skip_locked=True)
                 )
-                .order_by(
-                    RequestProcessingJob.retry_after.asc().nullsfirst(), RequestProcessingJob.id
+            else:
+                stmt = (
+                    select(RequestProcessingJob)
+                    .where(
+                        or_(
+                            RequestProcessingJob.status == "queued",
+                            (
+                                (RequestProcessingJob.status == "failed")
+                                & (
+                                    (RequestProcessingJob.retry_after.is_(None))
+                                    | (RequestProcessingJob.retry_after <= now)
+                                )
+                            ),
+                            (
+                                (RequestProcessingJob.status == "running")
+                                & (RequestProcessingJob.lease_expires_at <= now)
+                            ),
+                        ),
+                        RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
+                    )
+                    .order_by(
+                        RequestProcessingJob.retry_after.asc().nullsfirst(),
+                        RequestProcessingJob.id,
+                    )
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
                 )
-                .limit(1)
-                .with_for_update(skip_locked=True)
-            )
             job = await session.scalar(stmt)
             if job is None:
                 return None
@@ -221,6 +241,60 @@ class RequestProcessingJobRepository:
                 )
             )
         return status
+
+    async def record_pending_enqueue(
+        self,
+        *,
+        request_id: int,
+        correlation_id: str | None,
+        max_attempts: int = 3,
+    ) -> None:
+        """Insert/upsert a ``pending`` job row for a bot-enqueued URL request.
+
+        Called by the bot immediately before kicking the Taskiq task so the
+        row exists before the worker tries to lease it.  Uses
+        ``ON CONFLICT DO UPDATE`` to be idempotent: if the row already exists
+        in a non-terminal state it is reset to ``pending`` with no lease,
+        making it visible to ``lease_next(by_id=...)``.  Terminal rows
+        (``succeeded``, ``dead_letter``) are left untouched so a duplicate
+        bot enqueue cannot reopen a finished job.
+        """
+        now = _utcnow()
+        base_values = {
+            "request_id": request_id,
+            "status": "pending",
+            "attempt_count": 0,
+            "max_attempts": max_attempts,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "retry_after": now,
+            "last_error_code": None,
+            "last_error_message": None,
+            "correlation_id": correlation_id,
+            "updated_at": now,
+            "created_at": now,
+        }
+        async with self._database.transaction() as session:
+            stmt = (
+                insert(RequestProcessingJob)
+                .values(**base_values)
+                .on_conflict_do_update(
+                    index_elements=[RequestProcessingJob.request_id],
+                    set_={
+                        "status": "pending",
+                        "lease_owner": None,
+                        "lease_expires_at": None,
+                        "retry_after": now,
+                        "last_error_code": None,
+                        "last_error_message": None,
+                        "correlation_id": correlation_id,
+                        "max_attempts": max_attempts,
+                        "updated_at": now,
+                    },
+                    where=RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
+                )
+            )
+            await session.execute(stmt)
 
     async def record_synchronous_start(
         self,

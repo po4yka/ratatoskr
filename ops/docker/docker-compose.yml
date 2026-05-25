@@ -149,6 +149,7 @@ services:
       - app.tasks.import_tasks
       - app.tasks.x_bookmarks_sync
       - app.tasks.x_wiki_sync
+      - app.tasks.url_processing
       - "--workers"
       - "${TASKIQ_WORKER_CONCURRENCY:-4}"
     env_file:

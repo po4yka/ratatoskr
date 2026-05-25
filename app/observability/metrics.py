@@ -363,6 +363,21 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    # ---- URL worker queue telemetry ------------------------------------
+    # Incremented by the bot each time it enqueues (or falls back to inline).
+    URL_ENQUEUE_TOTAL = Counter(
+        "ratatoskr_url_enqueue_total",
+        "Bot URL enqueue outcomes",
+        ["status"],
+        registry=REGISTRY,
+    )
+    # Current depth of the URL processing queue (pending + failed-retryable).
+    URL_PROCESSING_QUEUE_DEPTH = Gauge(
+        "ratatoskr_url_processing_queue_depth",
+        "Number of URL processing jobs waiting in the queue",
+        registry=REGISTRY,
+    )
+
     SCHEDULER_JOB_CHRONIC_FAILURES = Counter(
         "ratatoskr_scheduler_job_chronic_failures_total",
         "Scheduler jobs that have failed 3+ consecutive ticks",
@@ -451,6 +466,8 @@ else:
     ADMIN_DIAGNOSTICS_REQUESTS = None
     VECTOR_INDEXING_LAG = None
     VECTOR_WRITES_TOTAL = None
+    URL_ENQUEUE_TOTAL = None
+    URL_PROCESSING_QUEUE_DEPTH = None
     OPENROUTER_STREAM_FALLBACK = None
     OPENROUTER_PER_MODEL_TIMEOUT = None
     OPENROUTER_PER_MODEL_LATENCY = None
@@ -1046,6 +1063,26 @@ def record_vector_write(*, operation: str, status: str) -> None:
     if not PROMETHEUS_AVAILABLE or VECTOR_WRITES_TOTAL is None:
         return
     VECTOR_WRITES_TOTAL.labels(operation=operation, status=status).inc()
+
+
+def record_url_enqueue(*, status: str) -> None:
+    """Record a bot URL enqueue outcome.
+
+    Args:
+        status: ``success`` | ``skipped_inline`` | ``failed``
+    """
+    if not PROMETHEUS_AVAILABLE or URL_ENQUEUE_TOTAL is None:
+        return
+    URL_ENQUEUE_TOTAL.labels(status=_metric_label(status)).inc()
+
+
+def set_url_processing_queue_depth(depth: int) -> None:
+    """Update the URL processing queue depth gauge."""
+    if not PROMETHEUS_AVAILABLE or URL_PROCESSING_QUEUE_DEPTH is None:
+        return
+    if depth < 0:
+        return
+    URL_PROCESSING_QUEUE_DEPTH.set(depth)
 
 
 def record_scraper_chain_total_latency(

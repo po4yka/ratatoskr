@@ -29,8 +29,13 @@ runtime:
   llm_per_model_timeout_overrides:
     deepseek/deepseek-v3.2: 180
     deepseek/deepseek-v4-pro: 180
-  max_concurrent_calls: 2
+  max_concurrent_calls: 4
   rate_limit_max_concurrent: 2
+  # Worker handoff knobs (Tier 2 of the URL-processing speedup plan).
+  # Set url_worker_enqueue_enabled to false to fall back to the legacy
+  # inline bot path without redeploying (safety valve).
+  url_worker_enqueue_enabled: true
+  url_worker_concurrency: 4
 
 openrouter:
   model: qwen/qwen3.5-flash-02-23
@@ -46,8 +51,8 @@ telegram:
   api_base_url: https://bitsizereaderapi.po4yka.com
 
 database:
-  pool_size: 2
-  max_overflow: 1
+  pool_size: 5
+  max_overflow: 3
 
 redis:
   # NOTE: REDIS_ENABLED is hardcoded per-service in docker-compose (worker,
