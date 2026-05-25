@@ -36,6 +36,8 @@ class CrawlResultRepositoryAdapter:
         latency_ms: int | None = None,
         correlation_id: str | None = None,
         options_json: dict[str, Any] | None = None,
+        attempt_log: list[dict[str, Any]] | None = None,
+        winning_provider: str | None = None,
     ) -> int:
         """Insert a crawl result and return an existing row on request-id conflict."""
         payload = {
@@ -52,6 +54,8 @@ class CrawlResultRepositoryAdapter:
             "latency_ms": latency_ms,
             "correlation_id": correlation_id,
             "options_json": prepare_json_payload(options_json, default=None),
+            "attempt_log": prepare_json_payload(attempt_log, default=None),
+            "winning_provider": winning_provider,
         }
         async with self._database.transaction() as session:
             stmt = (

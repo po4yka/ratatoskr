@@ -224,6 +224,42 @@ async def test_chain_returns_aggregated_error_when_all_providers_fail() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chain_stamps_attempt_log_on_exhaustion() -> None:
+    """Failure path must populate attempt_log so DB triage doesn't need log greps."""
+    a = _FakeProvider("a", _error_result("upstream 500"))
+    b = _FakeProvider("b", RuntimeError("boom"))
+
+    chain = ContentScraperChain(providers=[a, b])
+    result = await chain.scrape_markdown("https://example.com/exhausted")
+
+    assert result.status == CallStatus.ERROR
+    options = result.options_json or {}
+    attempt_log = options["_chain_attempt_log"]
+    providers_recorded = [e["provider"] for e in attempt_log]
+    assert providers_recorded == ["a", "b"]
+    assert all(e["status"] == "error" for e in attempt_log)
+    assert attempt_log[1]["error_class"] == "RuntimeError"
+    assert options["_chain_winning_provider"] is None
+
+
+@pytest.mark.asyncio
+async def test_chain_stamps_attempt_log_on_success() -> None:
+    """Success path records winner provider so persisted row carries the verdict."""
+    a = _FakeProvider("a", _error_result("upstream 500"))
+    b = _FakeProvider("b", _ok_result("recovered"))
+
+    chain = ContentScraperChain(providers=[a, b])
+    result = await chain.scrape_markdown("https://example.com/recovered")
+
+    assert result.status == CallStatus.OK
+    options = result.options_json or {}
+    attempt_log = options["_chain_attempt_log"]
+    assert [e["provider"] for e in attempt_log] == ["a", "b"]
+    assert [e["status"] for e in attempt_log] == ["error", "success"]
+    assert options["_chain_winning_provider"] == "b"
+
+
+@pytest.mark.asyncio
 async def test_chain_blocks_unsafe_url_before_provider_delivery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

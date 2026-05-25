@@ -78,6 +78,9 @@ async def persist_crawl_result(
                 True,
             )
         )
+        options_json = dict(crawl.options_json or {})
+        attempt_log = options_json.pop("_chain_attempt_log", None)
+        winning_provider = options_json.pop("_chain_winning_provider", None)
         await message_persistence.crawl_repo.async_insert_crawl_result(
             request_id=req_id,
             success=crawl.response_success,
@@ -91,7 +94,9 @@ async def persist_crawl_result(
             endpoint=crawl.endpoint,
             latency_ms=crawl.latency_ms,
             correlation_id=crawl.correlation_id,
-            options_json=crawl.options_json,
+            options_json=options_json or None,
+            attempt_log=attempt_log,
+            winning_provider=winning_provider,
         )
     except Exception as e:
         raise_if_cancelled(e)

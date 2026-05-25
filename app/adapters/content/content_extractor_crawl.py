@@ -30,10 +30,12 @@ from app.core.async_utils import raise_if_cancelled
 from app.core.html_utils import clean_markdown_article_text, html_to_text, normalize_text
 from app.core.logging_utils import get_logger
 from app.domain.models.request import RequestStatus
+from app.adapters.external.firecrawl.constants import FIRECRAWL_SCRAPE_ENDPOINT
 from app.observability.failure_observability import (
     REASON_DIRECT_FETCH_FAILED,
     REASON_FIRECRAWL_ERROR,
     REASON_FIRECRAWL_LOW_VALUE,
+    REASON_SCRAPER_CHAIN_EXHAUSTED,
     persist_request_failure,
 )
 
@@ -554,13 +556,22 @@ class ContentExtractorCrawlMixin:
                 "has_html": has_html,
             },
         )
-        reason_code = REASON_FIRECRAWL_ERROR
-        quality_reason = None
-        if crawl.error_text and "insufficient_useful_content" in crawl.error_text:
-            reason_code = REASON_FIRECRAWL_LOW_VALUE
-            quality_reason = crawl.error_text
-        elif crawl.endpoint == "direct_fetch":
+        quality_reason = (
+            crawl.error_text
+            if crawl.error_text and "insufficient_useful_content" in crawl.error_text
+            else None
+        )
+        is_firecrawl_result = crawl.endpoint == FIRECRAWL_SCRAPE_ENDPOINT
+        if crawl.endpoint == "direct_fetch":
             reason_code = REASON_DIRECT_FETCH_FAILED
+        elif is_firecrawl_result and quality_reason is not None:
+            reason_code = REASON_FIRECRAWL_LOW_VALUE
+        elif is_firecrawl_result:
+            reason_code = REASON_FIRECRAWL_ERROR
+        else:
+            # Chain exhaustion or non-Firecrawl provider failure.
+            # Mislabeling these as FIRECRAWL_* hid the real cause during habr.com triage.
+            reason_code = REASON_SCRAPER_CHAIN_EXHAUSTED
         await persist_request_failure(
             request_repo=self.message_persistence.request_repo,
             logger=logger,

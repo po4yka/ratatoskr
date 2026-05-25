@@ -8,6 +8,11 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.quality_filters import best_content_text, detect_low_value_content
+from app.adapters.content.scraper.attempt_log import (
+    ScraperAttemptEntry,
+    ScraperAttemptRecorder,
+    serialize_attempt_log,
+)
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_url_for_logging
@@ -217,6 +222,7 @@ class ContentScraperChain:
 
         effective = self._effective_providers(url)
         errors: list[str] = []
+        recorder = ScraperAttemptRecorder()
 
         with _tracer.start_as_current_span(
             "scraper.chain",
@@ -232,6 +238,7 @@ class ContentScraperChain:
                     mobile=mobile,
                     request_id=request_id,
                     errors=errors,
+                    recorder=recorder,
                     tracer=_tracer,
                     chain_span=chain_span,
                 )
@@ -247,6 +254,7 @@ class ContentScraperChain:
                         mobile=mobile,
                         request_id=request_id,
                         errors=errors,
+                        recorder=recorder,
                         tracer=_tracer,
                         chain_span=chain_span,
                     )
@@ -255,7 +263,7 @@ class ContentScraperChain:
 
             if winner is not None:
                 _record_outcome("success")
-                return winner
+                return self._attach_attempt_telemetry(winner, recorder)
 
             chain_span.set_attribute("scraper.attempts", len(errors))
             logger.warning(
@@ -268,12 +276,27 @@ class ContentScraperChain:
                 },
             )
             _record_outcome("empty")
-            return FirecrawlResult(
+            exhausted = FirecrawlResult(
                 status=CallStatus.ERROR,
                 error_text=f"All providers failed: {'; '.join(errors)}",
                 source_url=url,
                 endpoint="chain",
             )
+            return self._attach_attempt_telemetry(exhausted, recorder)
+
+    def _attach_attempt_telemetry(
+        self, result: FirecrawlResult, recorder: ScraperAttemptRecorder
+    ) -> FirecrawlResult:
+        """Stamp the chain's per-provider attempt log onto the returned result.
+
+        The caller persisting `crawl_results` pulls these keys out of
+        `options_json` so the DB's `attempt_log` and `winning_provider`
+        columns get populated. See content_extractor_requests.persist_crawl_result.
+        """
+        options = dict(result.options_json or {})
+        options["_chain_attempt_log"] = serialize_attempt_log(recorder.entries)
+        options["_chain_winning_provider"] = recorder.winner()
+        return result.model_copy(update={"options_json": options})
 
     async def _run_serial(
         self,
@@ -283,6 +306,7 @@ class ContentScraperChain:
         mobile: bool,
         request_id: int | None,
         errors: list[str],
+        recorder: ScraperAttemptRecorder,
         tracer: Any,
         chain_span: Any,
     ) -> FirecrawlResult | None:
@@ -293,6 +317,7 @@ class ContentScraperChain:
                 url,
                 mobile=mobile,
                 request_id=request_id,
+                recorder=recorder,
                 tracer=tracer,
             )
             result, error_msg = outcome
@@ -321,6 +346,7 @@ class ContentScraperChain:
         mobile: bool,
         request_id: int | None,
         errors: list[str],
+        recorder: ScraperAttemptRecorder,
         tracer: Any,
         chain_span: Any,
     ) -> FirecrawlResult | None:
@@ -338,6 +364,7 @@ class ContentScraperChain:
                 mobile=mobile,
                 request_id=request_id,
                 errors=errors,
+                recorder=recorder,
                 tracer=tracer,
                 chain_span=chain_span,
             )
@@ -359,6 +386,7 @@ class ContentScraperChain:
                     url,
                     mobile=mobile,
                     request_id=request_id,
+                    recorder=recorder,
                     tracer=tracer,
                 )
             ): provider
@@ -421,6 +449,7 @@ class ContentScraperChain:
         *,
         mobile: bool,
         request_id: int | None,
+        recorder: ScraperAttemptRecorder,
         tracer: Any,
     ) -> tuple[FirecrawlResult | None, str | None]:
         """Run one provider and validate its output.
@@ -430,6 +459,18 @@ class ContentScraperChain:
         (non-empty, not an error page, not too short, not low-value).
         """
         name = provider.provider_name
+        started = time.monotonic()
+
+        def _record(status: str, error_class: str | None) -> None:
+            recorder.record(
+                ScraperAttemptEntry(
+                    provider=name,
+                    status=status,
+                    latency_ms=int(max(0.0, time.monotonic() - started) * 1000),
+                    error_class=error_class,
+                )
+            )
+
         with tracer.start_as_current_span(
             f"scraper.{name}",
             attributes={
@@ -443,6 +484,7 @@ class ContentScraperChain:
                 )
             except asyncio.CancelledError:
                 provider_span.set_attribute("scraper.outcome", "cancelled")
+                _record("skipped", "CancelledError")
                 raise
             except Exception as exc:
                 provider_span.set_attribute("scraper.outcome", "error")
@@ -457,6 +499,7 @@ class ContentScraperChain:
                         "request_id": request_id,
                     },
                 )
+                _record("error", type(exc).__name__)
                 return None, f"{name}: {exc}"
 
             has_content = result.status == CallStatus.OK and (
@@ -478,6 +521,7 @@ class ContentScraperChain:
                             "request_id": request_id,
                         },
                     )
+                    _record("error", "error_page")
                     return None, f"{name}: error page detected ({len(text)} chars)"
 
                 if self._min_content_length > 0 and len(text) < self._min_content_length:
@@ -492,6 +536,7 @@ class ContentScraperChain:
                             "request_id": request_id,
                         },
                     )
+                    _record("error", "too_short")
                     return None, (
                         f"{name}: content too short"
                         f" ({len(text)} < {self._min_content_length} chars)"
@@ -516,6 +561,7 @@ class ContentScraperChain:
                             "request_id": request_id,
                         },
                     )
+                    _record("error", f"low_value:{reason}")
                     return None, (
                         f"{name}: low-value content detected"
                         f" ({reason}, chars={metrics['char_length']},"
@@ -523,6 +569,7 @@ class ContentScraperChain:
                     )
 
                 provider_span.set_attribute("scraper.outcome", "success")
+                _record("success", None)
                 return result, None
 
             provider_span.set_attribute("scraper.outcome", "no_content")
@@ -535,6 +582,7 @@ class ContentScraperChain:
                     "request_id": request_id,
                 },
             )
+            _record("error", "no_content")
             return None, f"{name}: {result.error_text or 'no content'}"
 
     def _log_chain_success(
