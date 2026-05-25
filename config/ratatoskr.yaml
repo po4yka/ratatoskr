@@ -93,3 +93,11 @@ attachment:
   # the JSON contract, slow-burning the request for ~12 min.
   # Threshold of 3 keeps vision for genuinely image-rich content.
   article_vision_min_images: 3
+  # Role-aware pre-filter for the image list that feeds the count gate
+  # above. With this on, decorative header images (og:image/ogImage) and
+  # small thumbnails are dropped whenever the article has at least one
+  # content-area image, so articles with only an OG header take the text
+  # path even if article_vision_min_images is set to 1. If no
+  # content-area image is available, decorative candidates are kept so
+  # the article still has a chance at vision routing.
+  vision_routing_role_filter_enabled: true

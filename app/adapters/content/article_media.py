@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 from app.application.dto.aggregation import SourceMediaAsset, SourceMediaKind
 
 if TYPE_CHECKING:
     from app.adapters.external.firecrawl.models import FirecrawlResult
+
+ImageRole = Literal["header_og", "content_area", "thumbnail", "unknown"]
+
+_OG_SOURCE_KEYS = frozenset({"og:image", "ogImage", "image", "image_url"})
+_CONTENT_SOURCE_KEYS = frozenset({"markdown_image", "images", "image_urls"})
+_THUMBNAIL_SOURCE_KEYS = frozenset({"thumbnails", "screenshots"})
+_THUMBNAIL_MIN_WIDTH = 200
+_THUMBNAIL_MIN_HEIGHT = 150
 
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https?://[^\s\)]+)\)")
 _DECORATIVE_PATH_TERMS = (
@@ -51,11 +59,20 @@ def extract_firecrawl_image_assets(
     crawl: FirecrawlResult | Any,
     *,
     max_assets: int = 5,
+    role_filter_enabled: bool = True,
 ) -> tuple[list[SourceMediaAsset], dict[str, Any]]:
-    """Extract and quality-filter image candidates from Firecrawl output."""
+    """Extract and quality-filter image candidates from Firecrawl output.
+
+    When ``role_filter_enabled`` is True (the default), decorative header images
+    (``og:image``/``ogImage``) and small thumbnails are dropped whenever at least
+    one content-area image survives quality filtering. If no content-area image
+    is available, decorative candidates are kept so the article still has a
+    chance at vision routing. The classification is also stamped into each
+    asset's ``metadata['role']`` and summarized in ``report['role_breakdown']``
+    for observability downstream.
+    """
 
     candidates = _collect_firecrawl_image_candidates(crawl)
-    selected: list[SourceMediaAsset] = []
     rejected_counts: dict[str, int] = {}
     best_by_url: dict[str, SourceMediaAsset] = {}
 
@@ -69,6 +86,7 @@ def extract_firecrawl_image_assets(
             _increment(rejected_counts, reason)
             continue
 
+        role = _classify_image_role(candidate)
         asset = SourceMediaAsset(
             kind=SourceMediaKind.IMAGE,
             url=url,
@@ -79,13 +97,33 @@ def extract_firecrawl_image_assets(
                 "source_key": candidate.get("source_key"),
                 "width": candidate.get("width"),
                 "height": candidate.get("height"),
+                "role": role,
             },
         )
         existing = best_by_url.get(url)
         if existing is None or (not existing.alt_text and asset.alt_text):
             best_by_url[url] = asset
 
-    for asset in best_by_url.values():
+    quality_filtered = list(best_by_url.values())
+    role_breakdown = _summarize_roles(quality_filtered)
+
+    role_filter_applied = False
+    role_filtered: list[SourceMediaAsset]
+    if role_filter_enabled and role_breakdown.get("content_area", 0) > 0:
+        role_filtered = [
+            asset
+            for asset in quality_filtered
+            if asset.metadata.get("role") in ("content_area", "unknown")
+        ]
+        dropped = len(quality_filtered) - len(role_filtered)
+        if dropped > 0:
+            role_filter_applied = True
+            rejected_counts["role_filter_decorative"] = dropped
+    else:
+        role_filtered = quality_filtered
+
+    selected: list[SourceMediaAsset] = []
+    for asset in role_filtered:
         if len(selected) >= max_assets:
             _increment(rejected_counts, "max_assets")
             continue
@@ -97,8 +135,50 @@ def extract_firecrawl_image_assets(
         "rejected_count": max(0, len(candidates) - len(selected)),
         "rejected_reasons": rejected_counts,
         "strategy": "firecrawl_metadata_and_markdown",
+        "role_breakdown": role_breakdown,
+        "role_filter_applied": role_filter_applied,
+        "role_filter_enabled": role_filter_enabled,
     }
     return selected, report
+
+
+def _classify_image_role(candidate: dict[str, Any]) -> ImageRole:
+    """Classify an image candidate's role in the article layout."""
+    source_key = (candidate.get("source_key") or "").strip()
+    width = _coerce_int(candidate.get("width"))
+    height = _coerce_int(candidate.get("height"))
+
+    if source_key in _THUMBNAIL_SOURCE_KEYS:
+        return "thumbnail"
+    if (
+        width is not None
+        and height is not None
+        and width < _THUMBNAIL_MIN_WIDTH
+        and height < _THUMBNAIL_MIN_HEIGHT
+    ):
+        return "thumbnail"
+    if source_key in _OG_SOURCE_KEYS:
+        return "header_og"
+    if source_key in _CONTENT_SOURCE_KEYS:
+        return "content_area"
+    return "unknown"
+
+
+def _summarize_roles(assets: list[SourceMediaAsset]) -> dict[str, int]:
+    """Return a count-by-role breakdown for the given assets."""
+    breakdown: dict[str, int] = {
+        "header_og": 0,
+        "content_area": 0,
+        "thumbnail": 0,
+        "unknown": 0,
+    }
+    for asset in assets:
+        role = asset.metadata.get("role")
+        if role in breakdown:
+            breakdown[role] += 1
+        else:
+            breakdown["unknown"] += 1
+    return breakdown
 
 
 def _collect_firecrawl_image_candidates(crawl: FirecrawlResult | Any) -> list[dict[str, Any]]:

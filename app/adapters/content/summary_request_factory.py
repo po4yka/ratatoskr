@@ -406,18 +406,30 @@ class SummaryRequestFactory:
         attachment_cfg = self._runtime.cfg.attachment
         article_vision_enabled = bool(getattr(attachment_cfg, "article_vision_enabled", True))
         min_images = int(getattr(attachment_cfg, "article_vision_min_images", 1))
+        role_filter_enabled = bool(
+            getattr(attachment_cfg, "vision_routing_role_filter_enabled", True)
+        )
         image_count = len(images) if images else 0
         use_vision = article_vision_enabled and image_count >= max(1, min_images)
-        if article_vision_enabled and image_count > 0 and image_count < min_images:
-            logger.info(
-                "vision_routing_gated",
-                extra={
-                    "cid": correlation_id,
-                    "image_count": image_count,
-                    "min_required": min_images,
-                    "url": url,
-                },
-            )
+        if not article_vision_enabled:
+            decision = "text_path_vision_disabled"
+        elif image_count == 0:
+            decision = "text_path_no_images"
+        elif use_vision:
+            decision = "vision_path"
+        else:
+            decision = "text_path_count_below_threshold"
+        logger.info(
+            "vision_routing_decision",
+            extra={
+                "cid": correlation_id,
+                "decision": decision,
+                "image_count": image_count,
+                "min_required": min_images,
+                "role_filter_enabled": role_filter_enabled,
+                "url": url,
+            },
+        )
         model_override = getattr(attachment_cfg, "vision_model", None) if use_vision else None
         if not use_vision:
             images = None

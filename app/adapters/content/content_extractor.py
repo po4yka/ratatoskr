@@ -246,7 +246,17 @@ class ContentExtractor(
 
         media_assets: list[Any] = []
         if self._aggregation_article_media_enabled():
-            media_assets, media_selection = extract_firecrawl_image_assets(crawl)
+            role_filter_enabled = bool(
+                getattr(
+                    self.cfg.attachment,
+                    "vision_routing_role_filter_enabled",
+                    True,
+                )
+            )
+            media_assets, media_selection = extract_firecrawl_image_assets(
+                crawl,
+                role_filter_enabled=role_filter_enabled,
+            )
             if media_selection["candidate_count"] > 0:
                 metadata["media_selection"] = media_selection
         else:

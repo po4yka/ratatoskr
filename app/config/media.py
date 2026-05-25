@@ -127,6 +127,19 @@ class AttachmentConfig(BaseModel):
         ),
     )
 
+    vision_routing_role_filter_enabled: bool = Field(
+        default=True,
+        validation_alias="VISION_ROUTING_ROLE_FILTER_ENABLED",
+        description=(
+            "Drop decorative header images (og:image/ogImage) and small thumbnails "
+            "from the article image candidate list before the vision-routing count "
+            "gate fires, when at least one content-area image survives. Articles "
+            "with only an OG header thus take the text path instead of paying the "
+            "vision model latency for a decorative thumbnail. Disable to restore "
+            "the prior count-only routing."
+        ),
+    )
+
     vision_model: str = Field(
         default="qwen/qwen3-vl-32b-instruct",
         validation_alias="ATTACHMENT_VISION_MODEL",
