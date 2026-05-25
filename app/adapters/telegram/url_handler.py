@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from app.application.ports.requests import RequestRepositoryPort
     from app.application.ports.users import UserRepositoryPort
     from app.application.services.adaptive_timeout import AdaptiveTimeoutService
+    from app.config import AppConfig
     from app.core.verbosity import VerbosityResolver
     from app.db.session import Database
 
@@ -77,8 +78,10 @@ class URLHandler:
         file_validator: SecureFileValidator | None = None,
         batch_processor: URLBatchProcessor | None = None,
         relationship_analysis_service: BatchRelationshipAnalysisService | None = None,
+        cfg: AppConfig | None = None,
     ) -> None:
         self.db = db
+        self._cfg = cfg
         self.user_repo = user_repo or _NullRepository()
         self.request_repo = request_repo or _NullRepository()
         self.response_formatter = response_formatter
@@ -388,6 +391,22 @@ class URLHandler:
         on_phase_change: Any | None = None,
         progress_tracker: Any | None = None,
     ) -> Any:
+        # Worker enqueue path: when enabled and not in batch mode, persist the
+        # request row, send a placeholder reply, enqueue the Taskiq task, and
+        # return immediately.  The worker will edit the placeholder with the
+        # final summary once processing is complete.
+        if (
+            not batch_mode
+            and self._cfg is not None
+            and getattr(self._cfg.runtime, "url_worker_enqueue_enabled", False)
+        ):
+            return await self._handle_single_url_enqueue(
+                message=message,
+                url=url,
+                correlation_id=correlation_id,
+                interaction_id=interaction_id,
+            )
+
         resolved_progress_tracker = progress_tracker
         if resolved_progress_tracker is None and not batch_mode:
             resolved_progress_tracker = await self._resolve_progress_tracker(message)
@@ -427,6 +446,160 @@ class URLHandler:
             )
 
         return await handle_url_flow(flow_request)
+
+    async def _handle_single_url_enqueue(
+        self,
+        *,
+        message: Any,
+        url: str,
+        correlation_id: str,
+        interaction_id: int | None = None,
+    ) -> Any:
+        """Persist request, send placeholder, enqueue Taskiq task.
+
+        Called from ``handle_single_url`` when ``url_worker_enqueue_enabled``
+        is True and the request is not part of a batch.  Returns immediately
+        after enqueueing; the worker edits the placeholder with the final
+        summary.
+        """
+        from app.adapters.content.url_flow_models import URLProcessingFlowResult
+        from app.api.background.durable_jobs import RequestProcessingJobRepository
+        from app.core.url_utils import compute_dedupe_hash, normalize_url
+        from app.domain.models.request import RequestStatus
+        from app.observability.metrics import record_url_enqueue, set_url_processing_queue_depth
+
+        cid = correlation_id
+        try:
+            normalized = normalize_url(url)
+            dedupe_hash = compute_dedupe_hash(normalized)
+        except Exception:
+            normalized = url
+            dedupe_hash = None
+
+        # Resolve chat_id and user_id from the Telethon message object.
+        chat_id: int | None = None
+        user_id: int | None = None
+        try:
+            peer = getattr(message, "peer_id", None)
+            if peer is not None:
+                chat_id = (
+                    getattr(peer, "channel_id", None)
+                    or getattr(peer, "chat_id", None)
+                    or getattr(peer, "user_id", None)
+                )
+            if chat_id is None:
+                chat_id = getattr(message, "chat_id", None)
+            from_user = getattr(message, "from_user", None) or getattr(message, "sender", None)
+            user_id = int(getattr(from_user, "id", 0) or 0) or None
+        except Exception:
+            pass
+
+        input_message_id: int | None = None
+        try:
+            input_message_id = int(getattr(message, "id", None) or 0) or None
+        except Exception:
+            pass
+
+        # 1. Persist the request row.
+        request_repo = self.request_repo
+        try:
+            request_id = await request_repo.async_create_request(
+                type_="url",
+                status=RequestStatus.PENDING,
+                correlation_id=cid,
+                chat_id=chat_id,
+                user_id=user_id,
+                input_url=url,
+                normalized_url=normalized,
+                dedupe_hash=dedupe_hash,
+                input_message_id=input_message_id,
+                initial_attempt_trigger="user_retry",
+            )
+        except Exception as exc:
+            logger.error(
+                "url_worker_enqueue_request_create_failed",
+                extra={"cid": cid, "error": str(exc)},
+            )
+            record_url_enqueue(status="error")
+            # Fall back to inline processing.
+            from app.adapters.content.url_flow_models import URLFlowRequest
+
+            flow_request = URLFlowRequest(
+                message=message,
+                url_text=url,
+                correlation_id=cid,
+                interaction_id=interaction_id,
+                batch_mode=False,
+            )
+            return await self.url_processor.handle_url_flow(flow_request)
+
+        # 2. Insert the pending job row.
+        job_repo = RequestProcessingJobRepository(self.db)
+        try:
+            await job_repo.record_pending_enqueue(
+                request_id=request_id,
+                correlation_id=cid,
+            )
+        except Exception as exc:
+            logger.warning(
+                "url_worker_enqueue_job_row_failed",
+                extra={"cid": cid, "request_id": request_id, "error": str(exc)},
+            )
+
+        # 3. Send the placeholder reply and persist its message_id.
+        placeholder_text = f"Processing... (Error ID: {cid})"
+        bot_reply_message_id: int | None = None
+        try:
+            bot_reply_message_id = await self.response_formatter.safe_reply_with_id(
+                message, placeholder_text
+            )
+        except Exception as exc:
+            logger.warning(
+                "url_worker_enqueue_placeholder_send_failed",
+                extra={"cid": cid, "request_id": request_id, "error": str(exc)},
+            )
+
+        if bot_reply_message_id is not None:
+            try:
+                await request_repo.async_update_bot_reply_message_id(
+                    request_id, bot_reply_message_id
+                )
+            except Exception as exc:
+                logger.warning(
+                    "url_worker_enqueue_bot_reply_id_update_failed",
+                    extra={"cid": cid, "request_id": request_id, "error": str(exc)},
+                )
+
+        # 4. Enqueue the Taskiq task.
+        from app.tasks.url_processing import process_url_request  # lazy: avoids eager taskiq type-hint resolution
+
+        try:
+            await (
+                process_url_request.kicker()
+                .with_task_id(f"url-{request_id}-{cid or 'nocid'}")
+                .kiq(request_id=request_id)
+            )
+        except Exception as exc:
+            logger.error(
+                "url_worker_enqueue_kiq_failed",
+                extra={"cid": cid, "request_id": request_id, "error": str(exc)},
+            )
+            record_url_enqueue(status="error")
+            return URLProcessingFlowResult(success=False)
+
+        # 5. Record metrics.
+        record_url_enqueue(status="success")
+        try:
+            depth = await job_repo.pending_count()
+            set_url_processing_queue_depth(depth)
+        except Exception:
+            pass
+
+        logger.info(
+            "url_worker_enqueued",
+            extra={"cid": cid, "request_id": request_id, "chat_id": chat_id},
+        )
+        return URLProcessingFlowResult(success=True, request_id=request_id)
 
     async def translate_summary_to_ru(
         self,

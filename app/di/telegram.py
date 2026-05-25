@@ -218,6 +218,7 @@ def build_summary_cli_runtime(
         url_processor=url_processor,
         user_repo=repositories.user_repository,
         request_repo=repositories.request_repository,
+        cfg=cfg,
     )
     aggregation_handler = MultiSourceAggregationHandler(
         response_formatter=core.response_formatter,
@@ -396,6 +397,7 @@ def _build_telegram_interface_stack(
         batch_policy=URLBatchPolicyService(
             floor_sec=_compute_llm_cascade_floor(cfg),
         ),
+        cfg=cfg,
     )
     aggregation_handler = MultiSourceAggregationHandler(
         response_formatter=core.response_formatter,
