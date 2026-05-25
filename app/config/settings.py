@@ -23,7 +23,7 @@ from .content import ContentLimitsConfig
 from .database import DatabaseConfig
 from .deployment import DeploymentConfig
 from .digest import ChannelDigestConfig
-from .firecrawl import FirecrawlConfig  # noqa: TC001
+from .firecrawl import FirecrawlConfig
 from .github import GitHubConfig
 from .import_export import ImportConfig
 from .integrations import (
@@ -232,7 +232,9 @@ class Settings(BaseSettings):
 
     allow_stub_telegram: bool = Field(default=False, exclude=True)
     telegram: TelegramConfig
-    firecrawl: FirecrawlConfig
+    # FirecrawlConfig is fully optional in a self-hosted-only deployment;
+    # default_factory lets the bot start when no FIRECRAWL_* env vars are set.
+    firecrawl: FirecrawlConfig = Field(default_factory=FirecrawlConfig)
     openrouter: OpenRouterConfig
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)

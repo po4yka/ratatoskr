@@ -121,11 +121,11 @@ class ContentScraperChain:
         """Group providers into ordered (tier_name, providers) buckets.
 
         Tier order:
-          1. ``pdf``     – ``direct_pdf`` runs first when present (PDF-only).
-          2. ``free``    – HTTP-only providers raced concurrently.
-          3. ``paid``    – Firecrawl, serial.
-          4. ``browser`` – browser-driven providers raced concurrently.
-          5. ``other``   – any provider not in the above buckets, serial.
+          1. ``pdf``     -- ``direct_pdf`` runs first when present (PDF-only).
+          2. ``free``    -- HTTP-only providers raced concurrently.
+          3. ``paid``    -- Firecrawl, serial.
+          4. ``browser`` -- browser-driven providers raced concurrently.
+          5. ``other``   -- any provider not in the above buckets, serial.
 
         Providers within ``free`` and ``browser`` keep their input order so
         the JS-heavy reorder still applies (browser tier moves first in
