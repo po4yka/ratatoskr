@@ -98,6 +98,12 @@ from app.db.models.user_content import (
     Tag,
     UserGoal,
 )
+from app.db.models.webwright import (
+    WEBWRIGHT_MODELS,
+    UserBrowserSession,
+    WebwrightRun,
+    WebwrightRunStatus,
+)
 from app.db.types import _next_server_version, _utcnow, model_to_dict
 
 ALL_MODELS: tuple[type[Base], ...] = (
@@ -114,6 +120,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
     *TOPIC_SEARCH_MODELS,
     *TRANSCRIPTION_MODELS,
     *USER_CONTENT_MODELS,
+    *WEBWRIGHT_MODELS,
 )
 
 __all__ = [
@@ -131,6 +138,7 @@ __all__ = [
     "TOPIC_SEARCH_MODELS",
     "TRANSCRIPTION_MODELS",
     "USER_CONTENT_MODELS",
+    "WEBWRIGHT_MODELS",
     "AggregationSession",
     "AggregationSessionItem",
     "AttachmentProcessing",
@@ -196,6 +204,7 @@ __all__ = [
     "TranscriptionProgressEvent",
     "User",
     "UserBackup",
+    "UserBrowserSession",
     "UserCredential",
     "UserDevice",
     "UserDigestPreference",
@@ -204,6 +213,8 @@ __all__ = [
     "UserInteraction",
     "UserSignal",
     "VideoDownload",
+    "WebwrightRun",
+    "WebwrightRunStatus",
     "WebhookDelivery",
     "WebhookSubscription",
     "XBookmarkMetadata",

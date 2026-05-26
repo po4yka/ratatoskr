@@ -16,6 +16,7 @@ from app.adapters.telegram.command_handlers.aggregation_commands_handler import 
     AggregationCommandsHandler,
 )
 from app.adapters.telegram.command_handlers.backup_handler import BackupHandler
+from app.adapters.telegram.command_handlers.browse_handler import BrowseHandler
 from app.adapters.telegram.command_handlers.content_handler import ContentHandler
 from app.adapters.telegram.command_handlers.digest_handler import DigestHandler
 from app.adapters.telegram.command_handlers.export_command import ExportHandler
@@ -34,6 +35,7 @@ from app.adapters.telegram.command_handlers.x_possible import (
     XPossibleHandler,
 )
 from app.adapters.transcription import TranscriptionService
+from app.adapters.webwright.client import WebwrightClient
 from app.di.repositories import build_social_connection_repository, build_transcription_repository
 from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
@@ -163,6 +165,20 @@ def build_command_dispatcher_deps(
     )
     x_possible_handler = XPossibleHandler(cfg=cfg)
 
+    # Webwright `/browse` command wiring. The sidecar URL + tuning knobs live
+    # on the scraper config (single source of truth used by both the scraper
+    # provider and `/browse`).
+    webwright_client = WebwrightClient(
+        url=getattr(cfg.scraper, "webwright_url", "http://webwright:8090"),
+        timeout_sec=getattr(cfg.scraper, "webwright_timeout_sec", 180),
+        default_max_steps=getattr(cfg.scraper, "webwright_max_steps", 20),
+    )
+    browse_handler = BrowseHandler(
+        db=db,
+        response_formatter=response_formatter,
+        webwright_client=webwright_client,
+    )
+
     transcribe_handler: TranscribeHandler | None = None
     if cfg.transcription.enabled:
         service = transcription_service or TranscriptionService(cfg.transcription)
@@ -223,6 +239,15 @@ def build_command_dispatcher_deps(
                     _build_text_handler(
                         context_factory, aggregation_commands_handler.handle_aggregate
                     ),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="webwright",
+            pre_summarize_text=(
+                TextCommandRoute(
+                    "/browse",
+                    _build_text_handler(context_factory, browse_handler.handle_browse),
                 ),
             ),
         ),
