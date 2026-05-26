@@ -4580,8 +4580,16 @@ dev = [
     { name = "fakeredis", specifier = ">=2.33.0" },
     { name = "hypothesis", specifier = ">=6.152.9" },
     { name = "isort", specifier = ">=7.0.0" },
+<<<<<<< HEAD
     { name = "mypy", specifier = ">=2.1.0" },
     { name = "openapi-spec-validator", specifier = ">=0.9.0" },
+||||||| parent of b191b23c (chore(deps): refresh uv.lock after rebase onto main)
+    { name = "mypy", specifier = ">=1.19.1" },
+    { name = "openapi-spec-validator", specifier = ">=0.7.2" },
+=======
+    { name = "mypy", specifier = ">=2.1.0" },
+    { name = "openapi-spec-validator", specifier = ">=0.7.2" },
+>>>>>>> b191b23c (chore(deps): refresh uv.lock after rebase onto main)
     { name = "pip-audit", specifier = ">=2.7.3" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pytest", specifier = ">=9.0.3" },
