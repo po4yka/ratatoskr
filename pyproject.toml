@@ -212,7 +212,11 @@ inference_core = [
 api = [
   "ratatoskr[inference_core]",
   "ratatoskr[browser_scraper]",
-  "fastapi>=0.136.3",
+  # fastapi 0.136.3 is a confirmed malicious release that injects an
+  # undocumented `fastar` typosquat dependency into the [standard] extras
+  # group (osv.dev/MAL-2026-4750, published 2026-05-23). Exclude it; the
+  # upstream registry has yanked it but the exclusion is defense in depth.
+  "fastapi>=0.128.0,!=0.136.3",
   "uvicorn[standard]>=0.48.0",
   "starlette>=1.1.0",
   "sse-starlette>=3.4.4",
