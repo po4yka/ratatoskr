@@ -571,7 +571,9 @@ class URLHandler:
                 )
 
         # 4. Enqueue the Taskiq task.
-        from app.tasks.url_processing import process_url_request  # lazy: avoids eager taskiq type-hint resolution
+        from app.tasks.url_processing import (  # lazy: avoids eager taskiq type-hint resolution
+            process_url_request,
+        )
 
         try:
             await (

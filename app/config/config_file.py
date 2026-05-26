@@ -260,7 +260,7 @@ def load_models_yaml(path: str | Path | None = None) -> dict[str, str]:
         return {}
 
     # Re-use the same YAML→env mapping that models_file used (verbatim copy).
-    _YAML_TO_ENV: dict[str, dict[str, str]] = {
+    _YAML_TO_ENV: dict[str, dict[str, str]] = {  # noqa: N806 — local alias of a constant-style mapping
         "openrouter": {
             "model": "OPENROUTER_MODEL",
             "fallback_models": "OPENROUTER_FALLBACK_MODELS",

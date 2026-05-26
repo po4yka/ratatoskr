@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from datetime import datetime
+    from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,7 +19,6 @@ import pytest
 
 from app.adapters.telegram.url_handler import URLHandler
 
-
 # ── Taskiq stub ───────────────────────────────────────────────────────────────
 
 
@@ -93,9 +92,7 @@ def _make_response_formatter(*, reply_message_id: int = 55):
 
 def _make_url_processor():
     proc = MagicMock()
-    proc.handle_url_flow = AsyncMock(
-        return_value=SimpleNamespace(success=True, request_id=1)
-    )
+    proc.handle_url_flow = AsyncMock(return_value=SimpleNamespace(success=True, request_id=1))
     proc.summary_repo = MagicMock()
     proc.audit_func = MagicMock()
     return proc

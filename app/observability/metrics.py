@@ -1105,9 +1105,9 @@ def record_scraper_chain_total_latency(
         return
     if total_latency_seconds < 0:
         return
-    SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS.labels(
-        mode=mode, outcome=outcome
-    ).observe(total_latency_seconds)
+    SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS.labels(mode=mode, outcome=outcome).observe(
+        total_latency_seconds
+    )
 
 
 def record_llm_request_total_latency(

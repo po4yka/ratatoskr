@@ -52,9 +52,7 @@ _ERROR_PAGE_MAX_LENGTH = 1500
 # runs first when applicable, so it's intentionally left out of any race.
 _FREE_TIER_PROVIDERS = frozenset({"scrapling", "defuddle", "direct_html", "crawl4ai"})
 _PAID_TIER_PROVIDERS = frozenset({"firecrawl"})
-_BROWSER_TIER_PROVIDERS = frozenset(
-    {"playwright", "crawlee", "cloakbrowser", "scrapegraph_ai"}
-)
+_BROWSER_TIER_PROVIDERS = frozenset({"playwright", "crawlee", "cloakbrowser", "scrapegraph_ai"})
 _PDF_PROVIDERS = frozenset({"direct_pdf"})
 
 
@@ -398,9 +396,7 @@ class ContentScraperChain:
 
         try:
             while pending:
-                done, pending = await asyncio.wait(
-                    pending, return_when=asyncio.FIRST_COMPLETED
-                )
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 for finished in done:
                     provider = tasks[finished]
                     try:
@@ -436,9 +432,7 @@ class ContentScraperChain:
         if winner is not None:
             chain_span.set_attribute("scraper.winner", winner_provider or "unknown")
             chain_span.set_attribute("scraper.attempts", len(errors) + 1)
-            self._log_chain_success(
-                winner_provider or "unknown", url, winner, request_id, errors
-            )
+            self._log_chain_success(winner_provider or "unknown", url, winner, request_id, errors)
 
         return winner
 
@@ -479,9 +473,7 @@ class ContentScraperChain:
             },
         ) as provider_span:
             try:
-                result = await provider.scrape_markdown(
-                    url, mobile=mobile, request_id=request_id
-                )
+                result = await provider.scrape_markdown(url, mobile=mobile, request_id=request_id)
             except asyncio.CancelledError:
                 provider_span.set_attribute("scraper.outcome", "cancelled")
                 _record("skipped", "CancelledError")
@@ -543,9 +535,7 @@ class ContentScraperChain:
                     )
 
                 quality_issue = (
-                    detect_low_value_content(result)
-                    if self._min_content_length > 0
-                    else None
+                    detect_low_value_content(result) if self._min_content_length > 0 else None
                 )
                 if quality_issue is not None:
                     reason = quality_issue["reason"]

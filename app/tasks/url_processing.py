@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 async def _get_url_processing_runtime(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),
-) -> "URLProcessingTaskRuntime":
+) -> URLProcessingTaskRuntime:
     """Build the URL-processing task runtime once per worker process."""
     global _url_processing_runtime_instance
     if _url_processing_runtime_instance is None:
@@ -38,7 +38,7 @@ async def _get_url_processing_runtime(
     return _url_processing_runtime_instance
 
 
-_url_processing_runtime_instance: "URLProcessingTaskRuntime | None" = None
+_url_processing_runtime_instance: URLProcessingTaskRuntime | None = None
 
 
 # ── Task ─────────────────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ async def process_url_request(
     request_id: int,
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),
-    runtime: "URLProcessingTaskRuntime" = TaskiqDepends(_get_url_processing_runtime),
+    runtime: URLProcessingTaskRuntime = TaskiqDepends(_get_url_processing_runtime),
 ) -> None:
     """Process a single URL request submitted by the bot.
 
@@ -67,7 +67,7 @@ async def _process_url_request_body(
     request_id: int,
     cfg: AppConfig,
     db: Database,
-    runtime: "URLProcessingTaskRuntime",
+    runtime: URLProcessingTaskRuntime,
 ) -> None:
     from app.api.background.durable_jobs import RequestProcessingJobRepository
 
@@ -145,9 +145,8 @@ async def _run_url_task(
     lease_owner: str,
     cfg: AppConfig,
     db: Database,
-    runtime: "URLProcessingTaskRuntime",
+    runtime: URLProcessingTaskRuntime,
 ) -> None:
-    from app.api.background.durable_jobs import RequestProcessingJobRepository
 
     # Load the request row to get chat_id, input_url, and other metadata.
     request_data = await _load_request(request_id=request_id, db=db)
@@ -290,7 +289,7 @@ def _format_summary_for_edit(
     summary_data: dict[str, Any] | None,
     *,
     cid: str | None,
-    runtime: "URLProcessingTaskRuntime",
+    runtime: URLProcessingTaskRuntime,
 ) -> str:
     """Format a persisted summary dict into Telegram message text.
 
@@ -332,7 +331,7 @@ async def _edit_placeholder(
     message_id: int,
     text: str,
     cid: str | None,
-    runtime: "URLProcessingTaskRuntime",
+    runtime: URLProcessingTaskRuntime,
 ) -> None:
     try:
         await runtime.telegram_sender.edit_message_text(
@@ -356,7 +355,7 @@ async def _try_edit_placeholder(
     text: str,
     cid: str | None,
     db: Database,
-    runtime: "URLProcessingTaskRuntime",
+    runtime: URLProcessingTaskRuntime,
 ) -> None:
     """Best-effort edit of the placeholder on error — never raises."""
     try:
@@ -382,7 +381,7 @@ def _make_worker_message(
     *,
     chat_id: int | None,
     reply_message_id: int | None,
-) -> "_WorkerMessageStub":
+) -> _WorkerMessageStub:
     """Create a minimal message stub for the worker's URLProcessor call."""
     return _WorkerMessageStub(chat_id=chat_id, reply_message_id=reply_message_id)
 
@@ -402,7 +401,7 @@ class _WorkerMessageStub:
 
     # Telethon messages expose peer_id.channel_id / chat_id via various paths.
     @property
-    def peer_id(self) -> "_WorkerPeerStub":
+    def peer_id(self) -> _WorkerPeerStub:
         return _WorkerPeerStub(chat_id=self.chat_id)
 
 
@@ -436,6 +435,8 @@ def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessing
 
     Called once per worker process (cached in module-level singleton).
     """
+    from app.adapters.content.scraper.factory import ContentScraperFactory
+    from app.adapters.llm import LLMClientFactory
     from app.adapters.telegram.worker_telegram_sender import WorkerTelegramSender
     from app.di.repositories import (
         build_crawl_result_repository,
@@ -444,9 +445,7 @@ def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessing
         build_summary_repository,
         build_user_repository,
     )
-    from app.adapters.llm import LLMClientFactory
     from app.di.shared import LazySemaphoreFactory, build_response_formatter, build_url_processor
-    from app.adapters.content.scraper.factory import ContentScraperFactory
 
     audit_func: Any = lambda *_a, **_kw: None  # noqa: E731
     sem_factory = LazySemaphoreFactory(cfg.runtime.max_concurrent_calls)

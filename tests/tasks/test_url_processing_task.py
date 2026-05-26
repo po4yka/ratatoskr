@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Taskiq stub (keeps tests independent of taskiq/taskiq_redis install) ──────
 
 
@@ -346,7 +345,11 @@ def test_format_summary_uses_card_sections_canonical_output(monkeypatch):
     summary_json = {
         "tldr": "The article argues X.",
         "summary_250": "A longer summary.",
-        "metadata": {"title": "Test Article", "canonical_url": "https://example.com/a", "domain": "example.com"},
+        "metadata": {
+            "title": "Test Article",
+            "canonical_url": "https://example.com/a",
+            "domain": "example.com",
+        },
         "key_ideas": ["Idea one", "Idea two"],
     }
 

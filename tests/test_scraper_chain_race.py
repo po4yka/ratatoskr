@@ -15,7 +15,7 @@ import asyncio
 import pytest
 
 from app.adapters.content.scraper.chain import ContentScraperChain
-from tests.helpers.scraper_helpers import _MockProvider, _error_result, _ok_result
+from tests.helpers.scraper_helpers import _error_result, _MockProvider, _ok_result
 
 
 class _SlowProvider:
@@ -131,9 +131,7 @@ class TestBrowserTierRace:
             cancelled_flag=cancelled,
         )
 
-        chain = ContentScraperChain(
-            [scrapling, firecrawl, playwright, crawlee], race_enabled=True
-        )
+        chain = ContentScraperChain([scrapling, firecrawl, playwright, crawlee], race_enabled=True)
         result = await chain.scrape_markdown("https://example.com")
 
         assert result.content_markdown == "# Playwright"

@@ -25,12 +25,12 @@ from app.adapters.content.quality_filters import (
     detect_low_value_content,
     is_gray_zone_for_llm_check,
 )
+from app.adapters.external.firecrawl.constants import FIRECRAWL_SCRAPE_ENDPOINT
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.async_utils import raise_if_cancelled
 from app.core.html_utils import clean_markdown_article_text, html_to_text, normalize_text
 from app.core.logging_utils import get_logger
 from app.domain.models.request import RequestStatus
-from app.adapters.external.firecrawl.constants import FIRECRAWL_SCRAPE_ENDPOINT
 from app.observability.failure_observability import (
     REASON_DIRECT_FETCH_FAILED,
     REASON_FIRECRAWL_ERROR,
