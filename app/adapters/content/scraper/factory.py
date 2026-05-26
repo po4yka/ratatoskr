@@ -127,6 +127,15 @@ SCRAPER_PROVIDER_DESCRIPTORS: tuple[ScraperProviderDescriptor, ...] = (
             "kind": "llm_fallback",
         },
     ),
+    ScraperProviderDescriptor(
+        name="webwright",
+        enabled=lambda cfg: bool(getattr(cfg.scraper, "webwright_enabled", False)),
+        build=lambda cfg, _audit: _build_webwright(cfg),
+        diagnostics_metadata={
+            "dependency_modules": ("httpx",),
+            "kind": "llm_fallback",
+        },
+    ),
 )
 SCRAPER_PROVIDER_DESCRIPTOR_BY_NAME: dict[str, ScraperProviderDescriptor] = {
     descriptor.name: descriptor for descriptor in SCRAPER_PROVIDER_DESCRIPTORS
@@ -509,6 +518,35 @@ def _build_scrapegraph(cfg: AppConfig) -> ContentScraperProtocol | None:
     except Exception as exc:
         logger.warning(
             "scrapegraph_provider_init_failed",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+        )
+        return None
+
+
+def _build_webwright(cfg: AppConfig) -> ContentScraperProtocol | None:
+    scraper_cfg = cfg.scraper
+    if not getattr(scraper_cfg, "webwright_enabled", False):
+        return None
+    host_allowlist = tuple(getattr(scraper_cfg, "webwright_host_allowlist", ()))
+    if not host_allowlist:
+        logger.info(
+            "webwright_provider_skipped_empty_allowlist",
+            extra={"reason": "WEBWRIGHT_HOST_ALLOWLIST is empty"},
+        )
+        return None
+    try:
+        from app.adapters.content.scraper.webwright_provider import WebwrightProvider
+
+        return WebwrightProvider(
+            url=getattr(scraper_cfg, "webwright_url", "http://webwright:8090"),
+            host_allowlist=host_allowlist,
+            max_steps=getattr(scraper_cfg, "webwright_max_steps", 20),
+            timeout_sec=getattr(scraper_cfg, "webwright_timeout_sec", 180),
+            min_content_length=getattr(scraper_cfg, "min_content_length", 400),
+        )
+    except Exception as exc:
+        logger.warning(
+            "webwright_provider_init_failed",
             extra={"error": str(exc), "error_type": type(exc).__name__},
         )
         return None

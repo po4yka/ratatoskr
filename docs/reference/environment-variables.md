@@ -259,6 +259,13 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | `SCRAPER_DIRECT_HTML_MAX_RESPONSE_MB` | `10` | Direct HTML max streamed response size (MB) |
 | `SCRAPER_SCRAPEGRAPH_ENABLED` | `true` | Enable ScrapeGraph-AI last-resort LLM-driven provider (requires `scrapegraphai` installed and `OPENROUTER_API_KEY`) |
 | `SCRAPER_SCRAPEGRAPH_TIMEOUT_SEC` | `90` | ScrapeGraph-AI request timeout (seconds) |
+| `WEBWRIGHT_ENABLED` | `false` | Enable the Microsoft Webwright LLM-driven browser-agent provider (heaviest tier; runs ~10-30x the cost of a normal scrape). Default off. Requires the `webwright` Docker sidecar from `ops/docker/webwright/` to be running. |
+| `WEBWRIGHT_URL` | `http://webwright:8090` | HTTP endpoint of the Webwright sidecar. |
+| `WEBWRIGHT_HOST_ALLOWLIST` | _(empty)_ | CSV or list of hosts where Webwright is allowed to fire. Empty disables it; use `*` to allow any host (not recommended). Subdomain matches are automatic — listing `example.com` matches `www.example.com`. |
+| `WEBWRIGHT_MAX_STEPS` | `20` | Maximum agent steps per Webwright invocation. |
+| `WEBWRIGHT_TIMEOUT_SEC` | `180` | Wall-clock budget per Webwright invocation. |
+| `WEBWRIGHT_MODEL` | `openai/gpt-4o-mini` | Model the sidecar passes to Webwright. Routed via OpenRouter using its OpenAI-compatible endpoint by default. |
+| `WEBWRIGHT_OPENAI_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible endpoint the sidecar points Webwright at. Override to use OpenAI/Anthropic directly. |
 
 **Notes**:
 
@@ -271,6 +278,7 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 - Crawlee fallback is a single-page advanced fallback (BeautifulSoup stage, then Playwright stage); it is not broad multi-page site crawling in this pipeline.
 - `direct_html` is a lightweight fallback using trafilatura for simple pages.
 - ScrapeGraph-AI is the last-resort provider. It uses the OpenRouter API key and model to run an in-process LLM-driven scrape. Requires `pip install scrapegraphai`.
+- Webwright is an even-heavier last-resort provider that runs an LLM-driven Playwright browser-agent loop ([microsoft/Webwright](https://github.com/microsoft/Webwright)) via a Docker sidecar (`ops/docker/webwright/`, compose profile `with-webwright`). Default off; requires both `WEBWRIGHT_ENABLED=true` and at least one host in `WEBWRIGHT_HOST_ALLOWLIST`. Empty allowlist short-circuits provider construction so the sidecar is never called.
 - `SCRAPER_PROFILE` multipliers: `fast=0.75`, `balanced=1.0`, `robust=1.35`; retry tuning uses `fast -> max 1`, `robust -> +1 (cap 5)`.
 - **Breaking rename (fail-fast)**: startup now errors if legacy variables are present (`SCRAPLING_ENABLED`, `SCRAPLING_TIMEOUT_SEC`, `SCRAPLING_STEALTH_FALLBACK`, `SCRAPER_DIRECT_HTTP_ENABLED`).
 

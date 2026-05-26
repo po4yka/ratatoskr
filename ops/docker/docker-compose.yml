@@ -796,6 +796,63 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  webwright:
+    # Microsoft Webwright (https://github.com/microsoft/Webwright) browser-agent
+    # sidecar. Default off — gated by SCRAPER_PROVIDER_ORDER including
+    # `webwright`, WEBWRIGHT_ENABLED=true, and the host being in
+    # WEBWRIGHT_HOST_ALLOWLIST. Heavy: each invocation runs an LLM-driven
+    # Playwright agent loop (~10-30x the cost of a normal scrape), so this is
+    # the chain's last-resort tier and should only fire on URLs the other
+    # providers cannot crack (auth-walled, paywalled, SPA dashboards).
+    profiles:
+      - with-webwright
+    build:
+      context: ./webwright
+    container_name: ratatoskr-webwright
+    environment:
+      # Point upstream Webwright at OpenRouter via its OpenAI-compatible
+      # endpoint so we keep a single key + cost line item. Override
+      # WEBWRIGHT_MODEL to swap models without redeploying.
+      - OPENAI_BASE_URL=${WEBWRIGHT_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      - OPENAI_API_KEY=${OPENROUTER_API_KEY:-}
+      - WEBWRIGHT_DEFAULT_MODEL=${WEBWRIGHT_MODEL:-openai/gpt-4o-mini}
+      - WEBWRIGHT_DEFAULT_MAX_STEPS=${WEBWRIGHT_MAX_STEPS:-20}
+      - WEBWRIGHT_DEFAULT_TIMEOUT_SEC=${WEBWRIGHT_TIMEOUT_SEC:-180}
+      - WEBWRIGHT_OUTPUTS_DIR=/data/webwright
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      # Persist trajectories/screenshots so we can correlate them back to the
+      # crawl_results.options_json["_webwright_trajectory"] entry written by
+      # the provider.
+      - ../../data/webwright:/data/webwright
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health', timeout=3).status==200 else 1)\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
   cloakbrowser:
     profiles:
       - with-scrapers

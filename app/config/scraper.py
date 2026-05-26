@@ -20,6 +20,7 @@ SCRAPER_PROVIDER_TOKENS = {
     "direct_pdf",
     "crawl4ai",
     "scrapegraph_ai",
+    "webwright",
 }
 
 SCRAPER_PROFILES = {"fast", "balanced", "robust"}
@@ -34,6 +35,7 @@ DEFAULT_SCRAPER_PROVIDER_ORDER = [
     "crawlee",
     "direct_html",
     "scrapegraph_ai",
+    "webwright",
 ]
 
 _PROFILE_TIMEOUT_MULTIPLIERS = {
@@ -334,6 +336,43 @@ class ScraperConfig(BaseModel):
         validation_alias="SCRAPER_SCRAPEGRAPH_TIMEOUT_SEC",
     )
 
+    # Microsoft Webwright (https://github.com/microsoft/Webwright) browser-agent
+    # provider. Default off — runs an LLM-driven Playwright agent loop per URL
+    # and costs ~10-30x a normal scrape. Gate by host allowlist; only attempt
+    # on URLs the rest of the chain demonstrably fails on.
+    webwright_enabled: bool = Field(
+        default=False,
+        validation_alias="WEBWRIGHT_ENABLED",
+        description=(
+            "Enable the Webwright last-resort browser-agent provider. Default "
+            "off. When enabled, only fires on hosts in WEBWRIGHT_HOST_ALLOWLIST."
+        ),
+    )
+    webwright_url: str = Field(
+        default="http://webwright:8090",
+        validation_alias="WEBWRIGHT_URL",
+        description="HTTP endpoint of the Webwright sidecar.",
+    )
+    webwright_host_allowlist: tuple[str, ...] = Field(
+        default_factory=tuple,
+        validation_alias="WEBWRIGHT_HOST_ALLOWLIST",
+        description=(
+            "CSV or list of hosts where Webwright is allowed to fire. Empty "
+            "means no host is allowed (effectively disabled); use '*' to "
+            "allow every host (not recommended for cost reasons)."
+        ),
+    )
+    webwright_max_steps: int = Field(
+        default=20,
+        validation_alias="WEBWRIGHT_MAX_STEPS",
+        description="Maximum agent steps per Webwright invocation.",
+    )
+    webwright_timeout_sec: int = Field(
+        default=180,
+        validation_alias="WEBWRIGHT_TIMEOUT_SEC",
+        description="Wall-clock budget per Webwright invocation.",
+    )
+
     @field_validator("profile", mode="before")
     @classmethod
     def _validate_profile(cls, value: Any) -> str:
@@ -447,6 +486,8 @@ class ScraperConfig(BaseModel):
         "direct_pdf_max_size_mb",
         "crawl4ai_timeout_sec",
         "scrapegraph_timeout_sec",
+        "webwright_max_steps",
+        "webwright_timeout_sec",
         mode="before",
     )
     @classmethod
@@ -479,6 +520,8 @@ class ScraperConfig(BaseModel):
             "direct_pdf_max_size_mb": (1, 200),
             "crawl4ai_timeout_sec": (1, 300),
             "scrapegraph_timeout_sec": (1, 600),
+            "webwright_max_steps": (1, 100),
+            "webwright_timeout_sec": (10, 600),
         }
         min_val, max_val = bounds[info.field_name]
         if parsed < min_val or parsed > max_val:
