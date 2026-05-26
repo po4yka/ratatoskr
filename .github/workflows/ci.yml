@@ -499,6 +499,12 @@ jobs:
             # protobuf is pinned via [tool.uv] override-dependencies and conflicts with
             # transitive resolvers under plain pip (used by pip-audit). Skip it here.
             grep -v "^protobuf==" | \
+            # mypy 2.x ships ast-serialize as a transitive; adding it to the
+            # audit input pushes pip's resolver into a backtracking path that
+            # ResolutionImpossible's on the cuda/triton/sentence-transformers
+            # set (uv handles the same constraints fine). Skip it — it's a
+            # type-check-only dep with no runtime presence.
+            grep -v "^ast-serialize==" | \
             sort -u > requirements-audit.txt
 
       - name: Run pip-audit
