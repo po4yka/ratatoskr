@@ -27,7 +27,25 @@ async def test_characterization_summary_command_happy_path_preserved() -> None:
     """Lock current /summarize command behavior for a single URL."""
     pytest.importorskip("yt_dlp", reason="yt-dlp not installed")
     pytest.importorskip("youtube_transcript_api", reason="youtube-transcript-api not installed")
-    cfg = make_test_app_config(db_path=":memory:", allowed_user_ids=(1, 42))
+
+    from app.config import RuntimeConfig
+
+    # The characterization is for the inline /summarize path. Production runs
+    # with url_worker_enqueue_enabled=False (pinned in ratatoskr.yaml), but
+    # the RuntimeConfig default is True; pin it explicitly so the bot dispatches
+    # inline instead of handing the URL to the Taskiq worker.
+    cfg = make_test_app_config(
+        db_path=":memory:",
+        allowed_user_ids=(1, 42),
+        runtime=RuntimeConfig(
+            db_path=":memory:",
+            log_level="INFO",
+            request_timeout_sec=5,
+            preferred_lang="en",
+            debug_payloads=False,
+            url_worker_enqueue_enabled=False,
+        ),
+    )
 
     from app.adapters import telegram_bot as tbmod
 

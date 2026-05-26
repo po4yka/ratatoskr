@@ -155,6 +155,10 @@ def test_production_empty_client_allowlist_fails_startup():
             "APP_ENV": "production",
             "REDIS_ENABLED": "true",
             "REDIS_REQUIRED": "true",
+            # ratatoskr.yaml pins redis.required=false (YAML beats env), which
+            # would trip the rate-limit gate before the allowlist gate the
+            # test wants to assert on. The override bypasses the former.
+            "RATE_LIMIT_REDIS_OVERRIDE": "true",
             "ALLOWED_CLIENT_IDS": "",
         },
         clear=True,
@@ -174,6 +178,9 @@ def test_production_empty_client_allowlist_with_explicit_override_starts_with_wa
             "APP_ENV": "production",
             "REDIS_ENABLED": "true",
             "REDIS_REQUIRED": "true",
+            # See sibling test: bypass the redis-required gate so the
+            # allowlist-warning path can be exercised.
+            "RATE_LIMIT_REDIS_OVERRIDE": "true",
             "ALLOWED_CLIENT_IDS": "",
             "AUTH_ALLOW_ANY_CLIENT_ID": "true",
         },

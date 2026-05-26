@@ -13,7 +13,7 @@ def test_provider_order_accepts_csv() -> None:
     assert cfg.provider_order == ["scrapling", "firecrawl", "playwright", "direct_html"]
 
 
-def test_default_provider_order_has_ten_entries() -> None:
+def test_default_provider_order_has_eleven_entries() -> None:
     cfg = ScraperConfig()
 
     assert cfg.provider_order == [
@@ -27,6 +27,7 @@ def test_default_provider_order_has_ten_entries() -> None:
         "crawlee",
         "direct_html",
         "scrapegraph_ai",
+        "webwright",
     ]
 
 

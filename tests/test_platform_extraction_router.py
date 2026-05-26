@@ -66,6 +66,11 @@ def _dummy_cfg(
                 article_resolution_timeout_sec=5.0,
             ),
             youtube=SimpleNamespace(enabled=True),
+            attachment=SimpleNamespace(
+                vision_routing_role_filter_enabled=True,
+                article_vision_enabled=True,
+                article_vision_min_images=1,
+            ),
         ),
     )
 

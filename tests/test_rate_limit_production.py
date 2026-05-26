@@ -114,6 +114,10 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "APP_ENV": "production",
                 "REDIS_ENABLED": "true",
                 "REDIS_REQUIRED": "true",
+                # ratatoskr.yaml pins redis.required=false, which beats env per
+                # the Settings precedence rule. Point the loader at a missing
+                # path so the env-set REDIS_REQUIRED=true is actually honored.
+                "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
             },
             clear=True,
         ):
@@ -167,6 +171,10 @@ class TestProductionRedisValidation(unittest.TestCase):
                 "API_PUBLIC_EXPOSURE": "true",
                 "REDIS_ENABLED": "true",
                 "REDIS_REQUIRED": "true",
+                # ratatoskr.yaml pins redis.required=false, which beats env per
+                # the Settings precedence rule. Point the loader at a missing
+                # path so the env-set REDIS_REQUIRED=true is actually honored.
+                "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
             },
             clear=True,
         ):

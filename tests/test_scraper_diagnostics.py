@@ -38,6 +38,7 @@ def test_build_scraper_diagnostics_includes_expected_keys() -> None:
         "crawlee",
         "direct_html",
         "scrapegraph_ai",
+        "webwright",
     ]
 
 
