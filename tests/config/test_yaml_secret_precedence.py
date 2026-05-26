@@ -228,8 +228,14 @@ class TestPrecedenceMatrix:
             _apply_baseline(mp)
             cfg_obj = Settings(_env_file=None).as_app_config()  # type: ignore[call-arg]
 
-        # ARTICLE_VISION_MIN_IMAGES default is 1; no env, no YAML => default.
-        assert cfg_obj.attachment.article_vision_min_images == 1
+        # ATTACHMENT_MAX_DOCUMENT_CHARS default is 45000. The repo's
+        # ratatoskr.yaml does not pin this field (it only sets
+        # article_vision_min_images and vision_routing_role_filter_enabled
+        # under `attachment:`) so the default must reach the AppConfig
+        # unchanged. Pick a YAML-absent field deliberately — verifying the
+        # default-wins-without-override precedence requires that no overlay
+        # touch it.
+        assert cfg_obj.attachment.max_document_chars == 45000
 
 
 class TestYamlDictRoundTrip:
