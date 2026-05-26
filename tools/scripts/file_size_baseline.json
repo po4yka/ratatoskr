@@ -1,8 +1,8 @@
 {
   "requirements.txt": 1601,
-  "docs/openapi/mobile_api.json": 21062,
-  "docs/openapi/mobile_api.yaml": 13222,
-  "docs/reference/data-model.md": 1611,
+  "docs/openapi/mobile_api.json": 22285,
+  "docs/openapi/mobile_api.yaml": 13914,
+  "docs/reference/data-model.md": 1706,
   "ops/monitoring/grafana/provisioning/dashboards/ratatoskr-overview.json": 1666,
   "uv.lock": 6399
 }
