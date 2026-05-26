@@ -4,5 +4,5 @@
   "docs/openapi/mobile_api.yaml": 13914,
   "docs/reference/data-model.md": 1706,
   "ops/monitoring/grafana/provisioning/dashboards/ratatoskr-overview.json": 1666,
-  "uv.lock": 6399
+  "uv.lock": 6435
 }
