@@ -14,7 +14,7 @@ a webwright_runs row with status != "completed" so we can audit later.
 from __future__ import annotations
 
 import datetime as _dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 
@@ -109,9 +109,7 @@ class BrowseHandler:
             stripped = stripped[len("/browse") :]
         return stripped.strip()
 
-    async def _create_run(
-        self, *, user_id: int, correlation_id: str, task_text: str
-    ) -> int:
+    async def _create_run(self, *, user_id: int, correlation_id: str, task_text: str) -> int:
         async with self._db.session() as session:
             row = WebwrightRun(
                 user_id=user_id,
@@ -161,7 +159,7 @@ class BrowseHandler:
             await session.commit()
 
     @staticmethod
-    def _format_reply(result, correlation_id: str) -> str:  # type: ignore[no-untyped-def]
+    def _format_reply(result: Any, correlation_id: str) -> str:
         if result.status == "ok" and result.final_answer:
             header = "Browser agent finished."
             cost_line = (
@@ -177,6 +175,4 @@ class BrowseHandler:
 
         # Failures still carry Error ID so the user can report it.
         err = result.error_text or f"status={result.status}"
-        return (
-            f"Browser agent failed.\n\n{err}\n\nError ID: {correlation_id}"
-        )
+        return f"Browser agent failed.\n\n{err}\n\nError ID: {correlation_id}"

@@ -54,9 +54,7 @@ class TestScrapeMarkdown:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_successful_scrape(self):
-        provider = WebwrightProvider(
-            host_allowlist=("example.com",), min_content_length=10
-        )
+        provider = WebwrightProvider(host_allowlist=("example.com",), min_content_length=10)
         payload = {
             "status": "ok",
             "title": "An Article",
@@ -67,12 +65,8 @@ class TestScrapeMarkdown:
             "llm_cost_usd": 0.04,
             "correlation_id": "req-123",
         }
-        with patch.object(
-            provider, "_post_scrape", new_callable=AsyncMock, return_value=payload
-        ):
-            result = await provider.scrape_markdown(
-                "https://example.com/article", request_id=123
-            )
+        with patch.object(provider, "_post_scrape", new_callable=AsyncMock, return_value=payload):
+            result = await provider.scrape_markdown("https://example.com/article", request_id=123)
         assert result.status == "ok"
         assert result.content_markdown is not None
         assert "An Article" in result.content_markdown
@@ -91,9 +85,7 @@ class TestScrapeMarkdown:
             "trajectory_path": "/data/webwright/req-1",
             "steps_used": 20,
         }
-        with patch.object(
-            provider, "_post_scrape", new_callable=AsyncMock, return_value=payload
-        ):
+        with patch.object(provider, "_post_scrape", new_callable=AsyncMock, return_value=payload):
             result = await provider.scrape_markdown("https://example.com/x")
         assert result.status == "error"
         assert "step budget" in (result.error_text or "").lower()
@@ -102,13 +94,9 @@ class TestScrapeMarkdown:
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_thin_content_returns_error(self):
-        provider = WebwrightProvider(
-            host_allowlist=("example.com",), min_content_length=400
-        )
+        provider = WebwrightProvider(host_allowlist=("example.com",), min_content_length=400)
         payload = {"status": "ok", "body_markdown": "Tiny."}
-        with patch.object(
-            provider, "_post_scrape", new_callable=AsyncMock, return_value=payload
-        ):
+        with patch.object(provider, "_post_scrape", new_callable=AsyncMock, return_value=payload):
             result = await provider.scrape_markdown("https://example.com/x")
         assert result.status == "error"
         assert "too short" in (result.error_text or "").lower()
@@ -132,9 +120,7 @@ class TestScrapeMarkdown:
         req = httpx.Request("POST", "http://webwright:8090/scrape")
         resp = httpx.Response(503, request=req)
         exc = httpx.HTTPStatusError("503", request=req, response=resp)
-        with patch.object(
-            provider, "_post_scrape", new_callable=AsyncMock, side_effect=exc
-        ):
+        with patch.object(provider, "_post_scrape", new_callable=AsyncMock, side_effect=exc):
             result = await provider.scrape_markdown("https://example.com/x")
         assert result.status == "error"
         assert result.http_status == 503
@@ -173,9 +159,7 @@ class TestScrapeMarkdown:
             }
 
         with patch.object(provider, "_post_scrape", side_effect=fake_post):
-            await provider.scrape_markdown(
-                "https://example.com/x", request_id=42
-            )
+            await provider.scrape_markdown("https://example.com/x", request_id=42)
         assert captured["X-Correlation-Id"] == "req-42"
         assert captured["url"] == "https://example.com/x"
 
@@ -187,9 +171,7 @@ class TestScrapeMarkdown:
             "trajectory_path": "/tmp/blocked",
             "error_text": "Login wall encountered",
         }
-        with patch.object(
-            provider, "_post_scrape", new_callable=AsyncMock, return_value=payload
-        ):
+        with patch.object(provider, "_post_scrape", new_callable=AsyncMock, return_value=payload):
             result = await provider.scrape_markdown("https://example.com/x")
         assert result.status == "error"
         assert "Login wall" in (result.error_text or "")

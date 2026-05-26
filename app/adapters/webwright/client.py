@@ -162,7 +162,9 @@ class WebwrightClient:
             )
 
         screenshots_raw = data.get("screenshots") or []
-        screenshots = tuple(str(s) for s in screenshots_raw) if isinstance(screenshots_raw, list) else ()
+        screenshots = (
+            tuple(str(s) for s in screenshots_raw) if isinstance(screenshots_raw, list) else ()
+        )
 
         return WebwrightTaskResult(
             status=str(data.get("status") or "error"),

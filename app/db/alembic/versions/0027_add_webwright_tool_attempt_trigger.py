@@ -19,9 +19,7 @@ def upgrade() -> None:
     # ALTER TYPE ... ADD VALUE is transaction-unsafe in older Postgres, but
     # supported as-is in 13+. The Ratatoskr deployment targets PG16, so this
     # is fine.
-    op.execute(
-        "ALTER TYPE llm_attempt_trigger ADD VALUE IF NOT EXISTS 'webwright_tool'"
-    )
+    op.execute("ALTER TYPE llm_attempt_trigger ADD VALUE IF NOT EXISTS 'webwright_tool'")
 
 
 def downgrade() -> None:

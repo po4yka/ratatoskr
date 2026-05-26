@@ -176,8 +176,7 @@ class WebwrightProvider:
 
         if status != "ok" or not body_markdown:
             error_text = (
-                payload.get("error_text")
-                or f"Webwright returned status={status!r} with no content"
+                payload.get("error_text") or f"Webwright returned status={status!r} with no content"
             )
             return FirecrawlResult(
                 status=CallStatus.ERROR,
@@ -191,9 +190,7 @@ class WebwrightProvider:
         if len(body_markdown) < self._min_content_length:
             return FirecrawlResult(
                 status=CallStatus.ERROR,
-                error_text=(
-                    f"Webwright: content too short ({len(body_markdown)} chars)"
-                ),
+                error_text=(f"Webwright: content too short ({len(body_markdown)} chars)"),
                 latency_ms=latency,
                 source_url=url,
                 endpoint="webwright",
@@ -234,9 +231,7 @@ class WebwrightProvider:
                 return True
         return False
 
-    async def _post_scrape(
-        self, url: str, *, correlation_id: str | None
-    ) -> dict[str, Any]:
+    async def _post_scrape(self, url: str, *, correlation_id: str | None) -> dict[str, Any]:
         endpoint = f"{self._url}/scrape"
         body = {
             "url": url,

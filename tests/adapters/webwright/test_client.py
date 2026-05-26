@@ -135,6 +135,4 @@ async def test_cookies_and_model_forwarded():
     assert captured_body["task"] == "t"
     assert captured_body["model"] == "m-override"
     assert captured_body["allowed_domains"] == ["example.com"]
-    assert captured_body["cookies_json"] == {
-        "example.com": [{"name": "sid", "value": "x"}]
-    }
+    assert captured_body["cookies_json"] == {"example.com": [{"name": "sid", "value": "x"}]}

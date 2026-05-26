@@ -90,10 +90,7 @@ class WebwrightEnricher:
                 },
             )
             return None
-        if (
-            current_content is not None
-            and len(current_content.strip()) >= self._min_content_length
-        ):
+        if current_content is not None and len(current_content.strip()) >= self._min_content_length:
             logger.info(
                 "webwright_enrich_skipped_sufficient_content",
                 extra={

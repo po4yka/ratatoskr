@@ -53,9 +53,7 @@ async def test_skips_when_url_empty():
         client=_fake_client(),
         host_allowlist=("example.com",),
     )
-    out = await enricher.maybe_enrich_url(
-        url="", current_content=None, correlation_id=None
-    )
+    out = await enricher.maybe_enrich_url(url="", current_content=None, correlation_id=None)
     assert out is None
 
 

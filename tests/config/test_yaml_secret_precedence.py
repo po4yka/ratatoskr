@@ -26,7 +26,6 @@ from app.config._secret_marker import (
     is_secret_field,
 )
 
-
 # Minimal env the Settings model demands to instantiate at all (TelegramConfig
 # and OpenRouterConfig have required fields). Tests overlay their own values
 # on top of this baseline via monkeypatch.
