@@ -8,5 +8,11 @@ repo's evolving Python API. The Path A scraper provider lives under
 """
 
 from app.adapters.webwright.client import WebwrightClient, WebwrightTaskResult
+from app.adapters.webwright.enricher import EnrichmentResult, WebwrightEnricher
 
-__all__ = ["WebwrightClient", "WebwrightTaskResult"]
+__all__ = [
+    "EnrichmentResult",
+    "WebwrightClient",
+    "WebwrightEnricher",
+    "WebwrightTaskResult",
+]

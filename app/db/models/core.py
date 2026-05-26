@@ -42,6 +42,9 @@ class LLMAttemptTrigger(enum.StrEnum):
       streaming falls back to non-streaming. The current implementation reuses
       the same in-flight ``LLMCall`` row rather than inserting a new one, so
       this value is not written by any active code path.
+    - ``webwright_tool``: re-summarization after the Webwright sidecar
+      (microsoft/Webwright) was used to enrich thin/paywalled content. Set
+      when ``WebwrightEnricher.maybe_enrich_url`` returned a payload.
     """
 
     initial = "initial"
@@ -49,6 +52,7 @@ class LLMAttemptTrigger(enum.StrEnum):
     auto_backfill = "auto_backfill"
     repair_loop = "repair_loop"
     stream_fallback_retry = "stream_fallback_retry"
+    webwright_tool = "webwright_tool"
 
 
 _llm_attempt_trigger_enum = Enum(
