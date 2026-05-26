@@ -4468,7 +4468,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'otel'", specifier = ">=0.62b0" },
     { name = "opentelemetry-instrumentation-logging", marker = "extra == 'otel'", specifier = ">=0.62b0" },
     { name = "opentelemetry-instrumentation-redis", marker = "extra == 'otel'", specifier = ">=0.62b0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.41,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.42.1,<2" },
     { name = "orjson", specifier = ">=3.11.9" },
     { name = "patchright", marker = "extra == 'browser-scraper'", specifier = ">=1.40" },
     { name = "pillow", marker = "extra == 'attachment'", specifier = ">=11.0.0" },
