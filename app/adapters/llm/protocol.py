@@ -53,6 +53,8 @@ class LLMClientProtocol(Protocol):
         on_stream_delta: Callable[[str], Awaitable[None] | None] | None = None,
         per_model_timeout_sec: float | None = None,
         per_model_timeout_overrides: dict[str, float] | None = None,
+        budget_tight_ratio: float = 0.6,
+        truncation_max_count: int = 2,
     ) -> LLMCallResult:
         """Send a chat completion request to the LLM provider.
 
@@ -74,6 +76,11 @@ class LLMClientProtocol(Protocol):
             on_stream_delta: Optional callback invoked with streamed text deltas.
             per_model_timeout_sec: Optional timeout budget for each model attempt.
             per_model_timeout_overrides: Optional per-model timeout overrides.
+            budget_tight_ratio: Fraction of the per-model timeout below which the
+                client treats the budget as "tight" and trims optional payload
+                (e.g. drops streaming, applies harsher truncation).
+            truncation_max_count: Maximum number of message-history truncation
+                rounds permitted before failing fast.
 
         Returns:
             LLMCallResult containing the response text, token usage, cost,

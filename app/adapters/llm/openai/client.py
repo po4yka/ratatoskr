@@ -192,6 +192,8 @@ class OpenAIClient:
         on_stream_delta: Any | None = None,
         per_model_timeout_sec: float | None = None,
         per_model_timeout_overrides: dict[str, float] | None = None,
+        budget_tight_ratio: float = 0.6,
+        truncation_max_count: int = 2,
     ) -> LLMCallResult:
         """Send a chat completion request to OpenAI.
 

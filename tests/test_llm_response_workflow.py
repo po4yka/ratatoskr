@@ -44,6 +44,8 @@ class _StrictFakeLLMClient:
         on_stream_delta: Any | None = None,
         per_model_timeout_sec: float | None = None,
         per_model_timeout_overrides: dict[str, float] | None = None,
+        budget_tight_ratio: float = 0.6,
+        truncation_max_count: int = 2,
     ) -> Any:
         self.calls.append(
             {
@@ -59,6 +61,8 @@ class _StrictFakeLLMClient:
                 "on_stream_delta": on_stream_delta,
                 "per_model_timeout_sec": per_model_timeout_sec,
                 "per_model_timeout_overrides": per_model_timeout_overrides,
+                "budget_tight_ratio": budget_tight_ratio,
+                "truncation_max_count": truncation_max_count,
             }
         )
         return self.result
@@ -273,6 +277,8 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 "on_stream_delta": None,
                 "per_model_timeout_sec": 90.0,
                 "per_model_timeout_overrides": {"fallback-model": 12.0},
+                "budget_tight_ratio": unittest.mock.ANY,
+                "truncation_max_count": unittest.mock.ANY,
             }
         ]
 
