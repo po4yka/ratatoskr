@@ -18,7 +18,7 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -115,7 +115,7 @@ async def scrape(
             allowed_domains=[_host_of(payload.url)],
             cookies_json=None,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         latency = int((time.perf_counter() - started) * 1000)
         logger.warning("webwright_scrape_timeout", extra={"cid": cid, "url": payload.url})
         return ScrapeResponse(
@@ -180,7 +180,7 @@ async def task(
             allowed_domains=payload.allowed_domains,
             cookies_json=payload.cookies_json,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         latency = int((time.perf_counter() - started) * 1000)
         return TaskResponse(
             correlation_id=cid,
@@ -229,7 +229,14 @@ class WebwrightNotAvailableError(RuntimeError):
 
 
 class _AgentResult:
-    __slots__ = ("status", "final_answer", "screenshots", "trajectory_path", "steps_used", "llm_cost_usd")
+    __slots__ = (
+        "final_answer",
+        "llm_cost_usd",
+        "screenshots",
+        "status",
+        "steps_used",
+        "trajectory_path",
+    )
 
     def __init__(
         self,
@@ -308,7 +315,7 @@ async def _run_webwright_task(
 
     # Probe the upstream binary at runtime — if it isn't on PATH the sidecar
     # still boots and reports a clean error, which is what tests rely on.
-    if subprocess.run(["which", "webwright"], capture_output=True).returncode != 0:
+    if shutil.which("webwright") is None:
         raise WebwrightNotAvailableError(
             "Webwright CLI not found in PATH; sidecar image was built without the upstream binary."
         )
@@ -326,10 +333,8 @@ async def _run_webwright_task(
             env=env,
         )
         try:
-            stdout_b, _ = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout_sec
-            )
-        except asyncio.TimeoutError:
+            stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             raise
@@ -340,7 +345,11 @@ async def _run_webwright_task(
 
     logger.info(
         "webwright_run_completed",
-        extra={"cid": cid, "elapsed_sec": time.perf_counter() - started, "returncode": proc.returncode},
+        extra={
+            "cid": cid,
+            "elapsed_sec": time.perf_counter() - started,
+            "returncode": proc.returncode,
+        },
     )
 
     report_path = _find_latest_report(run_dir)
