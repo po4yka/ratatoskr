@@ -26,6 +26,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Bird's-eye view, request lifecycle | `docs/explanation/architecture-overview.md` |
 | Multi-agent architecture | `docs/explanation/multi-agent-architecture.md` |
 | Scraper-chain fallback design | `docs/explanation/scraper-chain.md` |
+| Webwright browser-agent integration (sidecar, `/browse`, enricher) | `docs/explanation/webwright.md` |
 | Why the summary contract is shaped that way | `docs/explanation/summary-contract-design.md` |
 | GitHub repo ingestion subsystem | `docs/explanation/github-repository-ingestion.md` |
 | fieldtheory-cli integration (bookmarks, wiki, MCP search, Telegram) | `docs/explanation/x-bookmarks-integration.md` |
@@ -66,6 +67,7 @@ app/
 |   +-- openrouter/     # OpenRouter client and helpers
 |   +-- telegram/       # Bot logic, command_handlers/, access controller
 |   +-- twitter/        # Twitter/X two-tier extractor (Firecrawl + Playwright)
+|   +-- webwright/      # Microsoft Webwright sidecar adapters (client, enricher) — used by scraper chain + /browse
 |   +-- youtube/        # yt-dlp + transcript extraction
 +-- agents/             # Classic agents (extraction, validation, web search, repo analysis)
 +-- api/                # Mobile API (FastAPI, JWT, sync, collections, streams, digest, ...)
@@ -97,6 +99,7 @@ Project-specific conventions that aren't visible from code alone. Treat these as
 6. **Async only.** Telethon + httpx + asyncpg + SQLAlchemy `AsyncSession`. No blocking calls in the request path; use `asyncio.to_thread` only for genuinely sync libs.
 7. **Update both `en` and `ru` prompts together.** Files under `app/prompts/` come in mirrored pairs (`summary_system_en.txt` / `summary_system_ru.txt`, etc.); changing one without the other silently breaks the other-language path.
 8. **YouTube, Twitter/X, and academic papers each have dedicated extractors** (`app/adapters/youtube/`, `twitter/`, `academic/`) that bypass the standard scraper chain. Check `requests.source_kind` before assuming the chain ran.
+9. **Webwright is the only chain rung that costs real LLM money per URL.** Default off (`WEBWRIGHT_ENABLED=false`) and double-gated by a non-empty `WEBWRIGHT_HOST_ALLOWLIST` — an empty allowlist short-circuits provider construction so the sidecar is never called. The same sidecar serves `/browse` (Path B) and `WebwrightEnricher` (Path C); design rationale lives in `docs/explanation/webwright.md`.
 
 ### Bugbear rules to never suppress project-wide
 
@@ -131,7 +134,7 @@ Task-oriented skills under `.claude/skills/`. Each carries its own workflow, tri
 | `validating-summaries` | summary JSON contract checks, character-limit failures |
 | `langgraph-summarize-loop` | retry / repair-loop / `attempt_trigger` debugging (skill covers instructor retry loop, not LangGraph) |
 | `vector-index-sync` | Qdrant + `summary_embeddings` + CocoIndex reconciliation |
-| `scraper-chain-debugging` | content-scraper fallback chain failures |
+| `scraper-chain-debugging` | content-scraper fallback chain failures (now includes the Webwright rung) |
 | `digest-subsystem-ops` | channel digest userbot, `/init_session` flow, scheduling |
 | `pi-deploy` | building and shipping the image to the Raspberry Pi |
 | `web-frontend-dev` | React + TypeScript + Vite work under `web/` |
@@ -219,8 +222,9 @@ SQLAlchemy 2.0 typed declarative models registered in `ALL_MODELS` (`app/db/mode
 | `signal.py` | `Source`, `Subscription`, `FeedItem`, `Topic`, `UserSignal` |
 | `topic_search.py` | `TopicSearchIndex` (Postgres TSVECTOR + GIN) |
 | `user_content.py` | `SummaryFeedback`, `CustomDigest`, `SummaryHighlight`, `UserGoal`, `Tag`, `SummaryTag` |
+| `webwright.py` | `WebwrightRun`, `UserBrowserSession` (Fernet-encrypted per-domain cookies; reuses `GITHUB_TOKEN_ENCRYPTION_KEY`) |
 
-`LLMCall` rows carry `attempt_index` (1-based, monotonic per `request_id`) and `attempt_trigger` (Postgres enum: `initial`, `user_retry`, `auto_backfill`, `repair_loop`, `stream_fallback_retry`) so retries and the instructor repair loop are queryable without timestamp inference.
+`LLMCall` rows carry `attempt_index` (1-based, monotonic per `request_id`) and `attempt_trigger` (Postgres enum: `initial`, `user_retry`, `auto_backfill`, `repair_loop`, `stream_fallback_retry`, `webwright_tool`) so retries, the instructor repair loop, and Webwright-enriched re-summarizations are queryable without timestamp inference.
 
 Schema and migration workflow: `alembic-migrations` skill + `docs/reference/data-model.md`.
 
@@ -240,6 +244,7 @@ Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bear
 | `RATATOSKR_COCOINDEX_ENABLED`, `VECTOR_RECONCILE_ENABLED` | Vector-index sync writers |
 | `X_BOOKMARKS_SYNC_ENABLED`, `X_BOOKMARKS_SYNC_CRON`, `X_WIKI_SYNC_CRON` | Master switch + cron for the two x_bookmarks delta-scan Taskiq jobs (bookmark + wiki). Both jobs share the `enabled` flag. |
 | `X_BOOKMARKS_DB_PATH`, `X_WIKI_LIBRARY_PATH`, `X_IDEAS_PATH` | Container-side paths to the host-mounted `~/.fieldtheory/` subtrees (`bookmarks.db`, `library/`, `ideas/`). Defaults: `/x_bookmarks/...` — bind-mounted read-only by the operator. |
+| `WEBWRIGHT_ENABLED`, `WEBWRIGHT_HOST_ALLOWLIST`, `WEBWRIGHT_URL`, `WEBWRIGHT_MAX_STEPS`, `WEBWRIGHT_TIMEOUT_SEC`, `WEBWRIGHT_MODEL` | Microsoft Webwright sidecar (compose profile `with-webwright`). Heavy: each invocation ~10-30× a normal scrape. Default off; double-gated by feature flag + non-empty host allowlist. See `docs/explanation/webwright.md`. |
 
 ## Task Board
 

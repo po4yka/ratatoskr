@@ -355,6 +355,66 @@ docker compose -f ops/docker/docker-compose.yml --profile with-scrapers restart
 
 **Last resort**: enable ScrapeGraphAI (`SCRAPER_SCRAPEGRAPH_ENABLED=true`) — uses an LLM call and adds latency/cost but handles sites that defeat all browser-based approaches.
 
+**Heavier last resort**: enable Webwright (`WEBWRIGHT_ENABLED=true` + add the host to `WEBWRIGHT_HOST_ALLOWLIST`). See the next section.
+
+---
+
+### Webwright Sidecar Failures
+
+**Symptom**: `crawl_results.options_json._chain_attempt_log` shows `webwright` rows with `error_class` ∈ `{webwright_timeout, no_content}`, or `webwright_runs.status` is `error`/`timeout`, or the `/browse` reply shows "Browser agent failed."
+
+**Quick triage by error class:**
+
+```bash
+# 1. Is the sidecar reachable at all?
+curl -fsS http://localhost:8090/health
+# Expected: {"status":"ok"}
+
+# 2. Is the URL even allowlisted? Empty allowlist short-circuits with
+#    "Webwright: host not in WEBWRIGHT_HOST_ALLOWLIST" — by design.
+grep WEBWRIGHT_ .env
+# WEBWRIGHT_ENABLED must be true AND WEBWRIGHT_HOST_ALLOWLIST must be non-empty.
+
+# 3. Is the with-webwright compose profile up?
+docker compose -f ops/docker/docker-compose.yml ps webwright
+
+# 4. Look at the trajectory for this run.
+docker exec ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
+    "SELECT options_json->'_webwright_trajectory' AS path,
+            options_json->'_webwright_steps_used' AS steps,
+            options_json->'_webwright_llm_cost_usd' AS cost
+     FROM crawl_results
+     WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<cid>');"
+# Then on the host:
+ls -la data/webwright/<correlation_id>/
+cat data/webwright/<correlation_id>/report.json | jq .
+```
+
+**Reason-code cheatsheet:**
+
+| `error_class` / `status` | What happened | Fix |
+|---|---|---|
+| `host_not_allowlisted` | URL host wasn't in `WEBWRIGHT_HOST_ALLOWLIST`. | Add the host (subdomains match automatically — `example.com` covers `www.example.com`). |
+| `webwright_timeout` | Sidecar didn't return within `WEBWRIGHT_TIMEOUT_SEC`. | Bump the budget or `WEBWRIGHT_MAX_STEPS`; inspect the trajectory to see where the agent got stuck. |
+| `step_budget_exhausted` | Agent used all of `WEBWRIGHT_MAX_STEPS` without returning success. | Either raise the cap or refine the task — usually a sign the page needs interaction that wasn't authorized. |
+| Sidecar `status: "error"` | Upstream Webwright binary failed; cookies file unreadable; OPENAI_API_KEY missing | `docker logs ratatoskr-webwright` reveals the upstream exception. |
+
+**Cost growth check** — Webwright is the only chain rung that costs real LLM money per invocation. If your monthly Webwright spend creeps up:
+
+```bash
+docker exec ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
+    "SELECT date_trunc('day', created_at) AS day,
+            count(*) AS runs,
+            sum(llm_cost_usd) AS daily_usd,
+            avg(steps_used) AS avg_steps
+     FROM webwright_runs
+     WHERE created_at > now() - interval '14 days'
+     GROUP BY 1 ORDER BY 1 DESC;"
+```
+
+If runs > 5/day or daily $USD > $1, the host allowlist is too broad or the trigger heuristic is firing on URLs the cheap chain could have handled.
+
+---
 
 ## OpenRouter Issues
 

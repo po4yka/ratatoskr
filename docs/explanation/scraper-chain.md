@@ -2,7 +2,7 @@
 
 How Ratatoskr extracts clean article content from arbitrary URLs: the provider taxonomy, fallback logic, deployment topology, quality gates, and configuration recipes.
 
-**Audience:** Contributors and operators who need to understand, tune, or extend the content-extraction pipeline. **Type:** Explanation. **Related:** [`docs/explanation/architecture-overview.md`](architecture-overview.md) (parent), [`docs/reference/environment-variables.md`](../reference/environment-variables.md) (full env-var reference), [`docs/explanation/faq.md`](../explanation/faq.md) (operational tips). **Source:** [`app/adapters/content/scraper/chain.py`](../../app/adapters/content/scraper/chain.py), [`factory.py`](../../app/adapters/content/scraper/factory.py), [`protocol.py`](../../app/adapters/content/scraper/protocol.py), [`scrapling_provider.py`](../../app/adapters/content/scraper/scrapling_provider.py), [`crawl4ai_provider.py`](../../app/adapters/content/scraper/crawl4ai_provider.py), [`defuddle_provider.py`](../../app/adapters/content/scraper/defuddle_provider.py), [`firecrawl_provider.py`](../../app/adapters/content/scraper/firecrawl_provider.py), [`playwright_provider.py`](../../app/adapters/content/scraper/playwright_provider.py), [`crawlee_provider.py`](../../app/adapters/content/scraper/crawlee_provider.py), [`direct_html_provider.py`](../../app/adapters/content/scraper/direct_html_provider.py), [`scrapegraph_provider.py`](../../app/adapters/content/scraper/scrapegraph_provider.py).
+**Audience:** Contributors and operators who need to understand, tune, or extend the content-extraction pipeline. **Type:** Explanation. **Related:** [`docs/explanation/architecture-overview.md`](architecture-overview.md) (parent), [`docs/reference/environment-variables.md`](../reference/environment-variables.md) (full env-var reference), [`docs/explanation/faq.md`](../explanation/faq.md) (operational tips). **Source:** [`app/adapters/content/scraper/chain.py`](../../app/adapters/content/scraper/chain.py), [`factory.py`](../../app/adapters/content/scraper/factory.py), [`protocol.py`](../../app/adapters/content/scraper/protocol.py), [`scrapling_provider.py`](../../app/adapters/content/scraper/scrapling_provider.py), [`crawl4ai_provider.py`](../../app/adapters/content/scraper/crawl4ai_provider.py), [`defuddle_provider.py`](../../app/adapters/content/scraper/defuddle_provider.py), [`firecrawl_provider.py`](../../app/adapters/content/scraper/firecrawl_provider.py), [`playwright_provider.py`](../../app/adapters/content/scraper/playwright_provider.py), [`crawlee_provider.py`](../../app/adapters/content/scraper/crawlee_provider.py), [`direct_html_provider.py`](../../app/adapters/content/scraper/direct_html_provider.py), [`scrapegraph_provider.py`](../../app/adapters/content/scraper/scrapegraph_provider.py), [`webwright_provider.py`](../../app/adapters/content/scraper/webwright_provider.py).
 
 ---
 
@@ -25,8 +25,9 @@ How Ratatoskr extracts clean article content from arbitrary URLs: the provider t
 | `crawlee` | browser pool (in-process) | 7 | Chromium (same as playwright) |
 | `direct_html` | in-process | 8 | None — raw httpx fetch + trafilatura |
 | `scrapegraph_ai` | in-process (LLM-driven) | 9 | `scrapegraphai` package + valid `OPENROUTER_API_KEY` |
+| `webwright` | Docker sidecar (LLM-driven browser agent) | 10 | `webwright` container at `WEBWRIGHT_URL` + non-empty `WEBWRIGHT_HOST_ALLOWLIST` |
 
-Provider position 3 (`firecrawl`) is active only when `FIRECRAWL_SELF_HOSTED_ENABLED=true`; cloud Firecrawl is not used for article scraping. Position 9 (`scrapegraph_ai`) is active only when `scrapegraphai` is installed and `OPENROUTER_API_KEY` is set.
+Provider position 3 (`firecrawl`) is active only when `FIRECRAWL_SELF_HOSTED_ENABLED=true`; cloud Firecrawl is not used for article scraping. Position 9 (`scrapegraph_ai`) is active only when `scrapegraphai` is installed and `OPENROUTER_API_KEY` is set. Position 10 (`webwright`) is the absolute last-resort tier: runs a Microsoft Webwright (https://github.com/microsoft/Webwright) browser-agent loop per URL at ~10-30× the cost of a normal scrape and only fires when `WEBWRIGHT_ENABLED=true` *and* the URL's host appears in `WEBWRIGHT_HOST_ALLOWLIST`. An empty allowlist short-circuits provider construction so the sidecar is never reached. See [Webwright](webwright.md) for the design rationale and the three integration paths (scraper rung, `/browse` Telegram command, and the `WebwrightEnricher` enrichment service).
 
 Position 5 (`cloakbrowser`) is the stealth-browser rung — an [upstream CloakHQ/CloakBrowser](https://github.com/CloakHQ/CloakBrowser) sidecar in `cloakserve` CDP mode that drives a Chromium build with C++ source-level fingerprint patches (canvas, WebGL, GPU, WebRTC, UA). It runs under the `with-scrapers` Docker profile and is reached over the internal Docker network only. The upstream binary is licensed for use but not redistribution, so we always pull the upstream image rather than rebake it — pinned in `ops/docker/docker-compose.yml` by multi-arch manifest digest (`@sha256:...`) so a re-pushed tag cannot silently swap the binary. `CLOAKBROWSER_AUTO_UPDATE=false` is set inside the container for the same reproducibility reason. When the sidecar is absent (no `with-scrapers` profile) the provider build still appears in the chain but the per-call connection fails fast, and the chain falls through to in-process `playwright` exactly as it does today when `crawl4ai` is down.
 
@@ -105,8 +106,12 @@ flowchart TD
     DirectHTMLGate -- success --> Success
 
     ScrapegraphAI --> ScrapegraphGate{Content OK?}
-    ScrapegraphGate -- fail --> Exhausted([FirecrawlResult\nstatus=ERROR\nendpoint=chain])
+    ScrapegraphGate -- fail --> Webwright[10. webwright\nhost-allowlisted only]
     ScrapegraphGate -- success --> Success
+
+    Webwright --> WebwrightGate{Content OK?}
+    WebwrightGate -- fail / not allowlisted --> Exhausted([FirecrawlResult\nstatus=ERROR\nendpoint=chain])
+    WebwrightGate -- success --> Success
 
     Success([FirecrawlResult persisted\nto crawl_results])
 
@@ -116,7 +121,7 @@ flowchart TD
     classDef terminal fill:#f9ebea,stroke:#cb4335
 
     class Scrapling,DirectHTML,ScrapegraphAI inproc
-    class Crawl4AI,Firecrawl,Defuddle,CloakBrowser sidecar
+    class Crawl4AI,Firecrawl,Defuddle,CloakBrowser,Webwright sidecar
     class Playwright,Crawlee browser
     class Exhausted terminal
 ```
@@ -168,10 +173,12 @@ flowchart LR
     Chain -- "SCRAPER_CRAWL4AI_URL\n→ crawl4ai:11235" --> C4AI
     Chain -- "FIRECRAWL_SELF_HOSTED_URL\n→ firecrawl-api:3002" --> FirecrawlAPI
     Chain -- "SCRAPER_DEFUDDLE_API_BASE_URL\n→ defuddle-api:3003" --> DefuddleAPI
+    Chain -- "WEBWRIGHT_URL\n→ webwright:8090\n(host-allowlisted only)" --> WebwrightAPI[webwright sidecar\nMicrosoft Webwright\nbrowser-agent loop]
     ScrapegraphAI2 -- "OPENROUTER_API_KEY\n(last resort only)" --> OpenRouter
+    WebwrightAPI -- "OPENAI_BASE_URL\n(OpenRouter compat)" --> OpenRouter
 ```
 
-All sidecar connections are optional: a provider that cannot reach its sidecar returns an error result and the chain continues. The `scrapegraph_ai` provider is the only one that contacts an external endpoint (OpenRouter), and only as a last resort.
+All sidecar connections are optional: a provider that cannot reach its sidecar returns an error result and the chain continues. The `scrapegraph_ai` and `webwright` providers are the only ones that contact an external endpoint (OpenRouter), and only as a last resort. The `webwright` sidecar is double-gated: by the chain's host allowlist (no allowlist match → no sidecar call) and by the compose profile `with-webwright` (sidecar not running → provider build returns `None`).
 
 ### Operator surfaces (Crawl4AI sidecar)
 

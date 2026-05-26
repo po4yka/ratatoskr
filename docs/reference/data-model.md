@@ -105,7 +105,7 @@ CREATE TABLE chats (
 CREATE TABLE requests (
     id                         TEXT PRIMARY KEY,
     created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    type                       TEXT NOT NULL,  -- 'url' | 'forward'
+    type                       TEXT NOT NULL,  -- 'url' | 'forward' | 'text' | 'webwright' | 'unknown'
     status                     TEXT DEFAULT 'pending',  -- 'pending'| 'ok' |'error'
     chat_id                    INTEGER REFERENCES chats(chat_id),
     user_id                    INTEGER REFERENCES users(telegram_user_id),
@@ -126,7 +126,7 @@ CREATE TABLE requests (
 
 - `id` (str, PK) - Unique request ID (correlation ID)
 - `created_at` (datetime) - Request creation timestamp
-- `type` (str) - Request type (`url` or `forward`)
+- `type` (str) - Request type (`url`, `forward`, `text`, `webwright`, or `unknown`). `webwright` is reserved for owner-only `/browse <task>` runs that originate via the Webwright sidecar and do not flow through the scraper chain or summarizer; the run body lives in `webwright_runs` instead of `summaries`.
 - `status` (str) - Processing status (`pending`, `ok`, `error`)
 - `chat_id` (int, FK) - Foreign key to `chats`
 - `user_id` (int, FK) - Foreign key to `users`
@@ -1255,6 +1255,101 @@ CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp);
 CREATE INDEX idx_audit_logs_correlation_id ON audit_logs(correlation_id);
 CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
 ```
+
+---
+
+## Webwright Tables
+
+### webwright_runs
+
+**Purpose:** One row per owner-only `/browse <task>` invocation. Persists the natural-language task, the final answer, trajectory metadata, cost/steps, and terminal status so an operator can re-render any past run from Postgres without scraping logs.
+
+**Schema:**
+
+```sql
+CREATE TYPE webwright_run_status AS ENUM (
+    'pending', 'running', 'completed', 'error', 'timeout', 'cancelled'
+);
+
+CREATE TABLE webwright_runs (
+    id                    INTEGER PRIMARY KEY,
+    request_id            INTEGER REFERENCES requests(id) ON DELETE SET NULL,
+    user_id               BIGINT REFERENCES users(telegram_user_id) ON DELETE CASCADE,
+    correlation_id        VARCHAR(64) NOT NULL,
+    task_text             TEXT NOT NULL,
+    allowed_domains_json  JSONB,
+    status                webwright_run_status DEFAULT 'pending' NOT NULL,
+    steps_used            INTEGER,
+    llm_cost_usd          REAL,
+    final_answer          TEXT,
+    trajectory_path       VARCHAR(500),
+    screenshots_json      JSONB,
+    error_text            TEXT,
+    created_at            TIMESTAMPTZ NOT NULL,
+    completed_at          TIMESTAMPTZ
+);
+```
+
+**Fields:**
+
+- `correlation_id` — flows from the Telegram message through the `X-Correlation-Id` header to the sidecar; joins the run back to the originating request (Operating Rule 1).
+- `task_text` — verbatim user input minus the `/browse` prefix.
+- `allowed_domains_json` — JSONB list of hosts Webwright is permitted to navigate (may be empty).
+- `status` — lifecycle states; `error`/`timeout`/`cancelled` are terminal failure paths.
+- `steps_used`, `llm_cost_usd` — telemetry reported back by the sidecar's `/task` response. Use these to track cost growth over a long horizon.
+- `final_answer` — agent's final assistant message; capped at ~3.5k chars in the Telegram reply but full payload is preserved here.
+- `trajectory_path` — absolute path inside the sidecar's data volume where Webwright wrote the run's step-by-step trajectory + screenshots.
+
+**Indexes:**
+
+```sql
+CREATE INDEX ix_webwright_runs_request_id ON webwright_runs(request_id);
+CREATE INDEX ix_webwright_runs_user_id ON webwright_runs(user_id);
+CREATE INDEX ix_webwright_runs_correlation_id ON webwright_runs(correlation_id);
+```
+
+**Relationships:**
+
+- Many-to-one with `users` (CASCADE on delete).
+- Optional many-to-one with `requests` (SET NULL on delete) — `/browse` writes a request row with `type='webwright'` first, then a `webwright_runs` row referencing it.
+
+---
+
+### user_browser_sessions
+
+**Purpose:** Per-user, per-domain encrypted cookie jars so Webwright can re-enter authenticated sessions across runs. The `encrypted_cookies` blob is Fernet ciphertext over the JSON cookie jar. Plaintext never lands on disk; only the sidecar receives the decrypted payload at task time, and only over the internal Docker network.
+
+**Schema:**
+
+```sql
+CREATE TABLE user_browser_sessions (
+    id                INTEGER PRIMARY KEY,
+    user_id           BIGINT REFERENCES users(telegram_user_id) ON DELETE CASCADE,
+    domain            VARCHAR(255) NOT NULL,
+    encrypted_cookies BYTEA NOT NULL,
+    note              VARCHAR(500),
+    created_at        TIMESTAMPTZ NOT NULL,
+    updated_at        TIMESTAMPTZ NOT NULL,
+    UNIQUE (user_id, domain)
+);
+```
+
+**Fields:**
+
+- `encrypted_cookies` — Fernet ciphertext (uses the existing `GITHUB_TOKEN_ENCRYPTION_KEY` rotation surface via `app.security.secret_crypto`; do not introduce a second key).
+- `note` — operator-facing description, e.g. `"NYT subscription cookie, expires 2026-12"`.
+
+**Indexes:**
+
+```sql
+CREATE INDEX ix_user_browser_sessions_user_id ON user_browser_sessions(user_id);
+CREATE UNIQUE INDEX uq_user_browser_sessions_user_domain
+    ON user_browser_sessions (user_id, domain);
+```
+
+**Relationships:**
+
+- Many-to-one with `users` (CASCADE on delete).
 
 ---
 
