@@ -4458,7 +4458,7 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=1.1.10" },
     { name = "langgraph-checkpoint-postgres", marker = "extra == 'langgraph'", specifier = ">=3.1.0" },
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "markitdown", extras = ["docx", "pptx", "xlsx", "outlook"], marker = "extra == 'attachment'", specifier = ">=0.0.2" },
+    { name = "markitdown", extras = ["docx", "pptx", "xlsx", "outlook"], marker = "extra == 'attachment'", specifier = ">=0.1.5" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.27.1,<2" },
     { name = "msgspec", specifier = ">=0.21.1" },
     { name = "openai", specifier = ">=2.37.0" },
