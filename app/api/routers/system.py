@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from starlette.background import BackgroundTask
@@ -39,7 +39,10 @@ def _extract_user_id(user: dict[str, Any]) -> int:
     raw_user_id = user.get("user_id")
     if isinstance(raw_user_id, bool) or not isinstance(raw_user_id, int):
         raise ValueError("Authenticated user payload is missing integer user_id")
-    return cast("int", raw_user_id)
+    # int(int) is a no-op at runtime and satisfies both mypy 1.x (where
+    # raw_user_id is still Any after the isinstance check) and mypy 2.x
+    # (which narrows but rejects redundant casts).
+    return int(raw_user_id)
 
 
 @router.get("/db-dump")
