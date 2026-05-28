@@ -77,17 +77,23 @@ jobs:
       - name: Check lockfile drift
         id: lockcheck
         run: |
-          if git diff --quiet uv.lock requirements.txt requirements-dev.txt; then
+          if git diff --quiet uv.lock requirements.txt requirements-dev.txt requirements-all.txt; then
             echo "drift=false" >> "$GITHUB_OUTPUT"
             echo "Lockfiles are up to date."
           else
             echo "::error::Lockfile drift detected — the following files differ from what uv export produces:"
-            git diff --name-only uv.lock requirements.txt requirements-dev.txt
+            git diff --name-only uv.lock requirements.txt requirements-dev.txt requirements-all.txt
             echo ""
             echo "Fix: run 'make lock-uv' locally and commit the updated files."
             echo "     Alternatively, trigger the 'Update Lockfiles' workflow on this branch."
             exit 1
           fi
+
+      - name: Guard against excluded (malicious/yanked) versions
+        # Defense in depth: pyproject excludes known-bad releases (e.g. fastapi
+        # !=0.136.3, osv.dev/MAL-2026-4750) via PEP 508 `!=`, but a stale export
+        # could still pin one. This fails CI if any requirements file does.
+        run: python3 tools/scripts/check_excluded_versions.py
 
       - name: Upload compiled requirements
         uses: actions/upload-artifact@v7
