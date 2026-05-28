@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime
 from pathlib import Path
@@ -299,12 +300,18 @@ async def verify_backup(
         )
 
     cfg = load_backup_config()
-    payload = Path(file_path).read_bytes()
-    verification = verify_backup_archive(
-        payload,
-        cfg=cfg,
-        expected_checksum=backup.get("checksum_sha256"),
-    )
+
+    def _read_and_verify() -> dict[str, Any]:
+        # Reading the (potentially large) backup file and verifying the archive
+        # (zip parse + checksum) are blocking; keep them off the event loop.
+        payload = Path(file_path).read_bytes()
+        return verify_backup_archive(
+            payload,
+            cfg=cfg,
+            expected_checksum=backup.get("checksum_sha256"),
+        )
+
+    verification = await asyncio.to_thread(_read_and_verify)
     update_fields: dict[str, Any] = {
         "verified_at": datetime.fromisoformat(verification["verified_at"]),
         "verification_status": verification["verification_status"],

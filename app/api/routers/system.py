@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from typing import Any
 
@@ -59,7 +60,8 @@ async def download_database(
     await AuthService.require_owner(user)  # type: ignore[arg-type]
     user_id = _extract_user_id(user)
 
-    dump_file = service.build_db_dump_file(user_id=user_id)
+    # build_db_dump_file runs pg_dump (subprocess) + sync file I/O; keep it off the loop.
+    dump_file = await asyncio.to_thread(service.build_db_dump_file, user_id=user_id)
 
     audit = build_async_audit_sink(_resolve_db(request))
     audit("INFO", "admin.db_dump", {"user_id": user_id})
@@ -82,7 +84,8 @@ async def head_database(
     await AuthService.require_owner(user)  # type: ignore[arg-type]
     user_id = _extract_user_id(user)
 
-    dump_file = service.build_db_dump_file(user_id=user_id)
+    # build_db_dump_file runs pg_dump (subprocess) + sync file I/O; keep it off the loop.
+    dump_file = await asyncio.to_thread(service.build_db_dump_file, user_id=user_id)
 
     audit = build_async_audit_sink(_resolve_db(request))
     audit("INFO", "admin.db_dump_head", {"user_id": user_id})

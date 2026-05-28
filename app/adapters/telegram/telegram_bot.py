@@ -363,7 +363,10 @@ class TelegramBot:
 
         cleanup_failed = False
         try:
-            self._cleanup_old_backups(backup_directory, base_name, suffix, retention)
+            # Directory scan + stat + unlink is blocking file I/O; keep it off the loop.
+            await asyncio.to_thread(
+                self._cleanup_old_backups, backup_directory, base_name, suffix, retention
+            )
         except Exception as exc:
             cleanup_failed = True
             logger.warning("db_backup_cleanup_failed", extra={"error": str(exc)})
