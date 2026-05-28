@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from app.adapters.content.search_context_builder import SearchContextBuilder
 from app.agents.base_agent import AgentResult, BaseAgent
 from app.core.logging_utils import get_logger
+from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.adapters.llm import LLMClientProtocol
@@ -225,10 +226,10 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         prompt_file = _PROMPT_DIR / f"search_analysis_{lang}.txt"
 
         try:
-            prompt = prompt_file.read_text(encoding="utf-8")
+            prompt = read_prompt_text(prompt_file)
         except FileNotFoundError:
             # Fall back to English
-            prompt = (_PROMPT_DIR / "search_analysis_en.txt").read_text(encoding="utf-8")
+            prompt = read_prompt_text(_PROMPT_DIR / "search_analysis_en.txt")
 
         # Inject current date
         current_date = datetime.now(UTC).strftime("%Y-%m-%d")

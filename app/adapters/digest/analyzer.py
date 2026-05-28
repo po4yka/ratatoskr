@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.digest_store import DigestStore
+from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.adapters.llm.protocol import LLMClientProtocol
@@ -191,8 +192,8 @@ class DigestAnalyzer:
         safe_lang = "ru" if lang.startswith("ru") else "en"
         path = PROMPT_DIR / f"digest_analysis_{safe_lang}.txt"
         try:
-            return path.read_text(encoding="utf-8").strip()
+            return read_prompt_text(path, strip=True)
         except FileNotFoundError:
             # Fallback to English
             fallback = PROMPT_DIR / "digest_analysis_en.txt"
-            return fallback.read_text(encoding="utf-8").strip()
+            return read_prompt_text(fallback, strip=True)

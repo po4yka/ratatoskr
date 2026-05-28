@@ -14,6 +14,7 @@ from app.adapter_models.batch_analysis import (
 )
 from app.agents.base_agent import AgentResult, BaseAgent
 from app.core.logging_utils import get_logger
+from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -266,6 +267,6 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
         prompt_file = _PROMPT_DIR / f"combined_summary_system_{lang}.txt"
 
         try:
-            return prompt_file.read_text(encoding="utf-8")
+            return read_prompt_text(prompt_file)
         except FileNotFoundError:
-            return (_PROMPT_DIR / "combined_summary_system_en.txt").read_text(encoding="utf-8")
+            return read_prompt_text(_PROMPT_DIR / "combined_summary_system_en.txt")

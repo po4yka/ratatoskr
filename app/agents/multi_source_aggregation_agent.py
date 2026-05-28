@@ -45,6 +45,7 @@ from app.application.dto.aggregation import (
     SourceExtractionItemResult,
 )
 from app.domain.models.source import AggregationItemStatus, AggregationSessionStatus
+from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -945,11 +946,9 @@ class MultiSourceAggregationAgent(
         lang = language.lower() if language.lower() in ("en", "ru") else "en"
         prompt_file = _PROMPT_DIR / f"multi_source_aggregation_system_{lang}.txt"
         try:
-            return prompt_file.read_text(encoding="utf-8")
+            return read_prompt_text(prompt_file)
         except FileNotFoundError:
-            return (_PROMPT_DIR / "multi_source_aggregation_system_en.txt").read_text(
-                encoding="utf-8"
-            )
+            return read_prompt_text(_PROMPT_DIR / "multi_source_aggregation_system_en.txt")
 
 
 __all__ = [

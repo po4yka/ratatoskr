@@ -13,6 +13,7 @@ from app.core.logging_utils import get_logger
 from app.core.summary_contract import validate_and_shape_summary
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.core.token_utils import count_tokens
+from app.prompts.file_cache import read_prompt_text
 
 from .summary_request_factory import (
     build_summary_user_prompt,
@@ -260,7 +261,7 @@ class PureSummaryService:
             / "prompts"
             / f"summary_system_{lang_suffix}_instructor.txt"
         )
-        return prompt_path.read_text(encoding="utf-8")
+        return read_prompt_text(prompt_path)
 
     async def ensure_summary_payload(self, request: EnsureSummaryPayloadRequest) -> dict[str, Any]:
         """Validate and enrich a parsed summary payload."""
@@ -321,7 +322,7 @@ class PureSummaryService:
             prompt_dir = Path(__file__).resolve().parent.parent.parent / "prompts"
             lang_suffix = "ru" if chosen_lang == LANG_RU else "en"
             prompt_path = prompt_dir / f"enrichment_system_{lang_suffix}.txt"
-            enrichment_prompt = prompt_path.read_text(encoding="utf-8")
+            enrichment_prompt = read_prompt_text(prompt_path)
 
             core_fields = {
                 "summary_250",

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 from app.core.html_utils import clean_markdown_article_text, html_to_text
 from app.core.logging_utils import get_logger
+from app.prompts.file_cache import read_prompt_text
 
 logger = get_logger(__name__)
 
@@ -144,7 +145,6 @@ def is_gray_zone_for_llm_check(reason: LowValueReason, metrics: dict[str, Any]) 
 
 
 _QUALITY_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "quality_check_system.txt"
-_quality_system_prompt: str | None = None
 
 
 class _QualityVerdict(BaseModel):
@@ -153,10 +153,8 @@ class _QualityVerdict(BaseModel):
 
 
 def _load_quality_system_prompt() -> str:
-    global _quality_system_prompt
-    if _quality_system_prompt is None:
-        _quality_system_prompt = _QUALITY_PROMPT_PATH.read_text(encoding="utf-8").strip()
-    return _quality_system_prompt
+    # read_prompt_text caches per process, so the file is read at most once.
+    return read_prompt_text(_QUALITY_PROMPT_PATH, strip=True)
 
 
 def _parse_quality_verdict(response_text: str) -> _QualityVerdict | None:

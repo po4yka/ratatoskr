@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.core.logging_utils import get_logger
 from app.core.repo_analysis_contract import parse_and_validate_repo_analysis
+from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -335,7 +336,7 @@ class RepoAnalysisAgent:
     def _load_system_prompt(self, lang: Literal["en", "ru"]) -> str:
         prompt_file = _PROMPT_DIR / f"repo_analysis_system_{lang}.txt"
         try:
-            return prompt_file.read_text(encoding="utf-8")
+            return read_prompt_text(prompt_file)
         except OSError as exc:
             logger.warning(
                 "repo_analysis_prompt_load_failed",

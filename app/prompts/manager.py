@@ -6,15 +6,14 @@ system prompts and few-shot examples.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import random
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
+from app.prompts.file_cache import clear_prompt_file_cache
 
 if TYPE_CHECKING:
     from app.core.summary_contract import SummaryContractId
@@ -76,7 +75,9 @@ class PromptManager:
         self.examples_dir = examples_dir or _EXAMPLES_DIR
         self.validate_on_load = validate_on_load
         self._cache_size = cache_size
-        self._prompt_cache: dict[str, tuple[str, str]] = {}  # key -> (content, hash)
+        # key -> (content, mtime_ns); mtime is a cheap stat-based freshness check
+        # that avoids re-reading and hashing the whole file on every lookup.
+        self._prompt_cache: dict[str, tuple[str, int]] = {}
         self._example_cache: dict[str, list[dict[str, Any]]] = {}
 
     def get_system_prompt(
@@ -244,11 +245,11 @@ class PromptManager:
 
         # Check cache
         cache_key = f"{lang}:{path}"
+        current_mtime = self._file_mtime(path)
         if cache_key in self._prompt_cache:
-            cached_content, cached_hash = self._prompt_cache[cache_key]
-            # Verify file hasn't changed
-            current_hash = self._file_hash(path)
-            if current_hash == cached_hash:
+            cached_content, cached_mtime = self._prompt_cache[cache_key]
+            # Verify file hasn't changed (cheap stat, no full read+hash per call)
+            if current_mtime == cached_mtime and current_mtime != 0:
                 return cached_content
 
         # Load from file
@@ -274,9 +275,8 @@ class PromptManager:
                 )
                 # Log warnings but don't fail - allow graceful degradation
 
-        # Cache with hash
-        file_hash = self._file_hash(path)
-        self._prompt_cache[cache_key] = (content, file_hash)
+        # Cache with mtime
+        self._prompt_cache[cache_key] = (content, current_mtime)
 
         # Evict old entries if cache too large
         while len(self._prompt_cache) > self._cache_size:
@@ -288,7 +288,7 @@ class PromptManager:
             extra={
                 "path": str(path),
                 "length": len(content),
-                "hash": file_hash[:12],
+                "mtime_ns": current_mtime,
             },
         )
 
@@ -314,10 +314,9 @@ class PromptManager:
         if example_types:
             examples = [e for e in examples if e.get("content_type") in example_types]
 
-        # Select random subset if more than needed
-        if len(examples) > num_examples:
-            examples = random.sample(examples, num_examples)
-
+        # Deterministic selection: examples are loaded in a stable (filename) order,
+        # so taking the first N keeps the prompt identical across calls. This keeps
+        # the provider-side prompt-cache fingerprint stable (vs. random.sample).
         return examples[:num_examples]
 
     def _load_examples(self, lang: str) -> list[dict[str, Any]]:
@@ -329,7 +328,8 @@ class PromptManager:
         examples: list[dict[str, Any]] = []
         pattern = f"*_{lang}.json" if lang != "en" else "*.json"
 
-        for path in self.examples_dir.glob(pattern):
+        # Sort by filename for a deterministic, reproducible load order.
+        for path in sorted(self.examples_dir.glob(pattern), key=lambda p: p.name):
             # Skip non-target language files for English
             if lang == "en" and "_ru.json" in path.name:
                 continue
@@ -438,13 +438,12 @@ class PromptManager:
         return compact
 
     @staticmethod
-    def _file_hash(path: Path) -> str:
-        """Calculate SHA256 hash of a file for cache invalidation."""
+    def _file_mtime(path: Path) -> int:
+        """Return the file's modification time in ns for cheap cache invalidation."""
         try:
-            content = path.read_bytes()
-            return hashlib.sha256(content).hexdigest()
-        except Exception:
-            return ""
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
 
 
 # Module-level singleton for convenience
@@ -496,3 +495,4 @@ def reset_prompt_manager() -> None:
     global _default_manager
     _default_manager = None
     get_system_prompt.cache_clear()
+    clear_prompt_file_cache()
