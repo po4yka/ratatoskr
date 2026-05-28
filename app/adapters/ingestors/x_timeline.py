@@ -69,7 +69,27 @@ class XTimelineIngester:
         self._token_resolver = token_resolver
         self._social_connection_repository = social_connection_repository
         self._client = client
+        self._owned_client: httpx.AsyncClient | None = None
         self.name = f"x_timeline:{config.user_id}:{config.timeline_mode}"
+
+    def _http(self) -> httpx.AsyncClient:
+        """Return a reusable HTTP client.
+
+        Uses the injected client when provided (caller owns its lifecycle);
+        otherwise lazily creates and reuses one owned client so repeated polls
+        reuse the connection pool instead of paying a TCP/TLS handshake per call.
+        """
+        if self._client is not None:
+            return self._client
+        if self._owned_client is None:
+            self._owned_client = httpx.AsyncClient(timeout=httpx.Timeout(20.0))
+        return self._owned_client
+
+    async def aclose(self) -> None:
+        """Close the owned HTTP client, if one was created."""
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+            self._owned_client = None
 
     def is_enabled(self) -> bool:
         return self.config.enabled
@@ -157,17 +177,12 @@ class XTimelineIngester:
             "expansions": "author_id",
             "user.fields": ",".join(_USER_FIELDS),
         }
-        client = self._client or httpx.AsyncClient(timeout=httpx.Timeout(20.0))
-        close_client = self._client is None
-        try:
-            response = await client.get(
-                source_url,
-                params=params,
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-        finally:
-            if close_client:
-                await client.aclose()
+        client = self._http()
+        response = await client.get(
+            source_url,
+            params=params,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
         if response.status_code >= 400:
             await self._record_attempt(
                 connection=connection,

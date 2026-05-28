@@ -120,6 +120,19 @@ class ThreadsClient:
     ) -> None:
         self._config = config
         self._http_client = http_client
+        self._owned_client: httpx.AsyncClient | None = None
+
+    def _http(self) -> httpx.AsyncClient:
+        if self._http_client is not None:
+            return self._http_client
+        if self._owned_client is None:
+            self._owned_client = httpx.AsyncClient(timeout=httpx.Timeout(self._config.timeout_sec))
+        return self._owned_client
+
+    async def aclose(self) -> None:
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+            self._owned_client = None
 
     def build_authorization_url(
         self,
@@ -279,10 +292,7 @@ class ThreadsClient:
         access_token: str,
         params: dict[str, str],
     ) -> httpx.Response:
-        close_client = self._http_client is None
-        client = self._http_client or httpx.AsyncClient(
-            timeout=httpx.Timeout(self._config.timeout_sec)
-        )
+        client = self._http()
         query = {**params, "access_token": access_token}
         url = f"{self._config.normalized_graph_base_url}/{path.lstrip('/')}"
         try:
@@ -291,9 +301,6 @@ class ThreadsClient:
             raise ThreadsOAuthError(
                 "Threads Graph request failed", code="THREADS_GRAPH_REQUEST_FAILED"
             ) from exc
-        finally:
-            if close_client:
-                await client.aclose()
         return response
 
 

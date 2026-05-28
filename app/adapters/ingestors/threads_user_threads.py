@@ -73,7 +73,20 @@ class ThreadsUserThreadsIngester:
         self._token_resolver = token_resolver
         self._social_connection_repository = social_connection_repository
         self._client = client
+        self._owned_client: httpx.AsyncClient | None = None
         self.name = f"threads_user_threads:{config.user_id}"
+
+    def _http(self) -> httpx.AsyncClient:
+        if self._client is not None:
+            return self._client
+        if self._owned_client is None:
+            self._owned_client = httpx.AsyncClient(timeout=httpx.Timeout(20.0))
+        return self._owned_client
+
+    async def aclose(self) -> None:
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+            self._owned_client = None
 
     def is_enabled(self) -> bool:
         return self.config.enabled
@@ -139,21 +152,16 @@ class ThreadsUserThreadsIngester:
         access_token: str,
         connection: SocialConnectionRecord,
     ) -> dict[str, Any]:
-        client = self._client or httpx.AsyncClient(timeout=httpx.Timeout(20.0))
-        close_client = self._client is None
+        client = self._http()
         source_url = f"{self.config.graph_base_url.rstrip('/')}/me/threads"
-        try:
-            response = await client.get(
-                source_url,
-                params={
-                    "fields": ",".join(_THREADS_FIELDS),
-                    "limit": str(max(1, min(int(self.config.limit), 100))),
-                    "access_token": access_token,
-                },
-            )
-        finally:
-            if close_client:
-                await client.aclose()
+        response = await client.get(
+            source_url,
+            params={
+                "fields": ",".join(_THREADS_FIELDS),
+                "limit": str(max(1, min(int(self.config.limit), 100))),
+                "access_token": access_token,
+            },
+        )
         if response.status_code >= 400:
             await self._record_attempt(
                 connection=connection,
