@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -151,3 +152,45 @@ async def test_analyze_single_returns_none_on_llm_error(monkeypatch: pytest.Monk
     result = await subject._analyze_single({"message_id": 1, "text": "body"}, "cid", "en")
 
     assert result is None
+
+
+class _ConcurrencyTrackingStore:
+    """Cache store that records the peak number of concurrent cache lookups."""
+
+    def __init__(self) -> None:
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.persisted: list[tuple[dict[str, object], dict[str, object]]] = []
+
+    async def async_find_cached_analysis(self, post: dict[str, object]) -> dict[str, object]:
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            # Yield enough that all concurrently-admitted lookups overlap before
+            # any returns; if the lookup ran outside the semaphore, every post
+            # would be in flight at once.
+            await asyncio.sleep(0.02)
+        finally:
+            self.in_flight -= 1
+        # Return a cache hit so no LLM call is made.
+        return {**post, "real_topic": "cached", "tldr": "cached"}
+
+    async def async_persist_analysis(
+        self, post: dict[str, object], fields: dict[str, object]
+    ) -> None:
+        self.persisted.append((post, fields))
+
+
+@pytest.mark.asyncio
+async def test_cache_lookup_is_bounded_by_concurrency_semaphore() -> None:
+    store = _ConcurrencyTrackingStore()
+    subject = _analyzer(_FakeLLM())
+    subject._store = store  # type: ignore[assignment]
+
+    posts = [{"message_id": i, "url": str(i), "text": "body"} for i in range(6)]
+    results = await subject.analyze_posts(posts, "cid")
+
+    assert len(results) == 6
+    # concurrency=2 (see _analyzer); the cache lookup now runs inside the
+    # semaphore, so no more than 2 lookups are ever in flight at once.
+    assert store.max_in_flight == 2

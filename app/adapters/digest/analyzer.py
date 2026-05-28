@@ -144,16 +144,18 @@ class DigestAnalyzer:
         lang: str,
     ) -> dict[str, Any] | None:
         """Analyze a single post under the concurrency semaphore."""
-        # Check cache before acquiring semaphore / calling LLM
-        cached = await self._cached_analysis(post)
-        if cached is not None:
-            logger.debug(
-                "digest_analysis_cache_hit",
-                extra={"cid": correlation_id, "msg_id": post.get("message_id")},
-            )
-            return cached
-
+        # Hold the concurrency semaphore across the whole operation, including the
+        # cache lookup, so a large batch cannot fan out N concurrent DB queries
+        # before any LLM gating takes effect.
         async with self._semaphore:
+            cached = await self._cached_analysis(post)
+            if cached is not None:
+                logger.debug(
+                    "digest_analysis_cache_hit",
+                    extra={"cid": correlation_id, "msg_id": post.get("message_id")},
+                )
+                return cached
+
             prompt_template = self._load_prompt(lang)
             user_prompt = prompt_template.replace("{post_text}", post["text"][:4000])
 

@@ -577,7 +577,10 @@ async def _analyze_pending(
                     extra={"cid": correlation_id, "repository_id": repo.id},
                 )
 
-    await asyncio.gather(*[_one(repo) for repo in repos], return_exceptions=False)
+    # return_exceptions=True so one repo's failure (e.g. a DB error in
+    # _mark_pending, which runs outside _one's inner try) cannot cancel the
+    # sibling analyses. Per-repo analyze errors are already logged inside _one.
+    await asyncio.gather(*[_one(repo) for repo in repos], return_exceptions=True)
 
 
 async def _mark_pending(repository_id: int, db: Database) -> None:
