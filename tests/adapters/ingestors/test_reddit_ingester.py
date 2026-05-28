@@ -16,7 +16,7 @@ class _FakeClient:
         self.urls: list[str] = []
         self.headers: list[dict[str, str]] = []
 
-    def get(self, url: str, **kwargs):
+    async def get(self, url: str, **kwargs):
         self.urls.append(url)
         self.headers.append(kwargs.get("headers") or {})
         return httpx.Response(

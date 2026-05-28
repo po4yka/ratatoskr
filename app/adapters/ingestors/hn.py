@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -35,6 +36,7 @@ class HackerNewsIngester:
         enabled: bool = True,
         client: Any | None = None,
         base_url: str = "https://hacker-news.firebaseio.com/v0",
+        max_concurrency: int = 5,
     ) -> None:
         key = feed.strip().lower()
         if key not in _FEEDS:
@@ -43,8 +45,9 @@ class HackerNewsIngester:
         self.feed = key
         self.limit = max(1, min(int(limit), 100))
         self.enabled = enabled
-        self.client = client or httpx.Client(timeout=20.0)
+        self.client = client or httpx.AsyncClient(timeout=20.0)
         self.base_url = base_url.rstrip("/")
+        self.max_concurrency = max(1, int(max_concurrency))
         self.name = f"hacker_news:{self.feed}"
 
     def is_enabled(self) -> bool:
@@ -60,24 +63,31 @@ class HackerNewsIngester:
         )
 
     async def fetch(self) -> SourceFetchResult:
-        ids = self._get_json(f"{self.base_url}/{_FEEDS[self.feed]}.json")
+        ids = await self._get_json(f"{self.base_url}/{_FEEDS[self.feed]}.json")
         if not isinstance(ids, list):
             raise TransientSourceError("Hacker News listing response was not a list")
 
-        items: list[IngestedFeedItem] = []
-        for item_id in ids[: self.limit]:
-            raw = self._get_json(f"{self.base_url}/item/{int(item_id)}.json")
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async def _load(item_id: Any) -> IngestedFeedItem | None:
+            async with semaphore:
+                raw = await self._get_json(f"{self.base_url}/item/{int(item_id)}.json")
             if not isinstance(raw, dict) or raw.get("type") != "story" or raw.get("deleted"):
-                continue
-            items.append(self._normalize_item(raw))
+                return None
+            return self._normalize_item(raw)
+
+        # Fan out the per-item lookups concurrently (bounded by the semaphore);
+        # gather preserves listing order.
+        fetched = await asyncio.gather(*(_load(item_id) for item_id in ids[: self.limit]))
+        items = [item for item in fetched if item is not None]
 
         return SourceFetchResult(
             source=self.source_identity(),
             items=items,
         )
 
-    def _get_json(self, url: str) -> Any:
-        response = self.client.get(url)
+    async def _get_json(self, url: str) -> Any:
+        response = await self.client.get(url)
         if response.status_code == 429:
             raise RateLimitedSourceError("Hacker News API returned 429")
         try:

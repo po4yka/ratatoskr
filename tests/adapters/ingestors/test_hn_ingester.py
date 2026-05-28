@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 
 import httpx
@@ -14,7 +15,7 @@ class _FakeClient:
         self.responses = responses
         self.urls: list[str] = []
 
-    def get(self, url: str, **_kwargs):
+    async def get(self, url: str, **_kwargs):
         self.urls.append(url)
         payload = self.responses[url]
         if isinstance(payload, int):
@@ -59,3 +60,55 @@ async def test_hn_ingester_turns_429_into_rate_limit_error() -> None:
 
     with pytest.raises(RateLimitedSourceError):
         await ingester.fetch()
+
+
+class _ConcurrencyTrackingClient:
+    """Async client that records the peak number of in-flight item requests."""
+
+    def __init__(self, *, item_count: int) -> None:
+        self.item_count = item_count
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self._gate = asyncio.Event()
+
+    async def get(self, url: str, **_kwargs):
+        if url.endswith("topstories.json"):
+            return httpx.Response(
+                200, json=list(range(self.item_count)), request=httpx.Request("GET", url)
+            )
+        # Item request: hold all concurrent calls open until the gate releases so the
+        # peak in-flight count reflects real overlap, not lucky scheduling.
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        if self.in_flight >= min(self.item_count, 5):
+            self._gate.set()
+        await self._gate.wait()
+        self.in_flight -= 1
+        item_id = int(url.rsplit("/", 1)[1].removesuffix(".json"))
+        return httpx.Response(
+            200,
+            json={"id": item_id, "type": "story", "title": f"s{item_id}", "time": 1_777_500_000},
+            request=httpx.Request("GET", url),
+        )
+
+
+@pytest.mark.asyncio
+async def test_hn_ingester_fetches_items_concurrently() -> None:
+    client = _ConcurrencyTrackingClient(item_count=10)
+    ingester = HackerNewsIngester(feed="top", limit=10, client=client, max_concurrency=5)
+
+    # A concurrent ticker proves the event loop is not blocked during the fetch.
+    ticks = 0
+
+    async def _ticker() -> None:
+        nonlocal ticks
+        for _ in range(3):
+            await asyncio.sleep(0)
+            ticks += 1
+
+    result, _ = await asyncio.gather(ingester.fetch(), _ticker())
+
+    assert len(result.items) == 10
+    assert client.max_in_flight > 1  # item lookups overlapped (not serialized)
+    assert client.max_in_flight <= 5  # but stayed within the concurrency bound
+    assert ticks == 3  # loop kept running alongside the fetch
