@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -78,6 +81,47 @@ class TestScraplingProvider:
 
         assert result.status == "error"
         assert "insufficient content" in (result.error_text or "").lower()
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_stealth_launches_are_concurrency_capped(self, monkeypatch):
+        """A burst of stealth fallbacks must not exceed the configured cap."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        monkeypatch.setenv("SCRAPLING_STEALTH_MAX_CONCURRENCY", "2")
+        sp._stealth_semaphores.clear()  # force recreation with the patched cap
+
+        lock = threading.Lock()
+        state = {"in_flight": 0, "max_in_flight": 0}
+
+        def _tracking_stealth(url, stealth_cls):
+            with lock:
+                state["in_flight"] += 1
+                state["max_in_flight"] = max(state["max_in_flight"], state["in_flight"])
+            try:
+                time.sleep(0.05)
+            finally:
+                with lock:
+                    state["in_flight"] -= 1
+            long_text = "x" * 500
+            return (f"<html><body>{long_text}</body></html>", long_text)
+
+        provider = sp.ScraplingProvider(timeout_sec=5, min_content_length=400)
+        provider._stealth_fetcher_cls = object()  # skip the real (heavy) import
+
+        with (
+            patch.object(
+                provider, "_ensure_async_session", new_callable=AsyncMock, return_value=None
+            ),
+            patch.object(sp, "_sync_fetch_basic", return_value=("<html></html>", "tiny")),
+            patch.object(sp, "_sync_fetch_stealth", side_effect=_tracking_stealth),
+        ):
+            results = await asyncio.gather(
+                *(provider._fetch(f"https://example.com/{i}") for i in range(5))
+            )
+
+        assert all(text and len(text) >= 400 for _html, text in results)
+        # cap is 2: five concurrent fallbacks never run more than two browsers at once.
+        assert state["max_in_flight"] == 2
 
 
 class TestCrawleeProvider:

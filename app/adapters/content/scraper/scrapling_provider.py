@@ -22,7 +22,9 @@ gracefully to per-call ``AsyncFetcher`` if the session import fails.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
+import weakref
 from typing import Any, cast
 
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
@@ -31,6 +33,32 @@ from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def _stealth_max_concurrency() -> int:
+    """Max number of concurrent stealth (Playwright/Chromium) browser launches."""
+    try:
+        return max(1, int(os.getenv("SCRAPLING_STEALTH_MAX_CONCURRENCY", "2")))
+    except ValueError:
+        return 2
+
+
+# A stealth fetch launches a full browser process; without a cap, a burst of
+# basic-fetch failures could spawn one browser per request and exhaust file
+# descriptors / RAM / thread-pool workers. The semaphore is keyed per event loop
+# so it binds to the running loop lazily (and stays correct across test loops).
+_stealth_semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _stealth_launch_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = _stealth_semaphores.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(_stealth_max_concurrency())
+        _stealth_semaphores[loop] = sem
+    return sem
 
 
 class ScraplingProvider:
@@ -197,7 +225,10 @@ class ScraplingProvider:
             if self._stealth_fetcher_cls is None:
                 self._stealth_fetcher_cls = _lazy_import_stealthy_fetcher()
             stealth_cls = self._stealth_fetcher_cls
-            html, text = await loop.run_in_executor(None, _sync_fetch_stealth, url, stealth_cls)
+            # Cap concurrent browser launches so a burst of fallbacks cannot
+            # exhaust file descriptors / RAM / thread-pool workers.
+            async with _stealth_launch_semaphore():
+                html, text = await loop.run_in_executor(None, _sync_fetch_stealth, url, stealth_cls)
 
         return html, text
 
