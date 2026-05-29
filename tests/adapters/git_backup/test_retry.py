@@ -10,7 +10,12 @@ from __future__ import annotations
 import pytest
 
 from app.adapters.git_backup.errors import ErrorCategory
-from app.adapters.git_backup.retry import BackoffStrategy, RetryContext, RetryPolicy, SyncFailureException
+from app.adapters.git_backup.retry import (
+    BackoffStrategy,
+    RetryContext,
+    RetryPolicy,
+    SyncFailureException,
+)
 
 
 class SleepRecorder:

@@ -11,17 +11,16 @@ from app.adapters.git_backup.mirror_service import _redact_url
 
 
 def test_redact_url_strips_token_from_https() -> None:
-    out = _redact_url("fatal: unable to access 'https://x-access-token:ghp_secret@github.com/o/r.git/'")
+    out = _redact_url(
+        "fatal: unable to access 'https://x-access-token:ghp_secret@github.com/o/r.git/'"
+    )
     assert "ghp_secret" not in out
     assert "x-access-token" not in out
     assert "https://***@github.com/o/r.git" in out
 
 
 def test_redact_url_strips_all_occurrences_multiline() -> None:
-    text = (
-        "remote: https://user:tok1@github.com/a\n"
-        "remote: ssh://git:tok2@host.example/b\n"
-    )
+    text = "remote: https://user:tok1@github.com/a\nremote: ssh://git:tok2@host.example/b\n"
     out = _redact_url(text)
     assert "tok1" not in out
     assert "tok2" not in out

@@ -112,9 +112,7 @@ class GitMirrorReadmeIndexer:
 
     async def _index_mirror_inner(self, mirror: GitMirror, bare_repo_path: Path) -> None:
         # 1. Extract README (blocking I/O — offload to thread).
-        readme_text: str = await asyncio.to_thread(
-            self._extractor.extract, bare_repo_path
-        )
+        readme_text: str = await asyncio.to_thread(self._extractor.extract, bare_repo_path)
 
         # 2. Skip empty README.
         if not readme_text:

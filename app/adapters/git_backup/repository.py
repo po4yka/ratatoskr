@@ -75,17 +75,13 @@ class GitMirrorRepository:
 
     async def get_by_id(self, mirror_id: int) -> GitMirror | None:
         async with self._db.session() as session:
-            return await session.scalar(
-                select(GitMirror).where(GitMirror.id == mirror_id)
-            )
+            return await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
 
     async def list_for_user(self, user_id: int) -> list[GitMirror]:
         async with self._db.session() as session:
             rows = (
                 await session.scalars(
-                    select(GitMirror)
-                    .where(GitMirror.user_id == user_id)
-                    .order_by(GitMirror.id)
+                    select(GitMirror).where(GitMirror.user_id == user_id).order_by(GitMirror.id)
                 )
             ).all()
         return list(rows)
@@ -161,9 +157,7 @@ class GitMirrorRepository:
         """Persist a successful mirror outcome: reset failure counters, record path."""
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
-            row = await session.scalar(
-                select(GitMirror).where(GitMirror.id == mirror_id)
-            )
+            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
             if row is None:
                 return
             row.status = GitMirrorStatus.OK
@@ -194,9 +188,7 @@ class GitMirrorRepository:
         now = dt.datetime.now(tz=dt.UTC)
         cfg = self._config
         async with self._db.transaction() as session:
-            row = await session.scalar(
-                select(GitMirror).where(GitMirror.id == mirror_id)
-            )
+            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
             if row is None:
                 return
             row.status = GitMirrorStatus.FAILED
@@ -218,9 +210,7 @@ class GitMirrorRepository:
         """Mark a mirror as skipped for this run (does not change failure counters)."""
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
-            row = await session.scalar(
-                select(GitMirror).where(GitMirror.id == mirror_id)
-            )
+            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
             if row is None:
                 return
             row.status = GitMirrorStatus.SKIPPED
@@ -237,9 +227,7 @@ class GitMirrorRepository:
         """
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
-            row = await session.scalar(
-                select(GitMirror).where(GitMirror.id == mirror_id)
-            )
+            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
             if row is None:
                 return
             row.status = GitMirrorStatus.EXCLUDED

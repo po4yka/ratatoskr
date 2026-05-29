@@ -23,9 +23,7 @@ from app.adapters.git_backup.git_exec import resolve_git_executable
 GitRunner = Callable[[list[str]], tuple[int, str]]
 
 
-def _default_runner(
-    ssl_environment: Mapping[str, str], timeout_seconds: float
-) -> GitRunner:
+def _default_runner(ssl_environment: Mapping[str, str], timeout_seconds: float) -> GitRunner:
     def run(argv: list[str]) -> tuple[int, str]:
         env = {**os.environ, **ssl_environment} if ssl_environment else None
         try:

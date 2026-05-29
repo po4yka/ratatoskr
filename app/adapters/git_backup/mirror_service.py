@@ -32,7 +32,12 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote, urlparse, urlunparse
 
 from app.adapters.git_backup.circuit_breaker import StorageCircuitBreaker
-from app.adapters.git_backup.errors import ErrorCategory, classify, display_name, is_permanently_gone
+from app.adapters.git_backup.errors import (
+    ErrorCategory,
+    classify,
+    display_name,
+    is_permanently_gone,
+)
 from app.adapters.git_backup.git_commands import build_git_command
 from app.adapters.git_backup.git_exec import resolve_git_executable
 from app.adapters.git_backup.lfs import LfsSupport
@@ -199,15 +204,11 @@ def _should_use_shallow_clone(mirror: GitMirror, cfg: GitBackupConfig) -> bool:
         return False
 
     # Failures condition: 0 = disabled (skip check), else must be met.
-    failures_ok = (
-        failure_threshold == 0
-        or (mirror.consecutive_failures or 0) >= failure_threshold
-    )
+    failures_ok = failure_threshold == 0 or (mirror.consecutive_failures or 0) >= failure_threshold
 
     # Size condition: 0 = disabled (skip check), else must be met.
-    size_ok = (
-        size_threshold == 0
-        or (mirror.size_kb is not None and mirror.size_kb >= size_threshold)
+    size_ok = size_threshold == 0 or (
+        mirror.size_kb is not None and mirror.size_kb >= size_threshold
     )
 
     # When only one condition is configured, that condition alone governs.

@@ -139,7 +139,9 @@ class TestIsPermanentlyGoneNegative:
         assert is_permanently_gone("access denied") is False
 
     def test_could_not_read_username(self) -> None:
-        assert is_permanently_gone("fatal: could not read username for 'https://github.com'") is False
+        assert (
+            is_permanently_gone("fatal: could not read username for 'https://github.com'") is False
+        )
 
     def test_terminal_prompts_disabled(self) -> None:
         assert is_permanently_gone("terminal prompts disabled") is False
@@ -148,10 +150,13 @@ class TestIsPermanentlyGoneNegative:
         assert is_permanently_gone("returned error: 403") is False
 
     def test_http_403_in_message(self) -> None:
-        assert is_permanently_gone(
-            "fatal: unable to access 'https://github.com/user/repo.git/': "
-            "The requested URL returned error: 403"
-        ) is False
+        assert (
+            is_permanently_gone(
+                "fatal: unable to access 'https://github.com/user/repo.git/': "
+                "The requested URL returned error: 403"
+            )
+            is False
+        )
 
     def test_network_connection_reset(self) -> None:
         assert is_permanently_gone("connection reset by peer") is False
@@ -169,7 +174,10 @@ class TestIsPermanentlyGoneNegative:
         assert is_permanently_gone("network is unreachable") is False
 
     def test_could_not_resolve_host(self) -> None:
-        assert is_permanently_gone("fatal: unable to access: could not resolve host: github.com") is False
+        assert (
+            is_permanently_gone("fatal: unable to access: could not resolve host: github.com")
+            is False
+        )
 
     def test_generic_error(self) -> None:
         assert is_permanently_gone("some entirely unrecognised failure mode") is False
@@ -179,10 +187,7 @@ class TestIsPermanentlyGoneNegative:
 
     def test_repository_not_found_suppressed_by_auth_signal(self) -> None:
         """If auth signal is present alongside a gone-like string, do NOT tombstone."""
-        msg = (
-            "authentication failed for https://github.com/user/repo.git: "
-            "repository not found"
-        )
+        msg = "authentication failed for https://github.com/user/repo.git: repository not found"
         assert is_permanently_gone(msg) is False
 
 
@@ -200,8 +205,10 @@ class FakeSession:
     async def scalars(self, stmt: Any) -> Any:
         # Evaluate the WHERE clause by filtering based on status.
         eligible = [
-            r for r in self._rows
-            if r.status in (
+            r
+            for r in self._rows
+            if r.status
+            in (
                 GitMirrorStatus.PENDING,
                 GitMirrorStatus.OK,
                 GitMirrorStatus.FAILED,
@@ -449,9 +456,7 @@ class TestServiceTombstoneIntegration:
         mirror = _make_mirror(mirror_id=42, status=GitMirrorStatus.PENDING)
         fake_repo = FakeMirrorRepo([mirror])
 
-        async def failing_runner(
-            argv: list[str], cwd: Path, timeout: float
-        ) -> tuple[int, str]:
+        async def failing_runner(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
             return 128, "remote: Repository not found.\nfatal: repository not found"
 
         service = _make_service(fake_repo, failing_runner)
@@ -487,9 +492,7 @@ class TestServiceTombstoneIntegration:
         mirror = _make_mirror(mirror_id=43, status=GitMirrorStatus.PENDING)
         fake_repo = FakeMirrorRepo([mirror])
 
-        async def failing_runner(
-            argv: list[str], cwd: Path, timeout: float
-        ) -> tuple[int, str]:
+        async def failing_runner(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
             return 128, "authentication failed for 'https://github.com/user/repo.git'"
 
         service = _make_service(fake_repo, failing_runner)
@@ -520,10 +523,11 @@ class TestServiceTombstoneIntegration:
         mirror = _make_mirror(mirror_id=44, status=GitMirrorStatus.PENDING)
         fake_repo = FakeMirrorRepo([mirror])
 
-        async def failing_runner(
-            argv: list[str], cwd: Path, timeout: float
-        ) -> tuple[int, str]:
-            return 128, "fatal: unable to access 'https://github.com/user/gone.git/': returned error: 404"
+        async def failing_runner(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+            return (
+                128,
+                "fatal: unable to access 'https://github.com/user/gone.git/': returned error: 404",
+            )
 
         service = _make_service(fake_repo, failing_runner)
 

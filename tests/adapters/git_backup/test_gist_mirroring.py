@@ -124,9 +124,7 @@ def test_gist_destination_differs_from_repo_destination() -> None:
     repo_dest = svc._mirror_destination(data_path, repo_mirror)
     gist_dest = svc._mirror_destination(data_path, gist_mirror)
 
-    assert repo_dest != gist_dest, (
-        f"Collision: both repo and gist resolve to {repo_dest}"
-    )
+    assert repo_dest != gist_dest, f"Collision: both repo and gist resolve to {repo_dest}"
     # Repo lands under github/github.com/
     assert "github.com" in str(repo_dest)
     assert "gist.github.com" not in str(repo_dest)

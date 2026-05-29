@@ -127,8 +127,7 @@ class GitBackupConfig(BaseModel):
         ge=0,
         validation_alias="GIT_BACKUP_FAILURE_COOLDOWN_HOURS",
         description=(
-            "Hours to wait before retrying a repo that has exceeded "
-            "max_consecutive_failures."
+            "Hours to wait before retrying a repo that has exceeded max_consecutive_failures."
         ),
     )
     auto_skip_failing: bool = Field(

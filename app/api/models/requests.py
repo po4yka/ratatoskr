@@ -456,9 +456,7 @@ class RegisterMirrorRequest(BaseModel):
     def validate_clone_url(cls, value: str) -> str:
         stripped = value.strip()
         if not any(stripped.startswith(p) for p in _GIT_URL_PREFIXES):
-            raise ValueError(
-                "clone_url must start with https://, http://, git://, git@, or ssh://"
-            )
+            raise ValueError("clone_url must start with https://, http://, git://, git@, or ssh://")
         # SSRF guard: reject literal private/loopback/link-local/reserved hosts.
         # Hostname targets are re-checked with DNS resolution at clone time
         # (app.core.git_url_safety.assert_resolved_public_host).

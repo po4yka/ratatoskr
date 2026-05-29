@@ -47,11 +47,11 @@ def _format_mirror_row(mirror: object) -> str:
     name = getattr(mirror, "name", None) or getattr(mirror, "clone_url", "?")
     status = getattr(mirror, "status", "?")
     last_mirrored = getattr(mirror, "last_mirrored_at", None)
-    last_mirrored_str = (
-        last_mirrored.strftime("%Y-%m-%d %H:%M UTC") if last_mirrored else "never"
-    )
+    last_mirrored_str = last_mirrored.strftime("%Y-%m-%d %H:%M UTC") if last_mirrored else "never"
     url = getattr(mirror, "clone_url", "")
-    return f"[{getattr(mirror, 'id', '?')}] {name}  status={status}  last={last_mirrored_str}\n  {url}"
+    return (
+        f"[{getattr(mirror, 'id', '?')}] {name}  status={status}  last={last_mirrored_str}\n  {url}"
+    )
 
 
 class GitMirrorHandler(HandlerDependenciesMixin):
@@ -69,7 +69,7 @@ class GitMirrorHandler(HandlerDependenciesMixin):
         The actual clone/fetch happens on the next scheduled sync run so the bot
         handler returns immediately without blocking on git I/O.
         """
-        raw_arg = ctx.text[len("/mirror"):].strip()
+        raw_arg = ctx.text[len("/mirror") :].strip()
 
         if not raw_arg:
             await ctx.response_formatter.safe_reply(
@@ -103,7 +103,9 @@ class GitMirrorHandler(HandlerDependenciesMixin):
         if mirror.status.value == "pending" or getattr(mirror, "last_mirrored_at", None) is None:
             status_note = "Queued; will sync on next scheduled run."
         else:
-            status_note = f"Already tracked (status={mirror.status.value}). Will re-sync on next run."
+            status_note = (
+                f"Already tracked (status={mirror.status.value}). Will re-sync on next run."
+            )
 
         label = display_name or clone_url
         await ctx.response_formatter.safe_reply(

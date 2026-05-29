@@ -80,9 +80,7 @@ class FakeEmbeddingService:
         self._vector = vector or [0.1, 0.2, 0.3]
         self.call_count = 0
 
-    async def generate_embedding(
-        self, text: str, *, language: Any, task_type: str
-    ) -> list[float]:
+    async def generate_embedding(self, text: str, *, language: Any, task_type: str) -> list[float]:
         self.call_count += 1
         return self._vector
 

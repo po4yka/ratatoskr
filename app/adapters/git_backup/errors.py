@@ -195,8 +195,7 @@ _SUGGESTION = {
         "Retry with HTTP/1.1 fallback is automatic. If persistent, check network proxy settings."
     ),
     ErrorCategory.NETWORK_ERROR: (
-        "Check your internet connection and DNS settings. "
-        "Verify the repository URL is accessible."
+        "Check your internet connection and DNS settings. Verify the repository URL is accessible."
     ),
     ErrorCategory.TIMEOUT: (
         "Operation timed out. The repository may be large or the connection slow. "
