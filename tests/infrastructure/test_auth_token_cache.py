@@ -120,3 +120,67 @@ async def test_auth_token_cache_invalidate_reports_redis_failure() -> None:
     service = AuthTokenCache(cache, _cfg())
 
     assert await service.invalidate_token("token-hash") is False
+
+
+@pytest.mark.asyncio
+async def test_mark_revoked_writes_tombstone_for_never_cached_token() -> None:
+    """A token revoked while NOT previously cached must write a revocation
+    tombstone so that a subsequent get_token call returns is_revoked=True
+    instead of None (which would fall through to DB and risk a stale hit).
+    """
+    from app.infrastructure.cache.auth_token_cache import _REVOCATION_TOMBSTONE_TTL_SECONDS
+
+    # Cache starts empty (no prior set_token call for this hash)
+    cache = _FakeRedisCache(cached=None)
+    service = AuthTokenCache(cache, _cfg())
+
+    result = await service.mark_revoked("never-seen-hash")
+
+    assert result is True, "mark_revoked must succeed even when token was never cached"
+    assert len(cache.set_calls) == 1
+    tombstone_call = cache.set_calls[0]
+    assert tombstone_call["value"]["is_revoked"] is True
+    assert tombstone_call["parts"] == ("auth", "token", "never-seen-hash")
+    # Tombstone must use the short dedicated TTL, not the full auth-token TTL
+    assert tombstone_call["ttl_seconds"] == _REVOCATION_TOMBSTONE_TTL_SECONDS
+    # Tombstone TTL must be shorter than the production default (604800 s / 7 days)
+    assert tombstone_call["ttl_seconds"] < 604_800, (
+        "tombstone TTL must be shorter than the production auth token TTL to limit Redis pollution"
+    )
+
+
+@pytest.mark.asyncio
+async def test_mark_revoked_never_cached_token_cannot_be_served_as_valid() -> None:
+    """End-to-end: revoke a never-cached token, then simulate get_token reading
+    back the tombstone — must return is_revoked=True, not None or False.
+    """
+    # Phase 1: token not in cache, revocation fires
+    cache = _FakeRedisCache(cached=None)
+    service = AuthTokenCache(cache, _cfg())
+    await service.mark_revoked("target-hash")
+
+    # Phase 2: simulate the tombstone now sitting in Redis (what set_json stored)
+    assert len(cache.set_calls) == 1
+    tombstone_value = cache.set_calls[0]["value"]
+    assert tombstone_value["is_revoked"] is True
+
+    # Phase 3: next get_token call reads back the tombstone — must NOT appear valid
+    cache2 = _FakeRedisCache(cached=tombstone_value)
+    service2 = AuthTokenCache(cache2, _cfg())
+    token_data = await service2.get_token("target-hash")
+
+    assert token_data is not None, "tombstone should be returned (not a cache miss)"
+    assert token_data["is_revoked"] is True, (
+        "token revoked while not in cache must be served as revoked, never as valid"
+    )
+
+
+@pytest.mark.asyncio
+async def test_mark_revoked_noops_when_cache_disabled() -> None:
+    cache = _FakeRedisCache(enabled=False)
+    service = AuthTokenCache(cache, _cfg())
+
+    result = await service.mark_revoked("any-hash")
+
+    assert result is False
+    assert cache.set_calls == []
