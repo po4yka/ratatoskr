@@ -1,0 +1,57 @@
+# Layering contracts for the app/ package (epic: restore-architecture-layering).
+#
+# Enforcement is staged. The `domain-independence` contract is GREEN today and is
+# gated in CI (the build fails if anything regresses it). The other four contracts
+# are currently BROKEN by known violations tracked by the epic tasks below; CI runs
+# them in advisory mode (reported, non-blocking) as a live, shrinking tracker.
+# Promote each to gating once its task lands and the contract goes green:
+#   * application-no-outward          -> fix-inner-layer-dependency-direction-leaks (A1)
+#   * infrastructure-no-api           -> remove-infrastructure-dependency-on-api-session-manager (A2)
+#   * tasks-no-api                    -> (largely resolved once A2 removes digest_store's api import)
+#   * content-telegram-independence   -> break-circular-import-cycles-and-drop-plc0415-suppression (A3)
+[importlinter]
+root_package = app
+
+[importlinter:contract:domain-independence]
+name = domain must not import outer layers
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    app.api
+    app.adapters
+    app.infrastructure
+    app.tasks
+    app.di
+
+[importlinter:contract:application-no-outward]
+name = application must not import adapters or api
+type = forbidden
+source_modules =
+    app.application
+forbidden_modules =
+    app.api
+    app.adapters
+
+[importlinter:contract:infrastructure-no-api]
+name = infrastructure must not import api
+type = forbidden
+source_modules =
+    app.infrastructure
+forbidden_modules =
+    app.api
+
+[importlinter:contract:tasks-no-api]
+name = tasks must not import api
+type = forbidden
+source_modules =
+    app.tasks
+forbidden_modules =
+    app.api
+
+[importlinter:contract:content-telegram-independence]
+name = adapters.content and adapters.telegram must be independent
+type = independence
+modules =
+    app.adapters.content
+    app.adapters.telegram

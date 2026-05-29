@@ -306,3 +306,14 @@ sequenceDiagram
 
 - Unit: pure domain rules and use cases with mocked repositories.
 - Integration: run via container wiring against test DB; validate persistence and contracts.
+
+## Layering contracts
+
+The layering rules above are enforced by [`import-linter`](https://import-linter.readthedocs.io/) via the `.importlinter` config at the repo root, run by the `Architecture - Import Linter (layering)` CI job. The dependency direction is: `domain` ← `application` ← {`infrastructure`, `adapters`} ← `api`, with `tasks` (workers) also forbidden from importing `api`, and `adapters.content` / `adapters.telegram` required to be independent.
+
+Enforcement is staged so the contracts can be introduced before every violation is fixed:
+
+- **Gating** — `domain-independence` is green today and fails the build if `app.domain` ever imports an outer layer.
+- **Advisory** — `application-no-outward`, `infrastructure-no-api`, `tasks-no-api`, and `content-telegram-independence` are currently broken by known violations and run in report-only mode. They are a live, shrinking tracker for the remaining tasks of the *restore-architecture-layering* epic. As each task lands and its contract goes green, promote it from the advisory step to a gating `lint-imports --contract <id>` step in `.github/workflows/ci.yml` (and never let it regress).
+
+Run locally with `lint-imports` (all contracts) or `lint-imports --contract domain-independence` (the gated one) after `pip install import-linter` in an environment where `app` is importable.
