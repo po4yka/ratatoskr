@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from app.adapters.git_backup.repository import GitMirrorRepository
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
+from app.core.git_url_safety import assert_safe_git_url
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirrorSource
 
@@ -80,6 +81,17 @@ class GitMirrorHandler(HandlerDependenciesMixin):
             return
 
         clone_url, display_name = _parse_mirror_arg(raw_arg)
+
+        # SSRF guard: reject literal private/loopback/link-local hosts up front
+        # (the worker re-checks with DNS resolution before cloning).
+        try:
+            assert_safe_git_url(clone_url)
+        except ValueError:
+            await ctx.response_formatter.safe_reply(
+                ctx.message,
+                "That URL targets a non-public address and cannot be mirrored.",
+            )
+            return
 
         mirror = await self._mirror_repo.upsert_target(
             user_id=ctx.uid,

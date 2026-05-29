@@ -48,12 +48,18 @@ def build_git_command(
     show_progress: bool = False,
     single_branch_only: bool = False,
     default_branch: str | None = None,
+    disable_redirects: bool = False,
 ) -> list[str]:
     """Build the full ``git`` argv for a clone or update of a single repository."""
     command = [git_executable]
 
     # Prevent "dubious ownership" errors when the repo dir has a different owner.
     command += ["-c", "safe.directory=*"]
+
+    # SSRF hardening: forbid HTTP redirects so a trusted host cannot 30x-redirect
+    # git toward an internal / metadata endpoint that bypassed the host check.
+    if disable_redirects:
+        command += ["-c", "http.followRedirects=false"]
 
     if not verify_certificates:
         command += ["-c", "http.sslVerify=false"]

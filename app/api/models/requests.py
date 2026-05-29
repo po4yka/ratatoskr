@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
+from app.core.git_url_safety import assert_safe_git_url
 from app.core.url_utils import validate_url_input
 
 BULK_API_MAX_IDS = 500
@@ -458,4 +459,8 @@ class RegisterMirrorRequest(BaseModel):
             raise ValueError(
                 "clone_url must start with https://, http://, git://, git@, or ssh://"
             )
+        # SSRF guard: reject literal private/loopback/link-local/reserved hosts.
+        # Hostname targets are re-checked with DNS resolution at clone time
+        # (app.core.git_url_safety.assert_resolved_public_host).
+        assert_safe_git_url(stripped)
         return stripped

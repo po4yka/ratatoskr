@@ -38,6 +38,7 @@ from app.adapters.git_backup.git_exec import resolve_git_executable
 from app.adapters.git_backup.lfs import LfsSupport
 from app.adapters.git_backup.maintenance import Maintenance, RepositoryMaintenance
 from app.adapters.git_backup.retry import RetryContext, RetryPolicy, SyncFailureException
+from app.core.git_url_safety import assert_resolved_public_host, extract_git_host
 from app.db.models.git_backup import GitMirror, GitMirrorSource
 from app.security.secret_crypto import decrypt_secret
 
@@ -51,13 +52,21 @@ logger = logging.getLogger(__name__)
 # Type alias: (argv, cwd, timeout_seconds) -> (exit_code, combined_output)
 GitRunner = Callable[[list[str], Path, float], Awaitable[tuple[int, str]]]
 
-# Regex to strip embedded credentials from a URL for safe logging.
-_CREDENTIAL_RE = re.compile(r"(https?://)([^@]+@)", re.IGNORECASE)
+# Regex to strip embedded credentials from any URL-shaped substring for safe
+# logging. Matches "<scheme>://<userinfo>@" for any scheme (https, http, git,
+# ssh, ...) and collapses the userinfo to "***". Applied to free-form text
+# (git stderr, exception messages) so an injected x-access-token never lands in
+# a log line or a persisted error.
+_CREDENTIAL_RE = re.compile(r"([a-z][a-z0-9+.\-]*://)([^/@\s]+@)", re.IGNORECASE)
 
 
-def _redact_url(url: str) -> str:
-    """Replace 'user:token@' in a URL with '***@' for safe logging."""
-    return _CREDENTIAL_RE.sub(r"\1***@", url)
+def _redact_url(text: str) -> str:
+    """Replace any 'scheme://user:token@' segment with 'scheme://***@'.
+
+    Operates on arbitrary text and scrubs every match, so it is safe to pass git
+    output or exception strings that may embed authenticated clone URLs.
+    """
+    return _CREDENTIAL_RE.sub(r"\1***@", text)
 
 
 def _inject_token_into_url(clone_url: str, token: str) -> str:
@@ -477,6 +486,34 @@ class GitMirrorService:
             safe_url,
         )
 
+        # SSRF guard (authoritative, clone time): resolve the target host and
+        # refuse to clone from private / loopback / link-local / reserved
+        # addresses. Enforced here -- not only at registration -- so DB-sourced
+        # rows and config extra_repos are covered and the DNS-rebinding window
+        # is narrowed. Blocking DNS is offloaded to a thread.
+        host = extract_git_host(task.effective_url)
+        if host is None:
+            return MirrorOutcome(
+                mirror=task.mirror,
+                ok=False,
+                error="clone URL has no resolvable host",
+                error_category=classify("could not resolve host"),
+                attempts=0,
+            )
+        try:
+            await asyncio.to_thread(assert_resolved_public_host, host)
+        except ValueError as exc:
+            logger.warning(
+                "git_mirror_blocked name=%s reason=%s", task.name, exc
+            )
+            return MirrorOutcome(
+                mirror=task.mirror,
+                ok=False,
+                error=str(exc),
+                error_category=classify(str(exc)),
+                attempts=0,
+            )
+
         async def operation(context: RetryContext) -> str:
             argv = build_git_command(
                 repo_exists=not is_clone,
@@ -485,10 +522,13 @@ class GitMirrorService:
                 git_executable=resolve_git_executable(),
                 force_http1=context.should_use_http1_fallback,
                 show_progress=task.is_large_repo or context.is_retry,
+                disable_redirects=True,
             )
             code, output = await self._git_runner(argv, cwd, timeout)
             if code != 0:
-                raise RuntimeError(output or f"git exited with code {code}")
+                # Redact before raising: git stderr commonly echoes the remote
+                # URL, which carries the injected x-access-token credential.
+                raise RuntimeError(_redact_url(output) if output else f"git exited with code {code}")
             return output
 
         async def run_with_retry() -> MirrorOutcome:
@@ -502,7 +542,9 @@ class GitMirrorService:
                     if exc.error_categories
                     else classify(str(exc))
                 )
-                cause_msg = str(exc.__cause__) if exc.__cause__ else str(exc)
+                cause_msg = _redact_url(
+                    str(exc.__cause__) if exc.__cause__ else str(exc)
+                )
                 logger.warning(
                     "git_mirror_failed name=%s attempts=%d category=%s error=%s",
                     task.name,
@@ -519,18 +561,19 @@ class GitMirrorService:
                     attempts=exc.attempt_count,
                 )
             except Exception as exc:
-                category = classify(str(exc))
+                safe_exc = _redact_url(str(exc))
+                category = classify(safe_exc)
                 logger.warning(
                     "git_mirror_failed name=%s category=%s error=%s",
                     task.name,
                     display_name(category),
-                    exc,
+                    safe_exc,
                 )
                 breaker.record_failure(category)
                 return MirrorOutcome(
                     mirror=task.mirror,
                     ok=False,
-                    error=str(exc),
+                    error=safe_exc,
                     error_category=category,
                     attempts=1,
                 )
