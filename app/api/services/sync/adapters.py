@@ -208,7 +208,7 @@ async def _apply_summary_change(
         )
 
     payload = change.payload or {}
-    allowed_fields = {"is_read"}
+    allowed_fields = {"is_read", "is_favorited"}
     invalid_fields = [field for field in payload if field not in allowed_fields]
     if invalid_fields:
         return SyncApplyItemResult(
@@ -222,17 +222,22 @@ async def _apply_summary_change(
     is_deleted = None
     deleted_at = None
     is_read = None
+    is_favorited = None
     if change.action == "delete":
         is_deleted = True
         deleted_at = datetime.now(UTC)
-    elif "is_read" in payload:
-        is_read = bool(payload["is_read"])
+    else:
+        if "is_read" in payload:
+            is_read = bool(payload["is_read"])
+        if "is_favorited" in payload:
+            is_favorited = bool(payload["is_favorited"])
 
     new_version = await context.summary_repository.async_apply_sync_change(
         summary_id,
         is_deleted=is_deleted,
         deleted_at=deleted_at,
         is_read=is_read,
+        is_favorited=is_favorited,
     )
 
     return SyncApplyItemResult(

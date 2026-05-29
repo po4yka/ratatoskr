@@ -94,6 +94,7 @@ class SummaryRepositoryPort(Protocol):
         is_deleted: bool | None = None,
         deleted_at: datetime | None = None,
         is_read: bool | None = None,
+        is_favorited: bool | None = None,
     ) -> int:
         """Apply a sync mutation and return the new server version."""
 

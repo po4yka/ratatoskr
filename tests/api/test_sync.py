@@ -551,6 +551,77 @@ async def test_apply_advances_server_version_on_mutation(db, sync_user, sync_sum
 
 
 @pytest.mark.asyncio
+async def test_apply_is_favorited_persists_and_advances_server_version(db, sync_user, sync_summary):
+    """Applying {is_favorited: true} must persist the value and bump server_version."""
+    svc = _make_svc(db)
+    user_ctx = _user_ctx(sync_user)
+
+    session_resp = await create_sync_session(SyncSessionRequest(), user=user_ctx, svc=svc)
+    session_id = session_resp["data"]["session_id"]
+
+    initial_version = sync_summary.server_version
+
+    apply_req = SyncApplyRequest(
+        session_id=session_id,
+        changes=[
+            SyncApplyItem(
+                entity_type="summary",
+                id=str(sync_summary.id),
+                action="update",
+                last_seen_version=initial_version,
+                payload={"is_favorited": True},
+            )
+        ],
+    )
+    result = await apply_changes(payload=apply_req, user=user_ctx, svc=svc)
+
+    item = result["data"]["results"][0]
+    assert item["status"] == "applied"
+    assert item["server_version"] > initial_version, (
+        f"server_version must advance after is_favorited apply; "
+        f"got {item['server_version']} <= initial {initial_version}"
+    )
+
+    from sqlalchemy import select as _select
+
+    from app.db.models import Summary
+
+    async with db.session() as session:
+        row = await session.scalar(_select(Summary).where(Summary.id == sync_summary.id))
+    assert row is not None
+    assert row.is_favorited is True
+    assert row.server_version == item["server_version"]
+
+
+@pytest.mark.asyncio
+async def test_apply_invalid_field_returns_invalid_fields_error(db, sync_user, sync_summary):
+    """A payload with an unrecognized field must return status='invalid' / INVALID_FIELDS."""
+    svc = _make_svc(db)
+    user_ctx = _user_ctx(sync_user)
+
+    session_resp = await create_sync_session(SyncSessionRequest(), user=user_ctx, svc=svc)
+    session_id = session_resp["data"]["session_id"]
+
+    apply_req = SyncApplyRequest(
+        session_id=session_id,
+        changes=[
+            SyncApplyItem(
+                entity_type="summary",
+                id=str(sync_summary.id),
+                action="update",
+                last_seen_version=sync_summary.server_version,
+                payload={"toggle_favorite": True},
+            )
+        ],
+    )
+    result = await apply_changes(payload=apply_req, user=user_ctx, svc=svc)
+
+    item = result["data"]["results"][0]
+    assert item["status"] == "invalid"
+    assert item["error_code"] == "INVALID_FIELDS"
+
+
+@pytest.mark.asyncio
 async def test_delta_valid_session_with_matching_etag_returns_304(db, sync_user, summary_factory):
     await summary_factory(user=sync_user)
 

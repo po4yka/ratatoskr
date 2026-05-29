@@ -655,6 +655,7 @@ class SummaryRepositoryAdapter:
         is_deleted: bool | None = None,
         deleted_at: datetime | None = None,
         is_read: bool | None = None,
+        is_favorited: bool | None = None,
     ) -> int:
         """Apply a sync change to a summary and advance its server_version.
 
@@ -675,6 +676,8 @@ class SummaryRepositoryAdapter:
             update_values["deleted_at"] = deleted_at
         if is_read is not None:
             update_values["is_read"] = is_read
+        if is_favorited is not None:
+            update_values["is_favorited"] = is_favorited
 
         # Only bump server_version when there's a real mutation. updated_at
         # alone is a heartbeat, not a sync-visible change.
