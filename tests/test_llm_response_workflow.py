@@ -296,6 +296,37 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         # Six concurrent requests, but the shared semaphore caps LLM calls at 2.
         assert tracker["max"] == 2
 
+    async def test_effective_timeout_expansion_is_logged(self) -> None:
+        """When the per-model floor pushes the worst-case past the configured
+        timeout, a WARNING surfaces the expansion and its derivation."""
+        self.cfg.runtime.llm_call_timeout_sec = 180.0
+        self.cfg.runtime.llm_per_model_timeout_min_sec = 90.0
+        payload = {"summary_250": "B", "tldr": "T", "summary_1000": "L"}
+        self.openrouter.chat = AsyncMock(return_value=self._llm_response(payload))
+
+        # 3 models x 90s floor + 15s buffer = 285s > 180s configured.
+        request = self.request.model_copy(update={"fallback_models_override": ("m2", "m3")})
+
+        with (
+            self.assertLogs("app.adapters.content.llm_response_workflow", level="WARNING") as logs,
+            unittest.mock.patch(
+                "app.adapters.content.llm_response_workflow.parse_summary_response",
+                return_value=SimpleNamespace(shaped=payload, errors=[], used_local_fix=False),
+            ),
+        ):
+            await self.workflow.execute_summary_workflow(
+                message=MagicMock(),
+                req_id=909,
+                correlation_id="timeout-expand",
+                interaction_config=self.interaction,
+                persistence=self.persistence,
+                repair_context=self.repair_context,
+                requests=[request],
+                notifications=self.notifications,
+            )
+
+        assert any("llm_effective_timeout_expanded" in line for line in logs.output)
+
     async def test_execute_accepts_strict_llm_client_protocol(self) -> None:
         summary_payload = {
             "summary_250": "Summary body",

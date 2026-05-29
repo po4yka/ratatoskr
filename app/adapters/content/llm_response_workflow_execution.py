@@ -402,6 +402,25 @@ class LLMWorkflowExecutionMixin:
             },
         )
 
+        if effective_llm_timeout > llm_timeout:
+            # The per-model floor pushed the worst-case wall time past the
+            # configured LLM_CALL_TIMEOUT_SEC. Surface it so operators are not
+            # surprised by requests running longer than the configured budget.
+            logger.warning(
+                "llm_effective_timeout_expanded",
+                extra={
+                    "req_id": req_id,
+                    "model": request.model_override,
+                    "configured_timeout_sec": llm_timeout,
+                    "effective_llm_timeout_sec": effective_llm_timeout,
+                    "per_model_timeout_sec": per_model_timeout,
+                    "per_model_min_sec": per_model_min,
+                    "num_models": num_models,
+                    "between_model_buffer_sec": between_model_buffer,
+                    "timeout_source": timeout_source,
+                },
+            )
+
         # self._sem() returns the single global LLM-concurrency semaphore wired
         # from core.semaphore_factory (a LazySemaphoreFactory that hands out one
         # shared instance). EVERY LLM call -- interactive, batch, and repair --

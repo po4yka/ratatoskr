@@ -672,10 +672,19 @@ These knobs govern how long the generic LLM response workflow spends per provide
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `LLM_CALL_TIMEOUT_SEC` | `300.0` | Total wall-clock budget for one LLM call (across the full fallback ladder) |
-| `LLM_PER_MODEL_TIMEOUT_MIN_SEC` | `120.0` | Minimum per-model budget. Per-model timeout is `max(this, LLM_CALL_TIMEOUT_SEC / num_models)` so slow models in long ladders are not starved |
+| `LLM_CALL_TIMEOUT_SEC` | `420.0` | Total wall-clock budget for one LLM call (across the full fallback ladder) |
+| `LLM_PER_MODEL_TIMEOUT_MIN_SEC` | `90.0` | Minimum per-model budget. Per-model timeout is `max(this, LLM_CALL_TIMEOUT_SEC / num_models)` so slow models in long ladders are not starved |
 | `LLM_PER_MODEL_TIMEOUT_OVERRIDES` | _(empty)_ | Comma-separated `model=seconds` overrides, e.g. `moonshotai/kimi-k2.5=180,minimax/minimax-m1=240`. Overrides win over the formula above. Malformed entries are skipped with a warning |
 | `LLM_CALL_MAX_RETRIES` | `2` | Retries on transient HTTP failures inside a single model attempt |
+
+**Effective timeout can exceed `LLM_CALL_TIMEOUT_SEC`.** The outer `asyncio.timeout()` wrapper is expanded to fit the full cascade so the per-model floor is never starved:
+
+```
+per_model_timeout    = max(LLM_PER_MODEL_TIMEOUT_MIN_SEC, LLM_CALL_TIMEOUT_SEC / num_models)
+effective_timeout    = max(LLM_CALL_TIMEOUT_SEC, num_models * per_model_timeout + 15s)   # 15s inter-model buffer; 0 when num_models == 1
+```
+
+With the defaults and a 5-model ladder this yields `max(420, 5*90 + 15) = 465s`, i.e. 45s beyond the configured 420s. This is intentional (a coherent answer from one slow model beats a guaranteed-fast cascade of timeouts). Whenever the effective timeout exceeds the configured value the workflow emits a `llm_effective_timeout_expanded` WARNING with the full derivation, so the expansion is never silent. Lower `LLM_PER_MODEL_TIMEOUT_MIN_SEC` or shorten the fallback ladder if you need the effective ceiling closer to `LLM_CALL_TIMEOUT_SEC`.
 
 ## LLM Usage Budgets
 
