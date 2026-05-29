@@ -231,6 +231,31 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    # Health monitoring (Healthchecks.io dead-man-switch)
+    hc_ping_url: str | None = Field(
+        default=None,
+        validation_alias="GIT_BACKUP_HC_PING_URL",
+        description=(
+            "Base Healthchecks.io (or compatible) ping URL for the git-backup sync job "
+            "(e.g. https://hc-ping.com/<uuid>). When set, the task POSTs to {url}/start "
+            "before the sync begins, to {url} on success, and to {url}/fail on exception. "
+            "When None or empty, health pinging is disabled."
+        ),
+    )
+    hc_ping_timeout_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        validation_alias="GIT_BACKUP_HC_PING_TIMEOUT_SECONDS",
+        description="HTTP timeout in seconds for each Healthchecks.io ping request.",
+    )
+
+    @field_validator("hc_ping_url", mode="before")
+    @classmethod
+    def _validate_hc_ping_url(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        return str(value).strip() or None
+
     @field_validator("sync_cron", mode="before")
     @classmethod
     def _validate_sync_cron(cls, value: Any) -> str:

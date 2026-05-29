@@ -192,6 +192,24 @@ Setting `GIT_BACKUP_SINGLE_BRANCH_ONLY=true` uses `git clone --bare --single-bra
 
 ---
 
+## Health monitoring
+
+The sync job supports a Healthchecks.io-compatible dead-man-switch via `GIT_BACKUP_HC_PING_URL`. When set, the Taskiq task (`app/tasks/git_backup_sync.py`) performs three best-effort HTTP pings around the sync:
+
+| Event | Endpoint | Meaning |
+|-------|----------|---------|
+| Before `perform_sync` begins | `POST {url}/start` | Job is running; reset the "grace" timer |
+| After `perform_sync` returns | `POST {url}` | Job completed successfully |
+| If `perform_sync` raises | `POST {url}/fail` | Job failed; trigger alert |
+
+Ping semantics mirror [gitout's `health_check.py`](https://github.com/nicholasgasior/gitout): a ping is sent on completion regardless of per-repository failures (`summary.failed > 0`) because the job itself ran to completion. Only an unhandled exception (e.g. storage preflight failure, Redis lock error) routes to the `/fail` endpoint.
+
+All pings are best-effort: network errors and timeouts are logged at WARNING and swallowed. A failed ping never affects the backup outcome. The ping timeout is configured with `GIT_BACKUP_HC_PING_TIMEOUT_SECONDS` (default `10.0` s).
+
+Implementation: `app/adapters/git_backup/health_ping.py` — three module-level async functions (`ping_start`, `ping_success`, `ping_failure`) each backed by a short-lived `httpx.AsyncClient`.
+
+---
+
 ## Known Deferrals
 
 **On-disk cleanup on DELETE.** `DELETE /v1/git-mirrors/{id}` removes the `git_mirrors` row but leaves the bare clone directory in place. Automatic on-disk cleanup on deletion is tracked as a follow-up item; operators should remove stale directories manually.

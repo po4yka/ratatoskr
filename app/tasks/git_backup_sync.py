@@ -40,10 +40,30 @@ async def sync_git_backup(
             )
             return
 
+        from app.adapters.git_backup.health_ping import (
+            ping_failure,
+            ping_start,
+            ping_success,
+        )
         from app.tasks.deps import build_git_backup_task_runtime
 
-        runtime = build_git_backup_task_runtime(cfg, db)
-        summary = await runtime.service.perform_sync()
+        hc_url = cfg.git_backup.hc_ping_url
+        hc_timeout = cfg.git_backup.hc_ping_timeout_seconds
+
+        if hc_url:
+            await ping_start(hc_url, hc_timeout)
+
+        try:
+            runtime = build_git_backup_task_runtime(cfg, db)
+            summary = await runtime.service.perform_sync()
+        except Exception:
+            if hc_url:
+                await ping_failure(hc_url, hc_timeout)
+            raise
+
+        if hc_url:
+            await ping_success(hc_url, hc_timeout)
+
         logger.info(
             "git_backup_sync_complete",
             extra={
