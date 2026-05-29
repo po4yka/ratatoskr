@@ -2,33 +2,48 @@
 title: Bound and project summary list queries
 status: backlog
 area: db
-priority: high
+priority: medium
 owner: unassigned
 epic: epic-fix-database-query-performance
 blocks: []
 blocked_by: []
 created: 2026-05-28
-updated: 2026-05-28
+updated: 2026-05-29
 ---
 
-- [ ] #task Bound and project summary list queries #repo/ratatoskr #area/db #status/backlog ⏫
+- [ ] #task Bound and project summary list queries #repo/ratatoskr #area/db #status/backlog 🔼
 
-## Objective
-Summary read paths over-fetch: list pagination runs 3 queries (2 COUNT + data) and loads full multi-KB JSONB columns for metadata-only views; `async_get_all_for_user` has NO LIMIT and pulls all JSONB into memory; a smart-collection query defaults to a 10,000-row limit with full JSONB (~50MB allocation).
+## Status
 
-## Context (evidence)
-`app/infrastructure/persistence/repositories/summary_repository.py:130-162` (2 separate COUNTs + `select(Summary, Request)` with all columns); `app/infrastructure/persistence/repositories/summary_repository.py:628-639` (`async_get_all_for_user` no LIMIT, full Summary load); `app/infrastructure/persistence/repositories/collection_repository.py:752-769` (default limit 10000 with full JSONB).
+**Partially done.** The safe, non-breaking part (5A — collapsing the two pagination
+COUNT round-trips into one `count(*) FILTER (...)` query) is implemented. The
+remaining audit recommendations (5B, 5C, 7A, 7B) were investigated and found to
+be **breaking as originally specified**, because `summaries.json_payload` is
+load-bearing on every path the audit wanted to bound/project:
 
-## Scope
-Combine the two counts into one `count(*) FILTER (WHERE ...)`; add column projection for list views (id, is_read, is_favorited, lang, created_at, updated_at, is_deleted, input_url) instead of loading `json_payload`/`insights_json`; add a sane LIMIT + keyset pagination to `async_get_all_for_user`; lower/stream the smart-collection batch.
+- `build_summary_context` (smart collections) reads title, `topic_tags`,
+  `summary_1000`/`summary_250`, `source_type`, `reading_time` straight out of
+  `json_payload` to evaluate rules — projecting it away changes which summaries
+  match, and lowering `async_list_user_summaries_with_request`'s 10000 limit
+  silently stops matching older summaries (5C).
+- `async_get_all_for_user` is the **full-snapshot sync** source
+  (`app/api/services/sync/adapters.py`); a LIMIT would truncate the client sync
+  (data loss) and dropping JSONB would ship empty summaries (5B/7B).
+- The summary **list** view title also lives in `json_payload`, so the projection
+  in 7A would blank out titles in the UI.
 
-## Acceptance criteria
-- List pagination is ≤2 queries and does not transfer large JSONB.
-- No unbounded SELECT remains.
-- Memory profile of smart-collection eval is bounded.
+## Remaining work (the real fix)
 
-## Epic
-Part of [[epic-fix-database-query-performance]].
+Denormalize the fields these paths actually need (title, topic_tags,
+source_type, reading_time) into indexed columns on `summaries` (or a
+`summary_meta` table), backfilled by migration, then:
+- project those columns for the list view and smart-collection evaluation
+  instead of loading `json_payload`;
+- keep the sync snapshot reading full payloads (it must), but it can stream/page.
+
+This is a cross-cutting change (migration + backfill + sync protocol + smart
+collection rewire) and touches the freeze-priority Mobile API contract, so it is
+tracked here rather than bundled into the index/N+1 work.
 
 ## References
-- Performance audit finding 5A, 5B, 5C, 7A, 7B (2026-05-28).
+- Performance audit finding 5A (done), 5B/5C/7A/7B (deferred, see above) (2026-05-28).

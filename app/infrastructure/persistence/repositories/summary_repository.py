@@ -6,7 +6,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.application.services.topic_search_utils import ensure_mapping, tokenize
@@ -109,46 +109,44 @@ class SummaryRepositoryAdapter:
     ) -> tuple[list[dict[str, Any]], int, int]:
         """Get paginated summaries for a user with filtering and stats."""
         async with self._database.session() as session:
-            conditions = [Request.user_id == user_id, Summary.is_deleted.is_(False)]
+            base_conditions = [Request.user_id == user_id, Summary.is_deleted.is_(False)]
+            optional_conditions: list[Any] = []
             if is_read is not None:
-                conditions.append(Summary.is_read.is_(is_read))
+                optional_conditions.append(Summary.is_read.is_(is_read))
             if is_favorited is not None:
-                conditions.append(Summary.is_favorited.is_(is_favorited))
+                optional_conditions.append(Summary.is_favorited.is_(is_favorited))
             if lang:
-                conditions.append(Summary.lang == lang)
+                optional_conditions.append(Summary.lang == lang)
             if start_date:
-                conditions.append(Summary.created_at >= start_date)
+                optional_conditions.append(Summary.created_at >= start_date)
             if end_date:
-                conditions.append(Summary.created_at <= end_date)
+                optional_conditions.append(Summary.created_at <= end_date)
             if search:
                 # Case-insensitive substring match on the article URL.
                 # The Summary's title lives in Summary.json_payload (JSONB)
                 # and needs a JSON-extract expression — defer that to a
                 # follow-up. URL match covers the URL-paste search path.
-                conditions.append(Request.input_url.ilike(f"%{search}%"))
+                optional_conditions.append(Request.input_url.ilike(f"%{search}%"))
+            conditions = [*base_conditions, *optional_conditions]
 
-            total = int(
-                await session.scalar(
-                    select(func.count())
+            # Single round-trip for both counts: `total` matches the active
+            # filters, `unread_count` is the user's unread total over non-deleted
+            # summaries (independent of the list filters), via FILTER aggregates.
+            total_count = (
+                func.count().filter(and_(*optional_conditions))
+                if optional_conditions
+                else func.count()
+            )
+            counts_row = (
+                await session.execute(
+                    select(total_count, func.count().filter(Summary.is_read.is_(False)))
                     .select_from(Summary)
                     .join(Request, Summary.request_id == Request.id)
-                    .where(*conditions)
+                    .where(*base_conditions)
                 )
-                or 0
-            )
-            unread_count = int(
-                await session.scalar(
-                    select(func.count())
-                    .select_from(Summary)
-                    .join(Request, Summary.request_id == Request.id)
-                    .where(
-                        Request.user_id == user_id,
-                        Summary.is_read.is_(False),
-                        Summary.is_deleted.is_(False),
-                    )
-                )
-                or 0
-            )
+            ).one()
+            total = int(counts_row[0] or 0)
+            unread_count = int(counts_row[1] or 0)
 
             order_by = Request.created_at.desc()
             if sort != "created_at_desc":
