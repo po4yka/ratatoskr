@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -46,7 +46,7 @@ class TestGeminiEmbeddingServiceGenerate:
         assert result == [0.1, 0.2, 0.3]
         call_kwargs = mock_client.models.embed_content.call_args
         assert call_kwargs.kwargs["model"] == "gemini-embedding-2-preview"
-        assert call_kwargs.kwargs["contents"] == "hello world"
+        assert call_kwargs.kwargs["contents"] == ["hello world"]
         config = call_kwargs.kwargs["config"]
         assert config["task_type"] == "SEMANTIC_SIMILARITY"
         assert config["output_dimensionality"] == 3
@@ -76,6 +76,59 @@ class TestGeminiEmbeddingServiceGenerate:
 
         config = mock_client.models.embed_content.call_args.kwargs["config"]
         assert config["task_type"] == "RETRIEVAL_QUERY"
+
+
+class TestGeminiEmbeddingServiceBatch:
+    @pytest.mark.asyncio
+    async def test_batch_chunks_into_100_and_preserves_order(self) -> None:
+        svc = GeminiEmbeddingService(api_key="test-key", dimensions=1)
+
+        def _embed(**kw: object) -> SimpleNamespace:
+            # Echo each input's integer value so order can be verified.
+            contents = kw["contents"]
+            return SimpleNamespace(
+                embeddings=[SimpleNamespace(values=[float(int(c))]) for c in contents]
+            )
+
+        mock_client = MagicMock()
+        mock_client.models.embed_content.side_effect = _embed
+        svc._client = mock_client
+
+        texts = [str(i) for i in range(250)]
+        result = await svc.generate_embeddings_batch(texts, task_type="document")
+
+        # ceil(250 / 100) = 3 API calls (not 250 single calls).
+        assert mock_client.models.embed_content.call_count == 3
+        # Order preserved across chunks.
+        assert result == [[float(i)] for i in range(250)]
+
+    @pytest.mark.asyncio
+    async def test_batch_retries_on_rate_limit(self) -> None:
+        svc = GeminiEmbeddingService(api_key="test-key", dimensions=1)
+
+        class _Rate429(Exception):
+            code = 429
+
+        ok = SimpleNamespace(embeddings=[SimpleNamespace(values=[1.0])])
+        mock_client = MagicMock()
+        mock_client.models.embed_content.side_effect = [_Rate429(), ok]
+        svc._client = mock_client
+
+        with patch(
+            "app.infrastructure.embedding.gemini_embedding_service.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as sleep_mock:
+            result = await svc.generate_embeddings_batch(["only"])
+
+        assert result == [[1.0]]
+        assert mock_client.models.embed_content.call_count == 2  # retried once
+        sleep_mock.assert_awaited()  # backoff slept
+
+    @pytest.mark.asyncio
+    async def test_empty_batch_returns_empty(self) -> None:
+        svc = GeminiEmbeddingService(api_key="test-key")
+        svc._client = MagicMock()
+        assert await svc.generate_embeddings_batch([]) == []
 
 
 class TestGeminiEmbeddingServiceSerialization:

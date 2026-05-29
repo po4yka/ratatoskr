@@ -20,6 +20,24 @@ _TASK_TYPE_MAP: dict[str | None, str] = {
     None: "SEMANTIC_SIMILARITY",
 }
 
+# Gemini embed_content accepts up to 100 inputs per request.
+_BATCH_SIZE = 100
+# Concurrent in-flight batch requests (bounds the 429 pressure during backfill).
+_MAX_CONCURRENT_BATCHES = 4
+# Exponential backoff on rate-limit (429 / RESOURCE_EXHAUSTED) responses.
+_MAX_RETRIES = 5
+_INITIAL_BACKOFF_SEC = 1.0
+_MAX_BACKOFF_SEC = 30.0
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Best-effort detection of a Gemini rate-limit / quota error."""
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 429:
+        return True
+    text = f"{getattr(exc, 'status', '')} {exc}".lower()
+    return "429" in text or "resource_exhausted" in text or "rate limit" in text
+
 
 class GeminiEmbeddingService(EmbeddingSerializationMixin):
     """Generate embeddings via Google Gemini Embedding API.
@@ -70,19 +88,8 @@ class GeminiEmbeddingService(EmbeddingSerializationMixin):
         """
         client = self._ensure_client()
         gemini_task = _TASK_TYPE_MAP.get(task_type, "SEMANTIC_SIMILARITY")
-
-        result = await asyncio.to_thread(
-            client.models.embed_content,
-            model=self._model,
-            contents=text,
-            config={
-                "task_type": gemini_task,
-                "output_dimensionality": self._dimensions,
-            },
-        )
-
-        values: list[float] = result.embeddings[0].values
-        return values
+        embeddings = await self._embed_contents_with_retry(client, [text], gemini_task)
+        return embeddings[0]
 
     async def generate_embeddings_batch(
         self,
@@ -91,12 +98,64 @@ class GeminiEmbeddingService(EmbeddingSerializationMixin):
         language: str | None = None,
         task_type: str | None = None,
     ) -> list[Any]:
-        """Batch embedding via parallel Gemini calls (no batch REST endpoint)."""
-        return list(
-            await asyncio.gather(
-                *(self.generate_embedding(t, language=language, task_type=task_type) for t in texts)
-            )
-        )
+        """Batch embedding via Gemini's multi-input embed_content.
+
+        Chunks into <=100 inputs per request (Gemini's batch limit), runs at most
+        _MAX_CONCURRENT_BATCHES requests concurrently, retries rate-limit
+        responses with exponential backoff, and preserves input order.
+        """
+        if not texts:
+            return []
+        client = self._ensure_client()
+        gemini_task = _TASK_TYPE_MAP.get(task_type, "SEMANTIC_SIMILARITY")
+        chunks = [list(texts[i : i + _BATCH_SIZE]) for i in range(0, len(texts), _BATCH_SIZE)]
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_BATCHES)
+
+        async def _run(chunk: list[str]) -> list[Any]:
+            async with semaphore:
+                return await self._embed_contents_with_retry(client, chunk, gemini_task)
+
+        # gather preserves chunk order; each chunk preserves input order.
+        chunk_embeddings = await asyncio.gather(*(_run(chunk) for chunk in chunks))
+        ordered: list[Any] = []
+        for embeddings in chunk_embeddings:
+            ordered.extend(embeddings)
+        return ordered
+
+    async def _embed_contents_with_retry(
+        self,
+        client: Any,
+        contents: list[str],
+        gemini_task: str,
+    ) -> list[list[float]]:
+        """Embed up to _BATCH_SIZE inputs in one call, retrying on rate limits."""
+        delay = _INITIAL_BACKOFF_SEC
+        for attempt in range(_MAX_RETRIES):
+            try:
+                result = await asyncio.to_thread(
+                    client.models.embed_content,
+                    model=self._model,
+                    contents=contents,
+                    config={
+                        "task_type": gemini_task,
+                        "output_dimensionality": self._dimensions,
+                    },
+                )
+                return [embedding.values for embedding in result.embeddings]
+            except Exception as exc:
+                if not _is_rate_limit_error(exc) or attempt == _MAX_RETRIES - 1:
+                    raise
+                logger.warning(
+                    "gemini_embedding_rate_limited",
+                    extra={
+                        "attempt": attempt + 1,
+                        "retry_in_sec": delay,
+                        "batch_size": len(contents),
+                    },
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, _MAX_BACKOFF_SEC)
+        return []  # unreachable: last attempt either returns or raises
 
     # -- Metadata --------------------------------------------------------------
 
