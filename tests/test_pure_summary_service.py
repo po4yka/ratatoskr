@@ -137,9 +137,8 @@ async def test_long_context_model_selected() -> None:
 
 
 @pytest.mark.asyncio
-@patch("app.adapters.content.summarization_runtime.RedisCache")
 async def test_token_based_truncation_triggers_for_cyrillic(
-    redis_cache_mock: MagicMock, caplog: pytest.LogCaptureFixture
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Short-char but high-token Cyrillic content trips the token-based guard.
 
@@ -147,9 +146,6 @@ async def test_token_based_truncation_triggers_for_cyrillic(
     threshold, so the old len()-based guard would have passed it through; the
     token-based guard truncates it.
     """
-    cache_stub = MagicMock(enabled=False)
-    redis_cache_mock.return_value = cache_stub
-
     cfg = _dummy_cfg()
     # Routing enabled, tiny token threshold, no long-context model -> truncate.
     cfg.model_routing = SimpleNamespace(
@@ -169,6 +165,7 @@ async def test_token_based_truncation_triggers_for_cyrillic(
         sem=lambda: MagicMock(
             __aenter__=AsyncMock(return_value=None), __aexit__=AsyncMock(return_value=False)
         ),
+        cache=_cache_stub(),
         **_runtime_repo_kwargs(),
     )
     service = PureSummaryService(runtime=runtime)

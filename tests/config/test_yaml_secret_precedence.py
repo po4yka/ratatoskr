@@ -13,6 +13,10 @@ regress silently.
 from __future__ import annotations
 
 import logging
+
+import pytest
+
+pytestmark = pytest.mark.uses_real_yaml
 from pathlib import Path
 from textwrap import dedent
 
@@ -225,6 +229,9 @@ class TestPrecedenceMatrix:
     ) -> None:
         with pytest.MonkeyPatch.context() as mp:
             _apply_baseline(mp)
+            # Point RATATOSKR_CONFIG at a path that doesn't exist so the loader
+            # cannot fall back to the repo-local config/ratatoskr.yaml.
+            mp.setenv("RATATOSKR_CONFIG", "/nonexistent/ratatoskr.yaml")
             cfg_obj = Settings(_env_file=None).as_app_config()  # type: ignore[call-arg]
 
         # ATTACHMENT_MAX_DOCUMENT_CHARS default is 45000. The repo's

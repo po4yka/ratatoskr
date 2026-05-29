@@ -389,6 +389,7 @@ markers = [
     "benchmark: marks performance benchmark tests",
     "contracts: marks API and schema contract consistency tests",
     "no_network: marks tests that must never perform live network I/O",
+    "uses_real_yaml: opts out of the autouse stub that disables ratatoskr.yaml loading",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

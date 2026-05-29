@@ -111,6 +111,32 @@ def fast_qdrant_retries(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_ratatoskr_yaml(request, monkeypatch):
+    """Stub out repo-local `config/ratatoskr.yaml` for all tests.
+
+    YAML wins over env per the Settings precedence rule, so without this any
+    test that builds `Settings` would inherit dev values (e.g.
+    `REDIS_REQUIRED=false`) that contradict its env-var fixture. Stubbing
+    `load_ratatoskr_yaml` is more robust than setting `RATATOSKR_CONFIG`
+    because many tests use `unittest.mock.patch.dict(os.environ, ..., clear=True)`
+    which would erase the env var. Tests that exercise real YAML behaviour
+    opt out with `@pytest.mark.uses_real_yaml`.
+    """
+    if request.node.get_closest_marker("uses_real_yaml") is not None:
+        return
+
+    import app.config.config_file as _config_file_module
+    import app.config.settings as _settings_module
+
+    def _empty_yaml(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(_config_file_module, "load_ratatoskr_yaml", _empty_yaml)
+    if hasattr(_settings_module, "load_ratatoskr_yaml"):
+        monkeypatch.setattr(_settings_module, "load_ratatoskr_yaml", _empty_yaml)
+
+
+@pytest.fixture(autouse=True)
 def manage_config_cache():
     """Clear cached config between tests that mutate environment variables."""
     clear_config_cache()

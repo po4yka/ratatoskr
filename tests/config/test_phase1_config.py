@@ -9,6 +9,8 @@ import pytest
 from app.config import Settings, clear_config_cache, load_config
 from app.config.config_file import load_ratatoskr_yaml
 
+pytestmark = pytest.mark.uses_real_yaml
+
 
 def _active_env_assignments(path: Path) -> list[str]:
     assignments: list[str] = []
