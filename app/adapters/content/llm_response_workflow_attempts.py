@@ -84,7 +84,7 @@ class LLMWorkflowAttemptsMixin:
                 else None
             )
             if _parse_fn is None:
-                from app.utils.json_validation import (  # type: ignore[assignment]
+                from app.utils.json_validation import (
                     parse_summary_response as _parse_fn,
                 )
 

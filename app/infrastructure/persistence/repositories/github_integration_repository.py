@@ -109,4 +109,4 @@ class GitHubIntegrationRepository:
 
 # Verify structural conformance at import time (type-checker only; no runtime cost).
 def _assert_implements_port(repo: GitHubIntegrationRepository) -> GitHubIntegrationRepositoryPort:
-    return repo  # type: ignore[return-value]
+    return repo

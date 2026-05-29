@@ -173,10 +173,51 @@ class RequestRepositoryPort(Protocol):
     ) -> None:
         """Persist the Telegram message-id of the bot's reply for a request."""
 
+    async def async_insert_telegram_message(
+        self,
+        *,
+        request_id: int,
+        message_id: int | None,
+        chat_id: int | None,
+        date_ts: int | None,
+        text_full: str | None,
+        entities_json: Any,
+        media_type: str | None,
+        media_file_ids_json: Any,
+        forward_from_chat_id: int | None,
+        forward_from_chat_type: str | None,
+        forward_from_chat_title: str | None,
+        forward_from_message_id: int | None,
+        forward_date_ts: int | None,
+        telegram_raw_json: Any,
+    ) -> int:
+        """Persist a Telegram message snapshot and return its row id."""
+
 
 @runtime_checkable
 class CrawlResultRepositoryPort(Protocol):
     """Port for crawl-result query operations."""
+
+    async def async_insert_crawl_result(
+        self,
+        request_id: int,
+        success: bool,
+        markdown: str | None = None,
+        html: str | None = None,
+        error: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+        *,
+        source_url: str | None = None,
+        http_status: int | None = None,
+        status: str | None = None,
+        endpoint: str | None = None,
+        latency_ms: int | None = None,
+        correlation_id: str | None = None,
+        options_json: dict[str, Any] | None = None,
+        attempt_log: list[dict[str, Any]] | None = None,
+        winning_provider: str | None = None,
+    ) -> int:
+        """Insert a crawl result and return the row id."""
 
     async def async_get_crawl_result_by_request(self, request_id: int) -> dict[str, Any] | None:
         """Return crawl result by request ID."""

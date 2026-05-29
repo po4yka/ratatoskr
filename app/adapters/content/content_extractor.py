@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.article_media import extract_firecrawl_image_assets
 from app.adapters.content.content_extractor_crawl import ContentExtractorCrawlMixin
@@ -117,7 +117,8 @@ class ContentExtractor(
         if message_persistence is None:
             from app.infrastructure.persistence.message_persistence import MessagePersistence
 
-            message_persistence = MessagePersistence(db)
+            _mp: MessagePersistencePort = MessagePersistence(db)
+            message_persistence = _mp
         self.message_persistence: MessagePersistencePort = message_persistence
         self._platform_request_lifecycle = PlatformRequestLifecycle(
             response_formatter=response_formatter,
@@ -129,7 +130,7 @@ class ContentExtractor(
 
     async def clear_cache(self) -> int:
         """Clear the extraction cache."""
-        return cast(int, await self._cache.clear())
+        return await self._cache.clear()
 
     def _aggregation_article_media_enabled(self) -> bool:
         return bool(getattr(self.cfg.runtime, "aggregation_article_media_enabled", True))

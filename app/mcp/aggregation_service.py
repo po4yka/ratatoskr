@@ -6,6 +6,9 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from app.adapters.content.multi_source_classification import classify_url_source_kind
+from app.agents.multi_source_aggregation_agent import MultiSourceAggregationAgent
+from app.agents.multi_source_extraction_agent import MultiSourceExtractionAgent
+from app.agents.relationship_analysis_agent import RelationshipAnalysisAgent
 from app.api.models.requests import AggregationBundleItemRequest, CreateAggregationBundleRequest
 from app.application.dto.aggregation import SourceSubmission
 from app.application.services.aggregation_rollout import AggregationRolloutGate
@@ -123,9 +126,20 @@ class AggregationMcpService:
 
             repo = build_aggregation_session_repository(runtime.db)
             workflow = MultiSourceAggregationService(
-                content_extractor=runtime.background_processor.url_processor.content_extractor,
+                extraction_agent=MultiSourceExtractionAgent(
+                    content_extractor=runtime.background_processor.url_processor.content_extractor,
+                    aggregation_session_repo=repo,
+                ),
+                aggregation_agent=MultiSourceAggregationAgent(
+                    aggregation_session_repo=repo,
+                    llm_client=runtime.core.llm_client,
+                ),
                 aggregation_session_repo=repo,
-                llm_client=runtime.core.llm_client,
+                relationship_agent=RelationshipAnalysisAgent(
+                    llm_client=runtime.core.llm_client,
+                )
+                if runtime.core.llm_client is not None
+                else None,
             )
             submissions = [
                 SourceSubmission.from_url(

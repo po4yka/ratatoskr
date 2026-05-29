@@ -56,7 +56,7 @@ class LLMWorkflowRepairMixin:
                 getattr(_shim, "parse_summary_response", None) if _shim is not None else None
             )
             if _parse_fn is None:
-                from app.utils.json_validation import (  # type: ignore[assignment]
+                from app.utils.json_validation import (
                     parse_summary_response as _parse_fn,
                 )
 
@@ -207,7 +207,7 @@ class LLMWorkflowRepairMixin:
                     else None
                 )
                 if _parse_fn2 is None:
-                    from app.utils.json_validation import (  # type: ignore[assignment]
+                    from app.utils.json_validation import (
                         parse_summary_response as _parse_fn2,
                     )
 

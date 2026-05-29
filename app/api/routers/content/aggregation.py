@@ -8,6 +8,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from app.agents.multi_source_aggregation_agent import MultiSourceAggregationAgent
+from app.agents.multi_source_extraction_agent import MultiSourceExtractionAgent
+from app.agents.relationship_analysis_agent import RelationshipAnalysisAgent
 from app.api.aggregation_provenance import build_source_bundle as _build_source_bundle
 from app.api.dependencies.database import get_session_manager
 from app.api.exceptions import (
@@ -45,10 +48,22 @@ router = APIRouter()
 
 def _get_aggregation_workflow(request: Request) -> MultiSourceAggregationService:
     runtime = resolve_api_runtime(request)
+    repo = build_aggregation_session_repository(runtime.db)
     return MultiSourceAggregationService(
-        content_extractor=runtime.background_processor.url_processor.content_extractor,
-        aggregation_session_repo=build_aggregation_session_repository(runtime.db),
-        llm_client=runtime.core.llm_client,
+        extraction_agent=MultiSourceExtractionAgent(
+            content_extractor=runtime.background_processor.url_processor.content_extractor,
+            aggregation_session_repo=repo,
+        ),
+        aggregation_agent=MultiSourceAggregationAgent(
+            aggregation_session_repo=repo,
+            llm_client=runtime.core.llm_client,
+        ),
+        aggregation_session_repo=repo,
+        relationship_agent=RelationshipAnalysisAgent(
+            llm_client=runtime.core.llm_client,
+        )
+        if runtime.core.llm_client is not None
+        else None,
     )
 
 

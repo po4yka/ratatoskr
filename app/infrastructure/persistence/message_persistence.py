@@ -26,6 +26,12 @@ from app.infrastructure.persistence.repositories.user_repository import (
 )
 
 if TYPE_CHECKING:
+    from app.application.ports.requests import (
+        CrawlResultRepositoryPort,
+        LLMRepositoryPort,
+        RequestRepositoryPort,
+    )
+    from app.application.ports.users import UserRepositoryPort
     from app.db.session import Database
 
 logger = get_logger(__name__)
@@ -36,10 +42,10 @@ class MessagePersistence:
 
     def __init__(self, db: Database | Any) -> None:
         self.db = db  # Keep reference for legacy access if needed
-        self.request_repo = RequestRepositoryAdapter(db)
-        self.user_repo = UserRepositoryAdapter(db)
-        self.crawl_repo = CrawlResultRepositoryAdapter(db)
-        self.llm_repo = LLMRepositoryAdapter(db)
+        self.request_repo: RequestRepositoryPort = RequestRepositoryAdapter(db)
+        self.user_repo: UserRepositoryPort = UserRepositoryAdapter(db)
+        self.crawl_repo: CrawlResultRepositoryPort = CrawlResultRepositoryAdapter(db)
+        self.llm_repo: LLMRepositoryPort = LLMRepositoryAdapter(db)
 
     async def persist_message_snapshot(self, request_id: int, message: Any) -> None:
         """Persist message snapshot to database."""
