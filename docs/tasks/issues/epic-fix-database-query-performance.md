@@ -8,20 +8,29 @@ owner: unassigned
 blocks: []
 blocked_by: []
 children:
-  - add-missing-indexes-for-hot-queries
-  - fix-digest-store-n-plus-1-queries
-  - fix-collection-repository-n-plus-1-queries
   - bound-and-project-summary-list-queries
-  - batch-admin-diagnostic-count-queries
-  - fix-audit-log-filter-correctness-and-pushdown
-  - use-bulk-writes-for-channel-posts-and-reorder
-  - tune-connection-pool-and-statement-cache
-  - reduce-digest-delivery-posts-json-fanout
 created: 2026-05-28
-updated: 2026-05-28
+updated: 2026-05-29
 ---
 
-- [ ] #task Epic: Fix database query performance and indexing #repo/ratatoskr #area/db #status/backlog #epic ⏫
+- [ ] #task Epic: Fix database query performance and indexing #repo/ratatoskr #area/db #status/doing #epic ⏫
+
+## Status (2026-05-29)
+
+8 of 9 child tasks are **done** (closed): add-missing-indexes-for-hot-queries,
+fix-digest-store-n-plus-1-queries, fix-collection-repository-n-plus-1-queries,
+batch-admin-diagnostic-count-queries, fix-audit-log-filter-correctness-and-pushdown,
+use-bulk-writes-for-channel-posts-and-reorder, tune-connection-pool-and-statement-cache,
+reduce-digest-delivery-posts-json-fanout.
+
+One child remains open: [[bound-and-project-summary-list-queries]]. Its safe part
+(5A — single-query pagination counts) shipped; the rest (5B/5C/7A/7B — bounding
+the full-snapshot sync and smart-collection reads, projecting json_payload out of
+list views) was found to be breaking as specified because json_payload is
+load-bearing on those paths (titles/tags/content live there). The real fix
+(denormalized title/tags columns + streamed sync) needs a migration and touches
+the freeze-priority Mobile API contract, so it is tracked in that note as a
+follow-up.
 
 ## Objective
 
