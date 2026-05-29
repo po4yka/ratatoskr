@@ -211,6 +211,32 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.completion_mock.assert_awaited_once()
         self.llm_error_mock.assert_not_awaited()
 
+    async def test_llm_call_cap_limits_total_invocations(self) -> None:
+        """A flood of failing attempts must stop at the configured per-request cap."""
+        self.cfg.runtime.llm_max_calls_per_request = 2
+        self.openrouter.chat = AsyncMock(
+            return_value=self._llm_response({}, status="error", error_text="boom", text=None)
+        )
+
+        # Five attempts requested, but the cap is 2.
+        requests = [self.request.model_copy() for _ in range(5)]
+        summary = await self.workflow.execute_summary_workflow(
+            message=MagicMock(),
+            req_id=777,
+            correlation_id="cap",
+            interaction_config=self.interaction,
+            persistence=self.persistence,
+            repair_context=self.repair_context,
+            requests=requests,
+            notifications=self.notifications,
+        )
+
+        assert summary is None
+        # Only two cascades run despite five requested attempts; the workflow
+        # then aborts cleanly via the all-attempts-failed path.
+        assert self.openrouter.chat.await_count == 2
+        self.llm_error_mock.assert_awaited()
+
     async def test_execute_accepts_strict_llm_client_protocol(self) -> None:
         summary_payload = {
             "summary_250": "Summary body",

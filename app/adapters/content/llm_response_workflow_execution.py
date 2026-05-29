@@ -7,6 +7,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from app.adapters.content.llm_call_budget import LLMCallBudget, LLMCallCapExceeded
 from app.core.async_utils import raise_if_cancelled
 from app.core.call_status import CallStatus
 
@@ -110,8 +111,36 @@ class LLMWorkflowExecutionMixin:
         failed_attempts: list[tuple[Any, Any]] = []
         total_attempts = len(requests)
 
+        # Hard per-request ceiling on provider invocations. Shared with the
+        # repair path (via AttemptContext) so the attempt loop + repair passes
+        # together cannot exceed the cap on a degraded-provider day.
+        raw_cap = getattr(self.cfg.runtime, "llm_max_calls_per_request", 8)
+        call_cap = (
+            raw_cap
+            if isinstance(raw_cap, int) and not isinstance(raw_cap, bool) and raw_cap >= 1
+            else 8
+        )
+        call_budget = LLMCallBudget(call_cap)
+
         for attempt_index, attempt in enumerate(requests):
             is_last_attempt = attempt_index == total_attempts - 1
+
+            try:
+                call_budget.charge()
+            except LLMCallCapExceeded:
+                # Cap exhausted (e.g. by repair passes on earlier attempts):
+                # stop launching cascades and fall through to the failure path.
+                logger.error(
+                    "llm_call_cap_reached",
+                    extra={
+                        "req_id": req_id,
+                        "cid": correlation_id,
+                        "cap": call_cap,
+                        "calls_made": call_budget.count,
+                        "attempt_index": attempt_index,
+                    },
+                )
+                break
 
             on_retry = notifications.retry if notifications else None
             try:
@@ -173,6 +202,7 @@ class LLMWorkflowExecutionMixin:
                     is_last_attempt=is_last_attempt,
                     failed_attempts=failed_attempts,
                     defer_persistence=defer_persistence,
+                    call_budget=call_budget,
                 )
                 summary = await self._evaluate_attempt_outcome(attempt_ctx)
             except Exception as exc:  # pragma: no cover - defensive
@@ -192,10 +222,30 @@ class LLMWorkflowExecutionMixin:
                 llm.error_context = context
 
             if summary is not None:
+                logger.info(
+                    "llm_request_calls",
+                    extra={
+                        "req_id": req_id,
+                        "cid": correlation_id,
+                        "llm_calls": call_budget.count,
+                        "cap": call_cap,
+                        "outcome": "success",
+                    },
+                )
                 return cast("dict[str, Any] | None", summary)
 
             failed_attempts.append((llm, attempt))
 
+        logger.info(
+            "llm_request_calls",
+            extra={
+                "req_id": req_id,
+                "cid": correlation_id,
+                "llm_calls": call_budget.count,
+                "cap": call_cap,
+                "outcome": "failed",
+            },
+        )
         await self._handle_all_attempts_failed(
             message,
             req_id,

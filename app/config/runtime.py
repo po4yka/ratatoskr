@@ -71,6 +71,19 @@ class RuntimeConfig(BaseModel):
         default=60.0, validation_alias="RUNTIME_DEDUPE_RETRY_GRACE_SEC"
     )
     llm_call_max_retries: int = Field(default=2, validation_alias="LLM_CALL_MAX_RETRIES")
+    llm_max_calls_per_request: int = Field(
+        default=8,
+        ge=1,
+        validation_alias="LLM_MAX_CALLS_PER_REQUEST",
+        description=(
+            "Hard ceiling on the number of LLM provider invocations a single "
+            "request may make across the attempt list, JSON-repair passes, and "
+            "instructor sticky-fallback retries. Each invocation may still try "
+            "the configured fallback cascade, so the realistic happy path is "
+            "1-2; this cap only bounds the degraded-provider tail. Raise only if "
+            "a legitimate multi-attempt flow needs more cascade runs."
+        ),
+    )
     url_flow_lease_ttl_sec: int = Field(
         default=900,
         ge=60,

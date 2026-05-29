@@ -84,6 +84,7 @@ class AttemptContext(BaseModel):
     is_last_attempt: bool = False
     failed_attempts: list[tuple[Any, Any]] | None = None
     defer_persistence: bool = False
+    call_budget: Any | None = None
 
 
 class LLMWorkflowNotifications(BaseModel):

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.adapters.content.llm_response_workflow import AttemptContext
     from app.adapters.llm.protocol import LLMClientProtocol
 
+from app.adapters.content.llm_call_budget import LLMCallCapExceeded
 from app.core.call_status import CallStatus
 from app.core.summary_contract import validate_and_shape_summary
 from app.db.user_interactions import async_safe_update_user_interaction
@@ -81,6 +82,24 @@ class LLMWorkflowRepairMixin:
         repair_context = ctx.repair_context
         request_config = ctx.request_config
         notifications = ctx.notifications
+
+        # The repair pass is another provider invocation: charge the shared
+        # per-request budget and skip repair cleanly if the cap is exhausted.
+        budget = getattr(ctx, "call_budget", None)
+        if budget is not None:
+            try:
+                budget.charge()
+            except LLMCallCapExceeded:
+                logger.error(
+                    "llm_call_cap_reached_repair",
+                    extra={
+                        "req_id": req_id,
+                        "cid": correlation_id,
+                        "calls_made": budget.count,
+                    },
+                )
+                self._set_failure_context(llm, "llm_call_cap_reached")
+                return None
 
         try:
             logger.info(
