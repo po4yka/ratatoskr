@@ -1,358 +1,113 @@
-"""SQLAlchemy read adapter for admin dashboards and audit log views."""
+"""SQLAlchemy read adapter for admin dashboards and audit log views.
+
+This module is the public facade over the bounded-context sub-repositories
+in ``app.infrastructure.persistence.repositories.admin``.  All callers
+continue to import ``AdminReadRepositoryAdapter`` (and the handful of
+module-level helpers used by tests) from this path.
+
+Sub-repository layout:
+  admin/_helpers.py               -- pure helpers (redaction, parsing, coercion)
+  admin/_users.py                 -- user listing with aggregate counts
+  admin/_jobs.py                  -- pipeline job status and content health
+  admin/_llm.py                   -- LLM metrics and per-provider cost breakdown
+  admin/_audit.py                 -- audit log browsing
+  admin/_diagnostics.py           -- diagnostics snapshot coordinator
+  admin/_diagnostics_providers.py -- LLM/scraper stats, vector lag, queue, storage
+  admin/_diagnostics_sync.py      -- social connections and sync failure listing
+"""
 
 from __future__ import annotations
 
-import datetime as dt
-import json
-import re
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import case, desc, func, or_, select
-
-from app.core.time_utils import UTC, isotime
-from app.db.models import (
-    AuditLog,
-    Collection,
-    CrawlResult,
-    ImportJob,
-    LLMCall,
-    Request,
-    RequestProcessingJob,
-    RSSFeed,
-    SocialConnection,
-    SocialFetchAttempt,
-    SocialFetchAttemptStatus,
-    Source,
-    Summary,
-    SummaryEmbedding,
-    Tag,
-    User,
-    UserGitHubIntegration,
+# Re-export private helpers so existing test call sites keep working:
+#   admin_read_repository._redact_message(...)
+#   admin_read_repository._safe_social_attempt_metadata(...)
+from app.infrastructure.persistence.repositories.admin._audit import AuditLogReadRepository
+from app.infrastructure.persistence.repositories.admin._diagnostics import (
+    DiagnosticsReadRepository,
 )
+from app.infrastructure.persistence.repositories.admin._helpers import (
+    _SECRET_PATTERNS,
+    _enum_value,
+    _first_error,
+    _parse_github_sync_state,
+    _parse_since,
+    _redact_match,
+    _redact_message,
+    _safe_social_attempt_metadata,
+)
+from app.infrastructure.persistence.repositories.admin._jobs import JobsReadRepository
+from app.infrastructure.persistence.repositories.admin._llm import LLMReadRepository
+from app.infrastructure.persistence.repositories.admin._users import UsersReadRepository
 
 if TYPE_CHECKING:
+    import datetime as dt
+
     from app.db.session import Database
+
+__all__ = [
+    "_SECRET_PATTERNS",
+    "AdminReadRepositoryAdapter",
+    "_enum_value",
+    "_first_error",
+    "_parse_github_sync_state",
+    "_parse_since",
+    "_redact_match",
+    "_redact_message",
+    "_safe_social_attempt_metadata",
+]
 
 
 class AdminReadRepositoryAdapter:
-    """Read-side adapter for admin reporting queries."""
+    """Read-side adapter for admin reporting queries.
+
+    Delegates to focused bounded-context repositories; exposes the same
+    public interface that all existing callers depend on.
+    """
 
     def __init__(self, database: Database) -> None:
         self._database = database
+        self._users = UsersReadRepository(database)
+        self._jobs = JobsReadRepository(database)
+        self._llm = LLMReadRepository(database)
+        self._audit = AuditLogReadRepository(database)
+        self._diagnostics = DiagnosticsReadRepository(database)
+
+    # ------------------------------------------------------------------
+    # Users / collections
+    # ------------------------------------------------------------------
 
     async def async_list_users(self) -> dict[str, Any]:
-        async with self._database.session() as session:
-            summary_counts = (
-                select(
-                    Request.user_id.label("user_id"),
-                    func.count(Summary.id).label("summary_count"),
-                )
-                .join(Summary, Summary.request_id == Request.id)
-                .group_by(Request.user_id)
-                .subquery()
-            )
-            request_counts = (
-                select(
-                    Request.user_id.label("user_id"),
-                    func.count(Request.id).label("request_count"),
-                )
-                .group_by(Request.user_id)
-                .subquery()
-            )
-            tag_counts = (
-                select(
-                    Tag.user_id.label("user_id"),
-                    func.count(Tag.id).label("tag_count"),
-                )
-                .group_by(Tag.user_id)
-                .subquery()
-            )
-            collection_counts = (
-                select(
-                    Collection.user_id.label("user_id"),
-                    func.count(Collection.id).label("collection_count"),
-                )
-                .group_by(Collection.user_id)
-                .subquery()
-            )
+        return await self._users.async_list_users()
 
-            rows = (
-                await session.execute(
-                    select(
-                        User.telegram_user_id,
-                        User.username,
-                        User.is_owner,
-                        User.created_at,
-                        func.coalesce(summary_counts.c.summary_count, 0),
-                        func.coalesce(request_counts.c.request_count, 0),
-                        func.coalesce(tag_counts.c.tag_count, 0),
-                        func.coalesce(collection_counts.c.collection_count, 0),
-                    )
-                    .outerjoin(
-                        summary_counts,
-                        summary_counts.c.user_id == User.telegram_user_id,
-                    )
-                    .outerjoin(
-                        request_counts,
-                        request_counts.c.user_id == User.telegram_user_id,
-                    )
-                    .outerjoin(tag_counts, tag_counts.c.user_id == User.telegram_user_id)
-                    .outerjoin(
-                        collection_counts,
-                        collection_counts.c.user_id == User.telegram_user_id,
-                    )
-                    .order_by(User.created_at.asc())
-                )
-            ).all()
-            users_list: list[dict[str, Any]] = []
-            for (
-                uid,
-                username,
-                is_owner,
-                created_at,
-                summary_count,
-                request_count,
-                tag_count,
-                collection_count,
-            ) in rows:
-                users_list.append(
-                    {
-                        "user_id": uid,
-                        "username": username,
-                        "is_owner": is_owner,
-                        "summary_count": int(summary_count or 0),
-                        "request_count": int(request_count or 0),
-                        "tag_count": int(tag_count or 0),
-                        "collection_count": int(collection_count or 0),
-                        "created_at": isotime(created_at),
-                    }
-                )
-            return {"users": users_list, "total_users": len(users_list)}
+    # ------------------------------------------------------------------
+    # Pipeline jobs and content health
+    # ------------------------------------------------------------------
 
     async def async_job_status(self, *, today: Any) -> dict[str, Any]:
-        async with self._database.session() as session:
-            pending = await session.scalar(
-                select(func.count(Request.id)).where(Request.status == "pending")
-            )
-            processing = await session.scalar(
-                select(func.count(Request.id)).where(
-                    Request.status.in_(["crawling", "summarizing", "processing"])
-                )
-            )
-            completed_today = await session.scalar(
-                select(func.count(Request.id)).where(
-                    Request.status == "completed", Request.updated_at >= today
-                )
-            )
-            failed_today = await session.scalar(
-                select(func.count(Request.id)).where(
-                    Request.status == "error", Request.updated_at >= today
-                )
-            )
-            imports_active = await session.scalar(
-                select(func.count(ImportJob.id)).where(ImportJob.status == "processing")
-            )
-            imports_completed_today = await session.scalar(
-                select(func.count(ImportJob.id)).where(
-                    ImportJob.status == "completed", ImportJob.updated_at >= today
-                )
-            )
-            return {
-                "pipeline": {
-                    "pending": int(pending or 0),
-                    "processing": int(processing or 0),
-                    "completed_today": int(completed_today or 0),
-                    "failed_today": int(failed_today or 0),
-                },
-                "imports": {
-                    "active": int(imports_active or 0),
-                    "completed_today": int(imports_completed_today or 0),
-                },
-            }
+        return await self._jobs.async_job_status(today=today)
 
     async def async_content_health(self) -> dict[str, Any]:
-        async with self._database.session() as session:
-            total_summaries = await session.scalar(select(func.count(Summary.id)))
-            total_requests = await session.scalar(select(func.count(Request.id)))
-            failed_requests = await session.scalar(
-                select(func.count(Request.id)).where(Request.status == "error")
-            )
+        return await self._jobs.async_content_health()
 
-            failed_by_error_type: dict[str, int] = {}
-            error_groups = await session.execute(
-                select(Request.error_type, func.count(Request.id))
-                .where(Request.status == "error")
-                .group_by(Request.error_type)
-            )
-            for error_type, count in error_groups:
-                key = error_type or "unknown"
-                failed_by_error_type[key] = int(count or 0)
-
-            recent_failures: list[dict[str, Any]] = []
-            failures = (
-                await session.execute(
-                    select(Request)
-                    .where(Request.status == "error")
-                    .order_by(Request.created_at.desc())
-                    .limit(20)
-                )
-            ).scalars()
-            for request in failures:
-                recent_failures.append(
-                    {
-                        "id": request.id,
-                        "url": request.input_url,
-                        "error_type": request.error_type,
-                        "error_message": request.error_message,
-                        "created_at": isotime(request.created_at),
-                    }
-                )
-
-            return {
-                "total_summaries": int(total_summaries or 0),
-                "total_requests": int(total_requests or 0),
-                "failed_requests": int(failed_requests or 0),
-                "failed_by_error_type": failed_by_error_type,
-                "recent_failures": recent_failures,
-            }
+    # ------------------------------------------------------------------
+    # LLM metrics and cost statistics
+    # ------------------------------------------------------------------
 
     async def async_system_metrics(self, *, since: Any) -> dict[str, Any]:
-        async with self._database.session() as session:
-            llm_total = await session.scalar(
-                select(func.count(LLMCall.id)).where(LLMCall.created_at >= since)
-            )
-            llm_agg = (
-                await session.execute(
-                    select(
-                        func.avg(LLMCall.latency_ms),
-                        func.sum(LLMCall.tokens_prompt),
-                        func.sum(LLMCall.tokens_completion),
-                        func.sum(LLMCall.cost_usd),
-                    ).where(LLMCall.created_at >= since)
-                )
-            ).one()
-            llm_errors = await session.scalar(
-                select(func.count(LLMCall.id)).where(
-                    LLMCall.created_at >= since, LLMCall.status == "error"
-                )
-            )
-            llm_total_int = int(llm_total or 0)
-            llm_errors_int = int(llm_errors or 0)
-            avg_latency, total_prompt_tokens, total_completion_tokens, total_cost = llm_agg
-            llm_stats = {
-                "total_calls": llm_total_int,
-                "avg_latency_ms": round(float(avg_latency or 0), 1),
-                "total_prompt_tokens": int(total_prompt_tokens or 0),
-                "total_completion_tokens": int(total_completion_tokens or 0),
-                "total_cost_usd": round(float(total_cost or 0), 4),
-                "error_rate": round(llm_errors_int / llm_total_int, 4) if llm_total_int else 0.0,
-            }
-
-            scraper_rows = await session.execute(
-                select(
-                    CrawlResult.endpoint,
-                    func.count(CrawlResult.id),
-                    func.sum(case((CrawlResult.firecrawl_success.is_(True), 1), else_=0)),
-                )
-                .join(Request, CrawlResult.request_id == Request.id)
-                .where(Request.created_at >= since)
-                .group_by(CrawlResult.endpoint)
-            )
-            scraper_stats: dict[str, Any] = {}
-            for endpoint, total, success in scraper_rows:
-                provider = endpoint or "unknown"
-                total_int = int(total or 0)
-                success_int = int(success or 0)
-                scraper_stats[provider] = {
-                    "total": total_int,
-                    "success": success_int,
-                    "success_rate": round(success_int / total_int, 4) if total_int else 0.0,
-                }
-
-            return {"llm_7d": llm_stats, "scraper_7d": scraper_stats}
+        return await self._llm.async_system_metrics(since=since)
 
     async def async_llm_cost_stats(
         self, *, since: Any, today: Any, month_start: Any
     ) -> dict[str, Any]:
-        """Return redacted aggregate LLM usage and cost statistics."""
-        async with self._database.session() as session:
-            total_row = (
-                await session.execute(
-                    select(
-                        func.count(LLMCall.id),
-                        func.sum(LLMCall.tokens_prompt),
-                        func.sum(LLMCall.tokens_completion),
-                        func.sum(LLMCall.cost_usd),
-                    ).where(LLMCall.created_at >= since)
-                )
-            ).one()
-            today_cost = await session.scalar(
-                select(func.coalesce(func.sum(LLMCall.cost_usd), 0.0)).where(
-                    LLMCall.created_at >= today
-                )
-            )
-            month_cost = await session.scalar(
-                select(func.coalesce(func.sum(LLMCall.cost_usd), 0.0)).where(
-                    LLMCall.created_at >= month_start
-                )
-            )
-            provider_model_rows = (
-                await session.execute(
-                    select(
-                        LLMCall.provider,
-                        LLMCall.model,
-                        LLMCall.status,
-                        func.count(LLMCall.id),
-                        func.sum(LLMCall.tokens_prompt),
-                        func.sum(LLMCall.tokens_completion),
-                        func.sum(LLMCall.cost_usd),
-                        func.avg(LLMCall.latency_ms),
-                    )
-                    .where(LLMCall.created_at >= since)
-                    .group_by(LLMCall.provider, LLMCall.model, LLMCall.status)
-                    .order_by(func.coalesce(func.sum(LLMCall.cost_usd), 0.0).desc())
-                )
-            ).all()
+        return await self._llm.async_llm_cost_stats(
+            since=since, today=today, month_start=month_start
+        )
 
-        total_calls, prompt_tokens, completion_tokens, total_cost = total_row
-        by_provider_model: list[dict[str, Any]] = []
-        for (
-            provider,
-            model,
-            status,
-            count,
-            prompt,
-            completion,
-            cost,
-            latency,
-        ) in provider_model_rows:
-            by_provider_model.append(
-                {
-                    "provider": provider or "unknown",
-                    "model": model or "unknown",
-                    "status": status or "unknown",
-                    "calls": int(count or 0),
-                    "prompt_tokens": int(prompt or 0),
-                    "completion_tokens": int(completion or 0),
-                    "cost_usd": round(float(cost or 0), 6),
-                    "avg_latency_ms": round(float(latency or 0), 1),
-                }
-            )
-
-        return {
-            "window_start": isotime(since),
-            "totals": {
-                "calls": int(total_calls or 0),
-                "prompt_tokens": int(prompt_tokens or 0),
-                "completion_tokens": int(completion_tokens or 0),
-                "cost_usd": round(float(total_cost or 0), 6),
-            },
-            "periods": {
-                "today_cost_usd": round(float(today_cost or 0), 6),
-                "month_cost_usd": round(float(month_cost or 0), 6),
-            },
-            "by_provider_model": by_provider_model,
-        }
+    # ------------------------------------------------------------------
+    # Audit log
+    # ------------------------------------------------------------------
 
     async def async_audit_log(
         self,
@@ -363,42 +118,17 @@ class AdminReadRepositoryAdapter:
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
-        since_dt = _parse_since(since)
-        async with self._database.session() as session:
-            conditions = []
-            if action:
-                conditions.append(AuditLog.event == action)
-            if since_dt is not None:
-                conditions.append(AuditLog.ts >= since_dt)
+        return await self._audit.async_audit_log(
+            action=action,
+            user_id_filter=user_id_filter,
+            since=since,
+            limit=limit,
+            offset=offset,
+        )
 
-            query = select(AuditLog)
-            count_query = select(func.count(AuditLog.id))
-            if conditions:
-                query = query.where(*conditions)
-                count_query = count_query.where(*conditions)
-
-            total = int(await session.scalar(count_query) or 0)
-            logs: list[dict[str, Any]] = []
-            entries = (
-                await session.execute(query.order_by(desc(AuditLog.ts)).offset(offset).limit(limit))
-            ).scalars()
-            for entry in entries:
-                details = entry.details_json
-                if user_id_filter is not None:
-                    if not isinstance(details, dict) or details.get("user_id") != user_id_filter:
-                        total -= 1
-                        continue
-                logs.append(
-                    {
-                        "id": entry.id,
-                        "timestamp": isotime(entry.ts),
-                        "level": entry.level,
-                        "event": entry.event,
-                        "details": details,
-                    }
-                )
-
-            return {"logs": logs, "total": total, "limit": limit, "offset": offset}
+    # ------------------------------------------------------------------
+    # Operational diagnostics snapshot
+    # ------------------------------------------------------------------
 
     async def async_diagnostics_snapshot(
         self,
@@ -406,671 +136,15 @@ class AdminReadRepositoryAdapter:
         since: dt.datetime,
         now: dt.datetime,
     ) -> dict[str, Any]:
-        """Return redacted operational diagnostics from persisted state."""
-        async with self._database.session() as session:
-            return {
-                "queue_backlog": await self._queue_backlog(session, now=now),
-                "vector_indexing_lag": await self._vector_indexing_lag(session),
-                "llm_providers": await self._llm_provider_stats(session, since=since),
-                "scraper_providers": await self._scraper_provider_stats(session, since=since),
-                "social_connections": await self._social_connection_diagnostics(
-                    session, since=since
-                ),
-                "integration_health": await self._integration_health(session),
-                "latest_sync_failures": await self._latest_sync_failures(session, limit=20),
-                "storage_activity": await self._storage_activity(
-                    session,
-                    last_24h=now - dt.timedelta(days=1),
-                    last_7d=now - dt.timedelta(days=7),
-                ),
-            }
+        return await self._diagnostics.async_diagnostics_snapshot(since=since, now=now)
 
-    @staticmethod
-    async def _social_connection_diagnostics(
-        session: Any,
-        *,
-        since: dt.datetime,
-    ) -> list[dict[str, Any]]:
-        connection_rows = (
-            await session.execute(
-                select(
-                    SocialConnection.provider,
-                    SocialConnection.status,
-                    func.count(SocialConnection.id),
-                ).group_by(SocialConnection.provider, SocialConnection.status)
-            )
-        ).all()
-        by_provider: dict[str, dict[str, Any]] = {}
-        for provider, status, count in connection_rows:
-            provider_name = _enum_value(provider)
-            status_name = _enum_value(status)
-            row = by_provider.setdefault(
-                provider_name,
-                {
-                    "provider": provider_name,
-                    "configured": False,
-                    "active_connection_count": 0,
-                    "needs_reauth_count": 0,
-                    "recent_fetch_failures": [],
-                    "rate_limit_reset_summary": None,
-                },
-            )
-            if status_name == "active":
-                row["active_connection_count"] += int(count or 0)
-            if status_name == "needs_reauth":
-                row["needs_reauth_count"] += int(count or 0)
+    # ------------------------------------------------------------------
+    # Static helpers forwarded from DiagnosticsReadRepository so that
+    # test call sites like:
+    #   AdminReadRepositoryAdapter._llm_provider_stats(session, since=…)
+    #   AdminReadRepositoryAdapter._scraper_provider_stats(session, since=…)
+    # continue to resolve without modification.
+    # ------------------------------------------------------------------
 
-        failure_rows = (
-            await session.execute(
-                select(SocialFetchAttempt)
-                .where(
-                    SocialFetchAttempt.started_at >= since,
-                    SocialFetchAttempt.status == SocialFetchAttemptStatus.FAILED,
-                )
-                .order_by(SocialFetchAttempt.started_at.desc())
-                .limit(20)
-            )
-        ).scalars()
-        latest_rate_limits: dict[str, str] = {}
-        for attempt in failure_rows:
-            provider_name = _enum_value(attempt.provider)
-            row = by_provider.setdefault(
-                provider_name,
-                {
-                    "provider": provider_name,
-                    "configured": False,
-                    "active_connection_count": 0,
-                    "needs_reauth_count": 0,
-                    "recent_fetch_failures": [],
-                    "rate_limit_reset_summary": None,
-                },
-            )
-            metadata = attempt.metadata_json if isinstance(attempt.metadata_json, dict) else {}
-            row["recent_fetch_failures"].append(
-                {
-                    "provider": provider_name,
-                    "attempt_type": attempt.attempt_type,
-                    "error_code": attempt.error_code,
-                    "error_message": _redact_message(attempt.error_message),
-                    "occurred_at": attempt.finished_at or attempt.started_at,
-                    "source_url": attempt.source_url,
-                    "normalized_url": attempt.normalized_url,
-                    "provider_resource_id": attempt.provider_resource_id,
-                    "http_status": attempt.http_status,
-                    "auth_tier": attempt.auth_tier,
-                    "rate_limit_reset_at": attempt.rate_limit_reset_at,
-                    "correlation_id": attempt.correlation_id,
-                    "metadata": _safe_social_attempt_metadata(metadata),
-                }
-            )
-            if attempt.rate_limit_reset_at is not None:
-                latest_rate_limits.setdefault(provider_name, isotime(attempt.rate_limit_reset_at))
-
-        for provider_name, reset in latest_rate_limits.items():
-            by_provider[provider_name]["rate_limit_reset_summary"] = reset
-        return [by_provider[key] for key in sorted(by_provider)]
-
-    @staticmethod
-    async def _queue_backlog(session: Any, *, now: dt.datetime) -> dict[str, Any]:
-        rows = await session.execute(
-            select(RequestProcessingJob.status, func.count(RequestProcessingJob.id)).group_by(
-                RequestProcessingJob.status
-            )
-        )
-        by_status = {str(status or "unknown"): int(count or 0) for status, count in rows}
-        runnable = await session.scalar(
-            select(func.count(RequestProcessingJob.id)).where(
-                or_(
-                    RequestProcessingJob.status == "queued",
-                    (
-                        (RequestProcessingJob.status == "failed")
-                        & (
-                            (RequestProcessingJob.retry_after.is_(None))
-                            | (RequestProcessingJob.retry_after <= now)
-                        )
-                    ),
-                    (
-                        (RequestProcessingJob.status == "running")
-                        & (RequestProcessingJob.lease_expires_at <= now)
-                    ),
-                ),
-                RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
-            )
-        )
-        expired_running = await session.scalar(
-            select(func.count(RequestProcessingJob.id)).where(
-                RequestProcessingJob.status == "running",
-                RequestProcessingJob.lease_expires_at.is_not(None),
-                RequestProcessingJob.lease_expires_at <= now,
-            )
-        )
-        oldest_queued = await session.scalar(
-            select(func.min(RequestProcessingJob.created_at)).where(
-                RequestProcessingJob.status == "queued"
-            )
-        )
-        oldest_retry = await session.scalar(
-            select(func.min(RequestProcessingJob.retry_after)).where(
-                RequestProcessingJob.status == "failed",
-                RequestProcessingJob.retry_after.is_not(None),
-            )
-        )
-        return {
-            "by_status": by_status,
-            "runnable_count": int(runnable or 0),
-            "oldest_queued_at": oldest_queued,
-            "oldest_retry_after": oldest_retry,
-            "expired_running_leases": int(expired_running or 0),
-        }
-
-    @staticmethod
-    async def _vector_indexing_lag(session: Any) -> dict[str, Any]:
-        missing = await session.scalar(
-            select(func.count(Summary.id))
-            .outerjoin(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
-            .where(Summary.is_deleted.is_(False), SummaryEmbedding.id.is_(None))
-        )
-        stale = await session.scalar(
-            select(func.count(Summary.id))
-            .join(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
-            .where(
-                Summary.is_deleted.is_(False),
-                or_(
-                    SummaryEmbedding.last_indexed_at.is_(None),
-                    SummaryEmbedding.last_indexed_at < Summary.updated_at,
-                ),
-            )
-        )
-        pending = await session.scalar(
-            select(func.count(SummaryEmbedding.id)).where(
-                SummaryEmbedding.index_status != "indexed"
-            )
-        )
-        oldest_unindexed = await session.scalar(
-            select(func.min(Summary.updated_at))
-            .outerjoin(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
-            .where(
-                Summary.is_deleted.is_(False),
-                or_(
-                    SummaryEmbedding.id.is_(None),
-                    SummaryEmbedding.last_indexed_at.is_(None),
-                    SummaryEmbedding.last_indexed_at < Summary.updated_at,
-                ),
-            )
-        )
-        latest_indexed = await session.scalar(select(func.max(SummaryEmbedding.last_indexed_at)))
-        missing_int = int(missing or 0)
-        stale_int = int(stale or 0)
-        pending_int = int(pending or 0)
-        status = "healthy" if missing_int + stale_int + pending_int == 0 else "degraded"
-        return {
-            "status": status,
-            "missing_embeddings": missing_int,
-            "stale_embeddings": stale_int,
-            "pending_embeddings": pending_int,
-            "oldest_unindexed_summary_updated_at": oldest_unindexed,
-            "latest_indexed_at": latest_indexed,
-        }
-
-    @staticmethod
-    async def _llm_provider_stats(session: Any, *, since: dt.datetime) -> list[dict[str, Any]]:
-        failure_expr = case(
-            (
-                LLMCall.status.notin_(("ok", "success", "completed", "succeeded")),
-                1,
-            ),
-            else_=0,
-        )
-        provider_totals = (
-            select(
-                LLMCall.provider.label("provider"),
-                func.count(LLMCall.id).label("total_count"),
-                func.sum(failure_expr).label("failure_count"),
-            )
-            .where(LLMCall.created_at >= since)
-            .group_by(LLMCall.provider)
-            .subquery()
-        )
-        latest_failures = (
-            select(
-                LLMCall.provider.label("provider"),
-                LLMCall.error_text.label("error_text"),
-                LLMCall.status.label("status"),
-                LLMCall.updated_at.label("updated_at"),
-                func.row_number()
-                .over(partition_by=LLMCall.provider, order_by=LLMCall.updated_at.desc())
-                .label("row_number"),
-            )
-            .where(
-                LLMCall.created_at >= since,
-                LLMCall.status.notin_(("ok", "success", "completed", "succeeded")),
-            )
-            .subquery()
-        )
-        latest_provider_matches = or_(
-            latest_failures.c.provider == provider_totals.c.provider,
-            latest_failures.c.provider.is_(None) & provider_totals.c.provider.is_(None),
-        )
-        rows = (
-            await session.execute(
-                select(
-                    provider_totals.c.provider,
-                    provider_totals.c.total_count,
-                    provider_totals.c.failure_count,
-                    latest_failures.c.error_text,
-                    latest_failures.c.status,
-                    latest_failures.c.updated_at,
-                )
-                .outerjoin(
-                    latest_failures,
-                    latest_provider_matches & (latest_failures.c.row_number == 1),
-                )
-                .select_from(provider_totals)
-            )
-        ).all()
-        stats: list[dict[str, Any]] = []
-        for provider, total, failures, error_text, status, updated_at in rows:
-            provider_name = str(provider or "unknown")
-            failure_count = int(failures or 0)
-            stats.append(
-                {
-                    "provider": provider_name,
-                    "status": "healthy" if failure_count == 0 else "degraded",
-                    "total_count": int(total or 0),
-                    "failure_count": failure_count,
-                    "last_error_code": str(status or "LLM_FAILURE") if failure_count else None,
-                    "last_error_message": _redact_message(error_text),
-                    "last_failure_at": updated_at,
-                }
-            )
-        return stats
-
-    @staticmethod
-    async def _integration_health(session: Any) -> dict[str, Any]:
-        rss_total = int(await session.scalar(select(func.count(RSSFeed.id))) or 0)
-        rss_failing = int(
-            await session.scalar(
-                select(func.count(RSSFeed.id)).where(
-                    RSSFeed.is_active.is_(True),
-                    or_(RSSFeed.fetch_error_count > 0, RSSFeed.last_error.is_not(None)),
-                )
-            )
-            or 0
-        )
-        github_total = int(await session.scalar(select(func.count(UserGitHubIntegration.id))) or 0)
-        github_failing = int(
-            await session.scalar(
-                select(func.count(UserGitHubIntegration.id)).where(
-                    UserGitHubIntegration.status != "active"
-                )
-            )
-            or 0
-        )
-        return {
-            "rss": {
-                "status": "healthy" if rss_failing == 0 else "degraded",
-                "total_count": rss_total,
-                "failure_count": rss_failing,
-            },
-            "github": {
-                "status": "healthy" if github_failing == 0 else "degraded",
-                "total_count": github_total,
-                "failure_count": github_failing,
-            },
-        }
-
-    @staticmethod
-    async def _scraper_provider_stats(session: Any, *, since: dt.datetime) -> list[dict[str, Any]]:
-        provider_expr = func.coalesce(CrawlResult.winning_provider, CrawlResult.endpoint, "unknown")
-        failure_condition = or_(
-            CrawlResult.firecrawl_success.is_(False),
-            CrawlResult.error_text.is_not(None),
-            CrawlResult.firecrawl_error_code.is_not(None),
-            CrawlResult.status.in_(("error", "failed", "timeout")),
-        )
-        provider_totals = (
-            select(
-                provider_expr.label("provider"),
-                func.count(CrawlResult.id).label("total_count"),
-                func.sum(case((failure_condition, 1), else_=0)).label("failure_count"),
-            )
-            .where(CrawlResult.updated_at >= since)
-            .group_by(provider_expr)
-            .subquery()
-        )
-        latest_failures = (
-            select(
-                provider_expr.label("provider"),
-                CrawlResult.firecrawl_error_code.label("firecrawl_error_code"),
-                CrawlResult.error_text.label("error_text"),
-                CrawlResult.firecrawl_error_message.label("firecrawl_error_message"),
-                CrawlResult.updated_at.label("updated_at"),
-                func.row_number()
-                .over(partition_by=provider_expr, order_by=CrawlResult.updated_at.desc())
-                .label("row_number"),
-            )
-            .where(CrawlResult.updated_at >= since, failure_condition)
-            .subquery()
-        )
-        rows = (
-            await session.execute(
-                select(
-                    provider_totals.c.provider,
-                    provider_totals.c.total_count,
-                    provider_totals.c.failure_count,
-                    latest_failures.c.firecrawl_error_code,
-                    latest_failures.c.error_text,
-                    latest_failures.c.firecrawl_error_message,
-                    latest_failures.c.updated_at,
-                )
-                .outerjoin(
-                    latest_failures,
-                    (latest_failures.c.provider == provider_totals.c.provider)
-                    & (latest_failures.c.row_number == 1),
-                )
-                .select_from(provider_totals)
-            )
-        ).all()
-        stats: list[dict[str, Any]] = []
-        for (
-            provider,
-            total,
-            failures,
-            error_code,
-            error_text,
-            firecrawl_error,
-            updated_at,
-        ) in rows:
-            provider_name = str(provider or "unknown")
-            failure_count = int(failures or 0)
-            stats.append(
-                {
-                    "provider": provider_name,
-                    "status": "healthy" if failure_count == 0 else "degraded",
-                    "total_count": int(total or 0),
-                    "failure_count": failure_count,
-                    "last_error_code": str(error_code or "SCRAPER_FAILURE")
-                    if failure_count
-                    else None,
-                    "last_error_message": _redact_message(error_text or firecrawl_error),
-                    "last_failure_at": updated_at,
-                }
-            )
-        return stats
-
-    @staticmethod
-    async def _latest_sync_failures(session: Any, *, limit: int) -> list[dict[str, Any]]:
-        failures: list[dict[str, Any]] = []
-
-        rss_rows = (
-            await session.execute(
-                select(
-                    RSSFeed.id,
-                    RSSFeed.fetch_error_count,
-                    RSSFeed.last_error,
-                    RSSFeed.updated_at,
-                )
-                .where(or_(RSSFeed.fetch_error_count > 0, RSSFeed.last_error.is_not(None)))
-                .order_by(RSSFeed.updated_at.desc())
-                .limit(limit)
-            )
-        ).all()
-        for feed_id, error_count, last_error, updated_at in rss_rows:
-            failures.append(
-                {
-                    "source": "rss",
-                    "event_id": f"rss-feed:{feed_id}",
-                    "error_code": "RSS_FETCH_FAILED",
-                    "message": _redact_message(last_error),
-                    "occurred_at": updated_at,
-                    "retryable": True,
-                    "details": {"fetch_error_count": int(error_count or 0)},
-                }
-            )
-
-        github_rows = (
-            await session.execute(
-                select(
-                    UserGitHubIntegration.id,
-                    UserGitHubIntegration.status,
-                    UserGitHubIntegration.last_sync_cursor,
-                    UserGitHubIntegration.updated_at,
-                )
-                .where(
-                    or_(
-                        UserGitHubIntegration.status != "active",
-                        UserGitHubIntegration.last_sync_cursor.like(
-                            '%"kind": "github_sync_state"%'
-                        ),
-                    )
-                )
-                .order_by(UserGitHubIntegration.updated_at.desc())
-                .limit(limit)
-            )
-        ).all()
-        for integration_id, status, last_sync_cursor, updated_at in github_rows:
-            state = _parse_github_sync_state(last_sync_cursor)
-            message = state.get("last_error") or f"GitHub integration status is {status}"
-            failures.append(
-                {
-                    "source": "github",
-                    "event_id": f"github-integration:{integration_id}",
-                    "error_code": f"GITHUB_{str(status).upper()}",
-                    "message": _redact_message(str(message)),
-                    "occurred_at": updated_at,
-                    "retryable": status == "needs_reauth",
-                    "details": {
-                        "failure_count": state.get("failure_count"),
-                        "backoff_until": state.get("backoff_until"),
-                    }
-                    if state
-                    else {},
-                }
-            )
-
-        source_rows = (
-            await session.execute(
-                select(
-                    Source.id,
-                    Source.kind,
-                    Source.fetch_error_count,
-                    Source.last_error,
-                    Source.updated_at,
-                    Source.is_active,
-                )
-                .where(or_(Source.fetch_error_count > 0, Source.last_error.is_not(None)))
-                .order_by(Source.updated_at.desc())
-                .limit(limit)
-            )
-        ).all()
-        for source_id, kind, error_count, last_error, updated_at, is_active in source_rows:
-            failures.append(
-                {
-                    "source": "source",
-                    "event_id": f"source:{source_id}",
-                    "error_code": f"SOURCE_{str(kind).upper()}_FETCH_FAILED",
-                    "message": _redact_message(last_error),
-                    "occurred_at": updated_at,
-                    "retryable": bool(is_active),
-                    "details": {
-                        "kind": str(kind),
-                        "fetch_error_count": int(error_count or 0),
-                    },
-                }
-            )
-
-        import_rows = (
-            await session.execute(
-                select(ImportJob.id, ImportJob.status, ImportJob.errors_json, ImportJob.updated_at)
-                .where(ImportJob.status.in_(("failed", "error")))
-                .order_by(ImportJob.updated_at.desc())
-                .limit(limit)
-            )
-        ).all()
-        for job_id, status, errors_json, updated_at in import_rows:
-            failures.append(
-                {
-                    "source": "import",
-                    "event_id": f"import-job:{job_id}",
-                    "error_code": f"IMPORT_{str(status).upper()}",
-                    "message": _redact_message(_first_error(errors_json)),
-                    "occurred_at": updated_at,
-                    "retryable": True,
-                    "details": {},
-                }
-            )
-
-        job_rows = (
-            await session.execute(
-                select(
-                    RequestProcessingJob.id,
-                    RequestProcessingJob.request_id,
-                    RequestProcessingJob.correlation_id,
-                    RequestProcessingJob.last_error_code,
-                    RequestProcessingJob.last_error_message,
-                    RequestProcessingJob.updated_at,
-                    RequestProcessingJob.status,
-                )
-                .where(RequestProcessingJob.status.in_(("failed", "dead_letter")))
-                .order_by(RequestProcessingJob.updated_at.desc())
-                .limit(limit)
-            )
-        ).all()
-        for job_id, request_id, correlation_id, error_code, message, updated_at, status in job_rows:
-            failures.append(
-                {
-                    "source": "request",
-                    "event_id": f"request-processing-job:{job_id}",
-                    "correlation_id": correlation_id,
-                    "error_code": error_code or f"REQUEST_JOB_{str(status).upper()}",
-                    "message": _redact_message(message),
-                    "occurred_at": updated_at,
-                    "retryable": status == "failed",
-                    "details": {"request_id": int(request_id)},
-                }
-            )
-
-        return sorted(
-            failures,
-            key=lambda item: item.get("occurred_at") or dt.datetime.min.replace(tzinfo=UTC),
-            reverse=True,
-        )[:limit]
-
-    @staticmethod
-    async def _storage_activity(
-        session: Any,
-        *,
-        last_24h: dt.datetime,
-        last_7d: dt.datetime,
-    ) -> dict[str, Any]:
-        models: dict[str, Any] = {
-            "requests": Request,
-            "summaries": Summary,
-            "crawl_results": CrawlResult,
-            "llm_calls": LLMCall,
-            "request_processing_jobs": RequestProcessingJob,
-            "rss_feeds": RSSFeed,
-        }
-        created_last_24h: dict[str, int] = {}
-        created_last_7d: dict[str, int] = {}
-        for name, model in models.items():
-            created_at = getattr(model, "created_at", None)
-            if created_at is None:
-                continue
-            model_id = cast("Any", model).id
-            created_last_24h[name] = int(
-                await session.scalar(select(func.count(model_id)).where(created_at >= last_24h))
-                or 0
-            )
-            created_last_7d[name] = int(
-                await session.scalar(select(func.count(model_id)).where(created_at >= last_7d)) or 0
-            )
-        return {
-            "created_last_24h": created_last_24h,
-            "created_last_7d": created_last_7d,
-        }
-
-
-def _parse_since(since: str | None) -> dt.datetime | None:
-    if not since:
-        return None
-    normalized = since.removesuffix("Z")
-    try:
-        parsed = dt.datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed
-
-
-def _enum_value(value: Any) -> str:
-    return str(value.value if hasattr(value, "value") else value or "unknown")
-
-
-def _safe_social_attempt_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    allowed = {
-        "api_status",
-        "api_supported_for_url",
-        "provider_resource_id",
-        "provider_shortcode",
-        "unsupported_reason",
-    }
-    safe = {key: metadata[key] for key in allowed if key in metadata}
-    rate_limit = metadata.get("rate_limit")
-    if isinstance(rate_limit, dict):
-        safe["rate_limit"] = {
-            key: rate_limit[key]
-            for key in ("limit", "remaining", "reset", "reset_at")
-            if key in rate_limit
-        }
-    return safe
-
-
-_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?i)(authorization)\s*=\s*(bearer|basic)\s+[a-z0-9._~+/=-]+"),
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)=([^&\s]+)"),
-    re.compile(r"(?i)\b(bearer|basic)\s+[a-z0-9._~+/=-]+"),
-    re.compile(r"(?i)(sk-[a-z0-9_-]{12,})"),
-)
-
-
-def _redact_message(message: Any, *, max_len: int = 240) -> str | None:
-    if message is None:
-        return None
-    text = str(message)
-    for pattern in _SECRET_PATTERNS:
-        text = pattern.sub(_redact_match, text)
-    text = text.replace("\n", " ").replace("\r", " ").strip()
-    if len(text) > max_len:
-        return f"{text[: max_len - 3]}..."
-    return text or None
-
-
-def _redact_match(match: re.Match[str]) -> str:
-    if match.lastindex == 1:
-        return "[REDACTED]"
-    return f"{match.group(1)}=[REDACTED]"
-
-
-def _parse_github_sync_state(raw: str | None) -> dict[str, Any]:
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except (TypeError, ValueError):
-        return {}
-    if not isinstance(data, dict) or data.get("kind") != "github_sync_state":
-        return {}
-    return data
-
-
-def _first_error(errors_json: Any) -> str | None:
-    if isinstance(errors_json, list) and errors_json:
-        return str(errors_json[0])
-    if isinstance(errors_json, dict):
-        for key in ("message", "error", "detail"):
-            value = errors_json.get(key)
-            if value:
-                return str(value)
-    return None
+    _llm_provider_stats = staticmethod(DiagnosticsReadRepository._llm_provider_stats)
+    _scraper_provider_stats = staticmethod(DiagnosticsReadRepository._scraper_provider_stats)
