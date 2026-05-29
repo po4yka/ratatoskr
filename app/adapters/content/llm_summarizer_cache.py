@@ -11,7 +11,7 @@ from app.core.logging_utils import get_logger
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.infrastructure.cache.redis_cache import RedisCache
+    from app.application.ports.cache import CachePort as RedisCache
 
 logger = get_logger(__name__)
 

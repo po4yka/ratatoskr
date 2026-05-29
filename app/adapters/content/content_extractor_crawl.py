@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     )
     from app.application.ports.requests import LLMCallRecord
     from app.config.settings import AppConfig
-    from app.infrastructure.persistence.message_persistence import MessagePersistence
+    from app.application.ports.message_persistence import MessagePersistencePort as MessagePersistence
 
 from app.adapters.content.quality_filters import (
     classify_content_quality_llm,

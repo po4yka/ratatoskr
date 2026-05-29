@@ -12,7 +12,9 @@ from .audio import AudioGenerationRepositoryPort, AudioStoragePort, TTSProviderP
 from .audit import AuditLogRepositoryPort
 from .backups import BackupRepositoryPort
 from .batch_sessions import BatchSessionRepositoryPort
+from .cache import CachePort
 from .imports import BookmarkImportPort, ImportJobRepositoryPort
+from .message_persistence import MessagePersistencePort
 from .repository_analysis import RepositoryAnalysisRecord, RepositoryAnalysisRepositoryPort
 from .requests import (
     CrawlResultRepositoryPort,
@@ -68,6 +70,7 @@ __all__ = [
     "BackupRepositoryPort",
     "BatchSessionRepositoryPort",
     "BookmarkImportPort",
+    "CachePort",
     "CollectionMembershipPort",
     "CrawlResultRepositoryPort",
     "EmbeddingProviderPort",
@@ -76,6 +79,7 @@ __all__ = [
     "LLMCallRecord",
     "LLMRepositoryPort",
     "LeasedTranscriptionJob",
+    "MessagePersistencePort",
     "RepositoryAnalysisRecord",
     "RepositoryAnalysisRepositoryPort",
     "RequestRepositoryPort",
