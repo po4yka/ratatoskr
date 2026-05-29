@@ -45,6 +45,31 @@ jobs:
       - name: Install Python 3.13
         run: uv python install 3.13
 
+      # Guard: assert SAFETY_API_KEY is set and the private Safety index is
+      # reachable before running `uv lock`. Without this check, a lapsed
+      # subscription causes uv to silently fall back to PyPI-only resolution,
+      # which could re-resolve a yanked or malicious release that the Safety
+      # index would have blocked (e.g. fastapi 0.136.3 / MAL-2026-4750).
+      # See docs/reference/dependency-supply-chain.md for the full threat model.
+      - name: Assert Safety index is reachable
+        env:
+          SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
+        run: |
+          if [ -z "${SAFETY_API_KEY}" ]; then
+            echo "::error::SAFETY_API_KEY secret is not set. uv lock would fall back to PyPI-only resolution, risking re-resolution of yanked/malicious releases. Set the secret and re-run."
+            exit 1
+          fi
+          SAFETY_INDEX_URL="https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/"
+          HTTP_STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+            --max-time 15 \
+            --user "${SAFETY_API_KEY}:" \
+            "${SAFETY_INDEX_URL}")
+          if [ "${HTTP_STATUS}" != "200" ]; then
+            echo "::error::Safety index returned HTTP ${HTTP_STATUS} (expected 200). The subscription may have lapsed or the key may be invalid. Aborting to prevent PyPI-only fallback resolution."
+            exit 1
+          fi
+          echo "Safety index reachable (HTTP ${HTTP_STATUS}). Proceeding with uv lock."
+
       - name: Regenerate lockfiles
         run: |
           set -euo pipefail

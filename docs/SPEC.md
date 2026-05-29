@@ -97,6 +97,14 @@ Production deployment guide, Docker Compose profiles, volume mounts, and channel
 
 ---
 
+## Dependency Supply Chain
+
+Private Safety CLI index topology, `SAFETY_API_KEY` dependency, `UV_INDEX_STRATEGY: unsafe-best-match` and PyTorch CPU extra-index resolution surface, the lapse failure mode (PyPI fallback re-resolving a yanked release), and the layered defenses: `!=` exclusions in `pyproject.toml`, the `check_excluded_versions.py` requirements-file guard, the Safety-index reachability step in lock-regeneration workflows, and the lockfile-freshness CI backstop.
+
+→ [Dependency Supply-Chain Reference](reference/dependency-supply-chain.md)
+
+---
+
 ## Troubleshooting and FAQ
 
 Common failure modes, debugging workflow, external API error resolution, and frequently asked questions.
