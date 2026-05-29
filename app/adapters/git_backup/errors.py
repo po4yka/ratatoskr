@@ -228,6 +228,58 @@ _SUGGESTION = {
 }
 
 
+_PERMANENTLY_GONE_NEEDLES: tuple[str, ...] = (
+    "repository not found",
+    "could not find repository",
+    "does not exist",
+    "returned error: 404",
+    "returned error: 410",
+    "error: 404",
+    "error: 410",
+    " 404 ",
+    " 410 ",
+)
+
+# Signals that must NOT trigger tombstoning even if a gone-pattern appears in
+# the same message.  Auth errors, credential problems, and permission denials
+# indicate transient or operator-fixable states, not permanent absence.
+_NOT_PERMANENTLY_GONE_NEEDLES: tuple[str, ...] = (
+    "authentication failed",
+    "invalid credentials",
+    "bad credentials",
+    "permission denied",
+    "access denied",
+    "could not read username",
+    "terminal prompts disabled",
+    "403",
+)
+
+
+def is_permanently_gone(message: str | None) -> bool:
+    """Return True when *message* signals that the repository is permanently gone.
+
+    Conservative: only matches signals that unambiguously mean the remote repo
+    has been deleted, renamed, or is otherwise gone-by-identity (HTTP 404/410,
+    "repository not found", "does not exist", "could not find repository").
+
+    Auth errors (403, credential failures, permission denied), network errors,
+    timeouts, SSL issues, and rate limits return False -- those are transient or
+    operator-fixable and must keep using the normal cooldown path.
+
+    ``None`` or empty string always returns False.
+    """
+    if not message:
+        return False
+
+    lower = message.lower()
+
+    # If any auth/transient signal is present, never tombstone.
+    if _contains_any(lower, _NOT_PERMANENTLY_GONE_NEEDLES):
+        return False
+
+    return _contains_any(lower, _PERMANENTLY_GONE_NEEDLES)
+
+
 def should_use_http1_fallback(category: ErrorCategory) -> bool:
     """Whether this category should trigger an HTTP/1.1 fallback on retry."""
     return category in _HTTP1_FALLBACK

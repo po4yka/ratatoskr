@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote, urlparse, urlunparse
 
 from app.adapters.git_backup.circuit_breaker import StorageCircuitBreaker
-from app.adapters.git_backup.errors import ErrorCategory, classify, display_name
+from app.adapters.git_backup.errors import ErrorCategory, classify, display_name, is_permanently_gone
 from app.adapters.git_backup.git_commands import build_git_command
 from app.adapters.git_backup.git_exec import resolve_git_executable
 from app.adapters.git_backup.lfs import LfsSupport
@@ -126,6 +126,7 @@ class MirrorOutcome:
     mirror: GitMirror
     ok: bool
     skipped: bool = False
+    excluded: bool = False
     error: str | None = None
     error_category: ErrorCategory | None = None
     skip_reason: str | None = None
@@ -341,7 +342,7 @@ class GitMirrorService:
 
         summary = SyncSummary(outcomes=outcomes)
         for o in outcomes:
-            if o.skipped:
+            if o.skipped or o.excluded:
                 summary.skipped += 1
             elif o.ok:
                 summary.ok += 1
@@ -587,6 +588,22 @@ class GitMirrorService:
             except SyncFailureException as exc:
                 category = exc.error_categories[-1] if exc.error_categories else classify(str(exc))
                 cause_msg = _redact_url(str(exc.__cause__) if exc.__cause__ else str(exc))
+                if is_permanently_gone(cause_msg):
+                    logger.warning(
+                        "git_mirror_excluded name=%s attempts=%d error=%s",
+                        task.name,
+                        exc.attempt_count,
+                        cause_msg,
+                    )
+                    return MirrorOutcome(
+                        mirror=task.mirror,
+                        ok=False,
+                        excluded=True,
+                        error=cause_msg,
+                        error_category=category,
+                        attempts=exc.attempt_count,
+                        clone_strategy=clone_strategy if is_clone else None,
+                    )
                 logger.warning(
                     "git_mirror_failed name=%s attempts=%d category=%s error=%s",
                     task.name,
@@ -606,6 +623,21 @@ class GitMirrorService:
             except Exception as exc:
                 safe_exc = _redact_url(str(exc))
                 category = classify(safe_exc)
+                if is_permanently_gone(safe_exc):
+                    logger.warning(
+                        "git_mirror_excluded name=%s error=%s",
+                        task.name,
+                        safe_exc,
+                    )
+                    return MirrorOutcome(
+                        mirror=task.mirror,
+                        ok=False,
+                        excluded=True,
+                        error=safe_exc,
+                        error_category=category,
+                        attempts=1,
+                        clone_strategy=clone_strategy if is_clone else None,
+                    )
                 logger.warning(
                     "git_mirror_failed name=%s category=%s error=%s",
                     task.name,
@@ -660,6 +692,13 @@ class GitMirrorService:
         mirror = outcome.mirror
         if mirror.id is None or mirror.id < 0:
             return  # synthetic / no DB row
+
+        if outcome.excluded:
+            await self._mirror_repo.record_excluded(
+                mirror.id,
+                outcome.error or "repository permanently gone",
+            )
+            return
 
         if outcome.skipped:
             await self._mirror_repo.record_skip(

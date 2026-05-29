@@ -57,6 +57,10 @@ class GitMirrorRepository:
             GitMirror.status.in_(
                 [GitMirrorStatus.PENDING, GitMirrorStatus.OK, GitMirrorStatus.FAILED]
             ),
+            # EXCLUDED rows are tombstoned (permanently gone upstream) and must
+            # never be returned for sync.  They can only be revived by a fresh
+            # upsert_target call (e.g. the user re-adds the URL via /mirror).
+            GitMirror.status != GitMirrorStatus.EXCLUDED,
         )
 
         eligibility = and_(base_filter, ~in_cooldown) if cfg.auto_skip_failing else base_filter
@@ -113,6 +117,16 @@ class GitMirrorRepository:
                 )
             )
             if existing is not None:
+                # If the row was tombstoned (EXCLUDED), revive it so the user
+                # can retry after re-adding the URL via /mirror or the API.
+                if existing.status == GitMirrorStatus.EXCLUDED:
+                    existing.status = GitMirrorStatus.PENDING
+                    existing.excluded_at = None
+                    existing.consecutive_failures = 0
+                    existing.backoff_until = None
+                    existing.last_error = None
+                    existing.last_error_category = None
+
                 # Update linking metadata if provided without resetting run state.
                 if name is not None and existing.name != name:
                     existing.name = name
@@ -210,5 +224,25 @@ class GitMirrorRepository:
             if row is None:
                 return
             row.status = GitMirrorStatus.SKIPPED
+            row.last_attempt_at = now
+            row.last_error = reason[:4000] if reason else None
+
+    async def record_excluded(self, mirror_id: int, reason: str) -> None:
+        """Tombstone a mirror whose upstream repository is permanently gone.
+
+        Sets status=EXCLUDED and excluded_at=now so the mirror is never
+        returned by list_due again.  The row can be revived by a fresh
+        upsert_target call (e.g. the user re-adds the URL via /mirror or the
+        API), which resets status to PENDING and clears excluded_at.
+        """
+        now = dt.datetime.now(tz=dt.UTC)
+        async with self._db.transaction() as session:
+            row = await session.scalar(
+                select(GitMirror).where(GitMirror.id == mirror_id)
+            )
+            if row is None:
+                return
+            row.status = GitMirrorStatus.EXCLUDED
+            row.excluded_at = now
             row.last_attempt_at = now
             row.last_error = reason[:4000] if reason else None

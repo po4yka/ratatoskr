@@ -40,6 +40,7 @@ class GitMirrorStatus(enum.StrEnum):
     OK = "ok"
     FAILED = "failed"
     SKIPPED = "skipped"
+    EXCLUDED = "excluded"
 
 
 class GitMirror(Base):
@@ -96,6 +97,9 @@ class GitMirror(Base):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     backoff_until: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    excluded_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     clone_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)

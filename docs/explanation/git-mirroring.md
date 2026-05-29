@@ -70,7 +70,7 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 | `clone_url` | varchar(1000) | no | Canonical https:// clone URL stored without credentials |
 | `name` | varchar(320) | yes | Human-readable label (owner/repo for GitHub mirrors, user-supplied for manual) |
 | `mirror_path` | varchar(1000) | yes | Absolute path to the bare clone on disk; null until first successful sync |
-| `status` | `git_mirror_status` enum | no | `pending`, `ok`, `failed`, or `skipped` |
+| `status` | `git_mirror_status` enum | no | `pending`, `ok`, `failed`, `skipped`, or `excluded` |
 | `default_branch` | varchar(200) | yes | Default branch, populated after first sync |
 | `size_kb` | bigint | yes | On-disk size of the bare clone in KB; updated on each successful sync |
 | `last_mirrored_at` | timestamptz | yes | Timestamp of most recent successful mirror operation |
@@ -79,6 +79,7 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 | `last_error` | text | yes | Truncated stderr output from the last failed attempt (max 4000 chars) |
 | `last_error_category` | varchar(50) | yes | `ErrorCategory.value` string from the last failure |
 | `backoff_until` | timestamptz | yes | When set, the mirror is skipped by `list_due` until this time passes |
+| `excluded_at` | timestamptz | yes | Set when the mirror is tombstoned (`status=excluded`). Null for all other statuses. |
 | `clone_strategy` | varchar(50) | yes | Clone strategy used for the most recent initial clone: `"full"` (mirror) or `"shallow"` (`--depth=1`). Written by `record_success` / `record_failure`. Null for rows that pre-date the shallow-clone feature or for update (non-clone) operations. |
 | `created_at` | timestamptz | no | Row insertion time |
 | `updated_at` | timestamptz | no | Last modification time |
@@ -91,6 +92,14 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 ### Eligibility and cooldown
 
 `GitMirrorRepository.list_due` returns mirrors whose status is `pending`, `ok`, or `failed`, minus those in active cooldown. A mirror enters cooldown when `GIT_BACKUP_AUTO_SKIP_FAILING=true` and `consecutive_failures >= GIT_BACKUP_MAX_CONSECUTIVE_FAILURES` (default 5): `backoff_until` is set to `now + GIT_BACKUP_FAILURE_COOLDOWN_HOURS` (default 24 h). The `skipped` status is written per-run without resetting failure counters; `ok` resets `consecutive_failures` to 0 and clears `backoff_until`.
+
+### Tombstoning (excluded status)
+
+When a git clone attempt fails with a signal that unambiguously means the remote repository has been permanently deleted or renamed — `"repository not found"`, `"does not exist"`, `"could not find repository"`, HTTP 404, or HTTP 410 — the mirror is tombstoned: `status` is set to `excluded` and `excluded_at` is set to the current timestamp. Tombstoned mirrors are never returned by `list_due`, so they do not cycle through the FAILED cooldown loop.
+
+The conservative detection function `is_permanently_gone` (`app/adapters/git_backup/errors.py`) rejects any message that also contains an auth signal (`authentication failed`, `permission denied`, `403`, etc.), because a private repository returning 404 to an unauthenticated clone is an auth problem, not a permanent deletion.
+
+A tombstoned mirror can be revived by the user re-adding the same URL via `/mirror` or the `POST /v1/git-mirrors` API endpoint. `GitMirrorRepository.upsert_target` detects the `excluded` status on the existing row and resets it to `pending`, clearing `excluded_at`, `consecutive_failures`, `backoff_until`, and `last_error` so the next sync cycle retries from a clean state.
 
 ---
 
