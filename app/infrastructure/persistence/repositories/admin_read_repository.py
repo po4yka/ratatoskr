@@ -132,32 +132,49 @@ class AdminReadRepositoryAdapter:
 
     async def async_job_status(self, *, today: Any) -> dict[str, Any]:
         async with self._database.session() as session:
-            pending = await session.scalar(
-                select(func.count(Request.id)).where(Request.status == "pending")
-            )
-            processing = await session.scalar(
-                select(func.count(Request.id)).where(
-                    Request.status.in_(["crawling", "summarizing", "processing"])
+            # Four Request counts share the same base table; combine with FILTER aggregates.
+            request_row = (
+                await session.execute(
+                    select(
+                        func.count(Request.id).filter(Request.status == "pending").label("pending"),
+                        func.count(Request.id)
+                        .filter(Request.status.in_(["crawling", "summarizing", "processing"]))
+                        .label("processing"),
+                        func.count(Request.id)
+                        .filter(
+                            Request.status == "completed",
+                            Request.updated_at >= today,
+                        )
+                        .label("completed_today"),
+                        func.count(Request.id)
+                        .filter(
+                            Request.status == "error",
+                            Request.updated_at >= today,
+                        )
+                        .label("failed_today"),
+                    )
                 )
-            )
-            completed_today = await session.scalar(
-                select(func.count(Request.id)).where(
-                    Request.status == "completed", Request.updated_at >= today
+            ).one()
+            pending, processing, completed_today, failed_today = request_row
+
+            # Two ImportJob counts share the same base table; combine with FILTER aggregates.
+            import_row = (
+                await session.execute(
+                    select(
+                        func.count(ImportJob.id)
+                        .filter(ImportJob.status == "processing")
+                        .label("imports_active"),
+                        func.count(ImportJob.id)
+                        .filter(
+                            ImportJob.status == "completed",
+                            ImportJob.updated_at >= today,
+                        )
+                        .label("imports_completed_today"),
+                    )
                 )
-            )
-            failed_today = await session.scalar(
-                select(func.count(Request.id)).where(
-                    Request.status == "error", Request.updated_at >= today
-                )
-            )
-            imports_active = await session.scalar(
-                select(func.count(ImportJob.id)).where(ImportJob.status == "processing")
-            )
-            imports_completed_today = await session.scalar(
-                select(func.count(ImportJob.id)).where(
-                    ImportJob.status == "completed", ImportJob.updated_at >= today
-                )
-            )
+            ).one()
+            imports_active, imports_completed_today = import_row
+
             return {
                 "pipeline": {
                     "pending": int(pending or 0),
@@ -174,10 +191,19 @@ class AdminReadRepositoryAdapter:
     async def async_content_health(self) -> dict[str, Any]:
         async with self._database.session() as session:
             total_summaries = await session.scalar(select(func.count(Summary.id)))
-            total_requests = await session.scalar(select(func.count(Request.id)))
-            failed_requests = await session.scalar(
-                select(func.count(Request.id)).where(Request.status == "error")
-            )
+
+            # total_requests and failed_requests both scan Request; combine with FILTER.
+            request_row = (
+                await session.execute(
+                    select(
+                        func.count(Request.id).label("total_requests"),
+                        func.count(Request.id)
+                        .filter(Request.status == "error")
+                        .label("failed_requests"),
+                    )
+                )
+            ).one()
+            total_requests, failed_requests = request_row
 
             failed_by_error_type: dict[str, int] = {}
             error_groups = await session.execute(
@@ -979,13 +1005,17 @@ class AdminReadRepositoryAdapter:
             if created_at is None:
                 continue
             model_id = cast("Any", model).id
-            created_last_24h[name] = int(
-                await session.scalar(select(func.count(model_id)).where(created_at >= last_24h))
-                or 0
-            )
-            created_last_7d[name] = int(
-                await session.scalar(select(func.count(model_id)).where(created_at >= last_7d)) or 0
-            )
+            # Both time-window counts scan the same table; combine with FILTER aggregates.
+            row = (
+                await session.execute(
+                    select(
+                        func.count(model_id).filter(created_at >= last_24h).label("cnt_24h"),
+                        func.count(model_id).filter(created_at >= last_7d).label("cnt_7d"),
+                    )
+                )
+            ).one()
+            created_last_24h[name] = int(row.cnt_24h or 0)
+            created_last_7d[name] = int(row.cnt_7d or 0)
         return {
             "created_last_24h": created_last_24h,
             "created_last_7d": created_last_7d,
