@@ -402,6 +402,11 @@ class LLMWorkflowExecutionMixin:
             },
         )
 
+        # self._sem() returns the single global LLM-concurrency semaphore wired
+        # from core.semaphore_factory (a LazySemaphoreFactory that hands out one
+        # shared instance). EVERY LLM call -- interactive, batch, and repair --
+        # acquires it here, so total concurrent LLM calls are globally bounded by
+        # MAX_CONCURRENT_CALLS regardless of per-batch URL concurrency.
         sem_cm = self._sem()
         try:
             async with asyncio.timeout(sem_timeout):

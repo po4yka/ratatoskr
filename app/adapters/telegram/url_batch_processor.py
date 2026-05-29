@@ -130,6 +130,11 @@ class URLBatchProcessor:
             batch_status=batch_status,
             url_to_request_id={},
             cached_summaries=[],
+            # URL-pipeline-level concurrency only (scrape + summarize per link).
+            # This sits OUTSIDE the global LLM-call semaphore acquired inside
+            # LLMResponseWorkflow._invoke_llm, so it does NOT add to LLM-call
+            # concurrency -- total concurrent LLM calls stay bounded by the one
+            # shared global semaphore (MAX_CONCURRENT_CALLS) across all paths.
             semaphore=asyncio.Semaphore(batch_request.max_concurrent),
             sender=_resolve_sender(self._response_formatter),
             draft_enabled=_is_draft_streaming_enabled(_resolve_sender(self._response_formatter)),

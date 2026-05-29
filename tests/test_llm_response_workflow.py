@@ -237,6 +237,65 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         assert self.openrouter.chat.await_count == 2
         self.llm_error_mock.assert_awaited()
 
+    async def test_global_semaphore_bounds_concurrent_llm_calls(self) -> None:
+        """Every path acquires the one shared semaphore, so concurrent LLM calls
+        never exceed its permits no matter how many requests run at once.
+
+        This locks the invariant that batch (URL-pipeline-level) concurrency does
+        not stack with the global LLM-call concurrency: the batch processor's own
+        semaphore sits *outside* this one, which every _invoke_llm acquires.
+        """
+        shared_sem = asyncio.Semaphore(2)
+        tracker = {"in_flight": 0, "max": 0}
+
+        class _TrackingClient(_StrictFakeLLMClient):
+            async def chat(self, *args: Any, **kwargs: Any) -> Any:
+                tracker["in_flight"] += 1
+                tracker["max"] = max(tracker["max"], tracker["in_flight"])
+                try:
+                    await asyncio.sleep(0.02)
+                finally:
+                    tracker["in_flight"] -= 1
+                return self.result
+
+        payload = {"summary_250": "Body", "tldr": "TLDR"}
+        client = _TrackingClient(self._llm_response(payload))
+        workflow = LLMResponseWorkflow(
+            cfg=self.cfg,
+            db=self.db,
+            llm_client=client,
+            response_formatter=self.response_formatter,
+            audit_func=lambda *a, **k: None,
+            sem=lambda: shared_sem,
+            **_workflow_repo_kwargs(),
+        )
+        workflow.request_repo = self.workflow.request_repo
+        workflow.summary_repo = self.workflow.summary_repo
+        workflow.llm_repo = self.workflow.llm_repo
+        workflow.user_repo = self.workflow.user_repo
+
+        async def _run(i: int) -> Any:
+            return await workflow.execute_summary_workflow(
+                message=MagicMock(),
+                req_id=600 + i,
+                correlation_id=f"conc-{i}",
+                interaction_config=self.interaction,
+                persistence=self.persistence,
+                repair_context=self.repair_context,
+                requests=[self.request.model_copy()],
+                notifications=self.notifications,
+            )
+
+        with unittest.mock.patch(
+            "app.adapters.content.llm_response_workflow.parse_summary_response",
+            return_value=SimpleNamespace(shaped=payload, errors=[], used_local_fix=False),
+        ):
+            results = await asyncio.gather(*[_run(i) for i in range(6)])
+
+        assert all(r is not None for r in results)
+        # Six concurrent requests, but the shared semaphore caps LLM calls at 2.
+        assert tracker["max"] == 2
+
     async def test_execute_accepts_strict_llm_client_protocol(self) -> None:
         summary_payload = {
             "summary_250": "Summary body",
