@@ -29,6 +29,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Webwright browser-agent integration (sidecar, `/browse`, enricher) | `docs/explanation/webwright.md` |
 | Why the summary contract is shaped that way | `docs/explanation/summary-contract-design.md` |
 | GitHub repo ingestion subsystem | `docs/explanation/github-repository-ingestion.md` |
+| On-disk git mirroring (git backup) | `docs/explanation/git-mirroring.md` |
 | fieldtheory-cli integration (bookmarks, wiki, MCP search, Telegram) | `docs/explanation/x-bookmarks-integration.md` |
 | Vector index + CocoIndex sync | `docs/cocoindex.md` |
 | Authoritative env-var reference (820 lines) | `docs/reference/environment-variables.md` |
@@ -49,6 +50,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | LLM parse failure | Parse/repair lives in `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, and `app/core/summary_contract.py`; runtime prompt/schema binding is `SummaryContractDescriptor` plus `PromptManager.get_contract_system_prompt()`; retry loop is `app/adapters/content/pure_summary_service.py:_summarize_with_instructor`; failure recipe is `docs/reference/troubleshooting.md#json-parsing-failures`. |
 | Extraction provider behavior | Generic URL extraction is `app/adapters/content/scraper/` plus `app/adapters/content/platform_extraction/`; platform-specific bypasses are `app/adapters/youtube/`, `app/adapters/twitter/`, and `app/adapters/academic/`; provider docs are `docs/explanation/scraper-chain.md`. |
 | Source ingestion and vector repair | Source ingestors live in `app/adapters/ingestors/`, RSS/digest helpers in `app/adapters/rss/` and `app/adapters/digest/`, signal API in `app/api/routers/social/signals.py`, vector reconciliation in `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/cli/backfill_vector_store.py`; new vectorized entity types should implement `VectorIndexedEntityAdapter`; vector drift docs are `docs/cocoindex.md`. |
+| On-disk git mirroring (git backup) | Engine and service: `app/adapters/git_backup/` (`mirror_service.py` = `GitMirrorService`, `repository.py` = `GitMirrorRepository`). Config: `app/config/git_backup.py` (`GitBackupConfig`). DB model: `app/db/models/git_backup.py` (`GitMirror`). Scheduled Taskiq job: `app/tasks/git_backup_sync.py` (task name `ratatoskr.git_backup.sync`, Redis-locked, cron `GIT_BACKUP_SYNC_CRON`). Telegram commands `/mirror` and `/mirrors`: `app/adapters/telegram/command_handlers/git_mirror_handler.py`. REST endpoints `GET/POST/DELETE /v1/git-mirrors`: `app/api/routers/git_mirrors.py`. **Distinct from the GitHub API-based metadata ingestion** (`app/adapters/github/`, `app/tasks/github_sync.py`) which never clones to disk — that path fetches repo metadata and indexes it in PostgreSQL + Qdrant. Git backup performs actual `git clone --mirror` of full history to `GIT_BACKUP_DATA_PATH` and reuses `GITHUB_TOKEN_ENCRYPTION_KEY` for authenticated clones. |
 
 ## Directory Structure
 
@@ -67,6 +69,7 @@ app/
 |   +-- openrouter/     # OpenRouter client and helpers
 |   +-- telegram/       # Bot logic, command_handlers/, access controller
 |   +-- twitter/        # Twitter/X two-tier extractor (Firecrawl + Playwright)
+|   +-- git_backup/     # On-disk git mirror engine (GitMirrorService, GitMirrorRepository, LFS, maintenance, circuit breaker)
 |   +-- webwright/      # Microsoft Webwright sidecar adapters (client, enricher) — used by scraper chain + /browse
 |   +-- youtube/        # yt-dlp + transcript extraction
 +-- agents/             # Classic agents (extraction, validation, web search, repo analysis)
@@ -224,6 +227,7 @@ SQLAlchemy 2.0 typed declarative models registered in `ALL_MODELS` (`app/db/mode
 | `topic_search.py` | `TopicSearchIndex` (Postgres TSVECTOR + GIN) |
 | `user_content.py` | `SummaryFeedback`, `CustomDigest`, `SummaryHighlight`, `UserGoal`, `Tag`, `SummaryTag` |
 | `webwright.py` | `WebwrightRun`, `UserBrowserSession` (Fernet-encrypted per-domain cookies; reuses `GITHUB_TOKEN_ENCRYPTION_KEY`) |
+| `git_backup.py` | `GitMirror` (bare clone state: URL, source kind, last sync, mirror path); enums `GitMirrorSource`, `GitMirrorStatus` |
 
 `LLMCall` rows carry `attempt_index` (1-based, monotonic per `request_id`) and `attempt_trigger` (Postgres enum: `initial`, `user_retry`, `auto_backfill`, `repair_loop`, `stream_fallback_retry`, `webwright_tool`) so retries, the instructor repair loop, and Webwright-enriched re-summarizations are queryable without timestamp inference.
 
@@ -246,6 +250,7 @@ Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bear
 | `X_BOOKMARKS_SYNC_ENABLED`, `X_BOOKMARKS_SYNC_CRON`, `X_WIKI_SYNC_CRON` | Master switch + cron for the two x_bookmarks delta-scan Taskiq jobs (bookmark + wiki). Both jobs share the `enabled` flag. |
 | `X_BOOKMARKS_DB_PATH`, `X_WIKI_LIBRARY_PATH`, `X_IDEAS_PATH` | Container-side paths to the host-mounted `~/.fieldtheory/` subtrees (`bookmarks.db`, `library/`, `ideas/`). Defaults: `/x_bookmarks/...` — bind-mounted read-only by the operator. |
 | `WEBWRIGHT_ENABLED`, `WEBWRIGHT_HOST_ALLOWLIST`, `WEBWRIGHT_URL`, `WEBWRIGHT_MAX_STEPS`, `WEBWRIGHT_TIMEOUT_SEC`, `WEBWRIGHT_MODEL` | Microsoft Webwright sidecar (compose profile `with-webwright`). Heavy: each invocation ~10-30× a normal scrape. Default off; double-gated by feature flag + non-empty host allowlist. See `docs/explanation/webwright.md`. |
+| `GIT_BACKUP_ENABLED`, `GIT_BACKUP_SYNC_CRON`, `GIT_BACKUP_DATA_PATH` | On-disk git mirror subsystem. Master switch (default `false`), Taskiq cron schedule (default `0 4 * * *` UTC), and local filesystem path for bare clones (default `/data/git-mirrors`). Full variable set in `docs/reference/environment-variables.md`. |
 
 ## Task Board
 
@@ -259,6 +264,6 @@ When implementing a task, also update any CLAUDE.md or skill content that the ch
 
 ---
 
-**Last Updated:** 2026-05-23
+**Last Updated:** 2026-05-29
 
 Reading order for orientation: this file → `docs/SPEC.md` → relevant `docs/explanation/*.md` or `docs/reference/*.md` → matching `.claude/skills/<name>/SKILL.md`.

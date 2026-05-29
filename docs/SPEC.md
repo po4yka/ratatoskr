@@ -129,6 +129,14 @@ Prometheus metrics, structured logs, correlation-ID tracing, owner-safe diagnost
 
 ---
 
+## On-Disk Git Mirroring
+
+Full bare-clone backup of repository history, refs, objects, and packs via `git clone --mirror`. Complements the API-only GitHub metadata ingestion by preserving complete git history for GitHub-linked repos (starred/owned via the GitHub integration) and arbitrary git URLs. Covers the ported gitout engine modules (error classification, adaptive retry, storage circuit breaker, post-sync maintenance, LFS support, README extraction), the `git_mirrors` table schema, credential handling (Fernet-encrypted GitHub tokens injected without logging), the `ratatoskr.git_backup.sync` Taskiq job, Telegram `/mirror` + `/mirrors` commands, and the `/v1/git-mirrors` REST surface.
+
+→ [Git Mirroring Explanation](explanation/git-mirroring.md)
+
+---
+
 ## GitHub Repository Schema
 
 Three tables added by the GitHub repository ingestion subsystem (`app/db/models/repository.py`). They have no foreign key to `summaries`; repos use the `RepoAnalysis` contract, not the 35-field `Summary` contract.

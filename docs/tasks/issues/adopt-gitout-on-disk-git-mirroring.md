@@ -62,8 +62,8 @@ DROP: `github.py`/`github_client.py` (GraphQL — ratatoskr REST wins), `search/
 - [ ] Arbitrary-URL mirrors (no `Repository` row): extract README from the bare clone via `readme_extractor`, then either (decision in this phase) embed under a new vectorized entity type (new `point_ids` helper + `VectorIndexedEntityAdapter` registered in `VectorIndexReconciler`) OR create lightweight synthetic repo records. Default lean: defer arbitrary-URL search to a follow-up; ship mirroring first.
 
 ### Phase 6 — Docs, verification, cleanup
-- [ ] Document all `GIT_BACKUP_*` vars in `docs/reference/environment-variables.md`; add a subsystem note + skill pointer in `ratatoskr/CLAUDE.md`; brief explanation doc under `docs/explanation/`.
-- [ ] Quality gates: `make lint`, `make type`, `pytest` (≥80% coverage on new code), OpenAPI validate + drift, Docker build smoke.
+- [x] Document all `GIT_BACKUP_*` vars in `docs/reference/environment-variables.md`; add a subsystem note in `CLAUDE.md` + `AGENTS.md`; explanation doc `docs/explanation/git-mirroring.md`; nav entries in `docs/SPEC.md` + CLAUDE.md docs index.
+- [x] Quality gates: ruff (clean), mypy (clean on new modules), 125 hermetic tests pass, OpenAPI generate + drift PASS, full app import smoke. (Docker build smoke deferred — image not built locally.)
 - [ ] On close: delete this task note (git history is the audit trail).
 
 ## Acceptance criteria

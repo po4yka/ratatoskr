@@ -27,6 +27,7 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGrap
 | YouTube | `app/adapters/youtube/` | yt-dlp download, transcript extraction |
 | Twitter/X | `app/adapters/twitter/` | Firecrawl + Playwright extraction |
 | GitHub | `app/adapters/github/`, `app/tasks/github_sync.py`, `app/api/routers/repositories.py`, `app/api/routers/auth/github.py` | GitHub repo ingestion, daily stars sync (cron `0 2 * * *` UTC), LangChain structured-output repo analysis, semantic search via `repository_embeddings` + Qdrant. Tokens encrypted at rest with Fernet (`cryptography`). See `docs/explanation/github-repository-ingestion.md`. |
+| Git backup | `app/adapters/git_backup/`, `app/config/git_backup.py`, `app/db/models/git_backup.py`, `app/tasks/git_backup_sync.py`, `app/api/routers/git_mirrors.py`, `app/adapters/telegram/command_handlers/git_mirror_handler.py` | On-disk `git clone --mirror` backup of full git history for GitHub-linked and arbitrary git repos. Distinct from the GitHub API metadata path above (which never clones to disk). Bare clones stored under `GIT_BACKUP_DATA_PATH`; Taskiq cron job `ratatoskr.git_backup.sync`; `/mirror` and `/mirrors` Telegram commands; `/v1/git-mirrors` REST endpoints. |
 | LLM | `app/adapters/llm/`, `app/adapters/openrouter/` | Provider-agnostic LLM interface; summary workflow uses the `SummaryContractDescriptor` default contract bundle for schema/prompt/repair response formats |
 | Agents | `app/agents/`, `app/agents/langgraph/` | Classic agent wrappers plus LangGraph summarize/validate retry graph and checkpointing |
 | Domain | `app/domain/` | Business models and domain services |
@@ -47,6 +48,8 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGrap
 - `app/core/url_utils.py` -- URL normalization and deduplication
 - `app/agents/langgraph/graph.py` -- LangGraph summarize/validate retry graph
 - `app/infrastructure/cocoindex/flow.py` -- CocoIndex summary + repository Qdrant flows
+- `app/adapters/git_backup/mirror_service.py` -- `GitMirrorService`: clone, fetch, LFS, maintenance orchestration
+- `app/adapters/git_backup/repository.py` -- `GitMirrorRepository`: DB persistence for mirror state
 - `app/infrastructure/vector/point_ids.py` -- Shared deterministic Qdrant point IDs
 - `app/db/models/` -- Database schema (SQLAlchemy 2.0 typed declarative models, grouped by area)
 - `app/db/session.py` -- `Database` async-session facade (sole DB entry point)
@@ -67,6 +70,7 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGrap
 | Extraction providers | `app/adapters/content/scraper/`, `app/adapters/content/platform_extraction/`, `app/adapters/youtube/`, `app/adapters/twitter/`, `app/adapters/academic/` | `docs/explanation/scraper-chain.md`, `docs/reference/troubleshooting.md#content-extraction-failures` |
 | Source ingestion and signals | `app/adapters/ingestors/`, `app/adapters/rss/`, `app/adapters/digest/`, `app/api/routers/social/signals.py` | `docs/guides/configure-source-ingestors.md` |
 | Vector drift / reconciliation | `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, `app/cli/backfill_vector_store.py`, `app/infrastructure/cocoindex/flow.py` | `docs/cocoindex.md`, `docs/reference/troubleshooting.md`; extend via `VectorIndexedEntityAdapter` |
+| On-disk git mirroring | `app/adapters/git_backup/mirror_service.py`, `app/adapters/git_backup/repository.py`, `app/config/git_backup.py` (`GitBackupConfig`), `app/db/models/git_backup.py` (`GitMirror`), `app/tasks/git_backup_sync.py`, `app/api/routers/git_mirrors.py`, `app/adapters/telegram/command_handlers/git_mirror_handler.py` | Not the same as GitHub API ingestion (`app/adapters/github/`) — that path fetches metadata only; git backup performs actual `git clone --mirror` to disk and reuses `GITHUB_TOKEN_ENCRYPTION_KEY` for auth. |
 
 Generated API artifacts live in `docs/openapi/mobile_api.yaml` and `docs/openapi/mobile_api.json`; do not edit them manually. Change routers/models first, then run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`.
 

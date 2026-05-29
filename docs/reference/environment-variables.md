@@ -771,6 +771,41 @@ Local X/Twitter bookmark sync via the host-side `x_bookmarks-cli` (`ft`). The co
 
 ---
 
+## Git Mirror Backup (gitout)
+
+Periodic bare-clone mirroring of GitHub repositories (starred, owned, watched) and arbitrary extra repos to a local directory using the gitout engine. The `git_mirrors` DB table is the primary source of repos to mirror; `GIT_BACKUP_EXTRA_REPOS` supplements it. Configuration owner: `app/config/git_backup.py::GitBackupConfig`.
+
+**Token reuse**: `GITHUB_TOKEN_ENCRYPTION_KEY` (documented in [GitHub Integration](#github-integration)) is reused to decrypt per-user GitHub tokens for authenticated mirror clones. When absent, GitHub mirrors fall back to unauthenticated clones; no separate key variable is needed.
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `GIT_BACKUP_ENABLED` | bool | `false` | Master switch for the periodic git-backup Taskiq job; when `false` the job is not registered with the scheduler. |
+| `GIT_BACKUP_SYNC_CRON` | str | `"0 4 * * *"` | UTC 5-field cron expression for the mirror sync job (default: 04:00 UTC daily). |
+| `GIT_BACKUP_DATA_PATH` | str | `/data/git-mirrors` | Writable directory where bare git clones are stored; typically a bind-mounted or named Docker volume on the worker service. |
+| `GIT_BACKUP_WORKERS` | int (1–32) | `4` | Number of parallel git clone/fetch workers. |
+| `GIT_BACKUP_REPO_TIMEOUT_SECONDS` | int | `3600` | Per-repository operation timeout in seconds. |
+| `GIT_BACKUP_FETCH_LFS` | bool | `false` | Fetch Git LFS objects during mirror operations. |
+| `GIT_BACKUP_MAINTENANCE_STRATEGY` | str | `gc-auto` | Post-fetch maintenance strategy applied to each mirror. Accepted values: `gc-auto`, `geometric`, `none`. |
+| `GIT_BACKUP_FULL_REPACK_INTERVAL` | str | `never` | How often to perform a full repack of each mirror. Accepted values: `never`, `weekly`, `monthly`. |
+| `GIT_BACKUP_WRITE_COMMIT_GRAPH` | bool | `true` | Write a commit-graph file after each mirror update for faster graph walks. |
+| `GIT_BACKUP_LARGE_REPO_THRESHOLD_KB` | int | `512000` | Repository disk size in KB above which large-repo handling applies (extended timeout, reduced parallelism). |
+| `GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER` | int | `3` | Multiplier applied to `GIT_BACKUP_REPO_TIMEOUT_SECONDS` for repos that exceed the large-repo threshold. |
+| `GIT_BACKUP_LARGE_REPO_MAX_PARALLEL` | int | `2` | Maximum number of large repos mirrored concurrently. |
+| `GIT_BACKUP_MAX_CONSECUTIVE_FAILURES` | int | `5` | Number of consecutive failures before a repo is flagged as failing and subject to the cooldown policy. |
+| `GIT_BACKUP_FAILURE_COOLDOWN_HOURS` | int | `24` | Hours to wait before retrying a repo that has exceeded `GIT_BACKUP_MAX_CONSECUTIVE_FAILURES`. |
+| `GIT_BACKUP_AUTO_SKIP_FAILING` | bool | `true` | Automatically skip repos that are in the failure-cooldown window instead of retrying them every run. |
+| `GIT_BACKUP_EXTRA_REPOS` | dict[str,str] | `{}` | Mapping of short name → clone URL for repos that should be mirrored but do not have a `git_mirrors` DB row (e.g. `{"my-project": "https://github.com/user/my-project.git"}`). Parsing a nested dict from a flat env var is awkward; prefer the `git_mirrors` DB table for dynamic configuration and reserve this field for static, deployment-time overrides via `ratatoskr.yaml`. |
+
+**Notes:**
+
+- `GIT_BACKUP_ENABLED=false` disables only the scheduled Taskiq job; the underlying gitout engine and DB table remain available for manual invocation.
+- `GIT_BACKUP_DATA_PATH` must be writable by the worker container user. Mount it as a named volume or bind mount in `ops/docker/docker-compose.yml` under the `worker` service.
+- `GIT_BACKUP_MAINTENANCE_STRATEGY=gc-auto` runs `git gc --auto` after each fetch (low overhead, suitable for most deployments). `geometric` uses `git maintenance run --task=gc` with geometric repacking. `none` skips maintenance entirely (fastest per-fetch, but pack fragmentation accumulates).
+- Large-repo handling activates when the on-disk bare clone exceeds `GIT_BACKUP_LARGE_REPO_THRESHOLD_KB`. Effective timeout becomes `GIT_BACKUP_REPO_TIMEOUT_SECONDS * GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER`, and at most `GIT_BACKUP_LARGE_REPO_MAX_PARALLEL` such repos are mirrored at once regardless of `GIT_BACKUP_WORKERS`.
+- The failure-cooldown window is per-repo and tracked in the `git_mirrors` table. `GIT_BACKUP_AUTO_SKIP_FAILING=true` means a repo in cooldown is silently skipped; set to `false` to have it retried every run (useful for debugging transient failures).
+
+---
+
 ## Configuration Validation Checklist
 
 Use this checklist to verify your configuration before deploying:
