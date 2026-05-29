@@ -14,12 +14,17 @@ from cryptography.fernet import Fernet
 from httpx import Response
 from sqlalchemy import func, select
 
+from app.adapters.github.github_api_client import GitHubAPIClient
 from app.api.routers.auth.tokens import create_access_token
+from app.application.ports.github_integration import GitHubAuthMethod
 from app.application.use_cases.manage_github_integration import (
     ManageGitHubIntegrationUseCase,
 )
-from app.db.models.repository import GitHubAuthMethod, Repository, UserGitHubIntegration
+from app.db.models.repository import Repository, UserGitHubIntegration
 from app.db.session import Database
+from app.infrastructure.persistence.repositories.github_integration_repository import (
+    GitHubIntegrationRepository,
+)
 from app.security.token_crypto import decrypt_token, reset_key_cache
 
 # ---------------------------------------------------------------------------
@@ -240,7 +245,10 @@ async def test_delete_revokes_integration(client: Any, db: Database, gh_user: An
 
 
 async def test_use_case_validate_and_store_idempotent(db: Database, gh_user: Any) -> None:
-    use_case = ManageGitHubIntegrationUseCase(db)
+    use_case = ManageGitHubIntegrationUseCase(
+        repository=GitHubIntegrationRepository(db),
+        gateway_factory=GitHubAPIClient,
+    )
     token = "ghp_idempotent_token_abc123"
 
     with respx.mock(assert_all_called=False) as mock:

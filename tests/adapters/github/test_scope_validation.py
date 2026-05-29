@@ -2,17 +2,33 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import respx
+from cryptography.fernet import Fernet
 from httpx import Response
 
 from app.adapters.github.exceptions import InsufficientScopeError, InvalidGitHubTokenError
 from app.adapters.github.github_api_client import GitHubAPIClient
 from app.adapters.github.types import AuthenticatedUserDTO
+from app.application.ports.github_integration import (
+    GitHubAuthMethod,
+    GitHubIntegrationRecord,
+    GitHubIntegrationStatus,
+)
 from app.application.use_cases.manage_github_integration import ManageGitHubIntegrationUseCase
-from app.db.models.repository import GitHubAuthMethod
+
+_FERNET_KEY = Fernet.generate_key().decode()
+
+
+@pytest.fixture(autouse=True)
+def _set_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide a valid Fernet key so encrypt_token succeeds in unit tests."""
+    from app.security import token_crypto as _tc
+
+    monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", _FERNET_KEY)
+    _tc.reset_key_cache()
 
 
 def test_insufficient_scope_error_is_invalid_token_error() -> None:
@@ -83,27 +99,34 @@ async def test_probe_repository_access_false_on_403() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Use case unit tests (DB + GitHub client fully mocked)
+# Use case unit tests (repository + GitHub gateway fully mocked)
 # ---------------------------------------------------------------------------
 
 _AUTH_USER = AuthenticatedUserDTO(id=1, login="alice")
 _TOKEN = "ghp_fake_token_abc123456"
 _UC_USER_ID = 42
 
+_INTEGRATION_RECORD = GitHubIntegrationRecord(
+    id=1,
+    user_id=_UC_USER_ID,
+    auth_method=GitHubAuthMethod.PAT,
+    encrypted_token=b"enc",
+    token_scopes="repo, read:user",
+    github_login="alice",
+    github_user_id=1,
+    status=GitHubIntegrationStatus.ACTIVE,
+    last_synced_at=None,
+)
 
-def _mock_db() -> MagicMock:
-    """Minimal DB mock for validate_and_store unit tests."""
-    session = AsyncMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=False)
-    session.scalar = AsyncMock(return_value=None)  # no existing row
-    session.add = MagicMock()
-    session.flush = AsyncMock()
-    session.refresh = AsyncMock()
 
-    db = MagicMock()
-    db.transaction = MagicMock(return_value=session)
-    return db
+def _mock_repository(*, upsert_return: GitHubIntegrationRecord = _INTEGRATION_RECORD) -> MagicMock:
+    """Minimal repository mock for validate_and_store unit tests."""
+    repo = AsyncMock()
+    repo.upsert = AsyncMock(return_value=upsert_return)
+    repo.get_by_user_id = AsyncMock(return_value=None)
+    repo.delete_by_user_id = AsyncMock()
+    repo.count_repositories = AsyncMock(return_value=0)
+    return repo
 
 
 def _mock_gh(*, scopes: list[str], probe_result: bool = True) -> MagicMock:
@@ -115,25 +138,24 @@ def _mock_gh(*, scopes: list[str], probe_result: bool = True) -> MagicMock:
     return gh
 
 
+def _make_uc(gh_mock: MagicMock, repo: MagicMock | None = None) -> ManageGitHubIntegrationUseCase:
+    """Construct the use case with injected mocks."""
+    if repo is None:
+        repo = _mock_repository()
+    return ManageGitHubIntegrationUseCase(
+        repository=repo,
+        gateway_factory=lambda _token: gh_mock,
+    )
+
+
 @pytest.mark.asyncio
 async def test_classic_pat_sufficient_scopes() -> None:
     """repo + read:user → accepted, no warnings."""
     gh = _mock_gh(scopes=["repo", "read:user"])
-    with (
-        patch(
-            "app.application.use_cases.manage_github_integration.GitHubAPIClient",
-            return_value=gh,
-        ),
-        patch(
-            "app.application.use_cases.manage_github_integration.encrypt_token",
-            return_value=b"enc",
-        ),
-    ):
-        uc = ManageGitHubIntegrationUseCase(_mock_db())
-        _row, warnings = await uc.validate_and_store(
-            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-        )
-
+    uc = _make_uc(gh)
+    _row, warnings = await uc.validate_and_store(
+        _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+    )
     assert warnings == []
 
 
@@ -141,22 +163,11 @@ async def test_classic_pat_sufficient_scopes() -> None:
 async def test_classic_pat_missing_repo_scope() -> None:
     """read:user + public_repo but no repo → InsufficientScopeError(missing=['repo'])."""
     gh = _mock_gh(scopes=["read:user", "public_repo"])
-    with (
-        patch(
-            "app.application.use_cases.manage_github_integration.GitHubAPIClient",
-            return_value=gh,
-        ),
-        patch(
-            "app.application.use_cases.manage_github_integration.encrypt_token",
-            return_value=b"enc",
-        ),
-    ):
-        uc = ManageGitHubIntegrationUseCase(_mock_db())
-        with pytest.raises(InsufficientScopeError) as exc_info:
-            await uc.validate_and_store(
-                _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-            )
-
+    uc = _make_uc(gh)
+    with pytest.raises(InsufficientScopeError) as exc_info:
+        await uc.validate_and_store(
+            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+        )
     assert exc_info.value.missing_scopes == ["repo"]
 
 
@@ -164,22 +175,11 @@ async def test_classic_pat_missing_repo_scope() -> None:
 async def test_classic_pat_missing_read_user() -> None:
     """repo only, no read:user → InsufficientScopeError(missing=['read:user'])."""
     gh = _mock_gh(scopes=["repo"])
-    with (
-        patch(
-            "app.application.use_cases.manage_github_integration.GitHubAPIClient",
-            return_value=gh,
-        ),
-        patch(
-            "app.application.use_cases.manage_github_integration.encrypt_token",
-            return_value=b"enc",
-        ),
-    ):
-        uc = ManageGitHubIntegrationUseCase(_mock_db())
-        with pytest.raises(InsufficientScopeError) as exc_info:
-            await uc.validate_and_store(
-                _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-            )
-
+    uc = _make_uc(gh)
+    with pytest.raises(InsufficientScopeError) as exc_info:
+        await uc.validate_and_store(
+            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+        )
     assert exc_info.value.missing_scopes == ["read:user"]
 
 
@@ -187,21 +187,10 @@ async def test_classic_pat_missing_read_user() -> None:
 async def test_classic_pat_overbroad_delete_repo() -> None:
     """repo + read:user + delete_repo → accepted with one warning."""
     gh = _mock_gh(scopes=["repo", "read:user", "delete_repo"])
-    with (
-        patch(
-            "app.application.use_cases.manage_github_integration.GitHubAPIClient",
-            return_value=gh,
-        ),
-        patch(
-            "app.application.use_cases.manage_github_integration.encrypt_token",
-            return_value=b"enc",
-        ),
-    ):
-        uc = ManageGitHubIntegrationUseCase(_mock_db())
-        _row, warnings = await uc.validate_and_store(
-            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-        )
-
+    uc = _make_uc(gh)
+    _row, warnings = await uc.validate_and_store(
+        _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+    )
     assert len(warnings) == 1
     assert "delete repositories" in warnings[0]
 
@@ -210,21 +199,10 @@ async def test_classic_pat_overbroad_delete_repo() -> None:
 async def test_classic_pat_unknown_scope() -> None:
     """repo + read:user + unknown custom:scope → accepted with generic warning."""
     gh = _mock_gh(scopes=["repo", "read:user", "custom:scope"])
-    with (
-        patch(
-            "app.application.use_cases.manage_github_integration.GitHubAPIClient",
-            return_value=gh,
-        ),
-        patch(
-            "app.application.use_cases.manage_github_integration.encrypt_token",
-            return_value=b"enc",
-        ),
-    ):
-        uc = ManageGitHubIntegrationUseCase(_mock_db())
-        _row, warnings = await uc.validate_and_store(
-            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-        )
-
+    uc = _make_uc(gh)
+    _row, warnings = await uc.validate_and_store(
+        _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+    )
     assert len(warnings) == 1
     assert "custom:scope" in warnings[0]
     assert "unrecognised" in warnings[0]
@@ -234,26 +212,27 @@ async def test_classic_pat_unknown_scope() -> None:
 async def test_fine_grained_probe_succeeds() -> None:
     """Empty scope header + probe 200 → accepted, token_scopes='fine-grained'."""
     gh = _mock_gh(scopes=[], probe_result=True)
-    db = _mock_db()
-    with (
-        patch(
-            "app.application.use_cases.manage_github_integration.GitHubAPIClient",
-            return_value=gh,
-        ),
-        patch(
-            "app.application.use_cases.manage_github_integration.encrypt_token",
-            return_value=b"enc",
-        ),
-    ):
-        uc = ManageGitHubIntegrationUseCase(db)
-        _row, warnings = await uc.validate_and_store(
-            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+    repo = _mock_repository(
+        upsert_return=GitHubIntegrationRecord(
+            id=1,
+            user_id=_UC_USER_ID,
+            auth_method=GitHubAuthMethod.PAT,
+            encrypted_token=b"enc",
+            token_scopes="fine-grained",
+            github_login="alice",
+            github_user_id=1,
+            status=GitHubIntegrationStatus.ACTIVE,
+            last_synced_at=None,
         )
-
+    )
+    uc = _make_uc(gh, repo)
+    _row, warnings = await uc.validate_and_store(
+        _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+    )
     gh.probe_repository_access.assert_awaited_once()
-    session = db.transaction.return_value
-    added_row = session.add.call_args[0][0]
-    assert added_row.token_scopes == "fine-grained"
+    # Verify upsert was called with fine-grained token_scopes
+    call_payload = repo.upsert.call_args[0][0]
+    assert call_payload.token_scopes == "fine-grained"
     assert warnings == []
 
 
@@ -261,20 +240,9 @@ async def test_fine_grained_probe_succeeds() -> None:
 async def test_fine_grained_probe_fails() -> None:
     """Empty scope header + probe 403 → InsufficientScopeError."""
     gh = _mock_gh(scopes=[], probe_result=False)
-    with (
-        patch(
-            "app.application.use_cases.manage_github_integration.GitHubAPIClient",
-            return_value=gh,
-        ),
-        patch(
-            "app.application.use_cases.manage_github_integration.encrypt_token",
-            return_value=b"enc",
-        ),
-    ):
-        uc = ManageGitHubIntegrationUseCase(_mock_db())
-        with pytest.raises(InsufficientScopeError):
-            await uc.validate_and_store(
-                _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-            )
-
+    uc = _make_uc(gh)
+    with pytest.raises(InsufficientScopeError):
+        await uc.validate_and_store(
+            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
+        )
     gh.probe_repository_access.assert_awaited_once()

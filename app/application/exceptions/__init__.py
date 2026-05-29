@@ -1,13 +1,12 @@
-"""GitHub API exception hierarchy.
+"""Application-layer exception hierarchy.
 
-Canonical definitions live in ``app.application.exceptions.github``.
-This module re-exports them so adapter code and existing ``except`` sites
-continue to work without changes.
+Canonical exception classes for the application layer live here.
+Adapter and infrastructure layers may re-export these for backward compatibility.
 """
 
 from __future__ import annotations
 
-from app.application.exceptions.github import (
+from .github import (
     GitHubAuthError,
     GitHubError,
     GitHubIntegrationRequiredError,
