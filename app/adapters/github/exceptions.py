@@ -1,47 +1,30 @@
-"""GitHub API exception hierarchy."""
+"""GitHub API exception hierarchy.
+
+Canonical definitions live in ``app.application.exceptions.github``.
+This module re-exports them so adapter code and existing ``except`` sites
+continue to work without changes.
+"""
 
 from __future__ import annotations
 
+from app.application.exceptions.github import (
+    GitHubAuthError,
+    GitHubError,
+    GitHubIntegrationRequiredError,
+    GitHubNotFoundError,
+    GitHubRateLimitError,
+    GitHubServerError,
+    InsufficientScopeError,
+    InvalidGitHubTokenError,
+)
 
-class GitHubError(Exception):
-    """Base GitHub error."""
-
-
-class GitHubAuthError(GitHubError):
-    """401 Unauthorized: token revoked, expired, or insufficient scope."""
-
-
-class GitHubNotFoundError(GitHubError):
-    """404 Not Found: repo doesn't exist or token can't see it."""
-
-
-class GitHubRateLimitError(GitHubError):
-    """403 with X-RateLimit-Remaining: 0 — rate limit exceeded."""
-
-    def __init__(self, reset_epoch: int, message: str = "GitHub rate limit exceeded") -> None:
-        super().__init__(message)
-        self.reset_epoch = reset_epoch
-
-
-class GitHubServerError(GitHubError):
-    """5xx after retries exhausted."""
-
-
-class GitHubIntegrationRequiredError(GitHubError):
-    """Raised when a GitHub operation needs an active integration but none exists."""
-
-
-class InvalidGitHubTokenError(GitHubError):
-    """The token failed validation against GitHub /user."""
-
-
-class InsufficientScopeError(InvalidGitHubTokenError):
-    """Token is missing required scopes."""
-
-    def __init__(self, missing_scopes: list[str]) -> None:
-        self.missing_scopes = missing_scopes
-        scopes_str = ", ".join(missing_scopes)
-        super().__init__(
-            f"Token is missing required scopes: {scopes_str}. "
-            "Ratatoskr requires read:user and repo."
-        )
+__all__ = [
+    "GitHubAuthError",
+    "GitHubError",
+    "GitHubIntegrationRequiredError",
+    "GitHubNotFoundError",
+    "GitHubRateLimitError",
+    "GitHubServerError",
+    "InsufficientScopeError",
+    "InvalidGitHubTokenError",
+]

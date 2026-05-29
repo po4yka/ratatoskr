@@ -28,7 +28,7 @@ from app.core.logging_utils import get_logger, log_exception
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from app.adapters.transcription import TranscriptionService
+    from app.application.ports.transcription_service import TranscriptionServicePort
     from app.application.ports.transcriptions import TranscriptionRepositoryPort
     from app.config.transcription import TranscriptionConfig
 
@@ -61,7 +61,7 @@ class TranscriptionJobService:
         self,
         *,
         repository: TranscriptionRepositoryPort,
-        transcription_service: TranscriptionService,
+        transcription_service: TranscriptionServicePort,
         cfg: TranscriptionConfig,
         max_attempts: int = 3,
         lease_ttl_seconds: int = 900,

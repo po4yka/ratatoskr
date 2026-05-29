@@ -24,6 +24,7 @@ from app.db.models import (
     UserDigestPreference,
     _utcnow,
 )
+from app.di.database import resolve_runtime_database
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -34,7 +35,26 @@ T = TypeVar("T")
 
 
 def _run_sync(coro: Coroutine[Any, Any, T]) -> T:
-    return asyncio.run(coro)
+    # All sync wrapper methods on DigestStore are designed to be called from a
+    # genuinely synchronous context -- either via asyncio.to_thread() from the
+    # FastAPI router layer (routers/social/digest.py wraps every sync call with
+    # to_thread so the thread has no running event loop), or from the Telethon
+    # userbot which dispatches sync helpers from its own separate thread.
+    #
+    # Calling asyncio.run() from inside a running event loop raises:
+    #   "asyncio.run() cannot be called from a running event loop"
+    # Detect this early and raise a clear error rather than surfacing an
+    # opaque RuntimeError from deep inside asyncio, matching the pattern used
+    # by app.db.runtime.maintenance._run_sync and inspection._run_sync.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    msg = (
+        "DigestStore synchronous wrappers cannot be called from inside a running event loop. "
+        "Use the async_ counterpart (e.g. async_list_active_subscriptions) instead."
+    )
+    raise RuntimeError(msg)
 
 
 class DigestStore:
@@ -46,10 +66,7 @@ class DigestStore:
     def _database(self) -> Database:
         if self._db is not None:
             return self._db
-
-        from app.api.dependencies.database import get_session_manager
-
-        return get_session_manager()
+        return resolve_runtime_database()
 
     async def async_list_active_subscriptions(self, user_id: int) -> list[ChannelSubscription]:
         async with self._database().session() as session:

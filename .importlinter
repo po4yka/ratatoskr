@@ -1,0 +1,61 @@
+# Layering contracts for the app/ package (epic: restore-architecture-layering).
+#
+# All contracts are GREEN and gated in CI (the build fails on any regression).
+# The restore-architecture-layering epic closed every known violation:
+#   * domain-independence    -> always green
+#   * infrastructure-no-api  -> A2 (session-manager injection)
+#   * content-no-telegram    -> A3 (broke the content<->telegram cycle)
+#   * tasks-no-api           -> A3 (durable_jobs -> infra; stream/response DTOs -> neutral modules)
+#   * application-no-outward -> A1 (GitHub gateway port) + LLM/transcription/agent ports
+[importlinter]
+root_package = app
+
+[importlinter:contract:domain-independence]
+name = domain must not import outer layers
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    app.api
+    app.adapters
+    app.infrastructure
+    app.tasks
+    app.di
+
+[importlinter:contract:application-no-outward]
+name = application must not import adapters or api
+type = forbidden
+source_modules =
+    app.application
+forbidden_modules =
+    app.api
+    app.adapters
+
+[importlinter:contract:infrastructure-no-api]
+name = infrastructure must not import api
+type = forbidden
+source_modules =
+    app.infrastructure
+forbidden_modules =
+    app.api
+
+[importlinter:contract:tasks-no-api]
+name = tasks must not import api
+type = forbidden
+source_modules =
+    app.tasks
+forbidden_modules =
+    app.api
+
+[importlinter:contract:content-no-telegram]
+name = adapters.content must not import adapters.telegram
+# Breaks the content <-> telegram import cycle. telegram -> content is legitimate
+# (the bot orchestrates content processing), so the rule is one-directional:
+# content (the processing engine) must never depend on the telegram delivery
+# adapter. Modeled as `forbidden` rather than `independence` for exactly that
+# reason.
+type = forbidden
+source_modules =
+    app.adapters.content
+forbidden_modules =
+    app.adapters.telegram

@@ -306,3 +306,17 @@ sequenceDiagram
 
 - Unit: pure domain rules and use cases with mocked repositories.
 - Integration: run via container wiring against test DB; validate persistence and contracts.
+
+## Layering contracts
+
+The layering rules above are enforced by [`import-linter`](https://import-linter.readthedocs.io/) via the `.importlinter` config at the repo root, run by the `Architecture - Import Linter (layering)` CI job. Five contracts cover the dependency direction:
+
+- `domain-independence` — `app.domain` imports no outer layer.
+- `application-no-outward` — `app.application` imports neither `app.adapters` nor `app.api` (depends on `app.application.ports.*` Protocols injected at the DI boundary).
+- `infrastructure-no-api` — `app.infrastructure` does not import `app.api`.
+- `tasks-no-api` — worker code (`app.tasks`) does not import `app.api`.
+- `content-no-telegram` — `app.adapters.content` does not import `app.adapters.telegram` (telegram → content orchestration is allowed; the reverse would re-create the cycle).
+
+All five are **green and gated**: the CI job runs `lint-imports` and the build fails on any regression. The *restore-architecture-layering* epic closed every known violation; if you add a new outward import the contract that owns it will fail.
+
+Run locally with `lint-imports` (all contracts) or `lint-imports --contract <id>` after `pip install import-linter` in an environment where `app` is importable.

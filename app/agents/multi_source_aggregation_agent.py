@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel
 
 from app.agents._aggregation_utils import (
     _EVIDENCE_BASE_WEIGHTS,
@@ -35,10 +35,10 @@ from app.application.dto.aggregation import (
     AggregatedContradiction,
     AggregationEvidenceKind,
     AggregationEvidenceWeight,
-    AggregationRelationshipSignal,
     AggregationSourceWeight,
     DuplicateSignal,
     ExtractedTextKind,
+    MultiSourceAggregationInput,
     MultiSourceAggregationOutput,
     NormalizedSourceDocument,
     SourceCoverageEntry,
@@ -50,8 +50,8 @@ from app.prompts.file_cache import read_prompt_text
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from app.adapters.llm import LLMClientProtocol
     from app.application.ports.aggregation_sessions import AggregationSessionRepositoryPort
+    from app.application.ports.llm_client import LLMClientProtocol
 
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -122,25 +122,6 @@ class _AggregationLLMResponse(BaseModel):
     complementary_points: list[Any] = []
     entities: list[Any] = []
     topic_tags: list[Any] = []
-
-
-class MultiSourceAggregationInput(BaseModel):
-    """Input contract for mixed-source bundle synthesis."""
-
-    model_config = ConfigDict(frozen=True)
-
-    session_id: int
-    correlation_id: str
-    items: list[SourceExtractionItemResult]
-    language: str = "en"
-    relationship_signal: AggregationRelationshipSignal | None = None
-
-    @model_validator(mode="after")
-    def validate_items(self) -> MultiSourceAggregationInput:
-        if not self.items:
-            msg = "Multi-source aggregation requires at least one bundle item"
-            raise ValueError(msg)
-        return self
 
 
 class MultiSourceAggregationAgent(

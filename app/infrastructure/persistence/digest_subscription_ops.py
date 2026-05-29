@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.db.models import Channel, ChannelSubscription
 from app.db.types import _utcnow
+from app.di.database import resolve_runtime_database
 
 if TYPE_CHECKING:
     from app.db.session import Database
@@ -91,6 +92,4 @@ def unsubscribe_channel_atomic(user_id: int, username: str, *, db: Database | No
 
 
 def _runtime_database() -> Database:
-    from app.api.dependencies.database import get_session_manager
-
-    return get_session_manager()
+    return resolve_runtime_database()

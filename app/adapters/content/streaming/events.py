@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.api.models.responses.common import ProcessingStage, ProgressEventKind
+from app.application.dto.stream_enums import ProcessingStage, ProgressEventKind
 
 StreamEventKind = ProgressEventKind
 

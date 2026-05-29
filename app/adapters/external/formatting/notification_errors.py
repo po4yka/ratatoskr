@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from app.adapters.telegram.telethon_compat import InlineKeyboardButton, InlineKeyboardMarkup
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.core.ui_strings import t
@@ -12,6 +13,22 @@ if TYPE_CHECKING:
     from .notification_context import NotificationFormatterContext
 
 logger = get_logger(__name__)
+
+
+def _build_retry_markup(correlation_id: str) -> InlineKeyboardMarkup | None:
+    """Build an inline keyboard with a Retry button for failed summaries."""
+    if not correlation_id:
+        return None
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    text="Retry",
+                    callback_data=f"retry:{correlation_id}",
+                )
+            ]
+        ]
+    )
 
 
 class NotificationErrorPresenter:
@@ -39,7 +56,10 @@ class NotificationErrorPresenter:
                 correlation_id=correlation_id,
                 details=details,
             )
-            await self._emit_html_error(message, error_text, reply_markup=reply_markup)
+            effective_markup = reply_markup
+            if effective_markup is None and error_type == "processing_failed":
+                effective_markup = _build_retry_markup(correlation_id)
+            await self._emit_html_error(message, error_text, reply_markup=effective_markup)
             if should_admin_log:
                 await self._context.response_sender.send_to_admin_log(
                     error_text,

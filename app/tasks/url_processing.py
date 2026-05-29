@@ -69,7 +69,9 @@ async def _process_url_request_body(
     db: Database,
     runtime: URLProcessingTaskRuntime,
 ) -> None:
-    from app.api.background.durable_jobs import RequestProcessingJobRepository
+    from app.infrastructure.persistence.request_processing_job_repository import (
+        RequestProcessingJobRepository,
+    )
 
     job_repo = RequestProcessingJobRepository(db)
     lease_owner = f"worker:taskiq:{request_id}"

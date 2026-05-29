@@ -20,12 +20,12 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.adapters.github.exceptions import InsufficientScopeError, InvalidGitHubTokenError
 from app.api.routers.auth.dependencies import get_current_user
+from app.application.exceptions.github import InsufficientScopeError, InvalidGitHubTokenError
+from app.application.ports.github_integration import GitHubAuthMethod
 from app.application.use_cases.manage_github_integration import (
     ManageGitHubIntegrationUseCase,
 )
-from app.db.models.repository import GitHubAuthMethod
 
 router = APIRouter(prefix="/v1/auth/github", tags=["auth-github"])
 
@@ -42,10 +42,18 @@ _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
 def _get_use_case(request: Request) -> ManageGitHubIntegrationUseCase:
     """Resolve ManageGitHubIntegrationUseCase from the API runtime database."""
+    from app.adapters.github.github_api_client import GitHubAPIClient
     from app.api.dependencies.database import get_session_manager
+    from app.infrastructure.persistence.repositories.github_integration_repository import (
+        GitHubIntegrationRepository,
+    )
 
     db = get_session_manager(request)
-    return ManageGitHubIntegrationUseCase(db)
+    repository = GitHubIntegrationRepository(db)
+    return ManageGitHubIntegrationUseCase(
+        repository=repository,
+        gateway_factory=GitHubAPIClient,
+    )
 
 
 def _get_correlation_id(request: Request) -> str:

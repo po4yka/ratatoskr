@@ -5,16 +5,42 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+from datetime import datetime
 from typing import Any
 
 from app.adapters.telegram.telethon_compat import InlineKeyboardButton, InlineKeyboardMarkup
-from app.api.models.responses import success_response
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
+from app.core.time_utils import UTC
 
 from ._response_sender_shared import ResponseSenderSharedState, build_json_filename
 
 logger = get_logger(__name__)
+
+
+def _build_success_envelope(
+    data: dict[str, Any],
+    *,
+    correlation_id: str | None = None,
+) -> dict[str, Any]:
+    """Build a minimal success envelope matching the Mobile API wire shape.
+
+    Mirrors ``app.api.models.responses.common.success_response`` for callers
+    that live outside the API layer.  The shape is intentionally identical so
+    clients cannot distinguish the source of the envelope.
+    """
+    ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    meta: dict[str, Any] = {
+        "correlation_id": correlation_id or "",
+        "timestamp": ts,
+        "version": os.getenv("APP_VERSION", "1.0.0"),
+        "api_version": "1.0.0",
+        "build": os.getenv("APP_BUILD") or None,
+        "pagination": None,
+        "debug": None,
+    }
+    return {"success": True, "data": data, "meta": meta}
 
 
 class ResponseSenderPayloadFlow:
@@ -35,7 +61,7 @@ class ResponseSenderPayloadFlow:
         if success and isinstance(obj, dict) and obj.get("success") in (True, False):
             payload = obj
         elif success:
-            payload = success_response(obj, correlation_id=correlation_id)
+            payload = _build_success_envelope(obj, correlation_id=correlation_id)
         else:
             payload = obj
 

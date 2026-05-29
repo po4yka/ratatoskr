@@ -21,6 +21,8 @@ from app.adapters.content.quality_filters import detect_low_value_content
 from app.adapters.content.scraper.protocol import ContentScraperProtocol
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.application.dto.aggregation import NormalizedSourceDocument
+from app.application.ports.cache import CachePort
+from app.application.ports.message_persistence import MessagePersistencePort
 from app.config import AppConfig
 from app.core.call_status import CallStatus
 from app.core.html_utils import clean_markdown_article_text, html_to_text
@@ -30,8 +32,6 @@ from app.core.url_utils import normalize_url, url_hash_sha256
 from app.core.validation import safe_message_id, safe_telegram_chat_id, safe_telegram_user_id
 from app.db.session import Database
 from app.domain.models.source import SourceItem, SourceKind
-from app.infrastructure.cache.redis_cache import RedisCache
-from app.infrastructure.persistence.message_persistence import MessagePersistence
 from app.observability.failure_observability import (
     REASON_FIRECRAWL_ERROR,
     REASON_FIRECRAWL_LOW_VALUE,
@@ -96,6 +96,8 @@ class ContentExtractor(
         sem: Callable[[], Any],
         quality_llm_client: LLMClientProtocol | None = None,
         platform_router: PlatformExtractionRouter | None = None,
+        cache: CachePort | None = None,
+        message_persistence: MessagePersistencePort | None = None,
     ) -> None:
         self.cfg = cfg
         self.db = db
@@ -107,8 +109,16 @@ class ContentExtractor(
         self._audit = audit_func
         self._sem = sem
         self._quality_llm_client = quality_llm_client
-        self._cache = RedisCache(cfg)
-        self.message_persistence = MessagePersistence(db)
+        if cache is None:
+            from app.infrastructure.cache.redis_cache import RedisCache
+
+            cache = RedisCache(cfg)
+        self._cache: CachePort = cache
+        if message_persistence is None:
+            from app.infrastructure.persistence.message_persistence import MessagePersistence
+
+            message_persistence = MessagePersistence(db)
+        self.message_persistence: MessagePersistencePort = message_persistence
         self._platform_request_lifecycle = PlatformRequestLifecycle(
             response_formatter=response_formatter,
             message_persistence=self.message_persistence,

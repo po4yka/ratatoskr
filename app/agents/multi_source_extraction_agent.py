@@ -5,13 +5,12 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from app.adapters.content.multi_source_classification import build_source_item_from_submission
 from app.adapters.telegram.multimodal_extractor import build_telegram_normalized_document
 from app.agents.base_agent import AgentResult, BaseAgent
 from app.application.dto.aggregation import (
     AggregationFailure,
+    MultiSourceExtractionInput,
     MultiSourceExtractionOutput,
     NormalizedSourceDocument,
     SourceExtractionItemResult,
@@ -31,19 +30,6 @@ from app.observability.metrics import (
 if TYPE_CHECKING:
     from app.adapters.content.content_extractor import ContentExtractor
     from app.application.ports.aggregation_sessions import AggregationSessionRepositoryPort
-
-
-class MultiSourceExtractionInput(BaseModel):
-    """Input bundle for the mixed-source extraction agent."""
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    correlation_id: str
-    user_id: int
-    items: list[SourceSubmission]
-    allow_partial_success: bool = True
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    progress_callback: Any = None
 
 
 class MultiSourceExtractionAgent(

@@ -77,15 +77,11 @@ class InteractiveSummaryServiceRequestTests(unittest.IsolatedAsyncioTestCase):
         self.response_formatter.send_cached_summary_notification = AsyncMock()
         self.openrouter = MagicMock()
 
-    @patch("app.adapters.content.summarization_runtime.RedisCache")
-    async def test_builds_parameter_presets_and_fallbacks(
-        self, redis_cache_mock: MagicMock
-    ) -> None:
+    async def test_builds_parameter_presets_and_fallbacks(self) -> None:
         cache_stub = MagicMock()
         cache_stub.enabled = False
         cache_stub.get_json = AsyncMock(return_value=None)
         cache_stub.set_json = AsyncMock()
-        redis_cache_mock.return_value = cache_stub
 
         runtime = SummarizationRuntime(
             cfg=cast("AppConfig", self.cfg),
@@ -94,6 +90,7 @@ class InteractiveSummaryServiceRequestTests(unittest.IsolatedAsyncioTestCase):
             response_formatter=self.response_formatter,
             audit_func=lambda *args, **kwargs: None,
             sem=lambda: _DummySemaphore(),
+            cache=cache_stub,
             **_runtime_repo_kwargs(),
         )
         pure_service = PureSummaryService(runtime=runtime)

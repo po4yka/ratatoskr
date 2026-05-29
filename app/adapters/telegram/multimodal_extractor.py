@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from app.adapters.telegram_source_helpers import (
+    build_source_item_from_telegram_payload,
+    classify_telegram_messages_source_kind,
+    coerce_telegram_messages,
+)
 from app.adapters.video.source_extractor import (
     MetadataDrivenVideoSourceExtractor,
     VideoSourceRequest,
@@ -17,72 +22,11 @@ from app.application.dto.aggregation import (
     SourceProvenance,
     SourceTextBlock,
 )
-from app.domain.models.source import SourceItem, SourceKind
+
+if TYPE_CHECKING:
+    from app.domain.models.source import SourceItem
 
 _VIDEO_SOURCE_EXTRACTOR = MetadataDrivenVideoSourceExtractor()
-
-
-def coerce_telegram_messages(payload: Any) -> list[Any]:
-    """Normalize a Telegram payload into an ordered list of message objects."""
-
-    if payload is None:
-        msg = "Telegram payload cannot be empty"
-        raise ValueError(msg)
-    if isinstance(payload, list | tuple):
-        messages = [message for message in payload if message is not None]
-    else:
-        messages = [payload]
-    if not messages:
-        msg = "Telegram payload cannot be empty"
-        raise ValueError(msg)
-    return sorted(messages, key=_message_sort_key)
-
-
-def classify_telegram_messages_source_kind(payload: Any) -> SourceKind:
-    """Classify one Telegram message or an album payload."""
-
-    messages = coerce_telegram_messages(payload)
-    primary_message = messages[0]
-    media_group_id = _coerce_str(getattr(primary_message, "media_group_id", None))
-    has_media = any(_has_supported_media(message) for message in messages)
-    if media_group_id and has_media:
-        return SourceKind.TELEGRAM_ALBUM
-    if has_media:
-        return SourceKind.TELEGRAM_POST_WITH_IMAGES
-    return SourceKind.TELEGRAM_POST
-
-
-def build_source_item_from_telegram_payload(
-    payload: Any,
-    *,
-    metadata: dict[str, Any] | None = None,
-) -> SourceItem:
-    """Build a stable source item for a Telegram message or album."""
-
-    messages = coerce_telegram_messages(payload)
-    primary_message = messages[0]
-    message_ids = [_coerce_int(_message_id(message)) for message in messages]
-    source_metadata = dict(metadata or {})
-    source_metadata.setdefault(
-        "message_ids",
-        [message_id for message_id in message_ids if message_id is not None],
-    )
-    source_metadata.setdefault("media_count", len(build_telegram_media_assets(messages)))
-    source_metadata.setdefault(
-        "video_processing_strategy",
-        "shared_video_source_extractor"
-        if any(getattr(message, "video", None) for message in messages)
-        else None,
-    )
-    return SourceItem.create(
-        kind=classify_telegram_messages_source_kind(messages),
-        original_value=combine_telegram_text(messages) or "",
-        telegram_chat_id=_coerce_int(getattr(getattr(primary_message, "chat", None), "id", None)),
-        telegram_message_id=_coerce_int(_message_id(primary_message)),
-        telegram_media_group_id=_coerce_str(getattr(primary_message, "media_group_id", None)),
-        title_hint=extract_telegram_title_hint(messages),
-        metadata={k: v for k, v in source_metadata.items() if v is not None},
-    )
 
 
 def build_telegram_normalized_document(

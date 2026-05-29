@@ -22,7 +22,7 @@ from app.core.logging_utils import get_logger
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
-    from app.adapters.llm import LLMClientProtocol
+    from app.application.ports.llm_client import LLMClientProtocol
 
 logger = get_logger(__name__)
 

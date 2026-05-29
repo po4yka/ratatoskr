@@ -25,6 +25,12 @@ from app.application.use_cases.search_read_model import SearchReadModelUseCase
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.config import load_config
 from app.core.logging_utils import get_logger
+from app.di.api_runtime_holder import (  # noqa: F401  - get/set/clear re-exported for back-compat
+    _current_runtime_holder,
+    clear_current_api_runtime,
+    get_current_api_runtime,
+    set_current_api_runtime,
+)
 from app.di.database import build_runtime_database
 from app.di.repositories import (
     build_crawl_result_repository,
@@ -58,10 +64,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Holder list lets the setters mutate without `global` — eliminates
-# the three legacy declarations called out as the most dangerous
-# leak in [[eliminate-module-globals]].
-_current_runtime_holder: list[ApiRuntime | None] = [None]
+# The process-wide runtime holder + its get/set/clear accessors live in the
+# api-free app.di.api_runtime_holder module (imported above and re-exported here)
+# so infrastructure can resolve the runtime DB without importing app.api.
 _runtime_lock = asyncio.Lock()
 
 
@@ -290,23 +295,6 @@ async def ensure_api_runtime() -> ApiRuntime:
         _current_runtime_holder[0] = await build_api_runtime()
         assert _current_runtime_holder[0] is not None
         return _current_runtime_holder[0]
-
-
-def get_current_api_runtime() -> ApiRuntime:
-    """Return the active API runtime, requiring explicit initialization."""
-    if _current_runtime_holder[0] is None:
-        msg = "API runtime is not initialized"
-        raise RuntimeError(msg)
-    return _current_runtime_holder[0]
-
-
-def set_current_api_runtime(runtime: ApiRuntime) -> None:
-    _current_runtime_holder[0] = runtime
-
-
-def clear_current_api_runtime() -> None:
-    """Clear the process-wide API runtime (call during shutdown)."""
-    _current_runtime_holder[0] = None
 
 
 def resolve_api_runtime(request: Request | None = None) -> ApiRuntime:

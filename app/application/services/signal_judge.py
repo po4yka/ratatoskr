@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
-    from app.adapters.llm.protocol import LLMClientProtocol
+    from app.application.ports.llm_client import LLMClientProtocol
 
 logger = get_logger(__name__)
 PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"

@@ -5,28 +5,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from datetime import datetime
-
-from sqlalchemy import func, select
-
-from app.adapters.github.exceptions import (
+from app.application.exceptions.github import (
     GitHubAuthError,
     InsufficientScopeError,
     InvalidGitHubTokenError,
 )
-from app.adapters.github.github_api_client import GitHubAPIClient
-from app.core.logging_utils import get_logger
-from app.db.models.repository import (
+from app.application.ports.github_integration import (
     GitHubAuthMethod,
-    GitHubIntegrationStatus as GitHubIntegrationStatusEnum,
-    Repository,
-    UserGitHubIntegration,
+    GitHubIntegrationRecord,
+    GitHubIntegrationRepositoryPort,
+    GitHubIntegrationStatus,
+    GitHubIntegrationUpsert,
 )
+from app.core.logging_utils import get_logger
 from app.security.token_crypto import encrypt_token
 
 if TYPE_CHECKING:
-    from app.db.session import Database
+    from collections.abc import Callable
+    from datetime import datetime
+
+    from app.application.ports.github_gateway import GitHubGateway
 
 logger = get_logger(__name__)
 
@@ -60,14 +58,14 @@ def _collect_scope_warnings(scopes: list[str]) -> list[str]:
 
 
 @dataclass(frozen=True)
-class GitHubIntegrationStatus:
+class GitHubIntegrationStatusDTO:
     """Read-model DTO returned by get_status."""
 
     is_connected: bool
     auth_method: GitHubAuthMethod | None
     github_login: str | None
     github_user_id: int | None
-    status: GitHubIntegrationStatusEnum | None
+    status: GitHubIntegrationStatus | None
     last_synced_at: datetime | None
     repo_count: int
 
@@ -75,8 +73,13 @@ class GitHubIntegrationStatus:
 class ManageGitHubIntegrationUseCase:
     """Validate, store, query, and revoke a user's GitHub integration token."""
 
-    def __init__(self, db: Database) -> None:
-        self._db = db
+    def __init__(
+        self,
+        repository: GitHubIntegrationRepositoryPort,
+        gateway_factory: Callable[[str], GitHubGateway],
+    ) -> None:
+        self._repo = repository
+        self._gateway_factory = gateway_factory
 
     async def validate_and_store(
         self,
@@ -85,16 +88,16 @@ class ManageGitHubIntegrationUseCase:
         user_id: int,
         *,
         correlation_id: str,
-    ) -> tuple[UserGitHubIntegration, list[str]]:
+    ) -> tuple[GitHubIntegrationRecord, list[str]]:
         """Validate token scopes, encrypt it, and upsert the integration row.
 
-        Returns (integration_row, scope_warnings).
+        Returns (integration_record, scope_warnings).
 
         Raises:
             InsufficientScopeError: token is missing required scopes.
             InvalidGitHubTokenError: GitHub rejected the token (401/403).
         """
-        async with GitHubAPIClient(token) as gh:
+        async with self._gateway_factory(token) as gh:
             try:
                 gh_user, scopes = await gh.get_user_with_scopes()
             except GitHubAuthError as exc:
@@ -112,32 +115,17 @@ class ManageGitHubIntegrationUseCase:
 
         encrypted = encrypt_token(token)
 
-        async with self._db.transaction() as session:
-            existing = await session.scalar(
-                select(UserGitHubIntegration).where(UserGitHubIntegration.user_id == user_id)
+        record = await self._repo.upsert(
+            GitHubIntegrationUpsert(
+                user_id=user_id,
+                auth_method=auth_method,
+                encrypted_token=encrypted,
+                token_scopes=token_scopes_value,
+                github_login=gh_user.login,
+                github_user_id=gh_user.id,
+                status=GitHubIntegrationStatus.ACTIVE,
             )
-            if existing is None:
-                row = UserGitHubIntegration(
-                    user_id=user_id,
-                    auth_method=auth_method,
-                    encrypted_token=encrypted,
-                    token_scopes=token_scopes_value,
-                    github_login=gh_user.login,
-                    github_user_id=gh_user.id,
-                    status=GitHubIntegrationStatusEnum.ACTIVE,
-                )
-                session.add(row)
-            else:
-                existing.auth_method = auth_method
-                existing.encrypted_token = encrypted
-                existing.token_scopes = token_scopes_value
-                existing.github_login = gh_user.login
-                existing.github_user_id = gh_user.id
-                existing.status = GitHubIntegrationStatusEnum.ACTIVE
-                row = existing
-
-            await session.flush()
-            await session.refresh(row)
+        )
 
         logger.info(
             "github_integration_connected",
@@ -148,49 +136,34 @@ class ManageGitHubIntegrationUseCase:
                 "github_login": gh_user.login,
             },
         )
-        return row, scope_warnings
+        return record, scope_warnings
 
-    async def get_status(self, user_id: int) -> GitHubIntegrationStatus:
+    async def get_status(self, user_id: int) -> GitHubIntegrationStatusDTO:
         """Return current integration status DTO. is_connected=False when no row exists."""
-        async with self._db.session() as session:
-            row = await session.scalar(
-                select(UserGitHubIntegration).where(UserGitHubIntegration.user_id == user_id)
-            )
-            if row is None:
-                return GitHubIntegrationStatus(
-                    is_connected=False,
-                    auth_method=None,
-                    github_login=None,
-                    github_user_id=None,
-                    status=None,
-                    last_synced_at=None,
-                    repo_count=0,
-                )
-
-            repo_count: int = (
-                await session.scalar(
-                    select(func.count())
-                    .select_from(Repository)
-                    .where(Repository.user_id == user_id)
-                )
-                or 0
+        record = await self._repo.get_by_user_id(user_id)
+        if record is None:
+            return GitHubIntegrationStatusDTO(
+                is_connected=False,
+                auth_method=None,
+                github_login=None,
+                github_user_id=None,
+                status=None,
+                last_synced_at=None,
+                repo_count=0,
             )
 
-        return GitHubIntegrationStatus(
+        repo_count = await self._repo.count_repositories(user_id)
+
+        return GitHubIntegrationStatusDTO(
             is_connected=True,
-            auth_method=row.auth_method,
-            github_login=row.github_login,
-            github_user_id=row.github_user_id,
-            status=row.status,
-            last_synced_at=row.last_synced_at,
+            auth_method=record.auth_method,
+            github_login=record.github_login,
+            github_user_id=record.github_user_id,
+            status=record.status,
+            last_synced_at=record.last_synced_at,
             repo_count=repo_count,
         )
 
     async def revoke(self, user_id: int) -> None:
         """Delete the integration row (user revokes on github.com themselves)."""
-        async with self._db.transaction() as session:
-            row = await session.scalar(
-                select(UserGitHubIntegration).where(UserGitHubIntegration.user_id == user_id)
-            )
-            if row is not None:
-                await session.delete(row)
+        await self._repo.delete_by_user_id(user_id)

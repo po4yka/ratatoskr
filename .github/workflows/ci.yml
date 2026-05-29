@@ -288,6 +288,51 @@ jobs:
         run: mypy app --show-error-codes --pretty --cache-dir .mypy_cache
 
 
+  import-linter:
+    name: Architecture - Import Linter (layering)
+    needs: prepare-environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download compiled requirements
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled-requirements
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        # import-linter builds the import graph by importing app.*, so the full
+        # runtime deps must be present. It is a CI-only architecture gate, so it
+        # is installed ad-hoc here rather than pinned into the lockfile.
+        run: |
+          uv pip sync --system requirements-all.txt requirements-dev.txt
+          uv pip install --system import-linter
+
+      # GATING: all layering contracts are green (the restore-architecture-layering
+      # epic closed every known violation), so the full suite gates the build and
+      # fails on ANY regression. Contracts live in .importlinter; see
+      # docs/explanation/architecture-overview.md#layering-contracts.
+      - name: Enforce layering contracts (gating)
+        run: lint-imports
+
+
   test:
     name: Unit Tests and Coverage
     needs: prepare-environment

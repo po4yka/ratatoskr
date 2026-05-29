@@ -17,9 +17,11 @@ if TYPE_CHECKING:
         ResponseFormatterFacade as ResponseFormatter,
     )
     from app.adapters.llm.protocol import LLMClientProtocol
+    from app.application.ports.message_persistence import (
+        MessagePersistencePort as MessagePersistence,
+    )
     from app.config import AppConfig
     from app.db.session import Database
-    from app.infrastructure.persistence.message_persistence import MessagePersistence
 
 
 @dataclass(frozen=True, slots=True)

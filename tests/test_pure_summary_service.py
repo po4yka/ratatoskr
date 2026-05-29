@@ -67,12 +67,15 @@ def _ok_result(payload: dict[str, Any], *, model: str = "primary-model") -> Stru
     )
 
 
-@pytest.mark.asyncio
-@patch("app.adapters.content.summarization_runtime.RedisCache")
-async def test_empty_content_rejected(redis_cache_mock: MagicMock) -> None:
-    cache_stub = MagicMock(enabled=False)
-    redis_cache_mock.return_value = cache_stub
+def _cache_stub() -> MagicMock:
+    stub = MagicMock(enabled=False)
+    stub.get_json = AsyncMock(return_value=None)
+    stub.set_json = AsyncMock(return_value=False)
+    return stub
 
+
+@pytest.mark.asyncio
+async def test_empty_content_rejected() -> None:
     runtime = SummarizationRuntime(
         cfg=cast("Any", _dummy_cfg()),
         db=MagicMock(),
@@ -80,6 +83,7 @@ async def test_empty_content_rejected(redis_cache_mock: MagicMock) -> None:
         response_formatter=MagicMock(),
         audit_func=lambda *args, **kwargs: None,
         sem=lambda: MagicMock(__aenter__=AsyncMock(), __aexit__=AsyncMock()),
+        cache=_cache_stub(),
         **_runtime_repo_kwargs(),
     )
     service = PureSummaryService(runtime=runtime)
@@ -95,11 +99,7 @@ async def test_empty_content_rejected(redis_cache_mock: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("app.adapters.content.summarization_runtime.RedisCache")
-async def test_long_context_model_selected(redis_cache_mock: MagicMock) -> None:
-    cache_stub = MagicMock(enabled=False)
-    redis_cache_mock.return_value = cache_stub
-
+async def test_long_context_model_selected() -> None:
     cfg = _dummy_cfg()
     cfg.openrouter.long_context_model = "long-model"
     openrouter = MagicMock()
@@ -115,6 +115,7 @@ async def test_long_context_model_selected(redis_cache_mock: MagicMock) -> None:
         sem=lambda: MagicMock(
             __aenter__=AsyncMock(return_value=None), __aexit__=AsyncMock(return_value=False)
         ),
+        cache=_cache_stub(),
         **_runtime_repo_kwargs(),
     )
     service = PureSummaryService(runtime=runtime)
@@ -194,11 +195,7 @@ async def test_token_based_truncation_triggers_for_cyrillic(
 
 
 @pytest.mark.asyncio
-@patch("app.adapters.content.summarization_runtime.RedisCache")
-async def test_feedback_instructions_included(redis_cache_mock: MagicMock) -> None:
-    cache_stub = MagicMock(enabled=False)
-    redis_cache_mock.return_value = cache_stub
-
+async def test_feedback_instructions_included() -> None:
     openrouter = MagicMock()
     openrouter.chat_structured = AsyncMock(
         return_value=_ok_result({"summary_250": "ok", "summary_1000": "ok", "tldr": "ok"})
@@ -212,6 +209,7 @@ async def test_feedback_instructions_included(redis_cache_mock: MagicMock) -> No
         sem=lambda: MagicMock(
             __aenter__=AsyncMock(return_value=None), __aexit__=AsyncMock(return_value=False)
         ),
+        cache=_cache_stub(),
         **_runtime_repo_kwargs(),
     )
     service = PureSummaryService(runtime=runtime)
@@ -231,11 +229,7 @@ async def test_feedback_instructions_included(redis_cache_mock: MagicMock) -> No
 
 
 @pytest.mark.asyncio
-@patch("app.adapters.content.summarization_runtime.RedisCache")
-async def test_parse_failure_raises(redis_cache_mock: MagicMock) -> None:
-    cache_stub = MagicMock(enabled=False)
-    redis_cache_mock.return_value = cache_stub
-
+async def test_parse_failure_raises() -> None:
     openrouter = MagicMock()
     openrouter.chat_structured = AsyncMock(
         side_effect=ValueError("parse error: invalid JSON response from model")
@@ -249,6 +243,7 @@ async def test_parse_failure_raises(redis_cache_mock: MagicMock) -> None:
         sem=lambda: MagicMock(
             __aenter__=AsyncMock(return_value=None), __aexit__=AsyncMock(return_value=False)
         ),
+        cache=_cache_stub(),
         **_runtime_repo_kwargs(),
     )
     service = PureSummaryService(runtime=runtime)
@@ -264,11 +259,7 @@ async def test_parse_failure_raises(redis_cache_mock: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("app.adapters.content.summarization_runtime.RedisCache")
-async def test_ensure_summary_payload_enriches_metadata(redis_cache_mock: MagicMock) -> None:
-    cache_stub = MagicMock(enabled=False)
-    redis_cache_mock.return_value = cache_stub
-
+async def test_ensure_summary_payload_enriches_metadata() -> None:
     runtime = SummarizationRuntime(
         cfg=cast("Any", _dummy_cfg()),
         db=MagicMock(),
@@ -276,6 +267,7 @@ async def test_ensure_summary_payload_enriches_metadata(redis_cache_mock: MagicM
         response_formatter=MagicMock(),
         audit_func=lambda *args, **kwargs: None,
         sem=lambda: MagicMock(__aenter__=AsyncMock(return_value=None), __aexit__=AsyncMock()),
+        cache=_cache_stub(),
         **_runtime_repo_kwargs(),
     )
     ensure_summary_metadata = AsyncMock(
@@ -302,13 +294,7 @@ async def test_ensure_summary_payload_enriches_metadata(redis_cache_mock: MagicM
 
 
 @pytest.mark.asyncio
-@patch("app.adapters.content.summarization_runtime.RedisCache")
-async def test_ensure_summary_payload_exposes_prompt_injection_flag(
-    redis_cache_mock: MagicMock,
-) -> None:
-    cache_stub = MagicMock(enabled=False)
-    redis_cache_mock.return_value = cache_stub
-
+async def test_ensure_summary_payload_exposes_prompt_injection_flag() -> None:
     runtime = SummarizationRuntime(
         cfg=cast("Any", _dummy_cfg()),
         db=MagicMock(),
@@ -316,6 +302,7 @@ async def test_ensure_summary_payload_exposes_prompt_injection_flag(
         response_formatter=MagicMock(),
         audit_func=lambda *args, **kwargs: None,
         sem=lambda: MagicMock(__aenter__=AsyncMock(return_value=None), __aexit__=AsyncMock()),
+        cache=_cache_stub(),
         **_runtime_repo_kwargs(),
     )
     cast("Any", runtime.metadata_helper).ensure_summary_metadata = AsyncMock(

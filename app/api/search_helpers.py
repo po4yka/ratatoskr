@@ -11,6 +11,7 @@ from typing import Any
 
 from app.application.services.topic_search_utils import ensure_mapping
 from app.core.logging_utils import get_logger
+from app.core.time_utils import isotime  # noqa: F401 - re-export; canonical def lives in app.core
 
 logger = get_logger(__name__)
 
@@ -245,12 +246,3 @@ def build_facets(results: list[dict[str, Any]]) -> dict[str, Any]:
         "tags": top(tags),
         "read_states": top(read_states, limit=4),
     }
-
-
-def isotime(dt_val: Any) -> str:
-    """Convert datetime to ISO string with Z suffix."""
-    if dt_val is None:
-        return ""
-    if hasattr(dt_val, "isoformat"):
-        return str(dt_val.isoformat()) + "Z"
-    return str(dt_val)

@@ -495,7 +495,9 @@ class URLProcessor:
         (logged + swallowed) so observability bugs cannot break URL handling.
         """
         try:
-            from app.api.background.durable_jobs import RequestProcessingJobRepository
+            from app.infrastructure.persistence.request_processing_job_repository import (
+                RequestProcessingJobRepository,
+            )
 
             repo = RequestProcessingJobRepository(self.db)
             await repo.record_synchronous_start(
@@ -566,7 +568,9 @@ class URLProcessor:
         if req_id is None:
             return
         try:
-            from app.api.background.durable_jobs import RequestProcessingJobRepository
+            from app.infrastructure.persistence.request_processing_job_repository import (
+                RequestProcessingJobRepository,
+            )
 
             repo = RequestProcessingJobRepository(self.db)
             await repo.record_synchronous_outcome(

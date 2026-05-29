@@ -15,7 +15,6 @@ from app.adapters.content.llm_summarizer_metadata import LLMSummaryMetadataHelpe
 from app.adapters.content.llm_summarizer_semantic import LLMSemanticHelper
 from app.adapters.content.llm_summarizer_text import coerce_string_list, truncate_content_text
 from app.adapters.content.search_context_enricher import SearchContextEnricher
-from app.infrastructure.cache.redis_cache import RedisCache
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,6 +23,7 @@ if TYPE_CHECKING:
         ResponseFormatterFacade as ResponseFormatter,
     )
     from app.adapters.llm.protocol import LLMClientProtocol
+    from app.application.ports.cache import CachePort
     from app.application.ports.requests import (
         CrawlResultRepositoryPort,
         LLMRepositoryPort,
@@ -56,6 +56,7 @@ class SummarizationRuntime:
         crawl_result_repo: CrawlResultRepositoryPort | None = None,
         llm_repo: LLMRepositoryPort | None = None,
         user_repo: UserRepositoryPort | None = None,
+        cache: CachePort | None = None,
     ) -> None:
         self.cfg = cfg
         self.db = db
@@ -98,7 +99,11 @@ class SummarizationRuntime:
             llm_repo=llm_repo,
             user_repo=user_repo,
         )
-        self.cache = RedisCache(cfg)
+        if cache is None:
+            from app.infrastructure.cache.redis_cache import RedisCache
+
+            cache = RedisCache(cfg)
+        self.cache: CachePort = cache
         self.prompt_version = cfg.runtime.summary_prompt_version
         self.semantic_helper = LLMSemanticHelper()
         self.cache_helper = LLMSummaryCache(
