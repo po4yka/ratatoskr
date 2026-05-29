@@ -554,6 +554,18 @@ async def _analyze_pending(
     semaphore = asyncio.Semaphore(settings.github.llm_concurrency)
     budget = settings.github.llm_daily_budget
 
+    # Build the analyze use case (LLM client + embedding service + Qdrant store)
+    # once per run and reuse it across repos, instead of reconstructing it (a new
+    # QdrantClient handshake + fresh embedding model cache) for every repo. Lazy
+    # so dry-run / budget-exhausted runs never build it. Safe to share: the
+    # builder is synchronous, so the first-caller check cannot interleave.
+    _use_case_cache: list[Any] = []
+
+    def _get_use_case() -> Any:
+        if not _use_case_cache:
+            _use_case_cache.append(_build_analyze_use_case(db, settings))
+        return _use_case_cache[0]
+
     async def _one(repo: Repository) -> None:
         async with semaphore:
             if llm_calls_made[0] >= budget:
@@ -565,7 +577,7 @@ async def _analyze_pending(
             if dry_run:
                 return
             try:
-                use_case = _build_analyze_use_case(db, settings)
+                use_case = _get_use_case()
                 await use_case.analyze(
                     repo.id,
                     correlation_id=correlation_id,

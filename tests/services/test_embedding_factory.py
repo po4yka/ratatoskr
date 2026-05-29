@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+
 import pytest
 
 from app.config.integrations import EmbeddingConfig
-from app.infrastructure.embedding.embedding_factory import create_embedding_service
+from app.infrastructure.embedding.embedding_factory import (
+    create_embedding_service,
+    reset_embedding_service_cache,
+)
 from app.infrastructure.embedding.embedding_protocol import EmbeddingServiceProtocol
 from app.infrastructure.embedding.embedding_service import EmbeddingService
+
+
+@pytest.fixture(autouse=True)
+def _clear_service_cache() -> Generator[None]:
+    """Isolate the process-wide service cache between tests."""
+    reset_embedding_service_cache()
+    yield
+    reset_embedding_service_cache()
 
 
 class TestCreateEmbeddingService:
@@ -44,6 +57,48 @@ class TestCreateEmbeddingService:
         object.__setattr__(config, "provider", "unknown")
         with pytest.raises(ValueError, match="Unknown embedding provider"):
             create_embedding_service(config)
+
+
+class TestServiceCaching:
+    def test_local_service_is_process_cached(self) -> None:
+        first = create_embedding_service(None)
+        second = create_embedding_service(EmbeddingConfig(provider="local"))
+        # None and an explicit local config share the same cache key, so the
+        # same instance (and its loaded-model cache) is reused -- not rebuilt.
+        assert first is second
+
+    def test_gemini_cached_by_signature(self) -> None:
+        cfg = EmbeddingConfig(
+            provider="gemini",
+            gemini_api_key="k",
+            gemini_model="gemini-embedding-2-preview",
+            gemini_dimensions=768,
+        )
+        first = create_embedding_service(cfg)
+        second = create_embedding_service(
+            EmbeddingConfig(
+                provider="gemini",
+                gemini_api_key="k",
+                gemini_model="gemini-embedding-2-preview",
+                gemini_dimensions=768,
+            )
+        )
+        assert first is second
+
+    def test_gemini_distinct_dimensions_not_shared(self) -> None:
+        a = create_embedding_service(
+            EmbeddingConfig(provider="gemini", gemini_api_key="k", gemini_dimensions=768)
+        )
+        b = create_embedding_service(
+            EmbeddingConfig(provider="gemini", gemini_api_key="k", gemini_dimensions=256)
+        )
+        assert a is not b
+
+    def test_reset_rebuilds_instance(self) -> None:
+        first = create_embedding_service(None)
+        reset_embedding_service_cache()
+        second = create_embedding_service(None)
+        assert first is not second
 
 
 class TestEmbeddingConfig:

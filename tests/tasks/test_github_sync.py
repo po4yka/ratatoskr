@@ -500,6 +500,82 @@ async def test_concurrency_cap_observed(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_use_case_built_once_per_run_not_per_repo(monkeypatch):
+    """The analyze use case (Qdrant client + embedding service) is constructed
+    once per run and reused across all repos, not rebuilt for each repo."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _analyze_pending
+
+    repos = [_make_repo(github_id=i) for i in range(1, 6)]
+    cfg = _build_cfg(llm_concurrency=2, llm_daily_budget=100)
+
+    analyze_calls = []
+
+    async def _fake_analyze(repo_id, *, correlation_id, chosen_lang="en"):
+        analyze_calls.append(repo_id)
+        return MagicMock(cached=False)
+
+    fake_use_case = MagicMock()
+    fake_use_case.analyze = _fake_analyze
+
+    build_calls = []
+
+    def _build(db_, settings_):
+        build_calls.append(1)
+        return fake_use_case
+
+    with patch("app.tasks.github_sync._build_analyze_use_case", side_effect=_build):
+        llm_made = [0]
+        llm_deferred = [0]
+        await _analyze_pending(
+            repos,
+            settings=cfg,
+            db=MagicMock(),
+            correlation_id="test-cid",
+            llm_calls_made=llm_made,
+            llm_calls_deferred=llm_deferred,
+        )
+
+    assert len(analyze_calls) == 5
+    assert len(build_calls) == 1, "use case must be built once per run, not per repo"
+
+
+@pytest.mark.asyncio
+async def test_dry_run_never_builds_use_case(monkeypatch):
+    """A dry run must not construct the use case (no Qdrant/embedding handshake)."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _analyze_pending
+
+    repos = [_make_repo(github_id=i) for i in range(1, 4)]
+    cfg = _build_cfg(llm_concurrency=2, llm_daily_budget=100)
+
+    build_calls = []
+
+    def _build(db_, settings_):
+        build_calls.append(1)
+        return MagicMock()
+
+    with patch("app.tasks.github_sync._build_analyze_use_case", side_effect=_build):
+        await _analyze_pending(
+            repos,
+            settings=cfg,
+            db=MagicMock(),
+            correlation_id="test-cid",
+            llm_calls_made=[0],
+            llm_calls_deferred=[0],
+            dry_run=True,
+        )
+
+    assert build_calls == [], "dry run must not build the use case"
+
+
+@pytest.mark.asyncio
 async def test_auth_error_flips_status_and_notifies(monkeypatch):
     """GitHubAuthError → status=needs_reauth, DM sent once, notified_at set."""
     _stub_taskiq(monkeypatch)
