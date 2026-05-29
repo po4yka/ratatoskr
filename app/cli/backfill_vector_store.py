@@ -176,10 +176,13 @@ async def backfill_vector_store(
                 pending_vector_count = 0
                 return
             for pending_request_id, request_vectors, request_metadata in pending_requests:
+                # Backfill is operator-rerunnable, so skip the per-request disk
+                # flush; a lost write is recovered by re-running the backfill.
                 vector_store.replace_request_notes(
                     pending_request_id,
                     request_vectors,
                     request_metadata,
+                    wait=False,
                 )
             pending_requests.clear()
             pending_vector_count = 0

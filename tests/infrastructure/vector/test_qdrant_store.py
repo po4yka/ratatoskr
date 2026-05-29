@@ -203,3 +203,29 @@ def test_qdrant_store_failure_paths_respect_required_flag() -> None:
     query_store = _store(query_client)
     assert query_store.query([0.1], None, 1).hits == []
     assert query_store.available is False
+
+
+def test_upsert_notes_chunks_large_batches_and_forwards_wait() -> None:
+    client = _Client()
+    store = _store(client)
+
+    count = 600  # > 2 * the 256-point chunk size
+    vectors = [[0.1, 0.2, 0.3] for _ in range(count)]
+    metadatas = [{"request_id": i, "summary_id": i} for i in range(count)]
+
+    store.upsert_notes(vectors, metadatas, wait=False)
+
+    # ceil(600 / 256) = 3 chunks, none larger than the chunk size.
+    assert len(client.upserts) == 3
+    assert [len(call["points"]) for call in client.upserts] == [256, 256, 88]
+    # wait is forwarded to every chunk.
+    assert all(call["wait"] is False for call in client.upserts)
+    # All points are written exactly once.
+    assert sum(len(call["points"]) for call in client.upserts) == count
+
+
+def test_upsert_notes_defaults_to_wait_true() -> None:
+    client = _Client()
+    store = _store(client)
+    store.upsert_notes([[0.1, 0.2, 0.3]], [{"request_id": 1, "summary_id": 1}])
+    assert client.upserts[0]["wait"] is True

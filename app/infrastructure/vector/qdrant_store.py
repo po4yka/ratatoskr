@@ -33,6 +33,10 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Upsert points are chunked into bounded batches so a large backfill does not
+# build one oversized request body (Qdrant streams each chunk independently).
+_UPSERT_CHUNK_SIZE = 256
+
 
 class QdrantVectorStore:
     """Synchronous vector store wrapper around Qdrant.
@@ -311,7 +315,17 @@ class QdrantVectorStore:
         vectors: Sequence[Sequence[float]],
         metadatas: Sequence[dict[str, Any]],
         ids: Sequence[str] | None = None,
+        *,
+        wait: bool = True,
     ) -> None:
+        """Upsert vectors with metadata, chunked into bounded batches.
+
+        ``wait=True`` (default) blocks until Qdrant has flushed each chunk to
+        disk -- callers that must read-after-write rely on it. Bulk/backfill
+        callers pass ``wait=False`` to avoid blocking on the disk flush; the
+        vector reconciler re-indexes anything a non-waited write loses, so
+        at-least-once semantics hold.
+        """
         if not self._available:
             self.ensure_available()
         if not self._available:
@@ -331,11 +345,12 @@ class QdrantVectorStore:
         points = self._build_points(vectors, metadatas, final_ids)
 
         try:
-            self._client.upsert(
-                collection_name=self._collection_name,
-                points=points,
-                wait=True,
-            )
+            for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
+                self._client.upsert(
+                    collection_name=self._collection_name,
+                    points=points[start : start + _UPSERT_CHUNK_SIZE],
+                    wait=wait,
+                )
         except Exception as exc:
             logger.error("vector_upsert_failed", extra={"count": len(vectors), "error": str(exc)})
             record_vector_write(operation="upsert", status="failed")
@@ -349,7 +364,14 @@ class QdrantVectorStore:
         vectors: Sequence[Sequence[float]],
         metadatas: Sequence[dict[str, Any]],
         ids: Sequence[str] | None = None,
+        *,
+        wait: bool = True,
     ) -> None:
+        """Replace a request's points (upsert new, delete stale).
+
+        ``wait=False`` is for operator-rerunnable batch backfills that do not
+        need read-after-write; live paths keep the default ``wait=True``.
+        """
         if not self._available:
             self.ensure_available()
         if not self._available:
@@ -373,13 +395,18 @@ class QdrantVectorStore:
         client = self._client
         try:
             existing_uuid_strs = self._fetch_request_point_ids(request_id)
-            client.upsert(collection_name=self._collection_name, points=points, wait=True)
+            for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
+                client.upsert(
+                    collection_name=self._collection_name,
+                    points=points[start : start + _UPSERT_CHUNK_SIZE],
+                    wait=wait,
+                )
             stale = existing_uuid_strs - new_uuid_strs
             if stale:
                 client.delete(
                     collection_name=self._collection_name,
                     points_selector=PointIdsList(points=list(stale)),
-                    wait=True,
+                    wait=wait,
                 )
         except Exception as exc:
             logger.error(

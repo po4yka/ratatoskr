@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from app.application.dto.vector_search import VectorSearchHitDTO
 
@@ -150,6 +150,15 @@ class EmbeddingProviderPort(Protocol):
         task_type: str = "document",
     ) -> list[float]:
         """Generate an embedding vector."""
+
+    async def generate_embeddings_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        language: str | None = None,
+        task_type: str = "document",
+    ) -> list[Any]:
+        """Generate embeddings for many texts in one batched call."""
 
     def serialize_embedding(self, embedding: list[float]) -> bytes:
         """Serialize the embedding for persistence."""

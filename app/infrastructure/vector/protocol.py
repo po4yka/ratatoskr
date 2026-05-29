@@ -56,6 +56,8 @@ class VectorStore(Protocol):
         vectors: Sequence[Sequence[float]],
         metadatas: Sequence[dict[str, Any]],
         ids: Sequence[str] | None = None,
+        *,
+        wait: bool = True,
     ) -> None: ...
 
     def replace_request_notes(
@@ -64,6 +66,8 @@ class VectorStore(Protocol):
         vectors: Sequence[Sequence[float]],
         metadatas: Sequence[dict[str, Any]],
         ids: Sequence[str] | None = None,
+        *,
+        wait: bool = True,
     ) -> None: ...
 
     def query(

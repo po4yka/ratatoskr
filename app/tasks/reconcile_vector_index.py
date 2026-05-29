@@ -78,39 +78,19 @@ async def _reconcile_body(cfg: AppConfig, db: Database) -> ReconcileSummary:
 
     generator = _build_generator(cfg, db)
 
-    requeued = 0
-    skipped = 0
-    failed = 0
-    for row in rows:
-        summary_id: int = row["summary_id"]
-        payload = row["json_payload"]
-        if not isinstance(payload, dict):
-            skipped += 1
-            continue
-        try:
-            ok = await generator.generate_embedding_for_summary(
-                summary_id=summary_id,
-                payload=payload,
-                language=row.get("lang_detected"),
-                force=True,
-            )
-        except Exception:
-            logger.exception(
-                "vector_reconcile_summary_failed",
-                extra={"cid": correlation_id, "summary_id": summary_id},
-            )
-            failed += 1
-            continue
-        if ok:
-            requeued += 1
-        else:
-            skipped += 1
+    # Batch-encode all stale rows with one native encode() per language, instead
+    # of one model.encode() per row (5-10x slower on MiniLM). force=True because
+    # _fetch_stale_summaries already selected only rows that need re-indexing.
+    batch = await generator.generate_embeddings_for_summaries(
+        [(row["summary_id"], row["json_payload"], row.get("lang_detected")) for row in rows],
+        force=True,
+    )
 
     summary = ReconcileSummary(
         scanned=len(rows),
-        requeued=requeued,
-        skipped=skipped,
-        failed=failed,
+        requeued=batch.indexed,
+        skipped=batch.skipped,
+        failed=batch.failed,
     )
     logger.info(
         "vector_reconcile_complete",

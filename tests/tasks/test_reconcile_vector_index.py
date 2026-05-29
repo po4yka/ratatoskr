@@ -101,30 +101,19 @@ async def test_reconcile_returns_zero_when_no_stale_rows(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_requeues_stale_rows_with_force_true(monkeypatch):
+async def test_reconcile_batches_stale_rows_with_force_true(monkeypatch):
     _stub_taskiq(monkeypatch)
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
     _evict_app_tasks()
 
+    from app.application.services.summary_embedding_generator import EmbeddingBatchResult
     from app.tasks.reconcile_vector_index import _reconcile_body
 
     rows = [
-        {
-            "summary_id": 11,
-            "json_payload": {"summary_250": "a"},
-            "lang_detected": "en",
-        },
-        {
-            "summary_id": 22,
-            "json_payload": {"summary_250": "b"},
-            "lang_detected": "ru",
-        },
-        {
-            "summary_id": 33,
-            # Non-dict payload — should be counted as skipped, not failed.
-            "json_payload": "legacy-string",
-            "lang_detected": None,
-        },
+        {"summary_id": 11, "json_payload": {"summary_250": "a"}, "lang_detected": "en"},
+        {"summary_id": 22, "json_payload": {"summary_250": "b"}, "lang_detected": "ru"},
+        # Non-dict payload — the generator counts it as skipped, not failed.
+        {"summary_id": 33, "json_payload": "legacy-string", "lang_detected": None},
     ]
     monkeypatch.setattr(
         "app.tasks.reconcile_vector_index._fetch_stale_summaries",
@@ -132,7 +121,9 @@ async def test_reconcile_requeues_stale_rows_with_force_true(monkeypatch):
     )
 
     fake_generator = SimpleNamespace(
-        generate_embedding_for_summary=AsyncMock(side_effect=[True, False])
+        generate_embeddings_for_summaries=AsyncMock(
+            return_value=EmbeddingBatchResult(indexed=1, skipped=2, failed=0)
+        )
     )
     monkeypatch.setattr(
         "app.tasks.reconcile_vector_index._build_generator",
@@ -142,23 +133,25 @@ async def test_reconcile_requeues_stale_rows_with_force_true(monkeypatch):
     summary = await _reconcile_body(_build_cfg(), MagicMock())
 
     assert summary.scanned == 3
-    assert summary.requeued == 1  # one True
-    assert summary.skipped == 2  # one False + one non-dict payload
+    assert summary.requeued == 1
+    assert summary.skipped == 2
     assert summary.failed == 0
 
-    calls = fake_generator.generate_embedding_for_summary.await_args_list
-    assert [c.kwargs["summary_id"] for c in calls] == [11, 22]
-    assert all(c.kwargs["force"] is True for c in calls)
-    assert calls[0].kwargs["language"] == "en"
-    assert calls[1].kwargs["language"] == "ru"
+    # All rows are handed to the batch method in one call, with force=True.
+    call = fake_generator.generate_embeddings_for_summaries.await_args
+    items = call.args[0]
+    assert [it[0] for it in items] == [11, 22, 33]
+    assert [it[2] for it in items] == ["en", "ru", None]
+    assert call.kwargs["force"] is True
 
 
 @pytest.mark.asyncio
-async def test_reconcile_swallows_per_summary_exceptions(monkeypatch):
+async def test_reconcile_surfaces_batch_failure_counts(monkeypatch):
     _stub_taskiq(monkeypatch)
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
     _evict_app_tasks()
 
+    from app.application.services.summary_embedding_generator import EmbeddingBatchResult
     from app.tasks.reconcile_vector_index import _reconcile_body
 
     monkeypatch.setattr(
@@ -172,7 +165,9 @@ async def test_reconcile_swallows_per_summary_exceptions(monkeypatch):
     )
 
     fake_generator = SimpleNamespace(
-        generate_embedding_for_summary=AsyncMock(side_effect=[RuntimeError("boom"), True])
+        generate_embeddings_for_summaries=AsyncMock(
+            return_value=EmbeddingBatchResult(indexed=1, skipped=0, failed=1)
+        )
     )
     monkeypatch.setattr(
         "app.tasks.reconcile_vector_index._build_generator",

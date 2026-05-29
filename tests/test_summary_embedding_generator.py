@@ -204,6 +204,92 @@ async def test_dependency_error_is_logged_without_traceback(generator_fixture) -
     assert "dependency" in warning_event.lower()
 
 
+class TestGenerateEmbeddingsForSummaries:
+    @pytest.mark.asyncio
+    async def test_batches_per_language_and_persists_each(self, generator_fixture) -> None:
+        generator, embedding_service, embedding_repo, _, _ = generator_fixture
+        embedding_service.get_model_name.side_effect = lambda lang=None: f"model-{lang}"
+        embedding_service.generate_embeddings_batch = AsyncMock(
+            side_effect=lambda texts, **_kw: [[0.0]] * len(texts)
+        )
+
+        items = [
+            (1, {"summary_250": "a"}, "en"),
+            (2, {"summary_250": "b"}, "en"),
+            (3, {"summary_250": "c"}, "ru"),
+        ]
+        result = await generator.generate_embeddings_for_summaries(items, force=True)
+
+        assert (result.indexed, result.skipped, result.failed) == (3, 0, 0)
+        # One batched encode per language (2), not one per row (3).
+        assert embedding_service.generate_embeddings_batch.await_count == 2
+        assert embedding_repo.async_create_or_update_summary_embedding.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_skips_non_dict_and_empty_text(self, generator_fixture) -> None:
+        generator, embedding_service, _, _, _ = generator_fixture
+        embedding_service.generate_embeddings_batch = AsyncMock(return_value=[[0.1]])
+
+        items = [
+            (1, "legacy-string", None),  # non-dict -> skipped
+            (2, {"summary_250": "ok"}, None),  # embeds
+        ]
+        result = await generator.generate_embeddings_for_summaries(items, force=True)
+
+        assert result.skipped == 1
+        assert result.indexed == 1
+        # Only the embeddable row reaches the batch encode.
+        texts = embedding_service.generate_embeddings_batch.await_args.args[0]
+        assert len(texts) == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_already_indexed_when_not_forced(self, generator_fixture) -> None:
+        generator, embedding_service, embedding_repo, _, _ = generator_fixture
+        payload = {"summary_250": "Summary text"}
+        embedding_repo.async_get_summary_embedding.return_value = {
+            "model_name": "test-model",
+            "content_hash": _expected_hash(payload),
+        }
+        embedding_service.generate_embeddings_batch = AsyncMock(return_value=[])
+
+        result = await generator.generate_embeddings_for_summaries(
+            [(1, payload, "en")], force=False
+        )
+
+        assert result.skipped == 1
+        assert result.indexed == 0
+        embedding_service.generate_embeddings_batch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_dependency_unavailable_skips_group_once(self, generator_fixture) -> None:
+        generator, embedding_service, _, _, _ = generator_fixture
+        embedding_service.generate_embeddings_batch = AsyncMock(
+            side_effect=EmbeddingDependencyUnavailableError("no torch")
+        )
+
+        with patch("app.application.services.summary_embedding_generator.logger") as mock_logger:
+            result = await generator.generate_embeddings_for_summaries(
+                [(1, {"summary_250": "a"}, "en"), (2, {"summary_250": "b"}, "en")],
+                force=True,
+            )
+
+        assert (result.indexed, result.skipped, result.failed) == (0, 2, 0)
+        mock_logger.exception.assert_not_called()
+        assert mock_logger.warning.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_batch_encode_failure_counts_as_failed(self, generator_fixture) -> None:
+        generator, embedding_service, _, _, _ = generator_fixture
+        embedding_service.generate_embeddings_batch = AsyncMock(side_effect=RuntimeError("boom"))
+
+        result = await generator.generate_embeddings_for_summaries(
+            [(1, {"summary_250": "a"}, "en")], force=True
+        )
+
+        assert result.failed == 1
+        assert result.indexed == 0
+
+
 @pytest.mark.asyncio
 async def test_generate_embedding_for_request_handles_missing_request_summary_or_payload(
     generator_fixture,

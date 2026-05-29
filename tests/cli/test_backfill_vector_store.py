@@ -127,7 +127,7 @@ async def test_backfill_vector_store_batches_chunk_window_embeddings(
             self.replaced: list[tuple[int, list[list[float]], list[dict]]] = []
             self.deleted: list[int] = []
 
-        def replace_request_notes(self, request_id, vectors, metadata) -> None:
+        def replace_request_notes(self, request_id, vectors, metadata, *, wait=True) -> None:
             self.replaced.append((request_id, vectors, metadata))
 
         def delete_by_request_id(self, request_id) -> None:
@@ -207,7 +207,7 @@ async def test_backfill_vector_store_refetches_generated_embeddings_in_bulk(
         def __init__(self) -> None:
             self.replaced: list[tuple[int, list[list[float]], list[dict]]] = []
 
-        def replace_request_notes(self, request_id, vectors, metadata) -> None:
+        def replace_request_notes(self, request_id, vectors, metadata, *, wait=True) -> None:
             self.replaced.append((request_id, vectors, metadata))
 
         def delete_by_request_id(self, _request_id) -> None:
