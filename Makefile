@@ -79,12 +79,16 @@ lock-uv:
 	uv lock
 	uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
 	uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
+	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp -o requirements-all.txt
+	python3 tools/scripts/check_excluded_versions.py
 
 check-lock:
 	uv lock
 	uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
 	uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
-	@git diff --exit-code uv.lock requirements.txt requirements-dev.txt || (echo "Lockfiles are out of date. Run 'make lock-uv' and commit changes." && exit 1)
+	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp -o requirements-all.txt
+	@git diff --exit-code uv.lock requirements.txt requirements-dev.txt requirements-all.txt || (echo "Lockfiles are out of date. Run 'make lock-uv' and commit changes." && exit 1)
+	python3 tools/scripts/check_excluded_versions.py
 
 generate-openapi: ## Generate docs/openapi/mobile_api.yaml/json from app.api.main:app
 	uv run --frozen --extra api python tools/scripts/generate_openapi.py
