@@ -153,20 +153,25 @@ requires-python = ">=3.13"
 # Core dependencies: Telegram bot, HTTP, database, NLP, logging
 dependencies = [
   "httpx[http2]>=0.28.1",
-  "telethon>=1.42.0",
+  "telethon>=1.42.0,<2",
   "pydantic>=2.13.4",
   "pydantic-settings>=2.14.1",
   "pyyaml>=6.0.3",
-  "scrapling>=0.4.8",
+  "scrapling>=0.4.8,<1",
   "msgspec>=0.21.1",
   "browserforge>=1.2.4",
   "curl_cffi>=0.15.0",
-  "trafilatura>=2.0.0",
+  "trafilatura>=2.0.0,<3",
+  # spacy: stays in base deps. The only usage is spacy.blank()+sentencizer in
+  # app/core/html_utils.py:_get_spacy_sentencizer (deferred import, 1 call site).
+  # The import is lazy but the runtime path is non-optional (sentence splitting
+  # for HTML extraction). Replacing with a pure-Python splitter is possible but
+  # out of scope; keeping the existing <4 upper bound.
   "spacy>=3.8.11,<4",
   "json-repair>=0.59.10",
   "tenacity>=8.2.0",
-  "openai>=2.38.0",
-  "instructor>=1.5.0",
+  "openai>=2.38.0,<3",
+  "instructor>=1.5.0,<2",
   "loguru>=0.7.3",
   "orjson>=3.11.9",
   "uvloop>=0.22.1",
@@ -199,13 +204,13 @@ browser_scraper = [
 
 # LLM-driven last-resort scraper (lazy-imported; only fires when all other providers fail)
 scraper_ai = [
-  "scrapegraphai>=2.1.1",
+  "scrapegraphai>=2.1.1,<3",
 ]
 
 # Shared inference stack used by both api (semantic search) and ml (training/backfill)
 inference_core = [
-  "qdrant-client>=1.18.0",
-  "sentence-transformers>=5.5.1",  # semantic embedding generation
+  "qdrant-client>=1.18.0,<2",
+  "sentence-transformers>=5.5.1,<6",  # semantic embedding generation
 ]
 
 # Mobile REST API dependencies (FastAPI, JWT auth, vector search client)
@@ -216,9 +221,9 @@ api = [
   # undocumented `fastar` typosquat dependency into the [standard] extras
   # group (osv.dev/MAL-2026-4750, published 2026-05-23). Exclude it; the
   # upstream registry has yanked it but the exclusion is defense in depth.
-  "fastapi>=0.128.0,!=0.136.3",
+  "fastapi>=0.128.0,!=0.136.3,<1",
   "uvicorn[standard]>=0.48.0",
-  "starlette>=1.1.0",
+  "starlette>=1.1.0,<2",
   "sse-starlette>=3.4.4",
   "pyjwt>=2.13.0",
   "cryptography>=48.0.0",
@@ -230,8 +235,8 @@ api = [
 # Machine learning dependencies (embeddings, vector search, transformers)
 ml = [
   "ratatoskr[inference_core]",
-  "torch>=2.12.0",
-  "transformers>=5.9.0",
+  "torch>=2.12.0,<3",
+  "transformers>=5.9.0,<6",
   "scikit-learn>=1.8.0",
 ]
 
@@ -246,7 +251,7 @@ youtube = [
 # Requires ffmpeg on PATH at runtime. Also relies on yt-dlp from the `youtube`
 # extra when transcribing URL inputs through /transcribe.
 transcription = [
-  "sherpa-onnx>=1.10",
+  "sherpa-onnx>=1.10,<2",
 ]
 
 # Twitter/X extraction (uses base runtime dependencies)
@@ -254,7 +259,7 @@ twitter = []
 
 # PDF export functionality
 export = [
-  "weasyprint>=68.0",
+  "weasyprint>=68.0,<69",
 ]
 
 # Background task scheduling
@@ -265,18 +270,18 @@ scheduler = [
 
 # Gemini embedding provider (google-genai SDK)
 gemini = [
-  "google-genai>=2.4.0",
+  "google-genai>=2.4.0,<3",
 ]
 
 # Push notifications (Firebase Cloud Messaging / APNS)
 push = [
-  "firebase-admin>=7.4.0",
+  "firebase-admin>=7.4.0,<8",
 ]
 
 # Monitoring and observability
 monitoring = [
   "prometheus_client>=0.25.0",
-  "sentry-sdk[fastapi,loguru]>=2.60.0",
+  "sentry-sdk[fastapi,loguru]>=2.60.0,<3",
 ]
 
 # MCP (Model Context Protocol) server for AI agent integrations
@@ -287,8 +292,8 @@ mcp = [
 # LangChain/LangGraph agent orchestration with Postgres checkpointing
 langgraph = [
   "langchain>=1.0,<2",
-  "langgraph>=1.1.10",
-  "langgraph-checkpoint-postgres>=3.1.0",
+  "langgraph>=1.1.10,<2",
+  "langgraph-checkpoint-postgres>=3.1.0,<4",
   "psycopg[binary]>=3.0",
 ]
 
@@ -303,10 +308,10 @@ otel = [
   "opentelemetry-api>=1.41,<2",
   "opentelemetry-sdk>=1.42.1,<2",
   "opentelemetry-exporter-otlp-proto-grpc>=1.41,<2",
-  "opentelemetry-instrumentation-fastapi>=0.63b1",
-  "opentelemetry-instrumentation-httpx>=0.62b0",
-  "opentelemetry-instrumentation-redis>=0.62b0",
-  "opentelemetry-instrumentation-logging>=0.62b0",
+  "opentelemetry-instrumentation-fastapi>=0.63b1,<1",
+  "opentelemetry-instrumentation-httpx>=0.63b1,<1",
+  "opentelemetry-instrumentation-redis>=0.63b1,<1",
+  "opentelemetry-instrumentation-logging>=0.63b1,<1",
 ]
 
 
