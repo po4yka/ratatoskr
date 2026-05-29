@@ -313,7 +313,7 @@ class TestSyncSnapshotPaging(unittest.TestCase):
 
         mod.model_to_dict = fake_model_to_dict  # type: ignore[assignment]
         try:
-            results = asyncio.get_event_loop().run_until_complete(repo.async_get_all_for_user(42))
+            results = asyncio.run(repo.async_get_all_for_user(42))
         finally:
             mod.model_to_dict = original_mtd  # type: ignore[assignment]
 
@@ -381,9 +381,7 @@ class TestSmartCollectionNoCap(unittest.TestCase):
 
         col_mod.model_to_dict = fake_model_to_dict  # type: ignore[assignment]
         try:
-            results = asyncio.get_event_loop().run_until_complete(
-                repo.async_list_user_summaries_with_request(99)
-            )
+            results = asyncio.run(repo.async_list_user_summaries_with_request(99))
         finally:
             col_mod.model_to_dict = original_mtd  # type: ignore[assignment]
 
