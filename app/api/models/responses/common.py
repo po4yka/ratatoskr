@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.api.context import correlation_id_ctx
 from app.api.exceptions import ErrorType
+from app.application.dto.stream_enums import ProcessingStage, ProgressEventKind  # noqa: F401
 from app.core.time_utils import UTC
 
 
@@ -75,27 +76,6 @@ class RequestStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
-
-
-class ProcessingStage(StrEnum):
-    """Canonical public processing stages for request status polling and streams."""
-
-    QUEUED = "queued"
-    EXTRACTING = "extracting"
-    SUMMARIZING = "summarizing"
-    VALIDATING = "validating"
-    PERSISTING = "persisting"
-    DONE = "done"
-
-
-class ProgressEventKind(StrEnum):
-    """Canonical public SSE progress event kinds."""
-
-    STAGE = "stage"
-    SECTION = "section"
-    WARNING = "warning"
-    DONE = "done"
-    ERROR = "error"
 
 
 class PaginationInfo(BaseModel):

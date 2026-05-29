@@ -7,8 +7,8 @@
 #   * domain-independence             -> GATING (always green)
 #   * infrastructure-no-api           -> GATING (green via remove-infrastructure-dependency-on-api-session-manager, A2)
 #   * content-no-telegram             -> GATING (green via break-circular-import-cycles, A3: content no longer imports telegram)
-#   * application-no-outward          -> advisory; fix-inner-layer-dependency-direction-leaks (A1) + service deps
-#   * tasks-no-api                    -> advisory; break-circular-import-cycles-and-drop-plc0415-suppression (A3)
+#   * tasks-no-api                    -> GATING (green via A3: durable_jobs moved to infra, stream/response DTOs to neutral modules)
+#   * application-no-outward          -> advisory; fix-inner-layer-dependency-direction-leaks (A1) + service deps via app.agents
 [importlinter]
 root_package = app
 

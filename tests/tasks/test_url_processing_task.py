@@ -139,7 +139,7 @@ async def test_process_url_request_lease_not_acquired(monkeypatch):
     from app.tasks.url_processing import _process_url_request_body
 
     with patch(
-        "app.api.background.durable_jobs.RequestProcessingJobRepository",
+        "app.infrastructure.persistence.request_processing_job_repository.RequestProcessingJobRepository",
         new=MagicMock(return_value=job_repo),
     ):
         await _process_url_request_body(
@@ -194,7 +194,7 @@ async def test_process_url_request_happy_path(monkeypatch):
 
     with (
         patch(
-            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            "app.infrastructure.persistence.request_processing_job_repository.RequestProcessingJobRepository",
             new=MagicMock(return_value=job_repo),
         ),
         patch(
@@ -251,7 +251,7 @@ async def test_process_url_request_idempotent_when_summary_exists(monkeypatch):
 
     with (
         patch(
-            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            "app.infrastructure.persistence.request_processing_job_repository.RequestProcessingJobRepository",
             new=MagicMock(return_value=job_repo),
         ),
         patch(
@@ -308,7 +308,7 @@ async def test_process_url_request_marks_failed_on_exception(monkeypatch):
 
     with (
         patch(
-            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            "app.infrastructure.persistence.request_processing_job_repository.RequestProcessingJobRepository",
             new=MagicMock(return_value=job_repo),
         ),
         patch(
