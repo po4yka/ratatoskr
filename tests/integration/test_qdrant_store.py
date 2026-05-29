@@ -206,6 +206,19 @@ def test_get_indexed_summary_ids_returns_inserted(store: QdrantVectorStore) -> N
 
 
 @pytest.mark.integration
+def test_get_indexed_summary_ids_paginates_beyond_one_page(store: QdrantVectorStore) -> None:
+    """More points than a single scroll page must all be returned (no truncation)."""
+    count = 5500  # > the default 5000-point scroll page size
+    vectors = [[float(i % 7) * 0.1, 0.2, 0.3] for i in range(1, count + 1)]
+    metadatas = [_meta(i, i) for i in range(1, count + 1)]
+    store.upsert_notes(vectors, metadatas)
+
+    ids = store.get_indexed_summary_ids()
+    assert len(ids) == count
+    assert ids == set(range(1, count + 1))
+
+
+@pytest.mark.integration
 def test_get_indexed_summary_ids_filters_by_user_id(store: QdrantVectorStore) -> None:
     store.upsert_notes(
         [_vec(0.1), _vec(0.2)],

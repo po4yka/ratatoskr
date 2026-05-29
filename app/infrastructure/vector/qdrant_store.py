@@ -255,19 +255,47 @@ class QdrantVectorStore:
             )
         return points
 
+    def _scroll_all(
+        self,
+        *,
+        scroll_filter: Filter,
+        with_payload: Any,
+        page_size: int = 5000,
+    ) -> list[Any]:
+        """Scroll every matching point, following next_page_offset to exhaustion.
+
+        A single ``client.scroll()`` returns at most ``limit`` points plus a
+        ``next_page_offset``. Callers that need the complete set (reconciler
+        drift detection) must page through to the end; otherwise large
+        collections silently truncate and already-indexed points are reported
+        as missing.
+        """
+        client = self._client
+        records: list[Any] = []
+        offset: Any = None
+        page = max(1, int(page_size))
+        while True:
+            batch, offset = client.scroll(
+                collection_name=self._collection_name,
+                scroll_filter=scroll_filter,
+                limit=page,
+                with_payload=with_payload,
+                with_vectors=False,
+                offset=offset,
+            )
+            records.extend(batch)
+            if offset is None:
+                break
+        return records
+
     def _fetch_request_point_ids(self, request_id: int | str) -> set[str]:
         """Return all Qdrant point UUID strings stored for a request."""
-        client = self._client
         try:
             req_filter = Filter(
                 must=[FieldCondition(key="request_id", match=MatchValue(value=int(request_id)))]
             )
-            records, _ = client.scroll(
-                collection_name=self._collection_name,
-                scroll_filter=req_filter,
-                limit=10_000,
-                with_payload=False,
-                with_vectors=False,
+            records = self._scroll_all(
+                scroll_filter=req_filter, with_payload=False, page_size=10_000
             )
             return {str(r.id) for r in records}
         except Exception:
@@ -485,13 +513,10 @@ class QdrantVectorStore:
             ]
         )
         try:
-            client = self._client
-            records, _ = client.scroll(
-                collection_name=self._collection_name,
+            records = self._scroll_all(
                 scroll_filter=scroll_filter,
-                limit=limit or 5000,
                 with_payload=["summary_id"],
-                with_vectors=False,
+                page_size=limit or 5000,
             )
             summary_ids: set[int] = set()
             for record in records:
@@ -529,12 +554,10 @@ class QdrantVectorStore:
             ]
         )
         try:
-            records, _ = self._client.scroll(
-                collection_name=self._collection_name,
+            records = self._scroll_all(
                 scroll_filter=scroll_filter,
-                limit=limit or 5000,
                 with_payload=["repository_id"],
-                with_vectors=False,
+                page_size=limit or 5000,
             )
             repository_ids: set[int] = set()
             for record in records:
@@ -572,12 +595,10 @@ class QdrantVectorStore:
             ]
         )
         try:
-            records, _ = self._client.scroll(
-                collection_name=self._collection_name,
+            records = self._scroll_all(
                 scroll_filter=scroll_filter,
-                limit=limit or 5000,
                 with_payload=["wiki_path"],
-                with_vectors=False,
+                page_size=limit or 5000,
             )
             wiki_paths: set[str] = set()
             for record in records:
@@ -619,12 +640,10 @@ class QdrantVectorStore:
             ]
         )
         try:
-            records, _ = self._client.scroll(
-                collection_name=self._collection_name,
+            records = self._scroll_all(
                 scroll_filter=scroll_filter,
-                limit=limit or 5000,
                 with_payload=["wiki_path", "content_hash"],
-                with_vectors=False,
+                page_size=limit or 5000,
             )
             path_hashes: dict[str, str] = {}
             for record in records:
