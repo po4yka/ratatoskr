@@ -100,6 +100,7 @@ Project-specific conventions that aren't visible from code alone. Treat these as
 7. **Update both `en` and `ru` prompts together.** Files under `app/prompts/` come in mirrored pairs (`summary_system_en.txt` / `summary_system_ru.txt`, etc.); changing one without the other silently breaks the other-language path.
 8. **YouTube, Twitter/X, and academic papers each have dedicated extractors** (`app/adapters/youtube/`, `twitter/`, `academic/`) that bypass the standard scraper chain. Check `requests.source_kind` before assuming the chain ran.
 9. **Webwright is the only chain rung that costs real LLM money per URL.** Default off (`WEBWRIGHT_ENABLED=false`) and double-gated by a non-empty `WEBWRIGHT_HOST_ALLOWLIST` — an empty allowlist short-circuits provider construction so the sidecar is never called. The same sidecar serves `/browse` (Path B) and `WebwrightEnricher` (Path C); design rationale lives in `docs/explanation/webwright.md`.
+10. **When a client ships a new default client_id, add it to `app/config/known_client_ids.py` `KNOWN_CLIENT_IDS` and to every deployment's `ALLOWED_CLIENT_IDS` env var (or set `AUTH_ALLOW_ANY_CLIENT_ID=true` for local/development deployments).**
 
 ### Bugbear rules to never suppress project-wide
 
