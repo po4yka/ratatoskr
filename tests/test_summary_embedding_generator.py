@@ -210,7 +210,7 @@ class TestGenerateEmbeddingsForSummaries:
         generator, embedding_service, embedding_repo, _, _ = generator_fixture
         embedding_service.get_model_name.side_effect = lambda lang=None: f"model-{lang}"
         embedding_service.generate_embeddings_batch = AsyncMock(
-            side_effect=lambda texts, **_kw: [[0.0]] * len(texts)
+            side_effect=lambda texts, **_kw: [[0.0] for _ in texts]
         )
 
         items = [
