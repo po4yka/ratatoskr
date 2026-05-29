@@ -41,6 +41,7 @@ class _FakeQdrantClient:
         limit: int,
         with_payload: list[str],
         with_vectors: bool,
+        offset: Any = None,
     ) -> tuple[list[Any], None]:
         self.scroll_calls.append(
             {
@@ -49,8 +50,10 @@ class _FakeQdrantClient:
                 "limit": limit,
                 "with_payload": with_payload,
                 "with_vectors": with_vectors,
+                "offset": offset,
             }
         )
+        # Return next_page_offset=None so _scroll_all terminates after one page.
         return self._scroll_records, None
 
     def delete(
