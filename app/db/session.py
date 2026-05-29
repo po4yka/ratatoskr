@@ -53,7 +53,15 @@ class Database:
     _backup: DatabaseBackupService = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        engine_kwargs: dict[str, Any] = {"pool_pre_ping": True}
+        engine_kwargs: dict[str, Any] = {
+            "pool_pre_ping": True,
+            # asyncpg prepared-statement cache size (per connection). Configurable
+            # so it can be set to 0 to avoid "cached plan must not change result
+            # type" errors under a pooling proxy or varying IN-list churn.
+            "connect_args": {
+                "prepared_statement_cache_size": self.config.prepared_statement_cache_size,
+            },
+        }
         if os.getenv("RATATOSKR_DATABASE_NULL_POOL") == "1":
             engine_kwargs["poolclass"] = NullPool
         else:
@@ -61,6 +69,7 @@ class Database:
                 pool_size=self.config.pool_size,
                 max_overflow=self.config.max_overflow,
                 pool_recycle=self.config.pool_recycle_seconds,
+                pool_timeout=self.config.pool_timeout_seconds,
             )
         self._engine = create_async_engine(self.config.dsn, **engine_kwargs)
         self._session_maker = async_sessionmaker(

@@ -631,6 +631,9 @@ class DigestStore:
         user_id: int,
         channel: Any,
     ) -> dict[str, Any]:
+        # Uses transaction() (not session()) deliberately: _ensure_channel_source
+        # upserts the backing Source/Subscription rows and syncs channel fields,
+        # so this path needs the commit. It is not read-only.
         async with self._database().transaction() as session:
             source = await self._ensure_channel_source(
                 session=session,

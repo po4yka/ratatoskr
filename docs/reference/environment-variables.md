@@ -570,6 +570,8 @@ See [`docs/cocoindex.md`](../cocoindex.md) for architecture, summary/repository 
 | `DB_BACKUP_DIR` | `/data/backups` | Backup directory inside the bot container |
 | `DB_OPERATION_TIMEOUT` | `30.0` | Per-operation timeout (seconds) |
 | `DB_MAX_RETRIES` | `3` | Retries on transient `serialization_failure` / deadlock |
+| `DATABASE_POOL_TIMEOUT_SECONDS` | `30.0` | Seconds to wait for a free pooled connection before `TimeoutError` (SQLAlchemy `QueuePool.pool_timeout`) |
+| `DATABASE_PREPARED_STATEMENT_CACHE_SIZE` | `100` | asyncpg prepared-statement cache size per connection. Set to `0` to disable caching if `cached plan must not change result type` errors appear (transaction-pooling proxy, or varying IN-list churn after migrations) |
 | `DB_JSON_MAX_SIZE` | `10000000` | Max JSONB payload size validated at the application layer (bytes, 10MB) |
 | `DB_JSON_MAX_DEPTH` | `20` | Max JSON nesting depth validated at the application layer |
 | `DB_JSON_MAX_ARRAY_LENGTH` | `10000` | Max JSON array length validated at the application layer |

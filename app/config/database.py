@@ -35,6 +35,27 @@ class DatabaseConfig(BaseModel):
         validation_alias="DATABASE_POOL_RECYCLE_SECONDS",
         description="Seconds before SQLAlchemy recycles pooled connections",
     )
+    pool_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="DATABASE_POOL_TIMEOUT_SECONDS",
+        description=(
+            "Seconds to wait for a free pooled connection before raising "
+            "TimeoutError (SQLAlchemy QueuePool.pool_timeout). Made explicit so "
+            "pool-exhaustion behavior is configurable rather than implicit."
+        ),
+    )
+    prepared_statement_cache_size: int = Field(
+        default=100,
+        ge=0,
+        validation_alias="DATABASE_PREPARED_STATEMENT_CACHE_SIZE",
+        description=(
+            "asyncpg prepared-statement cache size per connection (SQLAlchemy "
+            "asyncpg dialect). Default 100 keeps current behavior. Set to 0 to "
+            "disable caching if 'cached plan must not change result type' errors "
+            "appear -- e.g. behind a transaction-pooling proxy, or from varying "
+            "IN-list lengths churning cached plans after a migration."
+        ),
+    )
     operation_timeout: float = Field(
         default=30.0,
         validation_alias="DB_OPERATION_TIMEOUT",
