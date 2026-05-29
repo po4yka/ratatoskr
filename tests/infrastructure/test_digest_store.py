@@ -177,7 +177,9 @@ async def test_digest_store_reads_counts_and_basic_crud() -> None:
             [post],
             [delivery],
             [subscription],
-            [[101, "102"], None],
+            # async_list_delivered_message_ids now unnests + casts server-side,
+            # so the query yields flat distinct ints (not posts_json blobs).
+            [101, 102],
             [1],
         ],
     )

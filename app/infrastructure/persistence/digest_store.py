@@ -6,7 +6,8 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import Integer, distinct, func, insert, select, update
+from sqlalchemy import cast as sa_cast
 from sqlalchemy.orm import selectinload
 
 from app.core.time_utils import utc_now
@@ -448,20 +449,21 @@ class DigestStore:
     async def async_list_delivered_message_ids(self, user_id: int) -> set[int]:
         cutoff = utc_now() - timedelta(days=30)
         async with self._database().session() as session:
+            # Unnest + DISTINCT server-side so only the distinct integer ids cross
+            # the wire, instead of fetching every delivery's full posts_json blob
+            # and flattening it in Python. jsonb_typeof guards non-array payloads
+            # (matching the previous isinstance(list) check).
+            post_id = sa_cast(func.jsonb_array_elements_text(DigestDelivery.posts_json), Integer)
             rows = (
                 await session.execute(
-                    select(DigestDelivery.posts_json).where(
+                    select(distinct(post_id)).where(
                         DigestDelivery.user_id == user_id,
                         DigestDelivery.delivered_at >= cutoff,
+                        func.jsonb_typeof(DigestDelivery.posts_json) == "array",
                     )
                 )
             ).scalars()
-
-            delivered: set[int] = set()
-            for posts_json in rows:
-                if posts_json and isinstance(posts_json, list):
-                    delivered.update(int(post_id) for post_id in posts_json)
-            return delivered
+            return {int(value) for value in rows if value is not None}
 
     def list_delivered_message_ids(self, user_id: int) -> set[int]:
         return _run_sync(self.async_list_delivered_message_ids(user_id))
