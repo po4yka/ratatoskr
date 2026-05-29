@@ -56,19 +56,21 @@ async def test_persist_llm_call_increments_usage_metrics() -> None:
         per_model_attempts=[],
     )
 
+    # "test/model" is not in the configured allowlist, so it is bucketed to
+    # "other" by _bucket_model().  Assertions use "other" intentionally.
     calls_before = metrics.LLM_CALL_ATTEMPTS_TOTAL.labels(
         provider="openrouter",
-        model="test/model",
+        model="other",
         status="ok",
     )._value.get()
     prompt_before = metrics.LLM_TOKENS_TOTAL.labels(
         provider="openrouter",
-        model="test/model",
+        model="other",
         type="prompt",
     )._value.get()
     cost_before = metrics.LLM_COST_USD_TOTAL.labels(
         provider="openrouter",
-        model="test/model",
+        model="other",
     )._value.get()
 
     await storage._persist_llm_call(llm, req_id=123, correlation_id="cid")
@@ -77,7 +79,7 @@ async def test_persist_llm_call_increments_usage_metrics() -> None:
     assert (
         metrics.LLM_CALL_ATTEMPTS_TOTAL.labels(
             provider="openrouter",
-            model="test/model",
+            model="other",
             status="ok",
         )._value.get()
         == calls_before + 1
@@ -85,12 +87,12 @@ async def test_persist_llm_call_increments_usage_metrics() -> None:
     assert (
         metrics.LLM_TOKENS_TOTAL.labels(
             provider="openrouter",
-            model="test/model",
+            model="other",
             type="prompt",
         )._value.get()
         == prompt_before + 11
     )
     assert metrics.LLM_COST_USD_TOTAL.labels(
         provider="openrouter",
-        model="test/model",
+        model="other",
     )._value.get() == pytest.approx(cost_before + 0.003)

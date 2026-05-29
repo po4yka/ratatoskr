@@ -15,10 +15,27 @@ Usage:
 
     # Record Firecrawl API call
     record_firecrawl_request(status="success", endpoint="scrape", latency_ms=1500)
+
+Cardinality ceiling
+-------------------
+LLM/OpenRouter metrics use ``_bucket_model()`` to cap the ``model`` label to the
+configured allowlist plus the ``"other"`` catch-all.  With a typical deployment
+of 5-8 actively tracked models the ceiling is::
+
+    (len(MODEL_LABEL_ALLOWLIST) + 1) x per-metric label combinations
+
+For the default allowlist of 9 entries that means at most 10 model label values
+per metric family, keeping Pi-hosted Prometheus well within its series budget
+even as OpenRouter experiments add new model IDs to the fallback chain.
+
+The ``platform`` label on ``AGGREGATION_EXTRACTION`` is bounded to
+``_KNOWN_PLATFORMS`` (8 values + ``"other"``), preventing free-form leakage
+from new social-platform source kinds.
 """
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from app.core.logging_utils import get_logger
@@ -40,6 +57,79 @@ except ImportError:
 
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Model-label bucketing — caps cardinality for all LLM/OpenRouter metrics
+# ---------------------------------------------------------------------------
+# Default allowlist: the primary model + all default fallback models defined
+# in OpenRouterConfig and ModelRoutingConfig.  Operators who override
+# OPENROUTER_MODEL / OPENROUTER_FALLBACK_MODELS at runtime should call
+# configure_model_allowlist() during DI setup so that their custom models are
+# tracked individually instead of collapsing into "other".
+_DEFAULT_MODEL_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # OpenRouterConfig defaults
+        "deepseek/deepseek-v4-flash",
+        "qwen/qwen3.6-flash",
+        "qwen/qwen3.6-plus-04-02",
+        "moonshotai/kimi-k2-0905",
+        "minimax/minimax-m2",
+        # ModelRoutingConfig defaults
+        "deepseek/deepseek-v4-pro",
+        "x-ai/grok-4.20-beta",
+        # Flash model + flash fallback
+        # (qwen/qwen3.6-flash already listed above)
+        # Long-context alias
+        # (minimax/minimax-m2 already listed above)
+    }
+)
+
+_model_allowlist_lock = threading.Lock()
+_model_allowlist: frozenset[str] = _DEFAULT_MODEL_ALLOWLIST
+
+
+def configure_model_allowlist(models: frozenset[str] | set[str]) -> None:
+    """Replace the model-label allowlist with the operator-configured set.
+
+    Call this once during DI setup, passing the union of all model IDs that
+    should be tracked as individual label values.  Any model not in the set
+    will be reported as ``"other"``.
+
+    Example (in DI setup)::
+
+        from app.observability.metrics import configure_model_allowlist
+        configure_model_allowlist(
+            {cfg.openrouter.model, *cfg.openrouter.fallback_models}
+        )
+    """
+    global _model_allowlist
+    with _model_allowlist_lock:
+        _model_allowlist = frozenset(models) | {"other"}
+
+
+def _bucket_model(model: str) -> str:
+    """Return *model* if it is in the allowlist, else ``"other"``.
+
+    Thread-safe; reads the module-level ``_model_allowlist`` frozenset which
+    is replaced atomically by :func:`configure_model_allowlist`.
+    """
+    return model if model in _model_allowlist else "other"
+
+
+# Known platform values for AGGREGATION_EXTRACTION.
+# Adding a new social-platform source kind requires updating this set AND the
+# _platform_from_source_kind() mapping in multi_source_extraction_agent.py.
+_KNOWN_PLATFORMS: frozenset[str] = frozenset(
+    {"twitter", "instagram", "telegram", "threads", "youtube", "web", "unknown"}
+)
+
+
+def _bucket_platform(platform: str) -> str:
+    """Return *platform* if it is a known platform, else ``"other"``."""
+    return platform if platform in _KNOWN_PLATFORMS else "other"
+
+
+# ---------------------------------------------------------------------------
 
 # Create a custom registry to avoid conflicts with default registry
 if PROMETHEUS_AVAILABLE:
@@ -428,10 +518,13 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    # Single integer gauge per (bucketed) model: 0=closed, 1=half_open, 2=open.
+    # This replaces the old 3-series-per-model label-per-state pattern, cutting
+    # series count from 3xN to 1xN.
     OPENROUTER_CIRCUIT_BREAKER_STATE = Gauge(
         "openrouter_circuit_breaker_state",
-        "Per-model circuit breaker state (0=closed, 1=half_open, 2=open).",
-        ["model", "state"],
+        "Per-model circuit breaker state: 0=closed, 1=half_open, 2=open.",
+        ["model"],
         registry=REGISTRY,
     )
 
@@ -572,17 +665,18 @@ def record_openrouter_call(
     if not PROMETHEUS_AVAILABLE:
         return
 
+    bucketed = _bucket_model(model)
     if prompt_tokens > 0:
-        OPENROUTER_TOKENS.labels(model=model, type="prompt").inc(prompt_tokens)
+        OPENROUTER_TOKENS.labels(model=bucketed, type="prompt").inc(prompt_tokens)
 
     if completion_tokens > 0:
-        OPENROUTER_TOKENS.labels(model=model, type="completion").inc(completion_tokens)
+        OPENROUTER_TOKENS.labels(model=bucketed, type="completion").inc(completion_tokens)
 
     if cost_usd > 0:
         OPENROUTER_COST_USD.inc(cost_usd)
 
     if latency_seconds is not None:
-        OPENROUTER_LATENCY.labels(model=model).observe(latency_seconds)
+        OPENROUTER_LATENCY.labels(model=bucketed).observe(latency_seconds)
 
 
 def record_circuit_breaker_state(service: str, state: str) -> None:
@@ -757,7 +851,7 @@ def record_aggregation_extraction(
         return
     AGGREGATION_EXTRACTION.labels(
         source_kind=source_kind,
-        platform=platform,
+        platform=_bucket_platform(platform),
         outcome=outcome,
         fallback_tier=fallback_tier,
         media_type=media_type,
@@ -797,7 +891,7 @@ def record_per_model_timeout(model: str) -> None:
     """
     if not PROMETHEUS_AVAILABLE:
         return
-    OPENROUTER_PER_MODEL_TIMEOUT.labels(model=model).inc()
+    OPENROUTER_PER_MODEL_TIMEOUT.labels(model=_bucket_model(model)).inc()
 
 
 def record_per_model_latency(model: str, outcome: str, seconds: float) -> None:
@@ -811,15 +905,18 @@ def record_per_model_latency(model: str, outcome: str, seconds: float) -> None:
     """
     if not PROMETHEUS_AVAILABLE:
         return
-    OPENROUTER_PER_MODEL_LATENCY.labels(model=model, outcome=outcome).observe(seconds)
+    OPENROUTER_PER_MODEL_LATENCY.labels(model=_bucket_model(model), outcome=outcome).observe(
+        seconds
+    )
 
 
 def record_per_model_circuit_breaker_state(model: str, state: str) -> None:
     """Update the per-model circuit breaker state gauge.
 
-    Uses a label-per-state pattern: each ``(model, state)`` combination
-    is set to 1.0 when active and 0.0 when inactive, so dashboards can
-    filter on ``state`` label values directly.
+    Writes a single integer per bucketed model: 0=closed, 1=half_open, 2=open.
+    This replaces the former 3-series-per-model label-per-state pattern, which
+    produced 3xN Prometheus series.  Dashboards should alert/filter on
+    ``openrouter_circuit_breaker_state >= 1`` (any non-closed state).
 
     Args:
         model: Model name whose breaker changed state.
@@ -827,10 +924,8 @@ def record_per_model_circuit_breaker_state(model: str, state: str) -> None:
     """
     if not PROMETHEUS_AVAILABLE:
         return
-    for s in ("closed", "open", "half_open"):
-        OPENROUTER_CIRCUIT_BREAKER_STATE.labels(model=model, state=s).set(
-            1.0 if s == state else 0.0
-        )
+    state_int = {"closed": 0, "half_open": 1, "open": 2}.get(state, 0)
+    OPENROUTER_CIRCUIT_BREAKER_STATE.labels(model=_bucket_model(model)).set(state_int)
 
 
 def record_openrouter_stream_fallback(model: str, reason: str) -> None:
@@ -842,7 +937,7 @@ def record_openrouter_stream_fallback(model: str, reason: str) -> None:
     """
     if not PROMETHEUS_AVAILABLE:
         return
-    OPENROUTER_STREAM_FALLBACK.labels(model=model, reason=reason).inc()
+    OPENROUTER_STREAM_FALLBACK.labels(model=_bucket_model(model), reason=reason).inc()
 
 
 def record_aggregation_synthesis(
@@ -890,7 +985,9 @@ def record_llm_call_attempt(*, provider: str, model: str, status: str) -> None:
     """
     if not PROMETHEUS_AVAILABLE:
         return
-    LLM_CALL_ATTEMPTS_TOTAL.labels(provider=provider, model=model, status=status).inc()
+    LLM_CALL_ATTEMPTS_TOTAL.labels(
+        provider=provider, model=_bucket_model(model), status=status
+    ).inc()
 
 
 def record_llm_call_retry_exhaustion(*, model: str) -> None:
@@ -901,7 +998,7 @@ def record_llm_call_retry_exhaustion(*, model: str) -> None:
     """
     if not PROMETHEUS_AVAILABLE:
         return
-    LLM_CALL_RETRY_EXHAUSTION_TOTAL.labels(model=model).inc()
+    LLM_CALL_RETRY_EXHAUSTION_TOTAL.labels(model=_bucket_model(model)).inc()
 
 
 def record_llm_call_latency(*, model: str, latency_seconds: float) -> None:
@@ -914,7 +1011,7 @@ def record_llm_call_latency(*, model: str, latency_seconds: float) -> None:
         return
     if latency_seconds < 0:
         return
-    LLM_CALL_LATENCY_SECONDS.labels(model=model).observe(latency_seconds)
+    LLM_CALL_LATENCY_SECONDS.labels(model=_bucket_model(model)).observe(latency_seconds)
 
 
 def record_llm_call_persisted(call: dict[str, Any]) -> None:
@@ -924,24 +1021,25 @@ def record_llm_call_persisted(call: dict[str, Any]) -> None:
 
     provider = str(call.get("provider") or "unknown")
     model = str(call.get("model") or "unknown")
+    bucketed = _bucket_model(model)
     status = str(call.get("status") or "unknown")
     prompt_tokens = int(call.get("tokens_prompt") or 0)
     completion_tokens = int(call.get("tokens_completion") or 0)
     cost_usd = call.get("cost_usd")
     latency_ms = call.get("latency_ms")
 
-    LLM_CALL_ATTEMPTS_TOTAL.labels(provider=provider, model=model, status=status).inc()
+    LLM_CALL_ATTEMPTS_TOTAL.labels(provider=provider, model=bucketed, status=status).inc()
     if prompt_tokens > 0:
-        LLM_TOKENS_TOTAL.labels(provider=provider, model=model, type="prompt").inc(prompt_tokens)
+        LLM_TOKENS_TOTAL.labels(provider=provider, model=bucketed, type="prompt").inc(prompt_tokens)
     if completion_tokens > 0:
-        LLM_TOKENS_TOTAL.labels(provider=provider, model=model, type="completion").inc(
+        LLM_TOKENS_TOTAL.labels(provider=provider, model=bucketed, type="completion").inc(
             completion_tokens
         )
     if cost_usd is not None and float(cost_usd) > 0:
-        LLM_COST_USD_TOTAL.labels(provider=provider, model=model).inc(float(cost_usd))
+        LLM_COST_USD_TOTAL.labels(provider=provider, model=bucketed).inc(float(cost_usd))
     if latency_ms is not None:
         latency_seconds = max(0.0, float(latency_ms) / 1000.0)
-        LLM_CALL_LATENCY_SECONDS.labels(model=model).observe(latency_seconds)
+        LLM_CALL_LATENCY_SECONDS.labels(model=bucketed).observe(latency_seconds)
 
     error_text = str(call.get("error_text") or "").lower()
     error_context = call.get("error_context_json") or {}
@@ -950,15 +1048,15 @@ def record_llm_call_persisted(call: dict[str, Any]) -> None:
         context_message = str(error_context.get("message") or "").lower()
     stage = _parse_failure_stage(error_text=error_text, context_message=context_message)
     if stage is not None:
-        LLM_PARSE_FAILURES_TOTAL.labels(provider=provider, model=model, stage=stage).inc()
+        LLM_PARSE_FAILURES_TOTAL.labels(provider=provider, model=bucketed, stage=stage).inc()
     if "timeout" in error_text or "timeout" in context_message:
-        LLM_TIMEOUTS_TOTAL.labels(provider=provider, model=model).inc()
+        LLM_TIMEOUTS_TOTAL.labels(provider=provider, model=bucketed).inc()
 
     attempt_trigger = str(call.get("attempt_trigger") or "")
     if attempt_trigger == "repair_loop":
-        LLM_REPAIR_ATTEMPTS_TOTAL.labels(provider=provider, model=model, status=status).inc()
+        LLM_REPAIR_ATTEMPTS_TOTAL.labels(provider=provider, model=bucketed, status=status).inc()
     if attempt_trigger == "auto_backfill" or call.get("fallback_model_used"):
-        LLM_FALLBACK_ATTEMPTS_TOTAL.labels(provider=provider, model=model, status=status).inc()
+        LLM_FALLBACK_ATTEMPTS_TOTAL.labels(provider=provider, model=bucketed, status=status).inc()
 
 
 def _parse_failure_stage(*, error_text: str, context_message: str) -> str | None:

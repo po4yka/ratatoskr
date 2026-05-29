@@ -5,6 +5,11 @@ Three new Prometheus signals:
   * llm_call_retry_exhaustion_total{model}             - counter
   * llm_call_latency_seconds{model}                    - histogram
 
+Model label values are bucketed via _bucket_model(): any model ID not in the
+configured allowlist is stored under the "other" label.  Tests that pass fake
+model IDs (e.g. "m1") therefore assert against "other", which simultaneously
+verifies that the bucketing is applied.
+
 The tests exercise the public recording functions; if prometheus_client
 is unavailable they no-op gracefully.
 """
@@ -27,19 +32,31 @@ class TestLLMCallAttemptsCounter:
         if not metrics_module.PROMETHEUS_AVAILABLE:
             pytest.skip("prometheus_client unavailable")
         metric = metrics_module.LLM_CALL_ATTEMPTS_TOTAL
-        before = metric.labels(provider="openrouter", model="m1", status="success")._value.get()
+        # "m1" is not in the allowlist so it is bucketed to "other".
+        before = metric.labels(provider="openrouter", model="other", status="success")._value.get()
         metrics_module.record_llm_call_attempt(provider="openrouter", model="m1", status="success")
-        after = metric.labels(provider="openrouter", model="m1", status="success")._value.get()
+        after = metric.labels(provider="openrouter", model="other", status="success")._value.get()
+        assert after == before + 1.0
+
+    def test_record_attempt_allowlisted_model_not_bucketed(self, metrics_module) -> None:
+        if not metrics_module.PROMETHEUS_AVAILABLE:
+            pytest.skip("prometheus_client unavailable")
+        metric = metrics_module.LLM_CALL_ATTEMPTS_TOTAL
+        model = next(iter(metrics_module._DEFAULT_MODEL_ALLOWLIST))
+        before = metric.labels(provider="openrouter", model=model, status="success")._value.get()
+        metrics_module.record_llm_call_attempt(provider="openrouter", model=model, status="success")
+        after = metric.labels(provider="openrouter", model=model, status="success")._value.get()
         assert after == before + 1.0
 
     def test_record_attempt_error_status(self, metrics_module) -> None:
         if not metrics_module.PROMETHEUS_AVAILABLE:
             pytest.skip("prometheus_client unavailable")
         metric = metrics_module.LLM_CALL_ATTEMPTS_TOTAL
-        before = metric.labels(provider="openrouter", model="m2", status="error")._value.get()
+        # "m2" is unknown -> bucketed to "other".
+        before = metric.labels(provider="openrouter", model="other", status="error")._value.get()
         metrics_module.record_llm_call_attempt(provider="openrouter", model="m2", status="error")
         assert (
-            metric.labels(provider="openrouter", model="m2", status="error")._value.get()
+            metric.labels(provider="openrouter", model="other", status="error")._value.get()
             == before + 1.0
         )
 
@@ -56,9 +73,10 @@ class TestRetryExhaustionCounter:
         if not metrics_module.PROMETHEUS_AVAILABLE:
             pytest.skip("prometheus_client unavailable")
         metric = metrics_module.LLM_CALL_RETRY_EXHAUSTION_TOTAL
-        before = metric.labels(model="m3")._value.get()
+        # "m3" is unknown -> bucketed to "other".
+        before = metric.labels(model="other")._value.get()
         metrics_module.record_llm_call_retry_exhaustion(model="m3")
-        assert metric.labels(model="m3")._value.get() == before + 1.0
+        assert metric.labels(model="other")._value.get() == before + 1.0
 
 
 class TestLLMCallLatencyHistogram:
@@ -66,10 +84,10 @@ class TestLLMCallLatencyHistogram:
         if not metrics_module.PROMETHEUS_AVAILABLE:
             pytest.skip("prometheus_client unavailable")
         metric = metrics_module.LLM_CALL_LATENCY_SECONDS
-        # The Histogram _sum tracks total observed value across labels.
-        before = metric.labels(model="m4")._sum.get()
+        # "m4" is unknown -> bucketed to "other".
+        before = metric.labels(model="other")._sum.get()
         metrics_module.record_llm_call_latency(model="m4", latency_seconds=2.5)
-        assert metric.labels(model="m4")._sum.get() == pytest.approx(before + 2.5)
+        assert metric.labels(model="other")._sum.get() == pytest.approx(before + 2.5)
 
     def test_record_latency_rejects_negative(self, metrics_module) -> None:
         # Defensive: prometheus rejects negative observations, our helper
