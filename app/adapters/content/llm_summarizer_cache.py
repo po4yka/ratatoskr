@@ -44,9 +44,9 @@ class LLMSummaryCache:
             return None
 
         lang_key = chosen_lang or "auto"
-        cached = await self._cache.get_json(
-            "llm", self._prompt_version, model_name, lang_key, url_hash
-        )
+        # Model-agnostic key: a summary produced by a fallback model is reusable
+        # by a later request regardless of which model is currently primary.
+        cached = await self._cache.get_json("llm", self._prompt_version, lang_key, url_hash)
         if not isinstance(cached, dict):
             return None
 
@@ -71,7 +71,7 @@ class LLMSummaryCache:
         await self._cache.set_json(
             value=summary,
             ttl_seconds=getattr(self._cfg.redis, "llm_ttl_seconds", 7_200),
-            parts=("llm", self._prompt_version, model_name, chosen_lang or "auto", url_hash),
+            parts=("llm", self._prompt_version, chosen_lang or "auto", url_hash),
         )
 
     @staticmethod
@@ -102,7 +102,7 @@ class LLMSummaryCache:
 
         lang_key = chosen_lang or "auto"
         cached = await self._cache.get_json(
-            "llm", "insights", self._prompt_version, model_name, lang_key, url_hash
+            "llm", "insights", self._prompt_version, lang_key, url_hash
         )
         if not isinstance(cached, dict):
             return None
@@ -129,7 +129,6 @@ class LLMSummaryCache:
                 "llm",
                 "insights",
                 self._prompt_version,
-                model_name,
                 chosen_lang or "auto",
                 url_hash,
             ),
@@ -147,7 +146,7 @@ class LLMSummaryCache:
 
         lang_key = source_lang or "auto"
         cached = await self._cache.get_json(
-            "llm", "translation_ru", self._prompt_version, model_name, lang_key, url_hash
+            "llm", "translation_ru", self._prompt_version, lang_key, url_hash
         )
         if isinstance(cached, str) and cached.strip():
             return cached
@@ -173,7 +172,6 @@ class LLMSummaryCache:
                 "llm",
                 "translation_ru",
                 self._prompt_version,
-                model_name,
                 source_lang or "auto",
                 url_hash,
             ),
@@ -195,7 +193,6 @@ class LLMSummaryCache:
             "llm",
             "custom_article",
             self._prompt_version,
-            model_name,
             lang_key,
             url_hash,
             topics_key,
@@ -224,7 +221,6 @@ class LLMSummaryCache:
                 "llm",
                 "custom_article",
                 self._prompt_version,
-                model_name,
                 chosen_lang or "auto",
                 url_hash,
                 topics_key,

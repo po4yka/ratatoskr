@@ -117,6 +117,60 @@ class TestLLMSummaryCacheHitMiss(unittest.IsolatedAsyncioTestCase):
         assert result == payload
 
 
+class _DictRedis:
+    """Key-aware Redis stub: stores by the exact key parts, like RedisCache."""
+
+    def __init__(self) -> None:
+        self.enabled = True
+        self.store: dict[tuple[Any, ...], Any] = {}
+
+    async def get_json(self, *parts: Any) -> Any:
+        return self.store.get(tuple(parts))
+
+    async def set_json(self, *, value: Any, ttl_seconds: int, parts: tuple[Any, ...]) -> None:
+        self.store[tuple(parts)] = value
+
+
+class TestLLMSummaryCacheModelAgnostic(unittest.IsolatedAsyncioTestCase):
+    """The summary cache key is model-agnostic (audit M-7)."""
+
+    def _make_cache(self, redis: _DictRedis, *, prompt_version: str = "v1"):
+        from app.adapters.content.llm_summarizer_cache import LLMSummaryCache
+
+        return LLMSummaryCache(
+            cache=redis,
+            cfg=SimpleNamespace(redis=SimpleNamespace(llm_ttl_seconds=7200)),
+            prompt_version=prompt_version,
+            insights_has_content=lambda d: bool(d.get("insights")),
+        )
+
+    async def test_fallback_model_write_is_hit_by_primary_model_read(self) -> None:
+        redis = _DictRedis()
+        cache = self._make_cache(redis)
+        payload = {"tldr": "A", "summary_250": "B", "summary_1000": "C"}
+
+        # Produced by a fallback model...
+        await cache.write_summary_cache("hash123", "fallback-model", "en", payload)
+        # ...served on the next request even though a different model is primary.
+        result = await cache.get_cached_summary("hash123", "en", "primary-model", "cid")
+
+        assert result == payload
+
+    async def test_prompt_version_change_invalidates_cache(self) -> None:
+        redis = _DictRedis()
+        payload = {"tldr": "A", "summary_250": "B", "summary_1000": "C"}
+
+        await self._make_cache(redis, prompt_version="v1").write_summary_cache(
+            "hash123", "model", "en", payload
+        )
+        # A newer prompt version must not read the old entry.
+        result = await self._make_cache(redis, prompt_version="v2").get_cached_summary(
+            "hash123", "en", "model", "cid"
+        )
+
+        assert result is None
+
+
 class TestBuildTopicsCacheKey(unittest.TestCase):
     """Tests for LLMSummaryCache.build_topics_cache_key."""
 
