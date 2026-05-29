@@ -83,14 +83,15 @@ def test_parse_summary_from_llm_result_handles_json_shapes() -> None:
 
 def test_select_max_tokens_uses_dynamic_and_configured_limits() -> None:
     service = _service()
-    assert service.select_max_tokens("short text") == 4096
+    # Short content gets the (lowered) minimum budget, not the old flat 4096 floor.
+    assert service.select_max_tokens("short text") == 1536
 
     service._runtime.cfg.openrouter.max_tokens = 5000
-    assert service.select_max_tokens("short text") == 4096
+    assert service.select_max_tokens("short text") == 1536
 
     long_text = "word " * 30000
     selected = service.select_max_tokens(long_text)
-    assert 4096 <= selected <= 5000
+    assert 1536 <= selected <= 5000
 
 
 def test_quality_metadata_and_truncate(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -119,12 +119,13 @@ async def test_long_context_model_selected(redis_cache_mock: MagicMock) -> None:
     )
     service = PureSummaryService(runtime=runtime)
 
-    # The hard-coded threshold when model_routing.enabled=False is 320 000
-    # characters; the previous 60 000 stopped tripping the long-context branch
-    # after that constant was raised. Push well past it.
+    # The long-context guard is token-based (threshold 80 000 tokens when
+    # model_routing.enabled=False). Use repeated words, which tokenize ~1:1, so
+    # this comfortably exceeds the threshold; a run of a single char would
+    # BPE-merge to far fewer tokens and not trip the branch.
     await service.summarize(
         PureSummaryRequest(
-            content_text="A" * 400000,
+            content_text="word " * 90000,
             chosen_lang="en",
             system_prompt="prompt",
             correlation_id="cid-long",
@@ -132,6 +133,64 @@ async def test_long_context_model_selected(redis_cache_mock: MagicMock) -> None:
     )
 
     assert openrouter.chat_structured.await_args.kwargs["model_override"] == "long-model"
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.content.summarization_runtime.RedisCache")
+async def test_token_based_truncation_triggers_for_cyrillic(
+    redis_cache_mock: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Short-char but high-token Cyrillic content trips the token-based guard.
+
+    The content is far below any character threshold but exceeds the token
+    threshold, so the old len()-based guard would have passed it through; the
+    token-based guard truncates it.
+    """
+    cache_stub = MagicMock(enabled=False)
+    redis_cache_mock.return_value = cache_stub
+
+    cfg = _dummy_cfg()
+    # Routing enabled, tiny token threshold, no long-context model -> truncate.
+    cfg.model_routing = SimpleNamespace(
+        enabled=True, long_context_threshold_tokens=10, long_context_model=None
+    )
+    cfg.openrouter.long_context_model = None
+    openrouter = MagicMock()
+    openrouter.chat_structured = AsyncMock(
+        return_value=_ok_result({"summary_250": "ok", "summary_1000": "ok", "tldr": "ok"})
+    )
+    runtime = SummarizationRuntime(
+        cfg=cast("Any", cfg),
+        db=MagicMock(),
+        openrouter=openrouter,
+        response_formatter=MagicMock(),
+        audit_func=lambda *args, **kwargs: None,
+        sem=lambda: MagicMock(
+            __aenter__=AsyncMock(return_value=None), __aexit__=AsyncMock(return_value=False)
+        ),
+        **_runtime_repo_kwargs(),
+    )
+    service = PureSummaryService(runtime=runtime)
+
+    cyrillic = "Привет мир, это тестовое содержимое. " * 40  # ~1.5KB chars, >10 tokens
+
+    # Isolate the truncation guard from the (separate) content-aware model router.
+    with (
+        patch("app.core.model_router.resolve_model_for_content", return_value=None),
+        caplog.at_level("INFO", logger="app.adapters.content.pure_summary_service"),
+    ):
+        await service.summarize(
+            PureSummaryRequest(
+                content_text=cyrillic,
+                chosen_lang="ru",
+                system_prompt="prompt",
+                correlation_id="cid-ru",
+            )
+        )
+
+    truncated = [r for r in caplog.records if r.message == "summarize_pure_truncated"]
+    assert truncated, "expected token-based truncation to fire for Cyrillic content"
+    assert truncated[0].approx_input_tokens > 10
 
 
 @pytest.mark.asyncio

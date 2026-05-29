@@ -27,6 +27,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Output-token budget bounds. The minimum still comfortably fits the full summary
+# contract (summary_250/summary_1000/tldr/key_ideas/...); short content no longer
+# pays a flat 4096-token floor.
+_MIN_OUTPUT_TOKENS = 1536
+_MAX_OUTPUT_TOKENS = 12288
+
 
 class PureSummaryService:
     """LLM summarization without Telegram message dependencies."""
@@ -42,10 +48,11 @@ class PureSummaryService:
         content_for_summary = request.content_text
         model_override = None
         routing_cfg = self._runtime.cfg.model_routing
-        max_chars_threshold = (
-            (routing_cfg.long_context_threshold_tokens * 4) if routing_cfg.enabled else 320000
+        threshold_tokens = (
+            routing_cfg.long_context_threshold_tokens if routing_cfg.enabled else 80000
         )
-        if len(request.content_text) > max_chars_threshold:
+        approx_input_tokens = count_tokens(request.content_text)
+        if approx_input_tokens > threshold_tokens:
             long_ctx_model = (
                 routing_cfg.long_context_model
                 if routing_cfg.enabled
@@ -54,9 +61,15 @@ class PureSummaryService:
             if long_ctx_model:
                 model_override = long_ctx_model
             else:
+                # Truncate by tokens using the content's real char/token ratio, so
+                # CJK/Cyrillic text (fewer chars per token than English) is handled
+                # correctly instead of slipping past a fixed character threshold and
+                # overflowing the model context window.
+                chars_per_token = len(request.content_text) / max(approx_input_tokens, 1)
+                max_chars = max(1, int(threshold_tokens * chars_per_token))
                 content_for_summary = self._truncate_content(
                     request.content_text,
-                    max_chars_threshold,
+                    max_chars,
                 )
                 logger.info(
                     "summarize_pure_truncated",
@@ -64,7 +77,9 @@ class PureSummaryService:
                         "cid": request.correlation_id,
                         "original_len": len(request.content_text),
                         "truncated_len": len(content_for_summary),
-                        "max_chars": max_chars_threshold,
+                        "approx_input_tokens": approx_input_tokens,
+                        "threshold_tokens": threshold_tokens,
+                        "max_chars": max_chars,
                     },
                 )
 
@@ -429,7 +444,10 @@ class PureSummaryService:
         """Choose a cost-aware output token budget."""
         configured = self._runtime.cfg.openrouter.max_tokens
         approx_input_tokens = count_tokens(content_text)
-        dynamic_budget = max(4096, min(12288, approx_input_tokens // 2 + 2048))
+        # Output scales with input; small inputs get a proportionally smaller budget.
+        dynamic_budget = max(
+            _MIN_OUTPUT_TOKENS, min(_MAX_OUTPUT_TOKENS, approx_input_tokens // 2 + 1024)
+        )
 
         if configured is None:
             logger.debug(
@@ -442,7 +460,7 @@ class PureSummaryService:
             )
             return dynamic_budget
 
-        selected = max(4096, min(configured, dynamic_budget))
+        selected = max(_MIN_OUTPUT_TOKENS, min(configured, dynamic_budget))
         logger.debug(
             "max_tokens_adjusted",
             extra={
