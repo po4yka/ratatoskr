@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.application.ports.message_persistence import MessagePersistencePort as MessagePersistence
+    from app.application.ports.message_persistence import (
+        MessagePersistencePort as MessagePersistence,
+    )
 
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger

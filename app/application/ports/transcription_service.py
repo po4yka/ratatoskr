@@ -37,8 +37,7 @@ class TranscriptionServicePort(Protocol):
         *,
         options: TranscribeOptions | None = None,
         correlation_id: str | None = None,
-        progress_callback: Callable[[str, str, float, str], Awaitable[None] | None]
-        | None = None,
+        progress_callback: Callable[[str, str, float, str], Awaitable[None] | None] | None = None,
     ) -> Any:
         """Transcribe a local media file end-to-end.
 

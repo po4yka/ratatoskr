@@ -153,9 +153,7 @@ async def _latest_sync_failures(session: Any, *, limit: int) -> list[dict[str, A
             .where(
                 or_(
                     UserGitHubIntegration.status != "active",
-                    UserGitHubIntegration.last_sync_cursor.like(
-                        '%"kind": "github_sync_state"%'
-                    ),
+                    UserGitHubIntegration.last_sync_cursor.like('%"kind": "github_sync_state"%'),
                 )
             )
             .order_by(UserGitHubIntegration.updated_at.desc())

@@ -76,15 +76,23 @@ async def test_multi_source_aggregation_service_records_synthesis_metrics() -> N
     repo = SimpleNamespace(
         async_update_aggregation_session_status=AsyncMock(),
     )
-    extraction_agent = cast("Any", SimpleNamespace(execute=AsyncMock(
-        return_value=AgentResult.success_result(extraction_output)
-    )))
-    aggregation_agent = cast("Any", SimpleNamespace(execute=AsyncMock(
-        return_value=AgentResult.success_result(
-            aggregation_output,
-            llm_cost_usd=0.023,
-        )
-    )))
+    extraction_agent = cast(
+        "Any",
+        SimpleNamespace(
+            execute=AsyncMock(return_value=AgentResult.success_result(extraction_output))
+        ),
+    )
+    aggregation_agent = cast(
+        "Any",
+        SimpleNamespace(
+            execute=AsyncMock(
+                return_value=AgentResult.success_result(
+                    aggregation_output,
+                    llm_cost_usd=0.023,
+                )
+            )
+        ),
+    )
 
     from unittest.mock import patch
 

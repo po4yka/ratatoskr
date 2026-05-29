@@ -202,9 +202,7 @@ class LLMWorkflowRepairMixin:
 
                 _shim2 = sys.modules.get("app.adapters.content.llm_response_workflow")
                 _parse_fn2 = (
-                    getattr(_shim2, "parse_summary_response", None)
-                    if _shim2 is not None
-                    else None
+                    getattr(_shim2, "parse_summary_response", None) if _shim2 is not None else None
                 )
                 if _parse_fn2 is None:
                     from app.utils.json_validation import (

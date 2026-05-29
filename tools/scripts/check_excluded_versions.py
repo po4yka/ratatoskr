@@ -106,7 +106,9 @@ def main(argv: list[str]) -> int:
         print("\nERROR: excluded (malicious/yanked) versions found in committed requirements:")
         for v in all_violations:
             print(f"  - {v}")
-        print("\nFix: regenerate the exports from uv.lock, e.g. `make lock-uv` or the CI 'uv export' steps.")
+        print(
+            "\nFix: regenerate the exports from uv.lock, e.g. `make lock-uv` or the CI 'uv export' steps."
+        )
         return 1
 
     print("OK: no excluded versions pinned in any requirements file.")

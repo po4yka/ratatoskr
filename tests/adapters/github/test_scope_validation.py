@@ -165,9 +165,7 @@ async def test_classic_pat_missing_repo_scope() -> None:
     gh = _mock_gh(scopes=["read:user", "public_repo"])
     uc = _make_uc(gh)
     with pytest.raises(InsufficientScopeError) as exc_info:
-        await uc.validate_and_store(
-            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-        )
+        await uc.validate_and_store(_TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid")
     assert exc_info.value.missing_scopes == ["repo"]
 
 
@@ -177,9 +175,7 @@ async def test_classic_pat_missing_read_user() -> None:
     gh = _mock_gh(scopes=["repo"])
     uc = _make_uc(gh)
     with pytest.raises(InsufficientScopeError) as exc_info:
-        await uc.validate_and_store(
-            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-        )
+        await uc.validate_and_store(_TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid")
     assert exc_info.value.missing_scopes == ["read:user"]
 
 
@@ -242,7 +238,5 @@ async def test_fine_grained_probe_fails() -> None:
     gh = _mock_gh(scopes=[], probe_result=False)
     uc = _make_uc(gh)
     with pytest.raises(InsufficientScopeError):
-        await uc.validate_and_store(
-            _TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid"
-        )
+        await uc.validate_and_store(_TOKEN, GitHubAuthMethod.PAT, _UC_USER_ID, correlation_id="cid")
     gh.probe_repository_access.assert_awaited_once()

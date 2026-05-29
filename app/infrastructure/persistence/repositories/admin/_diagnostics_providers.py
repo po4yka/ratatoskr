@@ -93,9 +93,7 @@ async def _vector_indexing_lag(session: Any) -> dict[str, Any]:
         )
     )
     pending = await session.scalar(
-        select(func.count(SummaryEmbedding.id)).where(
-            SummaryEmbedding.index_status != "indexed"
-        )
+        select(func.count(SummaryEmbedding.id)).where(SummaryEmbedding.index_status != "indexed")
     )
     oldest_unindexed = await session.scalar(
         select(func.min(Summary.updated_at))

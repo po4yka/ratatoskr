@@ -46,7 +46,9 @@ class MultiSourceAggregationAgentPort(Protocol):
 class RelationshipAnalysisAgentPort(Protocol):
     """Port for the relationship analysis agent."""
 
-    async def execute(self, input_data: RelationshipAnalysisInput) -> AgentResult[RelationshipAnalysisOutput]:
+    async def execute(
+        self, input_data: RelationshipAnalysisInput
+    ) -> AgentResult[RelationshipAnalysisOutput]:
         """Analyze relationships between articles in a batch."""
         ...
 

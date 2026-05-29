@@ -18,7 +18,6 @@ from app.api.exceptions import AuthorizationError
 from app.api.routers.auth import tokens
 from app.config.known_client_ids import KNOWN_CLIENT_IDS
 
-
 # ---------------------------------------------------------------------------
 # (a) POSITIVE: every shipped id is accepted when in the allowlist
 # ---------------------------------------------------------------------------
@@ -49,9 +48,9 @@ def test_known_client_id_format_is_valid(client_id: str) -> None:
     contain only alphanumeric characters plus - _ ."""
     assert len(client_id) > 0, f"{client_id!r} must not be empty"
     assert len(client_id) <= 100, f"{client_id!r} exceeds 100 characters"
-    assert all(
-        c.isalnum() or c in "-_." for c in client_id
-    ), f"{client_id!r} contains disallowed characters"
+    assert all(c.isalnum() or c in "-_." for c in client_id), (
+        f"{client_id!r} contains disallowed characters"
+    )
 
 
 # ---------------------------------------------------------------------------

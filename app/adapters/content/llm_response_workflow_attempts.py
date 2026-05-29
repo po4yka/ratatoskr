@@ -79,9 +79,7 @@ class LLMWorkflowAttemptsMixin:
 
             _shim = sys.modules.get("app.adapters.content.llm_response_workflow")
             _parse_fn = (
-                getattr(_shim, "parse_summary_response", None)
-                if _shim is not None
-                else None
+                getattr(_shim, "parse_summary_response", None) if _shim is not None else None
             )
             if _parse_fn is None:
                 from app.utils.json_validation import (

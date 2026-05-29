@@ -50,9 +50,7 @@ class AuditLogReadRepository:
 
             total = int(await session.scalar(count_query) or 0)
             entries = (
-                await session.execute(
-                    query.order_by(desc(AuditLog.ts)).offset(offset).limit(limit)
-                )
+                await session.execute(query.order_by(desc(AuditLog.ts)).offset(offset).limit(limit))
             ).scalars()
             logs: list[dict[str, Any]] = [
                 {

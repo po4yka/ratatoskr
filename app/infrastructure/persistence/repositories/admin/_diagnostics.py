@@ -47,9 +47,7 @@ class DiagnosticsReadRepository:
                 "vector_indexing_lag": await _vector_indexing_lag(session),
                 "llm_providers": await _llm_provider_stats(session, since=since),
                 "scraper_providers": await _scraper_provider_stats(session, since=since),
-                "social_connections": await _social_connection_diagnostics(
-                    session, since=since
-                ),
+                "social_connections": await _social_connection_diagnostics(session, since=since),
                 "integration_health": await _integration_health(session),
                 "latest_sync_failures": await _latest_sync_failures(session, limit=20),
                 "storage_activity": await _storage_activity(
