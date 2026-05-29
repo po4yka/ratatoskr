@@ -397,6 +397,12 @@ class AdminReadRepositoryAdapter:
                 conditions.append(AuditLog.event == action)
             if since_dt is not None:
                 conditions.append(AuditLog.ts >= since_dt)
+            if user_id_filter is not None:
+                # Push the user_id filter into SQL via JSONB containment so the
+                # DB does the filtering and `total` reflects it. The previous
+                # Python-side filter decremented a count computed without the
+                # filter, only over the current page — producing a wrong total.
+                conditions.append(AuditLog.details_json.contains({"user_id": user_id_filter}))
 
             query = select(AuditLog)
             count_query = select(func.count(AuditLog.id))
@@ -405,25 +411,19 @@ class AdminReadRepositoryAdapter:
                 count_query = count_query.where(*conditions)
 
             total = int(await session.scalar(count_query) or 0)
-            logs: list[dict[str, Any]] = []
             entries = (
                 await session.execute(query.order_by(desc(AuditLog.ts)).offset(offset).limit(limit))
             ).scalars()
-            for entry in entries:
-                details = entry.details_json
-                if user_id_filter is not None:
-                    if not isinstance(details, dict) or details.get("user_id") != user_id_filter:
-                        total -= 1
-                        continue
-                logs.append(
-                    {
-                        "id": entry.id,
-                        "timestamp": isotime(entry.ts),
-                        "level": entry.level,
-                        "event": entry.event,
-                        "details": details,
-                    }
-                )
+            logs: list[dict[str, Any]] = [
+                {
+                    "id": entry.id,
+                    "timestamp": isotime(entry.ts),
+                    "level": entry.level,
+                    "event": entry.event,
+                    "details": entry.details_json,
+                }
+                for entry in entries
+            ]
 
             return {"logs": logs, "total": total, "limit": limit, "offset": offset}
 

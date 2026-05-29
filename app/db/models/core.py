@@ -689,6 +689,9 @@ class AuditLog(Base):
     __table_args__ = (
         Index("ix_audit_logs_ts", "ts"),
         Index("ix_audit_logs_event", "event"),
+        # GIN index backs the JSONB containment filter (details_json @> {...})
+        # used by the admin audit-log user_id lookup.
+        Index("ix_audit_logs_details_json", "details_json", postgresql_using="gin"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
