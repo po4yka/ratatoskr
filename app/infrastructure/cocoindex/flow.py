@@ -28,25 +28,40 @@ from app.infrastructure.cocoindex.embedding_bridge import (
 logger = get_logger(__name__)
 
 
-def _extract_indexable_text(json_payload: str | dict[str, Any] | None) -> str:
-    """Extract the text we embed from a summary's json_payload.
+def _coerce_summary_payload(
+    json_payload: str | dict[str, Any] | None,
+) -> tuple[dict[str, Any], str | None]:
+    """Parse a summary's json_payload once.
 
-    Mirrors the logic in app.core.embedding_text.prepare_text_for_embedding
-    but operates on the raw payload without the token-length truncation
-    (CocoIndex handles batching/chunking at the flow level).
+    Returns ``(payload_dict, raw_fallback)``: ``payload_dict`` is the parsed
+    object (``{}`` when absent, non-object, or unparseable), and
+    ``raw_fallback`` is the truncated raw string to embed *only* when a string
+    payload failed to parse (``None`` otherwise) -- preserving the original
+    text-extraction fallback without re-parsing in each helper.
     """
     if not json_payload:
-        return ""
+        return {}, None
     if isinstance(json_payload, str):
         try:
-            payload = json.loads(json_payload)
+            parsed = json.loads(json_payload)
         except (json.JSONDecodeError, ValueError):
-            return json_payload[:2000]
-    else:
-        payload = json_payload
+            return {}, json_payload[:2000]
+        return (parsed if isinstance(parsed, dict) else {}), None
+    return (json_payload if isinstance(json_payload, dict) else {}), None
+
+
+def _extract_indexable_text(payload: dict[str, Any], *, raw_fallback: str | None = None) -> str:
+    """Extract the text we embed from a parsed summary payload.
+
+    Mirrors the logic in app.core.embedding_text.prepare_text_for_embedding
+    but operates on the parsed payload without the token-length truncation
+    (CocoIndex handles batching/chunking at the flow level).
+    """
+    if not payload:
+        return raw_fallback or ""
 
     parts: list[str] = []
-    metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
+    metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
     title = metadata.get("title") or payload.get("title") or ""
     if title:
         parts.append(title)
@@ -68,26 +83,19 @@ def _build_qdrant_payload(
     summary_id: int,
     request_id: int,
     lang: str | None,
-    json_payload: str | dict[str, Any] | None,
+    payload: dict[str, Any],
     user_scope: str,
     environment: str,
 ) -> dict[str, Any]:
-    """Build the Qdrant point payload dict.
+    """Build the Qdrant point payload dict from a parsed summary payload.
 
     Must be compatible with the payload schema produced by
     app.infrastructure.vector.metadata_builder.MetadataBuilder so that
     the existing query() path keeps working.
     """
-    if isinstance(json_payload, str):
-        try:
-            payload = json.loads(json_payload)
-        except (json.JSONDecodeError, ValueError):
-            payload = {}
-    else:
-        payload = json_payload or {}
-
-    metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
+    metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
     return {
+        "entity_type": "summary",
         "summary_id": summary_id,
         "request_id": request_id,
         "language": lang or "en",
@@ -264,7 +272,11 @@ def build_summaries_flow(
             lang = row.get("lang")
             json_payload = row.get("json_payload")
 
-            text = _extract_indexable_text(json_payload)
+            # Parse json_payload once and reuse the parsed dict for both the
+            # embedding text and the Qdrant payload, instead of json.loads-ing
+            # the same blob twice per row.
+            payload_dict, raw_fallback = _coerce_summary_payload(json_payload)
+            text = _extract_indexable_text(payload_dict, raw_fallback=raw_fallback)
             if not text:
                 return
 
@@ -274,7 +286,7 @@ def build_summaries_flow(
                 summary_id=summary_id,
                 request_id=request_id,
                 lang=lang,
-                json_payload=json_payload,
+                payload=payload_dict,
                 user_scope=_user_scope,
                 environment=_environment,
             )

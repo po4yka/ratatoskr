@@ -10,11 +10,66 @@ without dumping a traceback for each row.
 from __future__ import annotations
 
 import builtins
+import sys
+import types
 
 import pytest
 
 from app.application.ports.search import EmbeddingDependencyUnavailableError
 from app.infrastructure.embedding.embedding_service import EmbeddingService
+
+
+def _install_fake_sentence_transformers(monkeypatch: pytest.MonkeyPatch, fake_cls: type) -> None:
+    module = types.ModuleType("sentence_transformers")
+    module.SentenceTransformer = fake_cls  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+
+def test_ensure_model_reads_dimension_without_probe_encode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encode_calls = {"count": 0}
+
+    class _FakeModel:
+        def __init__(self, _name: str) -> None:
+            pass
+
+        def get_sentence_embedding_dimension(self) -> int:
+            return 384
+
+        def encode(self, *_args: object, **_kwargs: object) -> list[float]:
+            encode_calls["count"] += 1
+            return [0.0] * 384
+
+    _install_fake_sentence_transformers(monkeypatch, _FakeModel)
+
+    service = EmbeddingService()
+    service._ensure_model("paraphrase-multilingual-MiniLM-L12-v2")
+
+    assert service.get_dimensions("auto") == 384
+    # The dimension is read from the model config, not a probe forward pass.
+    assert encode_calls["count"] == 0
+
+
+def test_ensure_model_falls_back_to_probe_when_dimension_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeModel:
+        def __init__(self, _name: str) -> None:
+            pass
+
+        def get_sentence_embedding_dimension(self) -> None:
+            return None
+
+        def encode(self, *_args: object, **_kwargs: object) -> list[float]:
+            return [0.0, 0.0]
+
+    _install_fake_sentence_transformers(monkeypatch, _FakeModel)
+
+    service = EmbeddingService()
+    service._ensure_model("paraphrase-multilingual-MiniLM-L12-v2")
+
+    assert service.get_dimensions("auto") == 2
 
 
 def test_ensure_model_raises_typed_error_and_caches_failure(

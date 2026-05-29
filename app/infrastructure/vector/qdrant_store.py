@@ -528,6 +528,11 @@ class QdrantVectorStore:
         if not self._available:
             return set()
 
+        # The collection is shared with repository and x_wiki points. Exclude
+        # them via must_not so a summary scroll can never return another
+        # entity's points. must_not (rather than a positive entity_type ==
+        # "summary" match) keeps legacy summary points that predate the
+        # entity_type payload field.
         scroll_filter = Filter(
             must=[
                 FieldCondition(key="environment", match=MatchValue(value=self._environment)),
@@ -537,7 +542,11 @@ class QdrantVectorStore:
                     if user_id is not None
                     else []
                 ),
-            ]
+            ],
+            must_not=[
+                FieldCondition(key="entity_type", match=MatchValue(value="repository")),
+                FieldCondition(key="entity_type", match=MatchValue(value="x_wiki")),
+            ],
         )
         try:
             records = self._scroll_all(

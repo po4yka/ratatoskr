@@ -81,10 +81,15 @@ class EmbeddingService(EmbeddingSerializationMixin):
                 )
                 raise self._dependency_error from exc
 
-            self._models[model_name] = SentenceTransformer(model_name)
-            # Get embedding dimensions
-            sample = self._models[model_name].encode("test")
-            self._dimensions[model_name] = len(sample)
+            model = SentenceTransformer(model_name)
+            self._models[model_name] = model
+            # Read the dimension from the model's reported config rather than a
+            # probe encode("test") forward pass. Fall back to a probe only if the
+            # backend cannot report it.
+            dim = model.get_sentence_embedding_dimension()
+            if not dim:
+                dim = len(model.encode("test"))
+            self._dimensions[model_name] = dim
             logger.info(
                 "embedding_model_loaded",
                 extra={"model": model_name, "dims": self._dimensions[model_name]},

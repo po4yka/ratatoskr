@@ -219,6 +219,26 @@ def test_get_indexed_summary_ids_paginates_beyond_one_page(store: QdrantVectorSt
 
 
 @pytest.mark.integration
+def test_get_indexed_summary_ids_excludes_other_entity_types(store: QdrantVectorStore) -> None:
+    """A repository/x_wiki point in the shared collection must never surface as a
+    summary id, even if it carries a summary_id-like field."""
+    store.upsert_notes(
+        [_vec(0.1), _vec(0.2), _vec(0.3)],
+        [
+            _meta(1, 11),  # genuine summary point (no entity_type)
+            {"entity_type": "repository", "repository_id": 5, "summary_id": 999},
+            {"entity_type": "x_wiki", "wiki_path": "docs/a.md", "summary_id": 888},
+        ],
+    )
+
+    ids = store.get_indexed_summary_ids()
+
+    assert ids == {11}
+    assert 999 not in ids
+    assert 888 not in ids
+
+
+@pytest.mark.integration
 def test_get_indexed_summary_ids_filters_by_user_id(store: QdrantVectorStore) -> None:
     store.upsert_notes(
         [_vec(0.1), _vec(0.2)],
