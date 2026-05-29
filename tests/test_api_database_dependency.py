@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 from app.api.dependencies import database as database_dependency
+from app.db import runtime_database as db_runtime
 from app.di import database as di_database
 
 
@@ -28,10 +29,12 @@ def test_get_session_manager_runs_migrations_once(monkeypatch, tmp_path) -> None
         "resolve_api_runtime",
         lambda request=None: (_ for _ in ()).throw(RuntimeError("runtime not ready")),
     )
-    monkeypatch.setattr(di_database, "Database", _FakeDatabase)
+    # Database + _get_env_db_config now live in app.db.runtime_database (the env
+    # fallback that get_session_manager uses); patch them there.
+    monkeypatch.setattr(db_runtime, "Database", _FakeDatabase)
     config = SimpleNamespace(dsn=f"sqlite+aiosqlite:///{tmp_path / 'app.db'}")
     monkeypatch.setattr(
-        di_database,
+        db_runtime,
         "_get_env_db_config",
         lambda: config,
     )
