@@ -6,8 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from sqlalchemy import Integer, distinct, func, insert, select, update
-from sqlalchemy import cast as sa_cast
+from sqlalchemy import Integer, cast as sa_cast, distinct, func, insert, select, update
 from sqlalchemy.orm import selectinload
 
 from app.core.time_utils import utc_now
@@ -24,7 +23,7 @@ from app.db.models import (
     UserDigestPreference,
     _utcnow,
 )
-from app.di.database import resolve_runtime_database
+from app.db.runtime_database import resolve_runtime_database
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine

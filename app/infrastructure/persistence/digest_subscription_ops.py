@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 
 from app.db.models import Channel, ChannelSubscription
+from app.db.runtime_database import resolve_runtime_database
 from app.db.types import _utcnow
-from app.di.database import resolve_runtime_database
 
 if TYPE_CHECKING:
     from app.db.session import Database

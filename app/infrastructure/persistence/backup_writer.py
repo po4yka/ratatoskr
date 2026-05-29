@@ -37,8 +37,8 @@ from app.db.models import (
     UserBackup,
     model_to_dict,
 )
+from app.db.runtime_database import resolve_runtime_database
 from app.db.types import _utcnow
-from app.di.database import resolve_runtime_database
 from app.infrastructure.persistence.backup_crypto import encrypt_backup
 
 if TYPE_CHECKING:
