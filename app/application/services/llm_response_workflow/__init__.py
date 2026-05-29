@@ -1,13 +1,11 @@
-"""Re-export shim — implementation moved to ``app.application.services.llm_response_workflow``.
+"""LLM response workflow orchestration -- application-layer package.
 
-Adapter-side callers (and existing imports in the adapter layer) continue to
-work unchanged via this thin re-export facade.  New code should import directly
-from ``app.application.services.llm_response_workflow``.
+Public surface re-exported for callers that import from this package directly.
 """
 
 from __future__ import annotations
 
-from app.application.services.llm_response_workflow.workflow import (
+from .workflow import (
     AttemptContext,
     ConcurrencyTimeoutError,
     LLMInteractionConfig,
@@ -16,7 +14,6 @@ from app.application.services.llm_response_workflow.workflow import (
     LLMResponseWorkflow,
     LLMSummaryPersistenceSettings,
     LLMWorkflowNotifications,
-    parse_summary_response,
 )
 
 __all__ = [
@@ -28,5 +25,4 @@ __all__ = [
     "LLMResponseWorkflow",
     "LLMSummaryPersistenceSettings",
     "LLMWorkflowNotifications",
-    "parse_summary_response",
 ]
