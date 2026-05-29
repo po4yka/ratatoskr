@@ -643,6 +643,9 @@ class OpenRouterClient:
                 )
                 latency = int((time.perf_counter() - started) * 1000)
                 usage = getattr(completion, "usage", None)
+                tokens_prompt = getattr(usage, "prompt_tokens", None)
+                tokens_completion = getattr(usage, "completion_tokens", None)
+                cost_usd = self._structured_cost_usd(usage, tokens_prompt, tokens_completion)
                 logger.debug(
                     "chat_structured_success",
                     extra={
@@ -650,12 +653,14 @@ class OpenRouterClient:
                         "latency_ms": latency,
                         "request_id": request_id,
                         "response_model": response_model.__name__,
+                        "cost_usd": cost_usd,
                     },
                 )
                 return StructuredLLMResult(
                     parsed=parsed,
-                    tokens_prompt=getattr(usage, "prompt_tokens", None),
-                    tokens_completion=getattr(usage, "completion_tokens", None),
+                    tokens_prompt=tokens_prompt,
+                    tokens_completion=tokens_completion,
+                    cost_usd=cost_usd,
                     latency_ms=latency,
                     model_used=model,
                 )
@@ -671,6 +676,41 @@ class OpenRouterClient:
                 )
 
         raise last_exc or RuntimeError("All models exhausted in chat_structured")
+
+    def _structured_cost_usd(
+        self,
+        usage: Any,
+        tokens_prompt: Any,
+        tokens_completion: Any,
+    ) -> float | None:
+        """Cost for a structured call: provider-reported value, else token x price.
+
+        Mirrors the non-structured path (chat_response_handler) so the instructor
+        path no longer records a null cost. Prefers the provider's own cost (which
+        OpenRouter attaches to usage when available), falling back to the configured
+        per-1k token prices.
+        """
+        provider_cost: Any = None
+        if isinstance(usage, dict):
+            provider_cost = usage.get("cost")
+        elif usage is not None:
+            provider_cost = getattr(usage, "cost", None)
+        if isinstance(provider_cost, (int, float)) and not isinstance(provider_cost, bool):
+            return float(provider_cost)
+
+        if (
+            tokens_prompt is None
+            or tokens_completion is None
+            or self._price_input_per_1k is None
+            or self._price_output_per_1k is None
+        ):
+            return None
+        try:
+            return (float(tokens_prompt) / 1000.0) * self._price_input_per_1k + (
+                float(tokens_completion) / 1000.0
+            ) * self._price_output_per_1k
+        except (TypeError, ValueError):
+            return None
 
     async def get_models(self) -> dict[str, Any]:
         """Get available models from OpenRouter API."""

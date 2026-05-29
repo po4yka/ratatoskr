@@ -107,6 +107,46 @@ async def test_openrouter_chat_structured_success() -> None:
     mock_instructor.chat.completions.create_with_completion.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_openrouter_chat_structured_records_cost_from_token_prices() -> None:
+    """Structured calls estimate cost_usd from token counts x configured prices."""
+    client = _openrouter_client()
+    client._price_input_per_1k = 0.5
+    client._price_output_per_1k = 1.5
+    comp = _mock_completion(prompt_tokens=1000, completion_tokens=200)
+
+    mock_instructor = MagicMock()
+    mock_instructor.chat.completions.create_with_completion = AsyncMock(
+        return_value=(_Fact(label="x", value="y"), comp)
+    )
+    client._instructor_async_client = mock_instructor
+
+    result = await client.chat_structured(_MESSAGES, response_model=_Fact)
+
+    # 1000/1000 * 0.5 + 200/1000 * 1.5 = 0.5 + 0.3
+    assert result.cost_usd == pytest.approx(0.8)
+
+
+@pytest.mark.asyncio
+async def test_openrouter_chat_structured_prefers_provider_cost() -> None:
+    """A provider-reported cost on usage wins over the token x price estimate."""
+    client = _openrouter_client()
+    client._price_input_per_1k = 0.5
+    client._price_output_per_1k = 1.5
+    comp = _mock_completion(prompt_tokens=1000, completion_tokens=200)
+    comp.usage.cost = 0.123  # provider-reported cost
+
+    mock_instructor = MagicMock()
+    mock_instructor.chat.completions.create_with_completion = AsyncMock(
+        return_value=(_Fact(label="x", value="y"), comp)
+    )
+    client._instructor_async_client = mock_instructor
+
+    result = await client.chat_structured(_MESSAGES, response_model=_Fact)
+
+    assert result.cost_usd == pytest.approx(0.123)
+
+
 # ---------------------------------------------------------------------------
 # OpenRouter: model fallback on first-model failure
 # ---------------------------------------------------------------------------
