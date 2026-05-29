@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import selectinload
 
 from app.core.time_utils import utc_now
@@ -485,23 +485,30 @@ class DigestStore:
                 )
 
             queued_message_ids = set(existing_message_ids)
+            new_rows: list[dict[str, Any]] = []
             for post in posts:
                 message_id = post["message_id"]
                 if message_id in queued_message_ids:
                     continue
                 queued_message_ids.add(message_id)
-                session.add(
-                    ChannelPost(
-                        channel_id=channel.id,
-                        message_id=message_id,
-                        text=post["text"],
-                        media_type=post.get("media_type"),
-                        date=post["date"],
-                        views=post.get("views"),
-                        forwards=post.get("forwards"),
-                        url=post.get("url"),
-                    )
+                new_rows.append(
+                    {
+                        "channel_id": channel.id,
+                        "message_id": message_id,
+                        "text": post["text"],
+                        "media_type": post.get("media_type"),
+                        "date": post["date"],
+                        "views": post.get("views"),
+                        "forwards": post.get("forwards"),
+                        "url": post.get("url"),
+                        # created_at has a Python-side default; set it explicitly
+                        # since a Core bulk insert does not run ORM-flush defaults.
+                        "created_at": _utcnow(),
+                    }
                 )
+            if new_rows:
+                # One bulk INSERT (executemany) instead of per-row session.add.
+                await session.execute(insert(ChannelPost), new_rows)
 
     def persist_posts(self, channel: Any, posts: list[dict[str, Any]]) -> None:
         _run_sync(self.async_persist_posts(channel, posts))

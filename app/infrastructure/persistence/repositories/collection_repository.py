@@ -379,16 +379,29 @@ class CollectionRepositoryAdapter:
                     )
                 ).scalars()
             )
-            for item in item_positions:
-                if item["summary_id"] in existing:
-                    await session.execute(
-                        update(CollectionItem)
-                        .where(
-                            CollectionItem.collection_id == collection_id,
-                            CollectionItem.summary_id == item["summary_id"],
-                        )
-                        .values(position=item["position"])
+            positions_by_summary = {
+                item["summary_id"]: item["position"]
+                for item in item_positions
+                if item["summary_id"] in existing
+            }
+            if not positions_by_summary:
+                return
+            # Single CASE-expression bulk UPDATE instead of one UPDATE per item
+            # (mirrors async_reorder_collections).
+            await session.execute(
+                update(CollectionItem)
+                .where(
+                    CollectionItem.collection_id == collection_id,
+                    CollectionItem.summary_id.in_(positions_by_summary),
+                )
+                .values(
+                    position=case(
+                        positions_by_summary,
+                        value=CollectionItem.summary_id,
+                        else_=CollectionItem.position,
                     )
+                )
+            )
             await _touch_collection(session, collection_id)
 
     async def async_bulk_set_items(self, collection_id: int, summary_ids: list[int]) -> int:

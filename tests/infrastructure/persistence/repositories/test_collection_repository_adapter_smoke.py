@@ -189,6 +189,54 @@ async def test_list_collections_query_count_is_constant() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reorder_items_issues_single_bulk_update() -> None:
+    """async_reorder_items issues one CASE bulk UPDATE, not one UPDATE per item."""
+    from sqlalchemy import Update
+
+    from app.db.models import Collection
+
+    class _ReorderSession:
+        def __init__(self) -> None:
+            self.update_count = 0
+
+        async def __aenter__(self) -> _ReorderSession:
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+        async def scalar(self, *_a: Any, **_k: Any) -> Any:
+            # _active_collection lookup -> an active collection exists.
+            return Collection(id=1, user_id=1, name="c")
+
+        async def execute(self, stmt: Any, *_a: Any, **_k: Any) -> _Result:
+            if isinstance(stmt, Update):
+                table = getattr(stmt, "table", None)
+                # Count only the item-reorder UPDATE (collection_items), not the
+                # separate parent-collection touch (collections).
+                if table is not None and table.name == "collection_items":
+                    self.update_count += 1
+                return _Result([])
+            # The existing-summary-ids SELECT -> all three requested ids exist.
+            return _Result([1, 2, 3])
+
+    class _ReorderDb:
+        def __init__(self, session: _ReorderSession) -> None:
+            self.session_obj = session
+
+        def session(self) -> _ReorderSession:
+            return self.session_obj
+
+        def transaction(self) -> _ReorderSession:
+            return self.session_obj
+
+    sess = _ReorderSession()
+    repo = CollectionRepositoryAdapter(_ReorderDb(sess))  # type: ignore[arg-type]
+    await repo.async_reorder_items(1, [{"summary_id": i, "position": i} for i in (1, 2, 3)])
+    assert sess.update_count == 1
+
+
+@pytest.mark.asyncio
 async def test_collection_repository_rejects_missing_parent() -> None:
     repo = CollectionRepositoryAdapter(_Database())  # type: ignore[arg-type]
 

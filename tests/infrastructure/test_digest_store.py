@@ -60,14 +60,17 @@ class _DigestSession:
         self.deleted: list[Any] = []
         self.merged: list[Any] = []
         self.executed: list[Any] = []
+        self.execute_params: list[Any] = []
         self.flush_count = 0
 
     async def scalar(self, statement: Any) -> Any:
         self.executed.append(statement)
         return self.scalar_values.pop(0) if self.scalar_values else None
 
-    async def execute(self, statement: Any) -> _ExecuteResult:
+    async def execute(self, statement: Any, params: Any = None) -> _ExecuteResult:
         self.executed.append(statement)
+        if params is not None:
+            self.execute_params.append(params)
         rows = self.execute_rows.pop(0) if self.execute_rows else []
         return _ExecuteResult(rows)
 
@@ -269,8 +272,12 @@ async def test_digest_store_creates_missing_rows_and_persists_posts() -> None:
     )
 
     added_types = [type(instance).__name__ for instance in db.session_obj.added]
-    assert added_types == ["Channel", "UserDigestPreference", "ChannelPost"]
-    assert db.session_obj.added[-1].message_id == 102
+    assert added_types == ["Channel", "UserDigestPreference"]
+    # Posts are now written via a single bulk INSERT (executemany), not session.add;
+    # only the new (non-duplicate) message 102 is inserted.
+    inserted_rows = db.session_obj.execute_params[-1]
+    assert [row["message_id"] for row in inserted_rows] == [102]
+    assert inserted_rows[0]["text"] == "new"
 
 
 @pytest.mark.asyncio
