@@ -126,6 +126,68 @@ async def test_collection_repository_empty_database_paths() -> None:
     assert database.session_obj.executed
 
 
+class _ScriptedResult:
+    def __init__(self, rows: list[Any]) -> None:
+        self._rows = rows
+
+    def scalars(self) -> _ScriptedResult:
+        return self
+
+    def all(self) -> list[Any]:
+        return self._rows
+
+
+class _ScriptedSession:
+    def __init__(self, results: list[list[Any]]) -> None:
+        self._results = list(results)
+        self.execute_count = 0
+
+    async def __aenter__(self) -> _ScriptedSession:
+        return self
+
+    async def __aexit__(self, *_a: object) -> None:
+        return None
+
+    async def execute(self, *_a: Any, **_k: Any) -> _ScriptedResult:
+        self.execute_count += 1
+        rows = self._results.pop(0) if self._results else []
+        return _ScriptedResult(rows)
+
+
+class _ScriptedDb:
+    def __init__(self, results: list[list[Any]]) -> None:
+        self.session_obj = _ScriptedSession(results)
+
+    def session(self) -> _ScriptedSession:
+        return self.session_obj
+
+    def transaction(self) -> _ScriptedSession:
+        return self.session_obj
+
+
+@pytest.mark.asyncio
+async def test_list_collections_query_count_is_constant() -> None:
+    """async_list_collections issues O(1) queries (list + one grouped count)."""
+    from app.db.models import Collection
+
+    async def run(n: int) -> int:
+        collections = [
+            Collection(id=i + 1, user_id=1, name=f"c{i}", parent_id=None, position=i)
+            for i in range(n)
+        ]
+        # grouped item counts: collection id (i+1) -> count i
+        counts = [(i + 1, i) for i in range(n)]
+        db = _ScriptedDb([collections, counts])
+        repo = CollectionRepositoryAdapter(db)  # type: ignore[arg-type]
+        result = await repo.async_list_collections(1, None, 100, 0)
+        assert len(result) == n
+        assert result[0]["item_count"] == 0  # collection id 1 -> count 0
+        return db.session_obj.execute_count
+
+    # One list SELECT + one grouped COUNT, regardless of collection count.
+    assert await run(2) == await run(10) == 2
+
+
 @pytest.mark.asyncio
 async def test_collection_repository_rejects_missing_parent() -> None:
     repo = CollectionRepositoryAdapter(_Database())  # type: ignore[arg-type]

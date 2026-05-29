@@ -64,8 +64,8 @@ class CollectionRepositoryAdapter:
                 stmt = stmt.where(Collection.parent_id.is_(None))
             else:
                 stmt = stmt.where(Collection.parent_id == parent_id)
-            rows = (await session.execute(stmt)).scalars()
-            return [await _serialize_collection(session, collection) or {} for collection in rows]
+            rows = (await session.execute(stmt)).scalars().all()
+            return await _serialize_collections(session, list(rows))
 
     async def async_create_collection(
         self,
@@ -167,7 +167,7 @@ class CollectionRepositoryAdapter:
                     )
                 )
             ).scalars()
-            return [await _serialize_collection(session, collection) or {} for collection in rows]
+            return await _serialize_collections(session, list(rows))
 
     async def async_reorder_collections(
         self,
@@ -801,6 +801,35 @@ async def _serialize_collection(
     data = _collection_dict(collection)
     data["item_count"] = await _item_count(session, collection.id)
     return data
+
+
+async def _item_counts(session: Any, collection_ids: list[int]) -> dict[int, int]:
+    """Return {collection_id: item_count} for many collections in one query."""
+    if not collection_ids:
+        return {}
+    rows = await session.execute(
+        select(CollectionItem.collection_id, func.count(CollectionItem.id))
+        .where(CollectionItem.collection_id.in_(collection_ids))
+        .group_by(CollectionItem.collection_id)
+    )
+    return {int(cid): int(count) for cid, count in rows.all()}
+
+
+async def _serialize_collections(
+    session: Any, collections: list[Collection]
+) -> list[dict[str, Any]]:
+    """Serialize collections with item counts resolved in a single grouped query.
+
+    Avoids the per-row COUNT that _serialize_collection issues, so listing N
+    collections is O(1) queries instead of 1 + N.
+    """
+    counts = await _item_counts(session, [collection.id for collection in collections])
+    serialized: list[dict[str, Any]] = []
+    for collection in collections:
+        data = _collection_dict(collection)
+        data["item_count"] = counts.get(collection.id, 0)
+        serialized.append(data)
+    return serialized
 
 
 def _collection_dict(collection: Collection) -> dict[str, Any]:
