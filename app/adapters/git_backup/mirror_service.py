@@ -130,6 +130,7 @@ class MirrorOutcome:
     error_category: ErrorCategory | None = None
     skip_reason: str | None = None
     attempts: int = 1
+    clone_strategy: str | None = None
 
 
 @dataclass
@@ -177,6 +178,42 @@ async def _preflight_storage_check(root: Path, timeout_ms: int) -> str | None:
     except Exception as exc:
         return str(exc)
     return None
+
+
+def _should_use_shallow_clone(mirror: GitMirror, cfg: GitBackupConfig) -> bool:
+    """Return True when a shallow clone (--depth=1) should be used for this mirror.
+
+    Ports gitout's FailureTracker.get_recommended_strategy logic: shallow clone is
+    selected when BOTH the consecutive-failures threshold is met AND the repo size
+    exceeds the size threshold. Either threshold set to 0 disables that condition
+    (0 = disabled sentinel, not a valid gitout value).
+
+    Only meaningful for initial clones; callers must gate on is_clone.
+    """
+    failure_threshold = cfg.shallow_clone_after_failures
+    size_threshold = cfg.shallow_clone_threshold_kb
+
+    # Both features disabled (default): never shallow.
+    if failure_threshold == 0 and size_threshold == 0:
+        return False
+
+    # Failures condition: 0 = disabled (skip check), else must be met.
+    failures_ok = (
+        failure_threshold == 0
+        or (mirror.consecutive_failures or 0) >= failure_threshold
+    )
+
+    # Size condition: 0 = disabled (skip check), else must be met.
+    size_ok = (
+        size_threshold == 0
+        or (mirror.size_kb is not None and mirror.size_kb >= size_threshold)
+    )
+
+    # When only one condition is configured, that condition alone governs.
+    # When both are configured, both must be met (gitout AND semantics).
+    if failure_threshold > 0 and size_threshold > 0:
+        return failures_ok and size_ok
+    return failures_ok and size_ok
 
 
 class GitMirrorService:
@@ -516,13 +553,22 @@ class GitMirrorService:
                 attempts=0,
             )
 
+        use_shallow = _should_use_shallow_clone(task.mirror, cfg) if is_clone else False
+        clone_strategy = "shallow" if use_shallow else "full"
+
         async def operation(context: RetryContext) -> str:
             argv = build_git_command(
                 repo_exists=not is_clone,
                 url=task.effective_url if is_clone else None,
                 repo_name=dest.name if is_clone else None,
                 git_executable=resolve_git_executable(),
+                verify_certificates=cfg.verify_certificates,
+                post_buffer_size=cfg.post_buffer_size,
+                low_speed_limit=cfg.low_speed_limit,
+                low_speed_time=cfg.low_speed_time,
+                single_branch_only=cfg.single_branch_only,
                 force_http1=context.should_use_http1_fallback,
+                use_shallow_clone=use_shallow,
                 show_progress=task.is_large_repo or context.is_retry,
                 disable_redirects=True,
             )
@@ -555,6 +601,7 @@ class GitMirrorService:
                     error=cause_msg,
                     error_category=category,
                     attempts=exc.attempt_count,
+                    clone_strategy=clone_strategy if is_clone else None,
                 )
             except Exception as exc:
                 safe_exc = _redact_url(str(exc))
@@ -572,6 +619,7 @@ class GitMirrorService:
                     error=safe_exc,
                     error_category=category,
                     attempts=1,
+                    clone_strategy=clone_strategy if is_clone else None,
                 )
 
             # Success path.
@@ -587,7 +635,12 @@ class GitMirrorService:
             if self._lfs is not None:
                 await asyncio.to_thread(self._lfs.sync_lfs_if_needed, dest)
 
-            return MirrorOutcome(mirror=task.mirror, ok=True, attempts=1)
+            return MirrorOutcome(
+                mirror=task.mirror,
+                ok=True,
+                attempts=1,
+                clone_strategy=clone_strategy if is_clone else None,
+            )
 
         if task.is_large_repo and is_clone:
             async with large_semaphore:
@@ -631,12 +684,14 @@ class GitMirrorService:
                 mirror_path=str(dest) if dest else "",
                 size_kb=size_kb,
                 default_branch=mirror.default_branch,
+                clone_strategy=outcome.clone_strategy,
             )
         else:
             await self._mirror_repo.record_failure(
                 mirror_id=mirror.id,
                 error_category=outcome.error_category or ErrorCategory.UNKNOWN,
                 message=outcome.error or "",
+                clone_strategy=outcome.clone_strategy,
             )
 
 

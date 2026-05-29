@@ -795,6 +795,13 @@ Periodic bare-clone mirroring of GitHub repositories (starred, owned, watched) a
 | `GIT_BACKUP_FAILURE_COOLDOWN_HOURS` | int | `24` | Hours to wait before retrying a repo that has exceeded `GIT_BACKUP_MAX_CONSECUTIVE_FAILURES`. |
 | `GIT_BACKUP_AUTO_SKIP_FAILING` | bool | `true` | Automatically skip repos that are in the failure-cooldown window instead of retrying them every run. |
 | `GIT_BACKUP_EXTRA_REPOS` | dict[str,str] | `{}` | Mapping of short name → clone URL for repos that should be mirrored but do not have a `git_mirrors` DB row (e.g. `{"my-project": "https://github.com/user/my-project.git"}`). Parsing a nested dict from a flat env var is awkward; prefer the `git_mirrors` DB table for dynamic configuration and reserve this field for static, deployment-time overrides via `ratatoskr.yaml`. |
+| `GIT_BACKUP_VERIFY_CERTIFICATES` | bool | `true` | When `false`, passes `http.sslVerify=false` to git, disabling TLS certificate verification. Mirrors gitout `ssl.verify_certificates`. Only disable on private infrastructure with a known-good CA. |
+| `GIT_BACKUP_POST_BUFFER_SIZE` | int | `524288000` | Value for git's `http.postBuffer` in bytes (500 MB). Mirrors gitout `http.post_buffer_size`. Increase for repos that fail with `RPC failed; HTTP 411` on large pushes. |
+| `GIT_BACKUP_LOW_SPEED_LIMIT` | int | `1000` | Value for git's `http.lowSpeedLimit` in bytes/second. Mirrors gitout `http.low_speed_limit`. Set to `0` to disable low-speed detection. |
+| `GIT_BACKUP_LOW_SPEED_TIME` | int | `60` | Value for git's `http.lowSpeedTime` in seconds. Mirrors gitout `http.low_speed_time`. Only effective when `GIT_BACKUP_LOW_SPEED_LIMIT > 0`. |
+| `GIT_BACKUP_SINGLE_BRANCH_ONLY` | bool | `false` | When `true`, uses `git clone --bare --single-branch` instead of `git clone --mirror`. Mirrors gitout `github.clone.single_branch_only`. Reduces disk usage for repos with many branches but omits all non-default refs. |
+| `GIT_BACKUP_SHALLOW_CLONE_THRESHOLD_KB` | int | `0` | Repository size in KB above which a shallow clone (`--depth=1`) is used instead of a full mirror clone. `0` = disabled (opt-in). Gitout's default is 2 000 000 KB (2 GB). Only applies to initial clones. |
+| `GIT_BACKUP_SHALLOW_CLONE_AFTER_FAILURES` | int | `0` | Consecutive failure count after which a shallow clone is attempted instead of a full mirror clone. `0` = disabled (opt-in). Gitout's default is 3. When both this and `GIT_BACKUP_SHALLOW_CLONE_THRESHOLD_KB` are non-zero, both conditions must be met. Only applies to initial clones. |
 
 **Notes:**
 
@@ -803,6 +810,8 @@ Periodic bare-clone mirroring of GitHub repositories (starred, owned, watched) a
 - `GIT_BACKUP_MAINTENANCE_STRATEGY=gc-auto` runs `git gc --auto` after each fetch (low overhead, suitable for most deployments). `geometric` uses `git maintenance run --task=gc` with geometric repacking. `none` skips maintenance entirely (fastest per-fetch, but pack fragmentation accumulates).
 - Large-repo handling activates when the on-disk bare clone exceeds `GIT_BACKUP_LARGE_REPO_THRESHOLD_KB`. Effective timeout becomes `GIT_BACKUP_REPO_TIMEOUT_SECONDS * GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER`, and at most `GIT_BACKUP_LARGE_REPO_MAX_PARALLEL` such repos are mirrored at once regardless of `GIT_BACKUP_WORKERS`.
 - The failure-cooldown window is per-repo and tracked in the `git_mirrors` table. `GIT_BACKUP_AUTO_SKIP_FAILING=true` means a repo in cooldown is silently skipped; set to `false` to have it retried every run (useful for debugging transient failures).
+- `GIT_BACKUP_VERIFY_CERTIFICATES=false` is a global override for all mirrors; there is no per-mirror SSL override. Only use on fully private deployments; disabling TLS verification exposes clones to MITM attacks.
+- Shallow-clone (`GIT_BACKUP_SHALLOW_CLONE_THRESHOLD_KB` / `GIT_BACKUP_SHALLOW_CLONE_AFTER_FAILURES`) only applies to the initial `git clone`, never to `git remote update`. When both thresholds are configured, gitout's AND semantics apply: the repo must exceed the size threshold AND have at least the configured consecutive failures. The chosen strategy (`"shallow"` or `"full"`) is persisted to the `clone_strategy` column of `git_mirrors` so it is queryable.
 
 ---
 

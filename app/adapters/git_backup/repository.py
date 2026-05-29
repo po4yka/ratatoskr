@@ -142,6 +142,7 @@ class GitMirrorRepository:
         mirror_path: str,
         size_kb: int | None,
         default_branch: str | None,
+        clone_strategy: str | None = None,
     ) -> None:
         """Persist a successful mirror outcome: reset failure counters, record path."""
         now = dt.datetime.now(tz=dt.UTC)
@@ -161,12 +162,15 @@ class GitMirrorRepository:
             row.backoff_until = None
             row.last_error = None
             row.last_error_category = None
+            if clone_strategy is not None:
+                row.clone_strategy = clone_strategy
 
     async def record_failure(
         self,
         mirror_id: int,
         error_category: ErrorCategory,
         message: str,
+        clone_strategy: str | None = None,
     ) -> None:
         """Persist a failed mirror outcome.
 
@@ -186,6 +190,8 @@ class GitMirrorRepository:
             row.consecutive_failures = (row.consecutive_failures or 0) + 1
             row.last_error = message[:4000] if message else None  # guard column width
             row.last_error_category = error_category.value
+            if clone_strategy is not None:
+                row.clone_strategy = clone_strategy
 
             if (
                 cfg.auto_skip_failing

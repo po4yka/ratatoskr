@@ -79,7 +79,7 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 | `last_error` | text | yes | Truncated stderr output from the last failed attempt (max 4000 chars) |
 | `last_error_category` | varchar(50) | yes | `ErrorCategory.value` string from the last failure |
 | `backoff_until` | timestamptz | yes | When set, the mirror is skipped by `list_due` until this time passes |
-| `clone_strategy` | varchar(50) | yes | Reserved for future use; currently always null |
+| `clone_strategy` | varchar(50) | yes | Clone strategy used for the most recent initial clone: `"full"` (mirror) or `"shallow"` (`--depth=1`). Written by `record_success` / `record_failure`. Null for rows that pre-date the shallow-clone feature or for update (non-clone) operations. |
 | `created_at` | timestamptz | no | Row insertion time |
 | `updated_at` | timestamptz | no | Last modification time |
 
@@ -157,8 +157,38 @@ All variables are read by `app/config/git_backup.py::GitBackupConfig`. Full refe
 | `GIT_BACKUP_LARGE_REPO_MAX_PARALLEL` | `2` | Maximum concurrent large-repo initial clones |
 | `GIT_BACKUP_MAX_CONSECUTIVE_FAILURES` | `5` | Failures before cooldown activates |
 | `GIT_BACKUP_FAILURE_COOLDOWN_HOURS` | `24` | Cooldown window after max failures |
+| `GIT_BACKUP_VERIFY_CERTIFICATES` | `true` | When `false`, passes `http.sslVerify=false` to git; disables TLS certificate verification |
+| `GIT_BACKUP_POST_BUFFER_SIZE` | `524288000` | git `http.postBuffer` in bytes (500 MB) |
+| `GIT_BACKUP_LOW_SPEED_LIMIT` | `1000` | git `http.lowSpeedLimit` in bytes/second; `0` disables |
+| `GIT_BACKUP_LOW_SPEED_TIME` | `60` | git `http.lowSpeedTime` in seconds (used when low_speed_limit > 0) |
+| `GIT_BACKUP_SINGLE_BRANCH_ONLY` | `false` | Use `git clone --bare --single-branch` instead of `--mirror` |
+| `GIT_BACKUP_SHALLOW_CLONE_THRESHOLD_KB` | `0` | Size threshold in KB for automatic shallow clone; `0` = disabled |
+| `GIT_BACKUP_SHALLOW_CLONE_AFTER_FAILURES` | `0` | Consecutive failure count that triggers shallow clone; `0` = disabled |
 | `GIT_BACKUP_AUTO_SKIP_FAILING` | `true` | Skip mirrors in cooldown window instead of retrying |
 | `GIT_BACKUP_EXTRA_REPOS` | `{}` | Static name→URL map for repos without a DB row; set via `ratatoskr.yaml` |
+
+---
+
+## SSL and HTTP Tuning
+
+All git operations are wrapped with a fixed set of `-c` flags built by `build_git_command` (`app/adapters/git_backup/git_commands.py`). The flags correspond to gitout's `ssl.*` and `http.*` config sections:
+
+- **`http.sslVerify`** — emitted as `http.sslVerify=false` only when `GIT_BACKUP_VERIFY_CERTIFICATES=false`. Default (`true`) omits the flag, so git uses its compiled-in CA bundle. Only disable on fully private deployments where the server presents a self-signed certificate; disabling TLS verification exposes clones to MITM attacks.
+- **`http.postBuffer`** — always emitted (default 524 288 000 bytes = 500 MB). Controls the in-memory send buffer for HTTP POST operations. Increase when seeing `RPC failed; HTTP 411 Caused by: send-pack: unexpected disconnect` errors on large repos.
+- **`http.lowSpeedLimit` / `http.lowSpeedTime`** — emitted when `GIT_BACKUP_LOW_SPEED_LIMIT > 0` (default 1000 bytes/s, 60 s). Causes git to abort a transfer that stays below the limit for the configured number of seconds. Set `GIT_BACKUP_LOW_SPEED_LIMIT=0` to disable.
+- **`http.version`** — forced to `HTTP/1.1` by default (matching gitout's default). The retry policy promotes an HTTP/1.1 fallback on `HTTP2_ERROR` categories; `force_http1` on the retry context overrides any per-run HTTP/2 setting.
+- **`http.followRedirects=false`** — always set by the SSRF hardening layer (`disable_redirects=True`) to prevent a trusted host from 30x-redirecting git to an internal endpoint.
+
+### Shallow-clone strategy
+
+By default, all clones use `git clone --mirror`, which preserves the complete ref history. Two opt-in mechanisms (both disabled by default with `0`) switch initial clones to `git clone --depth=1 --single-branch`:
+
+1. **Size-based** (`GIT_BACKUP_SHALLOW_CLONE_THRESHOLD_KB`): when the stored `size_kb` for the mirror meets or exceeds the threshold.
+2. **Failure-based** (`GIT_BACKUP_SHALLOW_CLONE_AFTER_FAILURES`): when `consecutive_failures` meets or exceeds the threshold.
+
+When both thresholds are configured (non-zero), **both conditions must be met** (gitout AND semantics). When only one is configured, that condition alone governs. The chosen strategy — `"shallow"` or `"full"` — is persisted to the `clone_strategy` column of `git_mirrors` after each initial clone so it can be queried. Shallow clones are never applied to `git remote update` (repo already exists on disk).
+
+Setting `GIT_BACKUP_SINGLE_BRANCH_ONLY=true` uses `git clone --bare --single-branch` regardless of the shallow-clone logic; the two options are mutually exclusive (shallow takes priority if `use_shallow_clone` is true).
 
 ---
 

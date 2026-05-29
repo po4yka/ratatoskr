@@ -140,6 +140,83 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    # HTTP / SSL tuning (mirrors gitout ssl.* and http.* config fields)
+    verify_certificates: bool = Field(
+        default=True,
+        validation_alias="GIT_BACKUP_VERIFY_CERTIFICATES",
+        description=(
+            "When false, passes http.sslVerify=false to git, disabling TLS certificate "
+            "verification. Mirrors gitout ssl.verify_certificates (default: true). "
+            "Only set false on private infrastructure with a known-good CA."
+        ),
+    )
+    post_buffer_size: int = Field(
+        default=524_288_000,
+        ge=1024,
+        validation_alias="GIT_BACKUP_POST_BUFFER_SIZE",
+        description=(
+            "Value for git's http.postBuffer config option in bytes (default: 524 288 000 = 500 MB). "
+            "Mirrors gitout http.post_buffer_size. Increase for repos that fail with "
+            "'error: RPC failed; HTTP 411 Caused by: send-pack: unexpected disconnect' on large pushes."
+        ),
+    )
+    low_speed_limit: int = Field(
+        default=1000,
+        ge=0,
+        validation_alias="GIT_BACKUP_LOW_SPEED_LIMIT",
+        description=(
+            "Value for git's http.lowSpeedLimit in bytes/second (default: 1000). "
+            "Mirrors gitout http.low_speed_limit. Set to 0 to disable low-speed detection. "
+            "If the transfer rate drops below this value for low_speed_time seconds, git aborts."
+        ),
+    )
+    low_speed_time: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="GIT_BACKUP_LOW_SPEED_TIME",
+        description=(
+            "Value for git's http.lowSpeedTime in seconds (default: 60). "
+            "Mirrors gitout http.low_speed_time. Only effective when low_speed_limit > 0."
+        ),
+    )
+
+    # Clone mode
+    single_branch_only: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_SINGLE_BRANCH_ONLY",
+        description=(
+            "When true, uses git clone --bare --single-branch instead of git clone --mirror. "
+            "Mirrors gitout github.clone.single_branch_only (default: false). "
+            "Reduces disk usage for repositories with many branches but omits all non-default refs."
+        ),
+    )
+
+    # Shallow-clone strategy (mirrors gitout large_repos.shallow_clone_* fields)
+    shallow_clone_threshold_kb: int = Field(
+        default=0,
+        ge=0,
+        validation_alias="GIT_BACKUP_SHALLOW_CLONE_THRESHOLD_KB",
+        description=(
+            "Repository size in KB above which a shallow clone (--depth=1) is used instead of a "
+            "full mirror clone (default: 0 = disabled). "
+            "Gitout's default is 2 000 000 KB (2 GB); set to 0 here to keep the feature opt-in. "
+            "Only applies to initial clones, not updates. Pair with shallow_clone_after_failures "
+            "to restrict shallow clones to repos that also have a failure history."
+        ),
+    )
+    shallow_clone_after_failures: int = Field(
+        default=0,
+        ge=0,
+        validation_alias="GIT_BACKUP_SHALLOW_CLONE_AFTER_FAILURES",
+        description=(
+            "Number of consecutive failures after which a shallow clone (--depth=1) is attempted "
+            "instead of a full mirror clone (default: 0 = disabled). "
+            "Gitout's default is 3; set to 0 here to keep the feature opt-in. "
+            "Only applies to initial clones, not updates. When both this and "
+            "shallow_clone_threshold_kb are non-zero, both conditions must be met (gitout semantics)."
+        ),
+    )
+
     # Arbitrary extra repos (supplement the DB GitMirror table)
     extra_repos: dict[str, str] = Field(
         default_factory=dict,
