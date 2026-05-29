@@ -19,6 +19,9 @@ from app.adapters.telegram.telegram_client import TelegramClient
 from app.adapters.telegram.url_batch_policy_service import URLBatchPolicyService
 from app.adapters.telegram.url_handler import URLHandler
 from app.adapters.transcription import TranscriptionService, get_or_create_transcription_service
+from app.agents.multi_source_aggregation_agent import MultiSourceAggregationAgent
+from app.agents.multi_source_extraction_agent import MultiSourceExtractionAgent
+from app.agents.relationship_analysis_agent import RelationshipAnalysisAgent
 from app.application.services.adaptive_timeout import AdaptiveTimeoutService
 from app.application.services.aggregation_rollout import AggregationRolloutGate
 from app.application.services.llm_cascade_timeout import compute_llm_cascade_floor
@@ -221,12 +224,24 @@ def build_summary_cli_runtime(
         request_repo=repositories.request_repository,
         cfg=cfg,
     )
+    _agg_session_repo_cli = build_aggregation_session_repository(db)
     aggregation_handler = MultiSourceAggregationHandler(
         response_formatter=core.response_formatter,
         workflow_service=MultiSourceAggregationService(
-            content_extractor=url_processor.content_extractor,
-            aggregation_session_repo=build_aggregation_session_repository(db),
-            llm_client=core.llm_client,
+            extraction_agent=MultiSourceExtractionAgent(
+                content_extractor=url_processor.content_extractor,
+                aggregation_session_repo=_agg_session_repo_cli,
+            ),
+            aggregation_agent=MultiSourceAggregationAgent(
+                aggregation_session_repo=_agg_session_repo_cli,
+                llm_client=core.llm_client,
+            ),
+            aggregation_session_repo=_agg_session_repo_cli,
+            relationship_agent=RelationshipAnalysisAgent(
+                llm_client=core.llm_client,
+            )
+            if core.llm_client is not None
+            else None,
         ),
         rollout_gate=AggregationRolloutGate(
             cfg=cfg,
@@ -400,12 +415,24 @@ def _build_telegram_interface_stack(
         ),
         cfg=cfg,
     )
+    _agg_session_repo = build_aggregation_session_repository(db)
     aggregation_handler = MultiSourceAggregationHandler(
         response_formatter=core.response_formatter,
         workflow_service=MultiSourceAggregationService(
-            content_extractor=processing.url_processor.content_extractor,
-            aggregation_session_repo=build_aggregation_session_repository(db),
-            llm_client=core.llm_client,
+            extraction_agent=MultiSourceExtractionAgent(
+                content_extractor=processing.url_processor.content_extractor,
+                aggregation_session_repo=_agg_session_repo,
+            ),
+            aggregation_agent=MultiSourceAggregationAgent(
+                aggregation_session_repo=_agg_session_repo,
+                llm_client=core.llm_client,
+            ),
+            aggregation_session_repo=_agg_session_repo,
+            relationship_agent=RelationshipAnalysisAgent(
+                llm_client=core.llm_client,
+            )
+            if core.llm_client is not None
+            else None,
         ),
         rollout_gate=AggregationRolloutGate(
             cfg=cfg,

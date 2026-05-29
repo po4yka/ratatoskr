@@ -309,11 +309,14 @@ sequenceDiagram
 
 ## Layering contracts
 
-The layering rules above are enforced by [`import-linter`](https://import-linter.readthedocs.io/) via the `.importlinter` config at the repo root, run by the `Architecture - Import Linter (layering)` CI job. The dependency direction is: `domain` ← `application` ← {`infrastructure`, `adapters`} ← `api`, with `tasks` (workers) also forbidden from importing `api`, and `adapters.content` / `adapters.telegram` required to be independent.
+The layering rules above are enforced by [`import-linter`](https://import-linter.readthedocs.io/) via the `.importlinter` config at the repo root, run by the `Architecture - Import Linter (layering)` CI job. Five contracts cover the dependency direction:
 
-Enforcement is staged so the contracts can be introduced before every violation is fixed:
+- `domain-independence` — `app.domain` imports no outer layer.
+- `application-no-outward` — `app.application` imports neither `app.adapters` nor `app.api` (depends on `app.application.ports.*` Protocols injected at the DI boundary).
+- `infrastructure-no-api` — `app.infrastructure` does not import `app.api`.
+- `tasks-no-api` — worker code (`app.tasks`) does not import `app.api`.
+- `content-no-telegram` — `app.adapters.content` does not import `app.adapters.telegram` (telegram → content orchestration is allowed; the reverse would re-create the cycle).
 
-- **Gating** — `domain-independence` is green today and fails the build if `app.domain` ever imports an outer layer.
-- **Advisory** — `application-no-outward`, `infrastructure-no-api`, `tasks-no-api`, and `content-telegram-independence` are currently broken by known violations and run in report-only mode. They are a live, shrinking tracker for the remaining tasks of the *restore-architecture-layering* epic. As each task lands and its contract goes green, promote it from the advisory step to a gating `lint-imports --contract <id>` step in `.github/workflows/ci.yml` (and never let it regress).
+All five are **green and gated**: the CI job runs `lint-imports` and the build fails on any regression. The *restore-architecture-layering* epic closed every known violation; if you add a new outward import the contract that owns it will fail.
 
-Run locally with `lint-imports` (all contracts) or `lint-imports --contract domain-independence` (the gated one) after `pip install import-linter` in an environment where `app` is importable.
+Run locally with `lint-imports` (all contracts) or `lint-imports --contract <id>` after `pip install import-linter` in an environment where `app` is importable.

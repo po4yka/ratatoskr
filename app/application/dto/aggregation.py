@@ -485,6 +485,46 @@ class MultiSourceAggregationOutput(BaseModel):
         return stripped
 
 
+class MultiSourceExtractionInput(BaseModel):
+    """Input bundle for the mixed-source extraction agent.
+
+    Defined here (in the application DTO layer) so that application services
+    can construct instances without importing from ``app.agents``.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    correlation_id: str
+    user_id: int
+    items: list[SourceSubmission]
+    allow_partial_success: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    progress_callback: Any = None
+
+
+class MultiSourceAggregationInput(BaseModel):
+    """Input contract for mixed-source bundle synthesis.
+
+    Defined here (in the application DTO layer) so that application services
+    can construct instances without importing from ``app.agents``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    session_id: int
+    correlation_id: str
+    items: list[SourceExtractionItemResult]
+    language: str = "en"
+    relationship_signal: AggregationRelationshipSignal | None = None
+
+    @model_validator(mode="after")
+    def validate_items(self) -> MultiSourceAggregationInput:
+        if not self.items:
+            msg = "Multi-source aggregation requires at least one bundle item"
+            raise ValueError(msg)
+        return self
+
+
 __all__ = [
     "AggregatedClaim",
     "AggregatedContradiction",
@@ -495,7 +535,9 @@ __all__ = [
     "AggregationSourceWeight",
     "DuplicateSignal",
     "ExtractedTextKind",
+    "MultiSourceAggregationInput",
     "MultiSourceAggregationOutput",
+    "MultiSourceExtractionInput",
     "MultiSourceExtractionOutput",
     "NormalizedSourceDocument",
     "SourceCoverageEntry",

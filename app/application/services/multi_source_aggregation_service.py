@@ -8,19 +8,12 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from app.adapter_models.batch_analysis import ArticleMetadata, RelationshipAnalysisInput
-from app.agents.multi_source_aggregation_agent import (
-    MultiSourceAggregationAgent,
-    MultiSourceAggregationInput,
-)
-from app.agents.multi_source_extraction_agent import (
-    MultiSourceExtractionAgent,
-    MultiSourceExtractionInput,
-)
-from app.agents.relationship_analysis_agent import RelationshipAnalysisAgent
 from app.application.dto.aggregation import (
     AggregationFailure,
     AggregationRelationshipSignal,
+    MultiSourceAggregationInput,
     MultiSourceAggregationOutput,
+    MultiSourceExtractionInput,
     MultiSourceExtractionOutput,
     SourceSubmission,
 )
@@ -31,11 +24,22 @@ from app.observability.metrics import record_aggregation_synthesis
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from app.adapters.content.content_extractor import ContentExtractor
-    from app.adapters.llm import LLMClientProtocol
+    from app.application.ports.agents import (
+        MultiSourceAggregationAgentPort,
+        MultiSourceExtractionAgentPort,
+        RelationshipAnalysisAgentPort,
+    )
     from app.application.ports.aggregation_sessions import AggregationSessionRepositoryPort
 
 logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Input types re-exported for callers that build the input objects.
+# These live in the agent modules; we import them here so callers of the
+# service can use a single import path.  The service itself only passes
+# these through to the injected agents — it does NOT import agent classes.
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,13 +56,15 @@ class MultiSourceAggregationService:
     def __init__(
         self,
         *,
-        content_extractor: ContentExtractor,
+        extraction_agent: MultiSourceExtractionAgentPort,
+        aggregation_agent: MultiSourceAggregationAgentPort,
         aggregation_session_repo: AggregationSessionRepositoryPort,
-        llm_client: LLMClientProtocol | None = None,
+        relationship_agent: RelationshipAnalysisAgentPort | None = None,
     ) -> None:
-        self._content_extractor = content_extractor
+        self._extraction_agent = extraction_agent
+        self._aggregation_agent = aggregation_agent
         self._aggregation_session_repo = aggregation_session_repo
-        self._llm = llm_client
+        self._relationship_agent = relationship_agent
 
     async def aggregate(
         self,
@@ -71,13 +77,8 @@ class MultiSourceAggregationService:
         progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> MultiSourceAggregationRunResult:
         """Extract a bundle, derive optional relationship signal, then synthesize."""
-
         run_started = time.perf_counter()
-        extraction_agent = MultiSourceExtractionAgent(
-            content_extractor=self._content_extractor,
-            aggregation_session_repo=self._aggregation_session_repo,
-        )
-        extraction_result = await extraction_agent.execute(
+        extraction_result = await self._extraction_agent.execute(
             MultiSourceExtractionInput(
                 correlation_id=correlation_id,
                 user_id=user_id,
@@ -102,11 +103,8 @@ class MultiSourceAggregationService:
                 extra={"cid": correlation_id},
             )
             relationship_signal = None
-        aggregation_agent = MultiSourceAggregationAgent(
-            aggregation_session_repo=self._aggregation_session_repo,
-            llm_client=self._llm,
-        )
-        aggregation_result = await aggregation_agent.execute(
+
+        aggregation_result = await self._aggregation_agent.execute(
             MultiSourceAggregationInput(
                 session_id=extraction_result.output.session_id,
                 correlation_id=correlation_id,
@@ -171,18 +169,14 @@ class MultiSourceAggregationService:
         correlation_id: str,
         language: str,
     ) -> AggregationRelationshipSignal | None:
-        if self._llm is None:
+        if self._relationship_agent is None:
             return None
 
         articles = self._build_relationship_articles(extraction_output)
         if len(articles) < 2:
             return None
 
-        relationship_agent = RelationshipAnalysisAgent(
-            llm_client=self._llm,
-            correlation_id=correlation_id,
-        )
-        relationship_result = await relationship_agent.execute(
+        relationship_result = await self._relationship_agent.execute(
             RelationshipAnalysisInput(
                 articles=articles,
                 correlation_id=correlation_id,
