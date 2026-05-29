@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.adapters.content.llm_response_workflow import LLMResponseWorkflow
+from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
 
 # ---------------------------------------------------------------------------
 # LLMResponseWorkflow._set_failure_context
@@ -115,7 +115,7 @@ class TestSummaryWorkflowLoopCancelledError:
     @pytest.mark.asyncio
     async def test_loop_error_context_propagates_cancelled(self) -> None:
         """When setting error_context raises CancelledError it must not be swallowed."""
-        from app.adapters.content.llm_response_workflow import (
+        from app.application.services.summarization.llm_response_workflow import (
             LLMInteractionConfig,
             LLMRepairContext,
             LLMRequestConfig,

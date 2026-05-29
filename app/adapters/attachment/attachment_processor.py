@@ -12,7 +12,7 @@ from app.adapters.attachment._attachment_llm import AttachmentLLMWorkflowService
 from app.adapters.attachment._attachment_persistence import AttachmentPersistenceService
 from app.adapters.attachment._attachment_shared import AttachmentProcessorContext
 from app.adapters.attachment.media_group_collector import MediaGroupCollector
-from app.adapters.content.llm_response_workflow import LLMResponseWorkflow
+from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
 from app.adapters.telegram.multimodal_extractor import build_telegram_summary_context
 from app.core.logging_utils import get_logger
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.adapters.content import llm_response_workflow_execution
+from app.application.services.summarization import llm_response_workflow_execution
 from app.adapters.content.scraper import diagnostics as scraper_diagnostics
 from app.adapters.external.firecrawl import options as firecrawl_options
 from app.adapters.external.formatting import export_formatter

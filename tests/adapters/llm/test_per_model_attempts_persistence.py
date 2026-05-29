@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.adapters.content.llm_response_workflow_storage import LLMWorkflowStorageMixin
+from app.application.services.summarization.llm_response_workflow_storage import (
+    LLMWorkflowStorageMixin,
+)
 from app.core.call_status import CallStatus
 
 

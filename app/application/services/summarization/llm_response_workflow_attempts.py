@@ -11,16 +11,16 @@ from typing import TYPE_CHECKING, Any
 from app.core.call_status import CallStatus
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.core.summary_normalization import normalize_metric_names
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_update import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 from app.utils.json_validation import finalize_summary_texts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from app.adapters.content.llm_response_workflow import AttemptContext
+    from app.application.services.summarization.llm_response_workflow import AttemptContext
 
-logger = logging.getLogger("app.adapters.content.llm_response_workflow")
+logger = logging.getLogger("app.application.services.summarization.llm_response_workflow")
 
 
 def summary_has_content(summary: dict[str, Any], required_fields: Sequence[str]) -> bool:
@@ -72,12 +72,12 @@ class LLMWorkflowAttemptsMixin:
         json_parse_timeout = getattr(self.cfg.runtime, "json_parse_timeout_sec", 60.0)
         try:
             # Look up parse_summary_response via the adapter shim namespace so that
-            # unittest.mock.patch("app.adapters.content.llm_response_workflow.parse_summary_response")
+            # unittest.mock.patch("app.application.services.summarization.llm_response_workflow.parse_summary_response")
             # intercepts the call in tests.  sys.modules access is not a static import
             # and is therefore invisible to import-linter, preserving the layering contract.
             import sys
 
-            _shim = sys.modules.get("app.adapters.content.llm_response_workflow")
+            _shim = sys.modules.get("app.application.services.summarization.llm_response_workflow")
             _parse_fn = (
                 getattr(_shim, "parse_summary_response", None) if _shim is not None else None
             )

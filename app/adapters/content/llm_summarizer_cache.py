@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.content.llm_response_workflow_attempts import summary_has_content
+from app.application.services.summarization.llm_response_workflow_attempts import (
+    summary_has_content,
+)
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:

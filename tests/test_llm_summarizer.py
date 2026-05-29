@@ -18,7 +18,9 @@ class TestAttemptSalvageParsing(unittest.TestCase):
     """Tests for LLMWorkflowRepairMixin._attempt_salvage_parsing."""
 
     def _make_mixin(self):
-        from app.adapters.content.llm_response_workflow_repair import LLMWorkflowRepairMixin
+        from app.application.services.summarization.llm_response_workflow_repair import (
+            LLMWorkflowRepairMixin,
+        )
 
         class StubWorkflow(LLMWorkflowRepairMixin):
             _audit = staticmethod(lambda *a, **kw: None)

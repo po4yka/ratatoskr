@@ -9,7 +9,7 @@ from typing import Any
 from app.core.llm_usage_budget import evaluate_request_usage
 from app.observability.metrics import record_llm_call_persisted
 
-logger = logging.getLogger("app.adapters.content.llm_response_workflow")
+logger = logging.getLogger("app.application.services.summarization.llm_response_workflow")
 
 
 class LLMWorkflowStorageMixin:

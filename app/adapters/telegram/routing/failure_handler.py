@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.content.llm_response_workflow import ConcurrencyTimeoutError
+from app.application.services.summarization.llm_response_workflow import ConcurrencyTimeoutError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

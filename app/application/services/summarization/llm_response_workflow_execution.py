@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from app.application.ports.llm_client import LLMClientProtocol
 
-logger = logging.getLogger("app.adapters.content.llm_response_workflow")
+logger = logging.getLogger("app.application.services.summarization.llm_response_workflow")
 
 
 class LLMWorkflowExecutionMixin:
@@ -106,7 +106,7 @@ class LLMWorkflowExecutionMixin:
             msg = "requests must include at least one attempt"
             raise ValueError(msg)
 
-        from app.adapters.content.llm_response_workflow import AttemptContext
+        from app.application.services.summarization.llm_response_workflow import AttemptContext
 
         failed_attempts: list[tuple[Any, Any]] = []
         total_attempts = len(requests)
@@ -295,7 +295,9 @@ class LLMWorkflowExecutionMixin:
 
     async def _invoke_llm(self, request: Any, req_id: int, on_retry: Any | None = None) -> Any:
         from app.adapter_models.llm.llm_models import LLMCallResult
-        from app.adapters.content.llm_response_workflow import ConcurrencyTimeoutError
+        from app.application.services.summarization.llm_response_workflow import (
+            ConcurrencyTimeoutError,
+        )
         from app.core.llm_usage_budget import (
             LLMUsageSnapshot,
             day_start,

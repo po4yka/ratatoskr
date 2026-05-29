@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.adapters.content.content_extractor_requests import ContentExtractorRequestsMixin
-from app.adapters.content.llm_response_workflow_storage import LLMWorkflowStorageMixin
+from app.application.services.summarization.llm_response_workflow_storage import (
+    LLMWorkflowStorageMixin,
+)
 
 
 def _cfg(*, no_retention: bool = True, llm_policy: str = "full") -> SimpleNamespace:

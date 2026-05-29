@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.adapters.content.llm_response_workflow import LLMResponseWorkflow
+    from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )

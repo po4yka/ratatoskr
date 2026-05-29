@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from app.adapters.content.llm_response_workflow import (
+from app.application.services.summarization.llm_response_workflow import (
     LLMInteractionConfig,
     LLMRepairContext,
     LLMRequestConfig,
@@ -184,7 +184,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.openrouter.chat = AsyncMock(return_value=llm_response)
 
         with unittest.mock.patch(
-            "app.adapters.content.llm_response_workflow.parse_summary_response",
+            "app.application.services.summarization.llm_response_workflow.parse_summary_response",
             return_value=SimpleNamespace(
                 shaped={"summary_250": "Summary body", "tldr": "TLDR text"},
                 errors=[],
@@ -287,7 +287,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         with unittest.mock.patch(
-            "app.adapters.content.llm_response_workflow.parse_summary_response",
+            "app.application.services.summarization.llm_response_workflow.parse_summary_response",
             return_value=SimpleNamespace(shaped=payload, errors=[], used_local_fix=False),
         ):
             results = await asyncio.gather(*[_run(i) for i in range(6)])
@@ -308,9 +308,11 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         request = self.request.model_copy(update={"fallback_models_override": ("m2", "m3")})
 
         with (
-            self.assertLogs("app.adapters.content.llm_response_workflow", level="WARNING") as logs,
+            self.assertLogs(
+                "app.application.services.summarization.llm_response_workflow", level="WARNING"
+            ) as logs,
             unittest.mock.patch(
-                "app.adapters.content.llm_response_workflow.parse_summary_response",
+                "app.application.services.summarization.llm_response_workflow.parse_summary_response",
                 return_value=SimpleNamespace(shaped=payload, errors=[], used_local_fix=False),
             ),
         ):
@@ -357,7 +359,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with unittest.mock.patch(
-            "app.adapters.content.llm_response_workflow.parse_summary_response",
+            "app.application.services.summarization.llm_response_workflow.parse_summary_response",
             return_value=SimpleNamespace(
                 shaped=summary_payload,
                 errors=[],
@@ -404,7 +406,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.openrouter.chat = AsyncMock(side_effect=[llm_invalid, llm_repaired])
 
         with unittest.mock.patch(
-            "app.adapters.content.llm_response_workflow.parse_summary_response",
+            "app.application.services.summarization.llm_response_workflow.parse_summary_response",
             side_effect=[
                 SimpleNamespace(shaped=None, errors=["invalid"], used_local_fix=False),
                 SimpleNamespace(
@@ -490,7 +492,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             unittest.mock.patch(
-                "app.adapters.content.llm_response_workflow.parse_summary_response",
+                "app.application.services.summarization.llm_response_workflow.parse_summary_response",
                 return_value=SimpleNamespace(
                     shaped={}, errors=["missing_summary_fields"], used_local_fix=False
                 ),
@@ -714,7 +716,7 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with unittest.mock.patch(
-            "app.adapters.content.llm_response_workflow.parse_summary_response",
+            "app.application.services.summarization.llm_response_workflow.parse_summary_response",
             return_value=SimpleNamespace(
                 shaped=summary_payload,
                 errors=[],

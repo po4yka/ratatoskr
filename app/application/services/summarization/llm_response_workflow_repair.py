@@ -10,17 +10,17 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.adapters.content.llm_response_workflow import AttemptContext
+    from app.application.services.summarization.llm_response_workflow import AttemptContext
     from app.application.ports.llm_client import LLMClientProtocol
 
 from app.core.call_status import CallStatus
 from app.core.llm_call_budget import LLMCallCapExceeded
 from app.core.summary_contract import validate_and_shape_summary
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_update import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 from app.utils.json_validation import finalize_summary_texts
 
-logger = logging.getLogger("app.adapters.content.llm_response_workflow")
+logger = logging.getLogger("app.application.services.summarization.llm_response_workflow")
 
 
 class LLMWorkflowRepairMixin:
@@ -51,7 +51,7 @@ class LLMWorkflowRepairMixin:
 
             import sys
 
-            _shim = sys.modules.get("app.adapters.content.llm_response_workflow")
+            _shim = sys.modules.get("app.application.services.summarization.llm_response_workflow")
             _parse_fn = (
                 getattr(_shim, "parse_summary_response", None) if _shim is not None else None
             )
@@ -200,7 +200,9 @@ class LLMWorkflowRepairMixin:
             if repair.status == CallStatus.OK:
                 import sys
 
-                _shim2 = sys.modules.get("app.adapters.content.llm_response_workflow")
+                _shim2 = sys.modules.get(
+                    "app.application.services.summarization.llm_response_workflow"
+                )
                 _parse_fn2 = (
                     getattr(_shim2, "parse_summary_response", None) if _shim2 is not None else None
                 )

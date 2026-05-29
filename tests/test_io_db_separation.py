@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.adapters.content.content_extractor import ContentExtractor
-from app.adapters.content.llm_response_workflow import (
+from app.application.services.summarization.llm_response_workflow import (
     AttemptContext,
     LLMInteractionConfig,
     LLMResponseWorkflow,

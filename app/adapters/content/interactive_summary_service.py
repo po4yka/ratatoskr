@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.content.llm_response_workflow import (
+from app.application.services.summarization.llm_response_workflow import (
     AttemptContext,
     LLMInteractionConfig,
     LLMSummaryPersistenceSettings,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from app.adapters.content.llm_response_workflow import (
+from app.application.services.summarization.llm_response_workflow import (
     LLMInteractionConfig,
     LLMRepairContext,
     LLMRequestConfig,

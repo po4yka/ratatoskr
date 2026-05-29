@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.content.llm_response_workflow import LLMResponseWorkflow
+from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
 from app.adapters.content.llm_summarizer_articles import LLMArticleGenerator
 from app.adapters.content.llm_summarizer_cache import LLMSummaryCache
 from app.adapters.content.llm_summarizer_insights import (
