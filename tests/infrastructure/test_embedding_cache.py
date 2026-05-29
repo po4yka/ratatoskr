@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from unittest.mock import AsyncMock, MagicMock
 
@@ -213,3 +214,117 @@ class TestGetOrCompute:
         compute_fn = AsyncMock(return_value=FakeNdarray())
         result = await ec.get_or_compute("text", "model", compute_fn)
         assert result == [7.0, 8.0]
+
+
+# ---------------------------------------------------------------------------
+# Singleflight / stampede protection
+# ---------------------------------------------------------------------------
+
+
+class TestSingleflight:
+    """Concurrent misses for the same key must call compute_fn exactly once."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_misses_call_compute_fn_once(self) -> None:
+        """N concurrent get_or_compute calls for the same text trigger one compute."""
+        ec, redis_mock = _make_cache()
+
+        compute_call_count = 0
+        computed_value = [0.1, 0.2, 0.3]
+
+        # Simulate a slow compute (yields control so all callers pile up)
+        async def slow_compute(text: str) -> list[float]:
+            nonlocal compute_call_count
+            compute_call_count += 1
+            await asyncio.sleep(0)  # yield to let other coroutines run
+            return computed_value
+
+        # Cache always misses on get_json; set_json succeeds.
+        # After the first set, subsequent get_json calls return the stored value
+        # so the double-checked read inside the lock succeeds for waiters.
+        stored: dict[str, object] = {}
+
+        async def fake_get_json(*parts: str) -> object:
+            key = ":".join(parts)
+            return stored.get(key)
+
+        async def fake_set_json(*, value: object, ttl_seconds: int, parts: tuple[str, ...]) -> bool:
+            key = ":".join(parts)
+            stored[key] = value
+            return True
+
+        redis_mock.get_json = fake_get_json
+        redis_mock.set_json = fake_set_json
+
+        # Fire 10 concurrent requests for identical text.
+        results = await asyncio.gather(
+            *[ec.get_or_compute("same text", "model-v1", slow_compute) for _ in range(10)]
+        )
+
+        assert compute_call_count == 1, (
+            f"compute_fn called {compute_call_count} times; expected 1 (singleflight broken)"
+        )
+        for r in results:
+            assert r == pytest.approx(computed_value)
+
+    @pytest.mark.asyncio
+    async def test_different_keys_compute_independently(self) -> None:
+        """Different texts each get their own compute, not collapsed together."""
+        ec, redis_mock = _make_cache()
+
+        compute_call_count = 0
+
+        async def count_compute(text: str) -> list[float]:
+            nonlocal compute_call_count
+            compute_call_count += 1
+            await asyncio.sleep(0)
+            return [float(ord(text[0]))]
+
+        redis_mock.get_json = AsyncMock(return_value=None)
+        redis_mock.set_json = AsyncMock(return_value=True)
+
+        texts = ["alpha", "beta", "gamma"]
+        await asyncio.gather(*[ec.get_or_compute(t, "model-v1", count_compute) for t in texts])
+
+        assert compute_call_count == len(texts)
+
+    @pytest.mark.asyncio
+    async def test_singleflight_works_when_redis_disabled(self) -> None:
+        """Even with Redis off, concurrent calls for the same text call compute once."""
+        ec, _ = _make_cache(enabled=False)
+
+        compute_call_count = 0
+
+        async def slow_compute(text: str) -> list[float]:
+            nonlocal compute_call_count
+            compute_call_count += 1
+            await asyncio.sleep(0)
+            return [1.0, 2.0]
+
+        results = await asyncio.gather(
+            *[ec.get_or_compute("text", "model-v1", slow_compute) for _ in range(5)]
+        )
+
+        assert compute_call_count == 1, (
+            f"compute_fn called {compute_call_count} times with Redis disabled; expected 1"
+        )
+        for r in results:
+            assert r == pytest.approx([1.0, 2.0])
+
+    @pytest.mark.asyncio
+    async def test_lock_dict_cleaned_up_after_completion(self) -> None:
+        """The internal lock registry is empty once all waiters have completed."""
+        ec, redis_mock = _make_cache()
+        redis_mock.get_json = AsyncMock(return_value=None)
+        redis_mock.set_json = AsyncMock(return_value=True)
+
+        async def compute(text: str) -> list[float]:
+            await asyncio.sleep(0)
+            return [0.5]
+
+        await asyncio.gather(
+            *[ec.get_or_compute("cleanup text", "model-v1", compute) for _ in range(4)]
+        )
+
+        assert ec._inflight._locks == {}, "Lock registry should be empty after all waiters finish"
+        assert ec._inflight._waiters == {}

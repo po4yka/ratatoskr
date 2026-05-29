@@ -5,6 +5,7 @@ Caches computed embeddings by content hash to avoid recomputation.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import struct
@@ -17,6 +18,55 @@ if TYPE_CHECKING:
     from app.infrastructure.cache.redis_cache import RedisCache
 
 logger = get_logger(__name__)
+
+
+class _KeyedLock:
+    """Per-key asyncio.Lock registry with automatic cleanup.
+
+    Tracks waiter counts so entries are removed from the dict as soon as
+    no coroutine is waiting on or holding a given key, preventing unbounded
+    dict growth.
+
+    Also maintains an in-memory result store (_results) so that the winning
+    coroutine can leave its computed value for waiters to read even when Redis
+    is disabled (in which case the normal double-checked Redis read returns
+    None for all waiters).  The result is cleared when the last waiter exits.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._waiters: dict[str, int] = {}
+        self._results: dict[str, list[float]] = {}
+
+    def acquire(self, key: str) -> _KeyedLockContext:
+        """Return an async context manager that holds the per-key lock."""
+        if key not in self._locks:
+            self._locks[key] = asyncio.Lock()
+            self._waiters[key] = 0
+        self._waiters[key] += 1
+        return _KeyedLockContext(self, key)
+
+    def _release(self, key: str) -> None:
+        self._locks[key].release()
+        self._waiters[key] -= 1
+        if self._waiters[key] == 0:
+            del self._locks[key]
+            del self._waiters[key]
+            self._results.pop(key, None)
+
+
+class _KeyedLockContext:
+    """Async context manager returned by _KeyedLock.acquire."""
+
+    def __init__(self, registry: _KeyedLock, key: str) -> None:
+        self._registry = registry
+        self._key = key
+
+    async def __aenter__(self) -> None:
+        await self._registry._locks[self._key].acquire()
+
+    async def __aexit__(self, *_: object) -> None:
+        self._registry._release(self._key)
 
 
 class EmbeddingCache:
@@ -37,6 +87,7 @@ class EmbeddingCache:
     def __init__(self, cache: RedisCache, cfg: AppConfig) -> None:
         self._cache = cache
         self._cfg = cfg
+        self._inflight: _KeyedLock = _KeyedLock()
 
     @property
     def enabled(self) -> bool:
@@ -143,17 +194,18 @@ class EmbeddingCache:
             return False
 
         try:
-            embedding_b64 = self.serialize_embedding(embedding)
+            # Compute the float list once; reuse it for both the serialized
+            # blob and the dimensions field so we never call .tolist() twice.
+            values: list[float] = (
+                embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+            )
+            embedding_b64 = self.serialize_embedding(values)
         except Exception as exc:
             logger.warning(
                 "embedding_cache_serialize_failed",
                 extra={"hash": content_hash[:8], "error": str(exc)},
             )
             return False
-
-        values: list[float] = (
-            embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
-        )
 
         value = {
             "embedding": embedding_b64,
@@ -188,7 +240,14 @@ class EmbeddingCache:
     ) -> list[float]:
         """Get cached embedding or compute and cache it.
 
-        This is a convenience method that handles the cache-aside pattern.
+        Uses a per-key asyncio.Lock (singleflight) so that concurrent misses
+        for identical content trigger exactly one compute_fn call.  Waiters
+        re-check the cache after the winner releases the lock, so they pick up
+        the freshly stored value without re-computing.
+
+        Fail-open: when Redis is disabled the lock still serialises concurrent
+        computes within the process (preventing redundant CPU/API work), and
+        returns the computed value directly.
 
         Args:
             text: Text to embed.
@@ -201,18 +260,35 @@ class EmbeddingCache:
         """
         content_hash = self.hash_content(text)
 
-        # Try cache first
+        # Fast path: cache hit before acquiring any lock.
         cached = await self.get(content_hash, model_name)
         if cached is not None:
             return cached
 
-        # Compute embedding
-        embedding = await compute_fn(text)
+        # Slow path: acquire the per-key lock to de-duplicate concurrent misses.
+        lock_key = f"{model_name}:{content_hash}"
+        async with self._inflight.acquire(lock_key):
+            # Double-checked read 1: winner may have stored it in Redis.
+            cached = await self.get(content_hash, model_name)
+            if cached is not None:
+                return cached
 
-        # Cache the result (async, non-blocking)
-        await self.set(content_hash, model_name, embedding)
+            # Double-checked read 2: winner may have stored in-memory result
+            # (covers the Redis-disabled path where get() always returns None).
+            in_mem = self._inflight._results.get(lock_key)
+            if in_mem is not None:
+                return in_mem
 
-        # Return as list
-        if hasattr(embedding, "tolist"):
-            return cast("list[float]", embedding.tolist())
-        return cast("list[float]", list(embedding))
+            # We are the winner — compute, store, and return.
+            embedding = await compute_fn(text)
+            await self.set(content_hash, model_name, embedding)
+
+            result: list[float]
+            if hasattr(embedding, "tolist"):
+                result = cast("list[float]", embedding.tolist())
+            else:
+                result = cast("list[float]", list(embedding))
+
+            # Stash for waiters that can't read from Redis (e.g. Redis disabled).
+            self._inflight._results[lock_key] = result
+            return result
