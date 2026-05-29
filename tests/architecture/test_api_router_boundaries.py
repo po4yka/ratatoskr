@@ -19,10 +19,14 @@ def test_api_router_layer_avoids_direct_persistence_imports() -> None:
         # github.py/repositories.py still pull GitHubAuthMethod/Repository
         # types from app.db.models; move those enums into the domain layer to
         # remove the ignore.
+        # git_mirrors.py imports GitMirror/GitMirrorSource and runs select(GitMirror)
+        # queries inline; move the queries into GitMirrorRepository and relocate
+        # the GitMirrorSource enum out of app.db.models to remove this ignore.
         ignored_path_prefixes=(
             "routers/auth/endpoints_sessions.py",
             "routers/auth/github.py",
             "routers/repositories.py",
+            "routers/git_mirrors.py",
         ),
     )
 
