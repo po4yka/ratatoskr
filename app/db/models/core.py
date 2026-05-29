@@ -286,6 +286,8 @@ class Request(Base):
         Index("ix_requests_status", "status"),
         Index("ix_requests_created_at", "created_at"),
         Index("ix_requests_user_id_created_at", "user_id", "created_at"),
+        # correlation_id is the cross-cutting trace key; index it for lookups.
+        Index("ix_requests_correlation_id", "correlation_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -373,6 +375,7 @@ class RequestProcessingJob(Base):
         Index("ix_request_processing_jobs_status_retry", "status", "retry_after"),
         Index("ix_request_processing_jobs_lease_expires_at", "lease_expires_at"),
         Index("ix_request_processing_jobs_updated_at", "updated_at"),
+        Index("ix_request_processing_jobs_correlation_id", "correlation_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -454,6 +457,7 @@ class TelegramMessage(Base):
 
 class CrawlResult(Base):
     __tablename__ = "crawl_results"
+    __table_args__ = (Index("ix_crawl_results_correlation_id", "correlation_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[int] = mapped_column(
@@ -583,6 +587,13 @@ class Summary(Base):
             "updated_at",
             postgresql_where="is_deleted = false",
         ),
+        # Favorited summaries are a small subset; a partial index keeps the
+        # favorites listing fast without indexing the (mostly-false) full column.
+        Index(
+            "ix_summaries_is_favorited",
+            "is_favorited",
+            postgresql_where="is_favorited = true",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -675,6 +686,10 @@ class UserInteraction(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_ts", "ts"),
+        Index("ix_audit_logs_event", "event"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ts: Mapped[dt.datetime] = mapped_column(
@@ -692,6 +707,8 @@ class SummaryEmbedding(Base):
         # Covering composite index for the reconciler join probe on
         # (summary_id, last_indexed_at). Added in migration 0010.
         Index("ix_summary_embeddings_summary_id_last_indexed", "summary_id", "last_indexed_at"),
+        # Reconciler counts/filters rows by index_status (e.g. != 'indexed').
+        Index("ix_summary_embeddings_index_status", "index_status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -849,7 +866,11 @@ class UserDevice(Base):
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
-    __table_args__ = (Index("ix_refresh_tokens_user_id_client_id", "user_id", "client_id"),)
+    __table_args__ = (
+        Index("ix_refresh_tokens_user_id_client_id", "user_id", "client_id"),
+        # Token-family revocation bulk-updates all tokens sharing a family_id.
+        Index("ix_refresh_tokens_family_id", "family_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(

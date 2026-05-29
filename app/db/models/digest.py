@@ -14,6 +14,15 @@ from app.db.types import JSONB, JSONValue, _utcnow
 
 class Channel(Base):
     __tablename__ = "channels"
+    __table_args__ = (
+        # Digest scheduling scans active channels ordered by staleness; a partial
+        # index over active rows keyed on last_fetched_at serves that directly.
+        Index(
+            "ix_channels_active_last_fetched",
+            "last_fetched_at",
+            postgresql_where="is_active = true",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
