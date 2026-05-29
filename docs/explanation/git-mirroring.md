@@ -228,11 +228,28 @@ Implementation: `app/adapters/git_backup/health_ping.py` — three module-level 
 
 ---
 
+## Semantic search for mirrored READMEs
+
+GitHub-linked mirrors (whose `repositories` row already carries `analysis_json`) are searchable through the existing repository embedding index, so they are **not** re-indexed here. Arbitrary-URL mirrors — rows with `repository_id IS NULL` — have no such entry, and these are what this path covers.
+
+When `GIT_BACKUP_INDEX_READMES` is enabled, the Taskiq task runs a best-effort indexing pass after `perform_sync` over mirrors that synced OK this run, have `repository_id IS NULL`, and have a `mirror_path` on disk. For each, `GitMirrorReadmeIndexer` (`app/infrastructure/search/git_mirror_readme_indexer.py`):
+
+1. extracts the README from the bare clone via `ReadmeExtractor`;
+2. computes a SHA-256 of the README text and compares it to `git_mirrors.readme_content_hash` — if unchanged, indexing is skipped (no re-embed);
+3. otherwise embeds the text with the shared embedding service (`task_type="document"`) and upserts a point into Qdrant keyed by `git_mirror_point_id(environment, user_scope, mirror_id)` with payload `{entity_type: "git_mirror", mirror_id, user_id, name, clone_url, ...}`;
+4. persists `readme_content_hash` + `readme_indexed_at` on the row.
+
+The whole pass is best-effort: any embedding or Qdrant error is logged and swallowed so indexing can never fail the backup. It reuses ratatoskr's existing embedding factory and `QdrantVectorStore` — no separate vector client.
+
+Search is exposed at `GET /v1/git-mirrors/search?q=&limit=` (`GitMirrorSearchService`, mirroring `RepositorySearchService`): the query is embedded with `task_type="query"`, Qdrant is filtered to `entity_type="git_mirror"` for the calling user, and matches are hydrated from `git_mirrors` and ordered by score. `DELETE /v1/git-mirrors/{id}` best-effort removes the corresponding Qdrant point.
+
+---
+
 ## Known Deferrals
 
-**On-disk cleanup on DELETE.** `DELETE /v1/git-mirrors/{id}` removes the `git_mirrors` row but leaves the bare clone directory in place. Automatic on-disk cleanup on deletion is tracked as a follow-up item; operators should remove stale directories manually.
+**On-disk cleanup on DELETE.** `DELETE /v1/git-mirrors/{id}` removes the `git_mirrors` row and best-effort deletes the Qdrant point, but leaves the bare clone directory in place. Automatic on-disk cleanup on deletion is tracked as a follow-up item; operators should remove stale directories manually.
 
-**README semantic search for manual mirrors.** GitHub-linked mirrors whose `repositories` row already has `analysis_json` are searchable via the existing repository embedding index. Manual mirrors (`source=manual`) with no `repository_id` FK have no such entry; `ReadmeExtractor` can surface their README content but wiring that content into the embedding pipeline for arbitrary-URL mirrors is deferred.
+**Vector reconciliation adapter.** README points are kept fresh by content-hash dedup (on re-sync) and best-effort delete-on-removal, but there is no `VectorIndexedEntityAdapter` registered for git mirrors yet, so the reconciler does not detect or repair drift between `git_mirrors` and Qdrant. Adding that adapter is a follow-up.
 
 ---
 

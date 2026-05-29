@@ -2534,7 +2534,7 @@ paths:
       tags:
       - git-mirrors
       summary: Delete Mirror
-      description: 'Remove the git mirror DB row.
+      description: 'Remove the git mirror DB row and its Qdrant vector point (best-effort).
 
 
         Decision: on-disk bare-clone data under GIT_BACKUP_DATA_PATH is NOT deleted
@@ -2561,6 +2561,58 @@ paths:
       responses:
         '204':
           description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/git-mirrors/search:
+    get:
+      tags:
+      - git-mirrors
+      summary: Search Mirrors
+      description: 'Semantic search over non-GitHub git mirror READMEs indexed in Qdrant.
+
+
+        Only mirrors with repository_id IS NULL (manual/arbitrary targets) are
+
+        indexed and searchable via this endpoint. GitHub-linked mirrors are
+
+        searchable via the repository search endpoint.'
+      operationId: search_mirrors_v1_git_mirrors_search_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          description: Semantic search query
+          title: Q
+        description: Semantic search query
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitMirrorSearchResponse'
         '422':
           description: Validation Error
           content:
@@ -10076,6 +10128,76 @@ components:
       - mirrors
       - pagination
       title: GitMirrorListResponse
+    GitMirrorSearchItem:
+      properties:
+        mirror_id:
+          type: integer
+          title: Mirror Id
+        clone_url:
+          type: string
+          title: Clone Url
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        status:
+          type: string
+          title: Status
+        source:
+          type: string
+          title: Source
+        last_mirrored_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Mirrored At
+        size_kb:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Size Kb
+        repository_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Repository Id
+        distance:
+          type: number
+          title: Distance
+      type: object
+      required:
+      - mirror_id
+      - clone_url
+      - name
+      - status
+      - source
+      - last_mirrored_at
+      - size_kb
+      - repository_id
+      - distance
+      title: GitMirrorSearchItem
+      description: Single result from semantic git mirror README search.
+    GitMirrorSearchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GitMirrorSearchItem'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+        limit:
+          type: integer
+          title: Limit
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      title: GitMirrorSearchResponse
     HTTPValidationError:
       properties:
         detail:

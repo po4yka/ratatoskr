@@ -43,3 +43,23 @@ class RegisterMirrorResponse(BaseModel):
     id: int
     status: str
     clone_url: str
+
+
+class GitMirrorSearchItem(BaseModel):
+    """Single result from semantic git mirror README search."""
+
+    mirror_id: int
+    clone_url: str
+    name: str | None
+    status: str
+    source: str
+    last_mirrored_at: datetime | None
+    size_kb: int | None
+    repository_id: int | None
+    distance: float
+
+
+class GitMirrorSearchResponse(BaseModel):
+    items: list[GitMirrorSearchItem]
+    total: int
+    limit: int

@@ -217,6 +217,18 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    # README semantic indexing
+    index_readmes: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_INDEX_READMES",
+        description=(
+            "When true, index the README of each successfully-synced mirror "
+            "(with repository_id IS NULL) into Qdrant for semantic search. "
+            "Requires the embedding service and Qdrant vector store to be configured. "
+            "Indexing is best-effort and never blocks or fails the backup sync."
+        ),
+    )
+
     # Gist mirroring
     mirror_gists: bool = Field(
         default=False,

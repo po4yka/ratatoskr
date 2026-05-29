@@ -103,6 +103,10 @@ class GitMirror(Base):
         DateTime(timezone=True), nullable=True
     )
     clone_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    readme_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    readme_indexed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

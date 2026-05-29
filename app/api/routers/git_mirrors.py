@@ -16,6 +16,8 @@ from app.api.models.responses.git_mirrors import (
     GitMirrorCompact,
     GitMirrorDetail,
     GitMirrorListResponse,
+    GitMirrorSearchItem,
+    GitMirrorSearchResponse,
     RegisterMirrorResponse,
 )
 from app.api.routers.auth import get_current_user
@@ -28,6 +30,7 @@ from app.db.session import (  # noqa: TC001  # used at runtime in FastAPI Depend
 
 if TYPE_CHECKING:
     from app.adapters.git_backup.repository import GitMirrorRepository
+    from app.config import AppConfig
     from app.config.git_backup import GitBackupConfig
 
 logger = get_logger(__name__)
@@ -46,10 +49,14 @@ def _get_db(request: Request) -> Database:
     return get_session_manager(request)
 
 
-def _get_git_backup_config(request: Request) -> GitBackupConfig:
+def _get_app_config(request: Request) -> AppConfig:
     from app.di.api import resolve_api_runtime
 
-    return resolve_api_runtime(request).cfg.git_backup
+    return resolve_api_runtime(request).cfg
+
+
+def _get_git_backup_config(request: Request) -> GitBackupConfig:
+    return _get_app_config(request).git_backup
 
 
 def _get_mirror_repo(request: Request) -> GitMirrorRepository:
@@ -220,13 +227,77 @@ async def get_mirror(
     return _mirror_to_detail(row)
 
 
+@router.get("/search", response_model=GitMirrorSearchResponse)
+async def search_mirrors(
+    request: Request,
+    q: str = Query(..., min_length=1, description="Semantic search query"),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict[str, Any] = Depends(get_current_user),
+    db: Database = Depends(_get_db),
+) -> GitMirrorSearchResponse:
+    """Semantic search over non-GitHub git mirror READMEs indexed in Qdrant.
+
+    Only mirrors with repository_id IS NULL (manual/arbitrary targets) are
+    indexed and searchable via this endpoint. GitHub-linked mirrors are
+    searchable via the repository search endpoint.
+    """
+    user_id: int = user["user_id"]
+    correlation_id = getattr(request.state, "correlation_id", None)
+
+    cfg = _get_app_config(request)
+
+    try:
+        from app.di.shared import build_qdrant_vector_store
+        from app.infrastructure.embedding.embedding_factory import create_embedding_service
+        from app.infrastructure.search.git_mirror_search_service import GitMirrorSearchService
+
+        embedding_service = create_embedding_service(cfg.embedding)
+        qdrant_store = build_qdrant_vector_store(cfg)
+        service = GitMirrorSearchService(
+            embedding_service=embedding_service,
+            qdrant_store=qdrant_store,
+            db=db,
+            environment=cfg.vector_store.environment,
+            user_scope=cfg.vector_store.user_scope,
+        )
+        results = await service.search(
+            q,
+            user_id=user_id,
+            limit=limit,
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        logger.exception(
+            "git_mirror_search_failed",
+            extra={"user_id": user_id, "correlation_id": correlation_id},
+        )
+        return GitMirrorSearchResponse(items=[], total=0, limit=limit)
+
+    items = [
+        GitMirrorSearchItem(
+            mirror_id=r.mirror_id,
+            clone_url=r.clone_url,
+            name=r.name,
+            status=r.status,
+            source=r.source,
+            last_mirrored_at=r.last_mirrored_at,
+            size_kb=r.size_kb,
+            repository_id=r.repository_id,
+            distance=r.distance,
+        )
+        for r in results.items
+    ]
+    return GitMirrorSearchResponse(items=items, total=results.total, limit=results.limit)
+
+
 @router.delete("/{mirror_id}", status_code=204)
 async def delete_mirror(
+    request: Request,
     mirror_id: int,
     user: dict[str, Any] = Depends(get_current_user),
     db: Database = Depends(_get_db),
 ) -> None:
-    """Remove the git mirror DB row.
+    """Remove the git mirror DB row and its Qdrant vector point (best-effort).
 
     Decision: on-disk bare-clone data under GIT_BACKUP_DATA_PATH is NOT deleted
     here. Removing the directory requires knowing the filesystem layout that the
@@ -244,3 +315,33 @@ async def delete_mirror(
 
     async with db.transaction() as session:
         await session.execute(sql_delete(GitMirror).where(GitMirror.id == mirror_id))
+
+    # Remove the Qdrant vector point best-effort (after DB row is deleted so a
+    # failed Qdrant call does not leave an orphaned DB row).
+    try:
+        import asyncio
+
+        from qdrant_client.models import PointIdsList
+
+        from app.di.shared import build_qdrant_vector_store
+        from app.infrastructure.vector.point_ids import git_mirror_point_id, str_to_uuid
+
+        cfg = _get_app_config(request)
+        qdrant_store = build_qdrant_vector_store(cfg)
+        if qdrant_store.available:
+            point_id = git_mirror_point_id(
+                cfg.vector_store.environment,
+                cfg.vector_store.user_scope,
+                mirror_id,
+            )
+            await asyncio.to_thread(
+                qdrant_store._client.delete,
+                qdrant_store._collection_name,
+                PointIdsList(points=[str_to_uuid(point_id)]),
+                True,
+            )
+    except Exception:
+        logger.warning(
+            "git_mirror_delete_qdrant_point_failed",
+            extra={"mirror_id": mirror_id, "user_id": user_id},
+        )

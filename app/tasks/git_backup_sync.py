@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from sqlalchemy import select
 from taskiq import TaskiqDepends
 
@@ -90,6 +93,67 @@ async def _enumerate_and_upsert_gists(cfg: AppConfig, db: Database) -> int:
     return total_upserted
 
 
+async def _index_mirror_readmes(
+    cfg: AppConfig,
+    db: Database,
+    summary: Any,
+) -> None:
+    """Index README content of successfully-synced non-GitHub mirrors into Qdrant.
+
+    Only mirrors that (a) succeeded in this run, (b) have repository_id IS NULL,
+    and (c) have a mirror_path on disk are processed.  Best-effort: any error
+    per mirror is logged and swallowed inside the indexer.
+    """
+    from app.di.shared import build_qdrant_vector_store
+    from app.infrastructure.embedding.embedding_factory import create_embedding_service
+    from app.infrastructure.search.git_mirror_readme_indexer import GitMirrorReadmeIndexer
+
+    try:
+        embedding_service = create_embedding_service(cfg.embedding)
+        qdrant_store = build_qdrant_vector_store(cfg)
+    except Exception:
+        logger.warning("git_backup_readme_index_infra_unavailable")
+        return
+
+    indexer = GitMirrorReadmeIndexer(
+        embedding_service=embedding_service,
+        qdrant_store=qdrant_store,
+        db=db,
+        environment=cfg.vector_store.environment,
+        user_scope=cfg.vector_store.user_scope,
+    )
+
+    candidates: list[tuple[object, Path]] = []
+    for outcome in summary.outcomes:
+        if not outcome.ok:
+            continue
+        mirror = outcome.mirror
+        # Only non-GitHub mirrors (repository_id IS NULL).
+        if mirror.repository_id is not None:
+            continue
+        mirror_path = getattr(mirror, "mirror_path", None)
+        if not mirror_path:
+            continue
+        p = Path(mirror_path)
+        if not p.exists():
+            continue
+        candidates.append((mirror, p))
+
+    if not candidates:
+        logger.debug("git_backup_readme_index_no_candidates")
+        return
+
+    logger.info(
+        "git_backup_readme_index_start",
+        extra={"count": len(candidates)},
+    )
+    await indexer.index_mirrors(candidates)  # type: ignore[arg-type]
+    logger.info(
+        "git_backup_readme_index_done",
+        extra={"count": len(candidates)},
+    )
+
+
 @broker.task(task_name="ratatoskr.git_backup.sync")
 async def sync_git_backup(
     cfg: AppConfig = TaskiqDepends(get_app_config),
@@ -153,3 +217,7 @@ async def sync_git_backup(
                 "total": summary.total,
             },
         )
+
+        # README semantic indexing — best-effort, never blocks or fails the task.
+        if cfg.git_backup.index_readmes:
+            await _index_mirror_readmes(cfg, db, summary)
