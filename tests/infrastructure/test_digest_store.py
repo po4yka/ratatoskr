@@ -41,6 +41,9 @@ class _ExecuteResult:
     def scalars(self) -> _Rows:
         return _Rows(self._rows)
 
+    def first(self) -> Any:
+        return self._rows[0] if self._rows else None
+
 
 class _DigestSession:
     def __init__(
@@ -427,14 +430,12 @@ async def test_digest_store_fetch_errors_and_analysis_paths() -> None:
         content_type="news",
     )
     db = _DigestDb(
-        scalar_values=[
-            source,
-            analyzed_post,
-            analysis,
-            unanalyzed_post,
-            None,
-            None,
-        ],
+        # record_channel_fetch_error: execute(UPDATE channel) + scalar(source) +
+        #   execute(UPDATE subscription);
+        # find_cached_analysis: a single execute(JOIN).first() -> (post, analysis);
+        # persist_analysis: scalar(ChannelPost) + scalar(existing=None).
+        scalar_values=[source, unanalyzed_post, None],
+        execute_rows=[[], [], [(analyzed_post, analysis)]],
     )
     store = DigestStore(db)
 
@@ -493,22 +494,24 @@ async def test_digest_store_fetchable_and_due_helpers(monkeypatch: pytest.Monkey
     async def fake_active_subscriptions(user_id: int) -> list[ChannelSubscription]:
         return [due_subscription, inactive_subscription]
 
-    states = [
-        {
+    run_states_by_channel = {
+        10: {
             "is_active": True,
             "active_subscription": True,
             "backoff_until": now - timedelta(seconds=1),
         },
-        {"is_active": False, "active_subscription": True, "backoff_until": None},
-    ]
+        11: {"is_active": False, "active_subscription": True, "backoff_until": None},
+    }
 
-    async def fake_run_state(*, user_id: int, channel: Any) -> dict[str, Any]:
-        return states.pop(0)
+    async def fake_batch_run_states(
+        session: Any, *, user_id: int, channels: list[Any]
+    ) -> dict[int, dict[str, Any]]:
+        return {channel.id: run_states_by_channel[channel.id] for channel in channels}
 
     monkeypatch.setattr(digest_store_module, "utc_now", lambda: now)
     store = DigestStore(_DigestDb())
     monkeypatch.setattr(store, "async_list_active_subscriptions", fake_active_subscriptions)
-    monkeypatch.setattr(store, "async_get_channel_run_state", fake_run_state)
+    monkeypatch.setattr(store, "_batch_channel_run_states", fake_batch_run_states)
 
     assert await store.async_list_fetchable_subscriptions(1) == [due_subscription]
     assert digest_store_module._coerce_positive_int("4") == 4
@@ -520,3 +523,44 @@ async def test_digest_store_fetchable_and_due_helpers(monkeypatch: pytest.Monkey
     assert not digest_store_module._channel_source_due(
         {"is_active": True, "active_subscription": False}
     )
+
+
+@pytest.mark.asyncio
+async def test_fetchable_subscriptions_query_count_is_constant() -> None:
+    """async_list_fetchable_subscriptions issues O(1) queries regardless of N."""
+    past = datetime(2024, 1, 1, tzinfo=UTC)
+
+    def _make(n: int) -> tuple[list[Any], list[Any], list[Any]]:
+        subs, sources, source_subs = [], [], []
+        for i in range(n):
+            ch = Channel(id=10 + i, username=f"ch{i}", is_active=True)
+            cs = ChannelSubscription(id=100 + i, user_id=1, channel_id=ch.id, is_active=True)
+            cs.channel = ch
+            subs.append(cs)
+            sources.append(
+                Source(
+                    id=200 + i,
+                    kind="telegram_channel",
+                    external_id=f"ch{i}",
+                    is_active=True,
+                    metadata_json={},
+                )
+            )
+            source_subs.append(
+                Subscription(
+                    id=300 + i, user_id=1, source_id=200 + i, is_active=True, next_fetch_at=past
+                )
+            )
+        return subs, sources, source_subs
+
+    async def run(n: int) -> int:
+        subs, sources, source_subs = _make(n)
+        # execute() returns, in order: active subscriptions, sources IN, subscriptions IN.
+        db = _DigestDb(execute_rows=[subs, sources, source_subs])
+        store = DigestStore(db)
+        result = await store.async_list_fetchable_subscriptions(1)
+        assert len(result) == n  # all due (next_fetch_at in the past)
+        return len(db.session_obj.executed)
+
+    # Same number of SQL statements for 2 channels and for 10 channels.
+    assert await run(2) == await run(10)

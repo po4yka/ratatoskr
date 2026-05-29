@@ -76,14 +76,23 @@ class DigestStore:
 
     async def async_list_fetchable_subscriptions(self, user_id: int) -> list[ChannelSubscription]:
         subscriptions = await self.async_list_active_subscriptions(user_id)
-        fetchable: list[ChannelSubscription] = []
-        for subscription in subscriptions:
-            run_state = await self.async_get_channel_run_state(
-                user_id=user_id, channel=subscription.channel
+        channels = [sub.channel for sub in subscriptions if sub.channel is not None]
+        if not channels:
+            return []
+
+        # Resolve run-state for every channel in a fixed number of queries
+        # (one transaction), instead of opening a transaction + several SELECTs
+        # per subscription.
+        async with self._database().transaction() as session:
+            run_states = await self._batch_channel_run_states(
+                session, user_id=user_id, channels=channels
             )
-            if _channel_source_due(run_state):
-                fetchable.append(subscription)
-        return fetchable
+
+        return [
+            sub
+            for sub in subscriptions
+            if sub.channel is not None and _channel_source_due(run_states.get(sub.channel.id, {}))
+        ]
 
     async def async_count_active_subscriptions(self, user_id: int) -> int:
         async with self._database().session() as session:
@@ -627,18 +636,7 @@ class DigestStore:
                     Subscription.source_id == source.id,
                 )
             )
-            metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
-            controls = (
-                metadata.get("controls") if isinstance(metadata.get("controls"), dict) else {}
-            )
-            return {
-                "is_active": bool(source.is_active and channel.is_active),
-                "active_subscription": bool(subscription and subscription.is_active),
-                "backoff_until": subscription.next_fetch_at if subscription else None,
-                "fetch_interval_seconds": subscription.cadence_seconds if subscription else None,
-                "max_items_per_run": _coerce_positive_int(controls.get("max_items_per_run")),
-                "retry_policy": controls.get("retry_policy"),
-            }
+            return self._build_run_state(source, channel, subscription)
 
     async def async_update_channel_controls(
         self,
@@ -854,28 +852,33 @@ class DigestStore:
 
     async def async_find_cached_analysis(self, post: dict[str, Any]) -> dict[str, Any] | None:
         async with self._database().session() as session:
-            channel_post = await session.scalar(
-                select(ChannelPost).where(
-                    ChannelPost.channel_id == post.get("_channel_id"),
-                    ChannelPost.message_id == post["message_id"],
-                )
-            )
-            if channel_post and channel_post.analyzed_at:
-                existing = await session.scalar(
-                    select(ChannelPostAnalysis).where(
-                        ChannelPostAnalysis.post_id == channel_post.id
+            # Single LEFT JOIN instead of two sequential SELECTs.
+            row = (
+                await session.execute(
+                    select(ChannelPost, ChannelPostAnalysis)
+                    .outerjoin(
+                        ChannelPostAnalysis,
+                        ChannelPostAnalysis.post_id == ChannelPost.id,
+                    )
+                    .where(
+                        ChannelPost.channel_id == post.get("_channel_id"),
+                        ChannelPost.message_id == post["message_id"],
                     )
                 )
-                if existing:
-                    return {
-                        **post,
-                        "real_topic": existing.real_topic,
-                        "tldr": existing.tldr,
-                        "key_insights": existing.key_insights or [],
-                        "relevance_score": existing.relevance_score,
-                        "content_type": existing.content_type,
-                        "is_ad": False,
-                    }
+            ).first()
+            if row is None:
+                return None
+            channel_post, existing = row
+            if channel_post and channel_post.analyzed_at and existing:
+                return {
+                    **post,
+                    "real_topic": existing.real_topic,
+                    "tldr": existing.tldr,
+                    "key_insights": existing.key_insights or [],
+                    "relevance_score": existing.relevance_score,
+                    "content_type": existing.content_type,
+                    "is_ad": False,
+                }
             return None
 
     def find_cached_analysis(self, post: dict[str, Any]) -> dict[str, Any] | None:
@@ -995,6 +998,22 @@ class DigestStore:
             session.add(source)
             await session.flush()
 
+        self._apply_channel_to_source(source, channel)
+
+        subscription = await session.scalar(
+            select(Subscription).where(
+                Subscription.user_id == user_id,
+                Subscription.source_id == source.id,
+            )
+        )
+        if subscription is None:
+            session.add(Subscription(user_id=user_id, source_id=source.id, is_active=True))
+            await session.flush()
+        return cast("Source", source)
+
+    @staticmethod
+    def _apply_channel_to_source(source: Source, channel: Any) -> None:
+        """Sync mutable Source fields from the Channel row (idempotent)."""
         metadata = dict(source.metadata_json) if isinstance(source.metadata_json, dict) else {}
         controls = metadata.get("controls")
         source.url = f"https://t.me/{channel.username}"
@@ -1012,16 +1031,90 @@ class DigestStore:
         }
         source.updated_at = _utcnow()
 
-        subscription = await session.scalar(
-            select(Subscription).where(
-                Subscription.user_id == user_id,
-                Subscription.source_id == source.id,
+    @staticmethod
+    def _build_run_state(source: Source, channel: Any, subscription: Any) -> dict[str, Any]:
+        """Build the channel run-state dict from a source + subscription pair."""
+        metadata = source.metadata_json if isinstance(source.metadata_json, dict) else {}
+        controls = metadata.get("controls") if isinstance(metadata.get("controls"), dict) else {}
+        return {
+            "is_active": bool(source.is_active and channel.is_active),
+            "active_subscription": bool(subscription and subscription.is_active),
+            "backoff_until": subscription.next_fetch_at if subscription else None,
+            "fetch_interval_seconds": subscription.cadence_seconds if subscription else None,
+            "max_items_per_run": _coerce_positive_int(controls.get("max_items_per_run")),
+            "retry_policy": controls.get("retry_policy"),
+        }
+
+    async def _batch_channel_run_states(
+        self,
+        session: Any,
+        *,
+        user_id: int,
+        channels: list[Any],
+    ) -> dict[int, dict[str, Any]]:
+        """Resolve run-state for many channels with O(1) queries.
+
+        Loads/creates the backing Source and Subscription rows for every channel
+        in a fixed number of statements (two IN-list SELECTs plus flushes for any
+        newly-created rows), instead of one transaction + several SELECTs per
+        channel as the per-channel path does.
+        """
+        if not channels:
+            return {}
+
+        usernames = [channel.username for channel in channels]
+        existing_sources = (
+            (
+                await session.execute(
+                    select(Source).where(
+                        Source.kind == "telegram_channel",
+                        Source.external_id.in_(usernames),
+                    )
+                )
             )
+            .scalars()
+            .all()
         )
-        if subscription is None:
-            session.add(Subscription(user_id=user_id, source_id=source.id, is_active=True))
-            await session.flush()
-        return cast("Source", source)
+        source_by_username: dict[str, Source] = {s.external_id: s for s in existing_sources}
+
+        for channel in channels:
+            source = source_by_username.get(channel.username)
+            if source is None:
+                source = Source(kind="telegram_channel", external_id=channel.username)
+                session.add(source)
+                source_by_username[channel.username] = source
+            self._apply_channel_to_source(source, channel)
+        await session.flush()  # assign ids to any newly-created sources
+
+        source_ids = [source.id for source in source_by_username.values()]
+        existing_subs = (
+            (
+                await session.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == user_id,
+                        Subscription.source_id.in_(source_ids),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        sub_by_source: dict[int, Any] = {s.source_id: s for s in existing_subs}
+
+        for source in source_by_username.values():
+            if source.id not in sub_by_source:
+                new_sub = Subscription(user_id=user_id, source_id=source.id, is_active=True)
+                session.add(new_sub)
+                sub_by_source[source.id] = new_sub
+        await session.flush()
+
+        run_states: dict[int, dict[str, Any]] = {}
+        for channel in channels:
+            source = source_by_username[channel.username]
+            run_states[channel.id] = self._build_run_state(
+                source, channel, sub_by_source.get(source.id)
+            )
+        return run_states
 
 
 def _coerce_positive_int(value: Any) -> int | None:
