@@ -297,14 +297,21 @@ async def delete_mirror(
     user: dict[str, Any] = Depends(get_current_user),
     db: Database = Depends(_get_db),
 ) -> None:
-    """Remove the git mirror DB row and its Qdrant vector point (best-effort).
+    """Remove the git mirror DB row, its Qdrant vector point, and the on-disk bare clone (all best-effort).
 
-    Decision: on-disk bare-clone data under GIT_BACKUP_DATA_PATH is NOT deleted
-    here. Removing the directory requires knowing the filesystem layout that the
-    Taskiq worker uses (path derived from clone_url and data_path), and doing it
-    in a request handler risks blocking I/O and partial failures if the path is
-    on a remote or slow mount. A follow-up maintenance job or manual cleanup is
-    the correct mechanism for on-disk removal.
+    Order of operations:
+    1. Load the row (capture mirror_path before deletion).
+    2. Delete the DB row inside a transaction.
+    3. Delete the Qdrant point best-effort (after DB row gone so a Qdrant error
+       does not leave an orphaned DB row).
+    4. Remove the on-disk bare clone directory best-effort (blocking rmtree
+       offloaded to a thread).
+
+    On-disk removal safety: the directory is only removed when mirror_path is
+    non-empty AND it resolves to a path strictly inside GIT_BACKUP_DATA_PATH.
+    This prevents path-traversal scenarios where a crafted mirror_path could
+    reach outside the backup volume.  Any I/O error is swallowed so the DB
+    deletion always succeeds.
     """
     user_id: int = user["user_id"]
 
@@ -312,6 +319,9 @@ async def delete_mirror(
 
     if row is None:
         raise HTTPException(status_code=404, detail="Git mirror not found")
+
+    # Capture mirror_path before we delete the row.
+    mirror_path: str = row.mirror_path or ""
 
     async with db.transaction() as session:
         await session.execute(sql_delete(GitMirror).where(GitMirror.id == mirror_id))
@@ -345,3 +355,41 @@ async def delete_mirror(
             "git_mirror_delete_qdrant_point_failed",
             extra={"mirror_id": mirror_id, "user_id": user_id},
         )
+
+    # Remove the on-disk bare clone directory best-effort.
+    # Safety: only proceed when mirror_path resolves to a path that is strictly
+    # inside cfg.git_backup.data_path to prevent path-traversal attacks.
+    if mirror_path:
+        try:
+            import asyncio
+            import shutil
+            from pathlib import Path
+
+            cfg = _get_app_config(request)
+            data_root = Path(cfg.git_backup.data_path).resolve()
+            target = Path(mirror_path).resolve()
+            if target != data_root and target.is_relative_to(data_root):
+
+                def _rmtree() -> None:
+                    if target.exists():
+                        shutil.rmtree(target)
+
+                await asyncio.to_thread(_rmtree)
+                logger.info(
+                    "git_mirror_delete_disk_removed",
+                    extra={"mirror_id": mirror_id, "path": str(target)},
+                )
+            else:
+                logger.warning(
+                    "git_mirror_delete_disk_skipped_unsafe_path",
+                    extra={
+                        "mirror_id": mirror_id,
+                        "mirror_path": mirror_path,
+                        "data_root": str(data_root),
+                    },
+                )
+        except Exception:
+            logger.warning(
+                "git_mirror_delete_disk_failed",
+                extra={"mirror_id": mirror_id, "mirror_path": mirror_path},
+            )

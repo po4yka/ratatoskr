@@ -374,6 +374,56 @@ class GitHubAPIClient:
 
         return results
 
+    async def list_owned_repos(self, *, per_page: int = 100) -> list[RepositoryDTO]:
+        """GET /user/repos?affiliation=owner — return all repos owned by the authenticated user.
+
+        Paginates via Link header using the same pattern as :meth:`list_gists`.
+        """
+        params: dict[str, Any] = {"affiliation": "owner", "per_page": per_page}
+        url: str | None = "/user/repos"
+        first_page = True
+        results: list[RepositoryDTO] = []
+
+        while url is not None:
+            if first_page:
+                response = await self._request("GET", url, params=params)
+                first_page = False
+            else:
+                response = await self._request_absolute(url)
+
+            items: list[dict[str, Any]] = response.json()
+            for raw in items:
+                results.append(RepositoryDTO.model_validate(raw))
+
+            url = self._parse_next_link(response.headers.get("Link"))
+
+        return results
+
+    async def list_watched_repos(self, *, per_page: int = 100) -> list[RepositoryDTO]:
+        """GET /user/subscriptions — return all repos watched by the authenticated user.
+
+        Paginates via Link header using the same pattern as :meth:`list_gists`.
+        """
+        params: dict[str, Any] = {"per_page": per_page}
+        url: str | None = "/user/subscriptions"
+        first_page = True
+        results: list[RepositoryDTO] = []
+
+        while url is not None:
+            if first_page:
+                response = await self._request("GET", url, params=params)
+                first_page = False
+            else:
+                response = await self._request_absolute(url)
+
+            items: list[dict[str, Any]] = response.json()
+            for raw in items:
+                results.append(RepositoryDTO.model_validate(raw))
+
+            url = self._parse_next_link(response.headers.get("Link"))
+
+        return results
+
     async def probe_repository_access(self) -> bool:
         """GET /user/starred?per_page=1 to test repository-read capability.
 

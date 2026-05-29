@@ -37,6 +37,7 @@ from app.adapters.git_backup.errors import (
     classify,
     display_name,
     is_permanently_gone,
+    should_use_http1_fallback,
 )
 from app.adapters.git_backup.git_commands import build_git_command
 from app.adapters.git_backup.git_exec import resolve_git_executable
@@ -581,6 +582,12 @@ class GitMirrorService:
         use_shallow = _should_use_shallow_clone(task.mirror, cfg) if is_clone else False
         clone_strategy = "shallow" if use_shallow else "full"
 
+        # Seed HTTP/1.1 from the persisted flag so that a mirror which hit
+        # HTTP/2 errors in a prior run starts its first attempt with the
+        # fallback already active.  The retry engine may also escalate to
+        # HTTP/1.1 within the run via context.should_use_http1_fallback.
+        db_http1_seed = bool(task.mirror.use_http1_fallback)
+
         async def operation(context: RetryContext) -> str:
             argv = build_git_command(
                 repo_exists=not is_clone,
@@ -592,7 +599,7 @@ class GitMirrorService:
                 low_speed_limit=cfg.low_speed_limit,
                 low_speed_time=cfg.low_speed_time,
                 single_branch_only=cfg.single_branch_only,
-                force_http1=context.should_use_http1_fallback,
+                force_http1=db_http1_seed or context.should_use_http1_fallback,
                 use_shallow_clone=use_shallow,
                 show_progress=task.is_large_repo or context.is_retry,
                 disable_redirects=True,
@@ -750,11 +757,20 @@ class GitMirrorService:
                 clone_strategy=outcome.clone_strategy,
             )
         else:
+            # Derive whether this failure involved an HTTP/2 error so we can
+            # persist the fallback flag for the next run.  Only set it (True);
+            # never clear it via record_failure — clearing is record_success's job.
+            use_http1: bool | None = None
+            if outcome.error_category is not None and should_use_http1_fallback(
+                outcome.error_category
+            ):
+                use_http1 = True
             await self._mirror_repo.record_failure(
                 mirror_id=mirror.id,
                 error_category=outcome.error_category or ErrorCategory.UNKNOWN,
                 message=outcome.error or "",
                 clone_strategy=outcome.clone_strategy,
+                use_http1=use_http1,
             )
 
 

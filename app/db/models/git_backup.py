@@ -7,6 +7,7 @@ import enum
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
@@ -101,6 +102,9 @@ class GitMirror(Base):
     )
     excluded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     clone_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    use_http1_fallback: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", default=False, nullable=False
+    )
     readme_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     readme_indexed_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

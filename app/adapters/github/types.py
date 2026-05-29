@@ -55,6 +55,9 @@ class RepositoryDTO(BaseModel):
     pushed_at: datetime | None = None
     created_at: datetime | None = None
     html_url: str
+    # GitHub reports repository disk size in KB.  Present on all repo endpoints
+    # (/repos/{owner}/{name}, /user/repos, /user/starred, /user/subscriptions).
+    size: int = 0
 
 
 class StarredItem(BaseModel):

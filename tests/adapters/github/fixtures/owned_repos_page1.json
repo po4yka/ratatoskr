@@ -1,0 +1,24 @@
+[
+  {
+    "id": 2001,
+    "name": "my-lib",
+    "full_name": "alice/my-lib",
+    "owner": {"login": "alice", "id": 99, "type": "User"},
+    "html_url": "https://github.com/alice/my-lib",
+    "stargazers_count": 5,
+    "forks_count": 1,
+    "watchers_count": 5,
+    "size": 1024
+  },
+  {
+    "id": 2002,
+    "name": "private-tool",
+    "full_name": "alice/private-tool",
+    "owner": {"login": "alice", "id": 99, "type": "User"},
+    "html_url": "https://github.com/alice/private-tool",
+    "stargazers_count": 0,
+    "forks_count": 0,
+    "watchers_count": 0,
+    "size": 512
+  }
+]

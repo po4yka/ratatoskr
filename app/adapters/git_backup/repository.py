@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete as sql_delete, select
 
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 
@@ -98,10 +98,19 @@ class GitMirrorRepository:
         name: str | None,
         *,
         repository_id: int | None = None,
+        size_kb: int | None = None,
     ) -> GitMirror:
         """Create a new mirror row or return the existing one (matched by user+url).
 
-        Existing rows are not mutated so that in-progress state is preserved.
+        Existing rows are not mutated so that in-progress state is preserved,
+        with these exceptions:
+        - EXCLUDED rows are revived to PENDING so the user can retry.
+        - ``name`` and ``repository_id`` are updated when a non-None value is
+          provided and differs from the stored value.
+        - ``size_kb`` is written only when provided (not None) AND the existing
+          row has no real post-clone size yet (size_kb IS NULL).  This preserves
+          the authoritative on-disk size recorded by record_success while
+          allowing the GitHub-reported estimate to be stored on the first upsert.
         """
         async with self._db.transaction() as session:
             existing = await session.scalar(
@@ -128,6 +137,10 @@ class GitMirrorRepository:
                     existing.name = name
                 if repository_id is not None and existing.repository_id != repository_id:
                     existing.repository_id = repository_id
+                # Only backfill size_kb when we have a value and the row has not
+                # been given an authoritative post-clone measurement yet.
+                if size_kb is not None and existing.size_kb is None:
+                    existing.size_kb = size_kb
                 await session.flush()
                 await session.refresh(existing)
                 return existing
@@ -138,6 +151,7 @@ class GitMirrorRepository:
                 clone_url=clone_url,
                 name=name,
                 repository_id=repository_id,
+                size_kb=size_kb,
                 status=GitMirrorStatus.PENDING,
                 consecutive_failures=0,
             )
@@ -154,7 +168,11 @@ class GitMirrorRepository:
         default_branch: str | None,
         clone_strategy: str | None = None,
     ) -> None:
-        """Persist a successful mirror outcome: reset failure counters, record path."""
+        """Persist a successful mirror outcome: reset failure counters, record path.
+
+        Also clears ``use_http1_fallback``: a clean sync means the host is fine
+        on HTTP/2 again, so the next run should not be burdened with the flag.
+        """
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
             row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
@@ -170,6 +188,7 @@ class GitMirrorRepository:
             row.backoff_until = None
             row.last_error = None
             row.last_error_category = None
+            row.use_http1_fallback = False
             if clone_strategy is not None:
                 row.clone_strategy = clone_strategy
 
@@ -179,11 +198,18 @@ class GitMirrorRepository:
         error_category: ErrorCategory,
         message: str,
         clone_strategy: str | None = None,
+        *,
+        use_http1: bool | None = None,
     ) -> None:
         """Persist a failed mirror outcome.
 
         Increments consecutive_failures; sets backoff_until once the threshold
         from config is exceeded.
+
+        When ``use_http1`` is ``True``, sets ``use_http1_fallback=True`` on the
+        row so that the next sync attempt starts with HTTP/1.1.  When ``False``,
+        clears the flag.  ``None`` (the default) leaves the column unchanged so
+        callers that don't care about the flag never regress existing behaviour.
         """
         now = dt.datetime.now(tz=dt.UTC)
         cfg = self._config
@@ -198,6 +224,8 @@ class GitMirrorRepository:
             row.last_error_category = error_category.value
             if clone_strategy is not None:
                 row.clone_strategy = clone_strategy
+            if use_http1 is not None:
+                row.use_http1_fallback = use_http1
 
             if (
                 cfg.auto_skip_failing
@@ -216,6 +244,33 @@ class GitMirrorRepository:
             row.status = GitMirrorStatus.SKIPPED
             row.last_attempt_at = now
             row.last_error = reason[:4000] if reason else None
+
+    async def list_stale_excluded(self, older_than_days: int) -> list[GitMirror]:
+        """Return EXCLUDED mirrors whose excluded_at is older than ``older_than_days``.
+
+        Only rows where excluded_at IS NOT NULL are considered.  Mirrors that
+        were excluded before the cutoff are candidates for the prune sweep.
+        """
+        cutoff = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=older_than_days)
+        stmt = select(GitMirror).where(
+            and_(
+                GitMirror.status == GitMirrorStatus.EXCLUDED,
+                GitMirror.excluded_at.is_not(None),
+                GitMirror.excluded_at < cutoff,
+            )
+        )
+        async with self._db.session() as session:
+            rows = (await session.scalars(stmt)).all()
+        return list(rows)
+
+    async def delete_mirror(self, mirror_id: int) -> None:
+        """Hard-delete a ``git_mirrors`` row by primary key.
+
+        Used by the stale-EXCLUDED prune sweep.  Silently does nothing if the
+        row no longer exists (concurrent deletion is not an error).
+        """
+        async with self._db.transaction() as session:
+            await session.execute(sql_delete(GitMirror).where(GitMirror.id == mirror_id))
 
     async def record_excluded(self, mirror_id: int, reason: str) -> None:
         """Tombstone a mirror whose upstream repository is permanently gone.

@@ -1,10 +1,18 @@
 """Git mirror backup configuration.
 
-Drives the Taskiq git-backup sync job that mirrors GitHub repositories (starred,
-owned, watched) and arbitrary extra repos to a local bare-clone store using the
-gitout engine. The DB-persisted GitMirror table is the primary source of repos
-to mirror; extra_repos provides a lightweight override for repos that do not
-need a DB row (e.g. one-off external projects).
+Drives the Taskiq git-backup sync job that mirrors GitHub repositories (gists,
+starred repos, owned repos, watched repos) and arbitrary extra repos to a local
+bare-clone store using the gitout engine.  The DB-persisted GitMirror table is
+the primary source of repos to mirror; extra_repos provides a lightweight
+override for repos that do not need a DB row (e.g. one-off external projects).
+
+Auto-population flags:
+- mirror_gists:   enumerate GET /gists for each active UserGitHubIntegration
+- mirror_starred: enumerate GET /user/starred for each active integration
+- mirror_owned:   enumerate GET /user/repos?affiliation=owner for each integration
+- mirror_watched: enumerate GET /user/subscriptions for each integration
+
+All four are disabled by default and can be toggled independently.
 """
 
 from __future__ import annotations
@@ -240,6 +248,40 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    # GitHub repository auto-population (starred / owned / watched)
+    mirror_starred: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_MIRROR_STARRED",
+        description=(
+            "When true, enumerate all starred repositories for each user with an active GitHub "
+            "integration and upsert a GitMirror row per repo so it is cloned by the regular "
+            "mirror sync. Clone URLs use the HTTPS form "
+            "https://github.com/<owner>/<name>.git. size_kb is populated from the GitHub "
+            "repo size field so large-repo timeout scaling applies on the first clone. "
+            "Disabled by default."
+        ),
+    )
+    mirror_owned: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_MIRROR_OWNED",
+        description=(
+            "When true, enumerate all repositories owned by each user with an active GitHub "
+            "integration (GET /user/repos?affiliation=owner) and upsert a GitMirror row per repo. "
+            "Clone URLs use the HTTPS form https://github.com/<owner>/<name>.git. size_kb is "
+            "populated from the GitHub repo size field. Disabled by default."
+        ),
+    )
+    mirror_watched: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_MIRROR_WATCHED",
+        description=(
+            "When true, enumerate all repositories watched by each user with an active GitHub "
+            "integration (GET /user/subscriptions) and upsert a GitMirror row per repo. "
+            "Clone URLs use the HTTPS form https://github.com/<owner>/<name>.git. size_kb is "
+            "populated from the GitHub repo size field. Disabled by default."
+        ),
+    )
+
     # Gist mirroring
     mirror_gists: bool = Field(
         default=False,
@@ -267,6 +309,20 @@ class GitBackupConfig(BaseModel):
     )
 
     # Health monitoring (Healthchecks.io dead-man-switch)
+    prune_excluded_days: int = Field(
+        default=0,
+        ge=0,
+        validation_alias="GIT_BACKUP_PRUNE_EXCLUDED_DAYS",
+        description=(
+            "When > 0, mirrors with status=EXCLUDED whose excluded_at timestamp is older "
+            "than this many days are automatically pruned during each sync run: their Qdrant "
+            "point is deleted (best-effort), the on-disk bare clone is removed (best-effort, "
+            "only if mirror_path resolves inside GIT_BACKUP_DATA_PATH), and the DB row is "
+            "deleted.  0 = disabled (default).  The prune sweep runs after perform_sync and "
+            "never blocks or fails the backup task."
+        ),
+    )
+
     hc_ping_url: str | None = Field(
         default=None,
         validation_alias="GIT_BACKUP_HC_PING_URL",

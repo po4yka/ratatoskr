@@ -411,6 +411,8 @@ class FakeMirrorRepo:
         error_category: Any,
         message: str,
         clone_strategy: str | None = None,
+        *,
+        use_http1: bool | None = None,
     ) -> None:
         self.failure_calls.append((mirror_id, message))
 

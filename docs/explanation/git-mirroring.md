@@ -22,6 +22,14 @@ Three source types feed the sync job.
 
 **GitHub gists** (`source=github`, clone URL `https://gist.github.com/<id>.git`) are enumerated automatically when `GIT_BACKUP_MIRROR_GISTS=true`. At the start of each sync run, `_enumerate_and_upsert_gists` queries all active `UserGitHubIntegration` rows, calls `GET /gists` for each user (with Link-header pagination), and upserts a `git_mirrors` row per gist via `GitMirrorRepository.upsert_target`. Freshly upserted rows receive `status=pending` and are picked up by `perform_sync` in the same run. Errors for one user (API failure, decryption failure) are logged and skipped; they do not abort the run for other users. Gist credentials are injected the same way as repository credentials — the `gist.github.com` host is in the `_GITHUB_HOSTS` allowlist in `app/core/git_url_safety.py`. On disk, gists land under `<data_path>/github/gist.github.com/<name>.git`, separate from regular repos under `<data_path>/github/github.com/<name>.git`, so the two namespaces never collide.
 
+**GitHub repositories (starred / owned / watched)** are enumerated automatically when one or more of `GIT_BACKUP_MIRROR_STARRED`, `GIT_BACKUP_MIRROR_OWNED`, or `GIT_BACKUP_MIRROR_WATCHED` is `true`. At the start of each sync run, `_enumerate_and_upsert_github_repos` queries all active `UserGitHubIntegration` rows, then for each enabled category calls:
+
+- `GET /user/starred` (starred repos, paginated) — enabled by `GIT_BACKUP_MIRROR_STARRED`
+- `GET /user/repos?affiliation=owner` (repos the user owns, paginated) — enabled by `GIT_BACKUP_MIRROR_OWNED`
+- `GET /user/subscriptions` (repos the user watches, paginated) — enabled by `GIT_BACKUP_MIRROR_WATCHED`
+
+A repo that appears in multiple lists (e.g. both starred and owned) is de-duplicated by clone URL within each user's batch so only one `git_mirrors` row is upserted. Clone URLs use the HTTPS form `https://github.com/<full_name>.git`. The GitHub-reported `size` field (already in KB) is stored as `size_kb` on the `git_mirrors` row so the large-repo timeout multiplier (`GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER`) applies from the very first clone without waiting for an on-disk measurement. When a matching row already exists in the `repositories` table for the `(user_id, github_id)` pair (from the GitHub ingestion subsystem), the `repository_id` FK is set so the mirror is linked for vector reconciliation purposes. Errors for one user (API failure, decryption failure) are logged and skipped; they do not abort the run for other users.
+
 **Manual/arbitrary repositories** (`source=manual`) are any git-accessible URL that the user registers directly — public GitHub repos without a GitHub integration, self-hosted Gitea/Forgejo instances, or any other `https://` or `git://` URL. These receive a `git_mirrors` row with no `repository_id` FK and are cloned without credentials. The static `GIT_BACKUP_EXTRA_REPOS` config key (a name-to-URL dict in `ratatoskr.yaml`) also produces manual mirrors, upserting rows at job startup so outcomes are persisted identically to user-registered mirrors.
 
 ---
@@ -132,7 +140,7 @@ The job `ratatoskr.git_backup.sync` runs on the cron from `GIT_BACKUP_SYNC_CRON`
 | `GET` | `/v1/git-mirrors` | List all mirrors for the authenticated user |
 | `POST` | `/v1/git-mirrors` | Register a new mirror; returns 202 and triggers a deferred sync |
 | `GET` | `/v1/git-mirrors/{id}` | Retrieve a single mirror by ID |
-| `DELETE` | `/v1/git-mirrors/{id}` | Delete the `git_mirrors` row; returns 204. Does **not** remove the on-disk bare clone (see Known Deferrals). |
+| `DELETE` | `/v1/git-mirrors/{id}` | Delete the `git_mirrors` row and best-effort remove the Qdrant point and on-disk bare clone; returns 204. See [On-disk cleanup](#on-disk-cleanup). |
 
 ---
 
@@ -184,6 +192,7 @@ All variables are read by `app/config/git_backup.py::GitBackupConfig`. Full refe
 | `GIT_BACKUP_AUTO_SKIP_FAILING` | `true` | Skip mirrors in cooldown window instead of retrying |
 | `GIT_BACKUP_MIRROR_GISTS` | `false` | When `true`, enumerate all gists per active GitHub integration and upsert `git_mirrors` rows for them |
 | `GIT_BACKUP_EXTRA_REPOS` | `{}` | Static name→URL map for repos without a DB row; set via `ratatoskr.yaml` |
+| `GIT_BACKUP_PRUNE_EXCLUDED_DAYS` | `0` | Days after which stale EXCLUDED mirrors are pruned (Qdrant point + on-disk dir + DB row); `0` = disabled |
 
 ---
 
@@ -252,9 +261,25 @@ Because indexing uses content-hash dedup, a Qdrant point that goes missing (manu
 
 ---
 
-## Known Deferrals
+## On-disk cleanup
 
-**On-disk cleanup on DELETE.** `DELETE /v1/git-mirrors/{id}` removes the `git_mirrors` row and best-effort deletes the Qdrant point, but leaves the bare clone directory in place. Automatic on-disk cleanup on deletion is tracked as a follow-up item; operators should remove stale directories manually.
+### DELETE endpoint
+
+`DELETE /v1/git-mirrors/{id}` removes the `git_mirrors` row, best-effort deletes the Qdrant point, and best-effort removes the on-disk bare clone directory. The cleanup order is: DB row first (inside a transaction), then Qdrant, then the directory. A failure in the Qdrant or disk step is logged and swallowed — the DB deletion always commits.
+
+**Path-safety check:** the directory is only removed when `mirror_path` is non-empty and its resolved absolute path falls strictly inside `GIT_BACKUP_DATA_PATH` (checked via `Path.is_relative_to`). A `mirror_path` that resolves outside the backup volume is rejected with a warning log and the directory is left untouched. The blocking `shutil.rmtree` is offloaded to `asyncio.to_thread`.
+
+### Stale-EXCLUDED prune sweep
+
+`GIT_BACKUP_PRUNE_EXCLUDED_DAYS` (default `0` = disabled) activates a post-sync sweep that permanently deletes mirrors that have been tombstoned (`status=EXCLUDED`) for longer than the configured number of days. For each stale mirror the sweep:
+
+1. Deletes the Qdrant point via `delete_git_mirror_points` (best-effort).
+2. Removes the on-disk bare clone directory with the same path-safety check as the DELETE endpoint (best-effort).
+3. Hard-deletes the `git_mirrors` row via `GitMirrorRepository.delete_mirror`.
+
+The sweep runs after `perform_sync` (and after the README reconcile pass when enabled). Any per-mirror error is logged and the sweep continues to the next mirror; an unexpected top-level exception is caught and logged at WARNING. The task outcome is never affected.
+
+Implementation: `_prune_stale_excluded` in `app/tasks/git_backup_sync.py`, using `GitMirrorRepository.list_stale_excluded` and `GitMirrorRepository.delete_mirror` from `app/adapters/git_backup/repository.py`.
 
 ---
 

@@ -1,0 +1,24 @@
+[
+  {
+    "id": 3001,
+    "name": "upstream-project",
+    "full_name": "org/upstream-project",
+    "owner": {"login": "org", "id": 200, "type": "Organization"},
+    "html_url": "https://github.com/org/upstream-project",
+    "stargazers_count": 500,
+    "forks_count": 50,
+    "watchers_count": 500,
+    "size": 8192
+  },
+  {
+    "id": 3002,
+    "name": "other-lib",
+    "full_name": "org/other-lib",
+    "owner": {"login": "org", "id": 200, "type": "Organization"},
+    "html_url": "https://github.com/org/other-lib",
+    "stargazers_count": 20,
+    "forks_count": 2,
+    "watchers_count": 20,
+    "size": 128
+  }
+]

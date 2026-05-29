@@ -1,0 +1,13 @@
+[
+  {
+    "id": 2003,
+    "name": "yet-another-repo",
+    "full_name": "alice/yet-another-repo",
+    "owner": {"login": "alice", "id": 99, "type": "User"},
+    "html_url": "https://github.com/alice/yet-another-repo",
+    "stargazers_count": 3,
+    "forks_count": 0,
+    "watchers_count": 3,
+    "size": 256
+  }
+]

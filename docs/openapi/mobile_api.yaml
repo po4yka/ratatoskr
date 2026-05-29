@@ -2534,20 +2534,13 @@ paths:
       tags:
       - git-mirrors
       summary: Delete Mirror
-      description: 'Remove the git mirror DB row and its Qdrant vector point (best-effort).
-
-
-        Decision: on-disk bare-clone data under GIT_BACKUP_DATA_PATH is NOT deleted
-
-        here. Removing the directory requires knowing the filesystem layout that the
-
-        Taskiq worker uses (path derived from clone_url and data_path), and doing it
-
-        in a request handler risks blocking I/O and partial failures if the path is
-
-        on a remote or slow mount. A follow-up maintenance job or manual cleanup is
-
-        the correct mechanism for on-disk removal.'
+      description: "Remove the git mirror DB row, its Qdrant vector point, and the on-disk bare clone (all best-effort).\n\
+        \nOrder of operations:\n1. Load the row (capture mirror_path before deletion).\n2. Delete the DB row inside a transaction.\n\
+        3. Delete the Qdrant point best-effort (after DB row gone so a Qdrant error\n   does not leave an orphaned DB row).\n\
+        4. Remove the on-disk bare clone directory best-effort (blocking rmtree\n   offloaded to a thread).\n\nOn-disk removal\
+        \ safety: the directory is only removed when mirror_path is\nnon-empty AND it resolves to a path strictly inside GIT_BACKUP_DATA_PATH.\n\
+        This prevents path-traversal scenarios where a crafted mirror_path could\nreach outside the backup volume.  Any I/O\
+        \ error is swallowed so the DB\ndeletion always succeeds."
       operationId: delete_mirror_v1_git_mirrors__mirror_id__delete
       security:
       - HTTPBearer: []
