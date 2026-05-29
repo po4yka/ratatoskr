@@ -23,8 +23,8 @@ Unique constraint
 - ``uq_git_mirrors_user_clone_url`` -- (user_id, clone_url) so the same URL
   cannot be mirrored twice for the same user
 
-Revision ID: 0030
-Revises: 0029
+Revision ID: 0031
+Revises: 0030
 Create Date: 2026-05-29
 """
 
@@ -34,8 +34,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0030"
-down_revision: str = "0029"
+revision: str = "0031"
+down_revision: str = "0030"
 branch_labels: tuple[str, ...] | None = None
 depends_on: tuple[str, ...] | None = None
 
@@ -95,26 +95,18 @@ def upgrade() -> None:
         sa.Column("clone_strategy", sa.String(length=50), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["user_id"], ["users.telegram_user_id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(
-            ["repository_id"], ["repositories.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["user_id"], ["users.telegram_user_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["repository_id"], ["repositories.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id", "clone_url", name="uq_git_mirrors_user_clone_url"),
     )
 
     # 3. Create indexes.
-    op.create_index(
-        op.f("ix_git_mirrors_user_id"), "git_mirrors", ["user_id"], unique=False
-    )
+    op.create_index(op.f("ix_git_mirrors_user_id"), "git_mirrors", ["user_id"], unique=False)
     op.create_index(
         "ix_git_mirrors_user_status", "git_mirrors", ["user_id", "status"], unique=False
     )
-    op.create_index(
-        "ix_git_mirrors_repository_id", "git_mirrors", ["repository_id"], unique=False
-    )
+    op.create_index("ix_git_mirrors_repository_id", "git_mirrors", ["repository_id"], unique=False)
 
 
 def downgrade() -> None:

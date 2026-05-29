@@ -11,7 +11,31 @@ from app.core.git_url_safety import (
     assert_resolved_public_host,
     assert_safe_git_url,
     extract_git_host,
+    is_github_host,
 )
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        # Real GitHub hosts -> token may be embedded.
+        ("https://github.com/owner/repo.git", True),
+        ("https://www.github.com/owner/repo.git", True),
+        ("git@github.com:owner/repo.git", True),
+        ("https://GitHub.com/owner/repo.git", True),  # case-insensitive
+        # Credential-exfiltration bypasses -> must be rejected (token withheld).
+        ("https://github.com@attacker.com/owner/repo.git", False),  # userinfo trick
+        ("https://github.com.attacker.com/owner/repo.git", False),  # lookalike suffix
+        ("https://attacker.com/github.com/repo.git", False),  # path, not host
+        ("https://notgithub.com/owner/repo.git", False),
+        ("https://api.github.com/owner/repo.git", False),  # only github.com / www
+        ("not a url", False),
+    ],
+)
+def test_is_github_host_blocks_token_exfiltration(url: str, expected: bool) -> None:
+    """is_github_host must classify only the *real* host as GitHub, so a token is
+    never embedded for a userinfo/lookalike host (audit: CRITICAL cred exfil)."""
+    assert is_github_host(url) is expected
 
 
 @pytest.mark.parametrize(

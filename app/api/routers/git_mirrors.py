@@ -19,6 +19,7 @@ from app.api.models.responses.git_mirrors import (
     RegisterMirrorResponse,
 )
 from app.api.routers.auth import get_current_user
+from app.core.git_url_safety import is_github_host
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirror, GitMirrorSource
 from app.db.session import (  # noqa: TC001  # used at runtime in FastAPI Depends() signatures
@@ -134,9 +135,7 @@ async def list_mirrors(
     user_id: int = user["user_id"]
 
     async with db.session() as session:
-        count_stmt = (
-            select(func.count()).select_from(GitMirror).where(GitMirror.user_id == user_id)
-        )
+        count_stmt = select(func.count()).select_from(GitMirror).where(GitMirror.user_id == user_id)
         total: int = int(await session.scalar(count_stmt) or 0)
 
         rows_stmt = (
@@ -173,9 +172,11 @@ async def register_mirror(
     """
     user_id: int = user["user_id"]
 
-    # Derive source heuristic from clone URL scheme.
+    # Classify by the URL's real parsed host (not a substring match): a userinfo
+    # or lookalike host like github.com@evil.com / github.com.evil.com must NOT be
+    # treated as GitHub, or _resolve_url would embed the user's token for it.
     clone_url = body.clone_url
-    source = GitMirrorSource.GITHUB if "github.com" in clone_url else GitMirrorSource.MANUAL
+    source = GitMirrorSource.GITHUB if is_github_host(clone_url) else GitMirrorSource.MANUAL
 
     try:
         row = await mirror_repo.upsert_target(

@@ -29,12 +29,31 @@ __all__ = [
     "assert_resolved_public_host",
     "assert_safe_git_url",
     "extract_git_host",
+    "is_github_host",
 ]
 
 # Hostnames that are never legitimate clone targets regardless of resolution.
 _BLOCKED_HOSTNAMES = frozenset(
     {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
 )
+
+# Exact hostnames for which a GitHub access token may be embedded in a clone
+# URL. Anything else -- lookalikes like ``github.com.evil.com`` or userinfo
+# tricks like ``github.com@evil.com`` -- must NOT receive the token, because
+# ``extract_git_host`` resolves those to their true (non-GitHub) host.
+_GITHUB_HOSTS = frozenset({"github.com", "www.github.com"})
+
+
+def is_github_host(url: str) -> bool:
+    """Return True only if the URL's real parsed host is exactly GitHub.
+
+    Uses :func:`extract_git_host`, so credential-injection (``github.com@evil``)
+    and lookalike (``github.com.evil.com``) URLs resolve to their true host and
+    are correctly rejected. This is the gate that prevents leaking a GitHub
+    access token to an attacker-controlled host.
+    """
+    host = extract_git_host(url)
+    return host in _GITHUB_HOSTS if host else False
 
 
 def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:

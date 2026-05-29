@@ -38,7 +38,11 @@ from app.adapters.git_backup.git_exec import resolve_git_executable
 from app.adapters.git_backup.lfs import LfsSupport
 from app.adapters.git_backup.maintenance import Maintenance, RepositoryMaintenance
 from app.adapters.git_backup.retry import RetryContext, RetryPolicy, SyncFailureException
-from app.core.git_url_safety import assert_resolved_public_host, extract_git_host
+from app.core.git_url_safety import (
+    assert_resolved_public_host,
+    extract_git_host,
+    is_github_host,
+)
 from app.db.models.git_backup import GitMirror, GitMirrorSource
 from app.security.secret_crypto import decrypt_secret
 
@@ -160,17 +164,14 @@ async def _preflight_storage_check(root: Path, timeout_ms: int) -> str | None:
             read_back = sentinel.read_text()
             if read_back != payload:
                 raise ValueError(
-                    f"Preflight sentinel content mismatch: expected {payload!r},"
-                    f" got {read_back!r}"
+                    f"Preflight sentinel content mismatch: expected {payload!r}, got {read_back!r}"
                 )
         finally:
             with contextlib.suppress(FileNotFoundError):
                 sentinel.unlink()
 
     try:
-        await asyncio.wait_for(
-            asyncio.to_thread(_sync_check, root), timeout=timeout_ms / 1000
-        )
+        await asyncio.wait_for(asyncio.to_thread(_sync_check, root), timeout=timeout_ms / 1000)
     except TimeoutError:
         return f"Preflight storage check timed out after {timeout_ms}ms"
     except Exception as exc:
@@ -256,9 +257,7 @@ class GitMirrorService:
         data_path = Path(cfg.data_path)
 
         if not dry_run:
-            error_msg = await _preflight_storage_check(
-                data_path, timeout_ms=10_000
-            )
+            error_msg = await _preflight_storage_check(data_path, timeout_ms=10_000)
             if error_msg is not None:
                 logger.error("git_mirror_preflight_failed: %s", error_msg)
                 raise RuntimeError(f"Storage pre-flight check failed: {error_msg}")
@@ -273,9 +272,7 @@ class GitMirrorService:
             )
             return SyncSummary(
                 ok=len(tasks),
-                outcomes=[
-                    MirrorOutcome(mirror=t.mirror, ok=True) for t in tasks
-                ],
+                outcomes=[MirrorOutcome(mirror=t.mirror, ok=True) for t in tasks],
             )
 
         # Build a circuit breaker if not injected (default threshold = 3).
@@ -284,16 +281,12 @@ class GitMirrorService:
         semaphore = asyncio.Semaphore(cfg.workers)
         large_semaphore = asyncio.Semaphore(cfg.large_repo_max_parallel)
 
-        logger.info(
-            "git_mirror_sync_start: tasks=%d workers=%d", len(tasks), cfg.workers
-        )
+        logger.info("git_mirror_sync_start: tasks=%d workers=%d", len(tasks), cfg.workers)
 
         async def run_one(task: MirrorTask) -> MirrorOutcome:
             # Fast-path skip if breaker already open.
             if breaker.is_open():
-                logger.warning(
-                    "git_mirror_skip circuit_breaker_open name=%s", task.name
-                )
+                logger.warning("git_mirror_skip circuit_breaker_open name=%s", task.name)
                 return MirrorOutcome(
                     mirror=task.mirror,
                     ok=False,
@@ -419,6 +412,19 @@ class GitMirrorService:
         if mirror.source != GitMirrorSource.GITHUB:
             return mirror.clone_url
 
+        # Authoritative guard: only embed the GitHub token when the URL's real
+        # parsed host is exactly github.com. Defends against a mirror row whose
+        # clone_url uses a userinfo (github.com@evil.com) or lookalike
+        # (github.com.evil.com) host that was misclassified as GITHUB, which
+        # would otherwise exfiltrate the user's token to the attacker host.
+        if not is_github_host(mirror.clone_url):
+            logger.warning(
+                "git_mirror_token_skipped_non_github_host user_id=%d mirror_id=%d",
+                mirror.user_id,
+                mirror.id,
+            )
+            return mirror.clone_url
+
         # Look up UserGitHubIntegration for this user.
         from sqlalchemy import select as sa_select
 
@@ -473,9 +479,7 @@ class GitMirrorService:
         # Timeout: large repos get a multiplier.
         base_timeout = float(cfg.repository_timeout_seconds)
         timeout = (
-            base_timeout * cfg.large_repo_timeout_multiplier
-            if task.is_large_repo
-            else base_timeout
+            base_timeout * cfg.large_repo_timeout_multiplier if task.is_large_repo else base_timeout
         )
 
         safe_url = _redact_url(task.effective_url)
@@ -503,9 +507,7 @@ class GitMirrorService:
         try:
             await asyncio.to_thread(assert_resolved_public_host, host)
         except ValueError as exc:
-            logger.warning(
-                "git_mirror_blocked name=%s reason=%s", task.name, exc
-            )
+            logger.warning("git_mirror_blocked name=%s reason=%s", task.name, exc)
             return MirrorOutcome(
                 mirror=task.mirror,
                 ok=False,
@@ -528,23 +530,17 @@ class GitMirrorService:
             if code != 0:
                 # Redact before raising: git stderr commonly echoes the remote
                 # URL, which carries the injected x-access-token credential.
-                raise RuntimeError(_redact_url(output) if output else f"git exited with code {code}")
+                raise RuntimeError(
+                    _redact_url(output) if output else f"git exited with code {code}"
+                )
             return output
 
         async def run_with_retry() -> MirrorOutcome:
             try:
-                await self._retry_policy.execute(
-                    operation, operation_description=safe_url
-                )
+                await self._retry_policy.execute(operation, operation_description=safe_url)
             except SyncFailureException as exc:
-                category = (
-                    exc.error_categories[-1]
-                    if exc.error_categories
-                    else classify(str(exc))
-                )
-                cause_msg = _redact_url(
-                    str(exc.__cause__) if exc.__cause__ else str(exc)
-                )
+                category = exc.error_categories[-1] if exc.error_categories else classify(str(exc))
+                cause_msg = _redact_url(str(exc.__cause__) if exc.__cause__ else str(exc))
                 logger.warning(
                     "git_mirror_failed name=%s attempts=%d category=%s error=%s",
                     task.name,
@@ -584,9 +580,7 @@ class GitMirrorService:
 
             # Post-sync maintenance (blocking, offloaded to thread).
             if self._maintenance is not None:
-                await asyncio.to_thread(
-                    self._maintenance.run_post_sync_maintenance, dest
-                )
+                await asyncio.to_thread(self._maintenance.run_post_sync_maintenance, dest)
                 self._maintenance.register_sync_and_check_repack()
 
             # LFS fetch (blocking, offloaded to thread).
@@ -628,11 +622,7 @@ class GitMirrorService:
             size_kb: int | None = None
             if dest and dest.exists():
                 try:
-                    size_kb = sum(
-                        f.stat().st_size
-                        for f in dest.rglob("*")
-                        if f.is_file()
-                    ) // 1024
+                    size_kb = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file()) // 1024
                 except OSError:
                     size_kb = None
 
