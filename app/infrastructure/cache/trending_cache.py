@@ -128,7 +128,15 @@ class _TrendingCacheManager:
         days: int,
         database: Database | None = None,
     ) -> dict[str, Any]:
-        """Return trending topics with per-user/param caching."""
+        """Return trending topics with per-user/param caching.
+
+        Singleflight: the asyncio lock is held across the DB fetch + store so
+        that concurrent misses on the same key cause only one DB scan. A
+        coroutine that was waiting on the lock performs a double-checked lookup
+        after acquiring it and returns the winner's result without re-querying.
+        Fail-open: any exception during fetch/store releases the lock via
+        ``async with`` and propagates normally.
+        """
         now = datetime.now(UTC)
 
         redis_cached = await self.get_from_redis(user_id, days, limit)
@@ -137,27 +145,29 @@ class _TrendingCacheManager:
 
         cache_key = (user_id, limit, days)
         async with self._lock:
+            # Double-checked lookup: a coroutine that waited on the lock may
+            # find the value already populated by the winner.
             self.prune_expired(now)
             cached = self._trending_cache.get(cache_key)
             if cached and cached.expires_at > now:
                 return cached.payload
 
-        previous_period_start = now - timedelta(days=days * 2)
-        max_scan = min(TRENDING_MAX_SCAN, max(limit * 40, 400))
+            # Still a miss while holding the lock — this coroutine is the
+            # winner and performs the DB fetch under the lock (singleflight).
+            previous_period_start = now - timedelta(days=days * 2)
+            max_scan = min(TRENDING_MAX_SCAN, max(limit * 40, 400))
 
-        records = await _fetch_trending_records(
-            user_id,
-            previous_period_start=previous_period_start,
-            max_scan=max_scan,
-            database=database,
-        )
+            records = await _fetch_trending_records(
+                user_id,
+                previous_period_start=previous_period_start,
+                max_scan=max_scan,
+                database=database,
+            )
 
-        payload = _build_trending_payload(records, now=now, days=days, limit=limit)
+            payload = _build_trending_payload(records, now=now, days=days, limit=limit)
 
-        await self.set_to_redis(user_id, days, limit, payload)
+            await self.set_to_redis(user_id, days, limit, payload)
 
-        async with self._lock:
-            self.prune_expired(now)
             self._trending_cache[cache_key] = TrendingCacheEntry(
                 expires_at=now + timedelta(seconds=TRENDING_CACHE_TTL_SECONDS),
                 payload=payload,
@@ -177,13 +187,21 @@ class _TrendingCacheManager:
                 logger.debug("trending_redis_clear_deferred", extra={"error": str(exc)})
 
     async def _clear_redis(self) -> None:
-        """Clear all trending entries from Redis cache."""
+        """Clear only trending-prefixed entries from Redis cache.
+
+        Uses ``clear_prefix("trending")`` so that unrelated keys (auth tokens,
+        embeddings, query results, batch progress) are not evicted.
+        The trending cache writes keys under the ``trending`` sub-prefix via
+        ``set_json(..., parts=("trending", user_id, days, limit))``, which
+        produces keys of the form ``ratatoskr:trending:<user_id>:<days>:<limit>``.
+        ``clear_prefix("trending")`` matches ``ratatoskr:trending:*`` exactly.
+        """
         redis_cache, cfg = self.get_redis_cache()
         if redis_cache is None or cfg is None:
             return
 
         try:
-            deleted = await redis_cache.clear()
+            deleted = await redis_cache.clear_prefix("trending")
             logger.debug("trending_redis_cache_cleared", extra={"deleted_count": deleted})
         except Exception as exc:
             logger.warning("trending_redis_cache_clear_failed", extra={"error": str(exc)})

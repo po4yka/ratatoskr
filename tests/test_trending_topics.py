@@ -167,3 +167,87 @@ async def test_fetch_trending_records_uses_postgres_database(database: Database)
     )
 
     assert records == [(request.created_at, ["AI"])]
+
+
+@pytest.mark.asyncio
+async def test_clear_redis_uses_prefix_not_full_clear(monkeypatch):
+    """C-2: _clear_redis must call clear_prefix("trending"), never clear()."""
+    from app.infrastructure.cache.trending_cache import _TrendingCacheManager
+
+    calls: list[tuple[str, tuple[str, ...]]] = []
+
+    class _FakeRedisCache:
+        async def clear(self) -> int:
+            calls.append(("clear", ()))
+            return 0
+
+        async def clear_prefix(self, *parts: str) -> int:
+            calls.append(("clear_prefix", parts))
+            return 3
+
+    manager = _TrendingCacheManager()
+    manager._redis_cache = _FakeRedisCache()  # type: ignore[assignment]
+
+    class _FakeCfg:
+        pass
+
+    manager._app_config = _FakeCfg()  # type: ignore[assignment]
+
+    await manager._clear_redis()
+
+    assert calls == [("clear_prefix", ("trending",))], (
+        f"Expected clear_prefix('trending') only, got: {calls}"
+    )
+    assert not any(name == "clear" for name, _ in calls), "clear() must not be called"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_misses_trigger_single_db_fetch(monkeypatch):
+    """C-3: two concurrent misses on the same key must produce exactly one DB fetch."""
+    import asyncio
+
+    from app.infrastructure.cache import trending_cache
+
+    trending_cache.clear_trending_cache()
+
+    fetch_count = {"value": 0}
+
+    async def fake_fetch(
+        user_id: int,
+        *,
+        previous_period_start: datetime,
+        max_scan: int,
+        database=None,
+    ):
+        fetch_count["value"] += 1
+        # Yield so the second coroutine has a chance to also call fetch if the
+        # lock were released before the store (the old TOCTOU bug).
+        await asyncio.sleep(0)
+        return []
+
+    async def fake_get_from_redis(user_id: int, days: int, limit: int):
+        return None
+
+    async def fake_set_to_redis(
+        user_id: int, days: int, limit: int, payload: dict[str, object]
+    ) -> bool:
+        return False
+
+    monkeypatch.setattr(trending_cache, "_fetch_trending_records", fake_fetch)
+    monkeypatch.setattr(trending_cache._cache_manager, "get_from_redis", fake_get_from_redis)
+    monkeypatch.setattr(trending_cache._cache_manager, "set_to_redis", fake_set_to_redis)
+    monkeypatch.setattr(trending_cache, "TRENDING_CACHE_TTL_SECONDS", 60)
+
+    # Launch two concurrent requests for the same key.
+    results = await asyncio.gather(
+        trending_cache.get_trending_payload(42, limit=5, days=7),
+        trending_cache.get_trending_payload(42, limit=5, days=7),
+    )
+
+    assert fetch_count["value"] == 1, (
+        f"Expected exactly 1 DB fetch for concurrent misses, got {fetch_count['value']}"
+    )
+    # Both callers must receive the same payload.
+    assert results[0] == results[1]
+
+    trending_cache.clear_trending_cache()
