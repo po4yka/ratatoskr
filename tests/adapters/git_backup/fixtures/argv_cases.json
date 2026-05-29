@@ -1,0 +1,87 @@
+{
+  "_source": "Captured from Engine.kt::buildGitCommand (around line 950). Argv order: git, -c safe.directory=*, [-c http.sslVerify=false], [-c http.version=HTTP/1.1], -c http.postBuffer=N, [-c http.lowSpeedLimit + -c http.lowSpeedTime], [-c credential.helper=store --file=PATH], then the operation. http.version flag is emitted when force_http1 OR http_version=='HTTP/1.1' (the default). low-speed flags only when low_speed_limit>0. credential.helper value is a SINGLE argv token. For a non-existent repo: shallow > single_branch_only > mirror. The '--' separator precedes url/repo_name on clone.",
+  "common": {
+    "url": "https://github.com/octocat/repo-a.git",
+    "repo_name": "octocat/repo-a"
+  },
+  "cases": [
+    {
+      "name": "mirror_clone_defaults",
+      "note": "fresh mirror clone, all defaults (HTTP/1.1 + low-speed flags present)",
+      "params": {"repo_exists": false, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "mirror_update_existing",
+      "note": "existing mirror -> remote update --prune",
+      "params": {"repo_exists": true},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "remote", "update", "--prune"]
+    },
+    {
+      "name": "http2_omits_version_flag",
+      "note": "http_version=HTTP/2 without force_http1 -> no http.version -c flag",
+      "params": {"repo_exists": false, "http_version": "HTTP/2", "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "force_http1_over_http2_config",
+      "note": "http_version=HTTP/2 but force_http1=true -> http.version=HTTP/1.1 emitted",
+      "params": {"repo_exists": false, "http_version": "HTTP/2", "force_http1": true, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "ssl_verify_disabled",
+      "note": "verify_certificates=false -> http.sslVerify=false before http.version",
+      "params": {"repo_exists": false, "verify_certificates": false, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.sslVerify=false", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "low_speed_disabled",
+      "note": "low_speed_limit=0 -> no lowSpeed flags",
+      "params": {"repo_exists": false, "low_speed_limit": 0, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "custom_post_buffer",
+      "note": "post_buffer_size override",
+      "params": {"repo_exists": false, "post_buffer_size": 1048576, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=1048576", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "with_credentials",
+      "note": "credential.helper value is one argv token: 'store --file=PATH'",
+      "params": {"repo_exists": false, "credentials_path": "/tmp/gitout-creds", "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "-c", "credential.helper=store --file=/tmp/gitout-creds", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "shallow_clone_with_progress",
+      "note": "use_shallow_clone + show_progress",
+      "params": {"repo_exists": false, "use_shallow_clone": true, "show_progress": true, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--depth=1", "--single-branch", "--progress", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "single_branch_clone_with_branch",
+      "note": "single_branch_only + default_branch -> bare single-branch clone with --branch",
+      "params": {"repo_exists": false, "single_branch_only": true, "default_branch": "main", "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--bare", "--single-branch", "--branch", "main", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "single_branch_clone_no_branch",
+      "note": "single_branch_only without default_branch -> no --branch",
+      "params": {"repo_exists": false, "single_branch_only": true, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--bare", "--single-branch", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "single_branch_update_existing",
+      "note": "existing single-branch (non-mirror) repo -> fetch --prune origin",
+      "params": {"repo_exists": true, "single_branch_only": true},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "fetch", "--prune", "origin"]
+    },
+    {
+      "name": "mirror_clone_with_progress",
+      "note": "mirror clone with show_progress",
+      "params": {"repo_exists": false, "show_progress": true, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--progress", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    }
+  ]
+}

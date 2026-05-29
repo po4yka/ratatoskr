@@ -42,6 +42,7 @@ from app.api.routers import (
     collections,
     custom_digests,
     digest,
+    git_mirrors,
     health,
     highlights,
     import_export,
@@ -289,6 +290,7 @@ app.include_router(aggregation.router, prefix="/v1/aggregations", tags=["Aggrega
 app.include_router(collections.router, prefix="/v1/collections", tags=["Collections"])
 app.include_router(summaries.router, prefix="/v1/summaries", tags=["Summaries"])
 app.include_router(repositories.router)
+app.include_router(git_mirrors.router)
 app.include_router(summaries.router, prefix="/v1/articles", tags=["Articles"])
 app.include_router(requests.router, prefix="/v1/requests", tags=["Requests"])
 app.include_router(streams.router, prefix="/v1/requests", tags=["Streams"])

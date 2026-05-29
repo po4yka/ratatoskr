@@ -56,7 +56,7 @@ WORKDIR /app
 ARG WITH_FFMPEG=1
 RUN set -eux; \
     apt-get update; \
-    pkgs="sqlite3 libsqlite3-0 libxml2 libxslt1.1 zlib1g"; \
+    pkgs="sqlite3 libsqlite3-0 libxml2 libxslt1.1 zlib1g git git-lfs"; \
     if [ "${WITH_FFMPEG}" = "1" ]; then pkgs="$pkgs ffmpeg"; fi; \
     apt-get install -y --no-install-recommends ${pkgs}; \
     rm -rf /var/lib/apt/lists/*; \

@@ -184,6 +184,7 @@ services:
     volumes:
       - ${X_HOST_DATA_DIR:-/var/lib/x_bookmarks_stub}:/x_bookmarks:ro
       - ../../data:/data
+      - git_mirrors_data:/data/git-mirrors
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
       - /tmp
@@ -1125,3 +1126,4 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  git_mirrors_data:

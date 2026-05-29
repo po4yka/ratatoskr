@@ -434,3 +434,28 @@ class RepositoryListSort(StrEnum):
     PUSHED_DESC = "pushed_desc"
     CREATED_DESC = "created_desc"
     FULL_NAME_ASC = "full_name_asc"
+
+
+# ---------------------------------------------------------------------------
+# Git mirror endpoints
+# ---------------------------------------------------------------------------
+
+_GIT_URL_PREFIXES = ("https://", "http://", "git://", "git@", "ssh://")
+
+
+class RegisterMirrorRequest(BaseModel):
+    """Request body for registering (and triggering) a git mirror."""
+
+    clone_url: str = Field(..., min_length=5, max_length=1000)
+    name: str | None = Field(None, max_length=320)
+    repository_id: int | None = None
+
+    @field_validator("clone_url")
+    @classmethod
+    def validate_clone_url(cls, value: str) -> str:
+        stripped = value.strip()
+        if not any(stripped.startswith(p) for p in _GIT_URL_PREFIXES):
+            raise ValueError(
+                "clone_url must start with https://, http://, git://, git@, or ssh://"
+            )
+        return stripped

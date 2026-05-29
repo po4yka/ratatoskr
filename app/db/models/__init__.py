@@ -41,6 +41,12 @@ from app.db.models.core import (
     XBookmarkMetadata,
     XCategory,
 )
+from app.db.models.git_backup import (
+    GIT_BACKUP_MODELS,
+    GitMirror,
+    GitMirrorSource,
+    GitMirrorStatus,
+)
 from app.db.models.digest import (
     DIGEST_MODELS,
     Channel,
@@ -112,6 +118,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
     *BATCH_MODELS,
     *COLLECTION_MODELS,
     *DIGEST_MODELS,
+    *GIT_BACKUP_MODELS,
     *REPOSITORY_MODELS,
     *RSS_MODELS,
     *RULE_MODELS,
@@ -130,6 +137,7 @@ __all__ = [
     "COLLECTION_MODELS",
     "CORE_MODELS",
     "DIGEST_MODELS",
+    "GIT_BACKUP_MODELS",
     "REPOSITORY_MODELS",
     "RSS_MODELS",
     "RULE_MODELS",
@@ -165,6 +173,9 @@ __all__ = [
     "FeedItem",
     "GitHubAuthMethod",
     "GitHubIntegrationStatus",
+    "GitMirror",
+    "GitMirrorSource",
+    "GitMirrorStatus",
     "ImportJob",
     "LLMAttemptTrigger",
     "LLMCall",

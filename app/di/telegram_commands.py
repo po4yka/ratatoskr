@@ -23,6 +23,7 @@ from app.adapters.telegram.command_handlers.export_command import ExportHandler
 from app.adapters.telegram.command_handlers.init_session_handler import InitSessionHandler
 from app.adapters.telegram.command_handlers.listen_handler import ListenHandler
 from app.adapters.telegram.command_handlers.onboarding_handler import OnboardingHandler
+from app.adapters.telegram.command_handlers.git_mirror_handler import GitMirrorHandler
 from app.adapters.telegram.command_handlers.rss_handler import RSSHandler
 from app.adapters.telegram.command_handlers.rules_handler import RulesHandler
 from app.adapters.telegram.command_handlers.search_handler import SearchHandler
@@ -159,6 +160,11 @@ def build_command_dispatcher_deps(
         response_formatter=response_formatter,
     )
     rss_handler = RSSHandler(
+        cfg=cfg,
+        db=db,
+        response_formatter=response_formatter,
+    )
+    git_mirror_handler = GitMirrorHandler(
         cfg=cfg,
         db=db,
         response_formatter=response_formatter,
@@ -438,6 +444,19 @@ def build_command_dispatcher_deps(
                 ),
                 TextCommandRoute(
                     "/rss", _build_text_handler(context_factory, rss_handler.handle_rss)
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="git_mirror",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/mirror",
+                    _build_text_handler(context_factory, git_mirror_handler.handle_mirror),
+                ),
+                TextCommandRoute(
+                    "/mirrors",
+                    _build_text_handler(context_factory, git_mirror_handler.handle_mirrors),
                 ),
             ),
         ),

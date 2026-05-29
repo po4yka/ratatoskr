@@ -81,6 +81,13 @@ class XWikiSyncTaskRuntime:
     service: Any
 
 
+@dataclass(frozen=True)
+class GitBackupTaskRuntime:
+    cfg: AppConfig
+    db: Database
+    service: Any  # GitMirrorService
+
+
 def create_digest_userbot(cfg: AppConfig) -> Any:
     from app.adapters.digest.userbot_client import UserbotClient
 
@@ -309,6 +316,22 @@ def build_x_wiki_sync_task_runtime(
             embedding_service=create_embedding_service(cfg.embedding),
         ),
     )
+
+
+def build_git_backup_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> GitBackupTaskRuntime:
+    from app.adapters.git_backup.mirror_service import GitMirrorService
+    from app.adapters.git_backup.repository import GitMirrorRepository
+
+    mirror_repo = GitMirrorRepository(db=db, config=cfg.git_backup)
+    service = GitMirrorService(
+        config=cfg.git_backup,
+        mirror_repo=mirror_repo,
+        db=db,
+    )
+    return GitBackupTaskRuntime(cfg=cfg, db=db, service=service)
 
 
 def build_vector_reconcile_task_runtime(

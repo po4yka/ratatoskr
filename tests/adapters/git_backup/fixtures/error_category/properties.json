@@ -1,0 +1,68 @@
+{
+  "_source": "Captured from ErrorCategory.kt: isRetryable, delayMultiplier, shouldUseHttp1Fallback, displayName, suggestion.",
+  "categories": {
+    "HTTP2_ERROR": {
+      "is_retryable": true,
+      "should_use_http1_fallback": true,
+      "delay_multiplier": 1.0,
+      "display_name": "HTTP/2 Error",
+      "suggestion": "Retry with HTTP/1.1 fallback is automatic. If persistent, check network proxy settings."
+    },
+    "NETWORK_ERROR": {
+      "is_retryable": true,
+      "should_use_http1_fallback": true,
+      "delay_multiplier": 2.0,
+      "display_name": "Network Error",
+      "suggestion": "Check your internet connection and DNS settings. Verify the repository URL is accessible."
+    },
+    "TIMEOUT": {
+      "is_retryable": true,
+      "should_use_http1_fallback": false,
+      "delay_multiplier": 1.5,
+      "display_name": "Timeout",
+      "suggestion": "Operation timed out. The repository may be large or the connection slow. Consider increasing timeout."
+    },
+    "AUTH_ERROR": {
+      "is_retryable": false,
+      "should_use_http1_fallback": false,
+      "delay_multiplier": 1.0,
+      "display_name": "Authentication Error",
+      "suggestion": "Verify your credentials and token permissions. Ensure the token hasn't expired."
+    },
+    "REPOSITORY_ERROR": {
+      "is_retryable": false,
+      "should_use_http1_fallback": false,
+      "delay_multiplier": 1.0,
+      "display_name": "Git Error",
+      "suggestion": "Verify the repository exists and the URL is correct. Check if it has been deleted, moved, or emptied."
+    },
+    "STORAGE_ERROR": {
+      "is_retryable": false,
+      "should_use_http1_fallback": false,
+      "delay_multiplier": 1.0,
+      "display_name": "Disk Space Error",
+      "suggestion": "Free up disk space on your system. Consider archiving or removing old backups. Verify the backup volume is mounted and the filesystem is not in read-only or error state. Check `dmesg` for I/O errors."
+    },
+    "SSL_ERROR": {
+      "is_retryable": false,
+      "should_use_http1_fallback": false,
+      "delay_multiplier": 1.0,
+      "display_name": "SSL/TLS Error",
+      "suggestion": "Check SSL certificate configuration. Verify system certificates are up to date or configure cert_file in config."
+    },
+    "RATE_LIMIT": {
+      "is_retryable": true,
+      "should_use_http1_fallback": false,
+      "delay_multiplier": 3.0,
+      "display_name": "Rate Limiting",
+      "suggestion": "Wait before retrying. Consider reducing sync frequency or using authentication to increase rate limits."
+    },
+    "UNKNOWN": {
+      "is_retryable": true,
+      "should_use_http1_fallback": false,
+      "delay_multiplier": 1.0,
+      "display_name": "Unknown Error",
+      "suggestion": "Check the error message for details. Verify your configuration and network connectivity."
+    }
+  }
+}

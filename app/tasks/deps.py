@@ -20,6 +20,7 @@ from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints a
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.di.tasks import (
     DigestTaskRuntime,
+    GitBackupTaskRuntime,
     RssPollTaskRuntime,
     VectorReconcileTaskRuntime,
     XBookmarksTaskRuntime,
@@ -165,5 +166,14 @@ def build_x_wiki_sync_task_runtime(
     db: Database,
 ) -> XWikiSyncTaskRuntime:
     from app.di.tasks import build_x_wiki_sync_task_runtime as _build_runtime
+
+    return _build_runtime(cfg, db)
+
+
+def build_git_backup_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> GitBackupTaskRuntime:
+    from app.di.tasks import build_git_backup_task_runtime as _build_runtime
 
     return _build_runtime(cfg, db)

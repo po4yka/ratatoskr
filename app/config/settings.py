@@ -57,6 +57,7 @@ from .telegram import TelegramConfig, TelegramLimitsConfig
 from .transcription import TranscriptionConfig
 from .tts import ElevenLabsConfig
 from .twitter import TwitterConfig
+from .git_backup import GitBackupConfig
 from .x_bookmarks import XBookmarksConfig
 
 logger = get_logger(__name__)
@@ -213,6 +214,7 @@ class AppConfig:
     import_export: ImportConfig = field(default_factory=ImportConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     x_bookmarks: XBookmarksConfig = field(default_factory=XBookmarksConfig)
+    git_backup: GitBackupConfig = field(default_factory=GitBackupConfig)
 
 
 class Settings(BaseSettings):
@@ -278,6 +280,7 @@ class Settings(BaseSettings):
     import_export: ImportConfig = Field(default_factory=ImportConfig)
     deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
     x_bookmarks: XBookmarksConfig = Field(default_factory=XBookmarksConfig)
+    git_backup: GitBackupConfig = Field(default_factory=GitBackupConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -543,6 +546,7 @@ class Settings(BaseSettings):
             import_export=self.import_export,
             deployment=self.deployment,
             x_bookmarks=self.x_bookmarks,
+            git_backup=self.git_backup,
         )
 
 

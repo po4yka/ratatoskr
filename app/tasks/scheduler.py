@@ -137,6 +137,17 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
+        if cfg.git_backup.enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.git_backup.sync",
+                    cron=cfg.git_backup.sync_cron,
+                    labels={"job": "git_backup_sync"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+
         return tasks
 
     async def get_schedules(self) -> list[ScheduledTask]:

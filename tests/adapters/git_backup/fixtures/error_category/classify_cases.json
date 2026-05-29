@@ -1,0 +1,65 @@
+{
+  "_source": "Captured from ErrorCategory.kt::classify and ErrorCategoryTest.kt. Classification is order-sensitive: HTTP/2 > connection-timed-out(NETWORK) > generic timeout > network > rate-limit > auth > ssl > storage > repository > UNKNOWN.",
+  "cases": [
+    {"message": null, "expected": "UNKNOWN", "note": "null -> UNKNOWN"},
+    {"message": "", "expected": "UNKNOWN", "note": "empty -> UNKNOWN"},
+
+    {"message": "error: RPC failed; curl 92 HTTP/2 stream 0 was not closed cleanly: PROTOCOL_ERROR", "expected": "HTTP2_ERROR"},
+    {"message": "fatal: unable to access '...': HTTP/2 stream 1 was not closed cleanly", "expected": "HTTP2_ERROR"},
+    {"message": "error: RPC failed; curl 56 GnuTLS recv error (-9): A TLS packet with unexpected length was received.", "expected": "HTTP2_ERROR", "note": "curl 56 wins over TLS keyword via ordering"},
+    {"message": "curl 16 Error in the HTTP2 framing layer", "expected": "HTTP2_ERROR"},
+
+    {"message": "fatal: unable to connect: connection timed out", "expected": "NETWORK_ERROR", "note": "connection timed out is NETWORK, not TIMEOUT"},
+
+    {"message": "Unable to sync: timeout 10m", "expected": "TIMEOUT"},
+    {"message": "operation timed out", "expected": "TIMEOUT"},
+
+    {"message": "Unable to sync https://github.com/facebook/redex.git into /data/github/clone/facebook/redex: exit 128\nfatal: unable to access 'https://github.com/facebook/redex.git/': Failed to connect to github.com port 443 after 134329 ms: Could not connect to server", "expected": "NETWORK_ERROR"},
+    {"message": "fatal: unable to access 'https://github.com/user/repo.git/': Could not connect to server", "expected": "NETWORK_ERROR"},
+    {"message": "fatal: unable to access 'https://github.com/user/repo.git/': Could not resolve host: github.com", "expected": "NETWORK_ERROR"},
+    {"message": "fatal: the remote end hung up unexpectedly", "expected": "NETWORK_ERROR"},
+    {"message": "error: send-pack: send failure: Broken pipe", "expected": "NETWORK_ERROR"},
+    {"message": "fatal: repository 'https://github.com/org/repo.git/' not found\nremote: Internal server error", "expected": "NETWORK_ERROR"},
+    {"message": "fatal: unable to access '...': The requested URL returned error: Service Unavailable", "expected": "NETWORK_ERROR"},
+    {"message": "fatal: early EOF\nfatal: index-pack failed", "expected": "NETWORK_ERROR"},
+    {"message": "error: fetch-pack: invalid index-pack output", "expected": "NETWORK_ERROR"},
+    {"message": "connection reset by peer", "expected": "NETWORK_ERROR"},
+
+    {"message": "The requested URL returned error: 429", "expected": "RATE_LIMIT"},
+    {"message": "API rate limit exceeded", "expected": "RATE_LIMIT"},
+    {"message": "fatal: too many requests", "expected": "RATE_LIMIT"},
+    {"message": "fatal: unable to access '...': The requested URL returned error: 429", "expected": "RATE_LIMIT"},
+
+    {"message": "fatal: unable to access 'https://github.com/user/repo.git/': The requested URL returned error: 403", "expected": "AUTH_ERROR"},
+    {"message": "remote: Repository not found.", "expected": "AUTH_ERROR"},
+    {"message": "Unable to sync https://github.com/user/clone-tools.git: exit 128\nremote: Repository not found.", "expected": "AUTH_ERROR"},
+    {"message": "authentication failed", "expected": "AUTH_ERROR"},
+
+    {"message": "fatal: unable to access: SSL certificate problem: certificate has expired", "expected": "SSL_ERROR"},
+    {"message": "OpenSSL: error:14094410: tls handshake failure", "expected": "SSL_ERROR"},
+    {"message": "fatal: unable to access '...': gnutls_handshake() failed: Error in the pull function.", "expected": "SSL_ERROR"},
+
+    {"message": "error: object file .git/objects/xx/yy is empty\nfatal: no space left on device", "expected": "STORAGE_ERROR"},
+    {"message": "fatal: Out of memory, malloc failed", "expected": "STORAGE_ERROR"},
+    {"message": "Unable to sync https://github.com/foo/bar.git into /data/github/clone/foo: I/O error", "expected": "STORAGE_ERROR"},
+    {"message": "/data/github/clone/foo: I/O error", "expected": "STORAGE_ERROR"},
+    {"message": "Input/output error", "expected": "STORAGE_ERROR"},
+    {"message": "cannot create directory: Read-only file system", "expected": "STORAGE_ERROR"},
+    {"message": "Structure needs cleaning", "expected": "STORAGE_ERROR"},
+    {"message": "Stale file handle", "expected": "STORAGE_ERROR"},
+
+    {"message": "Unable to sync https://github.com/user/repo.git: exit 1\nfatal: couldn't find remote ref refs/heads/main", "expected": "REPOSITORY_ERROR"},
+    {"message": "fatal: remote ref does not exist", "expected": "REPOSITORY_ERROR"},
+    {"message": "error: bad object abc123", "expected": "REPOSITORY_ERROR"},
+    {"message": "error: object file .git/objects/ab/cd1234 is corrupt", "expected": "REPOSITORY_ERROR"},
+    {"message": "fatal: repository is empty", "expected": "REPOSITORY_ERROR"},
+    {"message": "error: Remote HEAD refers to nonexistent ref", "expected": "REPOSITORY_ERROR"},
+    {"message": "fatal: does not appear to be a git repository", "expected": "REPOSITORY_ERROR"},
+
+    {"message": "Unable to sync https://github.com/user/mytls-tools.git: exit 1\nfatal: couldn't find remote ref refs/heads/main", "expected": "REPOSITORY_ERROR", "note": "false-positive guard: 'tls' in repo name must not trigger SSL_ERROR"},
+    {"message": "Unable to sync https://github.com/user/proj-429-tools.git: exit 1\nfatal: couldn't find remote ref refs/heads/main", "expected": "REPOSITORY_ERROR", "note": "false-positive guard: '429' in repo name must not trigger RATE_LIMIT"},
+    {"message": "Unable to sync https://github.com/user/http-403-handler.git: exit 1\nfatal: couldn't find remote ref refs/heads/main", "expected": "REPOSITORY_ERROR", "note": "false-positive guard: '403' in repo name must not trigger AUTH_ERROR"},
+
+    {"message": "some entirely unrecognised failure mode", "expected": "UNKNOWN"}
+  ]
+}

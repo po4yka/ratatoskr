@@ -3848,6 +3848,224 @@
         }
       }
     },
+    "/v1/git-mirrors": {
+      "get": {
+        "tags": [
+          "git-mirrors"
+        ],
+        "summary": "List Mirrors",
+        "description": "List git mirrors for the authenticated user with simple paging.",
+        "operationId": "list_mirrors_v1_git_mirrors_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitMirrorListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "git-mirrors"
+        ],
+        "summary": "Register Mirror",
+        "description": "Register a git URL as a mirror target (upsert) and schedule it for cloning.\n\nReturns 202 Accepted. The actual clone/fetch happens in the next Taskiq\ngit-backup sync job run. On-disk data is not created here.",
+        "operationId": "register_mirror_v1_git_mirrors_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterMirrorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterMirrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/git-mirrors/{mirror_id}": {
+      "get": {
+        "tags": [
+          "git-mirrors"
+        ],
+        "summary": "Get Mirror",
+        "description": "Get full detail for a single git mirror.",
+        "operationId": "get_mirror_v1_git_mirrors__mirror_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mirror_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mirror Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitMirrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "git-mirrors"
+        ],
+        "summary": "Delete Mirror",
+        "description": "Remove the git mirror DB row.\n\nDecision: on-disk bare-clone data under GIT_BACKUP_DATA_PATH is NOT deleted\nhere. Removing the directory requires knowing the filesystem layout that the\nTaskiq worker uses (path derived from clone_url and data_path), and doing it\nin a request handler risks blocking I/O and partial failures if the path is\non a remote or slow mount. A follow-up maintenance job or manual cleanup is\nthe correct mechanism for on-disk removal.",
+        "operationId": "delete_mirror_v1_git_mirrors__mirror_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mirror_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mirror Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/articles": {
       "get": {
         "tags": [
@@ -15544,6 +15762,271 @@
         ],
         "title": "GitHubSyncResponse"
       },
+      "GitMirrorCompact": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "clone_url": {
+            "type": "string",
+            "title": "Clone Url"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "last_mirrored_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Mirrored At"
+          },
+          "size_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Kb"
+          },
+          "repository_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "clone_url",
+          "name",
+          "status",
+          "source",
+          "last_mirrored_at",
+          "size_kb",
+          "repository_id"
+        ],
+        "title": "GitMirrorCompact"
+      },
+      "GitMirrorDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "clone_url": {
+            "type": "string",
+            "title": "Clone Url"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "last_mirrored_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Mirrored At"
+          },
+          "size_kb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Kb"
+          },
+          "repository_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Id"
+          },
+          "mirror_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mirror Path"
+          },
+          "default_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Branch"
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "title": "Consecutive Failures"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Category"
+          },
+          "backoff_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backoff Until"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "clone_url",
+          "name",
+          "status",
+          "source",
+          "last_mirrored_at",
+          "size_kb",
+          "repository_id",
+          "mirror_path",
+          "default_branch",
+          "consecutive_failures",
+          "last_error",
+          "last_error_category",
+          "backoff_until",
+          "last_attempt_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "GitMirrorDetail"
+      },
+      "GitMirrorListResponse": {
+        "properties": {
+          "mirrors": {
+            "items": {
+              "$ref": "#/components/schemas/GitMirrorCompact"
+            },
+            "type": "array",
+            "title": "Mirrors"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mirrors",
+          "pagination"
+        ],
+        "title": "GitMirrorListResponse"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -15849,6 +16332,68 @@
         "type": "object",
         "title": "RefreshTokenRequest",
         "description": "Request body for token refresh."
+      },
+      "RegisterMirrorRequest": {
+        "properties": {
+          "clone_url": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 5,
+            "title": "Clone Url"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 320
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "repository_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "clone_url"
+        ],
+        "title": "RegisterMirrorRequest",
+        "description": "Request body for registering (and triggering) a git mirror."
+      },
+      "RegisterMirrorResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "clone_url": {
+            "type": "string",
+            "title": "Clone Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "clone_url"
+        ],
+        "title": "RegisterMirrorResponse"
       },
       "RepositoryAnalysis": {
         "properties": {
