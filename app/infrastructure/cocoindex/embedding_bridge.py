@@ -21,18 +21,26 @@ _lock = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
 _loop_thread: threading.Thread | None = None
 _service: Any | None = None
+_cache: Any | None = None
 
 
 def _ensure_runtime() -> None:
-    global _loop, _loop_thread, _service
+    global _loop, _loop_thread, _service, _cache
     with _lock:
         if _service is not None:
             return
         from app.config import load_config
+        from app.infrastructure.cache.embedding_cache import EmbeddingCache
+        from app.infrastructure.cache.redis_cache import RedisCache
         from app.infrastructure.embedding.embedding_factory import create_embedding_service
 
         cfg = load_config(allow_stub_telegram=True)
         _service = create_embedding_service(cfg.embedding)
+        # Redis-backed embedding cache keyed by (model_name, content_hash). When
+        # Redis is disabled the cache fails open (always computes), so behavior
+        # is unchanged; when enabled, a rescan reuses embeddings already computed
+        # for unchanged content instead of re-embedding the whole history.
+        _cache = EmbeddingCache(RedisCache(cfg), cfg)
         _loop = asyncio.new_event_loop()
         _loop_thread = threading.Thread(
             target=_loop.run_forever,
@@ -51,8 +59,15 @@ def embed_text_sync(text: str, language: str | None = None) -> list[float]:
     _ensure_runtime()
     assert _loop is not None  # guaranteed by _ensure_runtime
     assert _service is not None  # guaranteed by _ensure_runtime
+    assert _cache is not None  # guaranteed by _ensure_runtime
+
+    model_name = _service.get_model_name(language)
+
+    async def _compute(value: str) -> Any:
+        return await _service.generate_embedding(value, language=language, task_type="document")
+
     fut = asyncio.run_coroutine_threadsafe(
-        _service.generate_embedding(text, language=language, task_type="document"),
+        _cache.get_or_compute(text, model_name, _compute),
         _loop,
     )
     embedding = fut.result(timeout=60.0)

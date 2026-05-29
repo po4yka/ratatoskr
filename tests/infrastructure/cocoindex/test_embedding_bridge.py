@@ -45,6 +45,35 @@ class _FakeEmbeddingService:
         pass
 
 
+class _PassThroughCache:
+    """Stub EmbeddingCache that always computes (no Redis)."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    async def get_or_compute(self, text: str, model_name: str, compute_fn: Any) -> list[float]:
+        result = await compute_fn(text)
+        return result if isinstance(result, list) else list(result)
+
+
+class _DictCache:
+    """Stub EmbeddingCache backed by an in-process dict (proves cache hits)."""
+
+    store: dict[tuple[str, str], list[float]] = {}
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    async def get_or_compute(self, text: str, model_name: str, compute_fn: Any) -> list[float]:
+        key = (model_name, text)
+        if key in self.store:
+            return self.store[key]
+        result = await compute_fn(text)
+        result = result if isinstance(result, list) else list(result)
+        self.store[key] = result
+        return result
+
+
 def _reset_bridge_globals() -> None:
     """Reset bridge module globals between tests."""
     import app.infrastructure.cocoindex.embedding_bridge as bridge
@@ -52,6 +81,8 @@ def _reset_bridge_globals() -> None:
     bridge._loop = None
     bridge._loop_thread = None
     bridge._service = None
+    bridge._cache = None
+    _DictCache.store = {}
 
 
 @pytest.fixture(autouse=True)
@@ -66,6 +97,7 @@ def test_embed_text_sync_returns_vector() -> None:
 
     with (
         patch("app.config.load_config"),
+        patch("app.infrastructure.cache.embedding_cache.EmbeddingCache", _PassThroughCache),
         patch(
             "app.infrastructure.embedding.embedding_factory.create_embedding_service",
             return_value=fake_service,
@@ -94,6 +126,7 @@ def test_embed_text_sync_passes_language() -> None:
 
     with (
         patch("app.config.load_config"),
+        patch("app.infrastructure.cache.embedding_cache.EmbeddingCache", _PassThroughCache),
         patch(
             "app.infrastructure.embedding.embedding_factory.create_embedding_service",
             return_value=fake_service,
@@ -116,6 +149,7 @@ def test_embed_text_sync_singleton_service() -> None:
 
     with (
         patch("app.config.load_config"),
+        patch("app.infrastructure.cache.embedding_cache.EmbeddingCache", _PassThroughCache),
         patch(
             "app.infrastructure.embedding.embedding_factory.create_embedding_service",
             side_effect=_factory,
@@ -127,4 +161,28 @@ def test_embed_text_sync_singleton_service() -> None:
         embed_text_sync("second call")
 
     assert len(create_calls) == 1, "Embedding service must be created only once (singleton)"
+    assert fake_service.call_count == 2
+
+
+def test_embed_text_sync_reuses_cached_embedding() -> None:
+    """Repeated identical text is served from the embedding cache, not recomputed."""
+    fake_service = _FakeEmbeddingService([0.5, 0.6, 0.7])
+
+    with (
+        patch("app.config.load_config"),
+        patch("app.infrastructure.cache.embedding_cache.EmbeddingCache", _DictCache),
+        patch(
+            "app.infrastructure.embedding.embedding_factory.create_embedding_service",
+            return_value=fake_service,
+        ),
+    ):
+        from app.infrastructure.cocoindex.embedding_bridge import embed_text_sync
+
+        first = embed_text_sync("same text", language="en")
+        second = embed_text_sync("same text", language="en")  # cache hit
+        embed_text_sync("other text", language="en")  # cache miss
+
+    assert first == pytest.approx([0.5, 0.6, 0.7])
+    assert second == first
+    # "same text" embedded once (then cached), "other text" once.
     assert fake_service.call_count == 2
