@@ -37,6 +37,7 @@ load-bearing on every path the audit wanted to bound/project:
 Denormalize the fields these paths actually need (title, topic_tags,
 source_type, reading_time) into indexed columns on `summaries` (or a
 `summary_meta` table), backfilled by migration, then:
+
 - project those columns for the list view and smart-collection evaluation
   instead of loading `json_payload`;
 - keep the sync snapshot reading full payloads (it must), but it can stream/page.
@@ -46,4 +47,5 @@ collection rewire) and touches the freeze-priority Mobile API contract, so it is
 tracked here rather than bundled into the index/N+1 work.
 
 ## References
+
 - Performance audit finding 5A (done), 5B/5C/7A/7B (deferred, see above) (2026-05-28).
