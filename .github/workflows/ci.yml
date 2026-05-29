@@ -325,13 +325,14 @@ jobs:
           uv pip sync --system requirements-all.txt requirements-dev.txt
           uv pip install --system import-linter
 
-      # GATING: app.domain is clean today; fail the build if anything makes the
-      # domain layer import an outer layer. Contracts live in .importlinter.
-      - name: Enforce domain-layer independence (gating)
-        run: lint-imports --contract domain-independence
+      # GATING: contracts that are green today fail the build on any regression.
+      # domain has always been clean; infrastructure-no-api was made green by the
+      # session-manager injection task (A2). Contracts live in .importlinter.
+      - name: Enforce green layering contracts (gating)
+        run: lint-imports --contract domain-independence --contract infrastructure-no-api
 
-      # ADVISORY: the application/infrastructure/tasks/content<->telegram contracts
-      # are broken by known violations tracked in docs/tasks/issues/ (epic:
+      # ADVISORY: the application/tasks/content<->telegram contracts are still
+      # broken by known violations tracked in docs/tasks/issues/ (epic:
       # restore-architecture-layering). This reports the live, shrinking set;
       # promote each contract to a gating step above as its task lands and it goes
       # green. See docs/explanation/architecture-overview.md#layering-contracts.

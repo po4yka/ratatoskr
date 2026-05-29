@@ -23,6 +23,7 @@ from app.db.models import (
     UserDigestPreference,
     _utcnow,
 )
+from app.di.database import resolve_runtime_database
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -45,10 +46,7 @@ class DigestStore:
     def _database(self) -> Database:
         if self._db is not None:
             return self._db
-
-        from app.api.dependencies.database import get_session_manager
-
-        return get_session_manager()
+        return resolve_runtime_database()
 
     async def async_list_active_subscriptions(self, user_id: int) -> list[ChannelSubscription]:
         async with self._database().session() as session:

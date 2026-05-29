@@ -30,6 +30,7 @@ from app.db.models import (
     model_to_dict,
 )
 from app.db.types import _utcnow
+from app.di.database import resolve_runtime_database
 from app.infrastructure.persistence.backup_crypto import (
     InvalidBackupCiphertextError,
     decrypt_backup,
@@ -73,10 +74,7 @@ class BackupArchiveInspection:
 def _database(db: Database | None) -> Database:
     if db is not None:
         return db
-
-    from app.api.dependencies.database import get_session_manager
-
-    return get_session_manager()
+    return resolve_runtime_database()
 
 
 def _resolve_data_dir(data_dir: str | None) -> Path:

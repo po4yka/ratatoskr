@@ -1,14 +1,14 @@
 # Layering contracts for the app/ package (epic: restore-architecture-layering).
 #
-# Enforcement is staged. The `domain-independence` contract is GREEN today and is
-# gated in CI (the build fails if anything regresses it). The other four contracts
-# are currently BROKEN by known violations tracked by the epic tasks below; CI runs
-# them in advisory mode (reported, non-blocking) as a live, shrinking tracker.
-# Promote each to gating once its task lands and the contract goes green:
-#   * application-no-outward          -> fix-inner-layer-dependency-direction-leaks (A1)
-#   * infrastructure-no-api           -> remove-infrastructure-dependency-on-api-session-manager (A2)
-#   * tasks-no-api                    -> (largely resolved once A2 removes digest_store's api import)
-#   * content-telegram-independence   -> break-circular-import-cycles-and-drop-plc0415-suppression (A3)
+# Enforcement is staged. GREEN contracts are gated in CI (the build fails on any
+# regression); BROKEN ones run in advisory mode (reported, non-blocking) as a
+# live, shrinking tracker. Promote each to gating once its task lands and it goes
+# green:
+#   * domain-independence             -> GATING (always green)
+#   * infrastructure-no-api           -> GATING (green via remove-infrastructure-dependency-on-api-session-manager, A2)
+#   * application-no-outward          -> advisory; fix-inner-layer-dependency-direction-leaks (A1) + service deps
+#   * tasks-no-api                    -> advisory; break-circular-import-cycles-and-drop-plc0415-suppression (A3)
+#   * content-telegram-independence   -> advisory; break-circular-import-cycles-and-drop-plc0415-suppression (A3)
 [importlinter]
 root_package = app
 
