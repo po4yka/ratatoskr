@@ -22,6 +22,7 @@ from qdrant_client.models import (
 )
 
 from app.core.logging_utils import get_logger
+from app.infrastructure.vector.point_ids import git_mirror_point_id
 from app.infrastructure.vector.point_ids import str_to_uuid as _str_to_uuid
 from app.infrastructure.vector.protocol import VectorStoreError
 from app.infrastructure.vector.qdrant_schemas import QdrantQueryFilters
@@ -610,6 +611,47 @@ class QdrantVectorStore:
                 raise VectorStoreError(str(exc)) from exc
             return set()
 
+    def get_indexed_git_mirror_ids(
+        self, *, user_id: int | None = None, limit: int | None = 5000
+    ) -> set[int]:
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            return set()
+
+        scroll_filter = Filter(
+            must=[
+                FieldCondition(key="environment", match=MatchValue(value=self._environment)),
+                FieldCondition(key="user_scope", match=MatchValue(value=self._user_scope)),
+                FieldCondition(key="entity_type", match=MatchValue(value="git_mirror")),
+                *(
+                    [FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+                    if user_id is not None
+                    else []
+                ),
+            ]
+        )
+        try:
+            records = self._scroll_all(
+                scroll_filter=scroll_filter,
+                with_payload=["mirror_id"],
+                page_size=limit or 5000,
+            )
+            mirror_ids: set[int] = set()
+            for record in records:
+                raw = (record.payload or {}).get("mirror_id")
+                try:
+                    if raw is not None:
+                        mirror_ids.add(int(raw))
+                except (TypeError, ValueError):
+                    continue
+            return mirror_ids
+        except Exception as exc:
+            logger.error("vector_get_indexed_git_mirror_ids_failed", extra={"error": str(exc)})
+            if self._required:
+                raise VectorStoreError(str(exc)) from exc
+            return set()
+
     def get_indexed_x_wiki_paths(
         self, *, user_id: int | None = None, limit: int | None = 5000
     ) -> set[str]:
@@ -729,6 +771,41 @@ class QdrantVectorStore:
         except Exception as exc:
             logger.error(
                 "vector_delete_x_wiki_paths_failed",
+                extra={"count": len(point_ids), "error": str(exc)},
+            )
+            record_vector_write(operation="delete", status="failed")
+            if self._required:
+                raise VectorStoreError(str(exc)) from exc
+            self._available = False
+
+    def delete_git_mirror_points(self, mirror_ids: Sequence[int]) -> None:
+        """Delete git_mirror points keyed by their mirror ids.
+
+        Uses the same ``git_mirror_point_id`` derivation as the indexer's upsert
+        path so deletion is symmetric with how points are written.
+        """
+        if not mirror_ids:
+            return
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            logger.warning(
+                "vector_delete_skipped",
+                extra={"reason": "not_available", "count": len(list(mirror_ids))},
+            )
+            return
+        point_ids = [
+            git_mirror_point_id(self._environment, self._user_scope, mid) for mid in mirror_ids
+        ]
+        try:
+            self._client.delete(
+                collection_name=self._collection_name,
+                points_selector=PointIdsList(points=list(point_ids)),
+                wait=True,
+            )
+        except Exception as exc:
+            logger.error(
+                "vector_delete_git_mirror_points_failed",
                 extra={"count": len(point_ids), "error": str(exc)},
             )
             record_vector_write(operation="delete", status="failed")

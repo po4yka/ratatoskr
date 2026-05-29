@@ -154,6 +154,35 @@ async def _index_mirror_readmes(
     )
 
 
+async def _reconcile_mirror_readmes(cfg: AppConfig, db: Database) -> None:
+    """Reconcile git_mirror README vectors against the DB (best-effort).
+
+    Deletes orphaned Qdrant points and recreates missing ones (force re-index).
+    Reuses the same embedding + Qdrant infra as the indexing pass.
+    """
+    from app.di.shared import build_qdrant_vector_store
+    from app.infrastructure.embedding.embedding_factory import create_embedding_service
+    from app.infrastructure.search.git_mirror_readme_indexer import GitMirrorReadmeIndexer
+    from app.infrastructure.search.git_mirror_reconciler import GitMirrorVectorReconciler
+
+    try:
+        embedding_service = create_embedding_service(cfg.embedding)
+        qdrant_store = build_qdrant_vector_store(cfg)
+    except Exception:
+        logger.warning("git_backup_reconcile_infra_unavailable")
+        return
+
+    indexer = GitMirrorReadmeIndexer(
+        embedding_service=embedding_service,
+        qdrant_store=qdrant_store,
+        db=db,
+        environment=cfg.vector_store.environment,
+        user_scope=cfg.vector_store.user_scope,
+    )
+    reconciler = GitMirrorVectorReconciler(db=db, qdrant_store=qdrant_store, indexer=indexer)
+    await reconciler.reconcile_and_repair()
+
+
 @broker.task(task_name="ratatoskr.git_backup.sync")
 async def sync_git_backup(
     cfg: AppConfig = TaskiqDepends(get_app_config),
@@ -221,3 +250,7 @@ async def sync_git_backup(
         # README semantic indexing — best-effort, never blocks or fails the task.
         if cfg.git_backup.index_readmes:
             await _index_mirror_readmes(cfg, db, summary)
+
+        # README vector reconciliation — best-effort, never blocks or fails the task.
+        if cfg.git_backup.reconcile_readmes:
+            await _reconcile_mirror_readmes(cfg, db)

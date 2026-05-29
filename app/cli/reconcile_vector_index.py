@@ -13,7 +13,12 @@ from app.config import DatabaseConfig, load_config
 from app.core.embedding_space import resolve_embedding_space_identifier
 from app.db.session import Database
 from app.infrastructure.embedding.embedding_service import DEFAULT_MODELS
-from app.infrastructure.vector.reconciliation import VectorIndexReconciler
+from app.infrastructure.vector.reconciliation import (
+    GitMirrorVectorIndexedEntityAdapter,
+    RepositoryVectorIndexedEntityAdapter,
+    SummaryVectorIndexedEntityAdapter,
+    VectorIndexReconciler,
+)
 
 
 def _expected_models(cfg: Any) -> set[str]:
@@ -48,12 +53,18 @@ async def reconcile_vector_index(
         )
         if not vector_store.available:
             vector_store = None
+        expected_models = _expected_models(cfg)
         report = await VectorIndexReconciler(
             database=db,
             vector_store=vector_store,
-            expected_summary_models=_expected_models(cfg),
-            expected_repository_models=_expected_models(cfg),
+            expected_summary_models=expected_models,
+            expected_repository_models=expected_models,
             scan_limit=limit or cfg.vector_reconcile.batch_size,
+            adapters=[
+                SummaryVectorIndexedEntityAdapter(expected_models),
+                RepositoryVectorIndexedEntityAdapter(expected_models),
+                GitMirrorVectorIndexedEntityAdapter(),
+            ],
         ).inspect()
         result: dict[str, Any] = {"report": report.to_diagnostics()}
     finally:

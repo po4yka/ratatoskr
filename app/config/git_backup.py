@@ -228,6 +228,18 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    reconcile_readmes: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_RECONCILE_READMES",
+        description=(
+            "When true, after each sync run reconcile the git_mirror README vectors "
+            "in Qdrant against the database: delete orphaned points (deleted, excluded, "
+            "or now-GitHub-linked mirrors) and recreate missing points (force re-index). "
+            "Requires index_readmes infrastructure (embedding + Qdrant). Best-effort; "
+            "never blocks or fails the backup sync."
+        ),
+    )
+
     # Gist mirroring
     mirror_gists: bool = Field(
         default=False,

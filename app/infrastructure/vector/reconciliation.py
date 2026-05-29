@@ -11,6 +11,7 @@ from sqlalchemy import func, or_, select
 
 from app.core.time_utils import UTC
 from app.db.models import Repository, RepositoryEmbedding, Summary, SummaryEmbedding
+from app.db.models.git_backup import GitMirror, GitMirrorStatus
 from app.observability.metrics import record_vector_index_lag
 
 
@@ -378,6 +379,72 @@ class RepositoryVectorIndexedEntityAdapter:
             indexed_ids=indexed_ids,
             missing_embeddings=missing_embeddings,
             stale_model_count=stale_model_count,
+        )
+
+
+class GitMirrorVectorIndexedEntityAdapter:
+    """Reconciliation adapter for git-mirror README vectors.
+
+    Only non-GitHub mirrors (``repository_id IS NULL``) are indexed by
+    ``GitMirrorReadmeIndexer``; GitHub-linked mirrors are covered by the
+    repository adapter. Index state lives on the ``git_mirrors`` row itself
+    (``readme_indexed_at`` / ``readme_content_hash``) -- there is no separate
+    embedding table and no model version, so the model/stale-embedding fields
+    are left at their defaults.
+    """
+
+    entity_type = "git_mirror"
+
+    async def inspect(
+        self,
+        session: Any,
+        *,
+        vector_store: Any | None,
+        vector_store_available: bool,
+        scan_limit: int,
+        expected_model_version: str,
+    ) -> VectorIndexedEntityStats:
+        # Expected to have a Qdrant point: non-GitHub, already indexed, not excluded.
+        expected_ids = set(
+            await session.scalars(
+                select(GitMirror.id)
+                .where(
+                    GitMirror.repository_id.is_(None),
+                    GitMirror.readme_indexed_at.is_not(None),
+                    GitMirror.status != GitMirrorStatus.EXCLUDED,
+                )
+                .limit(scan_limit)
+            )
+        )
+        # Cloned but never indexed yet.
+        unindexed_filter = (
+            GitMirror.repository_id.is_(None),
+            GitMirror.mirror_path.is_not(None),
+            GitMirror.status != GitMirrorStatus.EXCLUDED,
+            GitMirror.readme_indexed_at.is_(None),
+        )
+        missing_embeddings = int(
+            await session.scalar(select(func.count(GitMirror.id)).where(*unindexed_filter)) or 0
+        )
+        oldest_unindexed_at = await session.scalar(
+            select(func.min(GitMirror.updated_at)).where(*unindexed_filter)
+        )
+        latest_indexed_at = await session.scalar(select(func.max(GitMirror.readme_indexed_at)))
+        indexed_ids: set[int] | None = None
+        if vector_store_available and vector_store is not None:
+            get_indexed_ids = getattr(vector_store, "get_indexed_git_mirror_ids", None)
+            indexed_ids = (
+                await asyncio.to_thread(get_indexed_ids, limit=scan_limit)
+                if callable(get_indexed_ids)
+                else set()
+            )
+        return VectorIndexedEntityStats(
+            entity_type=self.entity_type,
+            expected_ids=expected_ids,
+            indexed_ids=indexed_ids,
+            missing_embeddings=missing_embeddings,
+            oldest_unindexed_at=oldest_unindexed_at,
+            latest_indexed_at=latest_indexed_at,
         )
 
 

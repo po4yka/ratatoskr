@@ -243,13 +243,18 @@ The whole pass is best-effort: any embedding or Qdrant error is logged and swall
 
 Search is exposed at `GET /v1/git-mirrors/search?q=&limit=` (`GitMirrorSearchService`, mirroring `RepositorySearchService`): the query is embedded with `task_type="query"`, Qdrant is filtered to `entity_type="git_mirror"` for the calling user, and matches are hydrated from `git_mirrors` and ordered by score. `DELETE /v1/git-mirrors/{id}` best-effort removes the corresponding Qdrant point.
 
+### Reconciliation
+
+Because indexing uses content-hash dedup, a Qdrant point that goes missing (manually deleted, lost, or never written) is otherwise never recreated — the stored hash still matches the on-disk README, so the next sync skips it. Two pieces close this gap, following the same diagnosis/repair split the rest of the vector index uses:
+
+- **Detection** — `GitMirrorVectorIndexedEntityAdapter` (`app/infrastructure/vector/reconciliation.py`) plugs into the read-only `VectorIndexReconciler` and is registered in the reconcile CLI (`app/cli/reconcile_vector_index.py`). It reports `git_mirror` drift (expected vs indexed, missing vectors) in `report.details["entities"]["git_mirror"]` and the emitted metrics. "Expected to have a point" = `repository_id IS NULL AND readme_indexed_at IS NOT NULL AND status != EXCLUDED`.
+- **Repair** — `GitMirrorVectorReconciler` (`app/infrastructure/search/git_mirror_reconciler.py`) runs after the indexing pass in the git_backup Taskiq task when `GIT_BACKUP_RECONCILE_READMES` is set. It deletes orphaned points (`indexed - expected`: deleted, excluded, or now-GitHub-linked mirrors) via `delete_git_mirror_points`, and recreates missing points (`expected - indexed`) by re-running the indexer with `force=True` (bypassing the dedup skip); if the bare clone is gone from disk it clears `readme_indexed_at`/`readme_content_hash` so a future re-clone re-indexes. The whole pass is best-effort and never fails the backup.
+
 ---
 
 ## Known Deferrals
 
 **On-disk cleanup on DELETE.** `DELETE /v1/git-mirrors/{id}` removes the `git_mirrors` row and best-effort deletes the Qdrant point, but leaves the bare clone directory in place. Automatic on-disk cleanup on deletion is tracked as a follow-up item; operators should remove stale directories manually.
-
-**Vector reconciliation adapter.** README points are kept fresh by content-hash dedup (on re-sync) and best-effort delete-on-removal, but there is no `VectorIndexedEntityAdapter` registered for git mirrors yet, so the reconciler does not detect or repair drift between `git_mirrors` and Qdrant. Adding that adapter is a follow-up.
 
 ---
 

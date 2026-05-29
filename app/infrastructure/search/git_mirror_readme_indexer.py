@@ -12,10 +12,10 @@ Design notes
   embedding + Qdrant upsert are skipped entirely.
 - Best-effort: any embedding or Qdrant error is logged and swallowed so
   indexing never fails or blocks the backup sync.
-- The indexer does NOT register a VectorIndexedEntityAdapter / reconciler; stale
-  points rely on content-hash dedup (no re-embed on unchanged content) plus the
-  delete-time cleanup in the DELETE /v1/git-mirrors/{id} endpoint. A full
-  reconciler is a follow-up.
+- Drift between git_mirrors and Qdrant is detected by
+  ``GitMirrorVectorIndexedEntityAdapter`` (in the reconcile CLI report) and
+  repaired by ``GitMirrorVectorReconciler`` (orphan deletion + force-reindex of
+  missing points; ``index_mirror(..., force=True)`` bypasses the dedup skip).
 """
 
 from __future__ import annotations
@@ -76,19 +76,23 @@ class GitMirrorReadmeIndexer:
     # Public API
     # ------------------------------------------------------------------
 
-    async def index_mirror(self, mirror: GitMirror, bare_repo_path: Path) -> None:
+    async def index_mirror(
+        self, mirror: GitMirror, bare_repo_path: Path, *, force: bool = False
+    ) -> None:
         """Index the README of *mirror* into Qdrant (best-effort, never raises).
 
         Steps:
         1. Extract README from bare clone via ReadmeExtractor.
         2. Skip if README is empty.
-        3. Compute SHA-256 hex digest; skip if equal to persisted hash (dedup).
+        3. Compute SHA-256 hex digest; skip if equal to persisted hash (dedup),
+           unless *force* is set (used by reconciliation to recreate a missing
+           Qdrant point whose stored hash still matches the on-disk README).
         4. Embed (task_type="document").
         5. Upsert into Qdrant with entity_type="git_mirror" payload.
         6. Persist readme_content_hash + readme_indexed_at on the GitMirror row.
         """
         try:
-            await self._index_mirror_inner(mirror, bare_repo_path)
+            await self._index_mirror_inner(mirror, bare_repo_path, force=force)
         except Exception:
             logger.exception(
                 "git_mirror_readme_index_failed",
@@ -110,7 +114,9 @@ class GitMirrorReadmeIndexer:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _index_mirror_inner(self, mirror: GitMirror, bare_repo_path: Path) -> None:
+    async def _index_mirror_inner(
+        self, mirror: GitMirror, bare_repo_path: Path, *, force: bool = False
+    ) -> None:
         # 1. Extract README (blocking I/O — offload to thread).
         readme_text: str = await asyncio.to_thread(self._extractor.extract, bare_repo_path)
 
@@ -122,9 +128,9 @@ class GitMirrorReadmeIndexer:
             )
             return
 
-        # 3. Content-hash dedup.
+        # 3. Content-hash dedup (bypassed when force=True).
         content_hash = hashlib.sha256(readme_text.encode()).hexdigest()
-        if mirror.readme_content_hash == content_hash:
+        if not force and mirror.readme_content_hash == content_hash:
             logger.debug(
                 "git_mirror_readme_unchanged_skip",
                 extra={"mirror_id": mirror.id, "hash": content_hash},
