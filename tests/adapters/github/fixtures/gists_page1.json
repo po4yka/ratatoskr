@@ -1,0 +1,16 @@
+[
+  {
+    "id": "abc123def456aaa",
+    "git_pull_url": "https://gist.github.com/abc123def456aaa.git",
+    "description": "My useful snippet",
+    "html_url": "https://gist.github.com/abc123def456aaa",
+    "updated_at": "2024-03-01T10:00:00Z"
+  },
+  {
+    "id": "bbb222ccc333ddd",
+    "git_pull_url": "https://gist.github.com/bbb222ccc333ddd.git",
+    "description": "",
+    "html_url": "https://gist.github.com/bbb222ccc333ddd",
+    "updated_at": "2024-02-15T08:30:00Z"
+  }
+]

@@ -217,6 +217,18 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    # Gist mirroring
+    mirror_gists: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_MIRROR_GISTS",
+        description=(
+            "When true, enumerate all gists for each user with an active GitHub integration "
+            "and upsert a GitMirror row (source=github) per gist so it is cloned by the "
+            "regular mirror sync. Gist clone URLs use the form "
+            "https://gist.github.com/<id>.git. Disabled by default."
+        ),
+    )
+
     # Arbitrary extra repos (supplement the DB GitMirror table)
     extra_repos: dict[str, str] = Field(
         default_factory=dict,

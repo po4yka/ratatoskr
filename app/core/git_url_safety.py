@@ -41,7 +41,9 @@ _BLOCKED_HOSTNAMES = frozenset(
 # URL. Anything else -- lookalikes like ``github.com.evil.com`` or userinfo
 # tricks like ``github.com@evil.com`` -- must NOT receive the token, because
 # ``extract_git_host`` resolves those to their true (non-GitHub) host.
-_GITHUB_HOSTS = frozenset({"github.com", "www.github.com"})
+# ``gist.github.com`` is GitHub-owned and is used for gist clone URLs of the
+# form ``https://gist.github.com/<id>.git``.
+_GITHUB_HOSTS = frozenset({"github.com", "www.github.com", "gist.github.com"})
 
 
 def is_github_host(url: str) -> bool:

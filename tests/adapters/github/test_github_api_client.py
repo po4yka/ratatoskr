@@ -23,6 +23,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 REPO_URL = "https://api.github.com/repos/tiangolo/fastapi"
 README_URL = "https://api.github.com/repos/tiangolo/fastapi/readme"
 STARRED_URL = "https://api.github.com/user/starred"
+GISTS_URL = "https://api.github.com/gists"
 USER_URL = "https://api.github.com/user"
 
 
@@ -36,6 +37,14 @@ def _starred_page1() -> list:
 
 def _starred_page2() -> list:
     return json.loads((FIXTURES / "starred_page2.json").read_text())
+
+
+def _gists_page1() -> list:
+    return json.loads((FIXTURES / "gists_page1.json").read_text())
+
+
+def _gists_page2() -> list:
+    return json.loads((FIXTURES / "gists_page2.json").read_text())
 
 
 def _make_client(**kwargs) -> GitHubAPIClient:
@@ -265,3 +274,74 @@ async def test_authorization_header_redacted_in_logs(caplog: pytest.LogCaptureFi
     # The raw token must not appear in any log record
     all_log_text = "\n".join(r.getMessage() + str(r.__dict__) for r in caplog.records)
     assert token not in all_log_text, "Token found in log output — redaction failed"
+
+
+# ---------------------------------------------------------------------------
+# 11. list_gists returns all gists on a single page
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_gists_single_page() -> None:
+    gists_url = f"{GISTS_URL}?per_page=100"
+
+    async with respx.mock:
+        respx.get(gists_url).mock(return_value=httpx.Response(200, json=_gists_page1()))
+
+        async with _make_client() as gh:
+            gists = await gh.list_gists()
+
+    assert len(gists) == 2
+    assert gists[0].id == "abc123def456aaa"
+    assert gists[0].git_pull_url == "https://gist.github.com/abc123def456aaa.git"
+    assert gists[0].description == "My useful snippet"
+    assert gists[1].id == "bbb222ccc333ddd"
+    assert gists[1].description == ""
+
+
+# ---------------------------------------------------------------------------
+# 12. list_gists paginates via Link header
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_gists_paginates_via_link_header() -> None:
+    gists_page1_url = f"{GISTS_URL}?per_page=100"
+    page2_url = "https://api.github.com/gists?page=2&per_page=100"
+
+    router = respx.MockRouter(assert_all_called=False)
+    router.get(gists_page1_url).mock(
+        return_value=httpx.Response(
+            200,
+            json=_gists_page1(),
+            headers={"Link": f'<{page2_url}>; rel="next"'},
+        )
+    )
+    router.get(page2_url).mock(return_value=httpx.Response(200, json=_gists_page2()))
+
+    async with router:
+        async with _make_client() as gh:
+            gists = await gh.list_gists()
+
+    assert len(gists) == 3
+    assert gists[0].id == "abc123def456aaa"
+    assert gists[1].id == "bbb222ccc333ddd"
+    assert gists[2].id == "eee444fff555ggg"
+
+
+# ---------------------------------------------------------------------------
+# 13. list_gists returns empty list when no gists exist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_gists_empty() -> None:
+    gists_url = f"{GISTS_URL}?per_page=100"
+
+    async with respx.mock:
+        respx.get(gists_url).mock(return_value=httpx.Response(200, json=[]))
+
+        async with _make_client() as gh:
+            gists = await gh.list_gists()
+
+    assert gists == []

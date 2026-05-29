@@ -438,12 +438,35 @@ class GitMirrorService:
         return tasks
 
     def _mirror_destination(self, data_path: Path, mirror: GitMirror) -> Path:
-        """Derive the local bare-clone path from the mirror row."""
+        """Derive the local bare-clone path from the mirror row.
+
+        For GITHUB-source mirrors the on-disk directory is derived from the
+        clone URL host so that github.com repos and gist.github.com gists
+        (and any future GitHub-owned host) never share a namespace:
+
+        - ``https://github.com/<owner>/<repo>.git``
+          → ``<data_path>/github/github.com/<owner>_<repo>.git``
+        - ``https://gist.github.com/<id>.git``
+          → ``<data_path>/github/gist.github.com/<id>.git``
+
+        Manual mirrors continue to land in ``<data_path>/manual/``.
+
+        Once ``mirror_path`` is populated (after the first successful sync)
+        the stored path is returned directly, so the directory is stable
+        across service restarts regardless of this derivation logic.
+        """
         if mirror.mirror_path:
             return Path(mirror.mirror_path)
-        source_dir = "github" if mirror.source == GitMirrorSource.GITHUB else "manual"
+
         safe_name = (mirror.name or str(mirror.id)).replace("/", "_").replace("..", "_")
-        return data_path / source_dir / f"{safe_name}.git"
+
+        if mirror.source == GitMirrorSource.GITHUB:
+            # Use the URL host as a sub-directory to prevent collisions
+            # between github.com repos and gist.github.com gists.
+            host = extract_git_host(mirror.clone_url) or "github.com"
+            return data_path / "github" / host / f"{safe_name}.git"
+
+        return data_path / "manual" / f"{safe_name}.git"
 
     async def _resolve_url(self, mirror: GitMirror) -> str:
         """Return the effective clone URL, injecting credentials for GitHub mirrors."""

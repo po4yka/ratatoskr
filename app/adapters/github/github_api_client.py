@@ -20,6 +20,7 @@ from app.adapters.github.exceptions import (
 )
 from app.adapters.github.types import (
     AuthenticatedUserDTO,
+    GistDTO,
     LanguagesDTO,
     RepositoryDTO,
     StarredItem,
@@ -346,6 +347,32 @@ class GitHubAPIClient:
             return user, []
         scopes = [s.strip() for s in raw.split(",") if s.strip()]
         return user, scopes
+
+    async def list_gists(self, *, per_page: int = 100) -> list[GistDTO]:
+        """GET /gists — return all gists for the authenticated user.
+
+        Paginates via Link header using the same pattern as :meth:`list_starred`.
+        Auth header is redacted in all log output.
+        """
+        params: dict[str, Any] = {"per_page": per_page}
+        url: str | None = "/gists"
+        first_page = True
+        results: list[GistDTO] = []
+
+        while url is not None:
+            if first_page:
+                response = await self._request("GET", url, params=params)
+                first_page = False
+            else:
+                response = await self._request_absolute(url)
+
+            items: list[dict[str, Any]] = response.json()
+            for raw in items:
+                results.append(GistDTO.model_validate(raw))
+
+            url = self._parse_next_link(response.headers.get("Link"))
+
+        return results
 
     async def probe_repository_access(self) -> bool:
         """GET /user/starred?per_page=1 to test repository-read capability.

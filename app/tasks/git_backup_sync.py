@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
 from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
@@ -17,6 +18,76 @@ logger = get_logger(__name__)
 _GIT_BACKUP_SYNC_LOCK_KEY = "task_lock:git_backup_sync"
 # TTL covers the maximum expected run for a large mirror set; 1 hour default.
 _GIT_BACKUP_SYNC_LOCK_TTL = 3600
+
+
+async def _enumerate_and_upsert_gists(cfg: AppConfig, db: Database) -> int:
+    """Enumerate GitHub gists for all active integrations and upsert GitMirror rows.
+
+    Returns the total number of gist mirrors upserted across all users.
+
+    Per-user failures (GitHub API errors, token decryption failures) are logged
+    and skipped — they must not abort the broader sync run.
+    """
+    from app.adapters.git_backup.repository import GitMirrorRepository
+    from app.adapters.github.github_api_client import GitHubAPIClient
+    from app.db.models.git_backup import GitMirrorSource
+    from app.db.models.repository import GitHubIntegrationStatus, UserGitHubIntegration
+    from app.security.secret_crypto import decrypt_secret
+
+    async with db.session() as session:
+        result = await session.execute(
+            select(UserGitHubIntegration).where(
+                UserGitHubIntegration.status == GitHubIntegrationStatus.ACTIVE
+            )
+        )
+        integrations = list(result.scalars().all())
+
+    mirror_repo = GitMirrorRepository(db, cfg.git_backup)
+    total_upserted = 0
+
+    for integration in integrations:
+        user_id = integration.user_id
+        try:
+            token = decrypt_secret(integration.encrypted_token)
+        except Exception as exc:
+            logger.warning(
+                "git_backup_gist_decrypt_failed",
+                extra={"user_id": user_id, "error": str(exc)},
+            )
+            continue
+
+        try:
+            async with GitHubAPIClient(token) as client:
+                gists = await client.list_gists()
+        except Exception as exc:
+            logger.warning(
+                "git_backup_gist_api_error",
+                extra={"user_id": user_id, "error": str(exc)},
+            )
+            continue
+
+        for gist in gists:
+            name = gist.description.strip() if gist.description else f"gist:{gist.id}"
+            try:
+                await mirror_repo.upsert_target(
+                    user_id=user_id,
+                    source=GitMirrorSource.GITHUB,
+                    clone_url=gist.git_pull_url,
+                    name=name,
+                )
+                total_upserted += 1
+            except Exception as exc:
+                logger.warning(
+                    "git_backup_gist_upsert_failed",
+                    extra={"user_id": user_id, "gist_id": gist.id, "error": str(exc)},
+                )
+
+        logger.debug(
+            "git_backup_gist_enumerated",
+            extra={"user_id": user_id, "count": len(gists)},
+        )
+
+    return total_upserted
 
 
 @broker.task(task_name="ratatoskr.git_backup.sync")
@@ -54,6 +125,15 @@ async def sync_git_backup(
             await ping_start(hc_url, hc_timeout)
 
         try:
+            # Enumerate gists first so freshly-upserted rows are picked up by
+            # perform_sync in the same run (list_due includes PENDING status).
+            if cfg.git_backup.mirror_gists:
+                gists_upserted = await _enumerate_and_upsert_gists(cfg, db)
+                logger.info(
+                    "git_backup_gists_upserted",
+                    extra={"count": gists_upserted},
+                )
+
             runtime = build_git_backup_task_runtime(cfg, db)
             summary = await runtime.service.perform_sync()
         except Exception:

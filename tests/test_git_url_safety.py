@@ -23,12 +23,19 @@ from app.core.git_url_safety import (
         ("https://www.github.com/owner/repo.git", True),
         ("git@github.com:owner/repo.git", True),
         ("https://GitHub.com/owner/repo.git", True),  # case-insensitive
+        # Gist host -> token may be embedded (GitHub-owned).
+        ("https://gist.github.com/abc123def456.git", True),
+        ("git@gist.github.com:abc123def456.git", True),
         # Credential-exfiltration bypasses -> must be rejected (token withheld).
         ("https://github.com@attacker.com/owner/repo.git", False),  # userinfo trick
         ("https://github.com.attacker.com/owner/repo.git", False),  # lookalike suffix
         ("https://attacker.com/github.com/repo.git", False),  # path, not host
         ("https://notgithub.com/owner/repo.git", False),
         ("https://api.github.com/owner/repo.git", False),  # only github.com / www
+        # gist.github.com lookalikes -> must be rejected (token withheld).
+        ("https://gist.github.com.evil.com/abc.git", False),  # lookalike suffix
+        ("https://gist.github.com@evil.com/abc.git", False),  # userinfo trick
+        ("https://notgist.github.com/abc.git", False),  # different subdomain
         ("not a url", False),
     ],
 )

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "AuthenticatedUserDTO",
+    "GistDTO",
     "GitHubLicenseDTO",
     "GitHubOwnerDTO",
     "LanguagesDTO",
@@ -72,6 +73,18 @@ class LanguagesDTO(BaseModel):
 
     def as_dict(self) -> dict[str, int]:
         return self.model_dump()
+
+
+class GistDTO(BaseModel):
+    """One gist returned by GET /gists."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: str
+    git_pull_url: str
+    description: str | None = None
+    html_url: str
+    updated_at: datetime
 
 
 class AuthenticatedUserDTO(BaseModel):

@@ -16,9 +16,11 @@ The subsystem is a port of [gitout](https://github.com/nicholasgasior/gitout), a
 
 ## What Gets Mirrored
 
-Two source types feed the sync job.
+Three source types feed the sync job.
 
 **GitHub-linked repositories** (`source=github`) are repos that already have a row in the `repositories` table from the GitHub ingestion subsystem. When the Telegram `/mirror` command or the REST `POST /v1/git-mirrors` endpoint registers a mirror, `GitMirrorRepository.upsert_target` creates a `git_mirrors` row with `source=github` and a foreign key to the matching `repositories.id`. During sync, `GitMirrorService._resolve_url` looks up the user's `UserGitHubIntegration`, decrypts the stored token, and injects it into the clone URL (see Credentials below).
+
+**GitHub gists** (`source=github`, clone URL `https://gist.github.com/<id>.git`) are enumerated automatically when `GIT_BACKUP_MIRROR_GISTS=true`. At the start of each sync run, `_enumerate_and_upsert_gists` queries all active `UserGitHubIntegration` rows, calls `GET /gists` for each user (with Link-header pagination), and upserts a `git_mirrors` row per gist via `GitMirrorRepository.upsert_target`. Freshly upserted rows receive `status=pending` and are picked up by `perform_sync` in the same run. Errors for one user (API failure, decryption failure) are logged and skipped; they do not abort the run for other users. Gist credentials are injected the same way as repository credentials — the `gist.github.com` host is in the `_GITHUB_HOSTS` allowlist in `app/core/git_url_safety.py`. On disk, gists land under `<data_path>/github/gist.github.com/<name>.git`, separate from regular repos under `<data_path>/github/github.com/<name>.git`, so the two namespaces never collide.
 
 **Manual/arbitrary repositories** (`source=manual`) are any git-accessible URL that the user registers directly — public GitHub repos without a GitHub integration, self-hosted Gitea/Forgejo instances, or any other `https://` or `git://` URL. These receive a `git_mirrors` row with no `repository_id` FK and are cloned without credentials. The static `GIT_BACKUP_EXTRA_REPOS` config key (a name-to-URL dict in `ratatoskr.yaml`) also produces manual mirrors, upserting rows at job startup so outcomes are persisted identically to user-registered mirrors.
 
@@ -138,7 +140,13 @@ The job `ratatoskr.git_backup.sync` runs on the cron from `GIT_BACKUP_SYNC_CRON`
 
 ### Storage
 
-Bare clones land under `GIT_BACKUP_DATA_PATH` (default `/data/git-mirrors`). GitHub-linked mirrors go to `<data_path>/github/<owner>_<repo>.git`; manual mirrors go to `<data_path>/manual/<name>.git`. The layout is derived by `_mirror_destination` and stored in `mirror_path` after first sync so the path is stable across service restarts.
+Bare clones land under `GIT_BACKUP_DATA_PATH` (default `/data/git-mirrors`). The path is derived by `_mirror_destination` and stored in `mirror_path` after first sync, so the path is stable across service restarts.
+
+- **GitHub repository mirrors** (`source=github`, clone URL on `github.com`): `<data_path>/github/github.com/<name>.git`
+- **GitHub gist mirrors** (`source=github`, clone URL on `gist.github.com`): `<data_path>/github/gist.github.com/<name>.git`
+- **Manual mirrors** (`source=manual`): `<data_path>/manual/<name>.git`
+
+The host-based subdirectory (`github.com` vs `gist.github.com`) ensures that a gist and a regular repo can share the same human-readable name without colliding on disk.
 
 In Docker Compose the worker container mounts a named volume `git_mirrors_data` at the configured path. The volume must be declared in `ops/docker/docker-compose.yml` and should be bind-mounted to a host directory for durability across container replacements.
 
@@ -174,6 +182,7 @@ All variables are read by `app/config/git_backup.py::GitBackupConfig`. Full refe
 | `GIT_BACKUP_SHALLOW_CLONE_THRESHOLD_KB` | `0` | Size threshold in KB for automatic shallow clone; `0` = disabled |
 | `GIT_BACKUP_SHALLOW_CLONE_AFTER_FAILURES` | `0` | Consecutive failure count that triggers shallow clone; `0` = disabled |
 | `GIT_BACKUP_AUTO_SKIP_FAILING` | `true` | Skip mirrors in cooldown window instead of retrying |
+| `GIT_BACKUP_MIRROR_GISTS` | `false` | When `true`, enumerate all gists per active GitHub integration and upsert `git_mirrors` rows for them |
 | `GIT_BACKUP_EXTRA_REPOS` | `{}` | Static name→URL map for repos without a DB row; set via `ratatoskr.yaml` |
 
 ---
