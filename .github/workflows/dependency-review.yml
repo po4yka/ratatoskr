@@ -8,9 +8,22 @@ permissions:
 jobs:
   dependency-review:
     runs-on: ubuntu-latest
-    # The action requires Dependency Graph to be enabled on the repository.
-    # Until it is, allow the job to fail without blocking PRs (otherwise
-    # every PR is "unstable" with no path to green).
+    # IMPORTANT: actions/dependency-review-action requires the GitHub Dependency
+    # Graph to be enabled for this repository (Settings → Code security and
+    # analysis → Dependency graph → Enable). Without it the action exits with a
+    # non-actionable error ("Couldn't retrieve dependency changes") even though
+    # the configuration is correct.
+    #
+    # continue-on-error: true is intentional and must stay until Dependency Graph
+    # is enabled. Once enabled, remove this line so that PRs introducing
+    # high-severity dependency changes are blocked.
+    #
+    # When Dependency Graph IS enabled this job will:
+    #   - Compare the dependency diff of the PR against the OSV/GitHub Advisory
+    #     Database and the npm/PyPI/Maven vulnerability feeds.
+    #   - Fail (and block merge) if any newly introduced dependency has a
+    #     vulnerability rated HIGH or CRITICAL.
+    #   - Post a summary comment on the PR with the full dependency diff.
     continue-on-error: true
     steps:
       - name: Checkout
@@ -18,7 +31,6 @@ jobs:
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v5
-        continue-on-error: true
         with:
           fail-on-severity: high
           comment-summary-in-pr: always

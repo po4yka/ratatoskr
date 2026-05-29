@@ -573,12 +573,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Download compiled requirements
-        uses: actions/download-artifact@v8
-        with:
-          name: compiled-requirements
-          path: .
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -599,13 +593,43 @@ jobs:
           path: |
             ~/.cache/uv
             ~/.cache/pip
-          key: python-safety-${{ runner.os }}-${{ hashFiles('requirements-all.txt', 'requirements-dev.txt') }}
+          key: python-safety-${{ runner.os }}-${{ hashFiles('uv.lock') }}
           restore-keys: |
             python-safety-${{ runner.os }}-
 
+      # Export ALL extras so Safety sees the complete dependency surface.
+      # The prepare-environment artifact only includes api, ml, youtube, export,
+      # scheduler, mcp — extras otel, cocoindex, push, transcription, gemini,
+      # scraper_ai, attachment, browser_scraper, monitoring, and langgraph were
+      # previously omitted. We regenerate a comprehensive requirements file here
+      # rather than relying on the shared artifact.
+      - name: Export comprehensive requirements (all extras)
+        run: |
+          uv export --no-dev --no-hashes --format requirements-txt -p 3.13 \
+            --extra api \
+            --extra ml \
+            --extra youtube \
+            --extra export \
+            --extra scheduler \
+            --extra mcp \
+            --extra otel \
+            --extra cocoindex \
+            --extra push \
+            --extra transcription \
+            --extra gemini \
+            --extra scraper_ai \
+            --extra attachment \
+            --extra browser_scraper \
+            --extra monitoring \
+            --extra langgraph \
+            -o requirements-safety.txt
+          # Dev group (type-stubs, test tools) also carry CVE-able packages
+          uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 \
+            -o requirements-dev-safety.txt
+
       - name: Install dependencies and safety (all extras for comprehensive scanning)
         run: |
-          uv pip sync --system requirements-all.txt requirements-dev.txt
+          uv pip sync --system requirements-safety.txt requirements-dev-safety.txt
           uv pip install --system safety
 
       # Secret must be added in GitHub repo settings → Secrets → SAFETY_API_KEY
@@ -613,6 +637,28 @@ jobs:
         run: safety check --full-report
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
+
+  osv-scanner-scan:
+    name: Security - OSV Scanner (uv.lock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # OSV Scanner reads uv.lock directly, so it sees every package in the
+      # lockfile including torch, nvidia-*, triton, and other packages that
+      # pip-audit skips because they lack PyPI 3.13 wheels or conflict with
+      # pip's resolver. This fills the coverage gap left by pip-audit's
+      # requirements-audit.txt filter.
+      - name: OSV Scanner (uv.lock)
+        uses: google/osv-scanner-action/osv-scanner-action@v2
+        with:
+          scan-args: |-
+            --lockfile=uv.lock
 
   docker-build:
     name: Docker - Build smoke test
@@ -917,7 +963,7 @@ jobs:
   pr-summary:
     name: PR Summary
     if: github.event_name == 'pull_request'
-    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, secrets, migration-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1025,7 +1071,7 @@ jobs:
   status-check:
     name: CI Status Check
     if: always()
-    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, bandit-scan, pip-audit-scan, safety-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1077,6 +1123,11 @@ jobs:
 
           if [[ "${{ needs.safety-scan.result }}" != "success" ]]; then
             echo "::error::safety-scan job failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.osv-scanner-scan.result }}" != "success" ]]; then
+            echo "::error::osv-scanner-scan job failed"
             exit 1
           fi
 
