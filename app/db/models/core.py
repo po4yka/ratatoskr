@@ -603,6 +603,14 @@ class Summary(Base):
     lang: Mapped[str | None] = mapped_column(Text, nullable=True)
     json_payload: Mapped[JSONValue] = _json_column()
     insights_json: Mapped[JSONValue] = _json_column()
+    # Denormalized metadata columns (migration 0030 / audit findings 7A, 5C).
+    # These mirror fields inside json_payload so list-view and smart-collection
+    # scan queries can project scalar columns without loading the full JSONB blob.
+    # The write path keeps them in sync via _extract_summary_metadata().
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reading_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    topic_tags: Mapped[JSONValue] = _json_column()
     version: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
     server_version: Mapped[int] = mapped_column(
         BigInteger, default=_next_server_version, nullable=False

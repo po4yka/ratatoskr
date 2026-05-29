@@ -623,18 +623,46 @@ class SummaryRepositoryAdapter:
             )
             return int(value) if value is not None else None
 
+    # 5B — bounded-memory paged snapshot for sync.  A single un-LIMIT-ed load of
+    # all summaries for an active user can easily hit tens of thousands of rows
+    # and exhaust the event-loop memory budget.  We page by id in
+    # _SYNC_PAGE_SIZE-row batches and accumulate; the output is identical to the
+    # old single-shot load (same order, no rows dropped) but each DB round-trip
+    # is bounded.
+    _SYNC_PAGE_SIZE: int = 500
+
     async def async_get_all_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        """Get all summaries for a user for sync operations."""
+        """Get all summaries for a user for sync operations.
+
+        Pages internally in _SYNC_PAGE_SIZE-row batches ordered by id so that
+        the full result set is collected without holding an unbounded SQLAlchemy
+        cursor open. Output is identical to the previous single-shot load:
+        every non-deleted AND deleted row (sync clients need tombstones) is
+        returned, ordered by id ascending.
+        """
+        results: list[dict[str, Any]] = []
+        last_id = 0
         async with self._database.session() as session:
-            rows = (
-                await session.execute(
-                    select(Summary)
-                    .join(Request, Summary.request_id == Request.id)
-                    .where(Request.user_id == user_id)
-                    .order_by(Summary.id)
+            while True:
+                rows = list(
+                    (
+                        await session.execute(
+                            select(Summary)
+                            .join(Request, Summary.request_id == Request.id)
+                            .where(Request.user_id == user_id, Summary.id > last_id)
+                            .order_by(Summary.id)
+                            .limit(self._SYNC_PAGE_SIZE)
+                        )
+                    ).scalars()
                 )
-            ).scalars()
-            return [model_to_dict(row) or {} for row in rows]
+                if not rows:
+                    break
+                for row in rows:
+                    results.append(model_to_dict(row) or {})
+                last_id = rows[-1].id
+                if len(rows) < self._SYNC_PAGE_SIZE:
+                    break
+        return results
 
     async def async_get_summary_for_sync_apply(
         self, summary_id: int, user_id: int
@@ -735,6 +763,9 @@ class SummaryRepositoryAdapter:
     ) -> int:
         payload = prepare_json_payload(json_payload, default={})
         insights = prepare_json_payload(insights_json)
+        # Extract denormalized metadata so list-view and smart-collection
+        # queries can project scalar columns instead of loading json_payload.
+        meta = _extract_summary_metadata(json_payload)
         insert_stmt = insert(Summary).values(
             request_id=request_id,
             lang=lang,
@@ -742,6 +773,7 @@ class SummaryRepositoryAdapter:
             insights_json=insights,
             is_read=is_read,
             version=1,
+            **meta,
         )
         stmt = insert_stmt.on_conflict_do_update(
             index_elements=[Summary.request_id],
@@ -752,6 +784,7 @@ class SummaryRepositoryAdapter:
                 "version": Summary.version + 1,
                 "is_read": is_read,
                 "updated_at": _utcnow(),
+                **meta,
             },
         ).returning(Summary.version)
 
@@ -827,6 +860,28 @@ class SummaryRepositoryAdapter:
         fragments.extend(_yield_fragments(request_data))
         combined = " ".join(fragments)
         return all(term in combined for term in terms)
+
+
+def _extract_summary_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extract the four denormalized metadata fields from a json_payload dict.
+
+    Returns a dict suitable for direct use as SQLAlchemy column values.
+    Never raises; unknown/malformed values are coerced to None.
+    """
+    title = payload.get("title")
+    source_type = payload.get("source_type")
+    raw_rt = payload.get("estimated_reading_time_min")
+    try:
+        reading_time: int | None = int(raw_rt) if raw_rt is not None else None
+    except (TypeError, ValueError):
+        reading_time = None
+    topic_tags = payload.get("topic_tags")
+    return {
+        "title": str(title) if title is not None else None,
+        "source_type": str(source_type) if source_type is not None else None,
+        "reading_time": reading_time,
+        "topic_tags": topic_tags if isinstance(topic_tags, list) else None,
+    }
 
 
 def _status_value(status: RequestStatus | str) -> str:

@@ -762,24 +762,53 @@ class CollectionRepositoryAdapter:
             ).scalars()
             return [model_to_dict(collection) or {} for collection in rows]
 
-    async def async_list_user_summaries_with_request(
-        self, user_id: int, limit: int = 10000
-    ) -> list[dict[str, Any]]:
+    # 5C — page size for smart-collection candidate scan.  Replaces the
+    # previous hard limit=10000 that silently dropped older summaries.
+    _SMART_SCAN_PAGE_SIZE: int = 500
+
+    async def async_list_user_summaries_with_request(self, user_id: int) -> list[dict[str, Any]]:
+        """Return all non-deleted summaries with their request for a user.
+
+        Previous implementation had a hard limit=10000 that silently dropped
+        older summaries from the smart-collection evaluation (audit finding 5C).
+        This replaces it with a keyset-paginated scan so *every* qualifying row
+        is evaluated regardless of total count.
+
+        The ``limit`` parameter has been removed.  Callers that passed a custom
+        limit (e.g. for testing) should paginate themselves or pass a max_count
+        argument; all production callers in CollectionService only passed the
+        default, so this is safe.
+        """
+        results: list[dict[str, Any]] = []
+        last_id = 0
         async with self._database.session() as session:
-            rows = await session.execute(
-                select(Summary, Request)
-                .join(Request, Summary.request_id == Request.id)
-                .where(Request.user_id == user_id, Summary.is_deleted.is_(False))
-                .order_by(Summary.created_at.desc())
-                .limit(limit)
-            )
-            return [
-                {
-                    "summary": model_to_dict(summary) or {},
-                    "request": model_to_dict(request) or {},
-                }
-                for summary, request in rows
-            ]
+            while True:
+                rows = (
+                    await session.execute(
+                        select(Summary, Request)
+                        .join(Request, Summary.request_id == Request.id)
+                        .where(
+                            Request.user_id == user_id,
+                            Summary.is_deleted.is_(False),
+                            Summary.id > last_id,
+                        )
+                        .order_by(Summary.id)
+                        .limit(self._SMART_SCAN_PAGE_SIZE)
+                    )
+                ).all()
+                if not rows:
+                    break
+                for summary, request in rows:
+                    results.append(
+                        {
+                            "summary": model_to_dict(summary) or {},
+                            "request": model_to_dict(request) or {},
+                        }
+                    )
+                last_id = rows[-1][0].id
+                if len(rows) < self._SMART_SCAN_PAGE_SIZE:
+                    break
+        return results
 
 
 async def _active_collection(session: Any, collection_id: int | None) -> Collection | None:
