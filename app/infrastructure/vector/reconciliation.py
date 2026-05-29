@@ -140,21 +140,31 @@ class VectorIndexReconciler:
         vector_available = bool(
             self._vector_store is not None and getattr(self._vector_store, "available", False)
         )
-        async with self._database.session() as session:
-            stats = [
-                await adapter.inspect(
+
+        async def _run_adapter(adapter: VectorIndexedEntityAdapter) -> VectorIndexedEntityStats:
+            # Each adapter gets its own session/connection: a single AsyncSession
+            # cannot multiplex concurrent queries, so per-adapter sessions are
+            # what lets the adapters' inspect queries run concurrently.
+            async with self._database.session() as session:
+                return await adapter.inspect(
                     session,
                     vector_store=self._vector_store,
                     vector_store_available=vector_available,
                     scan_limit=self._scan_limit,
                     expected_model_version=self._expected_model_version,
                 )
-                for adapter in self._adapters
-            ]
 
+        # Run every adapter concurrently, and overlap the Qdrant point count with
+        # them, instead of serially (~7 round-trips -> roughly the slowest one).
+        adapter_coros = [_run_adapter(adapter) for adapter in self._adapters]
         indexed_points: int | None = None
         if vector_available:
-            indexed_points = await asyncio.to_thread(self._vector_store.count)
+            *stats, indexed_points = await asyncio.gather(
+                *adapter_coros,
+                asyncio.to_thread(self._vector_store.count),
+            )
+        else:
+            stats = list(await asyncio.gather(*adapter_coros))
         summary_stats = _stats_for(stats, "summary")
         repository_stats = _stats_for(stats, "repository")
         oldest_unindexed = _oldest_unindexed(stats)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import os
 from typing import TYPE_CHECKING, Any, cast
@@ -249,3 +250,55 @@ async def test_reconciliation_degrades_cleanly_when_vector_store_disabled(
     assert report.vector_store_available is False
     assert report.indexed_points is None
     assert report.missing_summary_vectors == 0
+
+
+@pytest.mark.asyncio
+async def test_adapters_inspect_concurrently() -> None:
+    """Each adapter runs in its own session and the adapters overlap in time.
+
+    The two adapters rendezvous: adapter B only completes once adapter A has
+    started. If inspect ran them sequentially, A would block forever waiting on
+    an event B has not had a chance to set, and the test would time out.
+    """
+    a_started = asyncio.Event()
+    b_done = asyncio.Event()
+
+    def _stats(entity_type: str) -> VectorIndexedEntityStats:
+        return VectorIndexedEntityStats(
+            entity_type=entity_type,
+            expected_ids=set(),
+            indexed_ids=None,
+        )
+
+    class _AdapterA:
+        entity_type = "summary"
+        session_obj: object | None = None
+
+        async def inspect(self, session, **_kw) -> VectorIndexedEntityStats:
+            type(self).session_obj = session
+            a_started.set()
+            await asyncio.wait_for(b_done.wait(), timeout=1.0)
+            return _stats("summary")
+
+    class _AdapterB:
+        entity_type = "repository"
+        session_obj: object | None = None
+
+        async def inspect(self, session, **_kw) -> VectorIndexedEntityStats:
+            type(self).session_obj = session
+            await asyncio.wait_for(a_started.wait(), timeout=1.0)
+            b_done.set()
+            return _stats("repository")
+
+    adapter_a = _AdapterA()
+    adapter_b = _AdapterB()
+    report = await VectorIndexReconciler(
+        database=_FakeDatabase(),
+        vector_store=None,
+        adapters=[adapter_a, adapter_b],
+    ).inspect(now=dt.datetime(2026, 5, 22, 13, tzinfo=UTC))
+
+    assert report.status == "disabled"
+    # Distinct sessions prove each adapter got its own connection (the
+    # precondition for concurrent inspection).
+    assert _AdapterA.session_obj is not _AdapterB.session_obj
