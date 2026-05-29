@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.adapters.academic.url_patterns import is_academic_paper_url
-from app.adapters.telegram.multimodal_extractor import (
+from app.adapters.telegram_source_helpers import (
     build_source_item_from_telegram_payload,
     classify_telegram_messages_source_kind,
 )

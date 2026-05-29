@@ -121,38 +121,12 @@ class URLSummaryDeliveryService:
             extra={"cid": correlation_id, "url": redact_url_for_logging(url_text)},
         )
         if not silent and not batch_mode:
-            retry_markup = self._build_retry_markup(correlation_id)
             await self._response_formatter.send_error_notification(
                 message,
                 "processing_failed",
                 correlation_id or "unknown",
-                reply_markup=retry_markup,
             )
         return URLProcessingFlowResult(success=False)
-
-    @staticmethod
-    def _build_retry_markup(correlation_id: str | None) -> Any:
-        """Build an inline keyboard with a Retry button for failed summaries."""
-        if not correlation_id:
-            return None
-        try:
-            from app.adapters.telegram.telethon_compat import (
-                InlineKeyboardButton,
-                InlineKeyboardMarkup,
-            )
-
-            return InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            text="Retry",
-                            callback_data=f"retry:{correlation_id}",
-                        )
-                    ]
-                ]
-            )
-        except ImportError:
-            return None
 
     def schedule_chunk_persistence_if_needed(
         self,

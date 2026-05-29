@@ -327,11 +327,12 @@ jobs:
 
       # GATING: contracts that are green today fail the build on any regression.
       # domain has always been clean; infrastructure-no-api was made green by the
-      # session-manager injection task (A2). Contracts live in .importlinter.
+      # session-manager injection task (A2); content-no-telegram by the cycle-break
+      # task (A3). Contracts live in .importlinter.
       - name: Enforce green layering contracts (gating)
-        run: lint-imports --contract domain-independence --contract infrastructure-no-api
+        run: lint-imports --contract domain-independence --contract infrastructure-no-api --contract content-no-telegram
 
-      # ADVISORY: the application/tasks/content<->telegram contracts are still
+      # ADVISORY: the application-no-outward and tasks-no-api contracts are still
       # broken by known violations tracked in docs/tasks/issues/ (epic:
       # restore-architecture-layering). This reports the live, shrinking set;
       # promote each contract to a gating step above as its task lands and it goes
