@@ -16,7 +16,10 @@ from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.tasks.broker import broker
 from app.tasks.deps import (
-    build_digest_task_runtime,
+    create_digest_bot_client,
+    create_digest_llm_client,
+    create_digest_service,
+    create_digest_userbot,
     get_app_config,
 )
 
@@ -83,19 +86,19 @@ async def _channel_digest_body(cfg: AppConfig) -> None:
         userbot: Any | None = None
         llm_client: Any | None = None
         try:
-            runtime = build_digest_task_runtime(cfg)
-            userbot = runtime.create_userbot()
+            userbot = create_digest_userbot(cfg)
             await userbot.start()
 
-            llm_client = runtime.create_llm_client()
-            bot = runtime.create_bot_client()
+            llm_client = create_digest_llm_client(cfg)
+            bot = create_digest_bot_client(cfg)
 
             async with bot:
 
                 async def send_message(user_id: int, text: str, reply_markup: Any = None) -> None:
                     await bot.send_message(chat_id=user_id, text=text, reply_markup=reply_markup)
 
-                service = runtime.create_service(
+                service = create_digest_service(
+                    cfg,
                     userbot=userbot,
                     llm_client=llm_client,
                     send_message=send_message,

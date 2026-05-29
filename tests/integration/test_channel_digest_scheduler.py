@@ -160,6 +160,10 @@ class TestSchedulerCronWiring:
         cfg.rss.enabled = False
         cfg.rss.poll_interval_minutes = 60
         cfg.signal_ingestion.any_enabled = False
+        cfg.github.sync_enabled = False
+        cfg.vector_reconcile.enabled = False
+        cfg.retention.enabled = False
+        cfg.x_bookmarks.enabled = False
         return cfg
 
     @pytest.mark.asyncio

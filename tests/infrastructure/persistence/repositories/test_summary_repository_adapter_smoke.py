@@ -27,7 +27,7 @@ class _Result:
         return self._rows[0] if self._rows else None
 
     def one(self) -> Any:
-        return self._rows[0]
+        return self._rows[0] if self._rows else (0, 0)
 
     def scalars(self) -> _Result:
         return self
