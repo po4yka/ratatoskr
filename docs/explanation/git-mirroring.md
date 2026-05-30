@@ -86,6 +86,8 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 | `last_mirrored_at` | timestamptz | yes | Timestamp of most recent successful mirror operation |
 | `last_attempt_at` | timestamptz | yes | Timestamp of most recent attempt (success or failure) |
 | `consecutive_failures` | integer | no | Counter reset to 0 on success; drives cooldown logic |
+| `total_failures` | integer | no | Lifetime failure counter; incremented by every `record_failure` call and never reset (not cleared on success). Starts at 0 for all rows. |
+| `last_failure_at` | timestamptz | yes | Timestamp of the most recent failure; updated by every `record_failure` call; untouched by `record_success`. |
 | `last_error` | text | yes | Truncated stderr output from the last failed attempt (max 4000 chars) |
 | `last_error_category` | varchar(50) | yes | `ErrorCategory.value` string from the last failure |
 | `backoff_until` | timestamptz | yes | When set, the mirror is skipped by `list_due` until this time passes |
@@ -124,6 +126,16 @@ Manual and `extra_repos` mirrors are cloned unauthenticated. The clone URL is us
 ---
 
 ## Surfaces
+
+### Dry-run mode
+
+`GitMirrorService.perform_sync(dry_run=True)` performs a read-only planning pass — it collects all due tasks and resolves credentials and destination paths, but never executes any git subprocess. For each task it emits one INFO-level plan line:
+
+```
+git_mirror_dry_run_plan name=<mirror-name> dest=<destination-dir> argv=<redacted-argv>
+```
+
+`argv` is the exact git command that would be run, with any embedded credential (e.g. `x-access-token:<token>@`) replaced by `***@` via `_redact_url` before logging, so plan output is always safe to capture in CI or diagnostics. After the per-task lines the aggregate count line `git_mirror_dry_run: N tasks would run` is emitted. A synthetic `SyncSummary` with `ok=N` is returned without persisting any DB changes.
 
 ### Taskiq job
 
@@ -201,9 +213,10 @@ All variables are read by `app/config/git_backup.py::GitBackupConfig`. Full refe
 All git operations are wrapped with a fixed set of `-c` flags built by `build_git_command` (`app/adapters/git_backup/git_commands.py`). The flags correspond to gitout's `ssl.*` and `http.*` config sections:
 
 - **`http.sslVerify`** — emitted as `http.sslVerify=false` only when `GIT_BACKUP_VERIFY_CERTIFICATES=false`. Default (`true`) omits the flag, so git uses its compiled-in CA bundle. Only disable on fully private deployments where the server presents a self-signed certificate; disabling TLS verification exposes clones to MITM attacks.
+- **`http.sslCAInfo`** — emitted when `GIT_BACKUP_SSL_CA_INFO` is set to a non-empty path. Injects `-c http.sslCAInfo=<path>` so git uses a custom PEM CA bundle instead of its compiled-in store. Useful when mirroring from servers signed by a private or internal CA. When unset (default `None`) the flag is omitted entirely. Appears after `http.sslVerify` and before `http.version` in argv order.
 - **`http.postBuffer`** — always emitted (default 524 288 000 bytes = 500 MB). Controls the in-memory send buffer for HTTP POST operations. Increase when seeing `RPC failed; HTTP 411 Caused by: send-pack: unexpected disconnect` errors on large repos.
 - **`http.lowSpeedLimit` / `http.lowSpeedTime`** — emitted when `GIT_BACKUP_LOW_SPEED_LIMIT > 0` (default 1000 bytes/s, 60 s). Causes git to abort a transfer that stays below the limit for the configured number of seconds. Set `GIT_BACKUP_LOW_SPEED_LIMIT=0` to disable.
-- **`http.version`** — forced to `HTTP/1.1` by default (matching gitout's default). The retry policy promotes an HTTP/1.1 fallback on `HTTP2_ERROR` categories; `force_http1` on the retry context overrides any per-run HTTP/2 setting.
+- **`http.version`** — controlled by `GIT_BACKUP_HTTP_VERSION` (default `HTTP/1.1`, matching gitout's default). When set to `HTTP/2`, git may negotiate HTTP/2 via TLS ALPN and the flag is omitted from argv (git's own default). The per-run `force_http1` flag (set by the retry policy on `HTTP2_ERROR` failures) always overrides this setting and injects `http.version=HTTP/1.1` regardless of the configured value.
 - **`http.followRedirects=false`** — always set by the SSRF hardening layer (`disable_redirects=True`) to prevent a trusted host from 30x-redirecting git to an internal endpoint.
 
 ### Shallow-clone strategy
@@ -216,6 +229,29 @@ By default, all clones use `git clone --mirror`, which preserves the complete re
 When both thresholds are configured (non-zero), **both conditions must be met** (gitout AND semantics). When only one is configured, that condition alone governs. The chosen strategy — `"shallow"` or `"full"` — is persisted to the `clone_strategy` column of `git_mirrors` after each initial clone so it can be queried. Shallow clones are never applied to `git remote update` (repo already exists on disk).
 
 Setting `GIT_BACKUP_SINGLE_BRANCH_ONLY=true` uses `git clone --bare --single-branch` regardless of the shallow-clone logic; the two options are mutually exclusive (shallow takes priority if `use_shallow_clone` is true).
+
+---
+
+## Maintenance tuning
+
+Full repacks (triggered by `GIT_BACKUP_FULL_REPACK_INTERVAL`) run `git repack -a -d` with configurable quality parameters:
+
+- **`--window`** (controlled by `GIT_BACKUP_REPACK_WINDOW`, default `50`) — how many delta candidates git considers per object. Higher values produce denser packs at the cost of more CPU time.
+- **`--depth`** (controlled by `GIT_BACKUP_REPACK_DEPTH`, default `50`) — maximum depth of the delta chain. Higher values reduce pack size but increase decompression cost at read time.
+
+Both default to `50`, matching gitout's defaults. Values must be >= 1. The parameters are passed to `Maintenance(repack_window=..., repack_depth=...)` in `_build_maintenance` and applied by `RepositoryMaintenance.run_full_repack`.
+
+---
+
+## Storage health and circuit breaker
+
+### Preflight storage check
+
+Before any git operation, `_preflight_storage_check` writes, reads back, and deletes a sentinel file on `GIT_BACKUP_DATA_PATH`. If the check fails (path missing, not writable, or content mismatch), the entire sync is aborted before touching any repo. The timeout for this check is configured with `GIT_BACKUP_PREFLIGHT_TIMEOUT_SECONDS` (default `10.0` s); it is converted to milliseconds internally (`int(seconds * 1000)`).
+
+### Circuit breaker
+
+`StorageCircuitBreaker` trips after `GIT_BACKUP_CIRCUIT_BREAKER_THRESHOLD` consecutive `STORAGE_ERROR` failures (default `3`, matching gitout). Once open, remaining tasks in the current run are skipped immediately rather than hammering a failed volume. The breaker resets on the next sync run. Any non-storage failure category resets the consecutive counter without opening the breaker.
 
 ---
 

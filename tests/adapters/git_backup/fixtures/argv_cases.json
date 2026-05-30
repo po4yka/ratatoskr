@@ -82,6 +82,24 @@
       "note": "mirror clone with show_progress",
       "params": {"repo_exists": false, "show_progress": true, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
       "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--progress", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "ssl_ca_info_set",
+      "note": "ssl_ca_info injects http.sslCAInfo after http.sslVerify (verify=true so no sslVerify flag) and before http.version",
+      "params": {"repo_exists": false, "ssl_ca_info": "/etc/ssl/private-ca.pem", "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.sslCAInfo=/etc/ssl/private-ca.pem", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "ssl_ca_info_with_ssl_verify_false",
+      "note": "ssl_ca_info combined with verify_certificates=false: sslVerify=false before sslCAInfo",
+      "params": {"repo_exists": false, "ssl_ca_info": "/etc/ssl/private-ca.pem", "verify_certificates": false, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.sslVerify=false", "-c", "http.sslCAInfo=/etc/ssl/private-ca.pem", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
+    },
+    {
+      "name": "ssl_ca_info_none_omits_flag",
+      "note": "ssl_ca_info=None (default) must not inject any http.sslCAInfo flag",
+      "params": {"repo_exists": false, "ssl_ca_info": null, "url": "https://github.com/octocat/repo-a.git", "repo_name": "octocat/repo-a"},
+      "expected_argv": ["git", "-c", "safe.directory=*", "-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=524288000", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "clone", "--mirror", "--", "https://github.com/octocat/repo-a.git", "octocat/repo-a"]
     }
   ]
 }

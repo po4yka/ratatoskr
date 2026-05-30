@@ -262,6 +262,8 @@ class GitMirrorService:
             enabled=True,
             strategy=cfg.maintenance_strategy,
             full_repack_interval=cfg.full_repack_interval,
+            repack_window=cfg.repack_window,
+            repack_depth=cfg.repack_depth,
             write_commit_graph=cfg.write_commit_graph,
         )
         return RepositoryMaintenance(
@@ -297,7 +299,8 @@ class GitMirrorService:
         data_path = Path(cfg.data_path)
 
         if not dry_run:
-            error_msg = await _preflight_storage_check(data_path, timeout_ms=10_000)
+            preflight_ms = int(cfg.preflight_timeout_seconds * 1000)
+            error_msg = await _preflight_storage_check(data_path, timeout_ms=preflight_ms)
             if error_msg is not None:
                 logger.error("git_mirror_preflight_failed: %s", error_msg)
                 raise RuntimeError(f"Storage pre-flight check failed: {error_msg}")
@@ -306,6 +309,35 @@ class GitMirrorService:
         tasks = await self._collect_tasks(user_id, data_path)
 
         if dry_run:
+            # Emit one plan line per task so operators can verify what would run.
+            for task in tasks:
+                is_clone = not task.destination.exists()
+                plan_argv = build_git_command(
+                    repo_exists=not is_clone,
+                    url=task.effective_url if is_clone else None,
+                    repo_name=task.destination.name if is_clone else None,
+                    git_executable=resolve_git_executable(),
+                    verify_certificates=cfg.verify_certificates,
+                    ssl_ca_info=cfg.ssl_ca_info,
+                    http_version=cfg.http_version,
+                    post_buffer_size=cfg.post_buffer_size,
+                    low_speed_limit=cfg.low_speed_limit,
+                    low_speed_time=cfg.low_speed_time,
+                    single_branch_only=cfg.single_branch_only,
+                    force_http1=bool(task.mirror.use_http1_fallback),
+                    use_shallow_clone=_should_use_shallow_clone(task.mirror, cfg) if is_clone else False,
+                    show_progress=False,
+                    disable_redirects=True,
+                )
+                # Redact credentials before logging — effective_url may contain
+                # an injected x-access-token for GitHub mirrors.
+                redacted_argv = [_redact_url(tok) for tok in plan_argv]
+                logger.info(
+                    "git_mirror_dry_run_plan name=%s dest=%s argv=%s",
+                    task.name,
+                    task.destination,
+                    redacted_argv,
+                )
             logger.info(
                 "git_mirror_dry_run: %d tasks would run",
                 len(tasks),
@@ -315,8 +347,10 @@ class GitMirrorService:
                 outcomes=[MirrorOutcome(mirror=t.mirror, ok=True) for t in tasks],
             )
 
-        # Build a circuit breaker if not injected (default threshold = 3).
-        breaker = self._circuit_breaker or StorageCircuitBreaker(threshold=3)
+        # Build a circuit breaker if not injected; use the configured threshold.
+        breaker = self._circuit_breaker or StorageCircuitBreaker(
+            threshold=cfg.circuit_breaker_threshold
+        )
 
         semaphore = asyncio.Semaphore(cfg.workers)
         large_semaphore = asyncio.Semaphore(cfg.large_repo_max_parallel)
@@ -595,6 +629,8 @@ class GitMirrorService:
                 repo_name=dest.name if is_clone else None,
                 git_executable=resolve_git_executable(),
                 verify_certificates=cfg.verify_certificates,
+                ssl_ca_info=cfg.ssl_ca_info,
+                http_version=cfg.http_version,
                 post_buffer_size=cfg.post_buffer_size,
                 low_speed_limit=cfg.low_speed_limit,
                 low_speed_time=cfg.low_speed_time,

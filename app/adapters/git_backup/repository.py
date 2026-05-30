@@ -220,6 +220,8 @@ class GitMirrorRepository:
             row.status = GitMirrorStatus.FAILED
             row.last_attempt_at = now
             row.consecutive_failures = (row.consecutive_failures or 0) + 1
+            row.total_failures = (row.total_failures or 0) + 1
+            row.last_failure_at = now
             row.last_error = message[:4000] if message else None  # guard column width
             row.last_error_category = error_category.value
             if clone_strategy is not None:

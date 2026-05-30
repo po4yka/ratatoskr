@@ -95,6 +95,12 @@ class GitMirror(Base):
         DateTime(timezone=True), nullable=True
     )
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_failures: Mapped[int] = mapped_column(
+        Integer, server_default="0", default=0, nullable=False
+    )
+    last_failure_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     backoff_until: Mapped[dt.datetime | None] = mapped_column(

@@ -71,6 +71,51 @@ class GitBackupConfig(BaseModel):
         description="Fetch Git LFS objects during mirror operations.",
     )
 
+    # Maintenance tuning
+    repack_window: int = Field(
+        default=50,
+        ge=1,
+        validation_alias="GIT_BACKUP_REPACK_WINDOW",
+        description=(
+            "Value for git repack's `--window` option during full repacks (default: 50). "
+            "Mirrors gitout's `maintenance.repack_window`. Higher values improve pack "
+            "density at the cost of more CPU; must be >= 1."
+        ),
+    )
+    repack_depth: int = Field(
+        default=50,
+        ge=1,
+        validation_alias="GIT_BACKUP_REPACK_DEPTH",
+        description=(
+            "Value for git repack's `--depth` option during full repacks (default: 50). "
+            "Mirrors gitout's `maintenance.repack_depth`. Higher values improve pack "
+            "density at the cost of more CPU; must be >= 1."
+        ),
+    )
+
+    # Storage health
+    circuit_breaker_threshold: int = Field(
+        default=3,
+        ge=1,
+        validation_alias="GIT_BACKUP_CIRCUIT_BREAKER_THRESHOLD",
+        description=(
+            "Number of consecutive STORAGE_ERROR failures that trip the storage "
+            "circuit breaker, aborting the remainder of the sync run (default: 3). "
+            "Mirrors gitout's `StorageCircuitBreaker(threshold=...)`. Once open the "
+            "breaker stays open for the current run; it resets on the next run."
+        ),
+    )
+    preflight_timeout_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        validation_alias="GIT_BACKUP_PREFLIGHT_TIMEOUT_SECONDS",
+        description=(
+            "Timeout in seconds for the preflight storage write/read/delete check "
+            "that runs before each sync (default: 10.0 s). If the sentinel write "
+            "takes longer than this, the sync is aborted with a storage error."
+        ),
+    )
+
     # Maintenance
     maintenance_strategy: str = Field(
         default="gc-auto",
@@ -148,6 +193,29 @@ class GitBackupConfig(BaseModel):
     )
 
     # HTTP / SSL tuning (mirrors gitout ssl.* and http.* config fields)
+    ssl_ca_info: str | None = Field(
+        default=None,
+        validation_alias="GIT_BACKUP_SSL_CA_INFO",
+        description=(
+            "Path to a custom CA bundle file (PEM) passed to git via `http.sslCAInfo`. "
+            "When set, git uses this CA bundle instead of its compiled-in bundle to "
+            "verify TLS certificates. Useful when mirroring from servers signed by a "
+            "private or internal CA. When None (default), no flag is injected and git "
+            "uses its default CA bundle."
+        ),
+    )
+    http_version: str = Field(
+        default="HTTP/1.1",
+        validation_alias="GIT_BACKUP_HTTP_VERSION",
+        description=(
+            "HTTP protocol version passed to git via `http.version`. "
+            "Accepted values: `HTTP/1.1` (default, matching gitout's default) or `HTTP/2`. "
+            "When `HTTP/1.1`, git is forced to HTTP/1.1 for all operations. "
+            "When `HTTP/2`, git may negotiate HTTP/2 with the server (subject to TLS "
+            "ALPN). The per-run `force_http1` flag (set by the retry policy on "
+            "HTTP2_ERROR failures) always overrides this setting and forces HTTP/1.1."
+        ),
+    )
     verify_certificates: bool = Field(
         default=True,
         validation_alias="GIT_BACKUP_VERIFY_CERTIFICATES",
@@ -339,6 +407,25 @@ class GitBackupConfig(BaseModel):
         validation_alias="GIT_BACKUP_HC_PING_TIMEOUT_SECONDS",
         description="HTTP timeout in seconds for each Healthchecks.io ping request.",
     )
+
+    @field_validator("ssl_ca_info", mode="before")
+    @classmethod
+    def _validate_ssl_ca_info(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        return str(value).strip() or None
+
+    @field_validator("http_version", mode="before")
+    @classmethod
+    def _validate_http_version(cls, value: Any) -> str:
+        if value in (None, ""):
+            return "HTTP/1.1"
+        version = str(value).strip()
+        allowed = {"HTTP/1.1", "HTTP/2"}
+        if version not in allowed:
+            msg = f"GIT_BACKUP_HTTP_VERSION must be one of {sorted(allowed)}, got {version!r}"
+            raise ValueError(msg)
+        return version
 
     @field_validator("hc_ping_url", mode="before")
     @classmethod

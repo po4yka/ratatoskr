@@ -8,7 +8,9 @@ Argv shape (in order):
 
     git
       -c safe.directory=*
+      [-c http.followRedirects=false]           # when disable_redirects
       [-c http.sslVerify=false]                 # when not verify_certificates
+      [-c http.sslCAInfo=<path>]                # when ssl_ca_info is set
       [-c http.version=HTTP/1.1]                # when force_http1 or http_version == HTTP/1.1
       -c http.postBuffer=<post_buffer_size>
       [-c http.lowSpeedLimit=<n> -c http.lowSpeedTime=<n>]   # when low_speed_limit > 0
@@ -38,6 +40,7 @@ def build_git_command(
     repo_name: str | None = None,
     git_executable: str = GIT_EXECUTABLE,
     verify_certificates: bool = True,
+    ssl_ca_info: str | None = None,
     http_version: str = "HTTP/1.1",
     post_buffer_size: int = 524_288_000,
     low_speed_limit: int = 1000,
@@ -63,6 +66,9 @@ def build_git_command(
 
     if not verify_certificates:
         command += ["-c", "http.sslVerify=false"]
+
+    if ssl_ca_info is not None:
+        command += ["-c", f"http.sslCAInfo={ssl_ca_info}"]
 
     if force_http1 or http_version == "HTTP/1.1":
         command += ["-c", "http.version=HTTP/1.1"]
