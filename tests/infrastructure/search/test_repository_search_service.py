@@ -14,11 +14,20 @@ from unittest.mock import MagicMock
 
 
 def _make_qdrant_stubs() -> None:
-    """Inject minimal qdrant_client stubs into sys.modules."""
-    if "qdrant_client" in sys.modules:
-        return  # already provided (real package installed)
+    """Ensure qdrant_client.models has the stub classes needed by these tests.
 
-    # Minimal stub classes that record constructor kwargs for assertions
+    The service imports qdrant_client.models lazily inside _search_body(), so
+    we must guarantee the attributes exist before the first call.
+
+    Strategy: always patch — do not bail out if the module is already loaded.
+    The real qdrant_client installed in the venv may be a version that lacks
+    MatchAny (or another test may have installed a partial stub first).  We
+    overwrite only the specific attributes used by RepositorySearchService so
+    that other tests relying on the real package (e.g. QdrantClient,
+    PointIdsList) are not affected.
+    """
+
+    # Minimal stub classes that record constructor kwargs for assertions.
     class _Condition:
         def __init__(self, *, key: str, match: object) -> None:
             self.key = key
@@ -49,18 +58,65 @@ def _make_qdrant_stubs() -> None:
             self.conditions = conditions
             self.min_count = min_count
 
-    models_mod = types.ModuleType("qdrant_client.models")
+    # Obtain or create the qdrant_client.models module object.
+    if "qdrant_client.models" in sys.modules:
+        models_mod = sys.modules["qdrant_client.models"]
+    else:
+        models_mod = types.ModuleType("qdrant_client.models")
+        sys.modules["qdrant_client.models"] = models_mod
+
+    # Patch the attributes required by RepositorySearchService (the ones this
+    # test file exercises and asserts on).  Use our custom classes so
+    # assertions on constructor kwargs work correctly.
     models_mod.FieldCondition = _Condition  # type: ignore[attr-defined]
     models_mod.MatchValue = _MatchValue  # type: ignore[attr-defined]
     models_mod.MatchAny = _MatchAny  # type: ignore[attr-defined]
     models_mod.Filter = _Filter  # type: ignore[attr-defined]
     models_mod.MinShould = _MinShould  # type: ignore[attr-defined]
 
-    qdrant_mod = types.ModuleType("qdrant_client")
+    # Provide stand-ins for every other name that qdrant_store.py imports at
+    # module-level.  We only need them to exist so the import succeeds when
+    # qdrant_store is loaded in the same process after our stub is installed.
+    # PointIdsList needs a real constructor so that `.points` holds the list
+    # passed to it (used by test_delete_git_mirror_points_derives_point_ids).
+    class _PointIdsList:
+        def __init__(self, *, points: list) -> None:
+            self.points = points
+
+    class _FilterSelector:
+        def __init__(self, **kwargs: object) -> None:
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    if not hasattr(models_mod, "PointIdsList"):
+        models_mod.PointIdsList = _PointIdsList  # type: ignore[attr-defined]
+    if not hasattr(models_mod, "FilterSelector"):
+        models_mod.FilterSelector = _FilterSelector  # type: ignore[attr-defined]
+
+    for _name in (
+        "Distance",
+        "PayloadSchemaType",
+        "PointStruct",
+        "VectorParams",
+    ):
+        if not hasattr(models_mod, _name):
+            setattr(models_mod, _name, MagicMock(name=_name))
+
+    # Obtain or create the top-level qdrant_client module and wire .models.
+    if "qdrant_client" in sys.modules:
+        qdrant_mod = sys.modules["qdrant_client"]
+    else:
+        qdrant_mod = types.ModuleType("qdrant_client")
+        sys.modules["qdrant_client"] = qdrant_mod
+
     qdrant_mod.models = models_mod  # type: ignore[attr-defined]
 
-    sys.modules["qdrant_client"] = qdrant_mod
-    sys.modules["qdrant_client.models"] = models_mod
+    # Ensure QdrantClient exists on the top-level module so that other test
+    # modules importing qdrant_store (which does `from qdrant_client import
+    # QdrantClient` at module top-level) do not fail when this stub is loaded
+    # before the real package.
+    if not hasattr(qdrant_mod, "QdrantClient"):
+        qdrant_mod.QdrantClient = MagicMock(name="QdrantClient")  # type: ignore[attr-defined]
 
 
 _make_qdrant_stubs()
