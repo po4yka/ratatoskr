@@ -22,6 +22,35 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+class PriorityRule(BaseModel):
+    """A single priority rule for mirror task ordering.
+
+    Mirrors gitout's ``PriorityPattern`` dataclass. Patterns are matched as
+    Python regex against the mirror name (``full_name``) and/or clone URL.
+    The highest-priority matching rule wins; ties preserve the original
+    collection order (stable sort).
+
+    Set via ``ratatoskr.yaml`` under ``git_backup.priorities`` (a list of
+    dicts). Cannot be set meaningfully via a flat env var because it is a
+    structured list; ``GIT_BACKUP_PRIORITIES`` is accepted only as a sentinel
+    to keep pydantic happy — prefer YAML.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    pattern: str = Field(description="Regex pattern matched against the mirror name or clone URL.")
+    priority: int = Field(default=0, description="Higher values run first. Default 0.")
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Per-task timeout override in seconds. When set, replaces the global "
+            "GIT_BACKUP_REPO_TIMEOUT_SECONDS for tasks that match this rule "
+            "(before the large-repo multiplier is applied). None = use global default."
+        ),
+    )
+
+
 class GitBackupConfig(BaseModel):
     """Git mirror backup configuration for the gitout-backed sync job."""
 
@@ -376,6 +405,35 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    # Priority rules for task ordering (opt-in, default empty = no reordering)
+    priorities: list[PriorityRule] = Field(
+        default_factory=list,
+        validation_alias="GIT_BACKUP_PRIORITIES",
+        description=(
+            "Ordered list of priority rules for mirror task ordering and per-task timeout "
+            "overrides. Each rule has a ``pattern`` (Python regex matched against the mirror "
+            "name or clone URL), a ``priority`` int (higher = runs first; default 0), and an "
+            "optional ``timeout_seconds`` override. The highest-priority matching rule wins; "
+            "the task list is sorted by priority DESC (stable) before workers are started. "
+            "Empty list (default) = no reordering, current behavior unchanged. "
+            "Set via ratatoskr.yaml under git_backup.priorities as a list of dicts."
+        ),
+    )
+
+    # Static ignore list (opt-in, default empty = nothing ignored)
+    ignore: list[str] = Field(
+        default_factory=list,
+        validation_alias="GIT_BACKUP_IGNORE",
+        description=(
+            "List of regex/substring patterns. Any mirror whose name or clone URL matches "
+            "at least one pattern is excluded from the current sync run. The filter runs "
+            "in _collect_tasks and applies to both DB-backed and config extra_repos targets. "
+            "Empty list (default) = nothing ignored, current behavior unchanged. "
+            "Set via ratatoskr.yaml or as a JSON-encoded list in the env var "
+            "(e.g. GIT_BACKUP_IGNORE='[\"some-fork\", \"private/.*\"]')."
+        ),
+    )
+
     # Health monitoring (Healthchecks.io dead-man-switch)
     prune_excluded_days: int = Field(
         default=0,
@@ -407,6 +465,107 @@ class GitBackupConfig(BaseModel):
         validation_alias="GIT_BACKUP_HC_PING_TIMEOUT_SECONDS",
         description="HTTP timeout in seconds for each Healthchecks.io ping request.",
     )
+
+    # Failure propagation (exit_on_failure)
+    exit_on_failure: bool = Field(
+        default=False,
+        validation_alias="GIT_BACKUP_EXIT_ON_FAILURE",
+        description=(
+            "When true AND the sync summary reports at least one failed repo, "
+            "the Taskiq task raises a RuntimeError at the end of the try block "
+            "(after index/reconcile/metrics/notify steps have run). This causes "
+            "Taskiq to record the run as failed and fires the healthcheck failure ping. "
+            "Default false = current behavior (task always completes as success "
+            "regardless of how many repos failed). Opt-in."
+        ),
+    )
+
+    # Metrics export
+    metrics_export_path: str | None = Field(
+        default=None,
+        validation_alias="GIT_BACKUP_METRICS_EXPORT_PATH",
+        description=(
+            "When set, after each sync run a per-run metrics record is appended to "
+            "this file. The format is determined by GIT_BACKUP_METRICS_FORMAT. "
+            "File I/O errors are logged at WARNING and swallowed — the task outcome "
+            "is never affected. Default None = disabled."
+        ),
+    )
+    metrics_format: str = Field(
+        default="json",
+        validation_alias="GIT_BACKUP_METRICS_FORMAT",
+        description=(
+            "Format for the metrics export file. Accepted values: 'json' (JSONL, "
+            "one JSON object per line appended on each run) or 'csv' (one row "
+            "appended; header written when the file is new/empty). "
+            "Only used when GIT_BACKUP_METRICS_EXPORT_PATH is set."
+        ),
+    )
+
+    # Per-run Telegram notifications
+    notify_chat_id: int | None = Field(
+        default=None,
+        validation_alias="GIT_BACKUP_NOTIFY_CHAT_ID",
+        description=(
+            "Telegram chat ID to send a completion notification to after each sync "
+            "run. When None (default), no notification is sent. "
+            "Requires the standard Telegram bot credentials (API_ID, API_HASH, "
+            "BOT_TOKEN) to be configured."
+        ),
+    )
+    notify_on: str = Field(
+        default="never",
+        validation_alias="GIT_BACKUP_NOTIFY_ON",
+        description=(
+            "When to send a Telegram notification. Accepted values: "
+            "'never' (default, no notifications), "
+            "'always' (send on every run), "
+            "'failure' (send only when summary.failed > 0). "
+            "Only used when GIT_BACKUP_NOTIFY_CHAT_ID is set."
+        ),
+    )
+
+    @field_validator("metrics_export_path", mode="before")
+    @classmethod
+    def _validate_metrics_export_path(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        return str(value).strip() or None
+
+    @field_validator("metrics_format", mode="before")
+    @classmethod
+    def _validate_metrics_format(cls, value: Any) -> str:
+        if value in (None, ""):
+            return "json"
+        fmt = str(value).strip().lower()
+        allowed = {"json", "csv"}
+        if fmt not in allowed:
+            msg = f"GIT_BACKUP_METRICS_FORMAT must be one of {sorted(allowed)}, got {fmt!r}"
+            raise ValueError(msg)
+        return fmt
+
+    @field_validator("notify_chat_id", mode="before")
+    @classmethod
+    def _validate_notify_chat_id(cls, value: Any) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            msg = f"GIT_BACKUP_NOTIFY_CHAT_ID must be an integer, got {value!r}"
+            raise ValueError(msg) from exc
+
+    @field_validator("notify_on", mode="before")
+    @classmethod
+    def _validate_notify_on(cls, value: Any) -> str:
+        if value in (None, ""):
+            return "never"
+        mode = str(value).strip().lower()
+        allowed = {"never", "always", "failure"}
+        if mode not in allowed:
+            msg = f"GIT_BACKUP_NOTIFY_ON must be one of {sorted(allowed)}, got {mode!r}"
+            raise ValueError(msg)
+        return mode
 
     @field_validator("ssl_ca_info", mode="before")
     @classmethod

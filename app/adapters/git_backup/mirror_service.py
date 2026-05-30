@@ -28,7 +28,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlparse, urlunparse
 
 from app.adapters.git_backup.circuit_breaker import StorageCircuitBreaker
@@ -123,6 +123,9 @@ class MirrorTask:
     name: str
     destination: Path
     is_large_repo: bool = False
+    # Per-task timeout override derived from the matching PriorityRule, or None
+    # to fall back to the global GIT_BACKUP_REPO_TIMEOUT_SECONDS.
+    timeout_seconds_override: int | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,75 @@ async def _preflight_storage_check(root: Path, timeout_ms: int) -> str | None:
     except Exception as exc:
         return str(exc)
     return None
+
+
+def _is_ignored(name: str, clone_url: str, patterns: list[str]) -> bool:
+    """Return True when name or clone_url matches any pattern in the ignore list.
+
+    Each entry is tried first as a compiled regex; if the pattern is not a
+    valid regex it falls back to a plain substring match against both strings.
+    Empty patterns list returns False (nothing ignored).
+    """
+    for pattern in patterns:
+        try:
+            compiled = re.compile(pattern)
+            if compiled.search(name) or compiled.search(clone_url):
+                return True
+        except re.error:
+            # Not a valid regex — treat as a literal substring.
+            if pattern in name or pattern in clone_url:
+                return True
+    return False
+
+
+def _apply_priority_rules(
+    tasks: list[MirrorTask],
+    rules: list[Any],  # list[PriorityRule] — using Any to avoid circular import
+) -> list[MirrorTask]:
+    """Return tasks sorted by priority DESC (stable sort preserves original order on ties).
+
+    Also assigns ``timeout_seconds_override`` from the highest-priority matching rule
+    whose ``timeout_seconds`` is set. When no rule matches, the task is returned
+    with the default priority (0) and no timeout override.
+    """
+    if not rules:
+        return tasks
+
+    def _best_rule(task: MirrorTask) -> tuple[int, int | None]:
+        """Return (best_priority, timeout_seconds_override) for this task."""
+        best_priority = 0
+        best_timeout: int | None = None
+        for rule in rules:
+            try:
+                compiled = re.compile(rule.pattern)
+                matched: bool = bool(
+                    compiled.search(task.name) or compiled.search(task.effective_url)
+                )
+            except re.error:
+                matched = rule.pattern in task.name or rule.pattern in task.effective_url
+            if matched and rule.priority > best_priority:
+                best_priority = rule.priority
+                best_timeout = rule.timeout_seconds
+        return best_priority, best_timeout
+
+    # Re-create tasks with the resolved timeout override, then stable-sort.
+    annotated: list[tuple[int, MirrorTask]] = []
+    for task in tasks:
+        prio, tov = _best_rule(task)
+        if tov is not None and tov != task.timeout_seconds_override:
+            task = MirrorTask(
+                mirror=task.mirror,
+                effective_url=task.effective_url,
+                name=task.name,
+                destination=task.destination,
+                is_large_repo=task.is_large_repo,
+                timeout_seconds_override=tov,
+            )
+        annotated.append((prio, task))
+
+    # Stable sort: higher priority first.
+    annotated.sort(key=lambda pair: pair[0], reverse=True)
+    return [t for _, t in annotated]
 
 
 def _should_use_shallow_clone(mirror: GitMirror, cfg: GitBackupConfig) -> bool:
@@ -391,6 +463,17 @@ class GitMirrorService:
             summary.failed,
             summary.skipped,
         )
+
+        # Finalize: check whether a periodic full repack is now due (once per run,
+        # not once per repo). This is the port of Engine._finalize's
+        # register_sync_and_check_repack call in gitout.
+        if self._maintenance is not None and self._maintenance.register_sync_and_check_repack():
+            logger.info(
+                "git_mirror_full_repack_due: running full repack of %s",
+                cfg.data_path,
+            )
+            await asyncio.to_thread(self._maintenance.run_full_repack, data_path)
+
         return summary
 
     # ------------------------------------------------------------------
@@ -402,15 +485,31 @@ class GitMirrorService:
         user_id: int | None,
         data_path: Path,
     ) -> list[MirrorTask]:
-        """Build the list of work items from the DB and extra_repos config."""
+        """Build the list of work items from the DB and extra_repos config.
+
+        Applies the ignore list (cfg.ignore) to filter out matching targets, then
+        applies priority rules (cfg.priorities) to reorder the task list and assign
+        per-task timeout overrides. Both features are opt-in: empty lists (the
+        default) leave behavior unchanged.
+        """
         cfg = self._config
         threshold_kb = cfg.large_repo_threshold_kb
+        ignore_patterns: list[str] = list(cfg.ignore)
+        priority_rules = list(cfg.priorities)
 
         # DB-backed mirrors
         due = await self._mirror_repo.list_due(user_id=user_id)
         tasks: list[MirrorTask] = []
 
         for mirror in due:
+            name = mirror.name or mirror.clone_url
+            if ignore_patterns and _is_ignored(name, mirror.clone_url, ignore_patterns):
+                logger.debug(
+                    "git_mirror_ignored name=%s url=%s (matches ignore list)",
+                    name,
+                    mirror.clone_url,
+                )
+                continue
             effective_url = await self._resolve_url(mirror)
             dest = self._mirror_destination(data_path, mirror)
             is_large = bool(mirror.size_kb and mirror.size_kb >= threshold_kb)
@@ -418,7 +517,7 @@ class GitMirrorService:
                 MirrorTask(
                     mirror=mirror,
                     effective_url=effective_url,
-                    name=mirror.name or mirror.clone_url,
+                    name=name,
                     destination=dest,
                     is_large_repo=is_large,
                 )
@@ -428,6 +527,14 @@ class GitMirrorService:
         # as MANUAL mirrors, upserting them so they get a real DB row and outcomes
         # are persisted).
         for name, url in cfg.extra_repos.items():
+            # Apply ignore filter before any upsert.
+            if ignore_patterns and _is_ignored(name, url, ignore_patterns):
+                logger.debug(
+                    "git_mirror_ignored name=%s url=%s (matches ignore list, extra_repos)",
+                    name,
+                    url,
+                )
+                continue
             # If we already have this URL from the DB list, skip.
             if any(t.mirror.clone_url == url for t in tasks):
                 continue
@@ -470,6 +577,10 @@ class GitMirrorService:
                         destination=dest,
                     )
                 )
+
+        # Apply priority rules: reorder and assign per-task timeout overrides.
+        if priority_rules:
+            tasks = _apply_priority_rules(tasks, priority_rules)
 
         return tasks
 
@@ -573,8 +684,13 @@ class GitMirrorService:
         if is_clone:
             cwd.mkdir(parents=True, exist_ok=True)
 
-        # Timeout: large repos get a multiplier.
-        base_timeout = float(cfg.repository_timeout_seconds)
+        # Timeout: per-task override (from a matching PriorityRule) takes precedence
+        # over the global setting; large repos still get the multiplier applied on top.
+        base_timeout = float(
+            task.timeout_seconds_override
+            if task.timeout_seconds_override is not None
+            else cfg.repository_timeout_seconds
+        )
         timeout = (
             base_timeout * cfg.large_repo_timeout_multiplier if task.is_large_repo else base_timeout
         )
@@ -726,9 +842,10 @@ class GitMirrorService:
             breaker.record_success()
 
             # Post-sync maintenance (blocking, offloaded to thread).
+            # Note: register_sync_and_check_repack is intentionally NOT called here;
+            # it runs once per sync run in perform_sync after all outcomes are persisted.
             if self._maintenance is not None:
                 await asyncio.to_thread(self._maintenance.run_post_sync_maintenance, dest)
-                self._maintenance.register_sync_and_check_repack()
 
             # LFS fetch (blocking, offloaded to thread).
             if self._lfs is not None:

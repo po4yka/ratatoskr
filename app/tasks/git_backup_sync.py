@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import csv
+import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +17,7 @@ from app.db.session import Database  # noqa: TC001 — taskiq resolves type hint
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
 from app.tasks.broker import broker
-from app.tasks.deps import get_app_config, get_db
+from app.tasks.deps import create_digest_bot_client, get_app_config, get_db
 
 logger = get_logger(__name__)
 
@@ -279,6 +282,97 @@ async def _index_mirror_readmes(
     )
 
 
+def _write_metrics_sync(path: Path, record: dict, fmt: str) -> None:
+    """Write one metrics record synchronously (called via asyncio.to_thread)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if fmt == "csv":
+        file_exists = path.exists() and path.stat().st_size > 0
+        with path.open("a", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(record.keys()))
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(record)
+    else:
+        # Default: JSONL
+        with path.open("a") as fh:
+            fh.write(json.dumps(record) + "\n")
+
+
+async def _export_metrics(cfg: AppConfig, summary: Any, duration_seconds: float) -> None:
+    """Append a per-run metrics record to the configured export file.
+
+    Best-effort: file I/O errors are logged at WARNING and swallowed.
+    Supports two formats controlled by GIT_BACKUP_METRICS_FORMAT:
+    - 'json': JSONL — one JSON object per line appended on each run.
+    - 'csv':  one CSV row appended; header written when the file is new/empty.
+    """
+    import asyncio
+
+    export_path = cfg.git_backup.metrics_export_path
+    if not export_path:
+        return
+
+    record = {
+        "ok": summary.ok,
+        "failed": summary.failed,
+        "skipped": summary.skipped,
+        "total": summary.total,
+        "duration_seconds": round(duration_seconds, 3),
+    }
+
+    try:
+        fmt = cfg.git_backup.metrics_format
+        path = Path(export_path)
+        await asyncio.to_thread(_write_metrics_sync, path, record, fmt)
+        logger.debug(
+            "git_backup_metrics_exported",
+            extra={"path": export_path, "format": fmt},
+        )
+    except Exception as exc:
+        logger.warning(
+            "git_backup_metrics_export_failed",
+            extra={"path": export_path, "error": str(exc)},
+        )
+
+
+async def _send_telegram_notify(cfg: AppConfig, summary: Any) -> None:
+    """Send a Telegram completion DM when notify_on warrants it.
+
+    Best-effort: any error is logged at WARNING and swallowed.
+    Uses the established create_digest_bot_client pattern.
+    """
+    git_cfg = cfg.git_backup
+    chat_id = git_cfg.notify_chat_id
+    notify_on = git_cfg.notify_on
+
+    if chat_id is None or notify_on == "never":
+        return
+
+    if notify_on == "failure" and summary.failed == 0:
+        return
+
+    text = (
+        f"Git mirror sync complete: "
+        f"ok={summary.ok} failed={summary.failed} "
+        f"skipped={summary.skipped} total={summary.total}"
+    )
+
+    try:
+        bot = create_digest_bot_client(cfg)
+        async with bot:
+            await bot.send_message(chat_id=chat_id, text=text)
+
+        logger.debug(
+            "git_backup_notify_sent",
+            extra={"chat_id": chat_id, "notify_on": notify_on},
+        )
+    except Exception as exc:
+        logger.warning(
+            "git_backup_notify_failed",
+            extra={"chat_id": chat_id, "error": str(exc)},
+        )
+
+
 async def _prune_stale_excluded(cfg: AppConfig, db: Database) -> None:
     """Delete stale EXCLUDED mirrors: Qdrant point, on-disk dir, and DB row.
 
@@ -464,7 +558,49 @@ async def sync_git_backup(
                 )
 
             runtime = build_git_backup_task_runtime(cfg, db)
+            _sync_start = time.perf_counter()
             summary = await runtime.service.perform_sync()
+            _sync_duration = time.perf_counter() - _sync_start
+
+            logger.info(
+                "git_backup_sync_complete",
+                extra={
+                    "ok": summary.ok,
+                    "failed": summary.failed,
+                    "skipped": summary.skipped,
+                    "total": summary.total,
+                },
+            )
+
+            # README semantic indexing — best-effort, never blocks or fails the task.
+            if cfg.git_backup.index_readmes:
+                await _index_mirror_readmes(cfg, db, summary)
+
+            # README vector reconciliation — best-effort, never blocks or fails the task.
+            if cfg.git_backup.reconcile_readmes:
+                await _reconcile_mirror_readmes(cfg, db)
+
+            # Stale-EXCLUDED prune sweep — best-effort, never blocks or fails the task.
+            if cfg.git_backup.prune_excluded_days > 0:
+                try:
+                    await _prune_stale_excluded(cfg, db)
+                except Exception:
+                    logger.warning("git_backup_prune_excluded_unexpected_error")
+
+            # Metrics export — best-effort, never blocks or fails the task.
+            await _export_metrics(cfg, summary, _sync_duration)
+
+            # Telegram notification — best-effort, never blocks or fails the task.
+            await _send_telegram_notify(cfg, summary)
+
+            # exit_on_failure: raise AFTER all post-sync steps have run so the
+            # healthcheck failure ping fires and Taskiq records the run as failed.
+            if cfg.git_backup.exit_on_failure and summary.failed > 0:
+                raise RuntimeError(
+                    f"git_backup_sync_failed: {summary.failed} repo(s) failed "
+                    f"(ok={summary.ok} skipped={summary.skipped} total={summary.total})"
+                )
+
         except Exception:
             if hc_url:
                 await ping_failure(hc_url, hc_timeout)
@@ -472,28 +608,3 @@ async def sync_git_backup(
 
         if hc_url:
             await ping_success(hc_url, hc_timeout)
-
-        logger.info(
-            "git_backup_sync_complete",
-            extra={
-                "ok": summary.ok,
-                "failed": summary.failed,
-                "skipped": summary.skipped,
-                "total": summary.total,
-            },
-        )
-
-        # README semantic indexing — best-effort, never blocks or fails the task.
-        if cfg.git_backup.index_readmes:
-            await _index_mirror_readmes(cfg, db, summary)
-
-        # README vector reconciliation — best-effort, never blocks or fails the task.
-        if cfg.git_backup.reconcile_readmes:
-            await _reconcile_mirror_readmes(cfg, db)
-
-        # Stale-EXCLUDED prune sweep — best-effort, never blocks or fails the task.
-        if cfg.git_backup.prune_excluded_days > 0:
-            try:
-                await _prune_stale_excluded(cfg, db)
-            except Exception:
-                logger.warning("git_backup_prune_excluded_unexpected_error")

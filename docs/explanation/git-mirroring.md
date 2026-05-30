@@ -204,7 +204,51 @@ All variables are read by `app/config/git_backup.py::GitBackupConfig`. Full refe
 | `GIT_BACKUP_AUTO_SKIP_FAILING` | `true` | Skip mirrors in cooldown window instead of retrying |
 | `GIT_BACKUP_MIRROR_GISTS` | `false` | When `true`, enumerate all gists per active GitHub integration and upsert `git_mirrors` rows for them |
 | `GIT_BACKUP_EXTRA_REPOS` | `{}` | Static name→URL map for repos without a DB row; set via `ratatoskr.yaml` |
+| `GIT_BACKUP_PRIORITIES` | `[]` | Priority rules for task ordering and per-task timeout overrides; set via `ratatoskr.yaml` (YAML list of dicts) |
+| `GIT_BACKUP_IGNORE` | `[]` | Regex/substring patterns; matching mirrors are skipped this run |
 | `GIT_BACKUP_PRUNE_EXCLUDED_DAYS` | `0` | Days after which stale EXCLUDED mirrors are pruned (Qdrant point + on-disk dir + DB row); `0` = disabled |
+
+---
+
+## Priorities and ignore list
+
+Both features are **opt-in and default-off** — an empty list (the default) leaves all existing behavior unchanged.
+
+### Priority rules (`GIT_BACKUP_PRIORITIES`)
+
+Priority rules let you control the order in which mirrors are attempted and assign per-task timeout overrides. Set via `ratatoskr.yaml` under `git_backup.priorities` as a list of rule objects (cannot be a flat env var because the value is structured):
+
+```yaml
+git_backup:
+  priorities:
+    - pattern: "org/critical-repo"
+      priority: 100
+    - pattern: "^org/large-.*"
+      priority: 50
+      timeout_seconds: 7200
+```
+
+Each rule has:
+- `pattern` — Python regex matched against the mirror name (e.g. `owner/repo`) and/or clone URL. Invalid regexes fall back to a literal substring match.
+- `priority` — integer; higher values start first. Default `0`.
+- `timeout_seconds` — optional per-task base timeout override in seconds. When set, replaces `GIT_BACKUP_REPO_TIMEOUT_SECONDS` for matching tasks; the large-repo multiplier (`GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER`) is still applied on top. `None` = use the global default.
+
+The highest-priority matching rule wins for both `priority` and `timeout_seconds`. When multiple rules match, the one with the highest `priority` value takes effect for the timeout as well. The task list is sorted by priority **descending** with a stable sort, so equal-priority tasks preserve their original collection order.
+
+### Ignore list (`GIT_BACKUP_IGNORE`)
+
+The ignore list filters targets out of `_collect_tasks` before any git operation. It applies to both DB-backed mirrors and `GIT_BACKUP_EXTRA_REPOS` entries. Ignored targets do not trigger DB upserts or outcome writes.
+
+Set via `ratatoskr.yaml` or as a JSON-encoded list in the env var:
+
+```yaml
+git_backup:
+  ignore:
+    - "user/archived-.*"
+    - "some-fork"
+```
+
+Each entry is tried as a Python regex first; invalid regexes fall back to literal substring matching. Matching is against the mirror name and/or clone URL. Ignored targets are logged at `DEBUG` level (`git_mirror_ignored`).
 
 ---
 
@@ -240,6 +284,12 @@ Full repacks (triggered by `GIT_BACKUP_FULL_REPACK_INTERVAL`) run `git repack -a
 - **`--depth`** (controlled by `GIT_BACKUP_REPACK_DEPTH`, default `50`) — maximum depth of the delta chain. Higher values reduce pack size but increase decompression cost at read time.
 
 Both default to `50`, matching gitout's defaults. Values must be >= 1. The parameters are passed to `Maintenance(repack_window=..., repack_depth=...)` in `_build_maintenance` and applied by `RepositoryMaintenance.run_full_repack`.
+
+### Full-repack timing
+
+`register_sync_and_check_repack` is called **once per sync run** (in `perform_sync` after all outcomes are persisted), not once per successful repo. This matches gitout's `Engine._finalize` semantics: the interval counter (`_sync_count`) increments by 1 per run regardless of how many repos succeeded. When the interval triggers (`weekly` = every 7 runs, `monthly` = every 30 runs), `run_full_repack` is called on the whole `GIT_BACKUP_DATA_PATH` tree.
+
+Per-repo post-sync maintenance (`run_post_sync_maintenance` — `git gc --auto`, geometric repack, commit-graph write) still runs individually inside each repo's success path and is unaffected by this change.
 
 ---
 
@@ -294,6 +344,39 @@ Because indexing uses content-hash dedup, a Qdrant point that goes missing (manu
 
 - **Detection** — `GitMirrorVectorIndexedEntityAdapter` (`app/infrastructure/vector/reconciliation.py`) plugs into the read-only `VectorIndexReconciler` and is registered in the reconcile CLI (`app/cli/reconcile_vector_index.py`). It reports `git_mirror` drift (expected vs indexed, missing vectors) in `report.details["entities"]["git_mirror"]` and the emitted metrics. "Expected to have a point" = `repository_id IS NULL AND readme_indexed_at IS NOT NULL AND status != EXCLUDED`.
 - **Repair** — `GitMirrorVectorReconciler` (`app/infrastructure/search/git_mirror_reconciler.py`) runs after the indexing pass in the git_backup Taskiq task when `GIT_BACKUP_RECONCILE_READMES` is set. It deletes orphaned points (`indexed - expected`: deleted, excluded, or now-GitHub-linked mirrors) via `delete_git_mirror_points`, and recreates missing points (`expected - indexed`) by re-running the indexer with `force=True` (bypassing the dedup skip); if the bare clone is gone from disk it clears `readme_indexed_at`/`readme_content_hash` so a future re-clone re-indexes. The whole pass is best-effort and never fails the backup.
+
+---
+
+## Failure propagation, metrics export, and notifications
+
+Three opt-in features run at the end of the `sync_git_backup` Taskiq task try-block, after `perform_sync` and all post-sync passes (index/reconcile/prune) complete. All three are default-off and leave existing runtime behavior unchanged unless explicitly enabled.
+
+### Failure propagation (`GIT_BACKUP_EXIT_ON_FAILURE`)
+
+By default the task always completes as success regardless of how many repos failed in a given run. When `GIT_BACKUP_EXIT_ON_FAILURE=true`, the task raises a `RuntimeError` if `summary.failed > 0`. The raise happens at the very end of the try-block — after metrics export and Telegram notification have already run — so those steps are never skipped. The `except` branch catches the exception, fires the Healthchecks.io failure ping (`{url}/fail`), and re-raises, causing Taskiq to record the run as failed.
+
+Use this when you want downstream alerting (Taskiq task-failure webhooks, external monitors) to fire on partial-failure runs.
+
+### Metrics export (`GIT_BACKUP_METRICS_EXPORT_PATH` / `GIT_BACKUP_METRICS_FORMAT`)
+
+When `GIT_BACKUP_METRICS_EXPORT_PATH` is set, a per-run record containing `ok`, `failed`, `skipped`, `total`, and `duration_seconds` is appended to that file path after each sync. Two formats are supported:
+
+- `json` (default): JSONL — one JSON object per line, appended on each run. Easy to process with `jq`.
+- `csv`: one data row appended; a header row is written automatically when the file is new or empty.
+
+File I/O is offloaded to `asyncio.to_thread`. Any I/O error is logged at WARNING and swallowed — the task outcome and healthcheck ping are never affected.
+
+### Per-run Telegram notifications (`GIT_BACKUP_NOTIFY_CHAT_ID` / `GIT_BACKUP_NOTIFY_ON`)
+
+When `GIT_BACKUP_NOTIFY_CHAT_ID` is set to a Telegram chat ID, the task can send a short completion DM listing the run counts. The `GIT_BACKUP_NOTIFY_ON` flag controls when:
+
+| `GIT_BACKUP_NOTIFY_ON` | When a message is sent |
+|---|---|
+| `never` (default) | Never — no messages sent. |
+| `always` | After every run, regardless of outcome. |
+| `failure` | Only when `summary.failed > 0`. |
+
+The notification uses the same `create_digest_bot_client` / `TelethonBotClient` pattern as the digest and RSS tasks (`async with bot: await bot.send_message(...)`). Any error during the notification is logged at WARNING and swallowed. The standard Telegram bot credentials (`API_ID`, `API_HASH`, `BOT_TOKEN`) must be configured.
 
 ---
 
