@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.core.url_utils import compute_dedupe_hash, normalize_url
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 
 if TYPE_CHECKING:
     from app.adapters.content.content_extractor import ContentExtractor
@@ -62,50 +63,55 @@ class ContentExtractionAgent(BaseAgent[ExtractionInput, ExtractionOutput]):
         self.correlation_id = input_data.correlation_id
         self.log_info("content_extraction_started", url=input_data.url)
 
-        try:
-            normalized_url = normalize_url(input_data.url)
+        with _tracer.start_as_current_span("agent.content_extraction") as span:
+            span.set_attribute(AGENT_NAME, "content_extraction")
+            span.set_attribute(REQUEST_CORRELATION_ID, self.correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
 
-            result = await self._extract_with_validation(
-                url=normalized_url,
-                correlation_id=input_data.correlation_id,
-            )
+            try:
+                normalized_url = normalize_url(input_data.url)
 
-            if not result:
-                return AgentResult.error_result(
-                    "Content extraction failed - no result returned",
-                    url=input_data.url,
+                result = await self._extract_with_validation(
+                    url=normalized_url,
+                    correlation_id=input_data.correlation_id,
                 )
 
-            validation_error = self._validate_content(result)
-            if validation_error:
-                self.log_warning(f"Content validation warning: {validation_error}")
+                if not result:
+                    return AgentResult.error_result(
+                        "Content extraction failed - no result returned",
+                        url=input_data.url,
+                    )
 
-            output = ExtractionOutput(
-                content_markdown=result.get("content_markdown", ""),
-                content_html=result.get("content_html"),
-                metadata=result.get("metadata", {}),
-                normalized_url=normalized_url,
-                crawl_result_id=result.get("id"),
-            )
+                validation_error = self._validate_content(result)
+                if validation_error:
+                    self.log_warning(f"Content validation warning: {validation_error}")
 
-            self.log_info(
-                "content_extraction_completed",
-                chars=len(output.content_markdown),
-            )
+                output = ExtractionOutput(
+                    content_markdown=result.get("content_markdown", ""),
+                    content_html=result.get("content_html"),
+                    metadata=result.get("metadata", {}),
+                    normalized_url=normalized_url,
+                    crawl_result_id=result.get("id"),
+                )
 
-            return AgentResult.success_result(
-                output,
-                content_length=len(output.content_markdown),
-                has_html=output.content_html is not None,
-            )
+                self.log_info(
+                    "content_extraction_completed",
+                    chars=len(output.content_markdown),
+                )
 
-        except Exception as e:
-            self.log_error(f"Content extraction failed: {e}")
-            return AgentResult.error_result(
-                f"Content extraction error: {e!s}",
-                url=input_data.url,
-                exception_type=type(e).__name__,
-            )
+                return AgentResult.success_result(
+                    output,
+                    content_length=len(output.content_markdown),
+                    has_html=output.content_html is not None,
+                )
+
+            except Exception as e:
+                self.log_error(f"Content extraction failed: {e}")
+                return AgentResult.error_result(
+                    f"Content extraction error: {e!s}",
+                    url=input_data.url,
+                    exception_type=type(e).__name__,
+                )
 
     async def _extract_with_validation(
         self, url: str, correlation_id: str

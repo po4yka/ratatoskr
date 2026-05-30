@@ -12,6 +12,13 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+def _get_tracer() -> object:
+    from app.observability.otel import get_tracer
+
+    return get_tracer(__name__)
+
+
 _TRANSCRIPT_MAX_RETRIES = 3
 
 
@@ -59,10 +66,11 @@ async def extract_transcript_via_api(
     for attempt in range(_TRANSCRIPT_MAX_RETRIES):
         try:
             async with asyncio.timeout(30.0):
-                transcript_list = await asyncio.to_thread(
-                    cast("Any", youtube_transcript_api).list_transcripts,
-                    video_id,
-                )
+                with _get_tracer().start_as_current_span("youtube.transcript_list"):
+                    transcript_list = await asyncio.to_thread(
+                        cast("Any", youtube_transcript_api).list_transcripts,
+                        video_id,
+                    )
 
             transcript = None
             auto_generated = False
@@ -121,7 +129,8 @@ async def extract_transcript_via_api(
                     return "", "en", False, "youtube-transcript-api"
 
             async with asyncio.timeout(30.0):
-                transcript_data = await asyncio.to_thread(transcript.fetch)
+                with _get_tracer().start_as_current_span("youtube.transcript_fetch"):
+                    transcript_data = await asyncio.to_thread(transcript.fetch)
 
             transcript_text = format_transcript(
                 transcript_data, max_chars=max_transcript_chars, log=logger_

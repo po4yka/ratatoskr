@@ -82,7 +82,7 @@ app/
 +-- domain/             # Domain models and services
 +-- infrastructure/     # Persistence, cache, messaging, vector store, embedding, cocoindex
 +-- mcp/                # Model Context Protocol server
-+-- observability/      # Metrics, tracing
++-- observability/      # Prometheus metrics (metrics.py), OTel tracing (otel.py: provider/exporters/Telethon helper), ratatoskr.* span-attribute constants (attributes.py)
 +-- prompts/            # LLM system prompts (en/ru, summary / combined_summary / instructor)
 +-- security/           # Token crypto (Fernet), redaction
 +-- tasks/              # Taskiq tasks (github_sync, reconcile_vector_index, digest, ...)
@@ -251,6 +251,7 @@ Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bear
 | `X_BOOKMARKS_DB_PATH`, `X_WIKI_LIBRARY_PATH`, `X_IDEAS_PATH` | Container-side paths to the host-mounted `~/.fieldtheory/` subtrees (`bookmarks.db`, `library/`, `ideas/`). Defaults: `/x_bookmarks/...` — bind-mounted read-only by the operator. |
 | `WEBWRIGHT_ENABLED`, `WEBWRIGHT_HOST_ALLOWLIST`, `WEBWRIGHT_URL`, `WEBWRIGHT_MAX_STEPS`, `WEBWRIGHT_TIMEOUT_SEC`, `WEBWRIGHT_MODEL` | Microsoft Webwright sidecar (compose profile `with-webwright`). Heavy: each invocation ~10-30× a normal scrape. Default off; double-gated by feature flag + non-empty host allowlist. See `docs/explanation/webwright.md`. |
 | `GIT_BACKUP_ENABLED`, `GIT_BACKUP_SYNC_CRON`, `GIT_BACKUP_DATA_PATH` | On-disk git mirror subsystem. Master switch (default `false`), Taskiq cron schedule (default `0 4 * * *` UTC), and local filesystem path for bare clones (default `/data/git-mirrors`). Full variable set in `docs/reference/environment-variables.md`. |
+| `OTEL_ENABLED`, `OTEL_TRACES_EXPORTER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_FILE_EXPORTER_PATH` | OpenTelemetry tracing. Opt-in master switch (default `false`); span exporter `otlp` (Tempo, default) / `console` / `file` (swap needs no code change); OTLP endpoint (default `http://tempo:4317`); file-exporter path for ad-hoc DuckDB/Polars analysis. 100% sampling is hard-wired (`OTEL_SAMPLE_RATIO` is a documented no-op). Full set + behavior in `docs/reference/environment-variables.md#observability--opentelemetry-tracing`. |
 
 ## Task Board
 

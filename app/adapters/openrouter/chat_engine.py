@@ -20,7 +20,12 @@ from app.adapters.openrouter.chat_transport import ChatTransport
 from app.core.async_utils import raise_if_cancelled
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
+from app.observability.attributes import (
+    LLM_FALLBACK_RUNG_INDEX,
+    LLM_MODELS_ATTEMPTED_COUNT,
+)
 from app.observability.metrics import (
+    record_llm_call_retry_exhaustion,
     record_per_model_circuit_breaker_state,
     record_per_model_latency,
     record_per_model_timeout,
@@ -343,6 +348,25 @@ class OpenRouterChatEngine:
                                 global_cb.record_success()
                             else:
                                 global_cb.record_failure()
+                        # Annotate the enclosing llm.chat span with fallback depth.
+                        # model_index is 0-based: 0 = primary model answered,
+                        # 1+ = a fallback rung was reached.
+                        # Use a bare try/except so a missing OTel package never
+                        # interrupts the request path.
+                        try:
+                            from app.observability.otel import _otel_available as _oa
+
+                            if _oa:
+                                from opentelemetry import trace as _ot_trace
+
+                                _span = _ot_trace.get_current_span()
+                                if _span.is_recording():
+                                    _span.set_attribute(LLM_FALLBACK_RUNG_INDEX, model_index)
+                                    _span.set_attribute(
+                                        LLM_MODELS_ATTEMPTED_COUNT, len(models_attempted)
+                                    )
+                        except Exception:
+                            pass
                         return model_state.terminal_result.model_copy(
                             update={
                                 "models_attempted": list(models_attempted),
@@ -421,6 +445,12 @@ class OpenRouterChatEngine:
             self._client.error_handler._max_retries + 1,
             last_error_text,
             request_id,
+        )
+        # Increment the retry-exhaustion counter once per request (not per attempt).
+        # Uses the last model in the cascade as the label so dashboards can show
+        # which model is at the end of the failing chain.
+        record_llm_call_retry_exhaustion(
+            model=context.models_to_try[-1] if context.models_to_try else "unknown"
         )
         if global_cb is not None:
             global_cb.record_failure()

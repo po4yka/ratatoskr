@@ -11,6 +11,33 @@ from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
+
+class _LazyTracer:
+    """Deferred tracer that resolves get_tracer() on first span call.
+
+    Module-level ``get_tracer()`` calls during import can interfere with
+    the OTel SDK's TracerProvider initialization order in tests.  Deferring
+    the call until the first ``start_as_current_span`` avoids that.
+    """
+
+    __slots__ = ("_t",)
+
+    def __init__(self) -> None:
+        self._t: object | None = None
+
+    def _resolve(self) -> object:
+        if self._t is None:
+            from app.observability.otel import get_tracer
+
+            self._t = get_tracer("app.agents")
+        return self._t
+
+    def start_as_current_span(self, name: str, **kwargs: object) -> object:
+        return self._resolve().start_as_current_span(name, **kwargs)  # type: ignore[union-attr]
+
+
+_tracer = _LazyTracer()
+
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
 

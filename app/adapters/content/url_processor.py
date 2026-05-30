@@ -224,7 +224,7 @@ class URLProcessor:
         request: URLFlowRequest,
     ) -> URLProcessingFlowResult:
         """Execute the URL processing pipeline (extraction -> summarization -> delivery)."""
-        from app.observability.otel import get_tracer
+        from app.observability.otel import get_tracer, set_correlation_id_attr
 
         _tracer = get_tracer(__name__)
         with _tracer.start_as_current_span(
@@ -234,6 +234,11 @@ class URLProcessor:
                 "ratatoskr.correlation_id": request.correlation_id,
             },
         ):
+            # Propagate correlation_id via the standard helper so it is
+            # attached to the active span and visible to child spans via
+            # Tempo's baggage propagation (the direct attribute above is
+            # span-local only).
+            set_correlation_id_attr(request.correlation_id)
             return await self._run_url_flow_inner(request)
 
     async def _run_url_flow_inner(
@@ -246,6 +251,9 @@ class URLProcessor:
         terminal_status: str = "succeeded"
         terminal_error_code: str | None = None
         terminal_error_message: str | None = None
+        from app.observability.metrics import set_url_processor_in_flight
+
+        set_url_processor_in_flight(+1)
         try:
             context = await self.context_builder.build(request)
             await self._record_url_flow_start(request=request, req_id=context.req_id)
@@ -471,6 +479,7 @@ class URLProcessor:
                     )
             return URLProcessingFlowResult(success=False)
         finally:
+            set_url_processor_in_flight(-1)
             elapsed_seconds = max(0.0, time.monotonic() - started_at)
             await self._record_url_flow_terminal(
                 request=request,

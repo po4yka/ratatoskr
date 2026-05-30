@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -10,8 +11,17 @@ if TYPE_CHECKING:
 
 from app.core.logging_utils import get_logger
 from app.infrastructure.embedding.embedding_protocol import EmbeddingSerializationMixin
+from app.observability.attributes import EMBEDDING_BATCH_SIZE, EMBEDDING_DIMS, EMBEDDING_MODEL
+from app.observability.metrics import record_db_query
 
 logger = get_logger(__name__)
+
+
+def _get_tracer() -> object:
+    from app.observability.otel import get_tracer
+
+    return get_tracer(__name__)
+
 
 # Task type mapping: caller-friendly names -> Gemini API enum values
 _TASK_TYPE_MAP: dict[str | None, str] = {
@@ -131,30 +141,37 @@ class GeminiEmbeddingService(EmbeddingSerializationMixin):
         """Embed up to _BATCH_SIZE inputs in one call, retrying on rate limits."""
         delay = _INITIAL_BACKOFF_SEC
         for attempt in range(_MAX_RETRIES):
-            try:
-                result = await asyncio.to_thread(
-                    client.models.embed_content,
-                    model=self._model,
-                    contents=contents,
-                    config={
-                        "task_type": gemini_task,
-                        "output_dimensionality": self._dimensions,
-                    },
-                )
-                return [embedding.values for embedding in result.embeddings]
-            except Exception as exc:
-                if not _is_rate_limit_error(exc) or attempt == _MAX_RETRIES - 1:
-                    raise
-                logger.warning(
-                    "gemini_embedding_rate_limited",
-                    extra={
-                        "attempt": attempt + 1,
-                        "retry_in_sec": delay,
-                        "batch_size": len(contents),
-                    },
-                )
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, _MAX_BACKOFF_SEC)
+            with _get_tracer().start_as_current_span("embedding.gemini_encode") as span:
+                span.set_attribute(EMBEDDING_MODEL, self._model)
+                span.set_attribute(EMBEDDING_BATCH_SIZE, len(contents))
+                span.set_attribute(EMBEDDING_DIMS, self._dimensions)
+                t0 = time.monotonic()
+                try:
+                    result = await asyncio.to_thread(
+                        client.models.embed_content,
+                        model=self._model,
+                        contents=contents,
+                        config={
+                            "task_type": gemini_task,
+                            "output_dimensionality": self._dimensions,
+                        },
+                    )
+                    record_db_query("gemini_embedding", time.monotonic() - t0)
+                    return [embedding.values for embedding in result.embeddings]
+                except Exception as exc:
+                    record_db_query("gemini_embedding", time.monotonic() - t0)
+                    if not _is_rate_limit_error(exc) or attempt == _MAX_RETRIES - 1:
+                        raise
+                    logger.warning(
+                        "gemini_embedding_rate_limited",
+                        extra={
+                            "attempt": attempt + 1,
+                            "retry_in_sec": delay,
+                            "batch_size": len(contents),
+                        },
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, _MAX_BACKOFF_SEC)
         return []  # unreachable: last attempt either returns or raises
 
     # -- Metadata --------------------------------------------------------------

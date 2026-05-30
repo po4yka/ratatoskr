@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from taskiq.message import TaskiqMessage
 
 from app.core.logging_utils import get_logger
+from app.observability.attributes import REQUEST_CORRELATION_ID, TASK_IS_ERR
 from app.observability.metrics import record_scheduler_chronic_failure
 
 logger = get_logger(__name__)
@@ -91,7 +92,7 @@ class OTelPropagationMiddleware(TaskiqMiddleware):
                 (message.labels or {}).get("correlation_id")
             )
             if cid:
-                span.set_attribute("ratatoskr.correlation_id", cid)
+                span.set_attribute(REQUEST_CORRELATION_ID, cid)
         except Exception:
             pass
         return message
@@ -101,7 +102,7 @@ class OTelPropagationMiddleware(TaskiqMiddleware):
             span = getattr(message, "_otel_span", None)
             if span is not None:
                 if hasattr(result, "is_err"):
-                    span.set_attribute("task.is_err", result.is_err)
+                    span.set_attribute(TASK_IS_ERR, result.is_err)
                 span.end()
         except Exception:
             pass

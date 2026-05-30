@@ -12,8 +12,9 @@ from app.adapter_models.batch_analysis import (
     CombinedSummaryOutput,
     RelationshipType,
 )
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.core.logging_utils import get_logger
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
@@ -69,36 +70,41 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
         articles = input_data.articles
         relationship = input_data.relationship
 
-        if len(articles) < 2:
-            return AgentResult.error_result(
-                "Need at least 2 articles for combined summary",
-                article_count=len(articles),
-            )
+        with _tracer.start_as_current_span("agent.combined_summary") as span:
+            span.set_attribute(AGENT_NAME, "combined_summary")
+            span.set_attribute(REQUEST_CORRELATION_ID, self.correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
 
-        if relationship.relationship_type == RelationshipType.UNRELATED:
-            return AgentResult.error_result(
-                "Cannot generate combined summary for unrelated articles",
-                relationship_type=relationship.relationship_type.value,
-            )
-
-        self.log_info(
-            f"Generating combined summary for {len(articles)} articles "
-            f"(relationship: {relationship.relationship_type.value})"
-        )
-
-        try:
-            result = await self._generate_combined_summary(input_data)
-            if result:
-                self.log_info(
-                    "Combined summary generated successfully",
-                    insight_count=len(result.synthesized_insights),
-                    reading_order_count=len(result.recommended_reading_order),
+            if len(articles) < 2:
+                return AgentResult.error_result(
+                    "Need at least 2 articles for combined summary",
+                    article_count=len(articles),
                 )
-                return AgentResult.success_result(result)
-            return AgentResult.error_result("Failed to generate combined summary")
-        except Exception as e:
-            self.log_error(f"Combined summary generation failed: {e}")
-            return AgentResult.error_result(f"Generation failed: {e}")
+
+            if relationship.relationship_type == RelationshipType.UNRELATED:
+                return AgentResult.error_result(
+                    "Cannot generate combined summary for unrelated articles",
+                    relationship_type=relationship.relationship_type.value,
+                )
+
+            self.log_info(
+                f"Generating combined summary for {len(articles)} articles "
+                f"(relationship: {relationship.relationship_type.value})"
+            )
+
+            try:
+                result = await self._generate_combined_summary(input_data)
+                if result:
+                    self.log_info(
+                        "Combined summary generated successfully",
+                        insight_count=len(result.synthesized_insights),
+                        reading_order_count=len(result.recommended_reading_order),
+                    )
+                    return AgentResult.success_result(result)
+                return AgentResult.error_result("Failed to generate combined summary")
+            except Exception as e:
+                self.log_error(f"Combined summary generation failed: {e}")
+                return AgentResult.error_result(f"Generation failed: {e}")
 
     async def _generate_combined_summary(
         self, input_data: CombinedSummaryInput

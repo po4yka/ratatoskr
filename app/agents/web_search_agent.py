@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,8 +10,10 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 
 from app.adapters.content.search_context_builder import SearchContextBuilder
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.core.logging_utils import get_logger
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
+from app.observability.metrics import record_llm_call_attempt, record_llm_call_latency
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
@@ -90,89 +93,94 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         """
         cid = input_data.correlation_id or self.correlation_id
 
-        # Skip if content too short
-        if len(input_data.content) < self._cfg.min_content_length:
-            self.log_info(
-                "content_too_short_for_search",
-                content_len=len(input_data.content),
-                min_required=self._cfg.min_content_length,
-            )
-            return AgentResult.success_result(
-                WebSearchAgentOutput(
-                    searched=False,
-                    context="",
-                    queries_executed=[],
-                    articles_found=0,
-                    reason=f"Content too short ({len(input_data.content)} chars)",
-                )
-            )
+        with _tracer.start_as_current_span("agent.web_search") as span:
+            span.set_attribute(AGENT_NAME, "web_search")
+            span.set_attribute(REQUEST_CORRELATION_ID, cid)
+            span.set_attribute(AGENT_ATTEMPT, 1)
 
-        # Phase 1: Analyze content for knowledge gaps
-        try:
-            analysis = await self._analyze_content(input_data.content, input_data.language, cid)
-        except Exception as e:
-            self.log_error("search_analysis_failed", error=str(e))
-            return AgentResult.success_result(
-                WebSearchAgentOutput(
-                    searched=False,
-                    context="",
-                    queries_executed=[],
-                    articles_found=0,
-                    reason=f"Analysis failed: {e}",
-                )
-            )
-
-        # Skip if no search needed
-        if not analysis.needs_search or not analysis.queries:
-            self.log_info("search_not_needed", reason=analysis.reason)
-            return AgentResult.success_result(
-                WebSearchAgentOutput(
-                    searched=False,
-                    context="",
-                    queries_executed=[],
-                    articles_found=0,
-                    reason=analysis.reason,
-                )
-            )
-
-        # Phase 2: Execute searches
-        queries_to_run = analysis.queries[: self._cfg.max_queries]
-        all_articles: list[TopicArticle] = []
-
-        for query in queries_to_run:
-            try:
-                articles = await self._search.find_articles(query, correlation_id=cid)
-                all_articles.extend(articles)
+            # Skip if content too short
+            if len(input_data.content) < self._cfg.min_content_length:
                 self.log_info(
-                    "search_query_completed",
-                    query=query,
-                    results=len(articles),
+                    "content_too_short_for_search",
+                    content_len=len(input_data.content),
+                    min_required=self._cfg.min_content_length,
                 )
+                return AgentResult.success_result(
+                    WebSearchAgentOutput(
+                        searched=False,
+                        context="",
+                        queries_executed=[],
+                        articles_found=0,
+                        reason=f"Content too short ({len(input_data.content)} chars)",
+                    )
+                )
+
+            # Phase 1: Analyze content for knowledge gaps
+            try:
+                analysis = await self._analyze_content(input_data.content, input_data.language, cid)
             except Exception as e:
-                self.log_warning("search_query_failed", query=query, error=str(e))
-                continue
+                self.log_error("search_analysis_failed", error=str(e))
+                return AgentResult.success_result(
+                    WebSearchAgentOutput(
+                        searched=False,
+                        context="",
+                        queries_executed=[],
+                        articles_found=0,
+                        reason=f"Analysis failed: {e}",
+                    )
+                )
 
-        # Build context from results
-        context = self._context_builder.build_context(all_articles)
+            # Skip if no search needed
+            if not analysis.needs_search or not analysis.queries:
+                self.log_info("search_not_needed", reason=analysis.reason)
+                return AgentResult.success_result(
+                    WebSearchAgentOutput(
+                        searched=False,
+                        context="",
+                        queries_executed=[],
+                        articles_found=0,
+                        reason=analysis.reason,
+                    )
+                )
 
-        self.log_info(
-            "web_search_completed",
-            queries_executed=len(queries_to_run),
-            articles_found=len(all_articles),
-            context_chars=len(context),
-        )
+            # Phase 2: Execute searches
+            queries_to_run = analysis.queries[: self._cfg.max_queries]
+            all_articles: list[TopicArticle] = []
 
-        return AgentResult.success_result(
-            WebSearchAgentOutput(
-                searched=True,
-                context=context,
-                queries_executed=queries_to_run,
+            for query in queries_to_run:
+                try:
+                    articles = await self._search.find_articles(query, correlation_id=cid)
+                    all_articles.extend(articles)
+                    self.log_info(
+                        "search_query_completed",
+                        query=query,
+                        results=len(articles),
+                    )
+                except Exception as e:
+                    self.log_warning("search_query_failed", query=query, error=str(e))
+                    continue
+
+            # Build context from results
+            context = self._context_builder.build_context(all_articles)
+
+            self.log_info(
+                "web_search_completed",
+                queries_executed=len(queries_to_run),
                 articles_found=len(all_articles),
-                reason=analysis.reason,
-            ),
-            queries=queries_to_run,
-            articles=len(all_articles),
-        )
+                context_chars=len(context),
+            )
+
+            return AgentResult.success_result(
+                WebSearchAgentOutput(
+                    searched=True,
+                    context=context,
+                    queries_executed=queries_to_run,
+                    articles_found=len(all_articles),
+                    reason=analysis.reason,
+                ),
+                queries=queries_to_run,
+                articles=len(all_articles),
+            )
 
     async def _analyze_content(
         self, content: str, language: str, correlation_id: str | None
@@ -201,15 +209,24 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
             },
         ]
 
-        # Make LLM call
-        result = await self._llm.chat_structured(
-            messages,
-            response_model=SearchAnalysisResult,
-            max_retries=3,
-            max_tokens=500,
-            temperature=0.1,  # Low temperature for deterministic analysis
-            request_id=None,  # No DB persistence for analysis
-        )
+        # Make LLM call with latency tracking for Prometheus
+        model = getattr(self._llm, "_model", "unknown")
+        t0 = time.monotonic()
+        try:
+            result = await self._llm.chat_structured(
+                messages,
+                response_model=SearchAnalysisResult,
+                max_retries=3,
+                max_tokens=500,
+                temperature=0.1,  # Low temperature for deterministic analysis
+                request_id=None,  # No DB persistence for analysis
+            )
+            record_llm_call_attempt(provider="openrouter", model=model, status="success")
+            record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)
+        except Exception:
+            record_llm_call_attempt(provider="openrouter", model=model, status="error")
+            record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)
+            raise
 
         return result.parsed
 

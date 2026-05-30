@@ -8,9 +8,16 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.core.summary_contract import validate_and_shape_summary
 from app.core.summary_contract_impl.common import is_numeric
+from app.observability.attributes import (
+    AGENT_ATTEMPT,
+    AGENT_NAME,
+    AGENT_VALIDATION_FAILURE_REASON,
+    REQUEST_CORRELATION_ID,
+)
+from app.observability.metrics import record_agent_validation_failure
 
 
 class ValidationInput(BaseModel):
@@ -46,50 +53,75 @@ class ValidationAgent(BaseAgent[ValidationInput, ValidationOutput]):
         """Validate summary JSON against strict contract."""
         summary = input_data.summary_json
 
-        errors: list[str] = []
-        warnings: list[str] = []
-        corrections: list[str] = []
+        with _tracer.start_as_current_span("agent.validation") as span:
+            span.set_attribute(AGENT_NAME, "validation")
+            span.set_attribute(REQUEST_CORRELATION_ID, self.correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
 
-        try:
-            self._validate_required_fields(summary, errors)
-            self._validate_summary_lengths(summary, errors, warnings)
-            self._validate_topic_tags(summary, errors, warnings)
-            self._validate_entities(summary, errors)
-            self._validate_key_stats(summary, errors)
-            self._validate_readability(summary, errors, warnings)
-            self._validate_reading_time(summary, errors, warnings)
-            self._validate_classification_fields(summary, errors)
+            errors: list[str] = []
+            warnings: list[str] = []
+            corrections: list[str] = []
 
-            cross_field_issues = self._validate_summary_distinctness(summary)
-            errors.extend(cross_field_issues["errors"])
-            warnings.extend(cross_field_issues["warnings"])
+            try:
+                self._validate_required_fields(summary, errors)
+                self._validate_summary_lengths(summary, errors, warnings)
+                self._validate_topic_tags(summary, errors, warnings)
+                self._validate_entities(summary, errors)
+                self._validate_key_stats(summary, errors)
+                self._validate_readability(summary, errors, warnings)
+                self._validate_reading_time(summary, errors, warnings)
+                self._validate_classification_fields(summary, errors)
 
-            if errors:
-                error_message = self._format_validation_errors(errors)
-                self.log_error(f"Validation failed: {len(errors)} error(s)")
-                return AgentResult.error_result(
-                    error_message, error_count=len(errors), warnings=warnings
+                cross_field_issues = self._validate_summary_distinctness(summary)
+                errors.extend(cross_field_issues["errors"])
+                warnings.extend(cross_field_issues["warnings"])
+
+                if errors:
+                    error_message = self._format_validation_errors(errors)
+                    self.log_error(f"Validation failed: {len(errors)} error(s)")
+                    reason = self._classify_validation_failure(errors)
+                    span.set_attribute(AGENT_VALIDATION_FAILURE_REASON, reason)
+                    record_agent_validation_failure(reason=reason)
+                    return AgentResult.error_result(
+                        error_message, error_count=len(errors), warnings=warnings
+                    )
+
+                validated_summary = validate_and_shape_summary(summary)
+
+                if warnings:
+                    self.log_warning(f"Validation warnings: {'; '.join(warnings)}")
+
+                return AgentResult.success_result(
+                    ValidationOutput(
+                        summary_json=validated_summary,
+                        validation_warnings=warnings,
+                        corrections_applied=corrections,
+                    ),
+                    warning_count=len(warnings),
                 )
 
-            validated_summary = validate_and_shape_summary(summary)
+            except Exception as e:
+                self.log_error(f"Validation error: {e}")
+                record_agent_validation_failure(reason="unknown")
+                return AgentResult.error_result(
+                    f"Validation exception: {e!s}", exception_type=type(e).__name__
+                )
 
-            if warnings:
-                self.log_warning(f"Validation warnings: {'; '.join(warnings)}")
-
-            return AgentResult.success_result(
-                ValidationOutput(
-                    summary_json=validated_summary,
-                    validation_warnings=warnings,
-                    corrections_applied=corrections,
-                ),
-                warning_count=len(warnings),
-            )
-
-        except Exception as e:
-            self.log_error(f"Validation error: {e}")
-            return AgentResult.error_result(
-                f"Validation exception: {e!s}", exception_type=type(e).__name__
-            )
+    @staticmethod
+    def _classify_validation_failure(errors: list[str]) -> str:
+        """Map the first validation error to a low-cardinality reason label."""
+        if not errors:
+            return "unknown"
+        first = errors[0].lower()
+        if "missing required field" in first or "missing" in first:
+            return "missing_field"
+        if "exceeds limit" in first or "exceed" in first or "max" in first:
+            return "length_exceeded"
+        if "must be" in first or "must have" in first or "must be a" in first:
+            return "schema_mismatch"
+        if "language" in first:
+            return "language_mismatch"
+        return "unknown"
 
     def _validate_required_fields(self, summary: dict[str, Any], errors: list[str]) -> None:
         required_fields = [

@@ -99,7 +99,7 @@ async def test_pre_execute_creates_child_span() -> None:
 
 @pytest.mark.asyncio
 async def test_post_execute_sets_is_err_attribute() -> None:
-    """post_execute must record task.is_err on the span."""
+    """post_execute must record ratatoskr.task.is_err on the span."""
     from unittest.mock import patch
 
     provider, exporter = _make_provider()
@@ -116,7 +116,7 @@ async def test_post_execute_sets_is_err_attribute() -> None:
     await middleware.post_execute(message, result)  # type: ignore[arg-type]
 
     finished = exporter.get_finished_spans()
-    assert any(s.attributes.get("task.is_err") is True for s in finished)
+    assert any(s.attributes.get("ratatoskr.task.is_err") is True for s in finished)
 
 
 @pytest.mark.asyncio

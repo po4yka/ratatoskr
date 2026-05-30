@@ -72,6 +72,16 @@ class CachedSummaryResponder:
                     "hash": dedupe_hash[:12],
                 },
             )
+            # Emit a child span so cache-hit paths are visible in traces.
+            from app.observability.attributes import REQUEST_DEDUPE_HASH
+            from app.observability.otel import get_tracer
+
+            _tracer = get_tracer(__name__)
+            with _tracer.start_as_current_span(
+                "url_flow.cache_hit",
+                attributes={REQUEST_DEDUPE_HASH: dedupe_hash},
+            ):
+                pass  # span covers the cache-hit decision point; payload delivery follows below
             if correlation_id:
                 await self._update_request_correlation_id(request_id, correlation_id)
 

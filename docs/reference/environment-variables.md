@@ -837,6 +837,25 @@ Periodic bare-clone mirroring of GitHub repositories (starred, owned, watched) a
 
 ---
 
+## Observability / OpenTelemetry Tracing
+
+Distributed tracing across the full pipeline (Telegram intake -> scraper rungs -> LLM cascade -> request root -> agents -> embedding/Qdrant) is emitted via the OpenTelemetry API and is **opt-in and graceful**: when disabled, or when the `[otel]` extra is not installed, or when the export endpoint is unreachable, the service runs with zero degradation (every tracing call degrades to a no-op; export failures are isolated by the batch processor and never reach the request path). Spans carry attributes from the single `ratatoskr.*` namespace defined in `app/observability/attributes.py`, keyed by the existing `correlation_id` (no parallel trace id is introduced). Metrics remain on the existing Prometheus layer (`app/observability/metrics.py`) and are unaffected by these variables.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OTEL_ENABLED` | `false` | Master switch. When false, `init_tracing()` is a no-op and no provider is installed. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://tempo:4317` | gRPC OTLP collector/Tempo endpoint. Used only when `OTEL_TRACES_EXPORTER=otlp`. |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Span exporter backend: `otlp` (gRPC to Tempo), `console` (human-readable spans to stdout, local debugging), or `file` (JSON span lines for ad-hoc DuckDB/Polars analysis). Swapping the exporter requires **no** instrumentation changes. |
+| `OTEL_FILE_EXPORTER_PATH` | `/data/traces/spans.jsonl` | Output path for the `file` exporter (used only when `OTEL_TRACES_EXPORTER=file`). The directory is created on first write. |
+| `OTEL_DB_SESSION_SPANS_ENABLED` | `false` | Opt-in span emission around DB sessions (off by default to avoid span volume on the hot path). |
+| `OTEL_SAMPLE_RATIO` | `1.0` | Retained for documentation only; **has no effect**. The sampler is hard-wired to `ParentBased(ALWAYS_ON)` (100% sampling) because this is a single-tenant, low-volume deployment where every trace is valuable. |
+
+Sampling is intentionally not configurable. httpx and Redis are auto-instrumented inside `init_tracing()`; FastAPI is auto-instrumented in `app/api/main.py`; Telethon (which has no auto-instrumentation) is wrapped manually via the `telethon_span()` helper in `app/observability/otel.py`. Process metadata for the resource is taken from `RATATOSKR_PROCESS_ROLE`, `RATATOSKR_VERSION`, and `RATATOSKR_ENV` when set.
+
+To swap to file-based traces for offline analysis: `OTEL_ENABLED=true OTEL_TRACES_EXPORTER=file OTEL_FILE_EXPORTER_PATH=/data/traces/spans.jsonl`. To run the deployed Tempo backend, use `ops/docker/docker-compose.monitoring.yml` (the bare `with-monitoring` profile of the main compose file does not start Tempo).
+
+---
+
 ## Configuration Validation Checklist
 
 Use this checklist to verify your configuration before deploying:

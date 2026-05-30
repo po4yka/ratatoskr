@@ -35,6 +35,21 @@ from app.adapters.openrouter.payload_logger import PayloadLogger
 from app.adapters.openrouter.request_builder import RequestBuilder
 from app.adapters.openrouter.response_processor import ResponseProcessor
 from app.core.async_utils import raise_if_cancelled
+from app.observability.attributes import (
+    LLM_CACHE_CREATION_TOKENS,
+    LLM_CACHE_READ_TOKENS,
+    LLM_COST_USD,
+    LLM_FALLBACK_RUNG_INDEX,
+    LLM_LATENCY_MS,
+    LLM_MODEL,
+    LLM_MODEL_SERVED,
+    LLM_MODELS_ATTEMPTED_COUNT,
+    LLM_PROVIDER,
+    LLM_TOKENS_COMPLETION,
+    LLM_TOKENS_PROMPT,
+    LLM_TOKENS_TOTAL,
+    REQUEST_CORRELATION_ID,
+)
 
 logger = get_logger(__name__)
 
@@ -504,6 +519,7 @@ class OpenRouterClient:
         per_model_timeout_overrides: dict[str, float] | None = None,
         budget_tight_ratio: float = 0.6,
         truncation_max_count: int = 2,
+        correlation_id: str | None = None,
     ) -> LLMCallResult:
         from app.observability.otel import get_tracer
 
@@ -511,10 +527,12 @@ class OpenRouterClient:
         with tracer.start_as_current_span(
             "llm.chat",
             attributes={
-                "llm.provider": "openrouter",
-                "llm.model": self._model,
+                LLM_PROVIDER: "openrouter",
+                LLM_MODEL: self._model,
             },
         ) as span:
+            if correlation_id and span.is_recording():
+                span.set_attribute(REQUEST_CORRELATION_ID, correlation_id)
             result = await self.chat_engine.chat(
                 messages,
                 temperature=temperature,
@@ -531,10 +549,29 @@ class OpenRouterClient:
                 budget_tight_ratio=budget_tight_ratio,
                 truncation_max_count=truncation_max_count,
             )
-            if hasattr(result, "cost_usd") and result.cost_usd:
-                span.set_attribute("llm.cost_usd", result.cost_usd)
-            if hasattr(result, "latency_ms") and result.latency_ms:
-                span.set_attribute("llm.latency_ms", result.latency_ms)
+            if span.is_recording():
+                if result.cost_usd is not None:
+                    span.set_attribute(LLM_COST_USD, result.cost_usd)
+                if result.latency_ms is not None:
+                    span.set_attribute(LLM_LATENCY_MS, result.latency_ms)
+                prompt_tokens = result.tokens_prompt or 0
+                completion_tokens = result.tokens_completion or 0
+                span.set_attribute(LLM_TOKENS_PROMPT, prompt_tokens)
+                span.set_attribute(LLM_TOKENS_COMPLETION, completion_tokens)
+                span.set_attribute(LLM_TOKENS_TOTAL, prompt_tokens + completion_tokens)
+                span.set_attribute(LLM_MODEL_SERVED, result.model or self._model)
+                if result.cache_read_tokens is not None:
+                    span.set_attribute(LLM_CACHE_READ_TOKENS, result.cache_read_tokens)
+                if result.cache_creation_tokens is not None:
+                    span.set_attribute(LLM_CACHE_CREATION_TOKENS, result.cache_creation_tokens)
+                models_attempted = result.models_attempted or []
+                span.set_attribute(LLM_MODELS_ATTEMPTED_COUNT, len(models_attempted))
+                # fallback_rung_index: 0-based index of the rung that produced
+                # the result. 0 = primary model succeeded; 1+ = a fallback answered.
+                for rung_index, (attempted_model, outcome) in enumerate(models_attempted):
+                    if outcome == "success" and attempted_model == result.model:
+                        span.set_attribute(LLM_FALLBACK_RUNG_INDEX, rung_index)
+                        break
             return cast("LLMCallResult", result)
 
     async def chat_structured(
@@ -548,6 +585,7 @@ class OpenRouterClient:
         request_id: int | None = None,
         model_override: str | None = None,
         fallback_models_override: tuple[str, ...] | list[str] | None = None,
+        correlation_id: str | None = None,
     ) -> Any:
         """Structured chat completion via Instructor (Pydantic-validated, auto-reask)."""
         from app.observability.otel import get_tracer as _get_tracer
@@ -556,11 +594,13 @@ class OpenRouterClient:
         with _tracer.start_as_current_span(
             "llm.chat_structured",
             attributes={
-                "llm.provider": "openrouter",
-                "llm.model": self._model,
+                LLM_PROVIDER: "openrouter",
+                LLM_MODEL: self._model,
             },
-        ):
-            return await self._chat_structured_impl(
+        ) as _span:
+            if correlation_id and _span.is_recording():
+                _span.set_attribute(REQUEST_CORRELATION_ID, correlation_id)
+            result = await self._chat_structured_impl(
                 messages,
                 response_model=response_model,
                 max_retries=max_retries,
@@ -570,6 +610,18 @@ class OpenRouterClient:
                 model_override=model_override,
                 fallback_models_override=fallback_models_override,
             )
+            if _span.is_recording():
+                _span.set_attribute(LLM_MODEL_SERVED, result.model_used or self._model)
+                if result.cost_usd is not None:
+                    _span.set_attribute(LLM_COST_USD, result.cost_usd)
+                if result.latency_ms is not None:
+                    _span.set_attribute(LLM_LATENCY_MS, result.latency_ms)
+                prompt_tokens = result.tokens_prompt or 0
+                completion_tokens = result.tokens_completion or 0
+                _span.set_attribute(LLM_TOKENS_PROMPT, prompt_tokens)
+                _span.set_attribute(LLM_TOKENS_COMPLETION, completion_tokens)
+                _span.set_attribute(LLM_TOKENS_TOTAL, prompt_tokens + completion_tokens)
+            return result
 
     async def _chat_structured_impl(
         self,

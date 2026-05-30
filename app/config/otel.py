@@ -19,7 +19,26 @@ class OtelConfig(BaseSettings):
     db_session_spans_enabled: bool = Field(
         default=False, validation_alias="OTEL_DB_SESSION_SPANS_ENABLED"
     )
+    # sample_ratio is retained for documentation but has no effect: the
+    # sampler is hard-wired to ParentBased(ALWAYS_ON) (100 % sampling).
+    # Removing this field would be a breaking env-var change, so it is kept.
     sample_ratio: float = Field(default=1.0, validation_alias="OTEL_SAMPLE_RATIO")
+
+    # Exporter backend selector.
+    # Allowed values: "otlp" (default) | "console" | "file"
+    # Changing this value requires no instrumentation changes; it only
+    # affects which SpanExporter is wired inside init_tracing().
+    traces_exporter: str = Field(
+        default="otlp",
+        validation_alias="OTEL_TRACES_EXPORTER",
+    )
+
+    # Filesystem path for the file exporter (used only when traces_exporter="file").
+    # The directory is created on first write if it does not exist.
+    file_exporter_path: str = Field(
+        default="/data/traces/spans.jsonl",
+        validation_alias="OTEL_FILE_EXPORTER_PATH",
+    )
 
     @classmethod
     def from_env(cls) -> OtelConfig:

@@ -22,17 +22,24 @@ from qdrant_client.models import (
 )
 
 from app.core.logging_utils import get_logger
-from app.infrastructure.vector.point_ids import git_mirror_point_id
-from app.infrastructure.vector.point_ids import str_to_uuid as _str_to_uuid
+from app.infrastructure.vector.point_ids import git_mirror_point_id, str_to_uuid as _str_to_uuid
 from app.infrastructure.vector.protocol import VectorStoreError
 from app.infrastructure.vector.qdrant_schemas import QdrantQueryFilters
 from app.infrastructure.vector.result_types import VectorQueryHit, VectorQueryResult
-from app.observability.metrics import record_vector_write
+from app.observability.attributes import VECTOR_OPERATION, VECTOR_STATUS
+from app.observability.metrics import record_db_query, record_vector_write
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = get_logger(__name__)
+
+
+def _get_tracer() -> object:
+    from app.observability.otel import get_tracer
+
+    return get_tracer(__name__)
+
 
 # Upsert points are chunked into bounded batches so a large backfill does not
 # build one oversized request body (Qdrant streams each chunk independently).
@@ -345,19 +352,31 @@ class QdrantVectorStore:
         final_ids = list(ids) if ids else [self._extract_id(m) for m in metadatas]
         points = self._build_points(vectors, metadatas, final_ids)
 
-        try:
-            for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
-                self._client.upsert(
-                    collection_name=self._collection_name,
-                    points=points[start : start + _UPSERT_CHUNK_SIZE],
-                    wait=wait,
+        with _get_tracer().start_as_current_span("vector.upsert") as span:
+            span.set_attribute(VECTOR_OPERATION, "upsert")
+            t0 = time.perf_counter()
+            try:
+                for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
+                    self._client.upsert(
+                        collection_name=self._collection_name,
+                        points=points[start : start + _UPSERT_CHUNK_SIZE],
+                        wait=wait,
+                    )
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_upsert", elapsed)
+                record_vector_write(operation="upsert", status="success")
+                span.set_attribute(VECTOR_STATUS, "success")
+            except Exception as exc:
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_upsert", elapsed)
+                logger.error(
+                    "vector_upsert_failed", extra={"count": len(vectors), "error": str(exc)}
                 )
-        except Exception as exc:
-            logger.error("vector_upsert_failed", extra={"count": len(vectors), "error": str(exc)})
-            record_vector_write(operation="upsert", status="failed")
-            if self._required:
-                raise VectorStoreError(str(exc)) from exc
-            self._available = False
+                record_vector_write(operation="upsert", status="failed")
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
 
     def replace_request_notes(
         self,
@@ -394,30 +413,40 @@ class QdrantVectorStore:
         points = self._build_points(vectors, metadatas, final_ids)
 
         client = self._client
-        try:
-            existing_uuid_strs = self._fetch_request_point_ids(request_id)
-            for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
-                client.upsert(
-                    collection_name=self._collection_name,
-                    points=points[start : start + _UPSERT_CHUNK_SIZE],
-                    wait=wait,
+        with _get_tracer().start_as_current_span("vector.replace") as span:
+            span.set_attribute(VECTOR_OPERATION, "replace")
+            t0 = time.perf_counter()
+            try:
+                existing_uuid_strs = self._fetch_request_point_ids(request_id)
+                for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
+                    client.upsert(
+                        collection_name=self._collection_name,
+                        points=points[start : start + _UPSERT_CHUNK_SIZE],
+                        wait=wait,
+                    )
+                stale = existing_uuid_strs - new_uuid_strs
+                if stale:
+                    client.delete(
+                        collection_name=self._collection_name,
+                        points_selector=PointIdsList(points=list(stale)),
+                        wait=wait,
+                    )
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace", elapsed)
+                record_vector_write(operation="replace", status="success")
+                span.set_attribute(VECTOR_STATUS, "success")
+            except Exception as exc:
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace", elapsed)
+                logger.error(
+                    "vector_replace_failed",
+                    extra={"request_id": request_id, "count": len(vectors), "error": str(exc)},
                 )
-            stale = existing_uuid_strs - new_uuid_strs
-            if stale:
-                client.delete(
-                    collection_name=self._collection_name,
-                    points_selector=PointIdsList(points=list(stale)),
-                    wait=wait,
-                )
-        except Exception as exc:
-            logger.error(
-                "vector_replace_failed",
-                extra={"request_id": request_id, "count": len(vectors), "error": str(exc)},
-            )
-            record_vector_write(operation="replace", status="failed")
-            if self._required:
-                raise VectorStoreError(str(exc)) from exc
-            self._available = False
+                record_vector_write(operation="replace", status="failed")
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
 
     # ------------------------------------------------------------------
     # Read operations
@@ -452,32 +481,41 @@ class QdrantVectorStore:
             **filter_payload,
         ).to_filter()
 
-        try:
-            client = self._client
-            response = client.query_points(
-                collection_name=self._collection_name,
-                query=list(query_vector),
-                query_filter=qdrant_filter,
-                limit=top_k,
-                with_payload=True,
-            )
-            # Qdrant COSINE returns similarity (1=identical).
-            # Convert to distance convention: distance = 1 - similarity.
-            hits = [
-                VectorQueryHit(
-                    id=str(p.id),
-                    distance=max(0.0, 1.0 - float(p.score)),
-                    metadata=dict(p.payload or {}),
+        with _get_tracer().start_as_current_span("vector.query") as span:
+            span.set_attribute(VECTOR_OPERATION, "query")
+            t0 = time.perf_counter()
+            try:
+                client = self._client
+                response = client.query_points(
+                    collection_name=self._collection_name,
+                    query=list(query_vector),
+                    query_filter=qdrant_filter,
+                    limit=top_k,
+                    with_payload=True,
                 )
-                for p in response.points
-            ]
-            return VectorQueryResult(hits=hits)
-        except Exception as exc:
-            logger.error("vector_query_failed", extra={"error": str(exc)})
-            if self._required:
-                raise VectorStoreError(str(exc)) from exc
-            self._available = False
-            return VectorQueryResult.empty()
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_query", elapsed)
+                # Qdrant COSINE returns similarity (1=identical).
+                # Convert to distance convention: distance = 1 - similarity.
+                hits = [
+                    VectorQueryHit(
+                        id=str(p.id),
+                        distance=max(0.0, 1.0 - float(p.score)),
+                        metadata=dict(p.payload or {}),
+                    )
+                    for p in response.points
+                ]
+                span.set_attribute(VECTOR_STATUS, "success")
+                return VectorQueryResult(hits=hits)
+            except Exception as exc:
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_query", elapsed)
+                logger.error("vector_query_failed", extra={"error": str(exc)})
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
+                return VectorQueryResult.empty()
 
     def delete_by_request_id(self, request_id: int | str) -> None:
         if not self._available:

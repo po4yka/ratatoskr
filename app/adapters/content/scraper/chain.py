@@ -16,7 +16,23 @@ from app.adapters.content.scraper.attempt_log import (
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_url_for_logging
-from app.observability.metrics import record_scraper_chain_total_latency
+from app.observability.attributes import (
+    SCRAPER_ATTEMPTS,
+    SCRAPER_CONTENT_LEN,
+    SCRAPER_MODE,
+    SCRAPER_OUTCOME,
+    SCRAPER_PROVIDER,
+    SCRAPER_REQUEST_ID,
+    SCRAPER_TIER,
+    SCRAPER_TIMEOUT_SEC,
+    SCRAPER_URL,
+    SCRAPER_WINNER,
+)
+from app.observability.metrics import (
+    record_scraper_attempt,
+    record_scraper_attempt_latency,
+    record_scraper_chain_total_latency,
+)
 from app.security.ssrf import is_url_safe
 
 if TYPE_CHECKING:
@@ -225,8 +241,8 @@ class ContentScraperChain:
         with _tracer.start_as_current_span(
             "scraper.chain",
             attributes={
-                "scraper.url": str(redact_url_for_logging(url)),
-                "scraper.mode": mode,
+                SCRAPER_URL: str(redact_url_for_logging(url)),
+                SCRAPER_MODE: mode,
             },
         ) as chain_span:
             if not self._race_enabled:
@@ -242,7 +258,9 @@ class ContentScraperChain:
                 )
             else:
                 winner = None
-                for tier_name, tier_providers in self._grouped_tiers(effective):
+                for tier_index, (tier_name, tier_providers) in enumerate(
+                    self._grouped_tiers(effective)
+                ):
                     if not tier_providers:
                         continue
                     winner = await self._run_tier(
@@ -255,6 +273,7 @@ class ContentScraperChain:
                         recorder=recorder,
                         tracer=_tracer,
                         chain_span=chain_span,
+                        tier_index=tier_index,
                     )
                     if winner is not None:
                         break
@@ -263,7 +282,7 @@ class ContentScraperChain:
                 _record_outcome("success")
                 return self._attach_attempt_telemetry(winner, recorder)
 
-            chain_span.set_attribute("scraper.attempts", len(errors))
+            chain_span.set_attribute(SCRAPER_ATTEMPTS, len(errors))
             logger.warning(
                 "scraper_chain_exhausted",
                 extra={
@@ -307,6 +326,8 @@ class ContentScraperChain:
         recorder: ScraperAttemptRecorder,
         tracer: Any,
         chain_span: Any,
+        tier_name: str = "other",
+        tier_index: int = 0,
     ) -> FirecrawlResult | None:
         """Original ordered-fallback path; one provider at a time."""
         for provider in providers:
@@ -317,13 +338,17 @@ class ContentScraperChain:
                 request_id=request_id,
                 recorder=recorder,
                 tracer=tracer,
+                tier_name=tier_name,
+                tier_index=tier_index,
             )
             result, error_msg = outcome
             if error_msg is not None:
                 errors.append(error_msg)
             if result is not None:
-                chain_span.set_attribute("scraper.winner", provider.provider_name)
-                chain_span.set_attribute("scraper.attempts", len(errors) + 1)
+                chain_span.set_attribute(SCRAPER_WINNER, provider.provider_name)
+                chain_span.set_attribute(SCRAPER_ATTEMPTS, len(errors) + 1)
+                if result.content_markdown:
+                    chain_span.set_attribute(SCRAPER_CONTENT_LEN, len(result.content_markdown))
                 self._log_chain_success(provider.provider_name, url, result, request_id, errors)
                 return result
         return None
@@ -347,6 +372,7 @@ class ContentScraperChain:
         recorder: ScraperAttemptRecorder,
         tracer: Any,
         chain_span: Any,
+        tier_index: int = 0,
     ) -> FirecrawlResult | None:
         """Race providers within a tier; first acceptable result wins.
 
@@ -365,6 +391,8 @@ class ContentScraperChain:
                 recorder=recorder,
                 tracer=tracer,
                 chain_span=chain_span,
+                tier_name=tier_name,
+                tier_index=tier_index,
             )
 
         logger.info(
@@ -386,6 +414,8 @@ class ContentScraperChain:
                     request_id=request_id,
                     recorder=recorder,
                     tracer=tracer,
+                    tier_name=tier_name,
+                    tier_index=tier_index,
                 )
             ): provider
             for provider in providers
@@ -430,8 +460,10 @@ class ContentScraperChain:
                 await asyncio.gather(*pending, return_exceptions=True)
 
         if winner is not None:
-            chain_span.set_attribute("scraper.winner", winner_provider or "unknown")
-            chain_span.set_attribute("scraper.attempts", len(errors) + 1)
+            chain_span.set_attribute(SCRAPER_WINNER, winner_provider or "unknown")
+            chain_span.set_attribute(SCRAPER_ATTEMPTS, len(errors) + 1)
+            if winner.content_markdown:
+                chain_span.set_attribute(SCRAPER_CONTENT_LEN, len(winner.content_markdown))
             self._log_chain_success(winner_provider or "unknown", url, winner, request_id, errors)
 
         return winner
@@ -445,6 +477,8 @@ class ContentScraperChain:
         request_id: int | None,
         recorder: ScraperAttemptRecorder,
         tracer: Any,
+        tier_name: str = "other",
+        tier_index: int = 0,
     ) -> tuple[FirecrawlResult | None, str | None]:
         """Run one provider and validate its output.
 
@@ -455,32 +489,49 @@ class ContentScraperChain:
         name = provider.provider_name
         started = time.monotonic()
 
+        def _latency_ms() -> int:
+            return int(max(0.0, time.monotonic() - started) * 1000)
+
         def _record(status: str, error_class: str | None) -> None:
             recorder.record(
                 ScraperAttemptEntry(
                     provider=name,
                     status=status,
-                    latency_ms=int(max(0.0, time.monotonic() - started) * 1000),
+                    latency_ms=_latency_ms(),
                     error_class=error_class,
                 )
             )
 
+        # Build initial span attributes present on every rung regardless of outcome.
+        span_attrs: dict[str, Any] = {
+            SCRAPER_PROVIDER: name,
+            SCRAPER_URL: str(redact_url_for_logging(url)),
+            SCRAPER_TIER: tier_index,
+        }
+        if request_id is not None:
+            span_attrs[SCRAPER_REQUEST_ID] = str(request_id)
+        timeout_sec = getattr(provider, "timeout_sec", None)
+        if timeout_sec is not None:
+            span_attrs[SCRAPER_TIMEOUT_SEC] = float(timeout_sec)
+
         with tracer.start_as_current_span(
-            f"scraper.{name}",
-            attributes={
-                "scraper.provider": name,
-                "scraper.url": str(redact_url_for_logging(url)),
-            },
+            f"scraper.{name}", attributes=span_attrs
         ) as provider_span:
             try:
                 result = await provider.scrape_markdown(url, mobile=mobile, request_id=request_id)
             except asyncio.CancelledError:
-                provider_span.set_attribute("scraper.outcome", "cancelled")
+                latency_ms = _latency_ms()
+                provider_span.set_attribute(SCRAPER_OUTCOME, "cancelled")
+                record_scraper_attempt(provider=name, status="skipped")
+                record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
                 _record("skipped", "CancelledError")
                 raise
             except Exception as exc:
-                provider_span.set_attribute("scraper.outcome", "error")
+                latency_ms = _latency_ms()
+                provider_span.set_attribute(SCRAPER_OUTCOME, "error")
                 provider_span.set_attribute("error.type", type(exc).__name__)
+                record_scraper_attempt(provider=name, status="error")
+                record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
                 logger.warning(
                     "scraper_chain_provider_exception",
                     extra={
@@ -503,7 +554,12 @@ class ContentScraperChain:
                 text = best_content_text(result)
 
                 if _is_error_page(text):
-                    provider_span.set_attribute("scraper.outcome", "error_page")
+                    latency_ms = _latency_ms()
+                    provider_span.set_attribute(SCRAPER_OUTCOME, "error_page")
+                    record_scraper_attempt(provider=name, status="error")
+                    record_scraper_attempt_latency(
+                        provider=name, latency_seconds=latency_ms / 1000.0
+                    )
                     logger.info(
                         "scraper_chain_error_page",
                         extra={
@@ -517,7 +573,12 @@ class ContentScraperChain:
                     return None, f"{name}: error page detected ({len(text)} chars)"
 
                 if self._min_content_length > 0 and len(text) < self._min_content_length:
-                    provider_span.set_attribute("scraper.outcome", "too_short")
+                    latency_ms = _latency_ms()
+                    provider_span.set_attribute(SCRAPER_OUTCOME, "too_short")
+                    record_scraper_attempt(provider=name, status="error")
+                    record_scraper_attempt_latency(
+                        provider=name, latency_seconds=latency_ms / 1000.0
+                    )
                     logger.info(
                         "scraper_chain_thin_content",
                         extra={
@@ -538,9 +599,14 @@ class ContentScraperChain:
                     detect_low_value_content(result) if self._min_content_length > 0 else None
                 )
                 if quality_issue is not None:
+                    latency_ms = _latency_ms()
                     reason = quality_issue["reason"]
                     metrics = quality_issue["metrics"]
-                    provider_span.set_attribute("scraper.outcome", "low_value")
+                    provider_span.set_attribute(SCRAPER_OUTCOME, "low_value")
+                    record_scraper_attempt(provider=name, status="error")
+                    record_scraper_attempt_latency(
+                        provider=name, latency_seconds=latency_ms / 1000.0
+                    )
                     logger.info(
                         "scraper_chain_low_value_content",
                         extra={
@@ -558,11 +624,18 @@ class ContentScraperChain:
                         f" words={metrics['word_count']})"
                     )
 
-                provider_span.set_attribute("scraper.outcome", "success")
+                latency_ms = _latency_ms()
+                provider_span.set_attribute(SCRAPER_OUTCOME, "success")
+                provider_span.set_attribute(SCRAPER_CONTENT_LEN, len(text))
+                record_scraper_attempt(provider=name, status="success")
+                record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
                 _record("success", None)
                 return result, None
 
-            provider_span.set_attribute("scraper.outcome", "no_content")
+            latency_ms = _latency_ms()
+            provider_span.set_attribute(SCRAPER_OUTCOME, "no_content")
+            record_scraper_attempt(provider=name, status="error")
+            record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
             logger.info(
                 "scraper_chain_provider_failed",
                 extra={

@@ -146,6 +146,12 @@ class MessageRouter:
         concurrent_acquired = False
         correlation_id = generate_correlation_id()
         typing_indicator_obj: TypingIndicator | None = None
+        from app.observability.attributes import (
+            TELEGRAM_CHAT_ID,
+            TELEGRAM_HAS_FORWARD,
+            TELEGRAM_INTERACTION_TYPE,
+            TELEGRAM_SOURCE_TYPE,
+        )
         from app.observability.otel import get_tracer, set_correlation_id_attr
 
         _tracer = get_tracer(__name__)
@@ -156,11 +162,25 @@ class MessageRouter:
                 attributes={
                     "ratatoskr.correlation_id": correlation_id,
                 },
-            ):
+            ) as _root_span:
                 set_correlation_id_attr(correlation_id)
                 route_context = await self._context_builder.prepare(message, correlation_id)
                 if route_context is None:
                     return
+
+                # Enrich the root span with Telegram context after prepare() returns.
+                # interaction_type values: "url" | "forward" | "command" | "text" | "unknown"
+                # TELEGRAM_SOURCE_TYPE mirrors REQUEST_SOURCE_TYPE semantics.
+                _it = route_context.interaction_type
+                _source_type = _it if _it in ("url", "forward") else "unknown"
+                if _root_span.is_recording():
+                    _root_span.set_attribute(TELEGRAM_INTERACTION_TYPE, _it)
+                    _root_span.set_attribute(
+                        TELEGRAM_HAS_FORWARD, "true" if route_context.has_forward else "false"
+                    )
+                    if route_context.chat_id is not None:
+                        _root_span.set_attribute(TELEGRAM_CHAT_ID, str(route_context.chat_id))
+                    _root_span.set_attribute(TELEGRAM_SOURCE_TYPE, _source_type)
 
                 uid = route_context.uid
 

@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 
 from app.application.ports.search import EmbeddingDependencyUnavailableError
 from app.core.logging_utils import get_logger
 from app.infrastructure.embedding.embedding_protocol import EmbeddingSerializationMixin
+from app.observability.attributes import (
+    EMBEDDING_BATCH_SIZE,
+    EMBEDDING_DIMS,
+    EMBEDDING_MODEL,
+)
+from app.observability.metrics import record_db_query
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -15,6 +22,12 @@ if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
 logger = get_logger(__name__)
+
+
+def _get_tracer() -> object:
+    from app.observability.otel import get_tracer
+
+    return get_tracer(__name__)
 
 
 # Language-specific model configuration
@@ -110,11 +123,18 @@ class EmbeddingService(EmbeddingSerializationMixin):
         """
         model_name = self._get_model_name_for_language(language)
         model = self._ensure_model(model_name)
+        dims = self._dimensions.get(model_name, 0)
 
-        # Run in thread pool to avoid blocking
-        return await asyncio.to_thread(
-            model.encode, text, convert_to_numpy=True, show_progress_bar=False
-        )
+        with _get_tracer().start_as_current_span("embedding.encode") as span:
+            span.set_attribute(EMBEDDING_MODEL, model_name)
+            span.set_attribute(EMBEDDING_BATCH_SIZE, 1)
+            span.set_attribute(EMBEDDING_DIMS, dims)
+            t0 = time.monotonic()
+            result = await asyncio.to_thread(
+                model.encode, text, convert_to_numpy=True, show_progress_bar=False
+            )
+            record_db_query("embedding_encode_single", time.monotonic() - t0)
+        return result
 
     async def generate_embeddings_batch(
         self,
@@ -126,13 +146,22 @@ class EmbeddingService(EmbeddingSerializationMixin):
         """Generate embeddings for multiple texts using native batched encode."""
         model_name = self._get_model_name_for_language(language)
         model = self._ensure_model(model_name)
-        results = await asyncio.to_thread(
-            model.encode,
-            list(texts),
-            convert_to_numpy=True,
-            show_progress_bar=False,
-        )
-        return list(results)
+        dims = self._dimensions.get(model_name, 0)
+        batch_size = len(texts)
+
+        with _get_tracer().start_as_current_span("embedding.encode_batch") as span:
+            span.set_attribute(EMBEDDING_MODEL, model_name)
+            span.set_attribute(EMBEDDING_BATCH_SIZE, batch_size)
+            span.set_attribute(EMBEDDING_DIMS, dims)
+            t0 = time.monotonic()
+            raw = await asyncio.to_thread(
+                model.encode,
+                list(texts),
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+            record_db_query("embedding_encode_batch", time.monotonic() - t0)
+        return list(raw)
 
     def get_model_name(self, language: str | None = None) -> str:
         """Get model name for a specific language."""

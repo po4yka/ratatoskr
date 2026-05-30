@@ -36,6 +36,7 @@ from app.core.lang import detect_language
 from app.core.logging_utils import get_logger
 from app.core.urls.youtube import extract_youtube_video_id
 from app.domain.models.source import SourceItem, SourceKind
+from app.observability.attributes import SOURCE_URL
 
 if TYPE_CHECKING:
     from app.adapters.transcription import TranscriptionService
@@ -43,6 +44,13 @@ if TYPE_CHECKING:
     from app.adapters.youtube.session_service import YouTubeDownloadSessionService
 
 logger = get_logger(__name__)
+
+
+def _get_tracer() -> object:
+    from app.observability.otel import get_tracer
+
+    return get_tracer(__name__)
+
 
 _KNOWN_LANG_CODES = _vtt.KNOWN_LANG_CODES
 
@@ -96,13 +104,15 @@ class YouTubeDownloadPipeline:
             output_dir = self._session_service.storage_path / datetime.now(UTC).strftime("%Y%m%d")
             output_dir.mkdir(parents=True, exist_ok=True)
             ydl_opts = self._get_ydl_opts(video_id, output_dir)
-            async with asyncio.timeout(600.0):
-                video_metadata = await asyncio.to_thread(
-                    self._download_video_sync,
-                    request.url_text,
-                    ydl_opts,
-                    request.correlation_id,
-                )
+            with _get_tracer().start_as_current_span("youtube.download") as _dl_span:
+                _dl_span.set_attribute(SOURCE_URL, request.url_text)
+                async with asyncio.timeout(600.0):
+                    video_metadata = await asyncio.to_thread(
+                        self._download_video_sync,
+                        request.url_text,
+                        ydl_opts,
+                        request.correlation_id,
+                    )
 
             if feedback_state.updater is not None:
                 stage_duration = time.time() - feedback_state.stage_start

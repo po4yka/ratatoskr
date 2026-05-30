@@ -137,12 +137,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                     ),
                 },
             )
-        try:
-            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        # FastAPI auto-instrumentation: guarded by both package presence and
+        # OTEL_ENABLED so the import is never attempted when tracing is off.
+        if _cfg.otel.enabled:
+            try:
+                from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-            FastAPIInstrumentor.instrument_app(app)
-        except ImportError:
-            pass
+                FastAPIInstrumentor.instrument_app(app)
+            except ImportError:
+                pass
         app.state.runtime = runtime
         set_current_api_runtime(runtime)
 

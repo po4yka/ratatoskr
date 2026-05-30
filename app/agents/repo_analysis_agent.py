@@ -10,6 +10,8 @@ from pydantic import ValidationError
 
 from app.core.logging_utils import get_logger
 from app.core.repo_analysis_contract import parse_and_validate_repo_analysis
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
+from app.observability.metrics import record_llm_call_persisted
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
@@ -19,6 +21,15 @@ if TYPE_CHECKING:
     from app.core.repo_analysis_schema import RepoAnalysis, RepoAnalysisInput
 
 logger = get_logger(__name__)
+
+
+# Lazy import to avoid early-binding the OTel TracerProvider at module import
+# time, which can interfere with test-level provider setup.
+def _get_tracer() -> object:
+    from app.observability.otel import get_tracer
+
+    return get_tracer(__name__)
+
 
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -122,19 +133,23 @@ class RepoAnalysisAgent:
         Returns a ``RepoAnalysis`` on success, or ``None`` after
         ``max_attempts`` consecutive failures.
         """
-        if isinstance(self._llm, StructuredLLMServiceProtocol):
-            return await self._analyze_structured(
+        with _get_tracer().start_as_current_span("agent.repo_analysis") as span:
+            span.set_attribute(AGENT_NAME, "repo_analysis")
+            span.set_attribute(REQUEST_CORRELATION_ID, correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
+            if isinstance(self._llm, StructuredLLMServiceProtocol):
+                return await self._analyze_structured(
+                    input,
+                    chosen_lang=chosen_lang,
+                    correlation_id=correlation_id,
+                    max_attempts=max_attempts,
+                )
+            return await self._analyze_legacy(
                 input,
                 chosen_lang=chosen_lang,
                 correlation_id=correlation_id,
                 max_attempts=max_attempts,
             )
-        return await self._analyze_legacy(
-            input,
-            chosen_lang=chosen_lang,
-            correlation_id=correlation_id,
-            max_attempts=max_attempts,
-        )
 
     async def _analyze_structured(
         self,
@@ -398,6 +413,7 @@ class RepoAnalysisAgent:
         }
         try:
             await self._llm_repo.async_insert_llm_call(payload)
+            record_llm_call_persisted(payload)
         except Exception as exc:
             logger.warning(
                 "repo_analysis_persist_failed",

@@ -528,6 +528,37 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    # ---- URL processor in-flight gauge (Phase 5c) -----------------------
+    # Incremented when URLProcessor begins processing a request; decremented
+    # in the finally-block.  Single-process gauge (one Docker container).
+    URL_PROCESSOR_IN_FLIGHT = Gauge(
+        "ratatoskr_url_processor_in_flight",
+        "Number of URL processing requests currently active",
+        registry=REGISTRY,
+    )
+
+    # ---- APScheduler / queue depth gauge (Phase 5c) ---------------------
+    # Snapshot depth of any scheduler or background queue at reporting time.
+    # Label "queue" distinguishes multiple queues (e.g. "url_processor",
+    # "taskiq", "rss").
+    SCHEDULER_QUEUE_DEPTH = Gauge(
+        "ratatoskr_scheduler_queue_depth",
+        "Current depth of a named background job queue",
+        ["queue"],
+        registry=REGISTRY,
+    )
+
+    # ---- Agent validation-failure counter (Phase 4c) --------------------
+    # Incremented each time ValidationAgent rejects a summary.
+    # Low-cardinality label "reason" (e.g. "missing_field", "length_exceeded",
+    # "schema_mismatch", "language_mismatch", "unknown").
+    AGENT_VALIDATION_FAILURES_TOTAL = Counter(
+        "ratatoskr_agent_validation_failures_total",
+        "Total ValidationAgent failures by reason",
+        ["reason"],
+        registry=REGISTRY,
+    )
+
 else:
     # Create dummy metrics when prometheus_client is not available
     REGISTRY = None
@@ -574,12 +605,18 @@ else:
     LLM_REPAIR_ATTEMPTS_TOTAL = None
     LLM_FALLBACK_ATTEMPTS_TOTAL = None
     LLM_TIMEOUTS_TOTAL = None
+    LLM_REQUEST_TOTAL_LATENCY_SECONDS = None
+    LLM_REQUEST_SLOW_TOTAL = None
+    SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS = None
     SCRAPER_ATTEMPTS_TOTAL = None
     SCRAPER_ATTEMPT_LATENCY_SECONDS = None
     SOCIAL_FETCH_TOTAL = None
     SOCIAL_TOKEN_REFRESH_TOTAL = None
     SOCIAL_RATE_LIMIT_TOTAL = None
     SOCIAL_CONNECTION_STATUS_TOTAL = None
+    URL_PROCESSOR_IN_FLIGHT = None
+    SCHEDULER_QUEUE_DEPTH = None
+    AGENT_VALIDATION_FAILURES_TOTAL = None
 
 
 def get_metrics() -> bytes:
@@ -1206,6 +1243,52 @@ def record_scraper_chain_total_latency(
     SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS.labels(mode=mode, outcome=outcome).observe(
         total_latency_seconds
     )
+
+
+def set_url_processor_in_flight(delta: int) -> None:
+    """Increment or decrement the URL processor in-flight gauge.
+
+    Call with delta=+1 when URLProcessor begins a request and delta=-1 in
+    the finally-block when it completes.  Uses inc()/dec() to be safe under
+    concurrent calls from the same process.
+
+    Args:
+        delta: +1 to increment (request started), -1 to decrement (request done).
+    """
+    if not PROMETHEUS_AVAILABLE or URL_PROCESSOR_IN_FLIGHT is None:
+        return
+    if delta > 0:
+        URL_PROCESSOR_IN_FLIGHT.inc(delta)
+    elif delta < 0:
+        URL_PROCESSOR_IN_FLIGHT.dec(-delta)
+
+
+def set_scheduler_queue_depth(queue: str, depth: int) -> None:
+    """Set the current depth of a named background job queue.
+
+    Args:
+        queue: Queue name label (e.g. "url_processor", "taskiq", "rss").
+        depth: Current number of waiting jobs.  Negative values are silently
+            ignored.
+    """
+    if not PROMETHEUS_AVAILABLE or SCHEDULER_QUEUE_DEPTH is None:
+        return
+    if depth < 0:
+        return
+    SCHEDULER_QUEUE_DEPTH.labels(queue=_metric_label(queue)).set(depth)
+
+
+def record_agent_validation_failure(*, reason: str) -> None:
+    """Increment the agent validation-failure counter.
+
+    Args:
+        reason: Low-cardinality failure reason.  Use one of:
+            "missing_field", "length_exceeded", "schema_mismatch",
+            "language_mismatch", "unknown".
+    """
+    if not PROMETHEUS_AVAILABLE or AGENT_VALIDATION_FAILURES_TOTAL is None:
+        return
+    AGENT_VALIDATION_FAILURES_TOTAL.labels(reason=_metric_label(reason)).inc()
 
 
 def record_llm_request_total_latency(
