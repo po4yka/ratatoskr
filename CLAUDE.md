@@ -104,6 +104,7 @@ Project-specific conventions that aren't visible from code alone. Treat these as
 8. **YouTube, Twitter/X, and academic papers each have dedicated extractors** (`app/adapters/youtube/`, `twitter/`, `academic/`) that bypass the standard scraper chain. Check `requests.source_kind` before assuming the chain ran.
 9. **Webwright is the only chain rung that costs real LLM money per URL.** Default off (`WEBWRIGHT_ENABLED=false`) and double-gated by a non-empty `WEBWRIGHT_HOST_ALLOWLIST` — an empty allowlist short-circuits provider construction so the sidecar is never called. The same sidecar serves `/browse` (Path B) and `WebwrightEnricher` (Path C); design rationale lives in `docs/explanation/webwright.md`.
 10. **When a client ships a new default client_id, add it to `app/config/known_client_ids.py` `KNOWN_CLIENT_IDS` and to every deployment's `ALLOWED_CLIENT_IDS` env var (or set `AUTH_ALLOW_ANY_CLIENT_ID=true` for local/development deployments).**
+11. **Model selection has no code default -- `ratatoskr.yaml` is the single source of truth.** `OpenRouterConfig.model`/`fallback_models`/`flash_model`/`flash_fallback_models`/`long_context_model` and `AttachmentConfig.vision_model`/`vision_fallback_models` are required fields with no `Field(default=...)`. The bot hard-fails at startup if any is absent from `ratatoskr.yaml` (or an env override). When changing models, edit the `openrouter:` / `attachment:` sections of `config/ratatoskr.yaml` (and the deployed `/app/config/ratatoskr.yaml`) -- never re-add code defaults. Tests that build config under `patch.dict(..., clear=True)` must supply these via `tests/_config_env.py::MODEL_SELECTION_ENV`.
 
 ### Bugbear rules to never suppress project-wide
 
@@ -240,7 +241,8 @@ Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bear
 | Var | Purpose |
 |---|---|
 | `ALLOWED_USER_IDS` | Comma-separated Telegram user IDs allowed to use the bot |
-| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS` | LLM provider and cascade |
+| `OPENROUTER_API_KEY` | LLM provider key (secret -- `.env` only) |
+| `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`, `OPENROUTER_FLASH_MODEL`, `OPENROUTER_FLASH_FALLBACK_MODELS`, `OPENROUTER_LONG_CONTEXT_MODEL`, `ATTACHMENT_VISION_MODEL`, `ATTACHMENT_VISION_FALLBACK_MODELS` | **Model selection -- no code default.** Must be set in `ratatoskr.yaml` (`openrouter:` / `attachment:` sections); the bot hard-fails at startup if any is missing. `ratatoskr.yaml` is the single source of truth for which models the service uses. |
 | `LLM_CALL_TIMEOUT_SEC`, `LLM_PER_MODEL_TIMEOUT_MIN_SEC`, `LLM_PER_MODEL_TIMEOUT_OVERRIDES` | LLM cascade budget shaping |
 | `DATABASE_URL` | Postgres DSN |
 | `DIGEST_ENABLED`, `API_BASE_URL` | Channel digest subsystem on/off + Mini App callback URL |

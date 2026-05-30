@@ -29,11 +29,15 @@ from app.config._secret_marker import (
     filter_yaml_to_non_secrets,
     is_secret_field,
 )
+from tests._config_env import MODEL_SELECTION_ENV
 
 # Minimal env the Settings model demands to instantiate at all (TelegramConfig
 # and OpenRouterConfig have required fields). Tests overlay their own values
 # on top of this baseline via monkeypatch.
 _BASELINE_ENV: dict[str, str] = {
+    # Model selection is required (no code default); tests overlay specific
+    # values on top. See tests/_config_env.py.
+    **MODEL_SELECTION_ENV,
     "API_ID": "123456",
     "API_HASH": "a" * 32,
     "BOT_TOKEN": "123456:abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",

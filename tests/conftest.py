@@ -75,6 +75,20 @@ os.environ.setdefault("API_ID", "12345")
 os.environ.setdefault("API_HASH", "test_api_hash")
 os.environ.setdefault("FIRECRAWL_API_KEY", "fc-test-firecrawl-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test_openrouter_key")
+# Model selection has no code default (production sources it from ratatoskr.yaml).
+# The autouse `isolate_ratatoskr_yaml` fixture stubs the YAML loader to {} for
+# most tests, so these env baselines are what lets Settings build. Tests that
+# clear the environment (`patch.dict(..., clear=True)`) and build config must set
+# these themselves -- see tests/_config_env.py (MODEL_SELECTION_ENV).
+os.environ.setdefault("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash")
+os.environ.setdefault(
+    "OPENROUTER_FALLBACK_MODELS", "qwen/qwen3.6-flash,qwen/qwen3.6-plus-04-02"
+)
+os.environ.setdefault("OPENROUTER_FLASH_MODEL", "qwen/qwen3.6-flash")
+os.environ.setdefault("OPENROUTER_FLASH_FALLBACK_MODELS", "qwen/qwen3.6-plus-04-02")
+os.environ.setdefault("OPENROUTER_LONG_CONTEXT_MODEL", "minimax/minimax-m2")
+os.environ.setdefault("ATTACHMENT_VISION_MODEL", "qwen/qwen3-vl-32b-instruct")
+os.environ.setdefault("ATTACHMENT_VISION_FALLBACK_MODELS", "moonshotai/kimi-k2.5")
 # When TEST_DATABASE_URL is provided (Postgres-backed tests), mirror it into
 # DATABASE_URL so app.config.load_config(...) -- which mcp_di.build_mcp_runtime
 # and other DI paths transitively call -- finds the same DSN. Use a placeholder
@@ -281,6 +295,10 @@ def make_test_app_config(
             api_key="sk-or-test-api-key-placeholder",
             model="test/model",
             fallback_models=(),
+            # Model selection has no code default; supply the required fields.
+            flash_model="test/flash-model",
+            flash_fallback_models=(),
+            long_context_model="test/long-context-model",
             http_referer=None,
             x_title=None,
             max_tokens=None,
@@ -288,7 +306,11 @@ def make_test_app_config(
             temperature=0.2,
         ),
         "youtube": YouTubeConfig(),
-        "attachment": AttachmentConfig(),
+        "attachment": AttachmentConfig(
+            # Vision-model selection has no code default; supply the required fields.
+            vision_model="test/vision-model",
+            vision_fallback_models=(),
+        ),
         "runtime": RuntimeConfig(
             db_path=db_path,
             log_level="INFO",

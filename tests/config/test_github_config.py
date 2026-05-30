@@ -9,6 +9,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from app.config.github import GitHubConfig
+from tests._config_env import MODEL_SELECTION_ENV
 
 
 def test_defaults_load_when_no_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,6 +64,8 @@ def test_production_requires_github_token_encryption_key() -> None:
     with unittest.mock.patch.dict(
         os.environ,
         {
+            # Model selection is required (no code default) for Settings to build.
+            **MODEL_SELECTION_ENV,
             "API_ID": "12345",
             "API_HASH": "abc123",
             "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -95,6 +98,8 @@ def test_production_accepts_github_token_encryption_key() -> None:
     with unittest.mock.patch.dict(
         os.environ,
         {
+            # Model selection is required (no code default) for Settings to build.
+            **MODEL_SELECTION_ENV,
             "API_ID": "12345",
             "API_HASH": "abc123",
             "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",

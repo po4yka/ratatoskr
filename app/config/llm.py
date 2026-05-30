@@ -110,16 +110,14 @@ class OpenRouterConfig(BaseModel):
     api_key: str = Field(
         ..., validation_alias="OPENROUTER_API_KEY", json_schema_extra=SECRET_MARKER
     )
-    model: str = Field(default="deepseek/deepseek-v4-flash", validation_alias="OPENROUTER_MODEL")
+    # Model selection is intentionally default-free: every value must be supplied
+    # by ratatoskr.yaml (or an env override). The bot hard-fails at startup if a
+    # model field is absent, so the YAML file is the single source of truth for
+    # which models the service uses. See docs/reference/environment-variables.md.
+    model: str = Field(validation_alias="OPENROUTER_MODEL")
     # Order: fastest to most-capable; fastest-first ensures the user gets a response
     # before the outer per-URL timeout fires when the primary stalls.
     fallback_models: tuple[str, ...] = Field(
-        default_factory=lambda: (
-            "qwen/qwen3.6-flash",
-            "qwen/qwen3.6-plus-04-02",
-            "moonshotai/kimi-k2-0905",
-            "minimax/minimax-m2",
-        ),
         validation_alias="OPENROUTER_FALLBACK_MODELS",
     )
     http_referer: str | None = Field(default=None, validation_alias="OPENROUTER_HTTP_REFERER")
@@ -143,14 +141,10 @@ class OpenRouterConfig(BaseModel):
     )
     enable_stats: bool = Field(default=False, validation_alias="OPENROUTER_ENABLE_STATS")
     long_context_model: str | None = Field(
-        default="minimax/minimax-m2",
         validation_alias="OPENROUTER_LONG_CONTEXT_MODEL",
     )
-    flash_model: str = Field(
-        default="qwen/qwen3.6-flash", validation_alias="OPENROUTER_FLASH_MODEL"
-    )
+    flash_model: str = Field(validation_alias="OPENROUTER_FLASH_MODEL")
     flash_fallback_models: tuple[str, ...] = Field(
-        default_factory=lambda: ("qwen/qwen3.6-plus-04-02",),
         validation_alias="OPENROUTER_FLASH_FALLBACK_MODELS",
     )
     summary_temperature_relaxed: float | None = Field(

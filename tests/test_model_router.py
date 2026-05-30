@@ -26,6 +26,11 @@ def openrouter_config() -> OpenRouterConfig:
     return OpenRouterConfig(
         api_key="test-key",
         model="deepseek/deepseek-v4-flash",
+        # Model selection has no code default; supply the required fields.
+        fallback_models=(),
+        flash_model="qwen/qwen3.6-flash",
+        flash_fallback_models=(),
+        long_context_model="minimax/minimax-m2",
     )
 
 

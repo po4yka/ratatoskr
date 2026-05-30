@@ -11,8 +11,10 @@ from pydantic import ValidationError
 
 from app.config.deployment import DeploymentConfig
 from app.config.settings import Settings, clear_config_cache
+from tests._config_env import MODEL_SELECTION_ENV
 
 _MINIMAL_ENV = {
+    **MODEL_SELECTION_ENV,
     "API_ID": "12345",
     "API_HASH": "abc123",
     "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",  # 30-char secret

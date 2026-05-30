@@ -45,6 +45,9 @@ runtime:
 # Secrets (OPENROUTER_API_KEY) go in .env, not here.
 # ---------------------------------------------------------------------------
 openrouter:
+  # REQUIRED — model selection has no code default. model, fallback_models,
+  # flash_model, flash_fallback_models, and long_context_model must all be set
+  # here (or via env). The bot hard-fails at startup if any is missing.
   # Primary model for summarization
   model: deepseek/deepseek-v4-flash
   # Fallback cascade — tried in order when primary fails or times out
@@ -61,6 +64,16 @@ openrouter:
   long_context_model: minimax/minimax-m2
   # Sampling temperature (0.0–1.0); lower = more deterministic
   temperature: 0.2
+
+# ---------------------------------------------------------------------------
+# Attachment / vision
+# ---------------------------------------------------------------------------
+attachment:
+  # REQUIRED — vision-model selection has no code default. Both keys must be set
+  # here (or via env); the bot hard-fails at startup if either is missing.
+  vision_model: qwen/qwen3-vl-32b-instruct
+  vision_fallback_models:
+    - moonshotai/kimi-k2.5
 
 # ---------------------------------------------------------------------------
 # Ollama (alternative LLM provider — only used when llm_provider: ollama)

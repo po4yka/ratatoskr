@@ -140,14 +140,16 @@ class AttachmentConfig(BaseModel):
         ),
     )
 
+    # Default-free model selection: the vision model and its fallbacks must be
+    # supplied by ratatoskr.yaml (or an env override). Absent values hard-fail at
+    # startup so the YAML file is the single source of truth for which models the
+    # service uses. See docs/reference/environment-variables.md.
     vision_model: str = Field(
-        default="qwen/qwen3-vl-32b-instruct",
         validation_alias="ATTACHMENT_VISION_MODEL",
         description="Vision-capable model for image and scanned PDF analysis",
     )
 
     vision_fallback_models: tuple[str, ...] = Field(
-        default_factory=lambda: ("moonshotai/kimi-k2.5",),
         validation_alias="ATTACHMENT_VISION_FALLBACK_MODELS",
         description="Fallback vision models if primary fails",
     )
@@ -305,9 +307,10 @@ class AttachmentConfig(BaseModel):
     @field_validator("vision_model", mode="before")
     @classmethod
     def _validate_vision_model(cls, value: Any) -> str:
-        if value in (None, ""):
-            return "qwen/qwen3-vl-32b-instruct"
-        return validate_model_name(str(value))
+        # No code default: an empty/missing vision model is an operator error,
+        # not something to paper over with a hardcoded fallback. validate_model_name
+        # raises on an empty string, surfacing the missing ratatoskr.yaml key.
+        return validate_model_name(str(value or ""))
 
     @field_validator("vision_fallback_models", mode="before")
     @classmethod

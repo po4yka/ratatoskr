@@ -8,13 +8,17 @@ must be logged and skipped, never raise.
 from __future__ import annotations
 
 from app.config.llm import OpenRouterConfig
+from tests._config_env import MODEL_SELECTION_ENV
 
 _API_KEY = "or_" + "z" * 20
 
 
 def _make_openrouter(**kwargs: object) -> OpenRouterConfig:
-    """Build an OpenRouterConfig with the minimum required api_key plus overrides."""
-    return OpenRouterConfig.model_validate({"OPENROUTER_API_KEY": _API_KEY, **kwargs})
+    """Build an OpenRouterConfig with the required fields (api_key + model
+    selection, which has no code default) plus overrides."""
+    return OpenRouterConfig.model_validate(
+        {**MODEL_SELECTION_ENV, "OPENROUTER_API_KEY": _API_KEY, **kwargs}
+    )
 
 
 class TestPerModelMaxTokensOverridesParser:
@@ -27,7 +31,7 @@ class TestPerModelMaxTokensOverridesParser:
         assert cfg.per_model_max_tokens_overrides == {}
 
     def test_default_is_empty_dict(self) -> None:
-        cfg = OpenRouterConfig.model_validate({"OPENROUTER_API_KEY": _API_KEY})
+        cfg = _make_openrouter()
         assert cfg.per_model_max_tokens_overrides == {}
 
     def test_single_entry(self) -> None:

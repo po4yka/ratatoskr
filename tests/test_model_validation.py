@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
+from tests._config_env import MODEL_SELECTION_ENV
+
 # DatabaseConfig now requires a postgresql+asyncpg DSN; provide a syntactically
 # valid stub for tests that exercise Settings/load_config without a live DB.
 _DATABASE_URL_STUB = "postgresql+asyncpg://test:test@localhost:5432/test"
@@ -43,6 +45,9 @@ class TestModelValidation(unittest.TestCase):
 
         # Use Settings directly with _env_file=None to prevent .env file loading
         test_env = {
+            # Model selection is required (no code default); supply the baseline,
+            # then override the two fields this test asserts on.
+            **MODEL_SELECTION_ENV,
             "API_ID": "123456",
             "API_HASH": "a" * 32,
             "BOT_TOKEN": "123456:abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
@@ -74,6 +79,7 @@ class TestModelValidation(unittest.TestCase):
         from app.config import Settings
 
         test_env = {
+            **MODEL_SELECTION_ENV,
             "API_ID": "123456",
             "API_HASH": "a" * 32,
             "BOT_TOKEN": "123456:abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
@@ -98,10 +104,16 @@ class TestModelValidation(unittest.TestCase):
             assert cfg.runtime.debug_payloads
             assert cfg.telegram.allowed_user_ids == (1001, 1002)
 
-    def test_load_config_defaults_apply_when_optional_missing(self) -> None:
+    def test_optional_defaults_apply_while_model_selection_comes_from_env(self) -> None:
+        """Genuinely optional fields keep their code defaults, but model selection
+        does not: with no model env vars and no YAML it would hard-fail (see
+        test_missing_model_selection_hard_fails). Here we supply the model baseline
+        and only the optional knobs (temperature, db_path) are left to default.
+        """
         from app.config import Settings
 
         test_env = {
+            **MODEL_SELECTION_ENV,
             "API_ID": "123456",
             "API_HASH": "a" * 32,
             "BOT_TOKEN": "123456:abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
@@ -116,46 +128,83 @@ class TestModelValidation(unittest.TestCase):
             settings = Settings(_env_file=None)  # type: ignore[call-arg]
             cfg = settings.as_app_config()
 
-            # Check that defaults are applied when env vars are not set
+            # Optional knobs still fall back to their code defaults.
             assert cfg.runtime.db_path == "/data/ratatoskr.db"
             assert cfg.openrouter.temperature == 0.2
-            # DeepSeek v4-flash is the code default (YAML file not loaded in this test)
-            assert cfg.openrouter.model == "deepseek/deepseek-v4-flash"
-            # Default fallback models from config.py
-            assert cfg.openrouter.fallback_models == (
-                "qwen/qwen3.6-flash",
-                "qwen/qwen3.6-plus-04-02",
-                "moonshotai/kimi-k2-0905",
-                "minimax/minimax-m2",
-            )
+            # Model selection is sourced from the env baseline, not a code default.
+            assert cfg.openrouter.model == MODEL_SELECTION_ENV["OPENROUTER_MODEL"]
+            assert cfg.openrouter.flash_model == MODEL_SELECTION_ENV["OPENROUTER_FLASH_MODEL"]
+            assert cfg.attachment.vision_model == MODEL_SELECTION_ENV["ATTACHMENT_VISION_MODEL"]
 
-    def test_default_fallback_models_are_known_structured_capable(self) -> None:
-        """Drift guard: every model in the default OpenRouter fallback chain must be
+    def test_missing_model_selection_hard_fails(self) -> None:
+        """Removing the code defaults makes model selection mandatory: with no
+        model env vars and no YAML, building Settings raises rather than silently
+        falling back. This locks ratatoskr.yaml as the source of truth.
+        """
+        from pydantic import ValidationError
+
+        from app.config import Settings
+
+        test_env = {
+            "API_ID": "123456",
+            "API_HASH": "a" * 32,
+            "BOT_TOKEN": "123456:abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
+            "DATABASE_URL": _DATABASE_URL_STUB,
+            "FIRECRAWL_API_KEY": "fc_" + "p" * 20,
+            "OPENROUTER_API_KEY": "or_" + "q" * 20,
+            "ALLOWED_USER_IDS": "77",
+            # Deliberately NO OPENROUTER_MODEL / FALLBACK / FLASH / VISION keys.
+            "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
+        }
+
+        with patch.dict(os.environ, test_env, clear=True):
+            with pytest.raises(ValidationError):
+                Settings(_env_file=None)  # type: ignore[call-arg]
+
+    def test_documented_fallback_models_are_known_structured_capable(self) -> None:
+        """Drift guard: every model in the documented OpenRouter chain must be
         listed in ModelCapabilities._known_structured_models. Otherwise the chain
         engine's maybe_skip_unsupported_structured_model will silently drop it when
         response_format=json_schema, leaving a dead last-resort fallback (regression
         of incident 640f444f2bcc, where minimax/minimax-m1 was the config default but
         missing from the whitelist).
-        """
-        from app.adapters.openrouter.model_capabilities import ModelCapabilities
-        from app.config.llm import OpenRouterConfig
 
-        cfg = OpenRouterConfig(api_key="or_" + "z" * 20)
+        Model selection no longer has a code default, so the canonical chain now
+        lives in config/ratatoskr.yaml.example (the documented template). This guard
+        validates that file's openrouter chain.
+        """
+        from pathlib import Path
+
+        import yaml
+
+        from app.adapters.openrouter.model_capabilities import ModelCapabilities
+
+        example_path = (
+            Path(__file__).resolve().parent.parent / "config" / "ratatoskr.yaml.example"
+        )
+        openrouter = yaml.safe_load(example_path.read_text(encoding="utf-8"))["openrouter"]
+        chain = [
+            openrouter["model"],
+            *openrouter["fallback_models"],
+            openrouter["flash_model"],
+            *openrouter["flash_fallback_models"],
+            openrouter["long_context_model"],
+        ]
         caps = ModelCapabilities(api_key="or_" + "z" * 20, base_url="https://example")
 
-        fallback_models = cfg.fallback_models
-        missing = [m for m in fallback_models if m not in caps._known_structured_models]
+        missing = [m for m in chain if m not in caps._known_structured_models]
         assert missing == [], (
-            f"Default OpenRouter fallback models missing from "
+            f"Documented OpenRouter models missing from "
             f"ModelCapabilities._known_structured_models: {missing}. "
             f"Either add them to _known_structured_models or pick a different "
-            f"default in OpenRouterConfig.fallback_models."
+            f"model in config/ratatoskr.yaml.example."
         )
 
     def test_load_config_allows_stub_credentials(self) -> None:
         from app.config import Settings
 
         test_env = {
+            **MODEL_SELECTION_ENV,
             "DATABASE_URL": _DATABASE_URL_STUB,
             "FIRECRAWL_API_KEY": "fc_" + "j" * 20,
             "OPENROUTER_API_KEY": "or_" + "k" * 20,
@@ -185,6 +234,7 @@ class TestModelValidation(unittest.TestCase):
         from app.config import Settings
 
         test_env = {
+            **MODEL_SELECTION_ENV,
             "API_ID": "123456",
             "API_HASH": "a" * 32,
             "BOT_TOKEN": "123456:abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
@@ -202,6 +252,7 @@ class TestModelValidation(unittest.TestCase):
         from app.config import clear_config_cache, load_config
 
         test_env = {
+            **MODEL_SELECTION_ENV,
             "API_ID": "123456",
             "API_HASH": "a" * 32,
             "BOT_TOKEN": "123456:abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",

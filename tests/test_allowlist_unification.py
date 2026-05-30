@@ -19,6 +19,8 @@ The test below verifies two complementary properties:
 
 from __future__ import annotations
 
+from tests._config_env import MODEL_SELECTION_ENV
+
 import os
 import unittest.mock
 from pathlib import Path
@@ -134,6 +136,9 @@ def test_authconfig_drops_invalid_client_ids(monkeypatch):
 
 
 _MINIMAL_SETTINGS_ENV = {
+    # Model selection is required (no code default); supply it so the cleared
+    # environment can still build Settings. See tests/_config_env.py.
+    **MODEL_SELECTION_ENV,
     "API_ID": "12345",
     "API_HASH": "abc123",
     "BOT_TOKEN": "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",

@@ -37,7 +37,9 @@ This table categorizes every uncommented assignment that existed in `.env.exampl
 | `FIRECRAWL_API_KEY` | `app/config/firecrawl.py::FirecrawlConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code default |
 | `SCRAPER_*` / `FIRECRAWL_SELF_HOSTED_*` | `app/config/scraper.py::ScraperConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code defaults |
 | `OPENROUTER_API_KEY` | `app/config/llm.py::OpenRouterConfig` | required | Keep in `.env.example` |
-| `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`, `OPENROUTER_LONG_CONTEXT_MODEL`, `OPENROUTER_FLASH_MODEL`, `OPENROUTER_FLASH_FALLBACK_MODELS`, `OPENROUTER_HTTP_REFERER`, `OPENROUTER_X_TITLE` | `app/config/llm.py::OpenRouterConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code defaults |
+| `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`, `OPENROUTER_LONG_CONTEXT_MODEL`, `OPENROUTER_FLASH_MODEL`, `OPENROUTER_FLASH_FALLBACK_MODELS` | `app/config/llm.py::OpenRouterConfig` | **required (no code default)** | Must be set in `ratatoskr.yaml` (`openrouter:` section); the bot hard-fails at startup if any is missing |
+| `OPENROUTER_HTTP_REFERER`, `OPENROUTER_X_TITLE` | `app/config/llm.py::OpenRouterConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code defaults |
+| `ATTACHMENT_VISION_MODEL`, `ATTACHMENT_VISION_FALLBACK_MODELS` | `app/config/media.py::AttachmentConfig` | **required (no code default)** | Must be set in `ratatoskr.yaml` (`attachment:` section); the bot hard-fails at startup if either is missing |
 | `YOUTUBE_*` | `app/config/media.py::YouTubeConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code defaults |
 | `TWITTER_*` | `app/config/twitter.py::TwitterConfig` | optional-defaulted | Move to `ratatoskr.yaml`; keep disabled unless explicitly needed |
 | `DATABASE_URL`, `POSTGRES_PASSWORD` | `app/config/database.py::DatabaseConfig` | required | Set in `.env`; do not commit |
@@ -127,11 +129,15 @@ mcp:
 
 ## [REQUIRED] OpenRouter (Default LLM Provider)
 
-| Variable | Default | Description |
+> **Model selection has no code default.** `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`, `OPENROUTER_FLASH_MODEL`, `OPENROUTER_FLASH_FALLBACK_MODELS`, and `OPENROUTER_LONG_CONTEXT_MODEL` (plus `ATTACHMENT_VISION_MODEL` / `ATTACHMENT_VISION_FALLBACK_MODELS`) are **required**. `ratatoskr.yaml` is the single source of truth for which models the service uses; if any is absent from both YAML and env, the bot raises a validation error at startup rather than falling back to a hardcoded model. The "Recommended" values below mirror `config/ratatoskr.yaml.example`. Set them in the `openrouter:` / `attachment:` sections of `ratatoskr.yaml`.
+
+| Variable | Recommended | Description |
 | ---------- | --------- | ------------- |
-| `OPENROUTER_MODEL` | `deepseek/deepseek-v4-flash` | Primary model |
-| `OPENROUTER_FALLBACK_MODELS` | `qwen/qwen3.6-plus-04-02,moonshotai/kimi-k2-0905,minimax/minimax-m2` | Comma-separated fallback chain |
-| `OPENROUTER_LONG_CONTEXT_MODEL` | `google/gemini-3-flash-preview` | Model for long-context content (1M ctx) |
+| `OPENROUTER_MODEL` | `deepseek/deepseek-v4-flash` | Primary model (required) |
+| `OPENROUTER_FALLBACK_MODELS` | `qwen/qwen3.6-flash,qwen/qwen3.6-plus-04-02,moonshotai/kimi-k2-0905,minimax/minimax-m2` | Comma-separated fallback chain (required) |
+| `OPENROUTER_FLASH_MODEL` | `qwen/qwen3.6-flash` | Fast model for lightweight tasks (required) |
+| `OPENROUTER_FLASH_FALLBACK_MODELS` | `qwen/qwen3.6-plus-04-02` | Flash fallback chain (required) |
+| `OPENROUTER_LONG_CONTEXT_MODEL` | `minimax/minimax-m2` | Model for long-context content (required) |
 | `OPENROUTER_TEMPERATURE` | `0.2` | Sampling temperature (0-2) |
 | `OPENROUTER_TOP_P` | _(none)_ | Top-p sampling |
 | `OPENROUTER_MAX_TOKENS` | _(none)_ | Max completion tokens |

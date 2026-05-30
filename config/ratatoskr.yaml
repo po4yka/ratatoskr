@@ -44,12 +44,22 @@ runtime:
   url_worker_concurrency: 4
 
 openrouter:
+  # Model selection has NO code default. Each of these keys is REQUIRED: the bot
+  # hard-fails at startup if any is missing, so this file is the single source of
+  # truth for which models the service uses. See
+  # docs/reference/environment-variables.md (OpenRouter model selection).
   model: qwen/qwen3.5-flash-02-23
   fallback_models:
     - qwen/qwen3.5-plus-02-15
     - deepseek/deepseek-v3.2
     - deepseek/deepseek-v4-pro
     - moonshotai/kimi-k2.5
+  # Lightweight/fast path (used for cheap classification + flash summarization).
+  flash_model: qwen/qwen3.6-flash
+  flash_fallback_models:
+    - qwen/qwen3.6-plus-04-02
+  # Routed to for very large inputs (see runtime long-context threshold).
+  long_context_model: minimax/minimax-m2
   http_referer: https://github.com/po4yka/bite-size-reader
   x_title: Bite-Size Reader
 
@@ -111,6 +121,12 @@ scraper:
   race_enabled: true
 
 attachment:
+  # Vision-model selection has NO code default. Both keys are REQUIRED; the bot
+  # hard-fails at startup if either is missing. This file is the single source of
+  # truth for the vision models used on image / scanned-PDF attachments.
+  vision_model: qwen/qwen3-vl-32b-instruct
+  vision_fallback_models:
+    - moonshotai/kimi-k2.5
   # Image-density gate on vision-model routing for HTML articles.
   # Default in code is 1 (any image routes to vision); on the Pi this is
   # too aggressive — Habr-class articles ship a single OG header image,
