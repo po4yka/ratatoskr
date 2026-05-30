@@ -89,6 +89,55 @@ os.environ.setdefault("OPENROUTER_FLASH_FALLBACK_MODELS", "qwen/qwen3.6-plus-04-
 os.environ.setdefault("OPENROUTER_LONG_CONTEXT_MODEL", "minimax/minimax-m2")
 os.environ.setdefault("ATTACHMENT_VISION_MODEL", "qwen/qwen3-vl-32b-instruct")
 os.environ.setdefault("ATTACHMENT_VISION_FALLBACK_MODELS", "moonshotai/kimi-k2.5")
+# Behavioral tunables have no code default (post-refactor); supply them so any
+# test that builds Settings without a real YAML file still gets a valid config.
+os.environ.setdefault("OPENROUTER_TEMPERATURE", "0.2")
+os.environ.setdefault("OPENROUTER_ENABLE_STATS", "false")
+os.environ.setdefault("OPENROUTER_ENABLE_STRUCTURED_OUTPUTS", "true")
+os.environ.setdefault("OPENROUTER_STRUCTURED_OUTPUT_MODE", "json_schema")
+os.environ.setdefault("OPENROUTER_REQUIRE_PARAMETERS", "true")
+os.environ.setdefault("OPENROUTER_AUTO_FALLBACK_STRUCTURED", "true")
+os.environ.setdefault("OPENROUTER_MAX_RESPONSE_SIZE_MB", "10")
+os.environ.setdefault("OPENROUTER_ENABLE_PROMPT_CACHING", "true")
+os.environ.setdefault("OPENROUTER_PROMPT_CACHE_TTL", "ephemeral")
+os.environ.setdefault("OPENROUTER_PROMPT_CACHE_TTL_ANTHROPIC", "1h")
+os.environ.setdefault("OPENROUTER_CACHE_SYSTEM_PROMPT", "true")
+os.environ.setdefault("OPENROUTER_CACHE_LARGE_CONTENT_THRESHOLD", "4096")
+os.environ.setdefault("OPENROUTER_TRANSPORT_RETRY_MAX_ATTEMPTS", "3")
+os.environ.setdefault("OPENROUTER_TRANSPORT_RETRY_MIN_WAIT_SEC", "0.5")
+os.environ.setdefault("OPENROUTER_TRANSPORT_RETRY_MAX_WAIT_SEC", "5.0")
+os.environ.setdefault("ATTACHMENT_PROCESSING_ENABLED", "true")
+os.environ.setdefault("ARTICLE_VISION_ENABLED", "true")
+os.environ.setdefault("ARTICLE_VISION_MIN_IMAGES", "1")
+os.environ.setdefault("VISION_ROUTING_ROLE_FILTER_ENABLED", "true")
+os.environ.setdefault("ATTACHMENT_VIDEO_STORAGE_PATH", "/data/video-sources")
+os.environ.setdefault("ATTACHMENT_VIDEO_MAX_DOWNLOAD_SIZE_MB", "100")
+os.environ.setdefault("ATTACHMENT_VIDEO_TIMEOUT_SEC", "120")
+os.environ.setdefault("ATTACHMENT_VIDEO_CLEANUP_AFTER_HOURS", "24")
+os.environ.setdefault("ATTACHMENT_VIDEO_FRAME_SAMPLE_COUNT", "4")
+os.environ.setdefault("ATTACHMENT_VIDEO_AUDIO_TRANSCRIPTION_ENABLED", "true")
+os.environ.setdefault("ATTACHMENT_MAX_IMAGE_SIZE_MB", "10")
+os.environ.setdefault("ATTACHMENT_MAX_PDF_SIZE_MB", "20")
+os.environ.setdefault("ATTACHMENT_MAX_PDF_PAGES", "50")
+os.environ.setdefault("ATTACHMENT_IMAGE_MAX_DIMENSION", "2048")
+os.environ.setdefault("ATTACHMENT_STORAGE_PATH", "/data/attachments")
+os.environ.setdefault("ATTACHMENT_CLEANUP_AFTER_HOURS", "24")
+os.environ.setdefault("ATTACHMENT_MAX_VISION_PAGES", "8")
+os.environ.setdefault("ATTACHMENT_PDF_MIN_IMAGE_DIMENSION", "100")
+os.environ.setdefault("ATTACHMENT_PDF_MAX_EMBEDDED_IMAGES", "8")
+os.environ.setdefault("ATTACHMENT_PDF_MAX_IMAGE_URIS", "12")
+os.environ.setdefault("ATTACHMENT_PDF_VECTOR_DRAW_THRESHOLD", "30")
+os.environ.setdefault("ATTACHMENT_DOCUMENT_PROCESSING_ENABLED", "true")
+os.environ.setdefault("ATTACHMENT_MAX_DOCUMENT_SIZE_MB", "20")
+os.environ.setdefault("ATTACHMENT_MAX_DOCUMENT_CHARS", "45000")
+os.environ.setdefault("YOUTUBE_DOWNLOAD_ENABLED", "true")
+os.environ.setdefault("YOUTUBE_STORAGE_PATH", "/data/videos")
+os.environ.setdefault("YOUTUBE_MAX_VIDEO_SIZE_MB", "500")
+os.environ.setdefault("YOUTUBE_MAX_STORAGE_GB", "100")
+os.environ.setdefault("YOUTUBE_AUTO_CLEANUP_ENABLED", "true")
+os.environ.setdefault("YOUTUBE_CLEANUP_AFTER_DAYS", "30")
+os.environ.setdefault("YOUTUBE_PREFERRED_QUALITY", "1080p")
+os.environ.setdefault("YOUTUBE_SUBTITLE_LANGUAGES", "en,ru")
 # When TEST_DATABASE_URL is provided (Postgres-backed tests), mirror it into
 # DATABASE_URL so app.config.load_config(...) -- which mcp_di.build_mcp_runtime
 # and other DI paths transitively call -- finds the same DSN. Use a placeholder
@@ -303,13 +352,63 @@ def make_test_app_config(
             x_title=None,
             max_tokens=None,
             top_p=None,
+            # Behavioral tunables have no code default; supply them explicitly.
             temperature=0.2,
+            enable_stats=False,
+            enable_structured_outputs=True,
+            structured_output_mode="json_schema",
+            require_parameters=True,
+            auto_fallback_structured=True,
+            max_response_size_mb=10,
+            enable_prompt_caching=True,
+            prompt_cache_ttl="ephemeral",
+            prompt_cache_ttl_anthropic="1h",
+            cache_system_prompt=True,
+            cache_large_content_threshold=4096,
+            transport_retry_max_attempts=3,
+            transport_retry_min_wait_sec=0.5,
+            transport_retry_max_wait_sec=5.0,
         ),
-        "youtube": YouTubeConfig(),
+        "youtube": YouTubeConfig(
+            # YouTubeConfig behavioral tunables have no code default.
+            enabled=True,
+            storage_path="/data/videos",
+            max_video_size_mb=500,
+            max_storage_gb=100,
+            auto_cleanup_enabled=True,
+            cleanup_after_days=30,
+            preferred_quality="1080p",
+            subtitle_languages=["en", "ru"],
+        ),
         "attachment": AttachmentConfig(
             # Vision-model selection has no code default; supply the required fields.
             vision_model="test/vision-model",
             vision_fallback_models=(),
+            # Behavioral tunables have no code default; supply them explicitly.
+            enabled=True,
+            article_vision_enabled=True,
+            article_vision_min_images=1,
+            vision_routing_role_filter_enabled=True,
+            video_storage_path="/data/video-sources",
+            video_max_download_size_mb=100,
+            video_timeout_sec=120,
+            video_cleanup_after_hours=24,
+            video_frame_sample_count=4,
+            video_audio_transcription_enabled=True,
+            max_image_size_mb=10,
+            max_pdf_size_mb=20,
+            max_pdf_pages=50,
+            image_max_dimension=2048,
+            storage_path="/data/attachments",
+            cleanup_after_hours=24,
+            max_vision_pages_per_pdf=8,
+            pdf_min_image_dimension=100,
+            pdf_max_embedded_images=8,
+            pdf_max_image_uris_total=12,
+            pdf_vector_draw_threshold=30,
+            document_processing_enabled=True,
+            max_document_size_mb=20,
+            max_document_chars=45_000,
         ),
         "runtime": RuntimeConfig(
             db_path=db_path,

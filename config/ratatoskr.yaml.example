@@ -62,8 +62,23 @@ openrouter:
     - qwen/qwen3.6-plus-04-02
   # Model used when input exceeds the primary model's context window
   long_context_model: minimax/minimax-m2
-  # Sampling temperature (0.0–1.0); lower = more deterministic
+  # REQUIRED — behavioral tunables (no code default).
+  # Sampling temperature (0.0–2.0); lower = more deterministic
   temperature: 0.2
+  enable_stats: false
+  enable_structured_outputs: true
+  structured_output_mode: json_schema
+  require_parameters: true
+  auto_fallback_structured: true
+  max_response_size_mb: 10
+  enable_prompt_caching: true
+  prompt_cache_ttl: ephemeral
+  prompt_cache_ttl_anthropic: 1h
+  cache_system_prompt: true
+  cache_large_content_threshold: 4096
+  transport_retry_max_attempts: 3
+  transport_retry_min_wait_sec: 0.5
+  transport_retry_max_wait_sec: 5.0
 
 # ---------------------------------------------------------------------------
 # Attachment / vision
@@ -74,6 +89,31 @@ attachment:
   vision_model: qwen/qwen3-vl-32b-instruct
   vision_fallback_models:
     - moonshotai/kimi-k2.5
+  # REQUIRED — behavioral tunables (no code default).
+  enabled: true
+  article_vision_enabled: true
+  article_vision_min_images: 1
+  vision_routing_role_filter_enabled: true
+  video_storage_path: /data/video-sources
+  video_max_download_size_mb: 100
+  video_timeout_sec: 120
+  video_cleanup_after_hours: 24
+  video_frame_sample_count: 4
+  video_audio_transcription_enabled: true
+  max_image_size_mb: 10
+  max_pdf_size_mb: 20
+  max_pdf_pages: 50
+  image_max_dimension: 2048
+  storage_path: /data/attachments
+  cleanup_after_hours: 24
+  max_vision_pages_per_pdf: 8
+  pdf_min_image_dimension: 100
+  pdf_max_embedded_images: 8
+  pdf_max_image_uris_total: 12
+  pdf_vector_draw_threshold: 30
+  document_processing_enabled: true
+  max_document_size_mb: 20
+  max_document_chars: 45000
 
 # ---------------------------------------------------------------------------
 # Ollama (alternative LLM provider — only used when llm_provider: ollama)
@@ -189,12 +229,17 @@ scraper:
 
 # ---------------------------------------------------------------------------
 # YouTube
+# REQUIRED — all fields have no code default.
 # ---------------------------------------------------------------------------
 youtube:
   enabled: true
   # Local filesystem path for downloaded video files
   storage_path: /data/videos
-  # Preferred download quality: 360p | 480p | 720p | 1080p
+  max_video_size_mb: 500
+  max_storage_gb: 100
+  auto_cleanup_enabled: true
+  cleanup_after_days: 30
+  # Preferred download quality: 240p | 360p | 480p | 720p | 1080p
   preferred_quality: 1080p
   subtitle_languages:
     - en

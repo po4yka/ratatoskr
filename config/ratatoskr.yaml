@@ -62,6 +62,22 @@ openrouter:
   long_context_model: minimax/minimax-m2
   http_referer: https://github.com/po4yka/bite-size-reader
   x_title: Bite-Size Reader
+  # Behavioral tunables (REQUIRED — no code default).
+  temperature: 0.2
+  enable_stats: false
+  enable_structured_outputs: true
+  structured_output_mode: json_schema
+  require_parameters: true
+  auto_fallback_structured: true
+  max_response_size_mb: 10
+  enable_prompt_caching: true
+  prompt_cache_ttl: ephemeral
+  prompt_cache_ttl_anthropic: 1h
+  cache_system_prompt: true
+  cache_large_content_threshold: 4096
+  transport_retry_max_attempts: 3
+  transport_retry_min_wait_sec: 0.5
+  transport_retry_max_wait_sec: 5.0
 
 telegram:
   api_base_url: https://bitsizereaderapi.po4yka.com
@@ -142,3 +158,37 @@ attachment:
   # content-area image is available, decorative candidates are kept so
   # the article still has a chance at vision routing.
   vision_routing_role_filter_enabled: true
+  # Behavioral tunables (REQUIRED — no code default).
+  enabled: true
+  article_vision_enabled: true
+  video_storage_path: /data/video-sources
+  video_max_download_size_mb: 100
+  video_timeout_sec: 120
+  video_cleanup_after_hours: 24
+  video_frame_sample_count: 4
+  video_audio_transcription_enabled: true
+  max_image_size_mb: 10
+  max_pdf_size_mb: 20
+  max_pdf_pages: 50
+  image_max_dimension: 2048
+  storage_path: /data/attachments
+  cleanup_after_hours: 24
+  max_vision_pages_per_pdf: 8
+  pdf_min_image_dimension: 100
+  pdf_max_embedded_images: 8
+  pdf_max_image_uris_total: 12
+  pdf_vector_draw_threshold: 30
+  document_processing_enabled: true
+  max_document_size_mb: 20
+  max_document_chars: 45000
+
+youtube:
+  # YouTubeConfig behavioral tunables (REQUIRED — no code default).
+  enabled: true
+  storage_path: /data/videos
+  max_video_size_mb: 500
+  max_storage_gb: 100
+  auto_cleanup_enabled: true
+  cleanup_after_days: 30
+  preferred_quality: 1080p
+  subtitle_languages: [en, ru]

@@ -31,6 +31,22 @@ def openrouter_config() -> OpenRouterConfig:
         flash_model="qwen/qwen3.6-flash",
         flash_fallback_models=(),
         long_context_model="minimax/minimax-m2",
+        # Behavioral tunables have no code default; supply them explicitly.
+        temperature=0.2,
+        enable_stats=False,
+        enable_structured_outputs=True,
+        structured_output_mode="json_schema",
+        require_parameters=True,
+        auto_fallback_structured=True,
+        max_response_size_mb=10,
+        enable_prompt_caching=True,
+        prompt_cache_ttl="ephemeral",
+        prompt_cache_ttl_anthropic="1h",
+        cache_system_prompt=True,
+        cache_large_content_threshold=4096,
+        transport_retry_max_attempts=3,
+        transport_retry_min_wait_sec=0.5,
+        transport_retry_max_wait_sec=5.0,
     )
 
 

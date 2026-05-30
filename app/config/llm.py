@@ -135,11 +135,11 @@ class OpenRouterConfig(BaseModel):
         ),
     )
     top_p: float | None = Field(default=None, validation_alias="OPENROUTER_TOP_P")
-    temperature: float = Field(default=0.2, validation_alias="OPENROUTER_TEMPERATURE")
+    temperature: float = Field(validation_alias="OPENROUTER_TEMPERATURE")
     provider_order: tuple[str, ...] = Field(
         default_factory=tuple, validation_alias="OPENROUTER_PROVIDER_ORDER"
     )
-    enable_stats: bool = Field(default=False, validation_alias="OPENROUTER_ENABLE_STATS")
+    enable_stats: bool = Field(validation_alias="OPENROUTER_ENABLE_STATS")
     long_context_model: str | None = Field(
         validation_alias="OPENROUTER_LONG_CONTEXT_MODEL",
     )
@@ -160,31 +160,28 @@ class OpenRouterConfig(BaseModel):
         default=None, validation_alias="OPENROUTER_SUMMARY_TOP_P_JSON"
     )
     enable_structured_outputs: bool = Field(
-        default=True, validation_alias="OPENROUTER_ENABLE_STRUCTURED_OUTPUTS"
+        validation_alias="OPENROUTER_ENABLE_STRUCTURED_OUTPUTS"
     )
     structured_output_mode: str = Field(
-        default="json_schema", validation_alias="OPENROUTER_STRUCTURED_OUTPUT_MODE"
+        validation_alias="OPENROUTER_STRUCTURED_OUTPUT_MODE"
     )
-    require_parameters: bool = Field(default=True, validation_alias="OPENROUTER_REQUIRE_PARAMETERS")
+    require_parameters: bool = Field(validation_alias="OPENROUTER_REQUIRE_PARAMETERS")
     auto_fallback_structured: bool = Field(
-        default=True, validation_alias="OPENROUTER_AUTO_FALLBACK_STRUCTURED"
+        validation_alias="OPENROUTER_AUTO_FALLBACK_STRUCTURED"
     )
     max_response_size_mb: int = Field(
-        default=10, validation_alias="OPENROUTER_MAX_RESPONSE_SIZE_MB"
+        validation_alias="OPENROUTER_MAX_RESPONSE_SIZE_MB"
     )
     # Prompt caching settings (reduces inference costs)
     enable_prompt_caching: bool = Field(
-        default=True,
         validation_alias="OPENROUTER_ENABLE_PROMPT_CACHING",
         description="Enable OpenRouter prompt caching for supported providers",
     )
     prompt_cache_ttl: str = Field(
-        default="ephemeral",
         validation_alias="OPENROUTER_PROMPT_CACHE_TTL",
         description="Cache TTL for non-Anthropic explicit-cache providers (Google): 'ephemeral' (5min) or '1h'",
     )
     prompt_cache_ttl_anthropic: str = Field(
-        default="1h",
         validation_alias="OPENROUTER_PROMPT_CACHE_TTL_ANTHROPIC",
         description=(
             "Cache TTL for Anthropic models: 'ephemeral' (1.25x write, 0.10x read) "
@@ -193,28 +190,23 @@ class OpenRouterConfig(BaseModel):
         ),
     )
     cache_system_prompt: bool = Field(
-        default=True,
         validation_alias="OPENROUTER_CACHE_SYSTEM_PROMPT",
         description="Cache the system message for reuse across requests",
     )
     cache_large_content_threshold: int = Field(
-        default=4096,
         validation_alias="OPENROUTER_CACHE_LARGE_CONTENT_THRESHOLD",
         description="Minimum tokens to auto-cache content (Gemini requires 4096)",
     )
     # Transport-layer retry settings (tenacity, network errors only)
     transport_retry_max_attempts: int = Field(
-        default=3,
         validation_alias="OPENROUTER_TRANSPORT_RETRY_MAX_ATTEMPTS",
         description="Max attempts for network-class transport errors (httpx connection/timeout)",
     )
     transport_retry_min_wait_sec: float = Field(
-        default=0.5,
         validation_alias="OPENROUTER_TRANSPORT_RETRY_MIN_WAIT_SEC",
         description="Initial wait (seconds) before first transport retry",
     )
     transport_retry_max_wait_sec: float = Field(
-        default=5.0,
         validation_alias="OPENROUTER_TRANSPORT_RETRY_MAX_WAIT_SEC",
         description="Maximum wait (seconds) between transport retries",
     )
@@ -361,7 +353,8 @@ class OpenRouterConfig(BaseModel):
     @classmethod
     def _validate_temperature(cls, value: Any) -> float:
         if value in (None, ""):
-            return 0.2
+            msg = "temperature is required (no code default); set it in ratatoskr.yaml"
+            raise ValueError(msg)
         try:
             temperature = float(str(value))
         except ValueError as exc:
@@ -395,7 +388,8 @@ class OpenRouterConfig(BaseModel):
     @classmethod
     def _validate_structured_output_mode(cls, value: Any) -> str:
         if value in (None, ""):
-            return "json_schema"
+            msg = "structured_output_mode is required (no code default); set it in ratatoskr.yaml"
+            raise ValueError(msg)
         mode_value = str(value)
         if mode_value not in {"json_schema", "json_object"}:
             msg = f"Invalid structured output mode: {mode_value}. Must be one of {{'json_schema', 'json_object'}}"
@@ -424,7 +418,8 @@ class OpenRouterConfig(BaseModel):
     @classmethod
     def _validate_max_response_size_mb(cls, value: Any) -> int:
         if value in (None, ""):
-            return 10
+            msg = "max_response_size_mb is required (no code default); set it in ratatoskr.yaml"
+            raise ValueError(msg)
         try:
             size_mb = int(str(value))
         except ValueError as exc:
@@ -439,7 +434,8 @@ class OpenRouterConfig(BaseModel):
     @classmethod
     def _validate_prompt_cache_ttl(cls, value: Any) -> str:
         if value in (None, ""):
-            return "ephemeral"
+            msg = "prompt_cache_ttl is required (no code default); set it in ratatoskr.yaml"
+            raise ValueError(msg)
         ttl = str(value).strip().lower()
         if ttl not in {"ephemeral", "1h"}:
             msg = f"Invalid prompt cache TTL: {ttl}. Must be 'ephemeral' or '1h'"
@@ -450,7 +446,8 @@ class OpenRouterConfig(BaseModel):
     @classmethod
     def _validate_cache_large_content_threshold(cls, value: Any) -> int:
         if value in (None, ""):
-            return 4096
+            msg = "cache_large_content_threshold is required (no code default); set it in ratatoskr.yaml"
+            raise ValueError(msg)
         try:
             threshold = int(str(value))
         except ValueError as exc:
