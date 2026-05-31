@@ -118,7 +118,9 @@ class GitMirrorVectorReconciler:
             await asyncio.to_thread(self._qdrant.delete_git_mirror_points, orphans)
             return len(orphans)
         except Exception:
-            logger.exception("git_mirror_reconcile_orphan_delete_failed", extra={"count": len(orphans)})
+            logger.exception(
+                "git_mirror_reconcile_orphan_delete_failed", extra={"count": len(orphans)}
+            )
             return 0
 
     async def _repair_missing(

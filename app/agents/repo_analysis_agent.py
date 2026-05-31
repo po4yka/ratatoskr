@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 # Lazy import to avoid early-binding the OTel TracerProvider at module import
 # time, which can interfere with test-level provider setup.
-def _get_tracer() -> object:
+def _get_tracer() -> Any:
     from app.observability.otel import get_tracer
 
     return get_tracer(__name__)

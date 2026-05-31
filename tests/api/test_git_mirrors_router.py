@@ -522,6 +522,7 @@ async def test_register_mirror_raises_500_on_upsert_failure() -> None:
 @pytest.mark.asyncio
 async def test_register_mirror_status_plain_string_fallback() -> None:
     """register_mirror works when row.status has no .value attribute."""
+
     async def _fake_upsert(**kwargs: Any) -> MagicMock:
         row = MagicMock()
         row.id = 7
@@ -635,9 +636,7 @@ async def test_search_mirrors_returns_items_on_success(
         def __init__(self, **kwargs: Any) -> None:
             pass
 
-        async def search(
-            self, q: str, *, user_id: int, limit: int, correlation_id: Any
-        ) -> Any:
+        async def search(self, q: str, *, user_id: int, limit: int, correlation_id: Any) -> Any:
             return fake_results
 
     fake_cfg = MagicMock()
@@ -677,9 +676,7 @@ async def test_search_mirrors_returns_items_on_success(
     db.session.return_value = _Ctx(session)
 
     user = {"user_id": 1}
-    response = await _gm.search_mirrors(
-        request=request, q="find repo", limit=20, user=user, db=db
-    )
+    response = await _gm.search_mirrors(request=request, q="find repo", limit=20, user=user, db=db)
 
     assert response.total == 1
     assert len(response.items) == 1
@@ -692,6 +689,7 @@ async def test_search_mirrors_returns_empty_on_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """search_mirrors returns empty response when the search pipeline raises."""
+
     def _boom(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("Qdrant unreachable")
 
@@ -713,9 +711,7 @@ async def test_search_mirrors_returns_empty_on_exception(
     db.session.return_value = _Ctx(MagicMock())
 
     user = {"user_id": 1}
-    response = await _gm.search_mirrors(
-        request=request, q="anything", limit=10, user=user, db=db
-    )
+    response = await _gm.search_mirrors(request=request, q="anything", limit=10, user=user, db=db)
 
     assert response.items == []
     assert response.total == 0
@@ -901,9 +897,7 @@ async def test_delete_mirror_skips_unsafe_path(
 
     # Directory must still exist (rmtree was skipped)
     assert other_dir.exists()
-    assert any(
-        "git_mirror_delete_disk_skipped_unsafe_path" in r.message for r in caplog.records
-    )
+    assert any("git_mirror_delete_disk_skipped_unsafe_path" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio

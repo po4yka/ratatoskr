@@ -313,9 +313,7 @@ class TestPreflightTimeout:
         assert result is not None
         assert isinstance(result, str)
 
-    def test_perform_sync_uses_configured_preflight_timeout(
-        self, tmp_path: Path
-    ) -> None:
+    def test_perform_sync_uses_configured_preflight_timeout(self, tmp_path: Path) -> None:
         """perform_sync must convert preflight_timeout_seconds to ms and pass it."""
         cfg = _make_config(
             GIT_BACKUP_DATA_PATH=str(tmp_path),

@@ -81,9 +81,7 @@ os.environ.setdefault("OPENROUTER_API_KEY", "test_openrouter_key")
 # clear the environment (`patch.dict(..., clear=True)`) and build config must set
 # these themselves -- see tests/_config_env.py (MODEL_SELECTION_ENV).
 os.environ.setdefault("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash")
-os.environ.setdefault(
-    "OPENROUTER_FALLBACK_MODELS", "qwen/qwen3.6-flash,qwen/qwen3.6-plus-04-02"
-)
+os.environ.setdefault("OPENROUTER_FALLBACK_MODELS", "qwen/qwen3.6-flash,qwen/qwen3.6-plus-04-02")
 os.environ.setdefault("OPENROUTER_FLASH_MODEL", "qwen/qwen3.6-flash")
 os.environ.setdefault("OPENROUTER_FLASH_FALLBACK_MODELS", "qwen/qwen3.6-plus-04-02")
 os.environ.setdefault("OPENROUTER_LONG_CONTEXT_MODEL", "minimax/minimax-m2")

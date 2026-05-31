@@ -17,8 +17,7 @@ MODEL_SELECTION_ENV: dict[str, str] = {
     # OpenRouter model selection (no code default)
     "OPENROUTER_MODEL": "deepseek/deepseek-v4-flash",
     "OPENROUTER_FALLBACK_MODELS": (
-        "qwen/qwen3.6-flash,qwen/qwen3.6-plus-04-02,"
-        "moonshotai/kimi-k2-0905,minimax/minimax-m2"
+        "qwen/qwen3.6-flash,qwen/qwen3.6-plus-04-02,moonshotai/kimi-k2-0905,minimax/minimax-m2"
     ),
     "OPENROUTER_FLASH_MODEL": "qwen/qwen3.6-flash",
     "OPENROUTER_FLASH_FALLBACK_MODELS": "qwen/qwen3.6-plus-04-02",

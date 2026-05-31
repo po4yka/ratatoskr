@@ -366,7 +366,9 @@ async def test_index_mirrors_continues_after_one_failure() -> None:
     # index_mirror itself swallows errors in production).
     # We call index_mirrors with the patched method to verify all 3 are called.
     try:
-        await indexer.index_mirrors([(mirror1, Path("/p1")), (mirror2, Path("/p2")), (mirror3, Path("/p3"))])
+        await indexer.index_mirrors(
+            [(mirror1, Path("/p1")), (mirror2, Path("/p2")), (mirror3, Path("/p3"))]
+        )
     except RuntimeError:
         pass  # only mirror2 raises; we still verify call_count
     assert call_count >= 1

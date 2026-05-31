@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from qdrant_client.models import Filter, MatchAny, MatchValue
+from qdrant_client.models import Filter
 
 from app.infrastructure.vector.qdrant_schemas import QdrantQueryFilters
 
@@ -23,8 +23,8 @@ def _must(f: Filter) -> list[Any]:
 def test_minimal_filter_produces_env_and_scope() -> None:
     f = QdrantQueryFilters(environment="dev", user_scope="public").to_filter()
     must = _must(f)
-    assert any(c.key == "environment" and c.match == MatchValue(value="dev") for c in must)
-    assert any(c.key == "user_scope" and c.match == MatchValue(value="public") for c in must)
+    assert any(c.key == "environment" and c.match.value == "dev" for c in must)
+    assert any(c.key == "user_scope" and c.match.value == "public" for c in must)
     assert len(must) == 2
 
 
@@ -42,26 +42,26 @@ def test_sanitize_scope_empty_raises() -> None:
 def test_language_adds_condition() -> None:
     f = QdrantQueryFilters(environment="dev", user_scope="public", language="ru").to_filter()
     must = _must(f)
-    assert any(c.key == "language" and c.match == MatchValue(value="ru") for c in must)
+    assert any(c.key == "language" and c.match.value == "ru" for c in must)
     assert len(must) == 3
 
 
 def test_request_id_condition() -> None:
     f = QdrantQueryFilters(environment="dev", user_scope="public", request_id=42).to_filter()
     must = _must(f)
-    assert any(c.key == "request_id" and c.match == MatchValue(value=42) for c in must)
+    assert any(c.key == "request_id" and c.match.value == 42 for c in must)
 
 
 def test_summary_id_condition() -> None:
     f = QdrantQueryFilters(environment="dev", user_scope="public", summary_id=7).to_filter()
     must = _must(f)
-    assert any(c.key == "summary_id" and c.match == MatchValue(value=7) for c in must)
+    assert any(c.key == "summary_id" and c.match.value == 7 for c in must)
 
 
 def test_user_id_condition() -> None:
     f = QdrantQueryFilters(environment="dev", user_scope="public", user_id=1001).to_filter()
     must = _must(f)
-    assert any(c.key == "user_id" and c.match == MatchValue(value=1001) for c in must)
+    assert any(c.key == "user_id" and c.match.value == 1001 for c in must)
 
 
 # ---------------------------------------------------------------------------
@@ -79,9 +79,9 @@ def test_tags_each_add_match_any_condition() -> None:
     must = _must(f)
     tag_conditions = [c for c in must if c.key == "tags"]
     assert len(tag_conditions) == 2
-    assert all(isinstance(c.match, MatchAny) for c in tag_conditions)
-    assert any(c.match == MatchAny(any=["ai"]) for c in tag_conditions)
-    assert any(c.match == MatchAny(any=["ml"]) for c in tag_conditions)
+    assert all(hasattr(c.match, "any") for c in tag_conditions)
+    assert any(c.match.any == ["ai"] for c in tag_conditions)
+    assert any(c.match.any == ["ml"] for c in tag_conditions)
 
 
 def test_tags_deduplication() -> None:

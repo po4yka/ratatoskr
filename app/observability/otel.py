@@ -212,7 +212,7 @@ def set_correlation_id_attr(cid: str | None) -> None:
 # is false, so it is safe to use unconditionally.
 
 
-@contextlib.asynccontextmanager  # type: ignore[misc]
+@contextlib.asynccontextmanager
 async def telethon_span(
     span_name: str,
     *,

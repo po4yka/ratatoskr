@@ -43,7 +43,7 @@ from .llm import (
     OpenAIConfig,
     OpenRouterConfig,
 )
-from .media import AttachmentConfig, YouTubeConfig
+from .media import AttachmentConfig, YouTubeConfig  # noqa: TC001
 from .otel import OtelConfig, SentryConfig
 from .push import PushNotificationConfig
 from .redis import RedisConfig
@@ -242,8 +242,8 @@ class Settings(BaseSettings):
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
     llm_usage_budget: LLMUsageBudgetConfig = Field(default_factory=LLMUsageBudgetConfig)
-    youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
-    attachment: AttachmentConfig = Field(default_factory=AttachmentConfig)
+    youtube: YouTubeConfig
+    attachment: AttachmentConfig
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     telegram_limits: TelegramLimitsConfig = Field(default_factory=TelegramLimitsConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)

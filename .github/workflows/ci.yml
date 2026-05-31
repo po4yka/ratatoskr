@@ -655,7 +655,7 @@ jobs:
       # pip's resolver. This fills the coverage gap left by pip-audit's
       # requirements-audit.txt filter.
       - name: OSV Scanner (uv.lock)
-        uses: google/osv-scanner-action/osv-scanner-action@v2
+        uses: google/osv-scanner-action/osv-scanner-action@v2.2.3
         with:
           scan-args: |-
             --lockfile=uv.lock

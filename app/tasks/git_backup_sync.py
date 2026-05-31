@@ -420,9 +420,7 @@ async def _prune_stale_excluded(cfg: AppConfig, db: Database) -> None:
         # 1. Delete Qdrant point best-effort.
         if qdrant_store is not None:
             try:
-                await asyncio.to_thread(
-                    qdrant_store.delete_git_mirror_points, [mirror_id]
-                )
+                await asyncio.to_thread(qdrant_store.delete_git_mirror_points, [mirror_id])
             except Exception as exc:
                 logger.warning(
                     "git_backup_prune_excluded_qdrant_failed",
@@ -456,7 +454,11 @@ async def _prune_stale_excluded(cfg: AppConfig, db: Database) -> None:
             except Exception as exc:
                 logger.warning(
                     "git_backup_prune_excluded_disk_failed",
-                    extra={"mirror_id": mirror_id, "mirror_path": mirror_path_str, "error": str(exc)},
+                    extra={
+                        "mirror_id": mirror_id,
+                        "mirror_path": mirror_path_str,
+                        "error": str(exc),
+                    },
                 )
 
         # 3. Delete the DB row best-effort.

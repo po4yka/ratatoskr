@@ -286,7 +286,10 @@ async def test_http2_error_sets_use_http1_via_record_failure() -> None:
 
     async def failing_runner(argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
         # Produce output that classify() maps to HTTP2_ERROR.
-        return 1, "fatal: unable to access 'https://github.com/...': HTTP/2 stream 1 was not closed cleanly before end of the underlying stream"
+        return (
+            1,
+            "fatal: unable to access 'https://github.com/...': HTTP/2 stream 1 was not closed cleanly before end of the underlying stream",
+        )
 
     service = _make_service(fake_repo, failing_runner)
 
@@ -332,9 +335,7 @@ async def test_non_http2_error_does_not_set_use_http1() -> None:
 
     assert len(fake_repo.failure_calls) == 1
     call = fake_repo.failure_calls[0]
-    assert call["use_http1"] is None, (
-        "record_failure must not set use_http1 for non-HTTP/2 errors"
-    )
+    assert call["use_http1"] is None, "record_failure must not set use_http1 for non-HTTP/2 errors"
 
 
 # ---------------------------------------------------------------------------

@@ -179,9 +179,7 @@ class TestModelValidation(unittest.TestCase):
 
         from app.adapters.openrouter.model_capabilities import ModelCapabilities
 
-        example_path = (
-            Path(__file__).resolve().parent.parent / "config" / "ratatoskr.yaml.example"
-        )
+        example_path = Path(__file__).resolve().parent.parent / "config" / "ratatoskr.yaml.example"
         openrouter = yaml.safe_load(example_path.read_text(encoding="utf-8"))["openrouter"]
         chain = [
             openrouter["model"],

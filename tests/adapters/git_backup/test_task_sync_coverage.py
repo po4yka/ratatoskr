@@ -1371,7 +1371,9 @@ class TestSyncGitBackupTask:
             patch(_TASK_PATCHES["_enumerate_and_upsert_github_repos"], AsyncMock(return_value=0)),
             patch(_TASK_PATCHES["_index_mirror_readmes"], AsyncMock()),
             patch(_TASK_PATCHES["_reconcile_mirror_readmes"], AsyncMock()),
-            patch(_TASK_PATCHES["_prune_stale_excluded"], AsyncMock(side_effect=RuntimeError("boom"))),
+            patch(
+                _TASK_PATCHES["_prune_stale_excluded"], AsyncMock(side_effect=RuntimeError("boom"))
+            ),
             patch(_TASK_PATCHES["_export_metrics"], export_metrics),
             patch(_TASK_PATCHES["_send_telegram_notify"], AsyncMock()),
         ):

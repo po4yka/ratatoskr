@@ -11,7 +11,7 @@ from app.adapters.content.content_extractor import ContentExtractor
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.adapters.telegram import forward_content_processor as fcp
 from app.adapters.telegram.forward_content_processor import ForwardContentProcessor
-from app.config import AppConfig, RuntimeConfig, YouTubeConfig
+from app.config import AppConfig, RuntimeConfig
 from app.core import html_utils
 from app.core.call_status import CallStatus
 from tests.conftest import make_test_app_config
@@ -35,7 +35,6 @@ def _cfg(enable_textacy: bool) -> AppConfig:
             preferred_lang="en",
             max_concurrent_calls=1,
         ),
-        youtube=YouTubeConfig(enabled=False),
     )
 
 

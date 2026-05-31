@@ -10,7 +10,7 @@ How Ratatoskr produces and maintains local bare-clone backups of git repositorie
 
 Ratatoskr's GitHub Repository Ingestion subsystem (see [`github-repository-ingestion.md`](github-repository-ingestion.md)) fetches GitHub metadata — description, topics, README excerpt — via the REST API and stores the result in PostgreSQL for LLM analysis and semantic search. It does not preserve repository history or file content. The git-mirroring subsystem complements this by running `git clone --mirror`, which captures the complete on-disk state of a repository: all refs (`heads/`, `tags/`, `remotes/`), loose objects, packfiles, and the full commit graph. This is a true backup, not a metadata snapshot.
 
-The subsystem is a port of [gitout](https://github.com/nicholasgasior/gitout), a Kotlin CLI tool that provides the core engine modules: error categorization, adaptive retry with backoff, storage circuit breaking, post-sync maintenance, LFS handling, and README extraction from bare clones. These modules have been translated to Python and wired into Ratatoskr's async infrastructure — Taskiq scheduler, SQLAlchemy persistence, Fernet-encrypted credential store — while preserving the original engine contracts.
+The subsystem is a port of [gitout](https://github.com/po4yka/gitout), a Kotlin CLI tool that provides the core engine modules: error categorization, adaptive retry with backoff, storage circuit breaking, post-sync maintenance, LFS handling, and README extraction from bare clones. These modules have been translated to Python and wired into Ratatoskr's async infrastructure — Taskiq scheduler, SQLAlchemy persistence, Fernet-encrypted credential store — while preserving the original engine contracts.
 
 ---
 
@@ -229,6 +229,7 @@ git_backup:
 ```
 
 Each rule has:
+
 - `pattern` — Python regex matched against the mirror name (e.g. `owner/repo`) and/or clone URL. Invalid regexes fall back to a literal substring match.
 - `priority` — integer; higher values start first. Default `0`.
 - `timeout_seconds` — optional per-task base timeout override in seconds. When set, replaces `GIT_BACKUP_REPO_TIMEOUT_SECONDS` for matching tasks; the large-repo multiplier (`GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER`) is still applied on top. `None` = use the global default.
@@ -315,7 +316,7 @@ The sync job supports a Healthchecks.io-compatible dead-man-switch via `GIT_BACK
 | After `perform_sync` returns | `POST {url}` | Job completed successfully |
 | If `perform_sync` raises | `POST {url}/fail` | Job failed; trigger alert |
 
-Ping semantics mirror [gitout's `health_check.py`](https://github.com/nicholasgasior/gitout): a ping is sent on completion regardless of per-repository failures (`summary.failed > 0`) because the job itself ran to completion. Only an unhandled exception (e.g. storage preflight failure, Redis lock error) routes to the `/fail` endpoint.
+Ping semantics mirror gitout's `health_check.py`: a ping is sent on completion regardless of per-repository failures (`summary.failed > 0`) because the job itself ran to completion. Only an unhandled exception (e.g. storage preflight failure, Redis lock error) routes to the `/fail` endpoint.
 
 All pings are best-effort: network errors and timeouts are logged at WARNING and swallowed. A failed ping never affects the backup outcome. The ping timeout is configured with `GIT_BACKUP_HC_PING_TIMEOUT_SECONDS` (default `10.0` s).
 

@@ -161,7 +161,9 @@ class TestIsIgnored:
 
     def test_multiple_patterns_any_matches(self) -> None:
         assert (
-            _is_ignored("user/archived", "https://github.com/user/archived.git", ["fork", "archive"])
+            _is_ignored(
+                "user/archived", "https://github.com/user/archived.git", ["fork", "archive"]
+            )
             is True
         )
 
@@ -263,7 +265,9 @@ class TestCollectTasksPriorities:
         data_path = Path("/tmp/git-priorities-test")
         with (
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch.object(service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")),
+            patch.object(
+                service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
+            ),
         ):
             tasks = await service._collect_tasks(user_id=100, data_path=data_path)
 
@@ -288,7 +292,9 @@ class TestCollectTasksPriorities:
         data_path = Path("/tmp/git-priorities-test")
         with (
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch.object(service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")),
+            patch.object(
+                service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
+            ),
         ):
             tasks = await service._collect_tasks(user_id=100, data_path=data_path)
 
@@ -304,7 +310,9 @@ class TestCollectTasksIgnore:
     @pytest.mark.asyncio
     async def test_ignored_mirror_excluded(self) -> None:
         mirrors = [
-            _make_mirror(mirror_id=1, name="user/keep", clone_url="https://github.com/user/keep.git"),
+            _make_mirror(
+                mirror_id=1, name="user/keep", clone_url="https://github.com/user/keep.git"
+            ),
             _make_mirror(
                 mirror_id=2, name="user/archived", clone_url="https://github.com/user/archived.git"
             ),
@@ -316,7 +324,9 @@ class TestCollectTasksIgnore:
         data_path = Path("/tmp/git-ignore-test")
         with (
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch.object(service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")),
+            patch.object(
+                service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
+            ),
         ):
             tasks = await service._collect_tasks(user_id=100, data_path=data_path)
 
@@ -345,7 +355,9 @@ class TestCollectTasksIgnore:
         data_path = Path("/tmp/git-ignore-test")
         with (
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch.object(service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")),
+            patch.object(
+                service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
+            ),
         ):
             tasks = await service._collect_tasks(user_id=100, data_path=data_path)
 
@@ -356,8 +368,12 @@ class TestCollectTasksIgnore:
     @pytest.mark.asyncio
     async def test_empty_ignore_list_includes_all(self) -> None:
         mirrors = [
-            _make_mirror(mirror_id=1, name="user/repo-a", clone_url="https://github.com/user/repo-a.git"),
-            _make_mirror(mirror_id=2, name="user/repo-b", clone_url="https://github.com/user/repo-b.git"),
+            _make_mirror(
+                mirror_id=1, name="user/repo-a", clone_url="https://github.com/user/repo-a.git"
+            ),
+            _make_mirror(
+                mirror_id=2, name="user/repo-b", clone_url="https://github.com/user/repo-b.git"
+            ),
         ]
         cfg = _make_config(ignore=[])
         fake_repo = _FakeMirrorRepo(mirrors)
@@ -366,7 +382,9 @@ class TestCollectTasksIgnore:
         data_path = Path("/tmp/git-ignore-test")
         with (
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch.object(service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")),
+            patch.object(
+                service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
+            ),
         ):
             tasks = await service._collect_tasks(user_id=100, data_path=data_path)
 
@@ -404,7 +422,11 @@ class TestFullRepackTiming:
     async def test_register_called_once_for_multi_repo_run(self) -> None:
         """Three successful repos → register_sync_and_check_repack called exactly once."""
         mirrors = [
-            _make_mirror(mirror_id=i, name=f"user/repo-{i}", clone_url=f"https://github.com/user/repo-{i}.git")
+            _make_mirror(
+                mirror_id=i,
+                name=f"user/repo-{i}",
+                clone_url=f"https://github.com/user/repo-{i}.git",
+            )
             for i in range(1, 4)
         ]
         recording_maint = _RecordingMaintenance(repack_due=False)
@@ -415,7 +437,9 @@ class TestFullRepackTiming:
         with (
             patch("pathlib.Path.exists", return_value=True),
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch("app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None),
+            patch(
+                "app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None
+            ),
             patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
         ):
             await service.perform_sync(user_id=100)
@@ -439,7 +463,9 @@ class TestFullRepackTiming:
         with (
             patch("pathlib.Path.exists", return_value=True),
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch("app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None),
+            patch(
+                "app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None
+            ),
             patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
             patch("asyncio.to_thread", side_effect=fake_to_thread),
         ):
@@ -459,7 +485,9 @@ class TestFullRepackTiming:
         with (
             patch("pathlib.Path.exists", return_value=True),
             patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
-            patch("app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None),
+            patch(
+                "app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None
+            ),
             patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
         ):
             summary = await service.perform_sync(user_id=100)

@@ -159,19 +159,11 @@ class OpenRouterConfig(BaseModel):
     summary_top_p_json_fallback: float | None = Field(
         default=None, validation_alias="OPENROUTER_SUMMARY_TOP_P_JSON"
     )
-    enable_structured_outputs: bool = Field(
-        validation_alias="OPENROUTER_ENABLE_STRUCTURED_OUTPUTS"
-    )
-    structured_output_mode: str = Field(
-        validation_alias="OPENROUTER_STRUCTURED_OUTPUT_MODE"
-    )
+    enable_structured_outputs: bool = Field(validation_alias="OPENROUTER_ENABLE_STRUCTURED_OUTPUTS")
+    structured_output_mode: str = Field(validation_alias="OPENROUTER_STRUCTURED_OUTPUT_MODE")
     require_parameters: bool = Field(validation_alias="OPENROUTER_REQUIRE_PARAMETERS")
-    auto_fallback_structured: bool = Field(
-        validation_alias="OPENROUTER_AUTO_FALLBACK_STRUCTURED"
-    )
-    max_response_size_mb: int = Field(
-        validation_alias="OPENROUTER_MAX_RESPONSE_SIZE_MB"
-    )
+    auto_fallback_structured: bool = Field(validation_alias="OPENROUTER_AUTO_FALLBACK_STRUCTURED")
+    max_response_size_mb: int = Field(validation_alias="OPENROUTER_MAX_RESPONSE_SIZE_MB")
     # Prompt caching settings (reduces inference costs)
     enable_prompt_caching: bool = Field(
         validation_alias="OPENROUTER_ENABLE_PROMPT_CACHING",

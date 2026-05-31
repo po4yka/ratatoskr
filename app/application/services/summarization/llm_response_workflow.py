@@ -17,9 +17,6 @@ from .llm_response_workflow_storage import LLMWorkflowStorageMixin
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.adapters.external.formatting.protocols import (
-        ResponseFormatterFacade as ResponseFormatter,
-    )
     from app.application.ports.llm_client import LLMClientProtocol
     from app.application.ports.requests import LLMRepositoryPort, RequestRepositoryPort
     from app.application.ports.summaries import SummaryRepositoryPort
@@ -135,7 +132,7 @@ class LLMResponseWorkflow(
         *,
         cfg: Any,
         db: Database,
-        response_formatter: ResponseFormatter,
+        response_formatter: Any,
         audit_func: Callable[[str, str, dict[str, Any]], None],
         sem: Callable[[], Any],
         llm_client: LLMClientProtocol | None = None,

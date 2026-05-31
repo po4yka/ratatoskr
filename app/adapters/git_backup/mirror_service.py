@@ -397,7 +397,9 @@ class GitMirrorService:
                     low_speed_time=cfg.low_speed_time,
                     single_branch_only=cfg.single_branch_only,
                     force_http1=bool(task.mirror.use_http1_fallback),
-                    use_shallow_clone=_should_use_shallow_clone(task.mirror, cfg) if is_clone else False,
+                    use_shallow_clone=_should_use_shallow_clone(task.mirror, cfg)
+                    if is_clone
+                    else False,
                     show_progress=False,
                     disable_redirects=True,
                 )

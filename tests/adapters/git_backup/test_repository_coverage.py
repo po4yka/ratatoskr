@@ -692,7 +692,9 @@ class TestRecordFailure:
     async def test_backoff_set_when_threshold_exceeded(self) -> None:
         mirror = _make_mirror(mirror_id=1, consecutive_failures=4)
         db = _FakeDB(write_row=mirror)
-        repo = _repo(db, GIT_BACKUP_MAX_CONSECUTIVE_FAILURES=5, GIT_BACKUP_FAILURE_COOLDOWN_HOURS=24)
+        repo = _repo(
+            db, GIT_BACKUP_MAX_CONSECUTIVE_FAILURES=5, GIT_BACKUP_FAILURE_COOLDOWN_HOURS=24
+        )
 
         await repo.record_failure(
             mirror_id=1,

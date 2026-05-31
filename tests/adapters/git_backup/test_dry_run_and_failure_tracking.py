@@ -270,8 +270,9 @@ class TestDryRunPlanLines:
             await service.perform_sync(user_id=100, dry_run=True)
 
         aggregate_lines = [
-            r for r in caplog.records if "git_mirror_dry_run" in r.message
-            and "tasks would run" in r.message
+            r
+            for r in caplog.records
+            if "git_mirror_dry_run" in r.message and "tasks would run" in r.message
         ]
         assert len(aggregate_lines) == 1
         assert "2" in aggregate_lines[0].message
@@ -329,9 +330,7 @@ class TestDryRunPlanLines:
         )
 
     @pytest.mark.asyncio
-    async def test_dry_run_no_tasks_no_plan_lines(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_dry_run_no_tasks_no_plan_lines(self, caplog: pytest.LogCaptureFixture) -> None:
         """When there are no due tasks, zero plan lines should be emitted."""
         fake_repo = _FakeMirrorRepo([])
 

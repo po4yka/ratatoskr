@@ -109,7 +109,8 @@ def _ensure_qdrant_stubs() -> None:
         # Real package already loaded — it has genuine implementations of all
         # names.  Do not replace them; just return.
         if hasattr(qdrant_mod, "QdrantClient") and not isinstance(
-            qdrant_mod.QdrantClient, MagicMock  # type: ignore[union-attr]
+            qdrant_mod.QdrantClient,
+            MagicMock,  # type: ignore[union-attr]
         ):
             return
         # Partial/stub module already in sys.modules — patch missing names in
@@ -473,9 +474,7 @@ async def test_filter_contains_user_id_condition() -> None:
 
     call_kwargs = store._client.query_points.call_args
     qdrant_filter = call_kwargs.kwargs.get("query_filter") or call_kwargs.args[2]
-    user_conditions = [
-        c for c in qdrant_filter.must if hasattr(c, "key") and c.key == "user_id"
-    ]
+    user_conditions = [c for c in qdrant_filter.must if hasattr(c, "key") and c.key == "user_id"]
     assert len(user_conditions) == 1
     assert user_conditions[0].match.value == 55
 
@@ -486,17 +485,13 @@ async def test_filter_contains_environment_and_user_scope() -> None:
     mirror_row = _make_mirror(mirror_id=3, user_id=10)
     db = _make_db([mirror_row])
     store = _make_qdrant_store([_make_hit(mirror_id=3, score=0.88)])
-    svc = _make_service(
-        qdrant_store=store, db=db, environment="staging", user_scope="shared"
-    )
+    svc = _make_service(qdrant_store=store, db=db, environment="staging", user_scope="shared")
 
     await svc.search("event sourcing", user_id=10)
 
     call_kwargs = store._client.query_points.call_args
     qdrant_filter = call_kwargs.kwargs.get("query_filter") or call_kwargs.args[2]
-    env_conditions = [
-        c for c in qdrant_filter.must if hasattr(c, "key") and c.key == "environment"
-    ]
+    env_conditions = [c for c in qdrant_filter.must if hasattr(c, "key") and c.key == "environment"]
     scope_conditions = [
         c for c in qdrant_filter.must if hasattr(c, "key") and c.key == "user_scope"
     ]

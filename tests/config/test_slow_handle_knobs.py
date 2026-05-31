@@ -136,26 +136,38 @@ class TestUrlFlowLeaseTtlSec:
 
 class TestArticleVisionMinImages:
     def test_default_is_one(self) -> None:
-        cfg = AttachmentConfig.model_validate({**MODEL_SELECTION_ENV,})
+        cfg = AttachmentConfig.model_validate(
+            {
+                **MODEL_SELECTION_ENV,
+            }
+        )
         assert cfg.article_vision_min_images == 1
 
     def test_env_override_raises_threshold(self) -> None:
-        cfg = AttachmentConfig.model_validate({**MODEL_SELECTION_ENV,"ARTICLE_VISION_MIN_IMAGES": "3"})
+        cfg = AttachmentConfig.model_validate(
+            {**MODEL_SELECTION_ENV, "ARTICLE_VISION_MIN_IMAGES": "3"}
+        )
         assert cfg.article_vision_min_images == 3
 
     def test_int_input_accepted(self) -> None:
-        cfg = AttachmentConfig.model_validate({**MODEL_SELECTION_ENV,"ARTICLE_VISION_MIN_IMAGES": 5})
+        cfg = AttachmentConfig.model_validate(
+            {**MODEL_SELECTION_ENV, "ARTICLE_VISION_MIN_IMAGES": 5}
+        )
         assert cfg.article_vision_min_images == 5
 
     def test_zero_rejected(self) -> None:
         # A threshold of 0 would be meaningless (vision triggers on empty
         # image lists). The validator must reject it.
         with pytest.raises(ValidationError):
-            AttachmentConfig.model_validate({**MODEL_SELECTION_ENV,"ARTICLE_VISION_MIN_IMAGES": "0"})
+            AttachmentConfig.model_validate(
+                {**MODEL_SELECTION_ENV, "ARTICLE_VISION_MIN_IMAGES": "0"}
+            )
 
     def test_negative_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            AttachmentConfig.model_validate({**MODEL_SELECTION_ENV,"ARTICLE_VISION_MIN_IMAGES": "-1"})
+            AttachmentConfig.model_validate(
+                {**MODEL_SELECTION_ENV, "ARTICLE_VISION_MIN_IMAGES": "-1"}
+            )
 
 
 class TestLlmStickyFailureForceFallback:

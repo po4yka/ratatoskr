@@ -413,7 +413,9 @@ class TestCircuitBreakerOpenSkip:
     async def test_open_breaker_skips_all_tasks(self) -> None:
         mirrors = [
             _make_mirror(mirror_id=1, name="user/repo1"),
-            _make_mirror(mirror_id=2, name="user/repo2", clone_url="https://github.com/user/repo2.git"),
+            _make_mirror(
+                mirror_id=2, name="user/repo2", clone_url="https://github.com/user/repo2.git"
+            ),
         ]
         cfg = _make_config()
         fake_repo = _FakeMirrorRepo(mirrors)
@@ -687,9 +689,7 @@ class TestSyncOneSSRFGuards:
         breaker = StorageCircuitBreaker(threshold=100)
         large_sem = asyncio.Semaphore(1)
 
-        with patch(
-            "app.adapters.git_backup.mirror_service.extract_git_host", return_value=None
-        ):
+        with patch("app.adapters.git_backup.mirror_service.extract_git_host", return_value=None):
             outcome = await service._sync_one(task, breaker, large_sem)
 
         assert outcome.ok is False

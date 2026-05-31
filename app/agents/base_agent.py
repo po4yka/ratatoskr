@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+class _SpanStarter(Protocol):
+    def start_as_current_span(self, name: str, **kwargs: object) -> Any:
+        """Start a tracing span."""
+        ...
 
 
 class _LazyTracer:
@@ -25,15 +31,15 @@ class _LazyTracer:
     def __init__(self) -> None:
         self._t: object | None = None
 
-    def _resolve(self) -> object:
+    def _resolve(self) -> _SpanStarter:
         if self._t is None:
             from app.observability.otel import get_tracer
 
             self._t = get_tracer("app.agents")
-        return self._t
+        return self._t  # type: ignore[return-value]
 
-    def start_as_current_span(self, name: str, **kwargs: object) -> object:
-        return self._resolve().start_as_current_span(name, **kwargs)  # type: ignore[union-attr]
+    def start_as_current_span(self, name: str, **kwargs: object) -> Any:
+        return self._resolve().start_as_current_span(name, **kwargs)
 
 
 _tracer = _LazyTracer()

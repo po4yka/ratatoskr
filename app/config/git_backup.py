@@ -430,7 +430,7 @@ class GitBackupConfig(BaseModel):
             "in _collect_tasks and applies to both DB-backed and config extra_repos targets. "
             "Empty list (default) = nothing ignored, current behavior unchanged. "
             "Set via ratatoskr.yaml or as a JSON-encoded list in the env var "
-            "(e.g. GIT_BACKUP_IGNORE='[\"some-fork\", \"private/.*\"]')."
+            '(e.g. GIT_BACKUP_IGNORE=\'["some-fork", "private/.*"]\').'
         ),
     )
 

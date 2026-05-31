@@ -17,7 +17,7 @@ from app.observability.metrics import record_db_query
 logger = get_logger(__name__)
 
 
-def _get_tracer() -> object:
+def _get_tracer() -> Any:
     from app.observability.otel import get_tracer
 
     return get_tracer(__name__)

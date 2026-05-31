@@ -221,7 +221,9 @@ def test_parse_unrecognised_token_returned_verbatim() -> None:
 
 def test_format_mirror_row_with_name_and_timestamp() -> None:
     ts = dt.datetime(2025, 3, 14, 9, 30, tzinfo=dt.UTC)
-    mirror = _make_mirror(id=7, name="owner/repo", clone_url="https://g.com/r.git", status="ok", last_mirrored_at=ts)
+    mirror = _make_mirror(
+        id=7, name="owner/repo", clone_url="https://g.com/r.git", status="ok", last_mirrored_at=ts
+    )
     line = _format_mirror_row(mirror)
     assert "[7]" in line
     assert "owner/repo" in line
@@ -469,8 +471,20 @@ async def test_handle_mirrors_empty_list_sends_no_mirrors_reply() -> None:
 async def test_handle_mirrors_returns_formatted_list() -> None:
     ts = dt.datetime(2025, 6, 1, 12, 0, tzinfo=dt.UTC)
     mirrors = [
-        _make_mirror(id=1, name="foo/bar", clone_url="https://github.com/foo/bar.git", status="ok", last_mirrored_at=ts),
-        _make_mirror(id=2, name="baz/qux", clone_url="https://github.com/baz/qux.git", status="pending", last_mirrored_at=None),
+        _make_mirror(
+            id=1,
+            name="foo/bar",
+            clone_url="https://github.com/foo/bar.git",
+            status="ok",
+            last_mirrored_at=ts,
+        ),
+        _make_mirror(
+            id=2,
+            name="baz/qux",
+            clone_url="https://github.com/baz/qux.git",
+            status="pending",
+            last_mirrored_at=None,
+        ),
     ]
     fake_repo = AsyncMock()
     fake_repo.list_for_user = AsyncMock(return_value=mirrors)

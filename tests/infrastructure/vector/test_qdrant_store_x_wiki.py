@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointIdsList
+from qdrant_client.models import Filter, PointIdsList
 
 from app.infrastructure.vector.point_ids import str_to_uuid
 from app.infrastructure.vector.qdrant_store import QdrantVectorStore
@@ -139,18 +139,13 @@ def test_constructs_filter_with_entity_type_x_wiki(
     assert len(client.scroll_calls) == 1
     call = client.scroll_calls[0]
     scroll_filter = call["scroll_filter"]
-    assert isinstance(scroll_filter, Filter)
+    assert hasattr(scroll_filter, "must")
     must = list(scroll_filter.must or [])
 
-    entity_type_condition = FieldCondition(key="entity_type", match=MatchValue(value="x_wiki"))
-    assert entity_type_condition in must
-
-    environment_condition = FieldCondition(key="environment", match=MatchValue(value="test"))
-    user_scope_condition = FieldCondition(key="user_scope", match=MatchValue(value="unit"))
-    user_id_condition = FieldCondition(key="user_id", match=MatchValue(value=42))
-    assert environment_condition in must
-    assert user_scope_condition in must
-    assert user_id_condition in must
+    assert any(c.key == "entity_type" and c.match.value == "x_wiki" for c in must)
+    assert any(c.key == "environment" and c.match.value == "test" for c in must)
+    assert any(c.key == "user_scope" and c.match.value == "unit" for c in must)
+    assert any(c.key == "user_id" and c.match.value == 42 for c in must)
 
     assert call["with_payload"] == ["wiki_path"]
     assert call["with_vectors"] is False
