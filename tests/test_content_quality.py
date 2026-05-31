@@ -67,7 +67,13 @@ def _firecrawl_result(markdown: str | None, html: str | None) -> FirecrawlResult
         error_text=None,
         source_url="https://example.com",
         endpoint="/v2/scrape",
-        options_json={"formats": ["markdown", "html"]},
+        options_json={
+            "formats": ["markdown", "html"],
+            "_chain_attempt_log": [
+                {"provider": "direct_html", "status": "success", "latency_ms": 12}
+            ],
+            "_chain_winning_provider": "direct_html",
+        },
         correlation_id="cid-123",
     )
 
@@ -122,6 +128,12 @@ async def test_low_value_content_triggers_failure() -> None:
     call_kwargs = mock_crawl_repo.async_insert_crawl_result.call_args.kwargs
     # The crawl repo uses 'error' field for error messages
     assert "insufficient_useful_content" in (call_kwargs.get("error") or "")
+    assert call_kwargs["attempt_log"] == [
+        {"provider": "direct_html", "status": "success", "latency_ms": 12}
+    ]
+    assert call_kwargs["winning_provider"] == "direct_html"
+    assert call_kwargs["options_json"]["_content_quality"]["reason"] == "overlay_content_detected"
+    assert call_kwargs["options_json"]["_content_quality"]["winning_provider"] == "direct_html"
 
 
 def test_detect_nav_stub_content() -> None:

@@ -413,9 +413,32 @@ class TestDirectHTMLProvider:
 
         assert result.status == "ok"
         assert result.http_status == 200
+        assert result.content_markdown == extracted_text
         assert result.content_html == html_body
         assert result.source_url == "https://example.com"
         assert result.endpoint == "direct_html"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_fetch_with_empty_extracted_text_returns_error(self):
+        """Raw HTML must not be accepted when article text extraction is empty."""
+        from app.adapters.content.scraper.direct_html_provider import DirectHTMLProvider
+
+        html_body = "<html><body><script>window.__APP__ = {}</script></body></html>"
+        provider = DirectHTMLProvider(timeout_sec=5)
+
+        with (
+            patch.object(provider, "_fetch_html", new_callable=AsyncMock, return_value=html_body),
+            patch(
+                "app.adapters.content.scraper.direct_html_provider.html_to_text",
+                return_value="",
+            ),
+        ):
+            result = await provider.scrape_markdown("https://example.com")
+
+        assert result.status == "error"
+        assert "too short" in (result.error_text or "").lower()
+        assert result.content_markdown is None
+        assert result.content_html == html_body
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_non_200_returns_none_html_and_error(self):

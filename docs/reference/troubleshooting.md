@@ -331,27 +331,37 @@ echo "CONTENT_EXTRACTION_FALLBACK=true" >> .env
 
 **Cause**: All enabled scraper chain providers returned empty content or an error for this URL.
 
+**Common Pi variant**: The Pi overlay may run a lightweight profile with browser providers disabled. For Cloudflare/Condé Nast-style pages, `direct_html` can fetch a 200 HTML response while article-text extraction still cleans to empty. Treat `insufficient_useful_content:empty_after_cleaning` as an extraction-quality failure, not proof that the URL is unreachable.
+
 **Solution**:
 
 ```bash
 # 1. Check which providers are enabled
 grep SCRAPER_ .env
 
-# 2. Verify sidecar health
+# 2. Inspect persisted provider telemetry
+docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -x -c \
+  "SELECT status, endpoint, error_text, winning_provider, attempt_log, options_json
+     FROM crawl_results
+    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>');"
+
+# 3. Verify sidecar health
 curl http://localhost:3002/health      # self-hosted Firecrawl
 curl http://localhost:11235/health     # Crawl4AI
 curl http://localhost:3003/health      # Defuddle
 
-# 3. Force a single provider for testing
+# 4. Force a single provider for testing
 echo "SCRAPER_FORCE_PROVIDER=scrapling" >> .env
 # Valid values: scrapling | crawl4ai | firecrawl_self_hosted | defuddle | playwright | crawlee | direct_html | scrapegraph_ai
 
-# 4. Check per-provider failure reasons in logs
+# 5. Check per-provider failure reasons in logs
 docker logs ratatoskr 2>&1 | grep '"context":"scraper"'
 
-# 5. Restart sidecars if unresponsive
+# 6. Restart sidecars if unresponsive
 docker compose -f ops/docker/docker-compose.yml --profile with-scrapers restart
 ```
+
+For Pi production defaults, prefer `SCRAPER_PROFILE=balanced` and `SCRAPER_SCRAPLING_STEALTH_FALLBACK=true`. Enable `SCRAPER_CRAWL4AI_ENABLED=true` and `SCRAPER_DEFUDDLE_ENABLED=true` only when their sidecars are actually running and reachable from the bot container. Keep Playwright/Crawlee disabled unless the Pi has enough spare CPU/RAM for browser rendering.
 
 **Last resort**: enable ScrapeGraphAI (`SCRAPER_SCRAPEGRAPH_ENABLED=true`) — uses an LLM call and adds latency/cost but handles sites that defeat all browser-based approaches.
 

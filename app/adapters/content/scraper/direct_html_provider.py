@@ -94,7 +94,7 @@ class DirectHTMLProvider:
         return FirecrawlResult(
             status=CallStatus.OK,
             http_status=200,
-            content_markdown=None,
+            content_markdown=content_text,
             content_html=html,
             latency_ms=latency,
             source_url=url,

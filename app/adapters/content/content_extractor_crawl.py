@@ -369,6 +369,21 @@ class ContentExtractorCrawlMixin:
         metric_parts.append(f"overlay_ratio={metrics['overlay_ratio']:.2f}")
         crawl.status = CallStatus.ERROR
         crawl.error_text = f"insufficient_useful_content:{reason_label} ({', '.join(metric_parts)})"
+        options_json = dict(crawl.options_json or {})
+        options_json["_content_quality"] = {
+            "reason": reason_label,
+            "char_length": metrics["char_length"],
+            "word_count": metrics["word_count"],
+            "unique_word_count": metrics["unique_word_count"],
+            "overlay_ratio": round(metrics["overlay_ratio"], 3),
+            "markdown_len": len(crawl.content_markdown or ""),
+            "html_len": len(crawl.content_html or ""),
+            "winning_provider": options_json.get("_chain_winning_provider"),
+        }
+        if metrics.get("top_word"):
+            options_json["_content_quality"]["top_word"] = metrics["top_word"]
+            options_json["_content_quality"]["top_ratio"] = round(metrics["top_ratio"], 3)
+        crawl.options_json = options_json
 
         if self._audit:
             try:
@@ -380,6 +395,9 @@ class ContentExtractorCrawlMixin:
                     "word_count": metrics["word_count"],
                     "unique_word_count": metrics["unique_word_count"],
                     "overlay_ratio": round(metrics["overlay_ratio"], 3),
+                    "markdown_len": len(crawl.content_markdown or ""),
+                    "html_len": len(crawl.content_html or ""),
+                    "winning_provider": options_json.get("_chain_winning_provider"),
                 }
                 if metrics.get("top_word"):
                     audit_payload["top_word"] = metrics["top_word"]
