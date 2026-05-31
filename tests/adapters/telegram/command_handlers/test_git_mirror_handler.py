@@ -24,7 +24,6 @@ from app.adapters.telegram.command_handlers.git_mirror_handler import (
 )
 from app.db.models.git_backup import GitMirrorSource
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fakes
 # ---------------------------------------------------------------------------

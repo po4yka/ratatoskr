@@ -43,7 +43,6 @@ from app.adapters.git_backup.retry import RetryPolicy
 from app.config.git_backup import GitBackupConfig
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------

@@ -15,7 +15,6 @@ import pytest
 from app.adapters.github.types import GitHubOwnerDTO, RepositoryDTO, StarredItem
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fakes
 # ---------------------------------------------------------------------------

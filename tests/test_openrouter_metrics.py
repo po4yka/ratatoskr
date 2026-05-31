@@ -45,8 +45,8 @@ def _histogram_count(histogram: Any, **labels: Any) -> float:
 
 def test_record_per_model_timeout_increments_counter() -> None:
     from app.observability.metrics import (
-        OPENROUTER_PER_MODEL_TIMEOUT,
         _DEFAULT_MODEL_ALLOWLIST,
+        OPENROUTER_PER_MODEL_TIMEOUT,
         record_per_model_timeout,
     )
 
@@ -80,8 +80,8 @@ def test_record_per_model_timeout_is_noop_without_prometheus(
 
 def test_record_per_model_latency_observes_histogram() -> None:
     from app.observability.metrics import (
-        OPENROUTER_PER_MODEL_LATENCY,
         _DEFAULT_MODEL_ALLOWLIST,
+        OPENROUTER_PER_MODEL_LATENCY,
         record_per_model_latency,
     )
 
@@ -109,8 +109,8 @@ def test_record_per_model_latency_is_noop_without_prometheus(
 def test_record_per_model_circuit_breaker_state_open_writes_2() -> None:
     """open state must write integer 2 to the single-label gauge."""
     from app.observability.metrics import (
-        OPENROUTER_CIRCUIT_BREAKER_STATE,
         _DEFAULT_MODEL_ALLOWLIST,
+        OPENROUTER_CIRCUIT_BREAKER_STATE,
         record_per_model_circuit_breaker_state,
     )
 
@@ -122,8 +122,8 @@ def test_record_per_model_circuit_breaker_state_open_writes_2() -> None:
 def test_record_per_model_circuit_breaker_state_half_open_writes_1() -> None:
     """half_open state must write integer 1."""
     from app.observability.metrics import (
-        OPENROUTER_CIRCUIT_BREAKER_STATE,
         _DEFAULT_MODEL_ALLOWLIST,
+        OPENROUTER_CIRCUIT_BREAKER_STATE,
         record_per_model_circuit_breaker_state,
     )
 
@@ -135,8 +135,8 @@ def test_record_per_model_circuit_breaker_state_half_open_writes_1() -> None:
 def test_record_per_model_circuit_breaker_state_closed_writes_0() -> None:
     """closed state must write integer 0."""
     from app.observability.metrics import (
-        OPENROUTER_CIRCUIT_BREAKER_STATE,
         _DEFAULT_MODEL_ALLOWLIST,
+        OPENROUTER_CIRCUIT_BREAKER_STATE,
         record_per_model_circuit_breaker_state,
     )
 
@@ -148,8 +148,8 @@ def test_record_per_model_circuit_breaker_state_closed_writes_0() -> None:
 def test_record_per_model_circuit_breaker_state_transitions() -> None:
     """Gauge value must track state transitions: open->half_open->closed."""
     from app.observability.metrics import (
-        OPENROUTER_CIRCUIT_BREAKER_STATE,
         _DEFAULT_MODEL_ALLOWLIST,
+        OPENROUTER_CIRCUIT_BREAKER_STATE,
         record_per_model_circuit_breaker_state,
     )
 

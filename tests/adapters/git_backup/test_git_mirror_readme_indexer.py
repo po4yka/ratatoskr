@@ -19,7 +19,6 @@ import pytest
 
 from app.infrastructure.vector.point_ids import git_mirror_point_id
 
-
 # ---------------------------------------------------------------------------
 # point_id determinism
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from .database import DatabaseConfig
 from .deployment import DeploymentConfig
 from .digest import ChannelDigestConfig
 from .firecrawl import FirecrawlConfig
+from .git_backup import GitBackupConfig
 from .github import GitHubConfig
 from .import_export import ImportConfig
 from .integrations import (
@@ -57,7 +58,6 @@ from .telegram import TelegramConfig, TelegramLimitsConfig
 from .transcription import TranscriptionConfig
 from .tts import ElevenLabsConfig
 from .twitter import TwitterConfig
-from .git_backup import GitBackupConfig
 from .x_bookmarks import XBookmarksConfig
 
 logger = get_logger(__name__)

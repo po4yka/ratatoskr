@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from app.application.services.summarization import llm_response_workflow_execution
 from app.adapters.content.scraper import diagnostics as scraper_diagnostics
 from app.adapters.external.firecrawl import options as firecrawl_options
 from app.adapters.external.formatting import export_formatter
 from app.adapters.openrouter import chat_engine, request_builder
 from app.application import ports as repository_ports
+from app.application.services.summarization import llm_response_workflow_execution
 from app.core import async_utils, logging_utils, ui_strings
 from app.core.summary_contract_impl import contract as summary_contract
 from app.infrastructure.cache import batch_progress_cache

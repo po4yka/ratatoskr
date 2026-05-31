@@ -6,14 +6,14 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from app.adapters.external.formatting.single_url_progress_formatter import (
+    SingleURLProgressFormatter,
+)
 from app.application.services.summarization.llm_response_workflow import (
     AttemptContext,
     LLMInteractionConfig,
     LLMSummaryPersistenceSettings,
     LLMWorkflowNotifications,
-)
-from app.adapters.external.formatting.single_url_progress_formatter import (
-    SingleURLProgressFormatter,
 )
 from app.core.logging_utils import get_logger
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata

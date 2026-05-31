@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Shared fakes (mirror the idioms from test_git_mirror_readme_indexer.py)
 # ---------------------------------------------------------------------------
@@ -228,7 +227,6 @@ async def test_index_mirror_swallows_embedding_exception() -> None:
 async def test_index_mirror_logs_on_inner_exception() -> None:
     """The outer except handler calls logger.exception (i.e. the log side-effect fires)."""
     import app.infrastructure.search.git_mirror_readme_indexer as module
-
     from app.infrastructure.search.git_mirror_readme_indexer import GitMirrorReadmeIndexer
 
     fake_extractor = MagicMock()

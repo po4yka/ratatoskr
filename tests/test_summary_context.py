@@ -252,6 +252,7 @@ class TestSyncSnapshotPaging(unittest.TestCase):
         """Simulate a database with 1300 rows and verify all are returned across pages."""
         import asyncio
         from types import SimpleNamespace
+
         from app.infrastructure.persistence.repositories.summary_repository import (
             SummaryRepositoryAdapter,
         )
@@ -328,6 +329,7 @@ class TestSmartCollectionNoCap(unittest.TestCase):
         """Simulate 11000 rows and verify all are returned (no 10000 hard cap)."""
         import asyncio
         from types import SimpleNamespace
+
         from app.infrastructure.persistence.repositories.collection_repository import (
             CollectionRepositoryAdapter,
         )

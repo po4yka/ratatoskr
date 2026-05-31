@@ -20,10 +20,10 @@ from app.adapters.telegram.command_handlers.browse_handler import BrowseHandler
 from app.adapters.telegram.command_handlers.content_handler import ContentHandler
 from app.adapters.telegram.command_handlers.digest_handler import DigestHandler
 from app.adapters.telegram.command_handlers.export_command import ExportHandler
+from app.adapters.telegram.command_handlers.git_mirror_handler import GitMirrorHandler
 from app.adapters.telegram.command_handlers.init_session_handler import InitSessionHandler
 from app.adapters.telegram.command_handlers.listen_handler import ListenHandler
 from app.adapters.telegram.command_handlers.onboarding_handler import OnboardingHandler
-from app.adapters.telegram.command_handlers.git_mirror_handler import GitMirrorHandler
 from app.adapters.telegram.command_handlers.rss_handler import RSSHandler
 from app.adapters.telegram.command_handlers.rules_handler import RulesHandler
 from app.adapters.telegram.command_handlers.search_handler import SearchHandler

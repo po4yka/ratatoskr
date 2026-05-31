@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from app.application.services.user_interaction_update import (
+from app.application.services.user_interaction_update import (  # noqa: F401  re-exported for adapter/db-layer callers
     _prepare_interaction_update,
-    async_safe_update_user_interaction,  # noqa: F401  re-exported for adapter/db-layer callers
+    async_safe_update_user_interaction,
 )
 from app.core.logging_utils import get_logger, log_exception
 from app.infrastructure.persistence.repositories.user_repository import (

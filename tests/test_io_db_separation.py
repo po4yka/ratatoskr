@@ -8,13 +8,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.adapters.content.content_extractor import ContentExtractor
+from app.adapters.external.firecrawl.client import FirecrawlResult
 from app.application.services.summarization.llm_response_workflow import (
     AttemptContext,
     LLMInteractionConfig,
     LLMResponseWorkflow,
     LLMSummaryPersistenceSettings,
 )
-from app.adapters.external.firecrawl.client import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.lang import LANG_EN
 

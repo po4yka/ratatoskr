@@ -6,7 +6,9 @@ from datetime import datetime  # noqa: TC003  # used at runtime by Pydantic sche
 
 from pydantic import BaseModel, ConfigDict
 
-from app.api.models.responses.common import PaginationInfo  # noqa: TC001  # used at runtime by Pydantic schema generation
+from app.api.models.responses.common import (  # noqa: TC001  # used at runtime by Pydantic schema generation
+    PaginationInfo,
+)
 
 
 class GitMirrorCompact(BaseModel):

@@ -8,10 +8,10 @@ import logging
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
+from app.application.services.user_interaction_update import async_safe_update_user_interaction
 from app.core.call_status import CallStatus
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.core.summary_normalization import normalize_metric_names
-from app.application.services.user_interaction_update import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 from app.utils.json_validation import finalize_summary_texts
 

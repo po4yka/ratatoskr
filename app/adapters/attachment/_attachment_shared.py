@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
     from app.adapters.llm.protocol import LLMClientProtocol
     from app.application.ports.requests import RequestRepositoryPort
     from app.application.ports.users import UserRepositoryPort
+    from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
     from app.config import AppConfig
     from app.db.session import Database
 

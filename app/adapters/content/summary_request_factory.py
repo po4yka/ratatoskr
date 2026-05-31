@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from app.adapters.content.llm_summarizer_text import strip_markdown_images, truncate_content_text
 from app.application.services.summarization.llm_response_workflow import (
     LLMInteractionConfig,
     LLMRepairContext,
@@ -14,7 +15,6 @@ from app.application.services.summarization.llm_response_workflow import (
     LLMSummaryPersistenceSettings,
     LLMWorkflowNotifications,
 )
-from app.adapters.content.llm_summarizer_text import strip_markdown_images, truncate_content_text
 from app.core.content_cleaner import (
     PromptInjectionDetection,
     apply_prompt_injection_metadata,

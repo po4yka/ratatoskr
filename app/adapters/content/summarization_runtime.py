@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
 from app.adapters.content.llm_summarizer_articles import LLMArticleGenerator
 from app.adapters.content.llm_summarizer_cache import LLMSummaryCache
 from app.adapters.content.llm_summarizer_insights import (
@@ -15,6 +14,7 @@ from app.adapters.content.llm_summarizer_metadata import LLMSummaryMetadataHelpe
 from app.adapters.content.llm_summarizer_semantic import LLMSemanticHelper
 from app.adapters.content.llm_summarizer_text import coerce_string_list, truncate_content_text
 from app.adapters.content.search_context_enricher import SearchContextEnricher
+from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
 
 if TYPE_CHECKING:
     from collections.abc import Callable

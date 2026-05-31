@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from app.adapters.content.summary_request_factory import (
+    build_summary_user_prompt,
+    mark_prompt_injection_metadata,
+)
 from app.application.services.summarization.llm_response_workflow import (
     LLMInteractionConfig,
     LLMRepairContext,
@@ -11,10 +15,6 @@ from app.application.services.summarization.llm_response_workflow import (
     LLMResponseWorkflow,
     LLMSummaryPersistenceSettings,
     LLMWorkflowNotifications,
-)
-from app.adapters.content.summary_request_factory import (
-    build_summary_user_prompt,
-    mark_prompt_injection_metadata,
 )
 from app.core.logging_utils import get_logger
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata

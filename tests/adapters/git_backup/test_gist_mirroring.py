@@ -17,7 +17,6 @@ from app.adapters.github.types import GistDTO
 from app.core.git_url_safety import is_github_host
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fakes
 # ---------------------------------------------------------------------------

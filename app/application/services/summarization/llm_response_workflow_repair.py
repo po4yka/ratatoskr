@@ -13,10 +13,10 @@ if TYPE_CHECKING:
     from app.application.services.summarization.llm_response_workflow import AttemptContext
     from app.application.ports.llm_client import LLMClientProtocol
 
+from app.application.services.user_interaction_update import async_safe_update_user_interaction
 from app.core.call_status import CallStatus
 from app.core.llm_call_budget import LLMCallCapExceeded
 from app.core.summary_contract import validate_and_shape_summary
-from app.application.services.user_interaction_update import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 from app.utils.json_validation import finalize_summary_texts
 

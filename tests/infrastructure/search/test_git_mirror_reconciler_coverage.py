@@ -18,7 +18,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fakes — mirror the idiom from tests/adapters/git_backup/test_git_mirror_reconciler.py
 # ---------------------------------------------------------------------------

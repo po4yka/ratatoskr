@@ -27,7 +27,6 @@ from app.adapters.git_backup.mirror_service import (
 from app.config.git_backup import GitBackupConfig, PriorityRule
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

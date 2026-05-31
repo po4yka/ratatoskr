@@ -21,7 +21,6 @@ import pytest
 
 from app.config.git_backup import GitBackupConfig
 
-
 # ---------------------------------------------------------------------------
 # Helpers shared across all feature tests
 # ---------------------------------------------------------------------------

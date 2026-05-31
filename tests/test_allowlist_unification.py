@@ -19,8 +19,6 @@ The test below verifies two complementary properties:
 
 from __future__ import annotations
 
-from tests._config_env import MODEL_SELECTION_ENV
-
 import os
 import unittest.mock
 from pathlib import Path
@@ -30,6 +28,7 @@ import pytest
 from app.api.exceptions import AuthorizationError
 from app.api.routers.auth import tokens
 from app.config import Config
+from tests._config_env import MODEL_SELECTION_ENV
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AUTH_PATHS = [

@@ -41,12 +41,6 @@ from app.db.models.core import (
     XBookmarkMetadata,
     XCategory,
 )
-from app.db.models.git_backup import (
-    GIT_BACKUP_MODELS,
-    GitMirror,
-    GitMirrorSource,
-    GitMirrorStatus,
-)
 from app.db.models.digest import (
     DIGEST_MODELS,
     Channel,
@@ -56,6 +50,12 @@ from app.db.models.digest import (
     ChannelSubscription,
     DigestDelivery,
     UserDigestPreference,
+)
+from app.db.models.git_backup import (
+    GIT_BACKUP_MODELS,
+    GitMirror,
+    GitMirrorSource,
+    GitMirrorStatus,
 )
 from app.db.models.repository import (
     REPOSITORY_MODELS,

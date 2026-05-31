@@ -26,7 +26,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Inject minimal qdrant_client stubs before any project imports touch it.
 # The service does ``from qdrant_client.models import ...`` lazily inside
