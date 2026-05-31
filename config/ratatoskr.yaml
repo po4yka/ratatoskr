@@ -48,18 +48,18 @@ openrouter:
   # hard-fails at startup if any is missing, so this file is the single source of
   # truth for which models the service uses. See
   # docs/reference/environment-variables.md (OpenRouter model selection).
-  model: qwen/qwen3.5-flash-02-23
+  model: qwen/qwen3.7-max
   fallback_models:
-    - qwen/qwen3.5-plus-02-15
-    - deepseek/deepseek-v3.2
+    - deepseek/deepseek-v4-flash
     - deepseek/deepseek-v4-pro
-    - moonshotai/kimi-k2.5
+    - moonshotai/kimi-k2.6
+    - anthropic/claude-sonnet-4.6
   # Lightweight/fast path (used for cheap classification + flash summarization).
   flash_model: qwen/qwen3.6-flash
   flash_fallback_models:
-    - qwen/qwen3.6-plus-04-02
+    - google/gemini-3-flash-preview
   # Routed to for very large inputs (see runtime long-context threshold).
-  long_context_model: minimax/minimax-m2
+  long_context_model: anthropic/claude-opus-4.8
   http_referer: https://github.com/po4yka/bite-size-reader
   x_title: Bite-Size Reader
   # Behavioral tunables (REQUIRED — no code default).
@@ -140,9 +140,9 @@ attachment:
   # Vision-model selection has NO code default. Both keys are REQUIRED; the bot
   # hard-fails at startup if either is missing. This file is the single source of
   # truth for the vision models used on image / scanned-PDF attachments.
-  vision_model: qwen/qwen3-vl-32b-instruct
+  vision_model: google/gemini-3.5-flash
   vision_fallback_models:
-    - moonshotai/kimi-k2.5
+    - qwen/qwen3-vl-32b-instruct
   # Image-density gate on vision-model routing for HTML articles.
   # Default in code is 1 (any image routes to vision); on the Pi this is
   # too aggressive — Habr-class articles ship a single OG header image,
@@ -192,3 +192,20 @@ youtube:
   cleanup_after_days: 30
   preferred_quality: 1080p
   subtitle_languages: [en, ru]
+
+# Content-aware model routing. When enabled, the summary path classifies content
+# (technical / sociopolitical / default) and routes accordingly; very long inputs
+# (> long_context_threshold_tokens, code default 180000) also go to the
+# long-context model. Here, technical/complex articles and very long inputs use
+# claude-opus-4.8; everything else stays on the primary (qwen3.7-max) cascade.
+model_routing:
+  enabled: true
+  default_model: qwen/qwen3.7-max
+  technical_model: anthropic/claude-opus-4.8
+  sociopolitical_model: x-ai/grok-4.3
+  long_context_model: anthropic/claude-opus-4.8
+  fallback_models:
+    - deepseek/deepseek-v4-flash
+    - deepseek/deepseek-v4-pro
+    - moonshotai/kimi-k2.6
+    - anthropic/claude-sonnet-4.6
