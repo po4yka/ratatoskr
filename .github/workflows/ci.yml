@@ -655,7 +655,7 @@ jobs:
       # pip's resolver. This fills the coverage gap left by pip-audit's
       # requirements-audit.txt filter.
       - name: OSV Scanner (uv.lock)
-        uses: google/osv-scanner-action/osv-scanner-action@v2.2.3
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             --lockfile=uv.lock
@@ -847,7 +847,7 @@ jobs:
 
       - name: Gitleaks (workspace)
         if: ${{ github.event_name == 'pull_request' }}
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -872,7 +872,7 @@ jobs:
 
       - name: Gitleaks (history)
         if: ${{ github.event_name != 'pull_request' }}
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
