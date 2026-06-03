@@ -54,6 +54,7 @@ jobs:
       # index would have blocked (e.g. fastapi 0.136.3 / MAL-2026-4750).
       # See docs/reference/dependency-supply-chain.md for the full threat model.
       - name: Assert Safety index is reachable
+        if: github.actor != 'dependabot[bot]'
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
         run: |
@@ -72,6 +73,10 @@ jobs:
           fi
           echo "Safety index reachable (HTTP ${HTTP_STATUS}). Proceeding with uv lock."
 
+      - name: Note Dependabot lock refresh without Safety index
+        if: github.actor == 'dependabot[bot]'
+        run: echo "::warning::SAFETY_API_KEY is not available to this Dependabot-triggered workflow; relying on pyproject exclusions and exported requirements guards for this lock refresh."
+
       - name: Refresh uv.lock
         run: uv lock
 
@@ -86,14 +91,25 @@ jobs:
       - name: Export locked requirements (dev)
         run: uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
 
+      - name: Export locked requirements (all extras)
+        run: |
+          uv export --no-dev --no-hashes --format requirements-txt -p 3.13 \
+            --extra api \
+            --extra ml \
+            --extra youtube \
+            --extra export \
+            --extra scheduler \
+            --extra mcp \
+            -o requirements-all.txt
+
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet uv.lock requirements.txt requirements-dev.txt; then
-            echo "changes=false" >> $GITHUB_OUTPUT
+          if git diff --quiet uv.lock requirements.txt requirements-dev.txt requirements-all.txt; then
+            echo "changes=false" >> "$GITHUB_OUTPUT"
             echo "No lockfile changes detected"
           else
-            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "changes=true" >> "$GITHUB_OUTPUT"
             echo "Lockfile changes detected"
           fi
 
@@ -110,7 +126,7 @@ jobs:
             Automated lockfile refresh from pyproject.toml.
 
             - Updated `uv.lock` with `uv lock`.
-            - Updated requirements.txt and requirements-dev.txt using `uv export`.
+            - Updated requirements.txt, requirements-dev.txt, and requirements-all.txt using `uv export`.
           branch: chore/update-locks
           delete-branch: true
           labels: dependencies, automated pr
@@ -118,6 +134,7 @@ jobs:
             uv.lock
             requirements.txt
             requirements-dev.txt
+            requirements-all.txt
 
       - name: Create Pull Request (best-effort with GITHUB_TOKEN)
         if: steps.changes.outputs.changes == 'true' && (env.ACTIONS_PR_TOKEN == '')
@@ -131,7 +148,7 @@ jobs:
             Automated lockfile refresh from pyproject.toml.
 
             - Updated `uv.lock` with `uv lock`.
-            - Updated requirements.txt and requirements-dev.txt using `uv export`.
+            - Updated requirements.txt, requirements-dev.txt, and requirements-all.txt using `uv export`.
           branch: chore/update-locks
           delete-branch: true
           labels: dependencies, automated pr
@@ -139,6 +156,7 @@ jobs:
             uv.lock
             requirements.txt
             requirements-dev.txt
+            requirements-all.txt
 
       - name: Note PR permission restriction
         if: steps.changes.outputs.changes == 'true' && (env.ACTIONS_PR_TOKEN == '')
