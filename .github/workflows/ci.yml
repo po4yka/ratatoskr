@@ -744,6 +744,7 @@ jobs:
               - 'uv.lock'
 
       - name: Set up Docker Buildx
+        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Build API image
