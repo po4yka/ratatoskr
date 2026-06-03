@@ -47,7 +47,7 @@ jobs:
             uv.lock
 
       - name: Validate uv.lock
-        if: github.actor != 'dependabot[bot]'
+        if: github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/')
         uses: nick-fields/retry@v4
         with:
           max_attempts: 3
@@ -56,7 +56,7 @@ jobs:
           command: uv lock --check
 
       - name: Refresh uv.lock for Dependabot test run
-        if: github.actor == 'dependabot[bot]'
+        if: github.actor == 'dependabot[bot]' || startsWith(github.head_ref, 'dependabot/')
         run: uv lock
 
       - name: Compile locked requirements (runtime - core only)
@@ -81,7 +81,7 @@ jobs:
 
       - name: Check lockfile drift
         id: lockcheck
-        if: github.actor != 'dependabot[bot]'
+        if: github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'dependabot/')
         run: |
           if git diff --quiet uv.lock requirements.txt requirements-dev.txt requirements-all.txt; then
             echo "drift=false" >> "$GITHUB_OUTPUT"
@@ -96,7 +96,7 @@ jobs:
           fi
 
       - name: Report transient Dependabot lock refresh
-        if: github.actor == 'dependabot[bot]' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+        if: (github.actor == 'dependabot[bot]' || startsWith(github.head_ref, 'dependabot/')) && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
         run: |
           if git diff --quiet uv.lock requirements.txt requirements-dev.txt requirements-all.txt; then
             echo "Dependabot dependency update did not require lockfile changes."
