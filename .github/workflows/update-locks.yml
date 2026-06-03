@@ -54,6 +54,7 @@ jobs:
       # index would have blocked (e.g. fastapi 0.136.3 / MAL-2026-4750).
       # See docs/reference/dependency-supply-chain.md for the full threat model.
       - name: Assert Safety index is reachable
+        id: safety_index
         if: github.actor != 'dependabot[bot]'
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
@@ -63,14 +64,27 @@ jobs:
             exit 1
           fi
           SAFETY_INDEX_URL="https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/"
-          HTTP_STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            --max-time 15 \
+          set +e
+          HTTP_STATUS=$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 3 \
+            --retry-delay 5 \
+            --retry-all-errors \
             --user "${SAFETY_API_KEY}:" \
             "${SAFETY_INDEX_URL}")
+          CURL_EXIT=$?
+          set -e
+          if [ "${CURL_EXIT}" -ne 0 ]; then
+            echo "::warning::Safety index probe failed after retries (curl exit ${CURL_EXIT}). Skipping automated lock refresh for this push; ci.yml still validates committed lockfile drift."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "${HTTP_STATUS}" != "200" ]; then
             echo "::error::Safety index returned HTTP ${HTTP_STATUS} (expected 200). The subscription may have lapsed or the key may be invalid. Aborting to prevent PyPI-only fallback resolution."
             exit 1
           fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
           echo "Safety index reachable (HTTP ${HTTP_STATUS}). Proceeding with uv lock."
 
       - name: Note Dependabot lock refresh without Safety index
@@ -78,6 +92,7 @@ jobs:
         run: echo "::warning::SAFETY_API_KEY is not available to this Dependabot-triggered workflow; relying on pyproject exclusions and exported requirements guards for this lock refresh."
 
       - name: Refresh uv.lock
+        if: github.actor == 'dependabot[bot]' || steps.safety_index.outputs.available == 'true'
         run: uv lock
 
       # Use the same `uv export --no-dev` invocation as ci.yml's prepare-environment
@@ -86,12 +101,15 @@ jobs:
       # produced different output than `uv export` and triggered false
       # lockfile-drift alerts on the next push.
       - name: Export locked requirements (runtime)
+        if: github.actor == 'dependabot[bot]' || steps.safety_index.outputs.available == 'true'
         run: uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
 
       - name: Export locked requirements (dev)
+        if: github.actor == 'dependabot[bot]' || steps.safety_index.outputs.available == 'true'
         run: uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
 
       - name: Export locked requirements (all extras)
+        if: github.actor == 'dependabot[bot]' || steps.safety_index.outputs.available == 'true'
         run: |
           uv export --no-dev --no-hashes --format requirements-txt -p 3.13 \
             --extra api \
@@ -104,6 +122,7 @@ jobs:
 
       - name: Check for changes
         id: changes
+        if: github.actor == 'dependabot[bot]' || steps.safety_index.outputs.available == 'true'
         run: |
           if git diff --quiet uv.lock requirements.txt requirements-dev.txt requirements-all.txt; then
             echo "changes=false" >> "$GITHUB_OUTPUT"
@@ -175,3 +194,7 @@ jobs:
       - name: No changes detected
         if: steps.changes.outputs.changes == 'false'
         run: echo "Lockfiles are up to date, no PR needed"
+
+      - name: Lock refresh skipped
+        if: github.actor != 'dependabot[bot]' && steps.safety_index.outputs.available == 'false'
+        run: echo "::warning::Safety index was unavailable after retries, so this run skipped lockfile refresh. The main CI workflow remains responsible for committed lock drift validation."
