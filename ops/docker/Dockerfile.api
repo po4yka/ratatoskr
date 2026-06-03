@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: Builder - Install dependencies with build tools
-FROM python:3.13-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Stage 1.5: Web - Build Carbon Web App assets
 # Stage 2: Runtime - Minimal runtime environment (no build tools)
-FROM python:3.13-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
