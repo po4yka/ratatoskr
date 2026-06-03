@@ -232,7 +232,14 @@ jobs:
         run: python tools/scripts/check_class_size.py --max-loc 1000 --baseline tools/scripts/class_size_baseline.json
 
       - name: Enforce file size limit
-        run: python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
+        env:
+          PR_ACTOR: ${{ github.actor }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [[ "$PR_ACTOR" == "dependabot[bot]" || "$PR_HEAD_REF" == dependabot/* ]]; then
+            git checkout -- uv.lock requirements.txt requirements-all.txt requirements-dev.txt
+          fi
+          python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
       - name: Check code complexity
         run: |
