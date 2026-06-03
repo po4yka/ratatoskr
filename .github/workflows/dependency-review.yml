@@ -14,9 +14,9 @@ jobs:
     # non-actionable error ("Couldn't retrieve dependency changes") even though
     # the configuration is correct.
     #
-    # continue-on-error: true is intentional and must stay until Dependency Graph
-    # is enabled. Once enabled, remove this line so that PRs introducing
-    # high-severity dependency changes are blocked.
+    # The Dependency Review step uses continue-on-error until Dependency Graph is
+    # enabled. Once enabled, remove it so PRs introducing high-severity
+    # dependency changes are blocked.
     #
     # When Dependency Graph IS enabled this job will:
     #   - Compare the dependency diff of the PR against the OSV/GitHub Advisory
@@ -24,13 +24,13 @@ jobs:
     #   - Fail (and block merge) if any newly introduced dependency has a
     #     vulnerability rated HIGH or CRITICAL.
     #   - Post a summary comment on the PR with the full dependency diff.
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v5
+        continue-on-error: true
         with:
           fail-on-severity: high
           comment-summary-in-pr: always
