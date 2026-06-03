@@ -24,12 +24,6 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # Separate group for security updates (higher priority)
-      python-security:
-        patterns:
-          - "*"
-        update-types:
-          - "security"
     # Ignore major updates for spaCy (needs careful testing)
     ignore:
       - dependency-name: "spacy"
