@@ -74,8 +74,16 @@ jobs:
         run: |
           set -euo pipefail
           uv lock
-          uv pip compile --python-version 3.13 pyproject.toml -o requirements.txt
+          uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
           uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
+          uv export --no-dev --no-hashes --format requirements-txt -p 3.13 \
+            --extra api \
+            --extra ml \
+            --extra youtube \
+            --extra export \
+            --extra scheduler \
+            --extra mcp \
+            -o requirements-all.txt
 
       - name: Create Pull Request (using PAT if provided)
         if: ${{ env.ACTIONS_PR_TOKEN != '' }}
@@ -91,6 +99,7 @@ jobs:
             uv.lock
             requirements.txt
             requirements-dev.txt
+            requirements-all.txt
 
       - name: Create Pull Request (best-effort with GITHUB_TOKEN)
         if: ${{ env.ACTIONS_PR_TOKEN == '' }}
@@ -106,6 +115,7 @@ jobs:
             uv.lock
             requirements.txt
             requirements-dev.txt
+            requirements-all.txt
 
       - name: Note PR permission restriction
         if: ${{ env.ACTIONS_PR_TOKEN == '' }}

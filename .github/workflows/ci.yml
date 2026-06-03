@@ -47,12 +47,17 @@ jobs:
             uv.lock
 
       - name: Validate uv.lock
+        if: github.actor != 'dependabot[bot]'
         uses: nick-fields/retry@v4
         with:
           max_attempts: 3
           timeout_minutes: 5
           retry_wait_seconds: 10
           command: uv lock --check
+
+      - name: Refresh uv.lock for Dependabot test run
+        if: github.actor == 'dependabot[bot]'
+        run: uv lock
 
       - name: Compile locked requirements (runtime - core only)
         run: uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
@@ -76,6 +81,7 @@ jobs:
 
       - name: Check lockfile drift
         id: lockcheck
+        if: github.actor != 'dependabot[bot]'
         run: |
           if git diff --quiet uv.lock requirements.txt requirements-dev.txt requirements-all.txt; then
             echo "drift=false" >> "$GITHUB_OUTPUT"
@@ -87,6 +93,16 @@ jobs:
             echo "Fix: run 'make lock-uv' locally and commit the updated files."
             echo "     Alternatively, trigger the 'Update Lockfiles' workflow on this branch."
             exit 1
+          fi
+
+      - name: Report transient Dependabot lock refresh
+        if: github.actor == 'dependabot[bot]' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+        run: |
+          if git diff --quiet uv.lock requirements.txt requirements-dev.txt requirements-all.txt; then
+            echo "Dependabot dependency update did not require lockfile changes."
+          else
+            echo "::notice::Dependabot dependency update requires regenerated lock artifacts. CI is testing the transient refresh; commit updated lockfiles before merging if this PR is kept."
+            git diff --name-only uv.lock requirements.txt requirements-dev.txt requirements-all.txt
           fi
 
       - name: Guard against excluded (malicious/yanked) versions
@@ -952,7 +968,7 @@ jobs:
             exit 0
           elif [ "${EXIT_CODE:-0}" -ne 0 ]; then
             echo "::error::Integration tests failed with exit code ${EXIT_CODE}"
-            exit ${EXIT_CODE}
+            exit "${EXIT_CODE}"
           fi
           echo "::endgroup::"
 
