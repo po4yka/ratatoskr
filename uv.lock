@@ -860,7 +860,7 @@ name = "cuda-bindings"
 version = "13.2.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
-    { name = "cuda-pathfinder" },
+    { name = "cuda-pathfinder", marker = "sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/18/23/6db3aba46864aee357ab2415135b3fe3da7e9f1fa0221fa2a86a5968099c/cuda_bindings-13.2.0-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7dca0da053d3b4cc4869eff49c61c03f3c5dbaa0bcd712317a358d5b8f3f385d", size = 6149914, upload-time = "2026-03-11T00:12:52.374Z" },
@@ -1001,6 +1001,22 @@ wheels = [
 ]
 
 [[package]]
+name = "ddgs"
+version = "9.14.4"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+dependencies = [
+    { name = "click" },
+    { name = "fake-useragent" },
+    { name = "httpx", extra = ["brotli", "http2", "socks"] },
+    { name = "lxml" },
+    { name = "primp" },
+]
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/77/24/9d29eeb7dd4852c27c3673adcaf30c4dc55ced76b303c1fbb792ce7cae52/ddgs-9.14.4.tar.gz", hash = "sha256:f7b118a2b709a9e9c04a1dca6e96b98c25d4dfaca1a4b0a244d74454fcca48ef", size = 59742, upload-time = "2026-05-15T06:53:45.946Z" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/e8/5f/32de4d99220eb559b7b1cd1c529a1856efa8097f7a3e10b6c207aa95e36c/ddgs-9.14.4-py3-none-any.whl", hash = "sha256:acb084c34bf1110c974caf7e5e5a2c1973beb4bd9e170bfd191fe5ed2d2b2d6c", size = 70638, upload-time = "2026-05-15T06:53:44.761Z" },
+]
+
+[[package]]
 name = "defusedxml"
 version = "0.7.1"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
@@ -1046,26 +1062,21 @@ wheels = [
 ]
 
 [[package]]
-name = "duckduckgo-search"
-version = "8.1.1"
-source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-dependencies = [
-    { name = "click" },
-    { name = "lxml" },
-    { name = "primp" },
-]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/10/ef/07791a05751e6cc9de1dd49fb12730259ee109b18e6d097e25e6c32d5617/duckduckgo_search-8.1.1.tar.gz", hash = "sha256:9da91c9eb26a17e016ea1da26235d40404b46b0565ea86d75a9f78cc9441f935", size = 22868, upload-time = "2025-07-06T15:30:59.73Z" }
-wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/db/72/c027b3b488b1010cf71670032fcf7e681d44b81829d484bb04e31a949a8d/duckduckgo_search-8.1.1-py3-none-any.whl", hash = "sha256:f48adbb06626ee05918f7e0cef3a45639e9939805c4fc179e68c48a12f1b5062", size = 18932, upload-time = "2025-07-06T15:30:58.339Z" },
-]
-
-[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/d3/38/af70d7ab1ae9d4da450eeec1fa3918940a5fafb9055e934af8d6eb0c2313/et_xmlfile-2.0.0.tar.gz", hash = "sha256:dab3f4764309081ce75662649be815c4c9081e88f0837825f90fd28317d4da54", size = 17234, upload-time = "2024-10-25T17:25:40.039Z" }
 wheels = [
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl", hash = "sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa", size = 18059, upload-time = "2024-10-25T17:25:39.051Z" },
+]
+
+[[package]]
+name = "fake-useragent"
+version = "2.2.0"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/41/43/948d10bf42735709edb5ae51e23297d034086f17fc7279fef385a7acb473/fake_useragent-2.2.0.tar.gz", hash = "sha256:4e6ab6571e40cc086d788523cf9e018f618d07f9050f822ff409a4dfe17c16b2", size = 158898, upload-time = "2025-04-14T15:32:19.238Z" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/51/37/b3ea9cd5558ff4cb51957caca2193981c6b0ff30bd0d2630ac62505d99d0/fake_useragent-2.2.0-py3-none-any.whl", hash = "sha256:67f35ca4d847b0d298187443aaf020413746e56acd985a611908c73dba2daa24", size = 161695, upload-time = "2025-04-14T15:32:17.732Z" },
 ]
 
 [[package]]
@@ -1647,8 +1658,15 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+brotli = [
+    { name = "brotli", marker = "platform_python_implementation == 'CPython'" },
+    { name = "brotlicffi", marker = "platform_python_implementation != 'CPython'" },
+]
 http2 = [
     { name = "h2" },
+]
+socks = [
+    { name = "socksio" },
 ]
 
 [[package]]
@@ -4531,7 +4549,7 @@ requires-dist = [
     { name = "msgspec", specifier = ">=0.21.1" },
     { name = "openai", specifier = ">=2.38.0,<3" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.41,<2" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.41,<2" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.42.1,<2" },
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'otel'", specifier = ">=0.63b1,<1" },
     { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'otel'", specifier = ">=0.63b1,<1" },
     { name = "opentelemetry-instrumentation-logging", marker = "extra == 'otel'", specifier = ">=0.63b1,<1" },
@@ -4542,8 +4560,8 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'attachment'", specifier = ">=11.0.0" },
     { name = "playwright", marker = "extra == 'browser-scraper'", specifier = ">=1.60.0" },
     { name = "prometheus-client", marker = "extra == 'monitoring'", specifier = ">=0.25.0" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'cocoindex'", specifier = ">=3.0" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'langgraph'", specifier = ">=3.0" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'cocoindex'", specifier = ">=3.3.4" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'langgraph'", specifier = ">=3.3.4" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "pyjwt", marker = "extra == 'api'", specifier = ">=2.13.0" },
@@ -4556,10 +4574,10 @@ requires-dist = [
     { name = "ratatoskr", extras = ["inference-core"], marker = "extra == 'ml'" },
     { name = "redis", specifier = ">=7.1.0" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.8.0" },
-    { name = "scrapegraphai", marker = "extra == 'scraper-ai'", specifier = ">=2.1.1,<3" },
+    { name = "scrapegraphai", marker = "extra == 'scraper-ai'", specifier = ">=2.1.2,<3" },
     { name = "scrapling", specifier = ">=0.4.8,<1" },
     { name = "sentence-transformers", marker = "extra == 'inference-core'", specifier = ">=5.5.1,<6" },
-    { name = "sentry-sdk", extras = ["fastapi", "loguru"], marker = "extra == 'monitoring'", specifier = ">=2.60.0,<3" },
+    { name = "sentry-sdk", extras = ["fastapi", "loguru"], marker = "extra == 'monitoring'", specifier = ">=2.61.1,<3" },
     { name = "sherpa-onnx", marker = "extra == 'transcription'", specifier = ">=1.10,<2" },
     { name = "spacy", specifier = ">=3.8.11,<4" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.50,<3.0" },
@@ -5012,12 +5030,12 @@ wheels = [
 
 [[package]]
 name = "scrapegraphai"
-version = "2.1.1"
+version = "2.1.3"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
     { name = "async-timeout" },
     { name = "beautifulsoup4" },
-    { name = "duckduckgo-search" },
+    { name = "ddgs" },
     { name = "free-proxy" },
     { name = "html2text" },
     { name = "jsonschema" },
@@ -5039,9 +5057,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "undetected-playwright" },
 ]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/7f/28/046c824329ba87c6f827ceca938d6c382c6b4ef18f7f59df0a7babdedf90/scrapegraphai-2.1.1.tar.gz", hash = "sha256:d9d9d586eb7c7fdeba727fac7e18cf97de252b0d166d7fa3b5e8f943f9df3172", size = 3184335, upload-time = "2026-05-10T13:56:15.647Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/fa/2c/c8194785528ca3c96ed5f75a8ae35823ce78d5669531ea36b51483b9b7e2/scrapegraphai-2.1.3.tar.gz", hash = "sha256:8044544df4a6c15700f6d2435ba24598995da601dc27539985dcd700848eddc9", size = 3115068, upload-time = "2026-06-02T08:37:25.009Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/3e/fa/3d3ac07517b0ee43284fbc0cb6f9f64daf54e9e15a1993a1420f321cdf6c/scrapegraphai-2.1.1-py3-none-any.whl", hash = "sha256:61b6086dda9e657f4d3a2183b87e23d961b127aef428139e61d8e21c5a2e2d13", size = 188817, upload-time = "2026-05-10T13:56:14.088Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/68/c5/328482f0a82e510a7974ba5222e16dc7225f1c3882c5b4cb247d323a1674/scrapegraphai-2.1.3-py3-none-any.whl", hash = "sha256:a23a6be28bd44d322b779cf2da88bba0897b24068c0b5a977df6bb32528ce892", size = 197568, upload-time = "2026-06-02T08:37:23.038Z" },
 ]
 
 [[package]]
@@ -5095,15 +5113,15 @@ wheels = [
 
 [[package]]
 name = "sentry-sdk"
-version = "2.60.0"
+version = "2.61.1"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
     { name = "certifi" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/54/a2/2e6c090db384cc515069f4f85542bd5baf6786852073020ea73d4a76d3ea/sentry_sdk-2.60.0.tar.gz", hash = "sha256:0bd25e54e78ca02d0be512529fa644bbbf9e8470d7b26371294012d4ca93c978", size = 452946, upload-time = "2026-05-13T13:34:52.516Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/63/3b/4bc6b348bbd331daa14d4babe9f2b99bc854f4da41560eefb9488d78481d/sentry_sdk-2.61.1.tar.gz", hash = "sha256:9c6adccb3feefa9ba032c8d295ca477575c2f11896046a2b0ad686c47c4af555", size = 459429, upload-time = "2026-06-01T07:24:18.875Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/29/41/f2b800b7f12a05dd48c2a6280d4dd812d1425fc66ed3fe3fd99420c41d1a/sentry_sdk-2.60.0-py3-none-any.whl", hash = "sha256:28a536c03291c8bcb363cf35c611b32738ec118ff64d8d6383b096448ac4c803", size = 475616, upload-time = "2026-05-13T13:34:50.259Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/df/54/c9218db183846e08efaf68534889ef42e499dde432778881104a42f7071b/sentry_sdk-2.61.1-py3-none-any.whl", hash = "sha256:fa36eaf4b8ad708f718500d4bdcc1532637526a22beb874d88cbc0a46458b5ae", size = 483735, upload-time = "2026-06-01T07:24:17.027Z" },
 ]
 
 [package.optional-dependencies]
@@ -5193,6 +5211,15 @@ source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/rata
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
 wheels = [
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
+]
+
+[[package]]
+name = "socksio"
+version = "1.0.0"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/f8/5c/48a7d9495be3d1c651198fd99dbb6ce190e2274d0f28b9051307bdec6b85/socksio-1.0.0.tar.gz", hash = "sha256:f88beb3da5b5c38b9890469de67d0cb0f9d494b78b106ca1845f96c10b91c4ac", size = 19055, upload-time = "2020-04-17T15:50:34.664Z" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/37/c3/6eeb6034408dac0fa653d126c9204ade96b819c936e136c5e8a6897eee9c/socksio-1.0.0-py3-none-any.whl", hash = "sha256:95dc1f15f9b34e8d7b16f06d74b8ccf48f609af32ab33c608d08761c5dcbb1f3", size = 12763, upload-time = "2020-04-17T15:50:31.878Z" },
 ]
 
 [[package]]
