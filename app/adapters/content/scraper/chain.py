@@ -33,7 +33,7 @@ from app.observability.metrics import (
     record_scraper_attempt_latency,
     record_scraper_chain_total_latency,
 )
-from app.security.ssrf import is_url_safe
+from app.security.ssrf import is_dns_failure_reason, is_url_safe_async
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -205,11 +205,20 @@ class ContentScraperChain:
                 total_latency_seconds=max(0.0, time.monotonic() - chain_started),
             )
 
-        safe, reason = is_url_safe(url)
+        safe, reason = await is_url_safe_async(url)
         if not safe:
-            error_text = f"SSRF blocked URL: {reason}"
+            # A transient DNS failure is retryable and must not be reported as
+            # an SSRF policy block -- conflating the two hid the real cause
+            # during the theatlantic.com triage (request 1450).
+            dns_failure = is_dns_failure_reason(reason)
+            if dns_failure:
+                event = "scraper_chain_dns_failed"
+                error_text = f"dns_resolution_failed: {reason} (transient, retry later)"
+            else:
+                event = "scraper_chain_ssrf_blocked"
+                error_text = f"SSRF blocked URL: {reason}"
             logger.warning(
-                "scraper_chain_ssrf_blocked",
+                event,
                 extra={
                     "url": redact_url_for_logging(url),
                     "reason": reason,
@@ -219,14 +228,14 @@ class ContentScraperChain:
             if self._audit:
                 self._audit(
                     "ERROR",
-                    "scraper_chain_ssrf_blocked",
+                    event,
                     {
                         "url": redact_url_for_logging(url),
                         "reason": reason,
                         "request_id": request_id,
                     },
                 )
-            _record_outcome("ssrf_blocked")
+            _record_outcome("dns_failed" if dns_failure else "ssrf_blocked")
             return FirecrawlResult(
                 status=CallStatus.ERROR,
                 error_text=error_text,

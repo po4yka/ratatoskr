@@ -364,3 +364,99 @@ def test_safe_sync_transport_raises_on_dns_failure() -> None:
     ):
         with pytest.raises(httpx.ConnectError, match="DNS resolution failed"):
             transport.handle_request(request)
+
+
+# ---------------------------------------------------------------------------
+# resolve_host_ips_async / is_url_safe_async — non-blocking DNS with retry
+# ---------------------------------------------------------------------------
+
+_ADDRINFO_PUBLIC: list[Any] = [
+    (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))
+]
+
+
+@pytest.mark.asyncio
+async def test_resolve_host_ips_async_retries_transient_failure() -> None:
+    from app.security.ssrf import resolve_host_ips_async
+
+    with patch(
+        "socket.getaddrinfo",
+        side_effect=[socket.gaierror("transient resolver blip"), _ADDRINFO_PUBLIC],
+    ) as mock_gai:
+        ips = await resolve_host_ips_async("example.com", retries=1, retry_delay_sec=0)
+
+    assert ips == ["93.184.216.34"]
+    assert mock_gai.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_host_ips_async_raises_after_retries_exhausted() -> None:
+    from app.security.ssrf import resolve_host_ips_async
+
+    with patch("socket.getaddrinfo", side_effect=socket.gaierror("resolver down")) as mock_gai:
+        with pytest.raises(socket.gaierror):
+            await resolve_host_ips_async("example.com", retries=1, retry_delay_sec=0)
+
+    assert mock_gai.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_is_url_safe_async_reports_dns_failure_as_retryable() -> None:
+    from app.security.ssrf import is_dns_failure_reason, is_url_safe_async
+
+    with patch("socket.getaddrinfo", side_effect=socket.gaierror("resolver down")):
+        safe, reason = await is_url_safe_async("https://example.com/article", dns_retries=0)
+
+    assert safe is False
+    assert reason is not None
+    assert is_dns_failure_reason(reason) is True
+
+
+@pytest.mark.asyncio
+async def test_is_url_safe_async_allows_public_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.security.ssrf import is_url_safe_async
+
+    async def fake_resolve(hostname: str, **kwargs: Any) -> list[str]:
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr("app.security.ssrf.resolve_host_ips_async", fake_resolve)
+    safe, reason = await is_url_safe_async("https://example.com/article")
+
+    assert safe is True
+    assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_is_url_safe_async_blocks_private_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.security.ssrf import is_dns_failure_reason, is_url_safe_async
+
+    async def fake_resolve(hostname: str, **kwargs: Any) -> list[str]:
+        return ["127.0.0.1"]
+
+    monkeypatch.setattr("app.security.ssrf.resolve_host_ips_async", fake_resolve)
+    safe, reason = await is_url_safe_async("https://internal.example.com/")
+
+    assert safe is False
+    assert reason is not None
+    assert is_dns_failure_reason(reason) is False
+
+
+@pytest.mark.asyncio
+async def test_is_url_safe_async_blocks_ip_literal_without_dns() -> None:
+    from app.security.ssrf import is_url_safe_async
+
+    safe, _ = await is_url_safe_async("http://169.254.169.254/latest/meta-data/")
+    assert safe is False
+
+
+def test_is_dns_failure_reason_distinguishes_policy_blocks() -> None:
+    from app.security.ssrf import is_dns_failure_reason
+
+    assert is_dns_failure_reason("DNS resolution failed for example.com") is True
+    assert is_dns_failure_reason("Localhost is not allowed") is False
+    assert is_dns_failure_reason("Hostname resolves to blocked address: 127.0.0.1") is False
+    assert is_dns_failure_reason(None) is False

@@ -35,6 +35,7 @@ from app.core.logging_utils import get_logger
 from app.domain.models.request import RequestStatus
 from app.observability.failure_observability import (
     REASON_DIRECT_FETCH_FAILED,
+    REASON_DNS_RESOLUTION_FAILED,
     REASON_FIRECRAWL_ERROR,
     REASON_FIRECRAWL_LOW_VALUE,
     REASON_SCRAPER_CHAIN_EXHAUSTED,
@@ -324,6 +325,14 @@ class ContentExtractorCrawlMixin:
         req_id: int,
         correlation_id: str | None,
     ) -> dict[str, Any] | None:
+        if crawl.status != CallStatus.OK:
+            # Transport-level failure (provider error, SSRF block, DNS
+            # failure). Not a content-quality problem: never overwrite the
+            # chain's error_text, which carries the real cause. Relabeling
+            # these as insufficient_useful_content masked a DNS failure as a
+            # paywall during the theatlantic.com triage (request 1450).
+            return None
+
         quality_issue = detect_low_value_content(crawl)
         if not quality_issue:
             return None
@@ -582,7 +591,15 @@ class ContentExtractorCrawlMixin:
             else None
         )
         is_firecrawl_result = crawl.endpoint == FIRECRAWL_SCRAPE_ENDPOINT
-        if crawl.endpoint == "direct_fetch":
+        is_dns_failure = crawl.error_text is not None and crawl.error_text.startswith(
+            "dns_resolution_failed"
+        )
+        if is_dns_failure:
+            # Pre-chain DNS failure: transient and retryable; no provider ran.
+            # Mislabeling these as SCRAPER_CHAIN_EXHAUSTED hid the real cause
+            # during the theatlantic.com triage.
+            reason_code = REASON_DNS_RESOLUTION_FAILED
+        elif crawl.endpoint == "direct_fetch":
             reason_code = REASON_DIRECT_FETCH_FAILED
         elif is_firecrawl_result and quality_reason is not None:
             reason_code = REASON_FIRECRAWL_LOW_VALUE

@@ -189,3 +189,82 @@ def test_detect_low_value_content_allows_substantive_text() -> None:
     )
 
     assert detect_low_value_content(result) is None
+
+
+def _transport_error_result(error_text: str) -> FirecrawlResult:
+    """Chain-level transport failure: ERROR status, no content, real cause in error_text."""
+    return FirecrawlResult(
+        status=CallStatus.ERROR,
+        http_status=None,
+        content_markdown=None,
+        content_html=None,
+        structured_json=None,
+        metadata_json=None,
+        links_json=None,
+        response_success=False,
+        response_error_code=None,
+        response_error_message=None,
+        response_details=None,
+        latency_ms=None,
+        error_text=error_text,
+        source_url="https://example.com",
+        endpoint="chain",
+        options_json=None,
+        correlation_id="cid-123",
+    )
+
+
+@pytest.mark.asyncio
+async def test_transport_error_is_not_relabeled_as_low_value() -> None:
+    """A chain transport failure (DNS/SSRF) must keep its error_text.
+
+    Regression: _apply_low_value_guard used to run on ERROR results with no
+    content and overwrite the real cause (e.g. a DNS failure) with
+    insufficient_useful_content:empty_after_cleaning, which surfaced to the
+    user as a bogus paywall/extraction error (request 1450, theatlantic.com).
+    """
+    db = MagicMock()
+    db.async_update_request_status = AsyncMock()
+    db._safe_db_operation = AsyncMock()
+    response_formatter = MagicMock()
+    response_formatter.send_firecrawl_start_notification = AsyncMock()
+    response_formatter.send_error_notification = AsyncMock()
+    response_formatter.send_html_fallback_notification = AsyncMock()
+    response_formatter.send_firecrawl_success_notification = AsyncMock()
+
+    dns_error = (
+        "dns_resolution_failed: DNS resolution failed for example.com (transient, retry later)"
+    )
+    firecrawl = MagicMock()
+    firecrawl.scrape_markdown = AsyncMock(return_value=_transport_error_result(dns_error))
+
+    extractor = _make_extractor(db, response_formatter, firecrawl)
+    cast("Any", extractor)._attempt_direct_html_salvage = AsyncMock(return_value=None)
+
+    mock_request_repo = MagicMock()
+    mock_request_repo.async_update_request_status = AsyncMock()
+    extractor.message_persistence.request_repo = mock_request_repo
+
+    mock_crawl_repo = MagicMock()
+    mock_crawl_repo.async_insert_crawl_result = AsyncMock(return_value=1)
+    extractor.message_persistence.crawl_repo = mock_crawl_repo
+
+    with pytest.raises(ValueError) as exc_info:
+        await extractor._perform_new_crawl_with_title(
+            message=SimpleNamespace(),
+            req_id=43,
+            url_text="https://example.com",
+            dedupe_hash="hash-dns",
+            correlation_id="cid-123",
+            interaction_id=None,
+            silent=False,
+        )
+
+    # The real cause survives; the low-value relabel must not happen.
+    assert "dns_resolution_failed" in str(exc_info.value)
+    assert "insufficient_useful_content" not in str(exc_info.value)
+
+    # The user-facing notification carries the real cause too.
+    response_formatter.send_error_notification.assert_awaited()
+    details = response_formatter.send_error_notification.call_args.kwargs.get("details") or ""
+    assert "dns_resolution_failed" in details

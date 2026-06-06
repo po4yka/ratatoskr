@@ -418,3 +418,50 @@ class TestJsHeavyReordering:
         assert result.status == CallStatus.OK
         assert len(scrapling.calls) == 1
         assert len(playwright.calls) == 0  # not reached, scrapling succeeded
+
+
+# ===================================================================
+# Chain preflight (SSRF / DNS) tests
+# ===================================================================
+
+
+class TestChainPreflight:
+    """DNS failures must be reported as retryable, not as SSRF policy blocks."""
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_dns_failure_reported_as_retryable_not_ssrf(self):
+        from unittest.mock import AsyncMock, patch
+
+        p = _MockProvider(name="solo", result=_ok_result())
+        chain = ContentScraperChain([p])
+
+        with patch(
+            "app.adapters.content.scraper.chain.is_url_safe_async",
+            new=AsyncMock(return_value=(False, "DNS resolution failed for example.com")),
+        ):
+            result = await chain.scrape_markdown("https://example.com")
+
+        assert result.status == CallStatus.ERROR
+        assert result.error_text is not None
+        assert result.error_text.startswith("dns_resolution_failed:")
+        assert "DNS resolution failed for example.com" in result.error_text
+        assert "SSRF" not in result.error_text
+        assert len(p.calls) == 0  # no provider ran
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_ssrf_policy_block_keeps_ssrf_error_text(self):
+        from unittest.mock import AsyncMock, patch
+
+        p = _MockProvider(name="solo", result=_ok_result())
+        chain = ContentScraperChain([p])
+
+        with patch(
+            "app.adapters.content.scraper.chain.is_url_safe_async",
+            new=AsyncMock(return_value=(False, "Localhost is not allowed")),
+        ):
+            result = await chain.scrape_markdown("http://localhost/")
+
+        assert result.status == CallStatus.ERROR
+        assert result.error_text is not None
+        assert result.error_text.startswith("SSRF blocked URL:")
+        assert len(p.calls) == 0

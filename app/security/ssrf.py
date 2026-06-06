@@ -70,6 +70,41 @@ def resolve_host_ips(hostname: str) -> list[str]:
     return addresses
 
 
+async def resolve_host_ips_async(
+    hostname: str,
+    *,
+    retries: int = 1,
+    retry_delay_sec: float = 0.5,
+) -> list[str]:
+    """Async counterpart of :func:`resolve_host_ips` with bounded retry.
+
+    Uses ``loop.getaddrinfo`` (thread-pool backed) so a slow resolver cannot
+    block the event loop, and retries once on transient resolver failure --
+    one-off DNS blips were killing whole requests before any scraper ran.
+    """
+    loop = asyncio.get_running_loop()
+    attempt = 0
+    while True:
+        try:
+            infos = await loop.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+        except (socket.gaierror, OSError) as exc:
+            if attempt >= retries:
+                raise
+            attempt += 1
+            logger.warning(
+                "dns_resolution_retry",
+                extra={"hostname": hostname, "attempt": attempt, "error": str(exc)},
+            )
+            await asyncio.sleep(retry_delay_sec)
+            continue
+        addresses: list[str] = []
+        for info in infos:
+            addr = str(info[4][0])
+            if addr not in addresses:
+                addresses.append(addr)
+        return addresses
+
+
 def is_ip_blocked(ip_str: str, *, allow_private_networks: bool | None = None) -> bool:
     """Return ``True`` if *ip_str* falls within any :data:`BLOCKED_NETWORKS`.
 
@@ -93,6 +128,68 @@ def is_ip_blocked(ip_str: str, *, allow_private_networks: bool | None = None) ->
     return any(ip_obj in network for network in LOCAL_DEV_OVERRIDABLE_NETWORKS)
 
 
+DNS_FAILURE_REASON_PREFIX = "DNS resolution failed for"
+
+
+def is_dns_failure_reason(reason: str | None) -> bool:
+    """Return ``True`` when an ``is_url_safe*`` rejection was a transient DNS
+    failure (retryable) rather than a genuine SSRF policy block."""
+    return bool(reason and reason.startswith(DNS_FAILURE_REASON_PREFIX))
+
+
+def _precheck_url(
+    url: str, allow_private_networks: bool
+) -> tuple[tuple[bool, str | None] | None, str | None]:
+    """Pre-DNS checks shared by the sync and async URL-safety variants.
+
+    Returns ``(verdict, hostname)``: a final ``(safe, reason)`` verdict when
+    the decision needs no DNS resolution, else ``(None, hostname)`` with the
+    hostname still to resolve.
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+    except Exception:
+        return (False, "Malformed URL"), None
+
+    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+        return (False, f"URL scheme '{parsed.scheme}' is not allowed"), None
+
+    if not hostname:
+        return (False, "Hostname is empty"), None
+
+    hostname_lower = hostname.lower()
+    if hostname_lower in ("localhost", "localhost.localdomain"):
+        if allow_private_networks:
+            return (True, None), None
+        return (False, "Localhost is not allowed"), None
+
+    # Fast path for IP literals -- skip DNS resolution.
+    try:
+        ip_obj = ip_address(hostname)
+        if is_ip_blocked(str(ip_obj), allow_private_networks=allow_private_networks):
+            return (False, f"Private or reserved IP address: {hostname}"), None
+        return (True, None), None
+    except ValueError:
+        pass  # Not an IP literal; fall through to DNS resolution.
+
+    return None, hostname
+
+
+def _verdict_for_resolved_ips(
+    hostname: str, resolved_ips: list[str], allow_private_networks: bool
+) -> tuple[bool, str | None]:
+    """Check resolved addresses against :data:`BLOCKED_NETWORKS`."""
+    if not resolved_ips:
+        return False, f"No DNS records found for {hostname}"
+
+    for resolved in resolved_ips:
+        if is_ip_blocked(resolved, allow_private_networks=allow_private_networks):
+            return False, f"Hostname resolves to blocked address: {resolved}"
+
+    return True, None
+
+
 def is_url_safe(url: str, *, allow_private_networks: bool | None = None) -> tuple[bool, str | None]:
     """Check whether *url* resolves to a public (non-internal) IP.
 
@@ -104,50 +201,59 @@ def is_url_safe(url: str, *, allow_private_networks: bool | None = None) -> tupl
     :func:`make_safe_sync_client` to close the DNS-rebinding TOCTOU window.
     This function alone is sufficient for Playwright route interception, where
     connection-time enforcement is not available.
+
+    Async callers should prefer :func:`is_url_safe_async`, which keeps DNS
+    resolution off the event loop and retries transient resolver failures.
     """
     if allow_private_networks is None:
         allow_private_networks = allow_private_network_urls()
 
-    try:
-        parsed = urlparse(url)
-        hostname = parsed.hostname
-    except Exception:
-        return False, "Malformed URL"
-
-    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
-        return False, f"URL scheme '{parsed.scheme}' is not allowed"
-
-    if not hostname:
+    verdict, hostname = _precheck_url(url, allow_private_networks)
+    if verdict is not None:
+        return verdict
+    if hostname is None:  # pragma: no cover -- _precheck_url contract
         return False, "Hostname is empty"
-
-    hostname_lower = hostname.lower()
-    if hostname_lower in ("localhost", "localhost.localdomain"):
-        if allow_private_networks:
-            return True, None
-        return False, "Localhost is not allowed"
-
-    # Fast path for IP literals -- skip DNS resolution.
-    try:
-        ip_obj = ip_address(hostname)
-        if is_ip_blocked(str(ip_obj), allow_private_networks=allow_private_networks):
-            return False, f"Private or reserved IP address: {hostname}"
-        return True, None
-    except ValueError:
-        pass  # Not an IP literal; fall through to DNS resolution.
 
     try:
         resolved_ips = resolve_host_ips(hostname)
     except (socket.gaierror, OSError):
-        return False, f"DNS resolution failed for {hostname}"
+        return False, f"{DNS_FAILURE_REASON_PREFIX} {hostname}"
 
-    if not resolved_ips:
-        return False, f"No DNS records found for {hostname}"
+    return _verdict_for_resolved_ips(hostname, resolved_ips, allow_private_networks)
 
-    for resolved in resolved_ips:
-        if is_ip_blocked(resolved, allow_private_networks=allow_private_networks):
-            return False, f"Hostname resolves to blocked address: {resolved}"
 
-    return True, None
+async def is_url_safe_async(
+    url: str,
+    *,
+    allow_private_networks: bool | None = None,
+    dns_retries: int = 1,
+    dns_retry_delay_sec: float = 0.5,
+) -> tuple[bool, str | None]:
+    """Async :func:`is_url_safe`: non-blocking DNS with transient-failure retry.
+
+    Behaviorally identical to :func:`is_url_safe` except resolution runs via
+    ``loop.getaddrinfo`` (so a slow resolver cannot freeze the event loop) and
+    transient DNS failures are retried once before the URL is rejected. Use
+    :func:`is_dns_failure_reason` on the returned reason to distinguish a
+    retryable DNS failure from a genuine SSRF block.
+    """
+    if allow_private_networks is None:
+        allow_private_networks = allow_private_network_urls()
+
+    verdict, hostname = _precheck_url(url, allow_private_networks)
+    if verdict is not None:
+        return verdict
+    if hostname is None:  # pragma: no cover -- _precheck_url contract
+        return False, "Hostname is empty"
+
+    try:
+        resolved_ips = await resolve_host_ips_async(
+            hostname, retries=dns_retries, retry_delay_sec=dns_retry_delay_sec
+        )
+    except (socket.gaierror, OSError):
+        return False, f"{DNS_FAILURE_REASON_PREFIX} {hostname}"
+
+    return _verdict_for_resolved_ips(hostname, resolved_ips, allow_private_networks)
 
 
 def _pin_request(request: httpx.Request, hostname: str, results: list[Any]) -> httpx.Request:
