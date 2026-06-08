@@ -197,7 +197,7 @@ rich==14.3.4
     # via
     #   bandit
     #   pip-audit
-rpds-py==0.30.0
+rpds-py==2026.5.1
     # via
     #   jsonschema
     #   referencing
