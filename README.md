@@ -1,6 +1,6 @@
 # Ratatoskr
 
-A self-hosted Telegram bot that turns the things you read, watch, and forward into a searchable, structured archive — web articles, YouTube videos, Twitter / X posts, forwarded channel messages, or any mix of those bundled together. Owner-only by design, runs as a single Docker container, stores everything in PostgreSQL.
+A self-hosted Telegram bot that turns the things you read, watch, and forward into a searchable, structured archive — web articles, YouTube videos, Twitter / X posts, forwarded channel messages, or any mix of those bundled together. Owner-only by design, runs via Docker Compose (bot, worker, API, and backing services), stores everything in PostgreSQL.
 
 [![CI](https://github.com/po4yka/ratatoskr/actions/workflows/ci.yml/badge.svg)](https://github.com/po4yka/ratatoskr/actions/workflows/ci.yml) [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/downloads/) [![Docker](https://img.shields.io/badge/docker-ready-blue?logo=docker)](ops/docker/Dockerfile) [![License](https://img.shields.io/badge/license-see%20LICENSE-lightgrey)](LICENSE)
 
@@ -38,7 +38,7 @@ Optional scraper, YouTube, Twitter/X, MCP, and provider tuning now live in `rata
 
 Compose profiles:
 
-- `with-scrapers` starts the full self-hosted scraper sidecar stack: `firecrawl-api` (port 3002), `crawl4ai` (port 11235), and `defuddle-api` (port 3003) plus their dependencies. Cloud Firecrawl is not used for article extraction; there is no `FIRECRAWL_API_KEY` requirement. Set `FIRECRAWL_SELF_HOSTED_ENABLED=true` to activate the Firecrawl rung in the scraper chain.
+- `with-scrapers` starts the full self-hosted scraper sidecar stack: `firecrawl-api` (port 3002), `crawl4ai` (port 11235), `defuddle-api` (port 3003), and `cloakbrowser` plus their dependencies. Cloud Firecrawl is not used for article extraction; there is no `FIRECRAWL_API_KEY` requirement. Set `FIRECRAWL_SELF_HOSTED_ENABLED=true` to activate the Firecrawl rung in the scraper chain.
 - `with-webwright` starts the Microsoft Webwright browser-agent sidecar (port 8090) — heavyweight LLM-driven Playwright agent. Opt-in only; see [Webwright Integration](docs/explanation/webwright.md) for cost gating and the three integration paths (scraper rung, `/browse` Telegram command, content enrichment).
 - `with-cloud-ollama` adds a remote OpenAI-compatible Ollama reachability check; set `LLM_PROVIDER=ollama` and `OLLAMA_*` values to use it. It does not start a local model server.
 - `with-monitoring` starts Prometheus, Grafana, Loki, Promtail, node-exporter, and OpenTelemetry / Tempo.
