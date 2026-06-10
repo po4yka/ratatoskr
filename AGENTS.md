@@ -10,12 +10,12 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 
 Async Telegram bot that summarizes web articles, YouTube videos, and forwarded channel posts. Returns structured JSON summaries with a strict contract. Single Docker container, owner-only access.
 
-**Stack:** Python 3.13+, Telethon, Scrapling/Firecrawl/Playwright (scraper chain), OpenRouter (LLM), LangChain/LangGraph (structured output + retry graph), PostgreSQL 16 via SQLAlchemy 2.0 + asyncpg (Alembic migrations), Qdrant (vector store), CocoIndex (optional live vector sync), Taskiq (Redis-backed worker), FastAPI, React 18 + TypeScript + Vite (Frost web frontend).
+**Stack:** Python 3.13+, Telethon, Scrapling/Firecrawl/Playwright (scraper chain), OpenRouter (LLM), PostgreSQL 16 via SQLAlchemy 2.0 + asyncpg (Alembic migrations), Qdrant (vector store), CocoIndex (optional live vector sync), Taskiq (Redis-backed worker), FastAPI, React 18 + TypeScript + Vite (Frost web frontend).
 
 ## Architecture
 
 ```
-Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGraph/LLM -> Summary JSON -> PostgreSQL + Qdrant
+Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> Summary JSON -> PostgreSQL + Qdrant
 ```
 
 ### Key Layers
@@ -26,10 +26,10 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGrap
 | Content | `app/adapters/content/` | Scraper chain (Scrapling -> Defuddle -> Firecrawl -> Playwright -> Crawlee -> direct HTTP) |
 | YouTube | `app/adapters/youtube/` | yt-dlp download, transcript extraction |
 | Twitter/X | `app/adapters/twitter/` | Firecrawl + Playwright extraction |
-| GitHub | `app/adapters/github/`, `app/tasks/github_sync.py`, `app/api/routers/repositories.py`, `app/api/routers/auth/github.py` | GitHub repo ingestion, daily stars sync (cron `0 2 * * *` UTC), LangChain structured-output repo analysis, semantic search via `repository_embeddings` + Qdrant. Tokens encrypted at rest with Fernet (`cryptography`). See `docs/explanation/github-repository-ingestion.md`. |
+| GitHub | `app/adapters/github/`, `app/tasks/github_sync.py`, `app/api/routers/repositories.py`, `app/api/routers/auth/github.py` | GitHub repo ingestion, daily stars sync (cron `0 2 * * *` UTC), structured-output repo analysis, semantic search via `repository_embeddings` + Qdrant. Tokens encrypted at rest with Fernet (`cryptography`). See `docs/explanation/github-repository-ingestion.md`. |
 | Git backup | `app/adapters/git_backup/`, `app/config/git_backup.py`, `app/db/models/git_backup.py`, `app/tasks/git_backup_sync.py`, `app/api/routers/git_mirrors.py`, `app/adapters/telegram/command_handlers/git_mirror_handler.py` | On-disk `git clone --mirror` backup of full git history for GitHub-linked and arbitrary git repos. Distinct from the GitHub API metadata path above (which never clones to disk). Bare clones stored under `GIT_BACKUP_DATA_PATH`; Taskiq cron job `ratatoskr.git_backup.sync`; `/mirror` and `/mirrors` Telegram commands; `/v1/git-mirrors` REST endpoints. |
 | LLM | `app/adapters/llm/`, `app/adapters/openrouter/` | Provider-agnostic LLM interface; summary workflow uses the `SummaryContractDescriptor` default contract bundle for schema/prompt/repair response formats |
-| Agents | `app/agents/`, `app/agents/langgraph/` | Classic agent wrappers plus LangGraph summarize/validate retry graph and checkpointing |
+| Agents | `app/agents/` | Classic agent wrappers (extraction, validation, web search, repo analysis) |
 | Domain | `app/domain/` | Business models and domain services |
 | Application | `app/application/` | DTOs, ports, use cases, and application services |
 | Infrastructure | `app/infrastructure/` | Concrete persistence, vector search, cache, and messaging adapters |
@@ -46,7 +46,6 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGrap
 - `app/adapters/content/url_processor.py` -- URL processing orchestration
 - `app/core/summary_contract.py` -- Summary descriptor registry and strict contract validation
 - `app/core/url_utils.py` -- URL normalization and deduplication
-- `app/agents/langgraph/graph.py` -- LangGraph summarize/validate retry graph
 - `app/infrastructure/cocoindex/flow.py` -- CocoIndex summary + repository Qdrant flows
 - `app/adapters/git_backup/mirror_service.py` -- `GitMirrorService`: clone, fetch, LFS, maintenance orchestration
 - `app/adapters/git_backup/repository.py` -- `GitMirrorRepository`: DB persistence for mirror state
@@ -66,7 +65,7 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LangGrap
 | API contracts | `app/api/main.py`, `app/api/models/`, `app/api/routers/`, `tools/scripts/generate_openapi.py`, `docs/openapi/mobile_api.yaml` | `docs/reference/openapi-contract-workflow.md`, `docs/reference/mobile-api.md#api-surface-freeze-policy` |
 | Sync v2 | `app/api/routers/sync.py`, `app/api/services/sync/`, `app/infrastructure/persistence/sync_aux_read_adapter.py` | `docs/reference/sync-protocol.md`, `docs/reference/troubleshooting.md#sync-conflicts` |
 | Request processing stuck | `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob` | `docs/reference/troubleshooting.md#request-stuck-in-processing` |
-| LLM parse / repair | `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, `app/core/summary_contract.py`, `app/prompts/manager.py`, `app/agents/langgraph/graph.py` | `docs/reference/troubleshooting.md#json-parsing-failures`, `docs/reference/summary-contract.md` |
+| LLM parse / repair | `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, `app/core/summary_contract.py`, `app/prompts/manager.py` | `docs/reference/troubleshooting.md#json-parsing-failures`, `docs/reference/summary-contract.md` |
 | Extraction providers | `app/adapters/content/scraper/`, `app/adapters/content/platform_extraction/`, `app/adapters/youtube/`, `app/adapters/twitter/`, `app/adapters/academic/` | `docs/explanation/scraper-chain.md`, `docs/reference/troubleshooting.md#content-extraction-failures` |
 | Source ingestion and signals | `app/adapters/ingestors/`, `app/adapters/rss/`, `app/adapters/digest/`, `app/api/routers/social/signals.py` | `docs/guides/configure-source-ingestors.md` |
 | Vector drift / reconciliation | `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, `app/cli/backfill_vector_store.py`, `app/infrastructure/cocoindex/flow.py` | `docs/cocoindex.md`, `docs/reference/troubleshooting.md`; extend via `VectorIndexedEntityAdapter` |
