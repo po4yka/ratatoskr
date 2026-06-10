@@ -614,7 +614,7 @@ webencodings==0.5.1
     #   html5lib
     #   tinycss2
     #   tinyhtml5
-websockets==16.0
+websockets==15.0.1
     # via uvicorn
 win32-setctime==1.2.0 ; sys_platform == 'win32'
     # via loguru
