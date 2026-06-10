@@ -300,14 +300,12 @@ class TestPreflightTimeout:
 
     def test_preflight_check_succeeds_on_writable_path(self, tmp_path: Path) -> None:
         """_preflight_storage_check returns None on a writable directory."""
-        result = asyncio.get_event_loop().run_until_complete(
-            _preflight_storage_check(tmp_path, timeout_ms=5_000)
-        )
+        result = asyncio.run(_preflight_storage_check(tmp_path, timeout_ms=5_000))
         assert result is None
 
     def test_preflight_check_fails_on_missing_path(self, tmp_path: Path) -> None:
         """_preflight_storage_check returns an error string for a non-existent path."""
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             _preflight_storage_check(tmp_path / "does-not-exist", timeout_ms=5_000)
         )
         assert result is not None
@@ -334,6 +332,6 @@ class TestPreflightTimeout:
             "app.adapters.git_backup.mirror_service._preflight_storage_check",
             side_effect=fake_preflight,
         ):
-            asyncio.get_event_loop().run_until_complete(service.perform_sync())
+            asyncio.run(service.perform_sync())
 
         assert captured_ms == [25_000]

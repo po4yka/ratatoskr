@@ -143,9 +143,12 @@ def _error_result(message: str = "upstream 500") -> FirecrawlResult:
 
 @pytest.fixture(autouse=True)
 def _allow_safe_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _safe(_url: str) -> tuple[bool, None]:
+        return (True, None)
+
     monkeypatch.setattr(
-        "app.adapters.content.scraper.chain.is_url_safe",
-        lambda _url: (True, None),
+        "app.adapters.content.scraper.chain.is_url_safe_async",
+        _safe,
     )
 
 
