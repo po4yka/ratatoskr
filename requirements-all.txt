@@ -8,8 +8,6 @@ aiohttp==3.14.1
     #   taskiq
 aiosignal==1.4.0
     # via aiohttp
-aiosqlite==0.22.1
-    # via ratatoskr
 alembic==1.18.4
     # via ratatoskr
 annotated-doc==0.0.4
@@ -525,7 +523,9 @@ tld==0.13.2
     #   courlan
     #   scrapling
 tldextract==5.3.1
-    # via crawlee
+    # via
+    #   crawlee
+    #   ratatoskr
 tokenizers==0.22.2
     # via transformers
 torch==2.12.0
