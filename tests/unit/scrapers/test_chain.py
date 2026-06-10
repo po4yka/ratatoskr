@@ -28,9 +28,12 @@ pytestmark = pytest.mark.no_network
 
 @pytest.fixture(autouse=True)
 def _allow_safe_scraper_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _safe(_url: str) -> tuple[bool, None]:
+        return (True, None)
+
     monkeypatch.setattr(
-        "app.adapters.content.scraper.chain.is_url_safe",
-        lambda _url: (True, None),
+        "app.adapters.content.scraper.chain.is_url_safe_async",
+        _safe,
     )
 
 
@@ -264,9 +267,13 @@ async def test_chain_blocks_unsafe_url_before_provider_delivery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _FakeProvider("primary", _ok_result("should not be called"))
+
+    async def _unsafe(_url: str) -> tuple[bool, str]:
+        return (False, "Private or reserved IP address: 127.0.0.1")
+
     monkeypatch.setattr(
-        "app.adapters.content.scraper.chain.is_url_safe",
-        lambda _url: (False, "Private or reserved IP address: 127.0.0.1"),
+        "app.adapters.content.scraper.chain.is_url_safe_async",
+        _unsafe,
     )
 
     chain = ContentScraperChain(providers=[provider])

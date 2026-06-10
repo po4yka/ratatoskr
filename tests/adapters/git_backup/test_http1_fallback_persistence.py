@@ -383,7 +383,7 @@ def test_record_success_clears_use_http1_fallback_sync() -> None:
             default_branch=None,
         )
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())
     assert row.use_http1_fallback is False
 
 
