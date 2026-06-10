@@ -398,7 +398,7 @@ def _build_inline_keyboard(
 ) -> Any:
     """Build an InlineKeyboardMarkup from button dicts."""
     try:
-        from app.adapters.telegram.telethon_compat import InlineKeyboardButton, InlineKeyboardMarkup
+        from app.adapters.telethon_compat import InlineKeyboardButton, InlineKeyboardMarkup
 
         keyboard = []
         for row in button_rows:

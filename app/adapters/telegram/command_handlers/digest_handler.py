@@ -15,62 +15,53 @@ from app.infrastructure.persistence.digest_subscription_ops import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncContextManager, AsyncIterator, Callable
 
     from app.adapters.digest.digest_service import DigestService
+    from app.adapters.external.formatting.protocols import (
+        ResponseFormatterFacade as ResponseFormatter,
+    )
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )
+    from app.config import AppConfig
+    from app.db.session import Database
 
 logger = get_logger(__name__)
 
 
 class DigestHandler(HandlerDependenciesMixin):
-    """Implementation of channel digest commands."""
+    """Implementation of channel digest commands.
+
+    ``digest_service_factory`` is an async-context-manager factory injected at
+    construction by the DI layer.  It constructs the full digest stack
+    (UserbotClient, ChannelReader, DigestAnalyzer, DigestService) and yields a
+    ready-to-use ``DigestService``.  Keeping the factory outside this module
+    avoids a runtime cross-adapter import from ``telegram`` into ``digest``.
+    """
 
     _store = DigestStore()
 
+    def __init__(
+        self,
+        cfg: AppConfig,
+        db: Database,
+        response_formatter: ResponseFormatter,
+        digest_service_factory: Callable[[CommandExecutionContext], AsyncContextManager[DigestService]] | None = None,
+    ) -> None:
+        super().__init__(cfg=cfg, db=db, response_formatter=response_formatter)
+        self._digest_service_factory = digest_service_factory
+
     @asynccontextmanager
     async def _digest_context(self, ctx: CommandExecutionContext) -> AsyncIterator[DigestService]:
-        """Shared setup/teardown for digest commands."""
-        from pathlib import Path
-
-        from app.adapters.digest.analyzer import DigestAnalyzer
-        from app.adapters.digest.channel_reader import ChannelReader
-        from app.adapters.digest.digest_service import DigestService
-        from app.adapters.digest.formatter import DigestFormatter
-        from app.adapters.digest.userbot_client import UserbotClient
-        from app.adapters.openrouter.openrouter_client import OpenRouterClient
-
-        session_dir = Path("/data")
-        userbot = UserbotClient(self._cfg, session_dir)
-        await userbot.start()
-
-        try:
-            llm_client = OpenRouterClient(
-                api_key=self._cfg.openrouter.api_key,
-                model=self._cfg.openrouter.model,
-                fallback_models=self._cfg.openrouter.fallback_models,
+        """Shared setup/teardown for digest commands via the injected factory."""
+        if self._digest_service_factory is None:
+            raise RuntimeError(
+                "DigestHandler requires a digest_service_factory; "
+                "wire it up in the DI layer (app/di/telegram_commands.py)."
             )
-            reader = ChannelReader(self._cfg, userbot)
-            analyzer = DigestAnalyzer(self._cfg, llm_client)
-            formatter = DigestFormatter()
-
-            async def send_msg(user_id: int, text: str, reply_markup: object = None) -> None:
-                await self._formatter.safe_reply(ctx.message, text, reply_markup=reply_markup)
-
-            service = DigestService(
-                cfg=self._cfg,
-                reader=reader,
-                analyzer=analyzer,
-                formatter=formatter,
-                send_message_func=send_msg,
-            )
-
+        async with self._digest_service_factory(ctx) as service:
             yield service
-            await llm_client.aclose()
-        finally:
-            await userbot.stop()
 
     async def handle_digest(self, ctx: CommandExecutionContext) -> None:
         """Handle /digest command -- generate on-demand digest."""

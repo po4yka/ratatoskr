@@ -434,9 +434,8 @@ jobs:
             -p pytest_rerunfailures \
             -p pytest_asyncio.plugin \
             tests/ \
-            -m "not slow and not integration" \
+            -m "not integration" \
             --ignore=tests/benchmarks \
-            --ignore=tests/architecture \
             --ignore=tests/chaos \
             --ignore=tests/integration \
             --ignore=tests/stress \

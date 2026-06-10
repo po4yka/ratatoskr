@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from app.adapters.git_backup.repository import GitMirrorRepository
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
 from app.core.git_url_safety import assert_safe_git_url
@@ -17,9 +16,17 @@ from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirrorSource
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from app.adapters.git_backup.repository import GitMirrorRepository
+    from app.adapters.external.formatting.protocols import (
+        ResponseFormatterFacade as ResponseFormatter,
+    )
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )
+    from app.config import AppConfig
+    from app.db.session import Database
 
 logger = get_logger(__name__)
 
@@ -55,11 +62,32 @@ def _format_mirror_row(mirror: object) -> str:
 
 
 class GitMirrorHandler(HandlerDependenciesMixin):
-    """Handle /mirror and /mirrors commands."""
+    """Handle /mirror and /mirrors commands.
+
+    ``mirror_repo_factory`` is a zero-argument callable injected by the DI layer
+    that returns a ``GitMirrorRepository``.  Keeping the factory outside this
+    module avoids a runtime cross-adapter import from ``telegram`` into
+    ``git_backup``.
+    """
+
+    def __init__(
+        self,
+        cfg: AppConfig,
+        db: Database,
+        response_formatter: ResponseFormatter,
+        mirror_repo_factory: Callable[[], GitMirrorRepository] | None = None,
+    ) -> None:
+        super().__init__(cfg=cfg, db=db, response_formatter=response_formatter)
+        self._mirror_repo_factory = mirror_repo_factory
 
     @property
     def _mirror_repo(self) -> GitMirrorRepository:
-        return GitMirrorRepository(self._db, self._cfg.git_backup)
+        if self._mirror_repo_factory is None:
+            raise RuntimeError(
+                "GitMirrorHandler requires a mirror_repo_factory; "
+                "wire it up in the DI layer (app/di/telegram_commands.py)."
+            )
+        return self._mirror_repo_factory()
 
     @combined_handler("command_mirror", "mirror", include_text=True)
     async def handle_mirror(self, ctx: CommandExecutionContext) -> None:

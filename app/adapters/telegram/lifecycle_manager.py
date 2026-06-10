@@ -7,9 +7,9 @@ import contextlib
 from pathlib import Path
 from typing import Any
 
-from app.adapters.digest.session_validator import validate_and_repair_session
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
+from app.core.telethon_session import validate_and_repair_session as _validate_and_repair_session
 
 logger = get_logger(__name__)
 
@@ -60,9 +60,10 @@ class TelegramLifecycleManager:
         cfg = getattr(self._bot, "cfg", None)
         if cfg is None or not getattr(getattr(cfg, "digest", None), "enabled", False):
             return
+
         session_name: str = cfg.digest.session_name
         session_file = Path("/data") / f"{session_name}.session"
-        validate_and_repair_session(session_file)
+        _validate_and_repair_session(session_file)
 
     async def _warm_adaptive_timeout_cache(self) -> None:
         adaptive_timeout = getattr(self._bot, "_adaptive_timeout_service", None)

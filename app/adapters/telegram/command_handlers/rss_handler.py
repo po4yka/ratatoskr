@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.adapters.rss.substack import is_substack_url, resolve_substack_feed_url
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
 from app.core.logging_utils import get_logger
@@ -44,6 +43,8 @@ class RSSHandler(HandlerDependenciesMixin):
             remove <id>   -- unsubscribe by subscription ID
         """
         args = ctx.text[len("/substack") :].strip()
+
+        from app.core.substack_utils import resolve_substack_feed_url
 
         if args == "list":
             await self._handle_substack_list(ctx)
@@ -140,6 +141,8 @@ class RSSHandler(HandlerDependenciesMixin):
                 "Usage: /rss add <feed_url>",
             )
             return
+
+        from app.core.substack_utils import is_substack_url, resolve_substack_feed_url
 
         # Normalize URL
         url = url.strip()

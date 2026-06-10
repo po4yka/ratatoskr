@@ -42,13 +42,84 @@ from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncContextManager, Callable
+
     from app.adapters.content.url_processor import URLProcessor
+    from app.adapters.digest.digest_service import DigestService
+    from app.adapters.git_backup.repository import GitMirrorRepository
+    from app.adapters.telegram.command_handlers.execution_context import CommandExecutionContext
     from app.adapters.telegram.task_manager import UserTaskManager
     from app.adapters.telegram.url_handler import URLHandler
     from app.application.services.social_auth_service import SocialAuthService
     from app.application.services.transcription_job_service import TranscriptionJobService
     from app.config import AppConfig
     from app.db.session import Database
+
+
+def _build_digest_service_factory(
+    cfg: AppConfig,
+    formatter: Any,
+) -> Callable[[CommandExecutionContext], AsyncContextManager[DigestService]]:
+    """Return an async-context-manager factory for DigestService.
+
+    Lives in the DI layer so the ``telegram`` adapter does not need a runtime
+    import of any ``digest`` adapter module.
+    """
+    from contextlib import asynccontextmanager
+    from pathlib import Path as _Path
+
+    from app.adapters.digest.analyzer import DigestAnalyzer
+    from app.adapters.digest.channel_reader import ChannelReader
+    from app.adapters.digest.digest_service import DigestService
+    from app.adapters.digest.formatter import DigestFormatter
+    from app.adapters.digest.userbot_client import UserbotClient
+    from app.adapters.openrouter.openrouter_client import OpenRouterClient
+
+    @asynccontextmanager
+    async def _factory(ctx: CommandExecutionContext):  # type: ignore[no-untyped-def]
+        session_dir = _Path("/data")
+        userbot = UserbotClient(cfg, session_dir)
+        await userbot.start()
+        try:
+            llm_client = OpenRouterClient(
+                api_key=cfg.openrouter.api_key,
+                model=cfg.openrouter.model,
+                fallback_models=cfg.openrouter.fallback_models,
+            )
+            reader = ChannelReader(cfg, userbot)
+            analyzer = DigestAnalyzer(cfg, llm_client)
+            digest_formatter = DigestFormatter()
+
+            async def send_msg(user_id: int, text: str, reply_markup: object = None) -> None:
+                await formatter.safe_reply(ctx.message, text, reply_markup=reply_markup)
+
+            service = DigestService(
+                cfg=cfg,
+                reader=reader,
+                analyzer=analyzer,
+                formatter=digest_formatter,
+                send_message_func=send_msg,
+            )
+            yield service
+            await llm_client.aclose()
+        finally:
+            await userbot.stop()
+
+    return _factory  # type: ignore[return-value]
+
+
+def _build_mirror_repo_factory(cfg: AppConfig, db: Any) -> Callable[[], GitMirrorRepository]:
+    """Return a factory that creates a GitMirrorRepository.
+
+    Lives in the DI layer so the ``telegram`` adapter does not need a runtime
+    import of any ``git_backup`` adapter module.
+    """
+    from app.adapters.git_backup.repository import GitMirrorRepository as _GitMirrorRepository
+
+    def _factory() -> _GitMirrorRepository:
+        return _GitMirrorRepository(db, cfg.git_backup)
+
+    return _factory  # type: ignore[return-value]
 
 
 def build_command_dispatcher_deps(
@@ -123,6 +194,7 @@ def build_command_dispatcher_deps(
         cfg=cfg,
         db=db,
         response_formatter=response_formatter,
+        digest_service_factory=_build_digest_service_factory(cfg, response_formatter),
     )
     init_session_handler = InitSessionHandler(
         cfg=cfg,
@@ -168,6 +240,7 @@ def build_command_dispatcher_deps(
         cfg=cfg,
         db=db,
         response_formatter=response_formatter,
+        mirror_repo_factory=_build_mirror_repo_factory(cfg, db),
     )
     x_possible_handler = XPossibleHandler(cfg=cfg)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.telegram.telethon_compat import TelethonUserClient
+from app.adapters.telethon_compat import TelethonUserClient
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 
