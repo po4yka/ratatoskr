@@ -1658,9 +1658,9 @@ scrapling==0.4.9 \
     --hash=sha256:00c7fae4641d948fb26486fd1da22143e5296dc86ef821b8426c0c2854c529ef \
     --hash=sha256:e08afab736e5bd3337173e524fee99aea3073476e86d44d942af4bef9496a499
     # via ratatoskr
-setuptools==81.0.0 \
-    --hash=sha256:487b53915f52501f0a79ccfd0c02c165ffe06631443a886740b91af4b7a5845a \
-    --hash=sha256:fdd925d5c5d9f62e4b74b30d6dd7828ce236fd6ed998a08d81de62ce5a6310d6
+setuptools==82.0.1 \
+    --hash=sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9 \
+    --hash=sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb
     # via
     #   spacy
     #   thinc

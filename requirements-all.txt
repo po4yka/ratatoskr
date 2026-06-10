@@ -450,7 +450,7 @@ scrapling==0.4.9
     # via ratatoskr
 sentence-transformers==5.5.1
     # via ratatoskr
-setuptools==81.0.0
+setuptools==82.0.1
     # via
     #   spacy
     #   thinc
