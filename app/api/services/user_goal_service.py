@@ -43,7 +43,7 @@ class UserGoalService:
 
     async def list_goals(self, *, user_id: int) -> list[dict[str, Any]]:
         """List all goals for a user."""
-        goals = await self._user_content_repo.async_list_goals(user_id)
+        goals = await self._user_content_repo.async_list_goals()
         return [await self._goal_to_payload(goal, user_id=user_id) for goal in goals]
 
     async def upsert_goal(self, *, user_id: int, body: CreateGoalRequest) -> dict[str, Any]:
@@ -80,7 +80,7 @@ class UserGoalService:
 
     async def get_goal_progress(self, *, user_id: int) -> list[dict[str, Any]]:
         """Return progress for each goal."""
-        goals = await self._user_content_repo.async_list_goals(user_id)
+        goals = await self._user_content_repo.async_list_goals()
         if not goals:
             return []
 

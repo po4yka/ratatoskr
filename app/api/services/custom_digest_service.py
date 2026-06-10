@@ -77,7 +77,7 @@ class CustomDigestService:
 
     async def list_digests(self, *, user_id: int) -> list[dict[str, Any]]:
         """List digests owned by the user."""
-        digests = await self._user_content_repo.async_list_custom_digests(user_id)
+        digests = await self._user_content_repo.async_list_custom_digests()
         return [self._digest_to_response(digest).model_dump(by_alias=True) for digest in digests]
 
     async def get_digest(self, *, user_id: int, digest_id: str) -> dict[str, Any]:

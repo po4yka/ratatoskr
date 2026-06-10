@@ -511,6 +511,10 @@ jobs:
             --omit="app/db/alembic/*,app/static/*,app/cli/migrations/*" \
             --show-missing
 
+      - name: API surface count (informational)
+        continue-on-error: true
+        run: python3 tools/count_api_endpoints.py
+
   bandit-scan:
     name: Security - Bandit (SAST)
     needs: prepare-environment

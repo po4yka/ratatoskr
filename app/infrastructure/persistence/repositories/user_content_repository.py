@@ -31,11 +31,9 @@ class UserContentRepositoryAdapter:
     def __init__(self, database: Database) -> None:
         self._database = database
 
-    async def async_list_goals(self, user_id: int) -> list[dict[str, Any]]:
+    async def async_list_goals(self) -> list[dict[str, Any]]:
         async with self._database.session() as session:
-            rows = (
-                await session.execute(select(UserGoal).where(UserGoal.user_id == user_id))
-            ).scalars()
+            rows = (await session.execute(select(UserGoal))).scalars()
             return [model_to_dict(row) or {} for row in rows]
 
     async def async_upsert_goal(
@@ -196,13 +194,11 @@ class UserContentRepositoryAdapter:
             await session.flush()
             return model_to_dict(digest) or {}
 
-    async def async_list_custom_digests(self, user_id: int) -> list[dict[str, Any]]:
+    async def async_list_custom_digests(self) -> list[dict[str, Any]]:
         async with self._database.session() as session:
             rows = (
                 await session.execute(
-                    select(CustomDigest)
-                    .where(CustomDigest.user_id == user_id)
-                    .order_by(CustomDigest.created_at.desc())
+                    select(CustomDigest).order_by(CustomDigest.created_at.desc())
                 )
             ).scalars()
             return [model_to_dict(row) or {} for row in rows]
@@ -234,17 +230,13 @@ class UserContentRepositoryAdapter:
     async def async_list_highlights(
         self,
         *,
-        user_id: int,
         summary_id: int,
     ) -> list[dict[str, Any]]:
         async with self._database.session() as session:
             rows = (
                 await session.execute(
                     select(SummaryHighlight)
-                    .where(
-                        SummaryHighlight.user_id == user_id,
-                        SummaryHighlight.summary_id == summary_id,
-                    )
+                    .where(SummaryHighlight.summary_id == summary_id)
                     .order_by(SummaryHighlight.created_at.asc())
                 )
             ).scalars()

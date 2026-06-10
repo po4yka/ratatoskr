@@ -28,7 +28,6 @@ class SummaryHighlightService:
         """List highlights for an owned summary."""
         await self._verify_summary_ownership(summary_id=summary_id, user_id=user_id)
         highlights = await self._user_content_repo.async_list_highlights(
-            user_id=user_id,
             summary_id=summary_id,
         )
         return [self._highlight_to_payload(highlight) for highlight in highlights]
