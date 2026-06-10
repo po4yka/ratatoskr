@@ -147,7 +147,7 @@ async def test_user_content_repository_goals_and_scope_counts(database: Database
 
     assert updated["id"] == goal["id"]
     assert updated["target_count"] == 5
-    assert [row["id"] for row in await repo.async_list_goals()] == [goal["id"]]
+    assert [row["id"] for row in await repo.async_list_goals(ids["user_id"])] == [goal["id"]]
     assert (
         await repo.async_get_scope_name(
             user_id=ids["user_id"], scope_type="tag", scope_id=ids["tag_id"]
@@ -215,7 +215,7 @@ async def test_user_content_repository_digests_highlights_and_owned_summaries(
         content="# Digest",
     )
     assert json.loads(digest["summary_ids"]) == [str(ids["summary_id"])]
-    assert [row["id"] for row in await repo.async_list_custom_digests()] == [
+    assert [row["id"] for row in await repo.async_list_custom_digests(ids["user_id"])] == [
         digest["id"]
     ]
     assert (await repo.async_get_custom_digest(str(digest["id"])))["title"] == "Digest"
@@ -244,12 +244,12 @@ async def test_user_content_repository_digests_highlights_and_owned_summaries(
     assert updated_highlight["color"] == "green"
     assert updated_highlight["note"] == "saved"
     assert (
-        len(await repo.async_list_highlights(summary_id=ids["summary_id"]))
+        len(await repo.async_list_highlights(user_id=ids["user_id"], summary_id=ids["summary_id"]))
         == 1
     )
     await repo.async_delete_highlight(str(highlight["id"]))
     assert (
-        await repo.async_list_highlights(summary_id=ids["summary_id"]) == []
+        await repo.async_list_highlights(user_id=ids["user_id"], summary_id=ids["summary_id"]) == []
     )
 
 

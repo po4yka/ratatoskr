@@ -59,20 +59,19 @@ Estimated removable lines across all `user_id` filter sites flagged as safe to d
 
 ## Top-2 Safe Simplifications
 
-### 1. Remove `user_id` WHERE filters from the four safe repository classes
+### 1. `tools/count_api_endpoints.py` — API surface visibility (IMPLEMENTED)
 
-The repository audit identifies four files where every `user_id` filter is redundant in single-owner and where removal requires no schema migration and no API contract change:
+A stdlib-only script that walks `app/api/routers/` via AST, counts all `@router.{get,post,put,delete,patch}` decorator calls, and prints `API surface: N endpoints (single-tenant budget)` with a per-file breakdown. A CI step (continue-on-error: true) in the `test` job prints the count on every run so future endpoint growth is visible in logs without blocking CI.
 
-- `app/infrastructure/persistence/repositories/user_content_repository.py` — 14 methods
-- `app/infrastructure/persistence/repositories/summary_repository.py` — 11 methods
-- `app/infrastructure/persistence/repositories/rss_feed_repository.py` — 8 methods
-- `app/infrastructure/persistence/repositories/request_repository.py` — 7 read methods
+**Savings:** no production LOC removed; establishes a measurable complexity budget that makes future drift visible.
 
-**What to change:** For each method listed in the audit, remove the `WHERE user_id = :user_id` predicate from the SQLAlchemy select/update/delete statement and remove the corresponding `user_id` parameter from the method signature if it is no longer used. Callers that pass `user_id` into these methods can be updated to omit the argument; the service layer that previously threaded `user["user_id"]` through to these calls becomes simpler as a result. On write paths in `request_repository` where `user_id` is still written to the row (e.g. `async_create_request`), the column value is preserved — only the read-side filter is removed.
+### 2. `user_id` WHERE filters — DEFERRED (security hold)
 
-**Why it is safe:** In a single-owner deployment the database contains rows belonging to exactly one user. Removing `WHERE user_id = X` from a SELECT returns the same result set as leaving it in, because all rows already satisfy the predicate. No data from a different user can leak because no other user exists. No API response shape changes. No migration is needed because no column is dropped. The change is internally scoped to the infrastructure layer; service and handler signatures that currently pass `user_id` down to these repos can be cleaned up in the same PR as a mechanical caller-side simplification.
+The repository audit originally identified three methods in `user_content_repository.py` (`async_list_goals`, `async_list_custom_digests`, `async_list_highlights`) as safe candidates for `user_id` filter removal: in a single-owner deployment the predicate is always `WHERE user_id = <same constant>` and never selects a non-empty subset of rows.
 
-**Estimated savings:** ~760 lines of WHERE clause construction, parameter binding, and associated method signature plumbing.
+**Why deferred:** Automated security review correctly flagged the removal as an IDOR risk. Even in a single-owner deployment, removing `user_id` from a WHERE clause creates a forward-looking vulnerability: if a second user ever authenticates (JWT secret compromise, manual DB row addition, or future multi-tenancy reintroduction), the unguarded queries would silently return all rows regardless of caller identity. Defense-in-depth is worth more than 13 lines of savings. The `user_id` filters have been restored with the original semantics.
+
+**Path forward:** This simplification is correct IF it is paired with a schema constraint (CHECK constraint or row-level security policy) that enforces single-tenancy at the DB layer rather than relying on application-level filtering. That is a schema migration that belongs in the deferred batch below.
 
 ### 2. Remove the `(user_id, platform)` composite index from `UserDevice` and decouple device registration from user identity
 
