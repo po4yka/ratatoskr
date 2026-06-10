@@ -64,6 +64,7 @@ class YouTubePlatformExtractor(PlatformExtractor):
     def supports(self, normalized_url: str) -> bool:
         return is_youtube_url(normalized_url)
 
+    # Behavior verified by test_pipeline_uses_vtt_fallback_when_transcript_api_empty in tests/test_youtube_platform_extractor.py
     async def extract(self, request: PlatformExtractionRequest) -> PlatformExtractionResult:
         if not self._cfg.youtube.enabled:
             raise ValueError("YouTube video download is disabled in configuration")

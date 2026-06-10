@@ -30,6 +30,7 @@ def _build_delta_etag(session_id: str, max_server_version: int) -> str:
     return f'W/"sync-{digest}-{max_server_version}"'
 
 
+# Behavior verified by test_full_sync_uses_default_limit_when_none in tests/api/test_sync_v2_contract.py
 @router.post("/sessions")
 async def create_sync_session(
     body: SyncSessionRequest | None = None,

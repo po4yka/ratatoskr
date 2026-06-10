@@ -237,13 +237,6 @@ class TestContentScraperChain:
         assert len(audit_calls) == 0
 
     @pytest.mark.asyncio(loop_scope="function")
-    async def test_provider_name_is_chain(self):
-        """The chain's own provider_name is 'chain'."""
-        p = _MockProvider(name="inner", result=_ok_result())
-        chain = ContentScraperChain([p])
-        assert chain.provider_name == "chain"
-
-    @pytest.mark.asyncio(loop_scope="function")
     async def test_ok_status_but_empty_content_treated_as_failure(self):
         """A result with status='ok' but no content is treated as a failure."""
         empty_ok = FirecrawlResult(

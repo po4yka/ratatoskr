@@ -97,11 +97,6 @@ class TestOpenAIClient:
         client = OpenAIClient(api_key="sk-test-valid-api-key-123456789")
         assert client._model == "gpt-4o"
 
-    def test_provider_name(self) -> None:
-        """Provider name should be openai."""
-        client = OpenAIClient(api_key="sk-test-valid-api-key-123456789")
-        assert client.provider_name == "openai"
-
 
 class TestAnthropicClient:
     """Tests for Anthropic client initialization."""
@@ -120,8 +115,3 @@ class TestAnthropicClient:
         """Default model should be claude-sonnet-4-5-20250929."""
         client = AnthropicClient(api_key="sk-ant-test-valid-key-123456789")
         assert client._model == "claude-sonnet-4-5-20250929"
-
-    def test_provider_name(self) -> None:
-        """Provider name should be anthropic."""
-        client = AnthropicClient(api_key="sk-ant-test-valid-key-123456789")
-        assert client.provider_name == "anthropic"

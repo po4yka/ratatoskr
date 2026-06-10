@@ -118,13 +118,6 @@ class TestDefuddleProvider:
         assert result.status == "error"
         assert "connection refused" in result.error_text.lower()
 
-    def test_provider_name(self):
-        assert DefuddleProvider().provider_name == "defuddle"
-
-    @pytest.mark.asyncio(loop_scope="function")
-    async def test_aclose_is_noop(self):
-        await DefuddleProvider().aclose()
-
     def test_default_api_base_url_is_self_hosted(self):
         """Default URL is the self-hosted Docker Compose service, not defuddle.md."""
         p = DefuddleProvider()

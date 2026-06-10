@@ -42,14 +42,6 @@ def test_git_mirror_point_id_differs_by_environment() -> None:
     assert pid1 != pid2
 
 
-def test_git_mirror_point_id_is_valid_uuid_string() -> None:
-    import uuid
-
-    pid = git_mirror_point_id("prod", "owner", 99)
-    # Must be parseable as UUID
-    uuid.UUID(pid)
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

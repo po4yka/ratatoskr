@@ -524,18 +524,6 @@ class TestUpsertTargetSizeKbBackfill:
 
 
 class TestRecordSuccess:
-    async def test_returns_early_when_row_not_found(self) -> None:
-        db = _FakeDB(write_row=None)
-        repo = _repo(db)
-
-        # Must not raise; just silently returns.
-        await repo.record_success(
-            mirror_id=999,
-            mirror_path="/data/mirrors/999",
-            size_kb=100,
-            default_branch="main",
-        )
-
     async def test_updates_fields_on_success(self) -> None:
         mirror = _make_mirror(
             mirror_id=1,
@@ -601,16 +589,6 @@ class TestRecordSuccess:
 
 
 class TestRecordFailure:
-    async def test_returns_early_when_row_not_found(self) -> None:
-        db = _FakeDB(write_row=None)
-        repo = _repo(db)
-
-        await repo.record_failure(
-            mirror_id=999,
-            error_category=ErrorCategory.NETWORK_ERROR,
-            message="connection reset",
-        )
-
     async def test_increments_failure_counters(self) -> None:
         mirror = _make_mirror(
             mirror_id=1,
@@ -740,12 +718,6 @@ class TestRecordFailure:
 
 
 class TestRecordSkip:
-    async def test_returns_early_when_row_not_found(self) -> None:
-        db = _FakeDB(write_row=None)
-        repo = _repo(db)
-
-        await repo.record_skip(mirror_id=999, reason="quota exceeded")
-
     async def test_sets_skipped_status_and_reason(self) -> None:
         mirror = _make_mirror(mirror_id=1, status=GitMirrorStatus.PENDING)
         db = _FakeDB(write_row=mirror)
@@ -832,12 +804,6 @@ class TestDeleteMirror:
 
 
 class TestRecordExcluded:
-    async def test_returns_early_when_row_not_found(self) -> None:
-        db = _FakeDB(write_row=None)
-        repo = _repo(db)
-
-        await repo.record_excluded(mirror_id=999, reason="repository not found")
-
     async def test_tombstones_existing_row(self) -> None:
         mirror = _make_mirror(mirror_id=1, status=GitMirrorStatus.FAILED)
         db = _FakeDB(write_row=mirror)

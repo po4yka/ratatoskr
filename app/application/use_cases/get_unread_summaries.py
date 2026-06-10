@@ -42,6 +42,7 @@ class GetUnreadSummariesUseCase:
     def __init__(self, summary_repository: SummaryRepositoryPort) -> None:
         self._summary_repo = summary_repository
 
+    # Behavior verified by test_get_unread_summaries_with_topic in tests/application/use_cases/test_get_unread_summaries.py
     async def execute(self, query: GetUnreadSummariesQuery) -> list[Summary]:
         """Execute the query to get unread summaries.
 

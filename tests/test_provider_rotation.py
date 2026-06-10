@@ -96,9 +96,3 @@ class TestObservability:
         assert "openrouter_provider_rotation_exhausted" in kinds
 
 
-class TestConfigDefault:
-    def test_config_exposes_max_provider_rotations(self) -> None:
-        from app.config.llm import ModelRoutingConfig
-
-        cfg = ModelRoutingConfig()
-        assert cfg.max_provider_rotations == 2

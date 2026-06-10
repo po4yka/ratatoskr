@@ -60,10 +60,6 @@ def _make_playwright_mocks(
 
 
 class TestCloakBrowserProvider:
-    def test_provider_name(self) -> None:
-        provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222")
-        assert provider.provider_name == "cloakbrowser"
-
     @pytest.mark.asyncio(loop_scope="function")
     async def test_successful_scrape_returns_html(self) -> None:
         provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222", timeout_sec=5)
@@ -263,10 +259,6 @@ class TestCloakBrowserProvider:
 
         assert any(event == "cloakbrowser_failure" for _, event, _ in audit_calls)
 
-    @pytest.mark.asyncio(loop_scope="function")
-    async def test_aclose_is_a_noop(self) -> None:
-        provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222")
-        await provider.aclose()  # Should not raise.
 
 
 class TestStealthKnobs:

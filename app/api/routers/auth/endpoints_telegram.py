@@ -45,6 +45,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+# Behavior verified by test_telegram_login_token_delivery in tests/api/test_auth_token_delivery.py
 @router.post("/telegram-login")
 async def telegram_login(login_data: TelegramLoginRequest, response: Response) -> Any:
     """

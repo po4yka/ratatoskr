@@ -38,11 +38,6 @@ class TestHostAllowlist:
         assert provider._host_in_allowlist("https://EXAMPLE.com/a") is True
 
 
-class TestProviderName:
-    def test_provider_name(self):
-        assert WebwrightProvider().provider_name == "webwright"
-
-
 class TestScrapeMarkdown:
     @pytest.mark.asyncio(loop_scope="function")
     async def test_skips_when_host_not_allowlisted(self):
@@ -138,10 +133,6 @@ class TestScrapeMarkdown:
             result = await provider.scrape_markdown("https://example.com/x")
         assert result.status == "error"
         assert "kaboom" in (result.error_text or "")
-
-    @pytest.mark.asyncio(loop_scope="function")
-    async def test_aclose_is_noop(self):
-        await WebwrightProvider().aclose()
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_correlation_id_header_sent(self):

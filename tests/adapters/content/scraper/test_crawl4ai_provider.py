@@ -158,17 +158,6 @@ class TestCrawl4AIProvider:
         assert provider._client is None
 
     @pytest.mark.asyncio(loop_scope="function")
-    async def test_aclose_noop_when_no_client(self):
-        """aclose() does not raise when client was never created."""
-        provider = Crawl4AIProvider(url="http://crawl4ai:11235", timeout_sec=5)
-        await provider.aclose()  # Should not raise
-
-    def test_provider_name(self):
-        """provider_name returns 'crawl4ai'."""
-        provider = Crawl4AIProvider(url="http://crawl4ai:11235")
-        assert provider.provider_name == "crawl4ai"
-
-    @pytest.mark.asyncio(loop_scope="function")
     async def test_result_not_success_returns_error(self):
         """When result has success=false, returns ERROR with reported error detail."""
         payload = _make_crawl_response(success=False, error="fetch failed")

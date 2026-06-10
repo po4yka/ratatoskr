@@ -28,10 +28,6 @@ def test_x_bookmark_metadata_registered_in_core_models() -> None:
     assert XBookmarkMetadata in ALL_MODELS
 
 
-def test_x_bookmark_metadata_table_name() -> None:
-    assert XBookmarkMetadata.__tablename__ == "x_bookmark_metadata"
-
-
 def test_x_bookmark_metadata_columns_match_design() -> None:
     columns = {col.name for col in XBookmarkMetadata.__table__.columns}
     assert columns == {

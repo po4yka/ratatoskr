@@ -674,6 +674,7 @@ class TelegramBot:
         mp = MessagePersistence(self.db)
         await mp.persist_message_snapshot(request_id, message)
 
+    # Behavior verified by BotSpy/_on_message /summarize coverage in tests/test_commands.py
     async def _on_message(self, message: Any) -> None:
         """Entry point used by tests; delegate to message handler."""
         uid = getattr(getattr(message, "from_user", None), "id", None)

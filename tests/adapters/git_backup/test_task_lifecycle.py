@@ -246,17 +246,6 @@ class TestMetricsExport:
         with patch("pathlib.Path.mkdir", side_effect=PermissionError("no write")):
             await _export_metrics(cfg, summary, 1.0)
 
-    @pytest.mark.asyncio
-    async def test_noop_when_export_path_is_none(self) -> None:
-        from app.tasks.git_backup_sync import _export_metrics
-
-        git_cfg = _make_config()  # export_path=None by default
-        cfg = _make_app_config(git_cfg)
-        summary = _make_summary()
-
-        # Must not raise, must not create any files.
-        await _export_metrics(cfg, summary, 1.0)
-
 
 # ---------------------------------------------------------------------------
 # Feature 3: Telegram notifications

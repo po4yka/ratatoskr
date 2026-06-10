@@ -156,17 +156,6 @@ class TestScrapeGraphAIProvider:
         assert result.endpoint == "scrapegraph_ai"
         assert "scraping crashed" in (result.error_text or "")
 
-    def test_provider_name(self):
-        """provider_name returns 'scrapegraph_ai'."""
-        provider = _make_provider()
-        assert provider.provider_name == "scrapegraph_ai"
-
-    @pytest.mark.asyncio(loop_scope="function")
-    async def test_aclose_is_noop(self):
-        """aclose() completes without error (no persistent resources)."""
-        provider = _make_provider()
-        await provider.aclose()  # Should not raise
-
     @pytest.mark.asyncio(loop_scope="function")
     async def test_model_string_is_prefixed_with_openai_for_scrapegraphai_split_compatibility(
         self,

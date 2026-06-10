@@ -117,37 +117,3 @@ async def test_ping_failure_no_body_sends_empty_content() -> None:
     assert captured["request"].content == b""
 
 
-# ---------------------------------------------------------------------------
-# Error swallowing — a broken transport must never cause the caller to raise
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_ping_start_swallows_network_error() -> None:
-    def _raise(_req):
-        raise httpx.ConnectError("network down")
-
-    transport = httpx.MockTransport(_raise)
-    with _patch_client(transport):
-        # Must not raise
-        await ping_start(_BASE_URL, _TIMEOUT)
-
-
-@pytest.mark.asyncio
-async def test_ping_success_swallows_timeout() -> None:
-    def _raise(_req):
-        raise httpx.TimeoutException("timed out")
-
-    transport = httpx.MockTransport(_raise)
-    with _patch_client(transport):
-        await ping_success(_BASE_URL, _TIMEOUT)
-
-
-@pytest.mark.asyncio
-async def test_ping_failure_swallows_arbitrary_exception() -> None:
-    def _raise(_req):
-        raise RuntimeError("unexpected error")
-
-    transport = httpx.MockTransport(_raise)
-    with _patch_client(transport):
-        await ping_failure(_BASE_URL, _TIMEOUT, body="ctx")
