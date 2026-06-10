@@ -310,6 +310,31 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    # ---- Scraper chain per-provider summary counters and duration -------
+    # Tracks attempts, successes, and failures per provider at the chain
+    # level (one observation per chain invocation, not per tier attempt).
+    # Complements SCRAPER_ATTEMPTS_TOTAL (per-tier) and
+    # SCRAPER_CHAIN_FAILURES_TOTAL (failure reason breakdown).
+    SCRAPER_CHAIN_ATTEMPTS_TOTAL = Counter(
+        "ratatoskr_scraper_chain_attempts_total",
+        "Total scraper chain invocations attempted per provider",
+        ["provider"],
+        registry=REGISTRY,
+    )
+    SCRAPER_CHAIN_SUCCESSES_TOTAL = Counter(
+        "ratatoskr_scraper_chain_successes_total",
+        "Total scraper chain invocations that succeeded per provider",
+        ["provider"],
+        registry=REGISTRY,
+    )
+    SCRAPER_CHAIN_DURATION_SECONDS = Histogram(
+        "ratatoskr_scraper_chain_duration_seconds",
+        "Duration of a scraper chain invocation per provider in seconds",
+        ["provider"],
+        buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+        registry=REGISTRY,
+    )
+
     # ---- Social integration telemetry ----------------------------------
     SOCIAL_FETCH_TOTAL = Counter(
         "ratatoskr_social_fetch_total",
@@ -628,6 +653,9 @@ else:
     URL_PROCESSOR_IN_FLIGHT = None
     SCHEDULER_QUEUE_DEPTH = None
     AGENT_VALIDATION_FAILURES_TOTAL = None
+    SCRAPER_CHAIN_ATTEMPTS_TOTAL = None
+    SCRAPER_CHAIN_SUCCESSES_TOTAL = None
+    SCRAPER_CHAIN_DURATION_SECONDS = None
 
 
 def get_metrics() -> bytes:
@@ -1337,3 +1365,49 @@ def record_llm_request_total_latency(
     LLM_REQUEST_TOTAL_LATENCY_SECONDS.labels(request_type=label).observe(total_latency_seconds)
     if total_latency_seconds >= slow_threshold_seconds:
         LLM_REQUEST_SLOW_TOTAL.labels(request_type=label).inc()
+
+
+def record_scraper_chain_attempt(*, provider: str) -> None:
+    """Increment the per-provider chain-level attempt counter.
+
+    Called once per provider invocation regardless of outcome, before the
+    provider is awaited.  Pair with :func:`record_scraper_chain_success` and
+    :func:`record_scraper_chain_failure` to derive a per-provider success rate.
+
+    Args:
+        provider: Provider name (e.g. ``scrapling``, ``firecrawl``,
+            ``playwright``).
+    """
+    if not PROMETHEUS_AVAILABLE or SCRAPER_CHAIN_ATTEMPTS_TOTAL is None:
+        return
+    SCRAPER_CHAIN_ATTEMPTS_TOTAL.labels(provider=provider).inc()
+
+
+def record_scraper_chain_success(*, provider: str) -> None:
+    """Increment the per-provider chain-level success counter.
+
+    Called after a provider returns content that passes all chain-side quality
+    gates (non-empty, not an error page, not too short, not low-value).
+
+    Args:
+        provider: Provider name that produced usable content.
+    """
+    if not PROMETHEUS_AVAILABLE or SCRAPER_CHAIN_SUCCESSES_TOTAL is None:
+        return
+    SCRAPER_CHAIN_SUCCESSES_TOTAL.labels(provider=provider).inc()
+
+
+def record_scraper_chain_duration(*, provider: str, latency_seconds: float) -> None:
+    """Observe per-provider scraper chain attempt wall time.
+
+    Negative values are silently dropped.
+
+    Args:
+        provider: Provider name whose attempt duration is being recorded.
+        latency_seconds: Wall-clock seconds from attempt start to outcome.
+    """
+    if not PROMETHEUS_AVAILABLE or SCRAPER_CHAIN_DURATION_SECONDS is None:
+        return
+    if latency_seconds < 0:
+        return
+    SCRAPER_CHAIN_DURATION_SECONDS.labels(provider=provider).observe(latency_seconds)

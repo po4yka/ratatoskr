@@ -4403,6 +4403,7 @@ dependencies = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "telethon" },
     { name = "tenacity" },
+    { name = "tldextract" },
     { name = "trafilatura" },
     { name = "uvloop" },
 ]
@@ -4571,6 +4572,7 @@ requires-dist = [
     { name = "taskiq-redis", marker = "extra == 'scheduler'", specifier = ">=1.0.0,<2.0.0" },
     { name = "telethon", specifier = ">=1.42.0,<2" },
     { name = "tenacity", specifier = ">=8.2.0" },
+    { name = "tldextract", specifier = ">=5.1.1" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.12.0,<3" },
     { name = "trafilatura", specifier = ">=2.1.0,<3" },
     { name = "transformers", marker = "extra == 'ml'", specifier = ">=5.10.2,<6" },

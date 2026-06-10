@@ -59,7 +59,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum by (provider) (increase(ratatoskr_scraper_attempts_total{status=\"success\"}[7d])) / sum by (provider) (increase(ratatoskr_scraper_attempts_total[7d]))",
+          "expr": "rate(ratatoskr_scraper_chain_successes_total[7d]) / rate(ratatoskr_scraper_chain_attempts_total[7d])",
           "instant": true,
           "legendFormat": "{{provider}}",
           "refId": "A"
@@ -108,7 +108,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "histogram_quantile(0.95, sum by (provider, le) (rate(ratatoskr_scraper_attempt_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, rate(ratatoskr_scraper_chain_duration_seconds_bucket[5m]))",
           "legendFormat": "p95 {{provider}}",
           "refId": "A"
         }
@@ -138,9 +138,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum by (reason) (increase(ratatoskr_scraper_chain_failures_total[1h]))",
+          "expr": "increase(ratatoskr_scraper_chain_failures_total[1h])",
           "instant": true,
-          "legendFormat": "{{reason}}",
+          "legendFormat": "{{provider}}",
           "refId": "A"
         }
       ],
@@ -149,7 +149,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Which provider ultimately won per unit time — a proxy for chain depth. A shift toward later providers (playwright, crawlee) signals degradation in the free tier.",
+      "description": "Which provider ultimately won per unit time — a proxy for chain depth. A shift toward later providers (playwright, crawlee, webwright) signals degradation in the free tier.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -187,7 +187,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum by (provider) (rate(ratatoskr_scraper_attempts_total{status=\"success\"}[5m]))",
+          "expr": "sum by (provider) (rate(ratatoskr_scraper_chain_successes_total[1h]))",
           "legendFormat": "{{provider}}",
           "refId": "A"
         }

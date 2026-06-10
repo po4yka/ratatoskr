@@ -178,6 +178,7 @@ dependencies = [
   # for HTML extraction). Replacing with a pure-Python splitter is possible but
   # out of scope; keeping the existing <4 upper bound.
   "spacy>=3.8.11,<4",
+  "tldextract>=5.1.1",
   "json-repair>=0.60.1",
   "tenacity>=8.2.0",
   "openai>=2.41.0,<3",

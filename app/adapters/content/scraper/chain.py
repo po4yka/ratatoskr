@@ -31,7 +31,10 @@ from app.observability.attributes import (
 from app.observability.metrics import (
     record_scraper_attempt,
     record_scraper_attempt_latency,
+    record_scraper_chain_attempt,
+    record_scraper_chain_duration,
     record_scraper_chain_failure,
+    record_scraper_chain_success,
     record_scraper_chain_total_latency,
 )
 from app.security.ssrf import is_dns_failure_reason, is_url_safe_async
@@ -528,6 +531,8 @@ class ContentScraperChain:
         if timeout_sec is not None:
             span_attrs[SCRAPER_TIMEOUT_SEC] = float(timeout_sec)
 
+        record_scraper_chain_attempt(provider=name)
+
         with tracer.start_as_current_span(
             f"scraper.{name}", attributes=span_attrs
         ) as provider_span:
@@ -538,6 +543,7 @@ class ContentScraperChain:
                 provider_span.set_attribute(SCRAPER_OUTCOME, "cancelled")
                 record_scraper_attempt(provider=name, status="skipped")
                 record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
+                record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
                 _record("skipped", "CancelledError")
                 raise
             except Exception as exc:
@@ -547,6 +553,7 @@ class ContentScraperChain:
                 record_scraper_attempt(provider=name, status="error")
                 record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
                 record_scraper_chain_failure(provider=name, reason="error")
+                record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
                 logger.warning(
                     "scraper_chain_provider_exception",
                     extra={
@@ -576,6 +583,7 @@ class ContentScraperChain:
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
                     record_scraper_chain_failure(provider=name, reason="error_page")
+                    record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
                     logger.info(
                         "scraper_chain_error_page",
                         extra={
@@ -596,6 +604,7 @@ class ContentScraperChain:
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
                     record_scraper_chain_failure(provider=name, reason="too_short")
+                    record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
                     logger.info(
                         "scraper_chain_thin_content",
                         extra={
@@ -625,6 +634,7 @@ class ContentScraperChain:
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
                     record_scraper_chain_failure(provider=name, reason="low_value")
+                    record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
                     logger.info(
                         "scraper_chain_low_value_content",
                         extra={
@@ -647,6 +657,8 @@ class ContentScraperChain:
                 provider_span.set_attribute(SCRAPER_CONTENT_LEN, len(text))
                 record_scraper_attempt(provider=name, status="success")
                 record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
+                record_scraper_chain_success(provider=name)
+                record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
                 _record("success", None)
                 return result, None
 
@@ -655,6 +667,7 @@ class ContentScraperChain:
             record_scraper_attempt(provider=name, status="error")
             record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
             record_scraper_chain_failure(provider=name, reason="empty")
+            record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
             logger.info(
                 "scraper_chain_provider_failed",
                 extra={
