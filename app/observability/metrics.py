@@ -299,6 +299,16 @@ if PROMETHEUS_AVAILABLE:
         buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 40.0, 60.0, 90.0, 120.0],
         registry=REGISTRY,
     )
+    # Per-provider failure breakdown by reason. Complements SCRAPER_ATTEMPTS_TOTAL
+    # (which records every attempt with status=error|success|skipped) by exposing
+    # the WHY behind each failure so operators can distinguish empty responses,
+    # quality rejections, and hard errors in a single metric family.
+    SCRAPER_CHAIN_FAILURES_TOTAL = Counter(
+        "ratatoskr_scraper_chain_failures_total",
+        "Scraper chain provider failures by provider and failure reason",
+        ["provider", "reason"],
+        registry=REGISTRY,
+    )
 
     # ---- Social integration telemetry ----------------------------------
     SOCIAL_FETCH_TOTAL = Counter(
@@ -610,6 +620,7 @@ else:
     SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS = None
     SCRAPER_ATTEMPTS_TOTAL = None
     SCRAPER_ATTEMPT_LATENCY_SECONDS = None
+    SCRAPER_CHAIN_FAILURES_TOTAL = None
     SOCIAL_FETCH_TOTAL = None
     SOCIAL_TOKEN_REFRESH_TOTAL = None
     SOCIAL_RATE_LIMIT_TOTAL = None
@@ -1243,6 +1254,19 @@ def record_scraper_chain_total_latency(
     SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS.labels(mode=mode, outcome=outcome).observe(
         total_latency_seconds
     )
+
+
+def record_scraper_chain_failure(*, provider: str, reason: str) -> None:
+    """Record a scraper chain provider failure with a specific reason.
+
+    Args:
+        provider: Provider name (``scrapling``, ``crawl4ai``, etc.)
+        reason: One of ``empty``, ``error``, ``error_page``, ``too_short``,
+            ``low_value``.
+    """
+    if not PROMETHEUS_AVAILABLE or SCRAPER_CHAIN_FAILURES_TOTAL is None:
+        return
+    SCRAPER_CHAIN_FAILURES_TOTAL.labels(provider=provider, reason=reason).inc()
 
 
 def set_url_processor_in_flight(delta: int) -> None:

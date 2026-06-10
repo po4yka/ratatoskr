@@ -31,6 +31,7 @@ from app.observability.attributes import (
 from app.observability.metrics import (
     record_scraper_attempt,
     record_scraper_attempt_latency,
+    record_scraper_chain_failure,
     record_scraper_chain_total_latency,
 )
 from app.security.ssrf import is_dns_failure_reason, is_url_safe_async
@@ -289,6 +290,9 @@ class ContentScraperChain:
 
             if winner is not None:
                 _record_outcome("success")
+                self._log_chain_complete(
+                    url, recorder, errors, chain_started, winning_provider=recorder.winner()
+                )
                 return self._attach_attempt_telemetry(winner, recorder)
 
             chain_span.set_attribute(SCRAPER_ATTEMPTS, len(errors))
@@ -302,6 +306,7 @@ class ContentScraperChain:
                 },
             )
             _record_outcome("empty")
+            self._log_chain_complete(url, recorder, errors, chain_started, winning_provider=None)
             exhausted = FirecrawlResult(
                 status=CallStatus.ERROR,
                 error_text=f"All providers failed: {'; '.join(errors)}",
@@ -541,6 +546,7 @@ class ContentScraperChain:
                 provider_span.set_attribute("error.type", type(exc).__name__)
                 record_scraper_attempt(provider=name, status="error")
                 record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
+                record_scraper_chain_failure(provider=name, reason="error")
                 logger.warning(
                     "scraper_chain_provider_exception",
                     extra={
@@ -569,6 +575,7 @@ class ContentScraperChain:
                     record_scraper_attempt_latency(
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
+                    record_scraper_chain_failure(provider=name, reason="error_page")
                     logger.info(
                         "scraper_chain_error_page",
                         extra={
@@ -588,6 +595,7 @@ class ContentScraperChain:
                     record_scraper_attempt_latency(
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
+                    record_scraper_chain_failure(provider=name, reason="too_short")
                     logger.info(
                         "scraper_chain_thin_content",
                         extra={
@@ -616,6 +624,7 @@ class ContentScraperChain:
                     record_scraper_attempt_latency(
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
+                    record_scraper_chain_failure(provider=name, reason="low_value")
                     logger.info(
                         "scraper_chain_low_value_content",
                         extra={
@@ -645,6 +654,7 @@ class ContentScraperChain:
             provider_span.set_attribute(SCRAPER_OUTCOME, "no_content")
             record_scraper_attempt(provider=name, status="error")
             record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
+            record_scraper_chain_failure(provider=name, reason="empty")
             logger.info(
                 "scraper_chain_provider_failed",
                 extra={
@@ -656,6 +666,31 @@ class ContentScraperChain:
             )
             _record("error", "no_content")
             return None, f"{name}: {result.error_text or 'no content'}"
+
+    def _log_chain_complete(
+        self,
+        url: str,
+        recorder: ScraperAttemptRecorder,
+        errors: list[str],
+        chain_started: float,
+        *,
+        winning_provider: str | None,
+    ) -> None:
+        import tldextract
+
+        extracted = tldextract.extract(url)
+        url_domain = extracted.registered_domain or extracted.domain or "unknown"
+        total_ms = int(max(0.0, time.monotonic() - chain_started) * 1000)
+        logger.info(
+            "scraper_chain_complete",
+            extra={
+                "event": "scraper_chain_complete",
+                "winning_provider": winning_provider,
+                "attempts": len(recorder.entries),
+                "total_ms": total_ms,
+                "url_domain": url_domain,
+            },
+        )
 
     def _log_chain_success(
         self,
