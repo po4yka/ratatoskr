@@ -75,10 +75,6 @@ aiosignal==1.4.0 \
     --hash=sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e \
     --hash=sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7
     # via aiohttp
-aiosqlite==0.22.1 \
-    --hash=sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650 \
-    --hash=sha256:21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb
-    # via ratatoskr
 alembic==1.18.4 \
     --hash=sha256:a5ed4adcf6d8a4cb575f3d759f071b03cd6e5c7618eb796cb52497be25bfe19a \
     --hash=sha256:cb6e1fd84b6174ab8dbb2329f86d631ba9559dd78df550b57804d607672cedbc
@@ -371,6 +367,10 @@ docstring-parser==0.18.0 \
     --hash=sha256:292510982205c12b1248696f44959db3cdd1740237a968ea1e2e7a900eeb2015 \
     --hash=sha256:b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b
     # via instructor
+filelock==3.29.0 \
+    --hash=sha256:69974355e960702e789734cb4871f884ea6fe50bd8404051a3530bc07809cf90 \
+    --hash=sha256:96f5f6344709aa1572bbf631c640e4ebeeb519e08da902c39a001882f30ac258
+    # via tldextract
 frozenlist==1.8.0 \
     --hash=sha256:0325024fe97f94c41c08872db482cf8ac4800d80e79222c6b0b7b162d5b13686 \
     --hash=sha256:032efa2674356903cd0261c4317a561a6850f3ac864a63fc1583147fb05a79b0 \
@@ -513,6 +513,7 @@ idna==3.15 \
     #   anyio
     #   httpx
     #   requests
+    #   tldextract
     #   yarl
 instructor==1.15.1 \
     --hash=sha256:be81d17ba2b154a04ab4720808f24f9d6b598f80992f82eaf9cc79006099cf6c \
@@ -1246,7 +1247,13 @@ requests==2.33.1 \
     --hash=sha256:4e6d1ef462f3626a1f0a0a9c42dd93c63bad33f9f1c1937509b8c5c8718ab56a
     # via
     #   instructor
+    #   requests-file
     #   spacy
+    #   tldextract
+requests-file==3.0.1 \
+    --hash=sha256:d0f5eb94353986d998f80ac63c7f146a307728be051d4d1cd390dbdb59c10fa2 \
+    --hash=sha256:f14243d7796c588f3521bd423c5dea2ee4cc730e54a3cac9574d78aca1272576
+    # via tldextract
 rich==14.3.4 \
     --hash=sha256:07e7adb4690f68864777b1450859253bed81a99a31ac321ac1817b2313558952 \
     --hash=sha256:817e02727f2b25b40ef56f5aa2217f400c8489f79ca8f46ea2b70dd5e14558a9
@@ -1393,6 +1400,10 @@ tld==0.13.2 \
     # via
     #   courlan
     #   scrapling
+tldextract==5.3.1 \
+    --hash=sha256:6bfe36d518de569c572062b788e16a659ccaceffc486d243af0484e8ecf432d9 \
+    --hash=sha256:a72756ca170b2510315076383ea2993478f7da6f897eef1f4a5400735d5057fb
+    # via ratatoskr
 tqdm==4.67.3 \
     --hash=sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb \
     --hash=sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf
