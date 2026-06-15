@@ -680,7 +680,9 @@ jobs:
 
       # Secret must be added in GitHub repo settings → Secrets → SAFETY_API_KEY
       - name: Run Safety
-        run: safety check --full-report
+        # torch CVE-2025-3000 (SFTY-20250331-30014): no upstream fix, ml extra
+        # only; also accepted for OSV (osv-scanner.toml) and pip-audit.
+        run: safety check --full-report --ignore SFTY-20250331-30014
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
 

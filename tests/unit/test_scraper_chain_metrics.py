@@ -30,6 +30,28 @@ from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.observability import metrics as metrics_module
 
+
+@pytest.fixture(autouse=True)
+def _force_prometheus_available() -> Any:
+    """Keep prometheus recording enabled for this module's delta assertions.
+
+    Unlike the other metrics suites, these tests assert real counter
+    increments rather than skipping when prometheus is off. A sibling test
+    elsewhere in the suite can leave ``PROMETHEUS_AVAILABLE`` monkeypatched to
+    ``False`` if teardown interleaves under xdist, which would make every
+    ``record_*`` call a no-op and the deltas read 0. Force it on (skipping only
+    when prometheus_client is genuinely absent) and restore afterwards.
+    """
+    if metrics_module.SCRAPER_CHAIN_ATTEMPTS_TOTAL is None:
+        pytest.skip("prometheus_client not installed")
+    saved = metrics_module.PROMETHEUS_AVAILABLE
+    metrics_module.PROMETHEUS_AVAILABLE = True
+    try:
+        yield
+    finally:
+        metrics_module.PROMETHEUS_AVAILABLE = saved
+
+
 # ---------------------------------------------------------------------------
 # Low-level prometheus_client introspection helpers
 # ---------------------------------------------------------------------------
