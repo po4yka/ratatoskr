@@ -182,8 +182,8 @@ dependencies = [
   "tldextract>=5.1.1",
   "json-repair>=0.60.1",
   "tenacity>=8.2.0",
-  "openai>=2.41.0,<3",
-  "instructor>=1.5.0,<2",
+  "openai>=2.41.1,<3",
+  "instructor>=1.15.3,<2",
   "loguru>=0.7.3",
   "orjson>=3.11.9",
   "uvloop>=0.22.1",
@@ -232,9 +232,9 @@ api = [
   # undocumented `fastar` typosquat dependency into the [standard] extras
   # group (osv.dev/MAL-2026-4750, published 2026-05-23). Exclude it; the
   # upstream registry has yanked it but the exclusion is defense in depth.
-  "fastapi>=0.136.1,!=0.136.3,<1",
+  "fastapi!=0.136.3,>=0.137.1,<1",
   "uvicorn[standard]>=0.49.0",
-  "starlette>=1.2.1,<2",
+  "starlette>=1.3.1,<2",
   "sse-starlette>=3.4.4",
   "pyjwt>=2.13.0",
   "cryptography>=48.0.0",
@@ -247,13 +247,13 @@ api = [
 ml = [
   "ratatoskr[inference_core]",
   "torch>=2.12.0,<3",
-  "transformers>=5.10.2,<6",
+  "transformers>=5.12.0,<6",
   "scikit-learn>=1.9.0",
 ]
 
 # YouTube video download and transcript extraction
 youtube = [
-  "yt-dlp>=2026.3.17",
+  "yt-dlp>=2026.6.9",
   "youtube-transcript-api>=1.2.4",
 ]
 
@@ -349,13 +349,13 @@ dev = [
     "isort>=7.0.0",
     "mypy>=2.1.0",
     "openapi-spec-validator>=0.9.0",
-    "pip-audit>=2.7.3",
+    "pip-audit>=2.10.1",
     "pre-commit>=4.5.1",
-    "pytest>=9.0.3",
+    "pytest>=9.1.0",
     "pytest-asyncio>=1.4.0",
     "pytest-benchmark>=5.0.0",
     "respx>=0.22.0",
-    "ruff>=0.15.16",
+    "ruff>=0.15.17",
     # app.tasks.* (digest scheduler etc.) imports taskiq unconditionally; the
     # `scheduler` extra is required to import those modules. Pulling the same
     # pins into dev so unit/integration tests under tests/tasks/, tests/observability/,
