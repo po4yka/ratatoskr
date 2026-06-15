@@ -55,7 +55,6 @@ def test_command_dispatcher_routes_preserve_expected_precedence_order() -> None:
     application_services = SimpleNamespace(
         unread_summaries=MagicMock(),
         mark_summary_as_read=MagicMock(),
-        event_bus=MagicMock(),
         search_topics=MagicMock(),
         social_auth=MagicMock(),
     )

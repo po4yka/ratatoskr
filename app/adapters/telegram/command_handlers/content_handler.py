@@ -43,14 +43,12 @@ class ContentHandler:
         *,
         unread_summaries_use_case: Any | None = None,
         mark_summary_as_read_use_case: Any | None = None,
-        event_bus: Any | None = None,
     ) -> None:
         self._formatter = response_formatter
         self._summary_repo = summary_repo
         self._llm_repo = llm_repo
         self._unread_summaries_use_case = unread_summaries_use_case
         self._mark_summary_as_read_use_case = mark_summary_as_read_use_case
-        self._event_bus = event_bus
 
     @staticmethod
     def parse_unread_arguments(text: str | None) -> tuple[int, str | None]:
@@ -410,7 +408,7 @@ class ContentHandler:
             summary: The summary data dictionary.
             request_id: The request ID.
         """
-        if self._mark_summary_as_read_use_case is None or self._event_bus is None:
+        if self._mark_summary_as_read_use_case is None:
             msg = "ContentHandler requires read-marking application services"
             raise RuntimeError(msg)
 
@@ -425,5 +423,4 @@ class ContentHandler:
             summary_id=summary_id,
             user_id=ctx.uid,
         )
-        event = await self._mark_summary_as_read_use_case.execute(command)
-        await self._event_bus.publish(event)
+        await self._mark_summary_as_read_use_case.execute(command)

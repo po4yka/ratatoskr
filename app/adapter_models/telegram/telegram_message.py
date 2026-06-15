@@ -423,55 +423,6 @@ class TelegramMessage(BaseModel):
             logger.exception("Failed to parse Telegram message", extra={"error": str(exc)})
             return cls(**_build_fallback_message_kwargs(message))
 
-    def _set_computed_fields(self) -> None:
-        """Set computed fields based on message content."""
-        if self.photo or self.photo_list:
-            self.media_type = MediaType.PHOTO
-        elif self.video:
-            self.media_type = MediaType.VIDEO
-        elif self.audio:
-            self.media_type = MediaType.AUDIO
-        elif self.document:
-            self.media_type = MediaType.DOCUMENT
-        elif self.sticker:
-            self.media_type = MediaType.STICKER
-        elif self.voice:
-            self.media_type = MediaType.VOICE
-        elif self.video_note:
-            self.media_type = MediaType.VIDEO_NOTE
-        elif self.animation:
-            self.media_type = MediaType.ANIMATION
-        elif self.contact:
-            self.media_type = MediaType.CONTACT
-        elif self.location:
-            self.media_type = MediaType.LOCATION
-        elif self.venue:
-            self.media_type = MediaType.VENUE
-        elif self.poll:
-            self.media_type = MediaType.POLL
-        elif self.dice:
-            self.media_type = MediaType.DICE
-        elif self.game:
-            self.media_type = MediaType.GAME
-        elif self.invoice:
-            self.media_type = MediaType.INVOICE
-        elif self.successful_payment:
-            self.media_type = MediaType.SUCCESSFUL_PAYMENT
-        elif self.story:
-            self.media_type = MediaType.STORY
-
-        self.is_forwarded = bool(
-            self.forward_from
-            or self.forward_from_chat
-            or self.forward_sender_name
-            or self.forward_date
-        )
-        self.is_reply = bool(self.reply_to_message)
-        self.is_edited = bool(self.edit_date)
-        self.has_media = self.media_type is not None
-        self.has_text = bool(self.text and self.text.strip())
-        self.has_caption = bool(self.caption and self.caption.strip())
-
     def get_effective_text(self) -> str | None:
         """Get the effective text content (text or caption)."""
         return self.text or self.caption

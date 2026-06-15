@@ -5,7 +5,6 @@ import unittest
 
 from app.adapter_models.batch_processing import (
     URLBatchStatus,
-    URLProcessingResult,
     URLStatus,
     URLStatusEntry,
 )
@@ -509,69 +508,6 @@ class TestCompactProgress(unittest.TestCase):
         assert "3 extracting" in message
         assert "2 analyzing" in message
         assert "10 pending" in message
-
-
-class TestURLProcessingResult(unittest.TestCase):
-    """Test suite for URLProcessingResult dataclass."""
-
-    def test_success_result(self):
-        """Test creating a success result."""
-        result = URLProcessingResult.success_result("https://example.com", 1500.0)
-
-        assert result.success is True
-        assert result.url == "https://example.com"
-        assert result.processing_time_ms == 1500.0
-        assert result.error_type is None
-
-    def test_error_result(self):
-        """Test creating an error result."""
-        result = URLProcessingResult.error_result(
-            "https://example.com", "timeout", "Request timed out", retry_possible=True
-        )
-
-        assert result.success is False
-        assert result.error_type == "timeout"
-        assert result.error_message == "Request timed out"
-        assert result.retry_possible is True
-
-    def test_timeout_result(self):
-        """Test creating a timeout result."""
-        result = URLProcessingResult.timeout_result("https://example.com", 30.0)
-
-        assert result.success is False
-        assert result.error_type == "timeout"
-        assert "30" in result.error_message
-        assert result.retry_possible is True
-
-    def test_network_error_result(self):
-        """Test creating a network error result."""
-        result = URLProcessingResult.network_error_result(
-            "https://example.com", ConnectionError("Connection refused")
-        )
-
-        assert result.success is False
-        assert result.error_type == "network"
-        assert result.retry_possible is True
-
-    def test_validation_error_result(self):
-        """Test creating a validation error result."""
-        result = URLProcessingResult.validation_error_result(
-            "https://example.com", ValueError("Invalid URL format")
-        )
-
-        assert result.success is False
-        assert result.error_type == "validation"
-        assert result.retry_possible is False  # Validation errors not retryable
-
-    def test_generic_error_result(self):
-        """Test creating a generic error result."""
-        result = URLProcessingResult.generic_error_result(
-            "https://example.com", RuntimeError("Something went wrong")
-        )
-
-        assert result.success is False
-        assert result.error_type == "runtimeerror"  # Lowercased class name
-        assert result.retry_possible is False
 
 
 if __name__ == "__main__":

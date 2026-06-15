@@ -177,7 +177,6 @@ def build_command_dispatcher_deps(
         llm_repo=repositories.llm_repository,
         unread_summaries_use_case=getattr(application_services, "unread_summaries", None),
         mark_summary_as_read_use_case=getattr(application_services, "mark_summary_as_read", None),
-        event_bus=getattr(application_services, "event_bus", None),
     )
     search_handler = SearchHandler(
         response_formatter=response_formatter,

@@ -141,8 +141,6 @@ def build_telegram_runtime(
     application_services = build_application_services(
         db,
         topic_search_service=search.local_searcher,
-        vector_store=search.vector_store,
-        embedding_generator=search.embedding_generator,
     )
     interface = _build_telegram_interface_stack(
         cfg=cfg,
@@ -213,8 +211,6 @@ def build_summary_cli_runtime(
     application_services = build_application_services(
         db,
         topic_search_service=search.local_searcher,
-        vector_store=search.vector_store,
-        embedding_generator=search.embedding_generator,
     )
     url_handler = URLHandler(
         db=db,

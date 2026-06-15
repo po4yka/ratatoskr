@@ -79,7 +79,6 @@ class ApplicationServices:
     mark_summary_as_read: Any
     mark_summary_as_unread: Any
     search_topics: Any | None
-    event_bus: Any
 
 
 @dataclass(frozen=True, slots=True)

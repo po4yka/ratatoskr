@@ -26,7 +26,7 @@ from app.db.runtime.maintenance import DatabaseMaintenanceService
 from app.db.runtime.operation_executor import DatabaseOperationExecutor
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+    from collections.abc import AsyncIterator, Awaitable, Callable
     from pathlib import Path
 
     from app.config.database import DatabaseConfig
@@ -105,11 +105,6 @@ class Database:
         return self._session_maker
 
     @property
-    def database(self) -> async_sessionmaker[AsyncSession]:
-        """Compatibility property for callers moving off Peewee."""
-        return self._session_maker
-
-    @property
     def executor(self) -> DatabaseOperationExecutor:
         return self._executor
 
@@ -163,22 +158,8 @@ class Database:
     def create_backup_copy(self, dest_path: str) -> Path:
         return self._backup.create_backup_copy(dest_path)
 
-    def check_integrity(self) -> tuple[bool, str]:
-        return self._inspection.check_integrity()
-
     def get_database_overview(self) -> dict[str, object]:
         return self._inspection.get_database_overview()
-
-    def verify_processing_integrity(
-        self,
-        *,
-        required_fields: Iterable[str] | None = None,
-        limit: int | None = None,
-    ) -> dict[str, object]:
-        return self._inspection.verify_processing_integrity(
-            required_fields=required_fields,
-            limit=limit,
-        )
 
 
 @asynccontextmanager
