@@ -28,11 +28,11 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 | Twitter/X | `app/adapters/twitter/` | Firecrawl + Playwright extraction |
 | GitHub | `app/adapters/github/`, `app/tasks/github_sync.py`, `app/api/routers/repositories.py`, `app/api/routers/auth/github.py` | GitHub repo ingestion, daily stars sync (cron `0 2 * * *` UTC), structured-output repo analysis, semantic search via `repository_embeddings` + Qdrant. Tokens encrypted at rest with Fernet (`cryptography`). See `docs/explanation/github-repository-ingestion.md`. |
 | Git backup | `app/adapters/git_backup/`, `app/config/git_backup.py`, `app/db/models/git_backup.py`, `app/tasks/git_backup_sync.py`, `app/api/routers/git_mirrors.py`, `app/adapters/telegram/command_handlers/git_mirror_handler.py` | On-disk `git clone --mirror` backup of full git history for GitHub-linked and arbitrary git repos. Distinct from the GitHub API metadata path above (which never clones to disk). Bare clones stored under `GIT_BACKUP_DATA_PATH`; Taskiq cron job `ratatoskr.git_backup.sync`; `/mirror` and `/mirrors` Telegram commands; `/v1/git-mirrors` REST endpoints. |
-| LLM | `app/adapters/llm/`, `app/adapters/openrouter/` | Provider-agnostic LLM interface; summary workflow uses the `SummaryContractDescriptor` default contract bundle for schema/prompt/repair response formats |
-| Agents | `app/agents/` | Classic agent wrappers (extraction, validation, web search, repo analysis) |
+| LLM | `app/adapters/llm/`, `app/adapters/openrouter/` | LLM interface (OpenRouter); summary workflow uses the `SummaryContractDescriptor` default contract bundle for schema/prompt/repair response formats |
+| Agents | `app/agents/` | Classic agent wrappers (web search, repo analysis, multi-source aggregation) |
 | Domain | `app/domain/` | Business models and domain services |
 | Application | `app/application/` | DTOs, ports, use cases, and application services |
-| Infrastructure | `app/infrastructure/` | Concrete persistence, vector search, cache, and messaging adapters |
+| Infrastructure | `app/infrastructure/` | Concrete persistence, vector search, and cache adapters |
 | DI | `app/di/` | Runtime composition only |
 | Core | `app/core/` | URL normalization, JSON parsing, summary contract, logging |
 | Database | `app/db/` | SQLAlchemy 2.0 typed declarative models in `models/` (split by area), `Database` (`session.py`) is sole DB entry point, Alembic migrations in `alembic/versions/` |

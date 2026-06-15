@@ -1,6 +1,6 @@
 # Webwright Integration
 
-How Ratatoskr uses Microsoft Webwright as a heavyweight, last-resort browser-agent surface — what it costs, where it sits, and the three integration paths that share the same sidecar.
+How Ratatoskr uses Microsoft Webwright as a heavyweight, last-resort browser-agent surface — what it costs, where it sits, and the two active integration paths that share the same sidecar.
 
 **Audience:** Contributors deciding when Webwright is the right tool, operators tuning cost/coverage, and reviewers triaging a Webwright run that failed.
 **Type:** Explanation.
@@ -15,18 +15,17 @@ How Ratatoskr uses Microsoft Webwright as a heavyweight, last-resort browser-age
 
 Inside Ratatoskr it is **not** a replacement for the scraper chain. A normal Defuddle scrape costs essentially nothing; a Webwright run is an LLM-driven Playwright agent loop that costs roughly **10–30× per URL**. The integration question is therefore not "how do we wire it everywhere?" but "where does code-as-action browsing unlock something the rest of the chain cannot?"
 
-Three answers, three integration paths, one shared sidecar.
+Two active answers, two integration paths, one shared sidecar.
 
 ---
 
-## Three integration paths
+## Two integration paths
 
 ```mermaid
 flowchart LR
     subgraph Ratatoskr
         Chain[ContentScraperChain]
         Browse["/browse handler"]
-        Enricher[WebwrightEnricher]
     end
 
     subgraph Sidecar[webwright sidecar]
@@ -37,7 +36,6 @@ flowchart LR
 
     Chain -- "Path A: host-allowlisted URL\nfailed all other rungs" --> Scrape
     Browse -- "Path B: owner-only /browse" --> Task
-    Enricher -- "Path C: thin content\nfrom summarize loop" --> Task
     Scrape --> Agent
     Task --> Agent
 ```
@@ -58,23 +56,9 @@ The handler (`BrowseHandler`) writes a `webwright_runs` row in `RUNNING` state, 
 
 Site cookies (paywall sessions, logged-in state) are stored encrypted at rest in `user_browser_sessions` and decrypted only inside the sidecar at task time. Encryption reuses the existing `GITHUB_TOKEN_ENCRYPTION_KEY` Fernet rotation surface via `app.security.secret_crypto` — one rotation surface for all stored secrets.
 
-### Path C — `WebwrightEnricher` content-enrichment service
+### Path C — `WebwrightEnricher` (removed)
 
-A reusable service the summarize loop or any downstream consumer can call when the cheap scrape returned content that is too thin, paywalled, or otherwise impoverished. It exposes one method:
-
-```python
-await enricher.maybe_enrich_url(
-    url=...,
-    current_content=...,           # what the chain produced; gates the call
-    correlation_id=...,
-)
-```
-
-The service short-circuits cheaply (returns `None`) when the host isn't allowlisted or the current content already exceeds `min_content_length`. Only when a Webwright run actually improves things does it return an `EnrichmentResult` with `body_markdown`, `title`, trajectory path, steps used, and LLM cost.
-
-The `LLMCall.attempt_trigger` Postgres enum has a `webwright_tool` value reserved for the re-summarization that follows an enrichment call. The enricher itself does not write `LLMCall` rows — that's the responsibility of the caller invoking the summarizer with the enriched payload, so the row trail stays a single contract.
-
-> **Not implemented in this commit:** the full OpenRouter `tools` / `tool_choice` surface that would let the LLM itself decide to call Webwright as a tool mid-summarization. That refactor is gated on Phase A's host-allowlist metrics — once we know which hosts justify Webwright reliably, wiring tool-calling becomes worth the surface change. Until then `WebwrightEnricher` is callable by any consumer that wants to use it between summarize attempts.
+`WebwrightEnricher` and its `maybe_enrich_url` / `EnrichmentResult` API have been removed from the codebase (`app/adapters/webwright/enricher.py` deleted). No production caller ever wired it up. The `LLMCall.attempt_trigger` Postgres enum retains the `webwright_tool` value as a reserved/unused label — removing an enum value requires a migration, and the value may be reused if a future content-enrichment path is wired.
 
 ---
 
@@ -92,7 +76,7 @@ flowchart TD
     end
 
     Ratatoskr[ratatoskr / worker / mobile-api] -- "POST /scrape (Path A)" --> Server
-    Ratatoskr -- "POST /task (Paths B, C)" --> Server
+    Ratatoskr -- "POST /task (Path B)" --> Server
 ```
 
 **Build characteristics:**
@@ -126,7 +110,7 @@ Per-run knobs:
 - `WEBWRIGHT_TIMEOUT_SEC=180` — wall-clock cap. Client-side timeout is `timeout + 5s` so the sidecar gets a chance to return its structured timeout response instead of httpx aborting first.
 - `WEBWRIGHT_MODEL` — picks the cheapest competent model by default (`openai/gpt-4o-mini`); routed via OpenRouter using its OpenAI-compatible endpoint.
 
-Per-request audit: every `LLMCall` row written by the re-summarization that follows enrichment carries `attempt_trigger='webwright_tool'`, and every Webwright run produces one row in `webwright_runs` (Path B) or one entry in `crawl_results.options_json._chain_attempt_log` (Path A). Cost growth over a long horizon is queryable from these two tables alone.
+Per-request audit: every Webwright run produces one row in `webwright_runs` (Path B) or one entry in `crawl_results.options_json._chain_attempt_log` (Path A). The `attempt_trigger='webwright_tool'` enum value is reserved but unused (Path C was removed). Cost growth over a long horizon is queryable from these two tables alone.
 
 ---
 

@@ -65,14 +65,14 @@ app/
 |   +-- digest/         # Channel digest userbot, channel reader, analyzer
 |   +-- elevenlabs/     # ElevenLabs TTS
 |   +-- external/       # Firecrawl parser, response formatter facade
-|   +-- llm/            # Provider-agnostic LLM abstraction
+|   +-- llm/            # LLM abstraction (OpenRouter-only)
 |   +-- openrouter/     # OpenRouter client and helpers
 |   +-- telegram/       # Bot logic, command_handlers/, access controller
 |   +-- twitter/        # Twitter/X two-tier extractor (Firecrawl + Playwright)
 |   +-- git_backup/     # On-disk git mirror engine (GitMirrorService, GitMirrorRepository, LFS, maintenance, circuit breaker)
-|   +-- webwright/      # Microsoft Webwright sidecar adapters (client, enricher) — used by scraper chain + /browse
+|   +-- webwright/      # Microsoft Webwright sidecar adapter (client) — used by scraper chain + /browse
 |   +-- youtube/        # yt-dlp + transcript extraction
-+-- agents/             # Classic agents (extraction, validation, web search, repo analysis)
++-- agents/             # Classic agents (web search, repo analysis, multi-source aggregation)
 +-- api/                # Mobile API (FastAPI, JWT, sync, collections, streams, digest, ...)
 +-- application/        # DDD application layer (DTOs, use cases)
 +-- config/             # Settings, scraper config, runtime tuning
@@ -80,7 +80,7 @@ app/
 +-- db/                 # Models + Database session manager + Alembic migrations
 +-- di/                 # Runtime composition
 +-- domain/             # Domain models and services
-+-- infrastructure/     # Persistence, cache, messaging, vector store, embedding, cocoindex
++-- infrastructure/     # Persistence, cache, vector store, embedding, cocoindex
 +-- mcp/                # Model Context Protocol server
 +-- observability/      # Prometheus metrics (metrics.py), OTel tracing (otel.py: provider/exporters/Telethon helper), ratatoskr.* span-attribute constants (attributes.py)
 +-- prompts/            # LLM system prompts (en/ru, summary / combined_summary / instructor)
@@ -102,7 +102,7 @@ Project-specific conventions that aren't visible from code alone. Treat these as
 6. **Async only.** Telethon + httpx + asyncpg + SQLAlchemy `AsyncSession`. No blocking calls in the request path; use `asyncio.to_thread` only for genuinely sync libs.
 7. **Update both `en` and `ru` prompts together.** Files under `app/prompts/` come in mirrored pairs (`summary_system_en.txt` / `summary_system_ru.txt`, etc.); changing one without the other silently breaks the other-language path.
 8. **YouTube, Twitter/X, and academic papers each have dedicated extractors** (`app/adapters/youtube/`, `twitter/`, `academic/`) that bypass the standard scraper chain. Check `requests.source_kind` before assuming the chain ran.
-9. **Webwright is the only chain rung that costs real LLM money per URL.** Default off (`WEBWRIGHT_ENABLED=false`) and double-gated by a non-empty `WEBWRIGHT_HOST_ALLOWLIST` — an empty allowlist short-circuits provider construction so the sidecar is never called. The same sidecar serves `/browse` (Path B) and `WebwrightEnricher` (Path C); design rationale lives in `docs/explanation/webwright.md`.
+9. **Webwright is the only chain rung that costs real LLM money per URL.** Default off (`WEBWRIGHT_ENABLED=false`) and double-gated by a non-empty `WEBWRIGHT_HOST_ALLOWLIST` — an empty allowlist short-circuits provider construction so the sidecar is never called. The same sidecar also serves `/browse` (Path B); the former enricher (Path C) has been removed. Design rationale lives in `docs/explanation/webwright.md`.
 10. **When a client ships a new default client_id, add it to `app/config/known_client_ids.py` `KNOWN_CLIENT_IDS` and to every deployment's `ALLOWED_CLIENT_IDS` env var (or set `AUTH_ALLOW_ANY_CLIENT_ID=true` for local/development deployments).**
 11. **Model selection has no code default -- `ratatoskr.yaml` is the single source of truth.** `OpenRouterConfig.model`/`fallback_models`/`flash_model`/`flash_fallback_models`/`long_context_model` and `AttachmentConfig.vision_model`/`vision_fallback_models` are required fields with no `Field(default=...)`. The bot hard-fails at startup if any is absent from `ratatoskr.yaml` (or an env override). When changing models, edit the `openrouter:` / `attachment:` sections of `config/ratatoskr.yaml` (and the deployed `/app/config/ratatoskr.yaml`) -- never re-add code defaults. Tests that build config under `patch.dict(..., clear=True)` must supply these via `tests/_config_env.py::MODEL_SELECTION_ENV`.
 

@@ -43,8 +43,9 @@ class LLMAttemptTrigger(enum.StrEnum):
       the same in-flight ``LLMCall`` row rather than inserting a new one, so
       this value is not written by any active code path.
     - ``webwright_tool``: re-summarization after the Webwright sidecar
-      (microsoft/Webwright) was used to enrich thin/paywalled content. Set
-      when ``WebwrightEnricher.maybe_enrich_url`` returned a payload.
+      (microsoft/Webwright) was used to enrich thin/paywalled content.
+      RESERVED — the ``WebwrightEnricher`` (Path C) that wrote this value
+      has been removed; no active code path sets this trigger.
     """
 
     initial = "initial"
