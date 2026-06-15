@@ -129,9 +129,9 @@ class TestCollectRecords:
             ]
         )
 
-        sync_service._get_highlights_for_user = AsyncMock(return_value=[])
+        sync_service._collector._aux_read_port.get_highlights_for_user = AsyncMock(return_value=[])
 
-        records = await sync_service._collect_records(123)
+        records = await sync_service._collector.collect_records(123)
 
         assert len(records) == 5
         assert records[0].entity_type == "user"
@@ -148,9 +148,9 @@ class TestCollectRecords:
         sync_service._summary_repo.async_get_all_for_user = AsyncMock(return_value=[])
         sync_service._crawl_repo.async_get_all_for_user = AsyncMock(return_value=[])
         sync_service._llm_repo.async_get_all_for_user = AsyncMock(return_value=[])
-        sync_service._get_highlights_for_user = AsyncMock(return_value=[])
+        sync_service._collector._aux_read_port.get_highlights_for_user = AsyncMock(return_value=[])
 
-        records = await sync_service._collect_records(123)
+        records = await sync_service._collector.collect_records(123)
 
         assert len(records) == 0
 
@@ -202,7 +202,7 @@ class TestCollectRecords:
             entity_adapters=(fake_adapter,),
         )
 
-        records = await service._collect_records(123)
+        records = await service._collector.collect_records(123)
 
         assert len(records) == 1
         assert records[0].entity_type == "fake"
@@ -219,7 +219,7 @@ class TestPaginateRecords:
             make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 11)
         ]  # 10 records, versions 1-10
 
-        page, has_more, _next_since = sync_service._paginate_records(records, since=0, limit=5)
+        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=0, limit=5)
 
         assert len(page) == 5
         assert has_more is True
@@ -231,7 +231,7 @@ class TestPaginateRecords:
             make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 4)
         ]  # 3 records
 
-        page, has_more, _next_since = sync_service._paginate_records(records, since=0, limit=5)
+        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=0, limit=5)
 
         assert len(page) == 3
         assert has_more is False
@@ -241,7 +241,7 @@ class TestPaginateRecords:
         """Test paginating with since cursor."""
         records = [make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 11)]
 
-        page, has_more, _next_since = sync_service._paginate_records(records, since=5, limit=3)
+        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=5, limit=3)
 
         assert len(page) == 3
         assert all(r.server_version > 5 for r in page)
@@ -251,7 +251,7 @@ class TestPaginateRecords:
         """Test paginating with no records."""
         records = []
 
-        page, has_more, _next_since = sync_service._paginate_records(records, since=0, limit=5)
+        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=0, limit=5)
 
         assert len(page) == 0
         assert has_more is False
@@ -274,7 +274,7 @@ class TestGetFull:
         }
 
         with patch.object(
-            sync_service._facade,
+            sync_service,
             "_load_session",
             new_callable=AsyncMock,
             return_value=session_payload,
@@ -308,7 +308,7 @@ class TestGetFull:
         }
 
         with patch.object(
-            sync_service._facade,
+            sync_service,
             "_load_session",
             new_callable=AsyncMock,
             return_value=session_payload,
@@ -347,7 +347,7 @@ class TestGetDelta:
         }
 
         with patch.object(
-            sync_service._facade,
+            sync_service,
             "_load_session",
             new_callable=AsyncMock,
             return_value=session_payload,
@@ -387,7 +387,7 @@ class TestGetDelta:
         }
 
         with patch.object(
-            sync_service._facade,
+            sync_service,
             "_load_session",
             new_callable=AsyncMock,
             return_value=session_payload,
@@ -441,7 +441,7 @@ class TestApplyChanges:
         ]
 
         with patch.object(
-            sync_service._facade,
+            sync_service,
             "_load_session",
             new_callable=AsyncMock,
             return_value=session_payload,
@@ -483,7 +483,7 @@ class TestApplyChanges:
         sync_service._summary_repo.async_apply_sync_change = AsyncMock(return_value=6)
 
         with patch.object(
-            sync_service._facade,
+            sync_service,
             "_load_session",
             new_callable=AsyncMock,
             return_value=session_payload,
@@ -528,7 +528,7 @@ class TestApplyChanges:
         )
 
         with patch.object(
-            sync_service._facade,
+            sync_service,
             "_load_session",
             new_callable=AsyncMock,
             return_value=session_payload,
@@ -639,7 +639,7 @@ class TestApplySummaryChange:
             entity_type="summary", id="invalid", action="update", last_seen_version=5, payload={}
         )
 
-        result = await sync_service._apply_summary_change(change, 123)
+        result = await sync_service._apply_service.apply_summary_change(change, 123)
 
         assert result.status == "invalid"
         assert result.error_code == "INVALID_ID"
@@ -655,7 +655,7 @@ class TestApplySummaryChange:
 
         sync_service._summary_repo.async_get_summary_for_sync_apply = AsyncMock(return_value=None)
 
-        result = await sync_service._apply_summary_change(change, 123)
+        result = await sync_service._apply_service.apply_summary_change(change, 123)
 
         assert result.status == "invalid"
         assert result.error_code == "NOT_FOUND"
@@ -677,7 +677,7 @@ class TestApplySummaryChange:
             return_value={"id": 1, "server_version": 5}
         )
 
-        result = await sync_service._apply_summary_change(change, 123)
+        result = await sync_service._apply_service.apply_summary_change(change, 123)
 
         assert result.status == "invalid"
         assert result.error_code == "INVALID_FIELDS"
@@ -696,7 +696,7 @@ class TestApplySummaryChange:
         )
         sync_service._summary_repo.async_apply_sync_change = AsyncMock(return_value=6)
 
-        result = await sync_service._apply_summary_change(change, 123)
+        result = await sync_service._apply_service.apply_summary_change(change, 123)
 
         assert result.status == "applied"
         assert result.server_version == 6
@@ -724,7 +724,7 @@ class TestApplySummaryChange:
         )
         sync_service._summary_repo.async_apply_sync_change = AsyncMock(return_value=6)
 
-        result = await sync_service._apply_summary_change(change, 123)
+        result = await sync_service._apply_service.apply_summary_change(change, 123)
 
         assert result.status == "applied"
 

@@ -1,8 +1,7 @@
-"""Thread-safe mutable wrapper around frozen AppConfig for hot-reload support."""
+"""Thread-safe mutable wrapper around frozen AppConfig with on-demand reload support."""
 
 from __future__ import annotations
 
-import asyncio
 import os
 import threading
 from dataclasses import replace as dc_replace
@@ -116,62 +115,23 @@ class ConfigHolder:
 
 
 class ConfigReloader:
-    """Polls config/models.yaml for changes and hot-reloads model config."""
+    """On-demand config reloader for runtime model hot-reload via /setmodel."""
 
     def __init__(
         self,
         holder: ConfigHolder,
-        poll_interval: float = 30.0,
         models_path: str | None = None,
     ) -> None:
         self._holder = holder
-        self._poll_interval = poll_interval
         from app.config.config_file import CONFIG_PATH_ENV
 
         self._models_path = Path(
             models_path or os.environ.get(CONFIG_PATH_ENV, _DEFAULT_MODELS_PATH)
         )
-        self._last_mtime: float = 0.0
-        self._task: asyncio.Task[None] | None = None
-
-    def start(self) -> None:
-        """Start the background polling task."""
-        if self._task is not None:
-            return
-        self._last_mtime = self._get_mtime()
-        self._task = asyncio.get_event_loop().create_task(self._poll_loop())
-        logger.info("config_reloader_started", extra={"path": str(self._models_path)})
-
-    async def stop(self) -> None:
-        """Stop the background polling task."""
-        if self._task is not None:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
 
     def reload_now(self) -> bool:
         """Force an immediate reload. Returns True if config changed."""
         return self._try_reload()
-
-    def _get_mtime(self) -> float:
-        try:
-            return self._models_path.stat().st_mtime
-        except OSError:
-            return 0.0
-
-    async def _poll_loop(self) -> None:
-        while True:
-            await asyncio.sleep(self._poll_interval)
-            try:
-                current_mtime = self._get_mtime()
-                if current_mtime > self._last_mtime:
-                    self._try_reload()
-                    self._last_mtime = current_mtime
-            except Exception:
-                logger.exception("config_reload_poll_error")
 
     def _try_reload(self) -> bool:
         """Attempt to reload models config. Returns True if changed."""

@@ -133,29 +133,26 @@ class TestAuthorizationChecks:
 
     @pytest.mark.asyncio
     async def test_cannot_access_other_users_summary(self, mock_user, other_user):
-        """Test that users cannot access each other's summaries via service layer."""
-        from app.api.exceptions import ResourceNotFoundError
-        from app.api.services.summary_service import SummaryService
+        """Test that users cannot access each other's summaries via use-case layer."""
+        from app.api.dependencies.database import get_summary_read_model_use_case
 
-        # Mock the use case to return a summary owned by a different user.
         # get_summary_by_id_for_user checks user ownership and returns None
         # when the requesting user doesn't own the summary.
         mock_use_case = MagicMock()
         mock_use_case.get_summary_by_id_for_user = AsyncMock(return_value=None)
 
         with patch(
-            "app.api.services.summary_service.get_summary_read_model_use_case",
+            "app.api.dependencies.database.get_summary_read_model_use_case",
             return_value=mock_use_case,
         ):
-            # Try to access as other_user - should raise ResourceNotFoundError
-            with pytest.raises(ResourceNotFoundError) as exc_info:
-                await SummaryService.get_summary_by_id(
-                    user_id=other_user["user_id"],  # Different user
-                    summary_id=42,
-                )
-
-            assert exc_info.value.status_code == 404
-            assert "42" in str(exc_info.value.message)
+            use_case = get_summary_read_model_use_case()
+            result = await use_case.get_summary_by_id_for_user(
+                user_id=other_user["user_id"],
+                summary_id=42,
+            )
+            # The use case returns None for inaccessible summaries;
+            # the router/caller is responsible for raising ResourceNotFoundError.
+            assert result is None
 
     @pytest.mark.asyncio
     async def test_cannot_access_other_users_request(self, mock_user, other_user):

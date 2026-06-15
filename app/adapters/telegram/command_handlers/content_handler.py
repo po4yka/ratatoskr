@@ -221,24 +221,7 @@ class ContentHandler:
             limit=limit,
             topic=topic,
         )
-        domain_summaries = await self._unread_summaries_use_case.execute(query)
-
-        # Convert domain models to database format for compatibility
-        unread_summaries = []
-        for summary in domain_summaries:
-            unread_summaries.append(
-                {
-                    "request_id": summary.request_id,
-                    "input_url": "Unknown URL",
-                    "created_at": summary.created_at.isoformat()
-                    if hasattr(summary, "created_at") and summary.created_at
-                    else "Unknown date",
-                    "json_payload": summary.content,
-                    "is_read": summary.is_read,
-                    "id": summary.id,
-                }
-            )
-        return unread_summaries
+        return await self._unread_summaries_use_case.execute(query)
 
     async def _send_unread_list(
         self,

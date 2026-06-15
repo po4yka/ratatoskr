@@ -5,14 +5,13 @@ opens the DB and loads config once.  Factory helper functions that produce
 fresh service objects on every task run are plain callables — not cached —
 because each run needs a fresh Telethon/OpenRouter client lifecycle.
 
-Concrete object graphs live in ``app.di.tasks`` so future jobs can reuse
-runtime bundles instead of copying wiring here.
+Concrete object graphs live in ``app.di.tasks``; this module re-exports them
+and adds the Taskiq worker singletons (get_app_config / get_db).
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
 
 from taskiq import TaskiqDepends
 
@@ -25,7 +24,46 @@ from app.di.tasks import (
     VectorReconcileTaskRuntime,
     XBookmarksTaskRuntime,
     XWikiSyncTaskRuntime,
+    build_digest_task_runtime,
+    build_git_backup_task_runtime,
+    build_rss_poll_task_runtime,
+    build_vector_reconcile_task_runtime,
+    build_x_bookmarks_task_runtime,
+    build_x_wiki_sync_task_runtime,
+    create_digest_bot_client,
+    create_digest_llm_client,
+    create_digest_service,
+    create_digest_userbot,
+    create_rss_bot_client,
+    create_rss_delivery_service,
+    create_signal_ingestion_worker,
+    create_source_ingestion_runner,
 )
+
+__all__ = [
+    "DigestTaskRuntime",
+    "GitBackupTaskRuntime",
+    "RssPollTaskRuntime",
+    "VectorReconcileTaskRuntime",
+    "XBookmarksTaskRuntime",
+    "XWikiSyncTaskRuntime",
+    "build_digest_task_runtime",
+    "build_git_backup_task_runtime",
+    "build_rss_poll_task_runtime",
+    "build_vector_reconcile_task_runtime",
+    "build_x_bookmarks_task_runtime",
+    "build_x_wiki_sync_task_runtime",
+    "create_digest_bot_client",
+    "create_digest_llm_client",
+    "create_digest_service",
+    "create_digest_userbot",
+    "create_rss_bot_client",
+    "create_rss_delivery_service",
+    "create_signal_ingestion_worker",
+    "create_source_ingestion_runner",
+    "get_app_config",
+    "get_db",
+]
 
 # ── singleton providers ───────────────────────────────────────────────────────
 
@@ -53,127 +91,3 @@ async def get_db(cfg: AppConfig = TaskiqDepends(get_app_config)) -> Database:
 
         _db_instance = Database(config=cfg.database)
     return _db_instance
-
-
-# ── digest factory helpers ────────────────────────────────────────────────────
-
-
-def create_digest_userbot(cfg: AppConfig) -> Any:
-    from app.di.tasks import create_digest_userbot as _create_digest_userbot
-
-    return _create_digest_userbot(cfg)
-
-
-def create_digest_llm_client(cfg: AppConfig) -> Any:
-    from app.di.tasks import create_digest_llm_client as _create_digest_llm_client
-
-    return _create_digest_llm_client(cfg)
-
-
-def create_digest_bot_client(cfg: AppConfig) -> Any:
-    from app.di.tasks import create_digest_bot_client as _create_digest_bot_client
-
-    return _create_digest_bot_client(cfg)
-
-
-def create_digest_service(
-    cfg: AppConfig,
-    *,
-    userbot: Any,
-    llm_client: Any,
-    send_message: Any,
-) -> Any:
-    from app.di.tasks import create_digest_service as _create_digest_service
-
-    return _create_digest_service(
-        cfg,
-        userbot=userbot,
-        llm_client=llm_client,
-        send_message=send_message,
-    )
-
-
-def build_digest_task_runtime(cfg: AppConfig) -> DigestTaskRuntime:
-    """Return digest task runtime using this module's delegated factories."""
-    return DigestTaskRuntime(
-        cfg=cfg,
-        userbot_factory=create_digest_userbot,
-        llm_client_factory=create_digest_llm_client,
-        bot_client_factory=create_digest_bot_client,
-        service_factory=create_digest_service,
-    )
-
-
-# ── RSS / signal factory helpers ──────────────────────────────────────────────
-
-
-def create_rss_bot_client(cfg: AppConfig) -> Any:
-    from app.di.tasks import create_rss_bot_client as _create_rss_bot_client
-
-    return _create_rss_bot_client(cfg)
-
-
-def create_rss_delivery_service(cfg: AppConfig, db: Database) -> Any:
-    from app.di.tasks import create_rss_delivery_service as _create_rss_delivery_service
-
-    return _create_rss_delivery_service(cfg, db)
-
-
-def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
-    from app.di.tasks import create_signal_ingestion_worker as _create_signal_ingestion_worker
-
-    return _create_signal_ingestion_worker(cfg, db)
-
-
-def create_source_ingestion_runner(cfg: AppConfig, db: Database) -> Any:
-    from app.di.tasks import create_source_ingestion_runner as _create_source_ingestion_runner
-
-    return _create_source_ingestion_runner(cfg, db)
-
-
-def build_rss_poll_task_runtime(cfg: AppConfig, db: Database) -> RssPollTaskRuntime:
-    """Return RSS poll task runtime using this module's delegated factories."""
-    return RssPollTaskRuntime(
-        cfg=cfg,
-        db=db,
-        bot_client_factory=create_rss_bot_client,
-        delivery_service_factory=create_rss_delivery_service,
-        signal_worker_factory=create_signal_ingestion_worker,
-        source_runner_factory=create_source_ingestion_runner,
-    )
-
-
-def build_vector_reconcile_task_runtime(
-    cfg: AppConfig,
-    db: Database,
-) -> VectorReconcileTaskRuntime:
-    from app.di.tasks import build_vector_reconcile_task_runtime as _build_runtime
-
-    return _build_runtime(cfg, db)
-
-
-def build_x_bookmarks_task_runtime(
-    cfg: AppConfig,
-    db: Database,
-) -> XBookmarksTaskRuntime:
-    from app.di.tasks import build_x_bookmarks_task_runtime as _build_runtime
-
-    return _build_runtime(cfg, db)
-
-
-def build_x_wiki_sync_task_runtime(
-    cfg: AppConfig,
-    db: Database,
-) -> XWikiSyncTaskRuntime:
-    from app.di.tasks import build_x_wiki_sync_task_runtime as _build_runtime
-
-    return _build_runtime(cfg, db)
-
-
-def build_git_backup_task_runtime(
-    cfg: AppConfig,
-    db: Database,
-) -> GitBackupTaskRuntime:
-    from app.di.tasks import build_git_backup_task_runtime as _build_runtime
-
-    return _build_runtime(cfg, db)

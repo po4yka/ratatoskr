@@ -79,7 +79,7 @@ class TestSerializationEdgeCases:
             "updated_at": now,
         }
 
-        envelope = sync_service._serialize_request(request_dict)
+        envelope = sync_service._serializer.serialize_request(request_dict)
 
         assert envelope.entity_type == "request"
         assert envelope.request is None
@@ -97,7 +97,7 @@ class TestSerializationEdgeCases:
             "updated_at": now,
         }
 
-        envelope = sync_service._serialize_summary(summary_dict)
+        envelope = sync_service._serializer.serialize_summary(summary_dict)
 
         assert envelope.entity_type == "summary"
         assert envelope.summary is None
@@ -116,7 +116,7 @@ class TestSerializationEdgeCases:
             "updated_at": None,
         }
 
-        envelope = sync_service._serialize_summary(summary_dict)
+        envelope = sync_service._serializer.serialize_summary(summary_dict)
 
         assert envelope.summary["request_id"] is None
 
@@ -132,7 +132,7 @@ class TestSerializationEdgeCases:
             "updated_at": now,
         }
 
-        envelope = sync_service._serialize_crawl_result(crawl_dict)
+        envelope = sync_service._serializer.serialize_crawl_result(crawl_dict)
 
         assert envelope.entity_type == "crawl_result"
         assert envelope.crawl_result is None
@@ -150,7 +150,7 @@ class TestSerializationEdgeCases:
             "updated_at": None,
         }
 
-        envelope = sync_service._serialize_crawl_result(crawl_dict)
+        envelope = sync_service._serializer.serialize_crawl_result(crawl_dict)
 
         assert envelope.crawl_result["request_id"] == 42
 
@@ -167,7 +167,7 @@ class TestSerializationEdgeCases:
             "updated_at": now,
         }
 
-        envelope = sync_service._serialize_llm_call(call_dict)
+        envelope = sync_service._serializer.serialize_llm_call(call_dict)
 
         assert envelope.entity_type == "llm_call"
         assert envelope.llm_call is None
@@ -187,7 +187,7 @@ class TestSerializationEdgeCases:
             "updated_at": None,
         }
 
-        envelope = sync_service._serialize_llm_call(call_dict)
+        envelope = sync_service._serializer.serialize_llm_call(call_dict)
 
         assert envelope.llm_call["request_id"] == 42
 
@@ -240,20 +240,20 @@ class TestCoerceIsoEdgeCases:
     def test_coerce_iso_with_string_datetime(self, sync_service):
         """Test with datetime that is actually a string object."""
         # This tests the isinstance(dt_value, str) branch
-        result = sync_service._coerce_iso("2024-01-15T10:30:00+00:00")
+        result = sync_service._serializer._coerce_iso("2024-01-15T10:30:00+00:00")
         assert "2024-01-15T10:30:00" in result
         assert result.endswith("Z")
 
     def test_coerce_iso_with_malformed_string(self, sync_service):
         """Test with completely malformed string."""
-        result = sync_service._coerce_iso("not a datetime at all!!!")
+        result = sync_service._serializer._coerce_iso("not a datetime at all!!!")
         # Should fallback to current time
         assert "T" in result
         assert result.endswith("Z")
 
     def test_coerce_iso_with_numeric_value(self, sync_service):
         """Test with numeric value (edge case)."""
-        result = sync_service._coerce_iso(12345)
+        result = sync_service._serializer._coerce_iso(12345)
         # Should fallback to current time
         assert "T" in result
         assert result.endswith("Z")

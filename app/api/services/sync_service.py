@@ -1,4 +1,4 @@
-"""Sync service compatibility facade."""
+"""Sync service - public entry point that constructs and exposes SyncFacade."""
 
 from __future__ import annotations
 
@@ -31,15 +31,6 @@ from app.infrastructure.redis import get_redis
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from app.api.models.requests import SyncApplyItem
-    from app.api.models.responses import (
-        DeltaSyncResponseData,
-        FullSyncResponseData,
-        SyncApplyItemResult,
-        SyncApplyResponseData,
-        SyncEntityEnvelope,
-        SyncSessionData,
-    )
     from app.api.services.sync.adapters import SyncEntityAdapter
     from app.api.services.sync.collector import SyncAuxReadPort
     from app.api.services.sync.session_store import SyncSessionStorePort
@@ -80,13 +71,12 @@ class _NullSyncAuxReadPort:
         return []
 
 
-class SyncService:
-    """Public sync service import path.
+class SyncService(SyncFacade):
+    """Public sync service that assembles dependencies and delegates to SyncFacade.
 
-    SyncFacade is the authoritative coordinator for session, full, delta,
-    apply, and idempotency behavior. This class keeps the long-standing
-    ``app.api.services.sync_service.SyncService`` import stable for DI,
-    routers, and tests while delegating protocol behavior to SyncFacade.
+    Routers and tests use this class as the stable public import path
+    (``app.api.services.sync_service.SyncService``).  All protocol behavior
+    lives in ``SyncFacade``; this class only performs dependency wiring.
     """
 
     def __init__(
@@ -108,55 +98,61 @@ class SyncService:
     ) -> None:
         self.cfg = cfg
         self._session_manager = session_manager
-        self._user_repo = user_repository or _NullRepository()
-        self._request_repo = request_repository or _NullRepository()
-        self._summary_repo = summary_repository or _NullRepository()
-        self._crawl_repo = crawl_result_repository or _NullRepository()
-        self._llm_repo = llm_repository or _NullRepository()
 
-        self._serializer = envelope_serializer or SyncEnvelopeSerializer()
-        self._entity_adapters = tuple(entity_adapters) if entity_adapters is not None else None
-        self._fallback_store = InMemorySyncSessionStore()
-        self._session_store = session_store or FallbackSyncSessionStore(
+        user_repo = user_repository or _NullRepository()
+        request_repo = request_repository or _NullRepository()
+        summary_repo = summary_repository or _NullRepository()
+        crawl_repo = crawl_result_repository or _NullRepository()
+        llm_repo = llm_repository or _NullRepository()
+
+        serializer = envelope_serializer or SyncEnvelopeSerializer()
+        entity_adapters_tuple = tuple(entity_adapters) if entity_adapters is not None else None
+        _fallback_store = InMemorySyncSessionStore()
+        resolved_session_store = session_store or FallbackSyncSessionStore(
             redis_store=RedisSyncSessionStore(
                 cfg,
                 get_redis_func=lambda current_cfg: get_redis(current_cfg),
             ),
-            fallback_store=self._fallback_store,
+            fallback_store=_fallback_store,
         )
-        self._aux_read_port = aux_read_port or _NullSyncAuxReadPort()
-        self._collector = record_collector or SyncRecordCollector(
-            user_repository=self._user_repo,
-            request_repository=self._request_repo,
-            summary_repository=self._summary_repo,
-            crawl_result_repository=self._crawl_repo,
-            llm_repository=self._llm_repo,
-            aux_read_port=self._aux_read_port,
-            serializer=self._serializer,
-            adapters=self._entity_adapters,
+        resolved_aux_read_port = aux_read_port or _NullSyncAuxReadPort()
+        resolved_collector = record_collector or SyncRecordCollector(
+            user_repository=user_repo,
+            request_repository=request_repo,
+            summary_repository=summary_repo,
+            crawl_result_repository=crawl_repo,
+            llm_repository=llm_repo,
+            aux_read_port=resolved_aux_read_port,
+            serializer=serializer,
+            adapters=entity_adapters_tuple,
         )
-        self._apply_service = apply_service or SyncApplyService(
-            user_repository=self._user_repo,
-            request_repository=self._request_repo,
-            summary_repository=self._summary_repo,
-            crawl_result_repository=self._crawl_repo,
-            llm_repository=self._llm_repo,
-            aux_read_port=self._aux_read_port,
-            serializer=self._serializer,
-            adapters=self._entity_adapters,
+        resolved_apply_service = apply_service or SyncApplyService(
+            user_repository=user_repo,
+            request_repository=request_repo,
+            summary_repository=summary_repo,
+            crawl_result_repository=crawl_repo,
+            llm_repository=llm_repo,
+            aux_read_port=resolved_aux_read_port,
+            serializer=serializer,
+            adapters=entity_adapters_tuple,
         )
-        self._facade = SyncFacade(
+
+        super().__init__(
             cfg=cfg,
-            session_store=self._session_store,
-            collector=self._collector,
-            apply_service=self._apply_service,
-            user_repository=self._user_repo,
-            request_repository=self._request_repo,
-            summary_repository=self._summary_repo,
-            crawl_result_repository=self._crawl_repo,
-            llm_repository=self._llm_repo,
+            session_store=resolved_session_store,
+            collector=resolved_collector,
+            apply_service=resolved_apply_service,
+            user_repository=user_repo,
+            request_repository=request_repo,
+            summary_repository=summary_repo,
+            crawl_result_repository=crawl_repo,
+            llm_repository=llm_repo,
         )
-        self._sync_sessions = self._fallback_store._sessions
+
+        # Expose serializer for tests that validate serialization behaviour.
+        self._serializer = serializer
+        # Expose the in-memory fallback session dict for tests that inspect it.
+        self._sync_sessions = _fallback_store._sessions
 
     @property
     def _redis_warning_logged(self) -> bool:
@@ -166,150 +162,3 @@ class SyncService:
     def _redis_warning_logged(self, value: bool) -> None:
         if hasattr(self._session_store, "_redis_warning_logged"):
             self._session_store._redis_warning_logged = value
-
-    async def get_max_server_version(self, user_id: int) -> int:
-        return await self._facade.get_max_server_version(user_id)
-
-    def _resolve_limit(self, requested: int | None) -> int:
-        return self._facade._resolve_limit(requested)
-
-    async def _store_session(self, payload: dict[str, Any]) -> None:
-        await self._facade._store_session(payload)
-
-    async def _load_session(
-        self, session_id: str, user_id: int, client_id: str | None
-    ) -> dict[str, Any]:
-        return await self._facade._load_session(session_id, user_id, client_id)
-
-    async def validate_session(
-        self, session_id: str, user_id: int, client_id: str | None
-    ) -> dict[str, Any]:
-        return await self._facade.validate_session(session_id, user_id, client_id)
-
-    async def start_session(
-        self, *, user_id: int, client_id: str | None, limit: int | None
-    ) -> SyncSessionData:
-        return await self._facade.start_session(user_id=user_id, client_id=client_id, limit=limit)
-
-    def _coerce_iso(self, dt_value: Any) -> str:
-        return self._serializer._coerce_iso(dt_value)
-
-    def _serialize_request(self, request: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_request(request)
-
-    def _serialize_summary(self, summary: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_summary(summary)
-
-    def _serialize_crawl_result(self, crawl: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_crawl_result(crawl)
-
-    def _serialize_llm_call(self, call: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_llm_call(call)
-
-    def _serialize_highlight(self, highlight: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_highlight(highlight)
-
-    def _serialize_user(self, user: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_user(user)
-
-    def _serialize_tag(self, tag: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_tag(tag)
-
-    def _serialize_summary_tag(self, st: dict[str, Any]) -> SyncEntityEnvelope:
-        return self._serializer.serialize_summary_tag(st)
-
-    async def _get_highlights_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        return await self._aux_read_port.get_highlights_for_user(user_id)
-
-    async def _get_tags_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        return await self._aux_read_port.get_tags_for_user(user_id)
-
-    async def _get_summary_tags_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        return await self._aux_read_port.get_summary_tags_for_user(user_id)
-
-    async def _collect_records(self, user_id: int) -> list[SyncEntityEnvelope]:
-        return await self._collector.collect_records(user_id)
-
-    def _paginate_records(
-        self, records: Iterable[SyncEntityEnvelope], since: int, limit: int
-    ) -> tuple[list[SyncEntityEnvelope], bool, int | None]:
-        return self._collector.paginate_records(records, since, limit)
-
-    async def get_full(
-        self, *, session_id: str, user_id: int, client_id: str | None, limit: int | None
-    ) -> FullSyncResponseData:
-        return await self._facade.get_full(
-            session_id=session_id,
-            user_id=user_id,
-            client_id=client_id,
-            limit=limit,
-        )
-
-    async def get_delta(
-        self, *, session_id: str, user_id: int, client_id: str | None, since: int, limit: int | None
-    ) -> DeltaSyncResponseData:
-        return await self._facade.get_delta(
-            session_id=session_id,
-            user_id=user_id,
-            client_id=client_id,
-            since=since,
-            limit=limit,
-        )
-
-    def _build_full(
-        self,
-        session_id: str,
-        records: list[SyncEntityEnvelope],
-        has_more: bool,
-        next_since: int | None,
-        limit: int,
-    ) -> FullSyncResponseData:
-        return self._facade._build_full(session_id, records, has_more, next_since, limit)
-
-    def _build_delta(
-        self,
-        session_id: str,
-        since: int,
-        records: list[SyncEntityEnvelope],
-        has_more: bool,
-        next_since: int | None,
-        limit: int,
-    ) -> DeltaSyncResponseData:
-        return self._facade._build_delta(session_id, since, records, has_more, next_since, limit)
-
-    async def apply_changes(
-        self,
-        *,
-        session_id: str,
-        user_id: int,
-        client_id: str | None,
-        changes: list[SyncApplyItem],
-        idempotency_key: str | None = None,
-    ) -> SyncApplyResponseData:
-        return await self._facade.apply_changes(
-            session_id=session_id,
-            user_id=user_id,
-            client_id=client_id,
-            changes=changes,
-            idempotency_key=idempotency_key,
-        )
-
-    def _lookup_apply_dedup_cache(
-        self, session_id: str, idempotency_key: str | None
-    ) -> SyncApplyResponseData | None:
-        if not idempotency_key:
-            return None
-        return self._facade._lookup_apply_dedup_cache(session_id, idempotency_key)
-
-    def _store_apply_dedup_cache(
-        self,
-        session_id: str,
-        idempotency_key: str | None,
-        response: SyncApplyResponseData,
-    ) -> None:
-        self._facade._store_apply_dedup_cache(session_id, idempotency_key, response)
-
-    async def _apply_summary_change(
-        self, change: SyncApplyItem, user_id: int
-    ) -> SyncApplyItemResult:
-        return await self._apply_service.apply_summary_change(change, user_id)

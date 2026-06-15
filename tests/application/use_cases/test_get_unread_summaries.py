@@ -67,7 +67,7 @@ async def test_get_unread_summaries_with_topic() -> None:
     result = await use_case.execute(query)
 
     assert len(result) == 1
-    assert result[0].id == 3
+    assert result[0]["id"] == 3
     repo.async_get_unread_summaries.assert_awaited_once_with(
         user_id=1, chat_id=2, limit=10, topic="tech"
     )

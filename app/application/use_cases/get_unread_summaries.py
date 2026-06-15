@@ -1,10 +1,10 @@
 """Use case for retrieving unread summaries."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.application.ports.summaries import SummaryRepositoryPort
 from app.core.logging_utils import get_logger
-from app.domain.models.summary import Summary, summary_from_dict
 
 logger = get_logger(__name__)
 
@@ -42,15 +42,14 @@ class GetUnreadSummariesUseCase:
     def __init__(self, summary_repository: SummaryRepositoryPort) -> None:
         self._summary_repo = summary_repository
 
-    # Behavior verified by test_get_unread_summaries_with_topic in tests/application/use_cases/test_get_unread_summaries.py
-    async def execute(self, query: GetUnreadSummariesQuery) -> list[Summary]:
+    async def execute(self, query: GetUnreadSummariesQuery) -> list[dict[str, Any]]:
         """Execute the query to get unread summaries.
 
         Args:
             query: Query parameters including user ID, chat ID, limit, and optional topic filter.
 
         Returns:
-            List of unread Summary domain models.
+            List of unread summary dicts as returned by the repository.
 
         """
         logger.info(
@@ -63,14 +62,12 @@ class GetUnreadSummariesUseCase:
             },
         )
 
-        db_summaries = await self._summary_repo.async_get_unread_summaries(
+        summaries = await self._summary_repo.async_get_unread_summaries(
             user_id=query.user_id,
             chat_id=query.chat_id,
             limit=query.limit,
             topic=query.topic,
         )
-
-        summaries = [summary_from_dict(db_summary) for db_summary in db_summaries]
 
         logger.info(
             "get_unread_summaries_completed",

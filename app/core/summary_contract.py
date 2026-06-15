@@ -74,20 +74,11 @@ DEFAULT_SUMMARY_CONTRACT_DESCRIPTOR = SummaryContractDescriptor(
     compatibility_mapper=lambda payload: _validate_python(payload),
 )
 
-_SUMMARY_CONTRACT_REGISTRY: dict[SummaryContractId, SummaryContractDescriptor] = {
-    DEFAULT_SUMMARY_CONTRACT_ID: DEFAULT_SUMMARY_CONTRACT_DESCRIPTOR,
-}
-
-
 def get_summary_contract_descriptor(
     contract_id: SummaryContractId = DEFAULT_SUMMARY_CONTRACT_ID,
 ) -> SummaryContractDescriptor:
-    """Return a registered summary contract descriptor."""
-    try:
-        return _SUMMARY_CONTRACT_REGISTRY[contract_id]
-    except KeyError as exc:
-        msg = f"Unknown summary contract: {contract_id}"
-        raise ValueError(msg) from exc
+    """Return the summary contract descriptor for the given contract ID."""
+    return DEFAULT_SUMMARY_CONTRACT_DESCRIPTOR
 
 
 def validate_and_shape_summary(payload: SummaryJSON) -> SummaryJSON:

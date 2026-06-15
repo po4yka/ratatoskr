@@ -293,26 +293,39 @@ def get_topic_search_repository(
     return TopicSearchRepositoryAdapter(resolve_repository_session(session_manager, request))
 
 
+def _resolve_db(
+    session_manager: DatabaseDep | Any | None,
+    request: Any,
+    runtime_attr: str,
+) -> Any:
+    """Return an object from the API runtime, falling back to a direct DB session.
+
+    Used by the read-model factory functions below to avoid repeating the
+    ``if session_manager / suppress(RuntimeError) / fallback`` pattern.
+    Returns the resolved object when ``runtime_attr`` is empty-string (i.e.
+    the caller wants just the DB session manager), or the named attribute from
+    the API runtime when the runtime is available.
+    """
+    if session_manager is not None:
+        return resolve_repository_session(session_manager, request)
+    if runtime_attr:
+        with contextlib.suppress(RuntimeError):
+            from app.di.api import resolve_api_runtime as _resolve
+
+            return getattr(_resolve(request), runtime_attr)
+    return resolve_repository_session(None, request)
+
+
 def get_summary_read_model_use_case(
     session_manager: DatabaseDep | None = None,
     request: Any = None,
 ) -> SummaryReadModelUseCase:
     """Resolve the shared summary read-model use case from API runtime."""
-    if session_manager is not None:
-        manager = resolve_repository_session(session_manager, request)
-        return SummaryReadModelUseCase(
-            summary_repository=get_summary_repository(manager, request),
-            request_repository=get_request_repository(manager, request),
-            crawl_result_repository=get_crawl_result_repository(manager, request),
-            llm_repository=get_llm_repository(manager, request),
-        )
-    with contextlib.suppress(RuntimeError):
-        from app.di.api import resolve_api_runtime
-
-        return cast(
-            "SummaryReadModelUseCase", resolve_api_runtime(request).summary_read_model_use_case
-        )
-    manager = resolve_repository_session(session_manager, request)
+    resolved = _resolve_db(session_manager, request, "summary_read_model_use_case")
+    if isinstance(resolved, SummaryReadModelUseCase):
+        return resolved
+    # resolved is a Database session manager — build the use case from repos
+    manager = resolved
     return SummaryReadModelUseCase(
         summary_repository=get_summary_repository(manager, request),
         request_repository=get_request_repository(manager, request),
@@ -326,20 +339,10 @@ def get_search_read_model_use_case(
     request: Any = None,
 ) -> SearchReadModelUseCase:
     """Resolve the shared search read-model use case from API runtime."""
-    if session_manager is not None:
-        manager = resolve_repository_session(session_manager, request)
-        return SearchReadModelUseCase(
-            topic_search_repository=get_topic_search_repository(manager, request),
-            request_repository=get_request_repository(manager, request),
-            summary_repository=get_summary_repository(manager, request),
-        )
-    with contextlib.suppress(RuntimeError):
-        from app.di.api import resolve_api_runtime
-
-        return cast(
-            "SearchReadModelUseCase", resolve_api_runtime(request).search_read_model_use_case
-        )
-    manager = resolve_repository_session(session_manager, request)
+    resolved = _resolve_db(session_manager, request, "search_read_model_use_case")
+    if isinstance(resolved, SearchReadModelUseCase):
+        return resolved
+    manager = resolved
     return SearchReadModelUseCase(
         topic_search_repository=get_topic_search_repository(manager, request),
         request_repository=get_request_repository(manager, request),

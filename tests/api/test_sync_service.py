@@ -32,27 +32,27 @@ class TestSyncServiceCoerceIso:
         """Test _coerce_iso with proper datetime object."""
         service = self._get_sync_service()
         dt = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
-        result = service._coerce_iso(dt)
+        result = service._serializer._coerce_iso(dt)
         assert result == "2024-01-15T10:30:00+00:00Z"
 
     def test_coerce_iso_with_naive_datetime(self):
         """Test _coerce_iso with naive datetime (no timezone)."""
         service = self._get_sync_service()
         dt = datetime(2024, 1, 15, 10, 30, 0)
-        result = service._coerce_iso(dt)
+        result = service._serializer._coerce_iso(dt)
         assert "2024-01-15T10:30:00" in result
 
     def test_coerce_iso_with_iso_string(self):
         """Test _coerce_iso with ISO string input."""
         service = self._get_sync_service()
         iso_str = "2024-01-15T10:30:00Z"
-        result = service._coerce_iso(iso_str)
+        result = service._serializer._coerce_iso(iso_str)
         assert "2024-01-15T10:30:00" in result
 
     def test_coerce_iso_with_none(self):
         """Test _coerce_iso with None returns current time."""
         service = self._get_sync_service()
-        result = service._coerce_iso(None)
+        result = service._serializer._coerce_iso(None)
         # Should return current time in ISO format
         assert result is not None
         assert "T" in result  # ISO format has T separator
@@ -61,7 +61,7 @@ class TestSyncServiceCoerceIso:
     def test_coerce_iso_with_invalid_string(self):
         """Test _coerce_iso with invalid string returns current time."""
         service = self._get_sync_service()
-        result = service._coerce_iso("not-a-date")
+        result = service._serializer._coerce_iso("not-a-date")
         # Should fallback to current time
         assert result is not None
         assert "T" in result
@@ -103,7 +103,7 @@ class TestSyncServiceSerialization:
             "deleted_at": None,
         }
 
-        envelope = service._serialize_request(request_dict)
+        envelope = service._serializer.serialize_request(request_dict)
 
         assert envelope.entity_type == "request"
         assert envelope.id == 1
@@ -128,7 +128,7 @@ class TestSyncServiceSerialization:
             "deleted_at": None,
         }
 
-        envelope = service._serialize_summary(summary_dict)
+        envelope = service._serializer.serialize_summary(summary_dict)
 
         assert envelope.entity_type == "summary"
         assert envelope.id == 1
@@ -152,7 +152,7 @@ class TestSyncServiceSerialization:
             "deleted_at": None,
         }
 
-        envelope = service._serialize_summary(summary_dict)
+        envelope = service._serializer.serialize_summary(summary_dict)
 
         assert envelope.entity_type == "summary"
         assert envelope.id == 1
@@ -178,7 +178,7 @@ class TestSyncServiceSerialization:
             "deleted_at": None,
         }
 
-        envelope = service._serialize_crawl_result(crawl_dict)
+        envelope = service._serializer.serialize_crawl_result(crawl_dict)
 
         assert envelope.entity_type == "crawl_result"
         assert envelope.id == 1
@@ -206,7 +206,7 @@ class TestSyncServiceSerialization:
             "deleted_at": None,
         }
 
-        envelope = service._serialize_llm_call(call_dict)
+        envelope = service._serializer.serialize_llm_call(call_dict)
 
         assert envelope.entity_type == "llm_call"
         assert envelope.id == 1
@@ -227,7 +227,7 @@ class TestSyncServiceSerialization:
             "updated_at": None,
         }
 
-        envelope = service._serialize_user(user_dict)
+        envelope = service._serializer.serialize_user(user_dict)
 
         assert envelope.entity_type == "user"
         assert envelope.id == 123456

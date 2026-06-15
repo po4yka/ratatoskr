@@ -95,20 +95,22 @@ def test_rss_poll_task_runtime_invokes_configured_factories() -> None:
 
 
 def test_task_deps_digest_runtime_uses_delegated_factories(monkeypatch) -> None:
+    import app.di.tasks as di_tasks
     from app.tasks import deps
 
     cfg = SimpleNamespace()
+    # build_digest_task_runtime is re-exported from di.tasks; patch there.
     monkeypatch.setattr(
-        deps, "create_digest_userbot", lambda received_cfg: ("userbot", received_cfg)
+        di_tasks, "create_digest_userbot", lambda received_cfg: ("userbot", received_cfg)
     )
     monkeypatch.setattr(
-        deps, "create_digest_llm_client", lambda received_cfg: ("llm", received_cfg)
+        di_tasks, "create_digest_llm_client", lambda received_cfg: ("llm", received_cfg)
     )
     monkeypatch.setattr(
-        deps, "create_digest_bot_client", lambda received_cfg: ("bot", received_cfg)
+        di_tasks, "create_digest_bot_client", lambda received_cfg: ("bot", received_cfg)
     )
     monkeypatch.setattr(
-        deps,
+        di_tasks,
         "create_digest_service",
         lambda received_cfg, **kwargs: ("service", received_cfg, kwargs),
     )
