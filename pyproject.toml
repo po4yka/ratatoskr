@@ -214,7 +214,7 @@ browser_scraper = [
 
 # LLM-driven last-resort scraper (lazy-imported; only fires when all other providers fail)
 scraper_ai = [
-  "scrapegraphai>=2.1.2,<3",
+  "scrapegraphai>=2.1.3,<3",
 ]
 
 # Shared inference stack used by both api (semantic search) and ml (training/backfill)
