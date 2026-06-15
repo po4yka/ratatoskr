@@ -25,6 +25,7 @@ from .deployment import DeploymentConfig
 from .digest import ChannelDigestConfig
 from .firecrawl import FirecrawlConfig
 from .git_backup import GitBackupConfig
+from .langgraph import LangGraphCheckpointConfig
 from .github import GitHubConfig
 from .import_export import ImportConfig
 from .integrations import (
@@ -208,6 +209,9 @@ class AppConfig:
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     x_bookmarks: XBookmarksConfig = field(default_factory=XBookmarksConfig)
     git_backup: GitBackupConfig = field(default_factory=GitBackupConfig)
+    langgraph_checkpoint: LangGraphCheckpointConfig = field(
+        default_factory=LangGraphCheckpointConfig
+    )
 
 
 class Settings(BaseSettings):
@@ -271,6 +275,9 @@ class Settings(BaseSettings):
     deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
     x_bookmarks: XBookmarksConfig = Field(default_factory=XBookmarksConfig)
     git_backup: GitBackupConfig = Field(default_factory=GitBackupConfig)
+    langgraph_checkpoint: LangGraphCheckpointConfig = Field(
+        default_factory=LangGraphCheckpointConfig
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -534,6 +541,7 @@ class Settings(BaseSettings):
             deployment=self.deployment,
             x_bookmarks=self.x_bookmarks,
             git_backup=self.git_backup,
+            langgraph_checkpoint=self.langgraph_checkpoint,
         )
 
 

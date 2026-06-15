@@ -46,6 +46,10 @@ class LLMAttemptTrigger(enum.StrEnum):
       (microsoft/Webwright) was used to enrich thin/paywalled content.
       RESERVED — the ``WebwrightEnricher`` (Path C) that wrote this value
       has been removed; no active code path sets this trigger.
+    - ``graph_node``: LLM call issued by a node of the LangGraph summarize
+      graph (the graph orchestration path; ADR-0001/0011). RESERVED — added by
+      the checkpoint-infrastructure track ahead of the graph cutover; no active
+      code path writes this value yet (the graph runs behind a feature flag).
     """
 
     initial = "initial"
@@ -54,6 +58,7 @@ class LLMAttemptTrigger(enum.StrEnum):
     repair_loop = "repair_loop"
     stream_fallback_retry = "stream_fallback_retry"
     webwright_tool = "webwright_tool"
+    graph_node = "graph_node"
 
 
 _llm_attempt_trigger_enum = Enum(

@@ -72,13 +72,15 @@ Each adapter returns `VectorIndexedEntityStats`; the reconciler aggregates them 
 
 Ratatoskr uses three Postgres connection pools simultaneously when CocoIndex and LangGraph checkpointing are both enabled:
 
-| Pool | Driver | Connections |
-|------|--------|-------------|
-| SQLAlchemy (application) | asyncpg | `DB_POOL_SIZE` (default 5) |
-| LangGraph checkpointer | psycopg3 | min=1, max=10 |
-| CocoIndex flows | psycopg3 | max=4 + 1 (LISTEN/NOTIFY) |
+| Pool | Driver | Connections | Gating |
+|------|--------|-------------|--------|
+| SQLAlchemy (application) | asyncpg | `DB_POOL_SIZE` (default 5) | always on |
+| LangGraph checkpointer | psycopg3 | min=1, **max=5** (ADR-0004) | `LANGGRAPH_CHECKPOINT_ENABLED=true` |
+| CocoIndex flows | psycopg3 | max=4 + 1 (LISTEN/NOTIFY) | `RATATOSKR_COCOINDEX_ENABLED=1` |
 
-Total worst-case: ~20 connections. Budget `max_connections` in Postgres accordingly (default 100 is fine; set `RATATOSKR_COCOINDEX_POOL_MAX=2` to reduce if needed).
+Total worst-case (all three enabled): ~15 connections. Budget `max_connections` in Postgres accordingly (default 100 is fine; set `RATATOSKR_COCOINDEX_POOL_MAX=2` to reduce the CocoIndex pool if needed).
+
+The LangGraph checkpointer pool is a **separate dedicated psycopg3 `AsyncConnectionPool`** — distinct from the CocoIndex pool and from the asyncpg `Database` pool. Its max size of 5 is the ADR-0004 authoritative value (`LANGGRAPH_CHECKPOINT_POOL_MAX_SIZE`); the CocoIndex pool is controlled independently by `RATATOSKR_COCOINDEX_POOL_MAX` (default 4). When `LANGGRAPH_CHECKPOINT_ENABLED=false` (the default), no psycopg3 pool is opened for the checkpointer and these connections are not consumed.
 
 ## Startup failure isolation
 

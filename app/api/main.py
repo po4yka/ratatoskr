@@ -86,6 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     runtime = None
     broker = None
     coco_runtime = None
+    checkpointer_runtime = None
     durable_worker = None
     transcription_worker = None
     try:
@@ -199,8 +200,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 logger.exception("cocoindex_startup_failed")
                 coco_runtime = None
 
+        # Start the LangGraph Postgres checkpointer when enabled (opt-in,
+        # failure-isolated; ADR-0004). Dedicated psycopg3 pool -- not Database.
+        if _cfg.langgraph_checkpoint.enabled:
+            try:
+                from app.infrastructure.checkpointing import CheckpointerRuntime
+
+                checkpointer_runtime = CheckpointerRuntime(cfg=_cfg)
+                await checkpointer_runtime.start()
+            except ImportError:
+                logger.warning("langgraph_checkpointer_not_installed")
+            except Exception:
+                logger.exception("langgraph_checkpointer_startup_failed")
+                checkpointer_runtime = None
+
         yield
     finally:
+        if checkpointer_runtime is not None:
+            await checkpointer_runtime.stop(timeout=10.0)
         if coco_runtime is not None:
             await coco_runtime.stop(timeout=10.0)
         if durable_worker is not None:
