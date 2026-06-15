@@ -48,15 +48,21 @@ def _make_qdrant_stubs() -> None:
             must: list | None = None,
             should: list | None = None,
             min_should: object | None = None,
+            must_not: list | None = None,
         ) -> None:
             self.must = must or []
             self.should = should
             self.min_should = min_should
+            self.must_not = must_not
 
     class _MinShould:
         def __init__(self, *, conditions: list, min_count: int) -> None:
             self.conditions = conditions
             self.min_count = min_count
+
+    class _HasIdCondition:
+        def __init__(self, *, has_id: list) -> None:
+            self.has_id = has_id
 
     # Obtain or create the qdrant_client.models module object.
     if "qdrant_client.models" in sys.modules:
@@ -73,6 +79,7 @@ def _make_qdrant_stubs() -> None:
     models_mod.MatchAny = _MatchAny  # type: ignore[attr-defined]
     models_mod.Filter = _Filter  # type: ignore[attr-defined]
     models_mod.MinShould = _MinShould  # type: ignore[attr-defined]
+    models_mod.HasIdCondition = _HasIdCondition  # type: ignore[attr-defined]
 
     # Provide stand-ins for every other name that qdrant_store.py imports at
     # module-level.  We only need them to exist so the import succeeds when

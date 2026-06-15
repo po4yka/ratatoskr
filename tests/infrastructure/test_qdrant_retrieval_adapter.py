@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from qdrant_client.models import FieldCondition, HasIdCondition
 
 from app.application.dto.vector_search import EntityType, RetrievalScope
 from app.application.ports.retrieval import RetrievalPort
@@ -60,7 +59,9 @@ def _adapter(hits: list[VectorQueryHit] | None = None) -> QdrantRetrievalAdapter
 
 
 def _must_keys(qdrant_filter: Any) -> set[str]:
-    return {c.key for c in (qdrant_filter.must or []) if isinstance(c, FieldCondition)}
+    # Duck-typed (not isinstance) so the assertion holds whether qdrant_client is
+    # the real package or the sys.modules stub another test module installs.
+    return {c.key for c in (qdrant_filter.must or []) if hasattr(c, "key")}
 
 
 def test_adapter_satisfies_retrieval_port() -> None:
@@ -172,7 +173,7 @@ async def test_find_similar_builds_seed_exclusion_filter() -> None:
     assert store.last_find_similar is not None
     assert store.last_find_similar["point_id"] == expected_point_id
     qdrant_filter = store.last_find_similar["filter"]
-    has_id_conditions = [c for c in (qdrant_filter.must_not or []) if isinstance(c, HasIdCondition)]
+    has_id_conditions = [c for c in (qdrant_filter.must_not or []) if hasattr(c, "has_id")]
     assert has_id_conditions and expected_point_id in has_id_conditions[0].has_id
     assert {"environment", "user_scope", "user_id"} <= _must_keys(qdrant_filter)
 
