@@ -119,3 +119,21 @@ unmatched_ignore_imports_alerting = warn
 #     app.tasks
 # forbidden_modules =
 #     app.application.services
+#
+# Retrieval-via-port (T4 cutover): once the API search service, MCP context, and
+# git_mirrors router are migrated onto RetrievalPort (and the five legacy search
+# services are deleted), forbid api / adapters / mcp from importing the concrete
+# vector-search implementations -- only the application port + di builder remain
+# legal. Enable when the byte-stable parity net is green; the converged modules
+# (infrastructure.search.{vector_search_service,repository_search_service,
+# git_mirror_search_service}) are deleted at the same step.
+# [importlinter:contract:retrieval-port-only]
+# name = vector retrieval is reached only via RetrievalPort, not concrete services
+# type = forbidden
+# source_modules =
+#     app.api
+#     app.adapters
+#     app.mcp
+# forbidden_modules =
+#     app.infrastructure.search
+#     app.infrastructure.retrieval

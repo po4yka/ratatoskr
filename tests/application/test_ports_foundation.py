@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.application.dto.vector_search import EntityType, RetrievalHitDTO, VectorSearchHitDTO
+from app.application.dto.vector_search import EntityType, RetrievalHit, RetrievalResult
 from app.application.ports import ExtractionPort, RetrievalPort, StreamSinkPort
 
 
@@ -46,18 +46,19 @@ def test_extraction_adapter_shape_satisfies_port() -> None:
     assert isinstance(_StubExtractor(), ExtractionPort)
 
 
-def test_retrieval_hit_extends_vector_search_hit() -> None:
-    hit = RetrievalHitDTO(
-        request_id=1,
-        summary_id=2,
-        similarity_score=0.9,
-        url="https://example.com",
-        title="t",
-        snippet="s",
+def test_retrieval_hit_and_result_shapes() -> None:
+    hit = RetrievalHit(
         entity_type=EntityType.REPOSITORY,
+        entity_id="42",
+        point_id="00000000-0000-0000-0000-000000000000",
+        score=0.9,
+        distance=0.1,
+        payload={"repository_id": 42},
     )
-    assert isinstance(hit, VectorSearchHitDTO)
-    assert hit.entity_type is EntityType.REPOSITORY
+    result = RetrievalResult(hits=[hit], total=1)
+    assert result.hits[0].entity_type is EntityType.REPOSITORY
+    assert result.hits[0].hydrated is None
+    assert result.total == 1
     # StrEnum value equality is the invariant Qdrant payload matching relies on.
     assert EntityType.SUMMARY == "summary"
     assert EntityType.SUMMARY.value == "summary"

@@ -19,13 +19,23 @@ def _make_qdrant_stubs() -> None:
     The service imports qdrant_client.models lazily inside _search_body(), so
     we must guarantee the attributes exist before the first call.
 
-    Strategy: always patch — do not bail out if the module is already loaded.
-    The real qdrant_client installed in the venv may be a version that lacks
-    MatchAny (or another test may have installed a partial stub first).  We
-    overwrite only the specific attributes used by RepositorySearchService so
-    that other tests relying on the real package (e.g. QdrantClient,
-    PointIdsList) are not affected.
+    Strategy: if the REAL qdrant_client is already loaded (a genuine
+    QdrantClient), do nothing -- never override real classes, because that
+    poisons the shared qdrant_client.models for integration tests that hand a
+    Filter to a real in-memory QdrantClient (the client cannot serialize a stub
+    Filter, so the query silently returns nothing). Otherwise (qdrant absent, or
+    only a partial / MagicMock sibling stub present) install the COMPLETE stub
+    set below, overwriting any incomplete sibling stub so every class this file
+    and the retrieval adapter need -- Filter (must/should/min_should/must_not),
+    HasIdCondition, MatchAny, MinShould -- is present and consistent. Mirrors the
+    guard in test_git_mirror_search_service.
     """
+
+    # Defer entirely to a genuine qdrant_client when one is already loaded.
+    _qc = sys.modules.get("qdrant_client")
+    _real_client = getattr(_qc, "QdrantClient", None) if _qc is not None else None
+    if _real_client is not None and not isinstance(_real_client, MagicMock):
+        return
 
     # Minimal stub classes that record constructor kwargs for assertions.
     class _Condition:
@@ -48,15 +58,21 @@ def _make_qdrant_stubs() -> None:
             must: list | None = None,
             should: list | None = None,
             min_should: object | None = None,
+            must_not: list | None = None,
         ) -> None:
             self.must = must or []
             self.should = should
             self.min_should = min_should
+            self.must_not = must_not
 
     class _MinShould:
         def __init__(self, *, conditions: list, min_count: int) -> None:
             self.conditions = conditions
             self.min_count = min_count
+
+    class _HasIdCondition:
+        def __init__(self, *, has_id: list) -> None:
+            self.has_id = has_id
 
     # Obtain or create the qdrant_client.models module object.
     if "qdrant_client.models" in sys.modules:
@@ -65,14 +81,16 @@ def _make_qdrant_stubs() -> None:
         models_mod = types.ModuleType("qdrant_client.models")
         sys.modules["qdrant_client.models"] = models_mod
 
-    # Patch the attributes required by RepositorySearchService (the ones this
-    # test file exercises and asserts on).  Use our custom classes so
-    # assertions on constructor kwargs work correctly.
+    # Reached only when real qdrant is absent or a partial/MagicMock sibling stub
+    # is present: overwrite unconditionally so the COMPLETE, consistent class set
+    # wins (a sibling stub may have installed an incomplete _Filter or no
+    # HasIdCondition). The genuine-qdrant case already returned above.
     models_mod.FieldCondition = _Condition  # type: ignore[attr-defined]
     models_mod.MatchValue = _MatchValue  # type: ignore[attr-defined]
     models_mod.MatchAny = _MatchAny  # type: ignore[attr-defined]
     models_mod.Filter = _Filter  # type: ignore[attr-defined]
     models_mod.MinShould = _MinShould  # type: ignore[attr-defined]
+    models_mod.HasIdCondition = _HasIdCondition  # type: ignore[attr-defined]
 
     # Provide stand-ins for every other name that qdrant_store.py imports at
     # module-level.  We only need them to exist so the import succeeds when

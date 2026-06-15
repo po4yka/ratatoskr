@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
     from app.application.dto.vector_search import (
         EntityType,
-        RetrievalHitDTO,
+        RetrievalResult,
         RetrievalScope,
     )
 
@@ -38,14 +38,22 @@ class RetrievalPort(Protocol):
         scope: RetrievalScope,
         query: str | None = None,
         vector: Sequence[float] | None = None,
-        top_k: int = 5,
+        top_k: int = 10,
         filters: Mapping[str, Any] | None = None,
-    ) -> list[RetrievalHitDTO]:
+        rerank: bool = False,
+        expand_query: bool = False,
+        correlation_id: str | None = None,
+    ) -> RetrievalResult:
         """Return the top-``top_k`` hits for ``query`` OR ``vector``.
 
         Exactly one of ``query`` (embedded by the adapter) or ``vector`` (a
         precomputed embedding) is supplied. ``scope`` is mandatory and is
         merged with any optional ``filters``; callers cannot bypass it.
+
+        ``rerank`` and ``expand_query`` default to ``False`` so the result
+        ordering reproduces the un-reranked, un-expanded legacy behavior
+        exactly; turning either on routes through the adapter's optional
+        rerank / query-expansion step.
         """
         ...
 
@@ -54,11 +62,15 @@ class RetrievalPort(Protocol):
         *,
         entity_type: EntityType,
         entity_id: str,
-        top_k: int = 5,
-    ) -> list[RetrievalHitDTO]:
+        scope: RetrievalScope,
+        top_k: int = 10,
+        correlation_id: str | None = None,
+    ) -> RetrievalResult:
         """Return entities similar to the seed ``entity_id`` (seed excluded).
 
-        Scope filtering is applied identically to :meth:`retrieve`. Named
-        ``entity_id`` rather than ``id`` to avoid shadowing the builtin.
+        Uses Qdrant's by-point-id recommendation over the seed's stored vector
+        (not a re-embed). ``scope`` is mandatory and filtered identically to
+        :meth:`retrieve`. Named ``entity_id`` rather than ``id`` to avoid
+        shadowing the builtin.
         """
         ...
