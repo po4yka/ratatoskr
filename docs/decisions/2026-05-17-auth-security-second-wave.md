@@ -2,12 +2,12 @@
 
 | field | value |
 | --- | --- |
-| date | 2026-05-17 |
+| date | 2026-05-17 (decisions recorded 2026-06-15) |
 | owner | CTO |
-| status | **DRAFT — awaiting CTO sign-off on each numbered decision** |
+| status | **DECIDED — CTO sign-off recorded 2026-06-15** |
 | references | [[review-mobile-auth-threat-model]], [[decide-auth-security-second-wave-scope]] |
 
-This memo is a structured frame for the CTO to record decisions on the five second-wave policy questions surfaced by the Security / AppSec review. **It does not record decisions made on behalf of the CTO.** Each numbered section ends with an explicit `DECISION:` placeholder plus the classification choices the task spec requires (implementation follow-up / security review follow-up / product–UX follow-up / approval needed / no-action with rationale).
+This memo framed the five second-wave policy questions surfaced by the Security / AppSec review. As of **2026-06-15** the owner has recorded a decision on each. Each numbered section ends with a resolved `DECISION:` line plus the task-spec classification. Implementation of the resolved items is tracked on the task board (see *Follow-up issue inventory*).
 
 ---
 
@@ -26,7 +26,7 @@ Implementation surface (if approved):
 - `ratatoskr-client` Ktor `HttpClient` engine config — Android `OkHttpEngine.certificatePinner`, iOS `URLSession` pinning via `URLSessionDelegate.urlSession(_:didReceive:completionHandler:)`.
 - Web: HSTS already covers transport; pin via `Expect-CT` if revived.
 
-**DECISION:** _AWAITING CTO_ Classification: [ ] implementation follow-up [ ] security follow-up [ ] product/UX [ ] approval needed [ ] no-action with rationale
+**DECISION (2026-06-15):** **Pin the production certificate (leaf + intermediate) on KMP and web clients**, under a **multi-pin rotation policy**: keep ≥2 active pins with a transition window so a cert rotation never outlives its pin. A documented rotation runbook is a prerequisite for rollout. Classification: **[x] implementation follow-up**.
 
 ---
 
@@ -45,7 +45,7 @@ Implementation surface (if approved):
 - Show-once: extend the secret-key creation endpoint with a one-time `display_token` field whose lifetime is the UI render.
 - DM-only: route plaintext through the existing Telegram bot notify path; UI returns metadata only.
 
-**DECISION:** _AWAITING CTO_ Classification: [ ] implementation follow-up [ ] security follow-up [ ] product/UX [ ] approval needed [ ] no-action with rationale
+**DECISION (2026-06-15):** **DM-only delivery.** The plaintext secret is sent once to the user's verified Telegram channel; the UI returns metadata only and never displays the secret. The decoy-PHC timing-safe-compare guarantee is retained. Classification: **[x] implementation follow-up**.
 
 ---
 
@@ -64,7 +64,7 @@ Implementation surface (if approved):
 - New Taskiq nightly job pruning rows older than the retention window with a `last_pruned_at` watermark.
 - Migration: optional `pii_redacted: bool` column to flag rows that have been scrubbed but kept for aggregate stats.
 
-**DECISION:** _AWAITING CTO_  Retention window: ___________ Classification: [ ] implementation follow-up [ ] security follow-up [ ] product/UX [ ] approval needed [ ] no-action with rationale
+**DECISION (2026-06-15):** **Retention window = 90 days.** A nightly Taskiq job prunes `AuditLog` rows older than 90 days with a `last_pruned_at` watermark; add an optional `pii_redacted` column to flag scrubbed-but-kept aggregate rows. Retention window: **90 days**. Classification: **[x] implementation follow-up**.
 
 ---
 
@@ -78,7 +78,7 @@ Evidence to weigh:
 - The CLI runner is local-only and stays that way unless the decision explicitly approves a hosted variant.
 - The task spec is explicit: "Explicit approval is requested before any external exposure expansion."
 
-**DECISION:** _AWAITING CTO — explicit approval gate_ Classification: [ ] approval needed [ ] no-action with rationale
+**DECISION (2026-06-15):** **Approved in principle to host the MCP server externally** beyond the owner whitelist, under a per-call auth posture (authentication, rate-limiting, per-call cost attribution, abuse controls). **The CLI runner stays local-only.** This is a large, separately-scoped track: a dedicated design + security review is required before any implementation begins. Classification: **[x] approval needed (granted; scoped design + security review to follow before build)**.
 
 ---
 
@@ -91,11 +91,20 @@ Evidence to weigh:
 - Default-clear matches a higher-security posture but increases friction; users will likely opt back into "remember me".
 - Default-keep matches mainstream consumer UX but means a stolen device retains a usable session boundary, mitigated only by the OS-level secure storage and the refresh-token family rotation in [[harden-refresh-token-rotation-revocation]].
 
-**DECISION:** _AWAITING CTO_ Classification: [ ] implementation follow-up [ ] product/UX [ ] approval needed [ ] no-action with rationale
+**DECISION (2026-06-15):** **Default-clear** saved credentials on sign-out; "remember me" is an explicit opt-in. This aligns with the pinning + DM-only posture decided above. Classification: **[x] product/UX**.
 
 ---
 
 ## Follow-up issue inventory
+
+The four `implementation follow-up` decisions above should each get a task-board issue (`docs/tasks/issues/<slug>.md`):
+
+- TLS certificate pinning (KMP + web) with multi-pin rotation runbook — *Decision 1*
+- secret-login DM-only plaintext delivery (UI returns metadata only) — *Decision 2*
+- AuditLog 90-day nightly Taskiq prune + `pii_redacted` column migration — *Decision 3*
+- mobile sign-out default-clear credentials (`remember me` opt-in) — *Decision 5*
+
+Decision 4 (hosted MCP) is `approval needed (granted)` and requires a dedicated **design + security-review** task before any implementation, given the threat-model change.
 
 Backend's three high-priority blockers from the original review remain owned by the backend team and are tracked elsewhere:
 
@@ -103,11 +112,9 @@ Backend's three high-priority blockers from the original review remain owned by 
 - [[decouple-secret-login-pepper-from-jwt-key]]
 - [[use-constant-time-compare-telegram-nonce]]
 
-Once decisions 1–5 are recorded above, this memo links each decision to a created follow-up issue (one issue per "implementation follow-up" or "security review follow-up" classification) before the [[review-mobile-auth-threat-model]] gate can re-open.
-
 ## Risks of not deciding
 
-The constraints in the task spec are explicit and remain in force:
+These constraints were in force while decisions were open and are now satisfied by the recorded decisions above:
 
-- No release readiness claim can be made until Security and QA sign off on the second-wave remediation that flows from these decisions.
-- The frontend-mobile task family ([[overhaul-articles-management]], [[run-frost-phase-7-mobile-regression]], [[map-ratatoskr-mobile-api-contract-to-kmp-readiness]]) cannot ship to production users while these auth decisions are open.
+- No release-readiness claim could be made until Security and QA sign off on the second-wave remediation that flows from these decisions. With decisions recorded, the remediation work can be scheduled and reviewed.
+- The frontend-mobile task family ([[overhaul-articles-management]], [[run-frost-phase-7-mobile-regression]], [[map-ratatoskr-mobile-api-contract-to-kmp-readiness]]) was blocked while these auth decisions were open; it is now unblocked pending implementation of Decisions 1–5.

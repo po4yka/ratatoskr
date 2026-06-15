@@ -1,24 +1,53 @@
-# ADR 0001: Remove LangGraph/LangChain optional dependency
+# ADR 0001: LangGraph/LangChain — removed (2026-06-10), reversed (2026-06-15)
 
-**Date:** 2026-06-10
-**Status:** Accepted
+**Original date:** 2026-06-10
+**Reversed:** 2026-06-15
+**Status:** Reversed — LangGraph/LangChain is being re-adopted for a specific, scoped use case (see **Reversal** below). This ADR is rewritten in place; git history preserves the original text.
 
-## Context
+## Original context (2026-06-10)
 
-The `langgraph` optional dependency group (`pip install -e ".[langgraph]"`) pulled in `langchain`, `langgraph`, `langgraph-checkpoint-postgres`, and `psycopg[binary]`. It was originally added to explore LangGraph as a durable task-execution backend with Postgres checkpointing.
+The `langgraph` optional dependency group (`pip install -e ".[langgraph]"`) pulled in `langchain`, `langgraph`, `langgraph-checkpoint-postgres`, and `psycopg[binary]`. It was added to explore LangGraph as a **durable task-execution backend** with Postgres checkpointing. A full scan of the codebase found zero imports of any of these packages — the integration was never shipped. We removed the group and added ruff `banned-api` guards to prevent silent re-introduction.
 
-A full scan of the codebase (app/, tests/, tools/) found zero Python import statements for any of these packages. The integration was never shipped: no code in the repository depends on `langchain`, `langgraph`, or `langgraph_checkpoint`.
+That decision was correct **for LangGraph-as-durable-task-backend**: Taskiq + Redis already covered durable task execution, and `langgraph-checkpoint-postgres` added a dedicated pool/schema for no active benefit.
 
-## Decision
+## Reversal (2026-06-15)
 
-Remove the `langgraph` optional-dependency group from `pyproject.toml` and add a ruff `banned-api` entry to prevent silent re-introduction.
+We are re-adopting LangGraph for a **different use case the original ADR never evaluated**: orchestrating the summarize/repair workflow as a checkpointed state graph, with a RAG grounding node over the existing CocoIndex/Qdrant corpus.
 
-## Rationale
+### Decision
 
-- **Taskiq already covers durable execution.** The project uses Taskiq with a Redis broker for all background and scheduled tasks. Adding a second durable-execution framework would increase operational complexity with no benefit.
-- **Postgres checkpointing overhead.** `langgraph-checkpoint-postgres` requires a dedicated schema and connection pool. Taskiq's Redis broker serves the same purpose with infrastructure already present in the compose stack.
-- **Zero active usage.** Dead optional dependencies inflate the dependency surface and slow `uv lock` resolution without providing any capability.
+- Adopt LangGraph (+ `langgraph-checkpoint-postgres`) to orchestrate the `retrieve-grounding → summarize → validate → repair↺ → persist` graph, scoped to the genuinely-stateful core cycle (not a big-bang replacement of the whole `url_processor` pipeline).
+- Re-add the dependencies as an optional `graph` extra; the default image is unaffected unless the extra is installed.
+- **Narrow — not lift entirely — the `banned-api` guard**: keep banning the kitchen-sink `langchain` monorepo and `langchain_community`; allow `langgraph` and `langchain_core`.
+- Keep `instructor` for structured output (no `langchain-openai`); reuse our own embedding + Qdrant clients (no `langchain-qdrant`).
 
-## Consequences
+### Boundary with Taskiq (the load-bearing distinction)
 
-Any future evaluation of LangGraph must be preceded by an update to this ADR and a deliberate re-addition to `pyproject.toml`.
+- **Taskiq** remains the durable *task scheduler*: what work runs, when, job-level retries, cron. Unchanged.
+- **LangGraph checkpointing** persists *graph state between nodes within a single summarize run*, so a crashed/restarted run resumes at the last completed node instead of repeating expensive LLM calls. This is intra-run resumability — a concern Taskiq does not address.
+
+They are complementary, not duplicative. LangGraph is **not** adopted as a task scheduler or background-job system. This is why the reversal does not contradict the original rationale: the original "no" was about durable *task* execution, which Taskiq still owns.
+
+### Guardrails
+
+- Default **OFF** (`SUMMARIZE_GRAPH_ENABLED=false`); the legacy `app/adapters/content/pure_summary_service.py` path stays the default.
+- Checkpoint tables live in a dedicated `langgraph` Postgres schema, created by `.setup()` (not Alembic), trivially droppable.
+- `thread_id = correlation_id` so resumable runs preserve the sacred correlation ID.
+
+### Consequences
+
+- New deps under the `graph` extra: `langgraph`, `langgraph-checkpoint-postgres`, `langchain-core`, `psycopg3` + `psycopg-pool` (~30 transitive packages; record in `docs/reference/dependency-supply-chain.md`).
+- A second (psycopg3) Postgres pool when checkpointing is enabled; the connection-budget math in `docs/cocoindex.md` is updated accordingly.
+- Security scanners (OSV / pip-audit / Safety) must triage any `langchain*` advisories.
+
+### Implementation status
+
+Decision accepted 2026-06-15. Implementation is **planned but not yet merged**; it will land behind the feature flags above, phased with per-phase verification. Until it lands, the `banned-api` guard and the absence of the dependencies remain in place.
+
+## Original rationale & consequences (retained for history)
+
+- **Taskiq already covers durable execution.** Adding a second durable-execution framework increased operational complexity with no benefit *as a task backend*.
+- **Postgres checkpointing overhead.** A dedicated schema and connection pool for no active usage.
+- **Zero active usage at the time.** Dead optional dependencies inflated the dependency surface and slowed `uv lock`.
+
+Any further change to this decision must update this ADR.
