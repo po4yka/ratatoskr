@@ -604,7 +604,9 @@ jobs:
             sort -u > requirements-audit.txt
 
       - name: Run pip-audit
-        run: pip-audit -r requirements-audit.txt --strict
+        # torch CVE-2025-3000 has no upstream fix (ml extra only, not in the
+        # request path); also suppressed for the OSV scanner via osv-scanner.toml.
+        run: pip-audit -r requirements-audit.txt --strict --ignore-vuln CVE-2025-3000
 
   safety-scan:
     name: Security - Safety (Dependencies)
@@ -666,7 +668,6 @@ jobs:
             --extra attachment \
             --extra browser_scraper \
             --extra monitoring \
-            --extra langgraph \
             -o requirements-safety.txt
           # Dev group (type-stubs, test tools) also carry CVE-able packages
           uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 \

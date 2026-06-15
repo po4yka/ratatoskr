@@ -323,6 +323,10 @@ otel = [
 
 [dependency-groups]
 dev = [
+    # x_bookmarks ingestor imports aiosqlite unconditionally; pulled into dev so
+    # tests/tasks/test_x_bookmarks_sync.py and the ingestor tests collect/run on
+    # a fresh `uv sync` without a dedicated extra.
+    "aiosqlite>=0.20.0",
     "bandit>=1.7.9",
     "fakeredis>=2.36.1",
     "hypothesis>=6.155.2",

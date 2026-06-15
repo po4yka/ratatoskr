@@ -130,11 +130,16 @@ def _make_mirror(
     )
 
 
-def _handler(db: Any | None = None, formatter: Any | None = None) -> GitMirrorHandler:
+def _handler(
+    db: Any | None = None,
+    formatter: Any | None = None,
+    mirror_repo_factory: Any | None = None,
+) -> GitMirrorHandler:
     return GitMirrorHandler(
         cfg=_make_cfg(),
         db=db or _make_db(),
         response_formatter=formatter or _make_formatter(),
+        mirror_repo_factory=mirror_repo_factory,
     )
 
 
@@ -329,15 +334,11 @@ async def test_handle_mirror_queued_status_note_for_pending_mirror() -> None:
     fake_repo = AsyncMock()
     fake_repo.upsert_target = AsyncMock(return_value=pending_mirror)
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirror(handler)
     ctx = _make_ctx(text="/mirror https://github.com/foo/bar.git")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     fake_repo.upsert_target.assert_awaited_once()
     call_kwargs = fake_repo.upsert_target.await_args.kwargs
@@ -357,15 +358,11 @@ async def test_handle_mirror_queued_status_note_when_no_last_mirrored_at() -> No
     fake_repo = AsyncMock()
     fake_repo.upsert_target = AsyncMock(return_value=ok_mirror)
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirror(handler)
     ctx = _make_ctx(text="/mirror https://github.com/foo/bar.git")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     _, reply_text = ctx.response_formatter.safe_reply.await_args.args
     assert "Queued" in reply_text
@@ -378,15 +375,11 @@ async def test_handle_mirror_already_tracked_note_when_previously_synced() -> No
     fake_repo = AsyncMock()
     fake_repo.upsert_target = AsyncMock(return_value=tracked_mirror)
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirror(handler)
     ctx = _make_ctx(text="/mirror https://github.com/foo/bar.git")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     _, reply_text = ctx.response_formatter.safe_reply.await_args.args
     assert "Already tracked" in reply_text
@@ -399,15 +392,11 @@ async def test_handle_mirror_shorthand_label_uses_display_name() -> None:
     fake_repo = AsyncMock()
     fake_repo.upsert_target = AsyncMock(return_value=pending_mirror)
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirror(handler)
     ctx = _make_ctx(text="/mirror torvalds/linux")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     upsert_kwargs = fake_repo.upsert_target.await_args.kwargs
     assert upsert_kwargs["clone_url"] == "https://github.com/torvalds/linux.git"
@@ -426,15 +415,11 @@ async def test_handle_mirror_full_url_label_uses_clone_url_when_no_display_name(
     fake_repo = AsyncMock()
     fake_repo.upsert_target = AsyncMock(return_value=pending_mirror)
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirror(handler)
     ctx = _make_ctx(text="/mirror https://example.com/x.git")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     _, reply_text = ctx.response_formatter.safe_reply.await_args.args
     assert "https://example.com/x.git" in reply_text
@@ -450,15 +435,11 @@ async def test_handle_mirrors_empty_list_sends_no_mirrors_reply() -> None:
     fake_repo = AsyncMock()
     fake_repo.list_for_user = AsyncMock(return_value=[])
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirrors(handler)
     ctx = _make_ctx(text="/mirrors")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     fake_repo.list_for_user.assert_awaited_once_with(ctx.uid)
     _, reply_text = ctx.response_formatter.safe_reply.await_args.args
@@ -488,15 +469,11 @@ async def test_handle_mirrors_returns_formatted_list() -> None:
     fake_repo = AsyncMock()
     fake_repo.list_for_user = AsyncMock(return_value=mirrors)
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirrors(handler)
     ctx = _make_ctx(text="/mirrors")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     _, reply_text = ctx.response_formatter.safe_reply.await_args.args
     assert "Your git mirrors (2)" in reply_text
@@ -514,15 +491,11 @@ async def test_handle_mirrors_single_entry_in_list() -> None:
     fake_repo = AsyncMock()
     fake_repo.list_for_user = AsyncMock(return_value=mirrors)
 
-    handler = _handler()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
     raw = _unwrap_mirrors(handler)
     ctx = _make_ctx(text="/mirrors")
 
-    with patch(
-        "app.adapters.telegram.command_handlers.git_mirror_handler.GitMirrorRepository",
-        return_value=fake_repo,
-    ):
-        await raw(handler, ctx)
+    await raw(handler, ctx)
 
     _, reply_text = ctx.response_formatter.safe_reply.await_args.args
     assert "Your git mirrors (1)" in reply_text
