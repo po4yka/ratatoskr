@@ -11,11 +11,8 @@ from .database import DatabaseConfig
 from .firecrawl import FirecrawlConfig
 from .integrations import EmbeddingConfig, McpConfig, QdrantConfig, WebSearchConfig
 from .llm import (
-    AnthropicConfig,
     LLMUsageBudgetConfig,
     ModelRoutingConfig,
-    OllamaConfig,
-    OpenAIConfig,
     OpenRouterConfig,
 )
 from .media import AttachmentConfig, YouTubeConfig
@@ -35,7 +32,6 @@ from .twitter import TwitterConfig
 
 __all__ = [
     "AdaptiveTimeoutConfig",
-    "AnthropicConfig",
     "ApiLimitsConfig",
     "AppConfig",
     "AttachmentConfig",
@@ -54,8 +50,6 @@ __all__ = [
     "LLMUsageBudgetConfig",
     "McpConfig",
     "ModelRoutingConfig",
-    "OllamaConfig",
-    "OpenAIConfig",
     "OpenRouterConfig",
     "PushNotificationConfig",
     "QdrantConfig",

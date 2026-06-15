@@ -1,7 +1,8 @@
 """LLM client factory for creating provider-specific clients.
 
-This module provides a factory for creating LLM clients based on the configured
-provider (openrouter, openai, anthropic, ollama).
+OpenRouter is the sole production provider. This factory reads
+``config.runtime.llm_provider`` (default ``"openrouter"``) and dispatches
+accordingly.
 """
 
 from __future__ import annotations
@@ -19,18 +20,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Valid provider names
-VALID_PROVIDERS = frozenset({"openrouter", "openai", "anthropic", "ollama"})
-
 
 class LLMClientFactory:
     """Factory for creating LLM clients based on provider configuration.
 
-    This factory abstracts the creation of provider-specific clients,
-    allowing the application to switch between providers via configuration.
-
     Usage:
-        client = LLMClientFactory.create("openrouter", config)
+        client = LLMClientFactory.create_from_config(config)
         result = await client.chat(messages)
     """
 
@@ -45,7 +40,7 @@ class LLMClientFactory:
         """Create an LLM client for the specified provider.
 
         Args:
-            provider: Provider name ("openrouter", "openai", "anthropic", "ollama").
+            provider: Provider name. Only ``"openrouter"`` is supported.
             config: Application configuration.
             circuit_breaker: Optional circuit breaker for fault tolerance.
             audit: Optional audit callback function.
@@ -56,28 +51,18 @@ class LLMClientFactory:
         Raises:
             ValueError: If the provider is not supported.
         """
-        provider = provider.lower().strip()
+        normalized = provider.lower().strip()
 
-        if provider not in VALID_PROVIDERS:
-            msg = f"Invalid LLM provider: {provider}. Must be one of {sorted(VALID_PROVIDERS)}"
+        if normalized != "openrouter":
+            msg = f"Invalid LLM provider: {provider!r}. Only 'openrouter' is supported."
             raise ValueError(msg)
 
         logger.info(
             "llm_client_factory_creating",
-            extra={"provider": provider},
+            extra={"provider": normalized},
         )
 
-        if provider == "openrouter":
-            return LLMClientFactory._create_openrouter(config, circuit_breaker, audit)
-        if provider == "openai":
-            return LLMClientFactory._create_openai(config, circuit_breaker, audit)
-        if provider == "anthropic":
-            return LLMClientFactory._create_anthropic(config, circuit_breaker, audit)
-        if provider == "ollama":
-            return LLMClientFactory._create_ollama(config, circuit_breaker, audit)
-        # Should never reach here due to validation above
-        msg = f"Unhandled provider: {provider}"
-        raise ValueError(msg)
+        return LLMClientFactory._create_openrouter(config, circuit_breaker, audit)
 
     @staticmethod
     def _create_openrouter(
@@ -91,76 +76,6 @@ class LLMClientFactory:
         return OpenRouterClient.from_config(config, circuit_breaker=circuit_breaker, audit=audit)
 
     @staticmethod
-    def _create_openai(
-        config: AppConfig,
-        circuit_breaker: CircuitBreaker | None,
-        audit: Callable[[str, str, dict[str, Any]], None] | None,
-    ) -> LLMClientProtocol:
-        """Create an OpenAI client."""
-        from app.adapters.llm.openai import OpenAIClient
-
-        openai_config = config.openai
-
-        return OpenAIClient(
-            api_key=openai_config.api_key,
-            model=openai_config.model,
-            fallback_models=list(openai_config.fallback_models),
-            organization=openai_config.organization,
-            timeout_sec=config.runtime.request_timeout_sec,
-            debug_payloads=config.runtime.debug_payloads,
-            enable_structured_outputs=openai_config.enable_structured_outputs,
-            circuit_breaker=circuit_breaker,
-            audit=audit,
-        )
-
-    @staticmethod
-    def _create_anthropic(
-        config: AppConfig,
-        circuit_breaker: CircuitBreaker | None,
-        audit: Callable[[str, str, dict[str, Any]], None] | None,
-    ) -> LLMClientProtocol:
-        """Create an Anthropic client."""
-        from app.adapters.llm.anthropic import AnthropicClient
-
-        anthropic_config = config.anthropic
-
-        return AnthropicClient(
-            api_key=anthropic_config.api_key,
-            model=anthropic_config.model,
-            fallback_models=list(anthropic_config.fallback_models),
-            timeout_sec=config.runtime.request_timeout_sec,
-            debug_payloads=config.runtime.debug_payloads,
-            enable_structured_outputs=anthropic_config.enable_structured_outputs,
-            circuit_breaker=circuit_breaker,
-            audit=audit,
-        )
-
-    @staticmethod
-    def _create_ollama(
-        config: AppConfig,
-        circuit_breaker: CircuitBreaker | None,
-        audit: Callable[[str, str, dict[str, Any]], None] | None,
-    ) -> LLMClientProtocol:
-        """Create an OpenAI-compatible cloud Ollama client."""
-        from app.adapters.llm.openai import OpenAIClient
-
-        ollama_config = config.ollama
-
-        return OpenAIClient(
-            api_key=ollama_config.api_key,
-            model=ollama_config.model,
-            fallback_models=list(ollama_config.fallback_models),
-            base_url=ollama_config.base_url,
-            provider_name="ollama",
-            timeout_sec=config.runtime.request_timeout_sec,
-            debug_payloads=config.runtime.debug_payloads,
-            enable_structured_outputs=ollama_config.enable_structured_outputs,
-            max_response_size_mb=ollama_config.max_response_size_mb,
-            circuit_breaker=circuit_breaker,
-            audit=audit,
-        )
-
-    @staticmethod
     def get_provider_from_config(config: AppConfig) -> str:
         """Get the LLM provider from configuration.
 
@@ -168,7 +83,7 @@ class LLMClientFactory:
             config: Application configuration.
 
         Returns:
-            Provider name string.
+            Provider name string (defaults to ``"openrouter"`` when unset).
         """
         return getattr(config.runtime, "llm_provider", "openrouter")
 
@@ -180,9 +95,6 @@ class LLMClientFactory:
         audit: Callable[[str, str, dict[str, Any]], None] | None = None,
     ) -> LLMClientProtocol:
         """Create an LLM client using the provider specified in config.
-
-        This is a convenience method that reads the provider from config
-        and creates the appropriate client.
 
         Args:
             config: Application configuration.

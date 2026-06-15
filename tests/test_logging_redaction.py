@@ -6,12 +6,12 @@ from types import SimpleNamespace
 import pytest
 
 from app.adapters.content.summary_request_factory import log_llm_content_validation
-from app.adapters.llm.message_sanitizer import sanitize_messages_for_logging
 from app.core.logging_utils import (
     bounded_debug_preview,
     redact_for_logging,
     redact_headers_for_logging,
     redact_url_for_logging,
+    sanitize_messages_for_logging,
 )
 
 

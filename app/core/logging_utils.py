@@ -487,6 +487,28 @@ def _redact_sensitive_text(text: str, *, redact_urls: bool) -> str:
     return redacted
 
 
+def sanitize_messages_for_logging(
+    messages: list[dict[str, Any]],
+    *,
+    content_limit: int = 1000,
+    allow_debug_content: bool = False,
+) -> list[dict[str, Any]]:
+    """Return sanitized message copies safe for logs and persistence."""
+    sanitized: list[dict[str, Any]] = []
+    for message in messages:
+        sanitized_message = dict(message)
+        content = sanitized_message.get("content", "")
+        if allow_debug_content:
+            sanitized_message["content"] = bounded_debug_preview(
+                content,
+                max_chars=content_limit,
+            )
+        else:
+            sanitized_message["content"] = redact_for_logging(content, key="content")
+        sanitized.append(sanitized_message)
+    return sanitized
+
+
 # Export commonly used items
 __all__ = [
     "bounded_debug_preview",
@@ -497,6 +519,7 @@ __all__ = [
     "redact_headers_for_logging",
     "redact_url_for_logging",
     "sanitize_correlation_id",
+    "sanitize_messages_for_logging",
     "setup_json_logging",
     "truncate_log_content",
 ]

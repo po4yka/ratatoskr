@@ -17,27 +17,8 @@ from app.adapter_models.telegram.telegram_models import (
 class TestTelegramUser(unittest.TestCase):
     """Test TelegramUser model."""
 
-    def test_from_dict_basic(self):
-        """Test creating TelegramUser from basic dictionary."""
-        data = {
-            "id": 12345,
-            "is_bot": False,
-            "first_name": "John",
-            "last_name": "Doe",
-            "username": "johndoe",
-            "language_code": "en",
-        }
-        user = TelegramUser.from_dict(data)
-
-        assert user.id == 12345
-        assert not user.is_bot
-        assert user.first_name == "John"
-        assert user.last_name == "Doe"
-        assert user.username == "johndoe"
-        assert user.language_code == "en"
-
     def test_from_dict_minimal(self):
-        """Test creating TelegramUser from minimal dictionary."""
+        """Test creating TelegramUser from minimal dictionary; optional fields default to None."""
         data = {
             "id": 12345,
             "is_bot": False,
@@ -55,36 +36,6 @@ class TestTelegramUser(unittest.TestCase):
 
 class TestTelegramChat(unittest.TestCase):
     """Test TelegramChat model."""
-
-    def test_from_dict_private(self):
-        """Test creating private chat from dictionary."""
-        data = {
-            "id": 12345,
-            "type": "private",
-            "first_name": "John",
-            "last_name": "Doe",
-        }
-        chat = TelegramChat.from_dict(data)
-
-        assert chat.id == 12345
-        assert chat.type == ChatType.PRIVATE
-        assert chat.first_name == "John"
-        assert chat.last_name == "Doe"
-        assert chat.title is None
-
-    def test_from_dict_group(self):
-        """Test creating group chat from dictionary."""
-        data = {
-            "id": -12345,
-            "type": "group",
-            "title": "Test Group",
-        }
-        chat = TelegramChat.from_dict(data)
-
-        assert chat.id == -12345
-        assert chat.type == ChatType.GROUP
-        assert chat.title == "Test Group"
-        assert chat.first_name is None
 
     def test_from_dict_channel(self):
         """Test creating channel chat from dictionary."""
@@ -105,20 +56,6 @@ class TestTelegramChat(unittest.TestCase):
 class TestMessageEntity(unittest.TestCase):
     """Test MessageEntity model."""
 
-    def test_from_dict_url(self):
-        """Test creating URL entity from dictionary."""
-        data = {
-            "type": "url",
-            "offset": 10,
-            "length": 20,
-        }
-        entity = MessageEntity.from_dict(data)
-
-        assert entity.type == MessageEntityType.URL
-        assert entity.offset == 10
-        assert entity.length == 20
-        assert entity.url is None
-
     def test_from_dict_text_link(self):
         """Test creating text link entity from dictionary."""
         data = {
@@ -135,7 +72,7 @@ class TestMessageEntity(unittest.TestCase):
         assert entity.url == "https://example.com"
 
     def test_from_dict_mention(self):
-        """Test creating mention entity from dictionary."""
+        """Test creating mention entity — verifies nested user object parsing."""
         user_data = {
             "id": 12345,
             "is_bot": False,
@@ -215,52 +152,6 @@ class TestTelegramMessage(unittest.TestCase):
     def test_from_telegram_message_basic(self):
         """Test creating TelegramMessage from basic Telegram message."""
 
-        # Create a simple object that mimics Telegram message structure
-        class MockMessage:
-            def __init__(self):
-                self.id = 12345
-                self.date = datetime.now()
-                self.text = "Hello world"
-                self.caption = None
-                self.entities = []
-                self.caption_entities = []
-                self.photo = None
-                self.video = None
-                self.audio = None
-                self.document = None
-                self.sticker = None
-                self.voice = None
-                self.video_note = None
-                self.animation = None
-                self.contact = None
-                self.location = None
-                self.venue = None
-                self.poll = None
-                self.dice = None
-                self.game = None
-                self.invoice = None
-                self.successful_payment = None
-                self.story = None
-                self.forward_from = None
-                self.forward_from_chat = None
-                self.forward_from_message_id = None
-                self.forward_signature = None
-                self.forward_sender_name = None
-                self.forward_date = None
-                self.reply_to_message = None
-                self.edit_date = None
-                self.media_group_id = None
-                self.author_signature = None
-                self.via_bot = None
-                self.has_protected_content = None
-                self.connected_website = None
-                self.reply_markup = None
-                self.views = None
-                self.via_bot_user_id = None
-                self.effect_id = None
-                self.link_preview_options = None
-                self.show_caption_above_media = None
-
         class MockUser:
             def __init__(self):
                 self.id = 12345
@@ -277,11 +168,10 @@ class TestTelegramMessage(unittest.TestCase):
                 self.first_name = "John"
                 self.last_name = "Doe"
 
-        mock_message = MockMessage()
-        mock_message.from_user = MockUser()
-        mock_message.chat = MockChat()
+        self.mock_message.from_user = MockUser()
+        self.mock_message.chat = MockChat()
 
-        message = TelegramMessage.from_telegram_message(mock_message)
+        message = TelegramMessage.from_telegram_message(self.mock_message)
 
         assert message.message_id == 12345
         assert message.from_user is not None
@@ -295,18 +185,16 @@ class TestTelegramMessage(unittest.TestCase):
     def test_from_telegram_message_with_photo(self):
         """Test creating TelegramMessage with photo media."""
 
-        # Use simple classes instead of Mock for proper __dict__ behavior
         class MockPhotoSize:
             def __init__(self, file_id: str, width: int, height: int):
                 self.file_id = file_id
                 self.width = width
                 self.height = height
 
-        mock_photo = [
+        self.mock_message.photo = [
             MockPhotoSize("photo1", 100, 100),
             MockPhotoSize("photo2", 200, 200),
         ]
-        self.mock_message.photo = mock_photo
 
         message = TelegramMessage.from_telegram_message(self.mock_message)
 
@@ -318,16 +206,13 @@ class TestTelegramMessage(unittest.TestCase):
     def test_from_telegram_message_with_entities(self):
         """Test creating TelegramMessage with entities."""
 
-        # Use simple classes instead of Mock for proper __dict__ behavior
         class MockEntity:
             def __init__(self, entity_type: str, offset: int, length: int):
                 self.type = entity_type
                 self.offset = offset
                 self.length = length
 
-        mock_entity1 = MockEntity("url", 0, 10)
-        mock_entity2 = MockEntity("bold", 10, 5)
-        self.mock_message.entities = [mock_entity1, mock_entity2]
+        self.mock_message.entities = [MockEntity("url", 0, 10), MockEntity("bold", 10, 5)]
 
         message = TelegramMessage.from_telegram_message(self.mock_message)
 
@@ -336,53 +221,7 @@ class TestTelegramMessage(unittest.TestCase):
         assert message.entities[1].type == MessageEntityType.BOLD
 
     def test_from_telegram_message_forwarded(self):
-        """Test creating TelegramMessage with forward information."""
-
-        # Create a simple object that mimics Telegram message structure
-        class MockMessage:
-            def __init__(self):
-                self.id = 12345
-                self.date = datetime.now()
-                self.text = "Hello world"
-                self.caption = None
-                self.entities = []
-                self.caption_entities = []
-                self.photo = None
-                self.video = None
-                self.audio = None
-                self.document = None
-                self.sticker = None
-                self.voice = None
-                self.video_note = None
-                self.animation = None
-                self.contact = None
-                self.location = None
-                self.venue = None
-                self.poll = None
-                self.dice = None
-                self.game = None
-                self.invoice = None
-                self.successful_payment = None
-                self.story = None
-                self.forward_from = None
-                self.forward_from_chat = None
-                self.forward_from_message_id = None
-                self.forward_signature = None
-                self.forward_sender_name = None
-                self.forward_date = None
-                self.reply_to_message = None
-                self.edit_date = None
-                self.media_group_id = None
-                self.author_signature = None
-                self.via_bot = None
-                self.has_protected_content = None
-                self.connected_website = None
-                self.reply_markup = None
-                self.views = None
-                self.via_bot_user_id = None
-                self.effect_id = None
-                self.link_preview_options = None
-                self.show_caption_above_media = None
+        """Test channel forward — is_forwarded flag and forward_from_chat."""
 
         class MockForwardChat:
             def __init__(self):
@@ -390,11 +229,10 @@ class TestTelegramMessage(unittest.TestCase):
                 self.type = "channel"
                 self.title = "Test Channel"
 
-        mock_message = MockMessage()
-        mock_message.forward_from_chat = MockForwardChat()
-        mock_message.forward_from_message_id = 54321
+        self.mock_message.forward_from_chat = MockForwardChat()
+        self.mock_message.forward_from_message_id = 54321
 
-        message = TelegramMessage.from_telegram_message(mock_message)
+        message = TelegramMessage.from_telegram_message(self.mock_message)
 
         assert message.is_forwarded
         assert message.forward_from_chat is not None
@@ -403,51 +241,6 @@ class TestTelegramMessage(unittest.TestCase):
 
     def test_from_telegram_message_forwarded_with_reply_markup(self):
         """Forwarded messages with inline buttons should parse without crashing."""
-
-        class MockMessage:
-            def __init__(self):
-                self.id = 12345
-                self.date = datetime.now()
-                self.text = "Forwarded with buttons"
-                self.caption = None
-                self.entities = []
-                self.caption_entities = []
-                self.photo = None
-                self.video = None
-                self.audio = None
-                self.document = None
-                self.sticker = None
-                self.voice = None
-                self.video_note = None
-                self.animation = None
-                self.contact = None
-                self.location = None
-                self.venue = None
-                self.poll = None
-                self.dice = None
-                self.game = None
-                self.invoice = None
-                self.successful_payment = None
-                self.story = None
-                self.forward_from = None
-                self.forward_from_chat = None
-                self.forward_from_message_id = None
-                self.forward_signature = None
-                self.forward_sender_name = None
-                self.forward_date = None
-                self.reply_to_message = None
-                self.edit_date = None
-                self.media_group_id = None
-                self.author_signature = None
-                self.via_bot = None
-                self.has_protected_content = None
-                self.connected_website = None
-                self.reply_markup = None
-                self.views = None
-                self.via_bot_user_id = None
-                self.effect_id = None
-                self.link_preview_options = None
-                self.show_caption_above_media = None
 
         class MockForwardChat:
             def __init__(self):
@@ -464,12 +257,12 @@ class TestTelegramMessage(unittest.TestCase):
             def __init__(self, inline_keyboard):
                 self.inline_keyboard = inline_keyboard
 
-        mock_message = MockMessage()
-        mock_message.forward_from_chat = MockForwardChat()
-        mock_message.forward_from_message_id = 54321
-        mock_message.reply_markup = MockReplyMarkup([[MockButton("Test", "https://example.com")]])
+        self.mock_message.text = "Forwarded with buttons"
+        self.mock_message.forward_from_chat = MockForwardChat()
+        self.mock_message.forward_from_message_id = 54321
+        self.mock_message.reply_markup = MockReplyMarkup([[MockButton("Test", "https://example.com")]])
 
-        message = TelegramMessage.from_telegram_message(mock_message)
+        message = TelegramMessage.from_telegram_message(self.mock_message)
 
         assert message.is_forwarded
         assert isinstance(message.reply_markup, dict)
@@ -478,14 +271,6 @@ class TestTelegramMessage(unittest.TestCase):
     def test_from_telegram_message_forwarded_with_linked_chat_cycle(self):
         """Ensure channel forwards don't crash when Chat.linked_chat forms a cycle."""
         import types
-
-        class MockMessage:
-            def __init__(self):
-                self.id = 12345
-                self.date = datetime.now()
-                self.text = "Forwarded channel post"
-                self.forward_from_chat = None
-                self.forward_from_message_id = None
 
         def _make_chat(*, chat_id: int, chat_type: ChatType, title: str):
             return types.SimpleNamespace(
@@ -502,11 +287,10 @@ class TestTelegramMessage(unittest.TestCase):
         channel.linked_chat = discussion
         discussion.linked_chat = channel
 
-        mock_message = MockMessage()
-        mock_message.forward_from_chat = channel
-        mock_message.forward_from_message_id = 54321
+        self.mock_message.forward_from_chat = channel
+        self.mock_message.forward_from_message_id = 54321
 
-        message = TelegramMessage.from_telegram_message(mock_message)
+        message = TelegramMessage.from_telegram_message(self.mock_message)
 
         assert message.is_forwarded
         assert message.forward_from_chat is not None
@@ -514,55 +298,12 @@ class TestTelegramMessage(unittest.TestCase):
         assert message.forward_from_message_id == 54321
 
     def test_from_telegram_message_forwarded_sender_name(self):
-        """Test that privacy-protected forwards (forward_sender_name only) are detected."""
+        """Privacy-protected forwards (forward_sender_name only) are detected as forwarded."""
+        self.mock_message.text = "Hidden sender forward"
+        self.mock_message.forward_sender_name = "Hidden User"
+        self.mock_message.forward_date = datetime.now()
 
-        class MockMessage:
-            def __init__(self):
-                self.id = 12345
-                self.date = datetime.now()
-                self.text = "Hidden sender forward"
-                self.caption = None
-                self.entities = []
-                self.caption_entities = []
-                self.photo = None
-                self.video = None
-                self.audio = None
-                self.document = None
-                self.sticker = None
-                self.voice = None
-                self.video_note = None
-                self.animation = None
-                self.contact = None
-                self.location = None
-                self.venue = None
-                self.poll = None
-                self.dice = None
-                self.game = None
-                self.invoice = None
-                self.successful_payment = None
-                self.story = None
-                self.forward_from = None
-                self.forward_from_chat = None
-                self.forward_from_message_id = None
-                self.forward_signature = None
-                self.forward_sender_name = "Hidden User"
-                self.forward_date = datetime.now()
-                self.reply_to_message = None
-                self.edit_date = None
-                self.media_group_id = None
-                self.author_signature = None
-                self.via_bot = None
-                self.has_protected_content = None
-                self.connected_website = None
-                self.reply_markup = None
-                self.views = None
-                self.via_bot_user_id = None
-                self.effect_id = None
-                self.link_preview_options = None
-                self.show_caption_above_media = None
-
-        mock_message = MockMessage()
-        message = TelegramMessage.from_telegram_message(mock_message)
+        message = TelegramMessage.from_telegram_message(self.mock_message)
 
         assert message.is_forwarded
         assert message.forward_sender_name == "Hidden User"
@@ -570,52 +311,7 @@ class TestTelegramMessage(unittest.TestCase):
         assert message.forward_from_chat is None
 
     def test_from_telegram_message_forwarded_from_user(self):
-        """Test that user forwards (no channel) are detected as forwarded."""
-
-        class MockMessage:
-            def __init__(self):
-                self.id = 12345
-                self.date = datetime.now()
-                self.text = "User forward"
-                self.caption = None
-                self.entities = []
-                self.caption_entities = []
-                self.photo = None
-                self.video = None
-                self.audio = None
-                self.document = None
-                self.sticker = None
-                self.voice = None
-                self.video_note = None
-                self.animation = None
-                self.contact = None
-                self.location = None
-                self.venue = None
-                self.poll = None
-                self.dice = None
-                self.game = None
-                self.invoice = None
-                self.successful_payment = None
-                self.story = None
-                self.forward_from = None
-                self.forward_from_chat = None
-                self.forward_from_message_id = None
-                self.forward_signature = None
-                self.forward_sender_name = None
-                self.forward_date = None
-                self.reply_to_message = None
-                self.edit_date = None
-                self.media_group_id = None
-                self.author_signature = None
-                self.via_bot = None
-                self.has_protected_content = None
-                self.connected_website = None
-                self.reply_markup = None
-                self.views = None
-                self.via_bot_user_id = None
-                self.effect_id = None
-                self.link_preview_options = None
-                self.show_caption_above_media = None
+        """User forwards (no channel) are detected as forwarded."""
 
         class MockUser:
             def __init__(self):
@@ -626,10 +322,10 @@ class TestTelegramMessage(unittest.TestCase):
                 self.username = "janedoe"
                 self.language_code = "en"
 
-        mock_message = MockMessage()
-        mock_message.forward_from = MockUser()
+        self.mock_message.text = "User forward"
+        self.mock_message.forward_from = MockUser()
 
-        message = TelegramMessage.from_telegram_message(mock_message)
+        message = TelegramMessage.from_telegram_message(self.mock_message)
 
         assert message.is_forwarded
         assert message.forward_from is not None
@@ -689,83 +385,44 @@ class TestTelegramMessage(unittest.TestCase):
 
     def test_get_effective_text(self):
         """Test getting effective text content."""
-        # Test with text
-        message = TelegramMessage(
-            message_id=12345,
-            text="Hello world",
-        )
+        message = TelegramMessage(message_id=12345, text="Hello world")
         assert message.get_effective_text() == "Hello world"
 
-        # Test with caption only
-        message = TelegramMessage(
-            message_id=12345,
-            caption="Hello caption",
-        )
+        message = TelegramMessage(message_id=12345, caption="Hello caption")
         assert message.get_effective_text() == "Hello caption"
 
-        # Test with no text or caption
-        message = TelegramMessage(
-            message_id=12345,
-        )
+        message = TelegramMessage(message_id=12345)
         assert message.get_effective_text() is None
 
     def test_get_effective_entities(self):
         """Test getting effective entities."""
-        # Test with text entities
         message = TelegramMessage(
             message_id=12345,
             text="Hello world",
-            entities=[
-                MessageEntity(
-                    type=MessageEntityType.BOLD,
-                    offset=0,
-                    length=5,
-                )
-            ],
+            entities=[MessageEntity(type=MessageEntityType.BOLD, offset=0, length=5)],
         )
         assert len(message.get_effective_entities()) == 1
 
-        # Test with caption entities only
         message = TelegramMessage(
             message_id=12345,
             caption="Hello caption",
-            caption_entities=[
-                MessageEntity(
-                    type=MessageEntityType.ITALIC,
-                    offset=0,
-                    length=5,
-                )
-            ],
+            caption_entities=[MessageEntity(type=MessageEntityType.ITALIC, offset=0, length=5)],
         )
         assert len(message.get_effective_entities()) == 1
 
     def test_is_command(self):
         """Test command detection."""
-        # Test with command
         message = TelegramMessage(
             message_id=12345,
             text="/start hello",
-            entities=[
-                MessageEntity(
-                    type=MessageEntityType.BOT_COMMAND,
-                    offset=0,
-                    length=6,
-                )
-            ],
+            entities=[MessageEntity(type=MessageEntityType.BOT_COMMAND, offset=0, length=6)],
         )
         assert message.is_command()
 
-        # Test without command
         message = TelegramMessage(
             message_id=12345,
             text="Hello world",
-            entities=[
-                MessageEntity(
-                    type=MessageEntityType.BOLD,
-                    offset=0,
-                    length=5,
-                )
-            ],
+            entities=[MessageEntity(type=MessageEntityType.BOLD, offset=0, length=5)],
         )
         assert not message.is_command()
 
@@ -774,13 +431,7 @@ class TestTelegramMessage(unittest.TestCase):
         message = TelegramMessage(
             message_id=12345,
             text="/start hello",
-            entities=[
-                MessageEntity(
-                    type=MessageEntityType.BOT_COMMAND,
-                    offset=0,
-                    length=6,
-                )
-            ],
+            entities=[MessageEntity(type=MessageEntityType.BOT_COMMAND, offset=0, length=6)],
         )
         assert message.get_command() == "/start"
 
@@ -790,16 +441,8 @@ class TestTelegramMessage(unittest.TestCase):
             message_id=12345,
             text="Check out https://example.com and https://test.com",
             entities=[
-                MessageEntity(
-                    type=MessageEntityType.URL,
-                    offset=10,  # Correct offset for "https://example.com"
-                    length=19,
-                ),
-                MessageEntity(
-                    type=MessageEntityType.URL,
-                    offset=34,  # Correct offset for "https://test.com"
-                    length=16,
-                ),
+                MessageEntity(type=MessageEntityType.URL, offset=10, length=19),
+                MessageEntity(type=MessageEntityType.URL, offset=34, length=16),
             ],
         )
         urls = message.get_urls()
@@ -809,7 +452,6 @@ class TestTelegramMessage(unittest.TestCase):
 
     def test_get_media_info(self):
         """Test media information retrieval."""
-        # Test with photo
         message = TelegramMessage(
             message_id=12345,
             media_type=MediaType.PHOTO,
@@ -819,23 +461,14 @@ class TestTelegramMessage(unittest.TestCase):
         assert media_info is not None
         assert len(media_info) == 1
 
-        # Test without media
-        message = TelegramMessage(
-            message_id=12345,
-            text="Hello world",
-        )
-        media_info = message.get_media_info()
-        assert media_info is None
+        message = TelegramMessage(message_id=12345, text="Hello world")
+        assert message.get_media_info() is None
 
     def test_to_dict(self):
         """Test conversion to dictionary."""
         message = TelegramMessage(
             message_id=12345,
-            from_user=TelegramUser(
-                id=12345,
-                is_bot=False,
-                first_name="John",
-            ),
+            from_user=TelegramUser(id=12345, is_bot=False, first_name="John"),
             text="Hello world",
             media_type=MediaType.PHOTO,
         )

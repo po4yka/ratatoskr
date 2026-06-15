@@ -31,11 +31,8 @@ if TYPE_CHECKING:
         WebSearchConfig,
     )
     from app.config.llm import (
-        AnthropicConfig,
         LLMUsageBudgetConfig,
         ModelRoutingConfig,
-        OllamaConfig,
-        OpenAIConfig,
         OpenRouterConfig,
     )
     from app.config.media import AttachmentConfig, YouTubeConfig
@@ -68,9 +65,6 @@ class ConfigHolder:
         telegram: TelegramConfig
         firecrawl: FirecrawlConfig
         openrouter: OpenRouterConfig
-        openai: OpenAIConfig
-        ollama: OllamaConfig
-        anthropic: AnthropicConfig
         llm_usage_budget: LLMUsageBudgetConfig
         youtube: YouTubeConfig
         attachment: AttachmentConfig

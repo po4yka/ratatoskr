@@ -38,7 +38,6 @@ dt_module.UTC = timezone.utc
 from app.api.dependencies.database import clear_session_manager
 from app.config import (
     AdaptiveTimeoutConfig,
-    AnthropicConfig,
     ApiLimitsConfig,
     AppConfig,
     AttachmentConfig,
@@ -48,8 +47,6 @@ from app.config import (
     ContentLimitsConfig,
     DatabaseConfig,
     FirecrawlConfig,
-    OllamaConfig,
-    OpenAIConfig,
     OpenRouterConfig,
     QdrantConfig,
     RedisConfig,
@@ -430,9 +427,6 @@ def make_test_app_config(
         "auth": AuthConfig(),
         "sync": SyncConfig(),
         "background": BackgroundProcessorConfig(),
-        "openai": OpenAIConfig(),
-        "ollama": OllamaConfig(),
-        "anthropic": AnthropicConfig(),
         "circuit_breaker": CircuitBreakerConfig(),
         "web_search": WebSearchConfig(),
         "adaptive_timeout": AdaptiveTimeoutConfig(),

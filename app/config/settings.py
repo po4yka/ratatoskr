@@ -37,11 +37,8 @@ from .integrations import (
     WebSearchConfig,
 )
 from .llm import (
-    AnthropicConfig,
     LLMUsageBudgetConfig,
     ModelRoutingConfig,
-    OllamaConfig,
-    OpenAIConfig,
     OpenRouterConfig,
 )
 from .media import AttachmentConfig, YouTubeConfig  # noqa: TC001
@@ -146,7 +143,6 @@ def _effective_config_summary(config: AppConfig) -> dict[str, Any]:
     return {
         "llm_provider": config.runtime.llm_provider,
         "openrouter_model": config.openrouter.model,
-        "ollama_base_url": config.ollama.base_url,
         "scraper_profile": config.scraper.profile,
         "scraper_provider_order": list(config.scraper.provider_order),
         "youtube_enabled": config.youtube.enabled,
@@ -172,9 +168,6 @@ class AppConfig:
     telegram: TelegramConfig
     firecrawl: FirecrawlConfig
     openrouter: OpenRouterConfig
-    openai: OpenAIConfig
-    ollama: OllamaConfig
-    anthropic: AnthropicConfig
     youtube: YouTubeConfig
     attachment: AttachmentConfig
     runtime: RuntimeConfig
@@ -238,9 +231,6 @@ class Settings(BaseSettings):
     # default_factory lets the bot start when no FIRECRAWL_* env vars are set.
     firecrawl: FirecrawlConfig = Field(default_factory=FirecrawlConfig)
     openrouter: OpenRouterConfig
-    openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
-    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
-    anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
     llm_usage_budget: LLMUsageBudgetConfig = Field(default_factory=LLMUsageBudgetConfig)
     youtube: YouTubeConfig
     attachment: AttachmentConfig
@@ -505,9 +495,6 @@ class Settings(BaseSettings):
             telegram=self.telegram,
             firecrawl=self.firecrawl,
             openrouter=self.openrouter,
-            openai=self.openai,
-            ollama=self.ollama,
-            anthropic=self.anthropic,
             youtube=self.youtube,
             attachment=self.attachment,
             runtime=self.runtime,
