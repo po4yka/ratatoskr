@@ -517,6 +517,124 @@ class QdrantVectorStore:
                 self._available = False
                 return VectorQueryResult.empty()
 
+    def query_filter(
+        self,
+        query_vector: Sequence[float],
+        qdrant_filter: Any,
+        top_k: int,
+        *,
+        score_threshold: float | None = None,
+    ) -> VectorQueryResult:
+        """Query with a caller-supplied native Qdrant ``Filter``.
+
+        Absorbs the ``_client`` / ``_collection_name`` private bypass that the
+        repository and git-mirror search services used to hand-roll: the caller
+        (the unified retrieval adapter) builds the scope-checked filter, while
+        this method keeps the client call, ``score_threshold`` semantics, and
+        the ``distance = 1 - similarity`` convention in one place.
+        """
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            logger.warning(
+                "vector_query_skipped", extra={"reason": "not_available", "top_k": top_k}
+            )
+            return VectorQueryResult.empty()
+        if top_k <= 0:
+            msg = "top_k must be positive"
+            raise ValueError(msg)
+
+        with _get_tracer().start_as_current_span("vector.query_filter") as span:
+            span.set_attribute(VECTOR_OPERATION, "query_filter")
+            t0 = time.perf_counter()
+            try:
+                response = self._client.query_points(
+                    collection_name=self._collection_name,
+                    query=list(query_vector),
+                    query_filter=qdrant_filter,
+                    limit=top_k,
+                    score_threshold=score_threshold,
+                    with_payload=True,
+                )
+                record_db_query("qdrant_query", time.perf_counter() - t0)
+                hits = [
+                    VectorQueryHit(
+                        id=str(p.id),
+                        distance=max(0.0, 1.0 - float(p.score)),
+                        metadata=dict(p.payload or {}),
+                    )
+                    for p in response.points
+                ]
+                span.set_attribute(VECTOR_STATUS, "success")
+                return VectorQueryResult(hits=hits)
+            except Exception as exc:
+                record_db_query("qdrant_query", time.perf_counter() - t0)
+                logger.error("vector_query_filter_failed", extra={"error": str(exc)})
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
+                return VectorQueryResult.empty()
+
+    def find_similar_by_id(
+        self,
+        point_id: str,
+        qdrant_filter: Any,
+        top_k: int,
+        *,
+        score_threshold: float | None = None,
+    ) -> VectorQueryResult:
+        """Recommend points nearest to the stored vector of ``point_id``.
+
+        Qdrant resolves ``point_id`` to its indexed vector and searches without
+        a re-embed. The seed MUST be excluded by the caller via a ``must_not``
+        ``HasIdCondition`` in ``qdrant_filter`` (the retrieval adapter adds it)
+        so a point never appears in its own similar set.
+        """
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            logger.warning(
+                "vector_query_skipped",
+                extra={"reason": "not_available", "point_id": point_id},
+            )
+            return VectorQueryResult.empty()
+        if top_k <= 0:
+            msg = "top_k must be positive"
+            raise ValueError(msg)
+
+        with _get_tracer().start_as_current_span("vector.find_similar_by_id") as span:
+            span.set_attribute(VECTOR_OPERATION, "find_similar_by_id")
+            t0 = time.perf_counter()
+            try:
+                response = self._client.query_points(
+                    collection_name=self._collection_name,
+                    query=point_id,
+                    query_filter=qdrant_filter,
+                    limit=top_k,
+                    score_threshold=score_threshold,
+                    with_payload=True,
+                )
+                record_db_query("qdrant_query", time.perf_counter() - t0)
+                hits = [
+                    VectorQueryHit(
+                        id=str(p.id),
+                        distance=max(0.0, 1.0 - float(p.score)),
+                        metadata=dict(p.payload or {}),
+                    )
+                    for p in response.points
+                ]
+                span.set_attribute(VECTOR_STATUS, "success")
+                return VectorQueryResult(hits=hits)
+            except Exception as exc:
+                record_db_query("qdrant_query", time.perf_counter() - t0)
+                logger.error("vector_find_similar_failed", extra={"error": str(exc)})
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
+                return VectorQueryResult.empty()
+
     def delete_by_request_id(self, request_id: int | str) -> None:
         if not self._available:
             self.ensure_available()

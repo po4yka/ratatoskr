@@ -77,6 +77,24 @@ class VectorStore(Protocol):
         top_k: int,
     ) -> VectorQueryResult: ...
 
+    def query_filter(
+        self,
+        query_vector: Sequence[float],
+        qdrant_filter: Any,
+        top_k: int,
+        *,
+        score_threshold: float | None = None,
+    ) -> VectorQueryResult: ...
+
+    def find_similar_by_id(
+        self,
+        point_id: str,
+        qdrant_filter: Any,
+        top_k: int,
+        *,
+        score_threshold: float | None = None,
+    ) -> VectorQueryResult: ...
+
     def delete_by_request_id(self, request_id: int | str) -> None: ...
 
     def get_indexed_summary_ids(
