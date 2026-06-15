@@ -862,6 +862,30 @@ To swap to file-based traces for offline analysis: `OTEL_ENABLED=true OTEL_TRACE
 
 ---
 
+## LangGraph Postgres Checkpointer
+
+Persistent LangGraph graph state between nodes via a dedicated `AsyncPostgresSaver` backed by a **separate psycopg3 `AsyncConnectionPool`** (ADR-0004). This is the **only** sanctioned non-`Database` Postgres connection in the process (invariant 4, ADR-0018): `langgraph-checkpoint-postgres` requires psycopg3 and cannot route through `app.db.session.Database` (which is asyncpg). Everything here is **gated off by default** (`LANGGRAPH_CHECKPOINT_ENABLED=false`); no pool is opened, no schema is created, and the prune job early-returns until a deployment opts in. The `langgraph` schema is created by `AsyncPostgresSaver.setup()` via `search_path` — it is **not** Alembic-managed and can be dropped to reset graph state. Configuration owner: `app/config/langgraph.py::LangGraphCheckpointConfig`.
+
+| Variable | Type | Default | Purpose |
+|---|---|---|---|
+| `LANGGRAPH_CHECKPOINT_ENABLED` | bool | `false` | Master switch. When false, no psycopg3 pool is opened, no `langgraph` schema is created, and the prune job early-returns. Gated off until the graph cutover (ADR-0013). |
+| `LANGGRAPH_STRICT_MSGPACK` | bool | `true` | When true, the checkpoint serializer disables the pickle fallback so checkpoint blobs never trigger arbitrary-module deserialization (ADR-0004 security posture). |
+| `LANGGRAPH_CHECKPOINT_SCHEMA` | str | `langgraph` | Dedicated Postgres schema for the checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`). Created by `AsyncPostgresSaver.setup()`, not Alembic-managed; droppable to reset graph state. Must be alphanumeric/underscore. |
+| `LANGGRAPH_CHECKPOINT_POOL_MIN_SIZE` | int (≥1) | `1` | Minimum size of the dedicated psycopg3 checkpointer pool (ADR-0004). |
+| `LANGGRAPH_CHECKPOINT_POOL_MAX_SIZE` | int (≥1) | `5` | Maximum size of the dedicated psycopg3 checkpointer pool. **ADR-0004 authoritative value is 5 for this pool** — distinct from the CocoIndex pool. Counts against the Postgres connection budget (see `docs/cocoindex.md`). |
+| `LANGGRAPH_CHECKPOINT_DSN` | str \| None | `None` | Optional psycopg3 DSN override. When unset, the checkpointer derives its DSN from `DATABASE_URL` by stripping the `+asyncpg` driver suffix (psycopg3 uses the bare `postgresql://` scheme). |
+| `LANGGRAPH_CHECKPOINT_RETENTION_DAYS` | int (≥1) | `90` | Age in days past which a run's checkpoint rows are pruned by the nightly prune job. Aligned with the `AuditLog` 90-day ceiling (auth memo Decision 3 / ADR-0004). |
+| `LANGGRAPH_CHECKPOINT_PRUNE_CRON` | str | `"30 4 * * *"` | UTC 5-field cron expression for the nightly checkpoint prune job. Default is offset from the git-backup sync (`0 4 * * *`) to avoid overlap. |
+
+Notes:
+
+- The psycopg3 pool is **distinct** from the asyncpg pool used by `Database`. The two drivers are not interchangeable; only this pool may connect via psycopg3.
+- When `LANGGRAPH_CHECKPOINT_DSN` is left unset and `DATABASE_URL` includes `+asyncpg` (e.g. `postgresql+asyncpg://...`), the suffix is stripped automatically.
+- Pool size (`LANGGRAPH_CHECKPOINT_POOL_MAX_SIZE=5`) is intentionally small. The checkpointer is not on the hot path; it is called only at graph node boundaries.
+- The `langgraph` schema is fully droppable (`DROP SCHEMA langgraph CASCADE`) to wipe checkpoint history without touching Alembic-managed tables.
+
+---
+
 ## Configuration Validation Checklist
 
 Use this checklist to verify your configuration before deploying:
@@ -1034,6 +1058,6 @@ curl "$QDRANT_URL/healthz"
 
 ---
 
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-06-15
 
 **Found an error or have a question?** [Open an issue](https://github.com/po4yka/ratatoskr/issues) or check [FAQ](../explanation/faq.md).

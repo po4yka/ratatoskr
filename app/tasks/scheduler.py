@@ -148,6 +148,17 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
+        if cfg.langgraph_checkpoint.enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.langgraph.prune",
+                    cron=cfg.langgraph_checkpoint.prune_cron,
+                    labels={"job": "langgraph_prune"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+
         return tasks
 
     async def get_schedules(self) -> list[ScheduledTask]:

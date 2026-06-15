@@ -80,13 +80,30 @@ async def main() -> None:
         broker = None
 
     config_reloader.start()
+    # Start the LangGraph Postgres checkpointer when enabled (opt-in,
+    # failure-isolated; ADR-0004). Dedicated psycopg3 pool -- not Database.
+    # Started inside the try so the finally below always tears the pool down.
+    checkpointer_runtime: Any = None
     try:
+        if cfg.langgraph_checkpoint.enabled:
+            try:
+                from app.infrastructure.checkpointing import CheckpointerRuntime
+
+                checkpointer_runtime = CheckpointerRuntime(cfg=cfg)
+                await checkpointer_runtime.start()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "langgraph_checkpointer_startup_failed", exc_info=True
+                )
+                checkpointer_runtime = None
         await bot.start()
     finally:
         try:
             await bot.message_handler.message_router.coalescer.shutdown()
         except Exception:
             logging.getLogger(__name__).warning("coalescer_shutdown_failed", exc_info=True)
+        if checkpointer_runtime is not None:
+            await checkpointer_runtime.stop(timeout=10.0)
         await config_reloader.stop()
         await db_write_queue.stop()
         if broker_started and broker is not None and not broker.is_worker_process:

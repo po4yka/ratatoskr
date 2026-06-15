@@ -70,11 +70,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ## 3. Per-Track Sections
 
 ### T1 — Dependency & Build Foundation
+
 **Key:** `T1-deps-foundation` · **ADRs:** 0001, 0004, 0006, 0007, 0018 · **Effort:** M · **depends_on:** none · **parallel-safe:** ❌ (shared hot file `pyproject.toml`)
 
 **Summary.** Add an optional `graph` extra (langgraph + langgraph-checkpoint-postgres + psycopg3/psycopg-pool + a direct langchain-core pin), narrow the ruff banned-api guard to allow langgraph/langchain_core while still banning the langchain monorepo + community, relock via uv, and record the transitive supply chain. No code/runtime/default-image change — pure build scaffolding so later waves can `import langgraph`.
 
 **Work items (ordered).**
+
 1. `pyproject.toml [project.optional-dependencies]` (~196–317): add `graph = [...]` with `langgraph>=1.2.4,<2`, `langchain-core>=1.4.0,<2` (direct pin per ADR-0001), `langgraph-checkpoint-postgres>=2,<3` (verify floor at lock), `psycopg[binary]>=3.3.4`, `psycopg-pool>=3.2`. Keep `instructor>=1.5.0,<2` (line 185) untouched (ADR-0006). Do NOT add langchain-openai / langchain-qdrant.
 2. Narrow `[tool.ruff.lint.flake8-tidy-imports.banned-api]` (112–120): REMOVE `langgraph`, `langchain_core`, `langgraph_checkpoint` bans; KEEP `langchain`, `langchain_community`. Update stale "was intentionally removed" messages to cite reversed ADR-0001. Enforcement stays via the already-selected `TID` rule (no rule-selection change).
 3. Note the `psycopg[binary]` overlap with the existing `cocoindex` extra (line 305) is acceptable; `psycopg-pool` is genuinely new (absent from lock).
@@ -89,6 +91,7 @@ T2 (checkpoint infra) <--T1   v         v          v
 **Risks.** Shared `pyproject.toml` collides with every dep-touching track (serialize). Relock needs `SAFETY_API_KEY` + network or the lock silently drifts to PyPI. langchain ecosystem already transitively present via scrapegraphai — a direct pin may bump shared versions; verify scrapegraphai still resolves and langchain/langchain_community stay transitive-only. Wrong `langgraph-checkpoint-postgres` floor can fail resolution. Adding `--extra graph` to one export site but not the other guarantees a drift-CI failure. Reflexively adding `graph` to a Dockerfile violates ADR-0001.
 
 **Verification gates.**
+
 - `uv lock --check` exits 0; `git diff` over `uv.lock` + `requirements*.txt` clean after a second `make lock-uv`.
 - `uv sync --extra graph` then `python -c 'import langgraph, langchain_core; from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver; import psycopg, psycopg_pool'` succeeds.
 - `ruff check .` green; throwaway `import langchain` still trips banned-api, `import langgraph` does not.
@@ -98,11 +101,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T2 — Checkpoint Infrastructure
+
 **Key:** `T2-checkpoint-infra` · **ADRs:** 0004, 0011, 0001, 0018, 0013 · **Effort:** L · **depends_on:** T1 · **parallel-safe:** ❌ (edits canonical `core.py` enum)
 
 **Summary.** Stand up a dedicated psycopg3 `AsyncConnectionPool` + `AsyncPostgresSaver` (separate from the asyncpg `Database`), create the `langgraph` schema via `.setup()` at bot/API lifespan, add a nightly Redis-locked Taskiq prune for stale checkpoints, wire `LANGGRAPH_STRICT_MSGPACK`, and ship the Alembic migration adding `graph_node` to `llm_attempt_trigger`. All infra gated OFF by feature flag.
 
 **Work items (ordered).**
+
 1. Add `graph_node` to `LLMAttemptTrigger` StrEnum in `app/db/models/core.py` (30–56); `Enum(..., native_enum=True)` (59–65) picks it up via `values_callable`. Coordinate — canonical file edited by other tracks.
 2. New migration `app/db/alembic/versions/0036_add_graph_node_attempt_trigger.py` modeled on `0027_add_webwright_tool_attempt_trigger.py`: revision `0036`, down_revision `0035`, `upgrade = op.execute("ALTER TYPE llm_attempt_trigger ADD VALUE IF NOT EXISTS 'graph_node'")`, downgrade no-op (PG16 target).
 3. New `app/config/langgraph.py` (template `git_backup.py`): frozen `LangGraphCheckpointConfig` — `enabled` (`LANGGRAPH_CHECKPOINT_ENABLED`, default False), `strict_msgpack` (default True), pool min/max (**reconcile ADR-0004 max=5 vs `docs/cocoindex.md` max=10 — pick one, document it**), `schema_name` (default `langgraph`), `dsn_override` (strips `postgresql+asyncpg://`), retention days (default 90), prune cron (nightly).
@@ -123,11 +128,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T3 — Ports-and-Adapters Foundation
+
 **Key:** `T3-ports-foundation` · **ADRs:** 0014, 0010, 0015, 0016, 0017, 0018 · **Effort:** M · **depends_on:** none · **parallel-safe:** ❌ (shared `.importlinter`, `ports/__init__.py`, `di/types.py`, `pyproject.toml`)
 
 **Summary.** Establish the project-wide ports base for the rewrite: scaffold the three new application ports (retrieval, extraction, stream_sink), create `app/di/graphs.py` as the graph composition seam, and strengthen `.importlinter` toward the ADR-0014 layered contract. Lands the seams and the executable architecture definition without changing runtime behavior.
 
 **Work items (ordered).**
+
 1. `app/application/ports/retrieval.py`: `@runtime_checkable RetrievalPort` (ADR-0016) — async `retrieve(query|vector, entity_type, scope, top_k, filters)` and `find_similar(entity_type, id, top_k)`; `EntityType` discriminator; result DTO under `app/application/dto/` (extend `VectorSearchHitDTO`). Centralize the mandatory scope-filter contract in the docstring. Follow `search.py` conventions (`from __future__ import annotations`, TYPE_CHECKING only, no concrete deps).
 2. `app/application/ports/extraction.py`: `@runtime_checkable ExtractionPort` (ADR-0015) — single async `extract(request) -> result`; reference (don't duplicate) `scraper/protocol.py::ContentScraperProtocol` and `platform_extraction/protocol.py::PlatformExtractor`.
 3. `app/application/ports/stream_sink.py`: `@runtime_checkable StreamSinkPort` (ADR-0017) — `publish(request_id, event)`; framework-agnostic (no langgraph/astream_events types).
@@ -147,11 +154,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T4 — Unified Retrieval
+
 **Key:** `T4-retrieval-unification` · **ADRs:** 0016, 0012, 0005, 0010, 0014, 0018 · **Effort:** XL · **depends_on:** T3 · **parallel-safe:** ❌
 
 **Summary.** Implement `RetrievalPort` (retrieve + find_similar, entity_type-discriminated) backed by ONE Qdrant adapter that centralizes the mandatory environment+user_scope filter, rerank, and query expansion, then converge all current vector-search paths onto it as thin callers while keeping OpenAPI/MCP contracts byte-stable behind parity tests. **Scope is larger than ADR-0016 states: FIVE re-implementations converge, not three** — `StoreVectorSearchService`, `RepositorySearchService`, `GitMirrorSearchService`, MCP `SemanticSearchService`, and the legacy in-Postgres `VectorSearchService`.
 
 **Work items (ordered).**
+
 1. Define `RetrievalPort` + neutral DTOs (`RetrievalHit/Result/Scope`) generalizing `dto/vector_search.py`. `entity_type` ∈ `summary | repository | git_mirror | x_wiki` (match Qdrant payloads in `cocoindex/flow.py:98,201`).
 2. Implement ONE adapter `app/infrastructure/retrieval/qdrant_retrieval_adapter.py` (new package) reusing `QdrantVectorStore` + `EmbeddingProviderPort`. **Centralize the mandatory scope filter** (environment + user_scope always; per-entity user_id when user-scoped) so no caller can omit it — replacing the three divergent filter-build sites (`qdrant_store.query` 473–482; `RepositorySearchService` 143–175; `GitMirrorSearchService` 100–108 reaching into private `_client/_collection_name`).
 3. Per-entity hydration inside the adapter (summary→Summary+Request, repository→Repository row, git_mirror→GitMirror row), preserving the defense-in-depth Postgres-side user_id re-filter.
@@ -177,11 +186,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T5 — Graph Skeleton + Runtime Contract
+
 **Key:** `T5-graph-skeleton` · **ADRs:** 0010, 0011, 0001, 0004, 0013, 0015, 0018 · **Effort:** L · **depends_on:** T3, T2 · **parallel-safe:** ❌ (owns `nodes/*` + `graph.py` + edits `attributes.py`)
 
 **Summary.** Build the greenfield LangGraph summarize `StateGraph` skeleton under `app/application/graphs/summarize/` — a serializable id-based `SummarizeState` TypedDict, async node stubs calling only application ports (deps via config/`functools.partial`, never in state), `thread_id=correlation_id`, per-node OTel spans reusing `app/observability/otel.py`, failure mapping to the existing `RequestProcessingJob`/`RequestStatus.ERROR` lifecycle, and a compile entrypoint taking an in-memory checkpointer first (swappable to T2's `AsyncPostgresSaver`).
 
 **Work items (ordered).**
+
 1. `app/application/graphs/{__init__,summarize/__init__}.py` (new package).
 2. `app/application/graphs/summarize/state.py`: `SummarizeState` TypedDict, serializable primitives ONLY (ADR-0011) — `correlation_id:str`, `request_id:int`, `lang:str`, `grounding_ids:list[str]`, `summary:dict`, `validation_errors:list[str]`, `repair_attempts:int`, `call_count:int`. NO live deps; content re-fetched by `request_id`.
 3. `app/application/graphs/summarize/deps.py`: deps bundle typed ONLY against application ports (llm_client, summaries, requests, T3 retrieval). MUST NOT import `app.adapters.*`/`app.infrastructure.*` (preserves `application-no-outward`, which already auto-covers `app.application.graphs`).
@@ -204,11 +215,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T6 — RAG `ground` Node + Read-Your-Writes Freshness
+
 **Key:** `T6-rag-node-freshness` · **ADRs:** 0005, 0012, 0010, 0015, 0016, 0018 · **Effort:** L · **depends_on:** T4, T5 · **parallel-safe:** ❌
 
 **Summary.** Add a `ground` node using the T4 retrieval port to fetch top-k scope-filtered prior summaries and inject them as a clearly-delimited "related prior summaries (reference only)" block into the summarize system prompt, plus a synchronous read-your-writes fast-path that upserts each newly-created summary into Qdrant on the persist path before the request is marked done — demoting CocoIndex/reconciler to backfill/repair only.
 
 **Work items (ordered).**
+
 1. **GAP — read-your-writes write does not exist today:** summaries reach Qdrant ONLY via CocoIndex poll-ETL (`cocoindex/flow.py::build_summaries_flow`) or the operator CLI `cli/backfill_vector_store.py` (sole `replace_request_notes` caller for summaries); `vector/reconciliation.py` is detect/stats-only. A just-created summary is not retrievable until the next poll — exactly the ADR-0012 gap.
 2. Config (rule 11 / ADR-0018): add `SUMMARIZE_RAG_ENABLED` (default OFF) + `RAG_TOP_K` (default 5) in `app/config/`; record explicit removal trigger. Embedding models stay from `ratatoskr.yaml` — no code defaults.
 3. `nodes/ground.py` as plain `async def ground(state, deps) -> dict`: no-op when flag off OR retrieval unavailable; else embed article text and call `port.retrieve(query=..., entity_type='summary', scope=<user_scope/environment>, top_k=RAG_TOP_K)`. Depends ONLY on the application retrieval port.
@@ -231,11 +244,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T7 — Extraction Port + Pipeline Collapse
+
 **Key:** `T7-extraction-pipeline-collapse` · **ADRs:** 0015, 0010, 0011, 0013, 0014, 0017, 0018 · **Effort:** XL · **depends_on:** T5, T3 · **parallel-safe:** ❌ (largest blast radius)
 
 **Summary.** Introduce an `extraction` port whose single adapter dispatches by source kind to the scraper-chain algorithm (kept whole inside its adapter) OR the youtube/twitter/academic/github/meta platform extractors, then collapse the url_processor / interactive_summary_service / pure_summary_service / ContentExtractor indirection into graph nodes (ingest/extract/ground/build_prompt/summarize/validate/repair/enrich/persist/notify). Largest track: owns the `extract` node + the whole pipeline collapse, gated by an all-source-kind parity test before legacy deletion.
 
 **Work items (ordered).**
+
 1. **Audit reality:** dispatch is NOT a `requests.source_kind` column (none exists; `Request` has only `route_version`, `core.py:322`). Real dispatch is URL-pattern predicates in `di/platform_extractors.py::build_platform_extractor_descriptors` (is_github/academic/youtube/twitter/threads/instagram) routed by `PlatformExtractionRouter`, with `ContentScraperChain.scrape_markdown` as fallback. The port wraps THIS predicate-router + chain fusion (today fused inside `ContentExtractor.extract_and_process_content`). **Source kinds are broader than CLAUDE rule 8: also github + meta(threads/instagram).**
 2. Define `app/application/ports/extraction.py`: `ExtractionPort` with `async extract(request: ExtractionRequest) -> ExtractionResult` + serializable DTOs mirroring `PlatformExtractionResult` fields (content_text, content_source, detected_lang, title, images, metadata, request_id, source_item, normalized_document). **No Telegram `message` objects** in DTOs — notification concerns go through the notify node.
 3. Implement `app/adapters/content/extraction_adapter.py` (or slim `ContentExtractor`): (a) normalize URL via `url_utils.normalize_url` + sha256 dedupe key, (b) `PlatformExtractionRouter.extract` first, (c) fall back to `ContentScraperChain.scrape_markdown` inside `self._sem()`, (d) `detect_low_value_content` + `persist_request_failure` on failure (preserve `crawl_results` + `REASON_FIRECRAWL_*` codes), (e) build `NormalizedSourceDocument`. **Chain stays a cohesive algorithm — do NOT explode rungs into nodes** (ADR-0015).
@@ -261,11 +276,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T8 — Streaming Under the Graph
+
 **Key:** `T8-streaming` · **ADRs:** 0017, 0010, 0011, 0014, 0015, 0013, 0018 · **Effort:** M · **depends_on:** T5 · **parallel-safe:** ❌
 
 **Summary.** Bridge LangGraph `astream_events` from the `summarize` node into the existing in-process `StreamHub` via the new `stream_sink` port, keeping streamed tokens as an ephemeral side-channel (never in checkpoint state). SSE and Telegram-draft consumers stay byte-for-byte unchanged; only the producer side moves from the legacy callback chain to the graph.
 
 **Work items (ordered).**
+
 1. `app/application/ports/stream_sink.py` `StreamSink` port (T3-scaffolded; finalize surface): async `stage(stage)`, `section(section, content, partial)`, `warning(code, message)`, `done(summary_id, request_id)`, `error(code, message, correlation_id)`. Carries `request_id` + `correlation_id` per call; never imports `StreamHub`. Register in `ports/__init__.py`.
 2. `app/adapters/content/streaming/stream_sink_hub.py` `StreamHubStreamSink`: wrap `get_stream_hub()`/injected `StreamHub` + `StreamEvent.now(...)`. The SINGLE streaming-coupled surface; reuse exact `Stage/Section/Warning/Done/ErrorPayload` shapes from `streaming/events.py` so consumers need zero changes.
 3. `app/adapters/content/streaming/graph_event_bridge.py`: async helper consuming `graph.astream_events(...)` → StreamSink calls — token deltas → reuse `SummarySectionStreamAssembler.add_delta()` for section snapshots; node transitions → `stage` events (extracting/summarizing/validating/persisting/done) matching `ProcessingStage`. Keep the assembler OUTSIDE checkpoint state (per-invocation, ephemeral). Replaces inline `get_stream_hub().publish('stage', ...)` in `url_processor.py:294/371/375/391` + `url_flow_context_builder.py:112`.
@@ -286,11 +303,13 @@ T2 (checkpoint infra) <--T1   v         v          v
 ---
 
 ### T9 — Parity Net + Hard Cutover + Flag Retirement
+
 **Key:** `T9-parity-cutover-flags` · **ADRs:** 0013, 0018, 0015, 0011, 0010, 0001 · **Effort:** XL · **depends_on:** T5, T6, T7, T8 · **parallel-safe:** ❌
 
 **Summary.** The final code track: write a comprehensive golden/parity suite proving the LangGraph summarize graph (T5–T8) matches the legacy path across every source_kind plus budget/sticky-fallback/two-pass behaviors, then perform the hard cutover — flip the default, delete `pure_summary_service` + `url_processor`/`interactive_summary_service` indirection, retire all transitional flags, update docs/CLAUDE/skills. Gated entirely by the parity net; touches legacy files + ~30 app callers + ~20 test files.
 
 **Work items (ordered).**
+
 1. **GAP-ZERO prerequisite check:** confirm T5–T8 delivered the graph (graphs package, retrieval port, di/graphs.py, `graph_node` enum, langgraph un-ban, transitional flags). T9 cannot start otherwise.
 2. **PARITY SUITE (write FIRST):** `tests/parity/test_summarize_graph_parity.py` (dir already holds `test_contract_consistency.py`). Assert graph ≡ legacy for the same fixture across ALL five ADR-0013 source_kinds (generic URL, YouTube, Twitter/X, academic, forwarded). Compare via `validate_and_shape_summary` (normalizes non-deterministic text); **mock the llm_client port** so both paths get identical canned responses.
 3. PARITY — budget/token: golden-test `select_max_tokens` (1536/12288 dynamic budget) + long-context routing/truncation (`long_context_threshold_tokens`, chars_per_token) produce identical max_tokens/model_override in summarize/build_prompt nodes.

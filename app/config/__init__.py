@@ -10,6 +10,7 @@ from .content import ContentLimitsConfig
 from .database import DatabaseConfig
 from .firecrawl import FirecrawlConfig
 from .integrations import EmbeddingConfig, McpConfig, QdrantConfig, WebSearchConfig
+from .langgraph import LangGraphCheckpointConfig
 from .llm import (
     LLMUsageBudgetConfig,
     ModelRoutingConfig,
@@ -48,6 +49,7 @@ __all__ = [
     "EmbeddingConfig",
     "FirecrawlConfig",
     "LLMUsageBudgetConfig",
+    "LangGraphCheckpointConfig",
     "McpConfig",
     "ModelRoutingConfig",
     "OpenRouterConfig",
