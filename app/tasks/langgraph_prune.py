@@ -115,7 +115,10 @@ async def _prune_body(cfg: AppConfig) -> CheckpointPruneStats:
             return stats
         for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
             del_cur = await conn.execute(
-                f'DELETE FROM "{schema}".{table} WHERE thread_id = ANY(%(ids)s)',
+                # `schema` is validated [A-Za-z0-9_] at config time and `table` is a
+                # fixed literal from the tuple above, so this is not user-controlled
+                # SQL; the id set is parameterized.
+                f'DELETE FROM "{schema}".{table} WHERE thread_id = ANY(%(ids)s)',  # nosec B608
                 {"ids": thread_ids},
             )
             setattr(stats, table, del_cur.rowcount or 0)

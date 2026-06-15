@@ -101,7 +101,7 @@ class CheckpointerRuntime:
             saver = AsyncPostgresSaver(pool, serde=serde)
             await saver.setup()
             self._saver = saver
-        except BaseException:
+        except Exception:
             # Never leak the just-opened pool if schema creation / setup fails:
             # the caller may discard this instance on error (failure isolation).
             await self.stop()
