@@ -143,22 +143,16 @@ class TestAuthorizationChecks:
         owned_summary = {"id": 42, "user_id": mock_user["user_id"], "is_deleted": False}
         summary_repo = MagicMock()
         summary_repo.async_get_summary_by_id = AsyncMock(return_value=owned_summary)
-        use_case = SummaryReadModelUseCase(
-            summary_repo, MagicMock(), MagicMock(), MagicMock()
-        )
+        use_case = SummaryReadModelUseCase(summary_repo, MagicMock(), MagicMock(), MagicMock())
 
         # The owner can read their own summary.
         assert (
-            await use_case.get_summary_by_id_for_user(
-                user_id=mock_user["user_id"], summary_id=42
-            )
+            await use_case.get_summary_by_id_for_user(user_id=mock_user["user_id"], summary_id=42)
             == owned_summary
         )
         # A different user is denied (None -> 404 at the router).
         assert (
-            await use_case.get_summary_by_id_for_user(
-                user_id=other_user["user_id"], summary_id=42
-            )
+            await use_case.get_summary_by_id_for_user(user_id=other_user["user_id"], summary_id=42)
             is None
         )
 
