@@ -219,7 +219,9 @@ class TestPaginateRecords:
             make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 11)
         ]  # 10 records, versions 1-10
 
-        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=0, limit=5)
+        page, has_more, _next_since = sync_service._collector.paginate_records(
+            records, since=0, limit=5
+        )
 
         assert len(page) == 5
         assert has_more is True
@@ -231,7 +233,9 @@ class TestPaginateRecords:
             make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 4)
         ]  # 3 records
 
-        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=0, limit=5)
+        page, has_more, _next_since = sync_service._collector.paginate_records(
+            records, since=0, limit=5
+        )
 
         assert len(page) == 3
         assert has_more is False
@@ -241,7 +245,9 @@ class TestPaginateRecords:
         """Test paginating with since cursor."""
         records = [make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 11)]
 
-        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=5, limit=3)
+        page, has_more, _next_since = sync_service._collector.paginate_records(
+            records, since=5, limit=3
+        )
 
         assert len(page) == 3
         assert all(r.server_version > 5 for r in page)
@@ -251,7 +257,9 @@ class TestPaginateRecords:
         """Test paginating with no records."""
         records = []
 
-        page, has_more, _next_since = sync_service._collector.paginate_records(records, since=0, limit=5)
+        page, has_more, _next_since = sync_service._collector.paginate_records(
+            records, since=0, limit=5
+        )
 
         assert len(page) == 0
         assert has_more is False

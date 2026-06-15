@@ -94,5 +94,3 @@ class TestObservability:
         # Second one exhausted the budget — distinct event type.
         kinds = [e["event"] for e in events]
         assert "openrouter_provider_rotation_exhausted" in kinds
-
-

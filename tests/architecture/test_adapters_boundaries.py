@@ -67,9 +67,7 @@ def test_ingestors_adapter_has_no_peer_imports():
 
 def test_rss_adapter_has_no_peer_imports():
     subdomain_root = Path(__file__).resolve().parents[2] / "app" / "adapters" / "rss"
-    forbidden_prefixes = tuple(
-        "app.adapters." + s for s in PEER_ADAPTER_SUBPACKAGES if s != "rss"
-    )
+    forbidden_prefixes = tuple("app.adapters." + s for s in PEER_ADAPTER_SUBPACKAGES if s != "rss")
     violations = collect_forbidden_imports(subdomain_root, forbidden_prefixes=forbidden_prefixes)
     assert violations == [], violations
 
@@ -122,7 +120,11 @@ def test_adapters_dependency_matrix_summary():
                 except SyntaxError:
                     continue
                 for node in ast.walk(tree):
-                    if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith(prefix):
+                    if (
+                        isinstance(node, ast.ImportFrom)
+                        and node.module
+                        and node.module.startswith(prefix)
+                    ):
                         hits.append(f"{path.name}:{node.lineno}")
                     if isinstance(node, ast.Import):
                         for alias in node.names:

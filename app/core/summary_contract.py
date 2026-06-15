@@ -74,6 +74,7 @@ DEFAULT_SUMMARY_CONTRACT_DESCRIPTOR = SummaryContractDescriptor(
     compatibility_mapper=lambda payload: _validate_python(payload),
 )
 
+
 def get_summary_contract_descriptor(
     contract_id: SummaryContractId = DEFAULT_SUMMARY_CONTRACT_ID,
 ) -> SummaryContractDescriptor:

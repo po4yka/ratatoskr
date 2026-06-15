@@ -18,10 +18,10 @@ from app.db.models.git_backup import GitMirrorSource
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.adapters.git_backup.repository import GitMirrorRepository
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
+    from app.adapters.git_backup.repository import GitMirrorRepository
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )

@@ -42,7 +42,8 @@ from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncContextManager, Callable
+    from collections.abc import Callable
+    from contextlib import AbstractAsyncContextManager
 
     from app.adapters.content.url_processor import URLProcessor
     from app.adapters.digest.digest_service import DigestService
@@ -59,7 +60,7 @@ if TYPE_CHECKING:
 def _build_digest_service_factory(
     cfg: AppConfig,
     formatter: Any,
-) -> Callable[[CommandExecutionContext], AsyncContextManager[DigestService]]:
+) -> Callable[[CommandExecutionContext], AbstractAsyncContextManager[DigestService]]:
     """Return an async-context-manager factory for DigestService.
 
     Lives in the DI layer so the ``telegram`` adapter does not need a runtime
@@ -76,7 +77,7 @@ def _build_digest_service_factory(
     from app.adapters.openrouter.openrouter_client import OpenRouterClient
 
     @asynccontextmanager
-    async def _factory(ctx: CommandExecutionContext):  # type: ignore[no-untyped-def]
+    async def _factory(ctx: CommandExecutionContext):
         session_dir = _Path("/data")
         userbot = UserbotClient(cfg, session_dir)
         await userbot.start()
@@ -105,7 +106,7 @@ def _build_digest_service_factory(
         finally:
             await userbot.stop()
 
-    return _factory  # type: ignore[return-value]
+    return _factory
 
 
 def _build_mirror_repo_factory(cfg: AppConfig, db: Any) -> Callable[[], GitMirrorRepository]:
@@ -119,7 +120,7 @@ def _build_mirror_repo_factory(cfg: AppConfig, db: Any) -> Callable[[], GitMirro
     def _factory() -> _GitMirrorRepository:
         return _GitMirrorRepository(db, cfg.git_backup)
 
-    return _factory  # type: ignore[return-value]
+    return _factory
 
 
 def build_command_dispatcher_deps(

@@ -15,7 +15,8 @@ from app.infrastructure.persistence.digest_subscription_ops import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncContextManager, AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Callable
+    from contextlib import AbstractAsyncContextManager
 
     from app.adapters.digest.digest_service import DigestService
     from app.adapters.external.formatting.protocols import (
@@ -47,7 +48,10 @@ class DigestHandler(HandlerDependenciesMixin):
         cfg: AppConfig,
         db: Database,
         response_formatter: ResponseFormatter,
-        digest_service_factory: Callable[[CommandExecutionContext], AsyncContextManager[DigestService]] | None = None,
+        digest_service_factory: Callable[
+            [CommandExecutionContext], AbstractAsyncContextManager[DigestService]
+        ]
+        | None = None,
     ) -> None:
         super().__init__(cfg=cfg, db=db, response_formatter=response_formatter)
         self._digest_service_factory = digest_service_factory

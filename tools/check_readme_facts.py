@@ -7,9 +7,11 @@ Run from the repository root:
 Exits 0 on success, 1 on any mismatch.
 Update the constants below when intentionally changing the stack topology.
 """
+
 import sys
-import yaml
 from pathlib import Path
+
+import yaml
 
 # Update when adding/removing always-on (non-profile) services in docker-compose.yml.
 REQUIRED_SERVICES = [

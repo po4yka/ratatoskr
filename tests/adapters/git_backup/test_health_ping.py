@@ -115,5 +115,3 @@ async def test_ping_failure_no_body_sends_empty_content() -> None:
     with _patch_client(transport):
         await ping_failure(_BASE_URL, _TIMEOUT, body=None)
     assert captured["request"].content == b""
-
-

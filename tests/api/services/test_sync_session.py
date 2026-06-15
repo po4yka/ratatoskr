@@ -274,9 +274,7 @@ class TestStartSession:
     @pytest.mark.asyncio
     async def test_start_session_success(self, sync_service, mock_config):
         """Test starting a new session successfully."""
-        with patch.object(
-            sync_service, "_store_session", new_callable=AsyncMock
-        ) as mock_store:
+        with patch.object(sync_service, "_store_session", new_callable=AsyncMock) as mock_store:
             result = await sync_service.start_session(
                 user_id=123, client_id="test-client", limit=100
             )
@@ -296,9 +294,7 @@ class TestStartSession:
     @pytest.mark.asyncio
     async def test_start_session_with_none_limit(self, sync_service):
         """Test starting session with None limit uses default."""
-        with patch.object(
-            sync_service, "_store_session", new_callable=AsyncMock
-        ) as mock_store:
+        with patch.object(sync_service, "_store_session", new_callable=AsyncMock) as mock_store:
             result = await sync_service.start_session(
                 user_id=123, client_id="test-client", limit=None
             )

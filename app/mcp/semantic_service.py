@@ -7,7 +7,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 

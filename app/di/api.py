@@ -27,10 +27,10 @@ from app.config import load_config
 from app.core.logging_utils import get_logger
 from app.db.api_runtime_holder import (  # noqa: F401  - re-exported for back-compat
     _current_runtime_holder,
+    _require_api_runtime as get_current_api_runtime,
     clear_current_api_runtime,
     set_current_api_runtime,
 )
-from app.db.api_runtime_holder import _require_api_runtime as get_current_api_runtime
 from app.di.database import build_runtime_database
 from app.di.repositories import (
     build_crawl_result_repository,

@@ -176,8 +176,6 @@ def test_request_identity_scope_exposes_user_and_client() -> None:
     assert context.auth_source is None
 
 
-
-
 def test_active_mcp_request_identity_takes_precedence() -> None:
     mcp_server = pytest.importorskip("mcp.server.lowlevel.server")
     request_ctx = mcp_server.request_ctx

@@ -284,9 +284,7 @@ def _build_firecrawl(
         from .firecrawl_provider import FirecrawlProvider
 
         timeout_multiplier = profile_timeout_multiplier(scraper_cfg.profile)
-        profiled_timeout = max(
-            1, round(scraper_cfg.firecrawl_timeout_sec * timeout_multiplier)
-        )
+        profiled_timeout = max(1, round(scraper_cfg.firecrawl_timeout_sec * timeout_multiplier))
         profiled_retries = profile_retry_budget(
             scraper_cfg.firecrawl_max_retries,
             scraper_cfg.profile,

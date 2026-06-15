@@ -591,7 +591,9 @@ class ContentScraperChain:
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
                     record_scraper_chain_failure(provider=name, reason="error_page")
-                    record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+                    record_scraper_chain_duration(
+                        provider=name, latency_seconds=latency_ms / 1000.0
+                    )
                     logger.info(
                         "scraper_chain_error_page",
                         extra={
@@ -612,7 +614,9 @@ class ContentScraperChain:
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
                     record_scraper_chain_failure(provider=name, reason="too_short")
-                    record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+                    record_scraper_chain_duration(
+                        provider=name, latency_seconds=latency_ms / 1000.0
+                    )
                     logger.info(
                         "scraper_chain_thin_content",
                         extra={
@@ -642,7 +646,9 @@ class ContentScraperChain:
                         provider=name, latency_seconds=latency_ms / 1000.0
                     )
                     record_scraper_chain_failure(provider=name, reason="low_value")
-                    record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+                    record_scraper_chain_duration(
+                        provider=name, latency_seconds=latency_ms / 1000.0
+                    )
                     logger.info(
                         "scraper_chain_low_value_content",
                         extra={

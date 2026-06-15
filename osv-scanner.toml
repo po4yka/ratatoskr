@@ -1,0 +1,10 @@
+# OSV-Scanner configuration — accepted/unfixable vulnerabilities.
+# Reviewed exceptions only; each needs an id + reason. CI scans uv.lock.
+
+[[IgnoredVulns]]
+id = "GHSA-rrmf-rvhw-rf47"
+# torch 2.12.0 — Medium (CVSS 5.3) DoS. No fixed version is published
+# (OSV reports "0 vulnerabilities can be fixed"). torch is pulled in only by the
+# optional `ml` extra (sentence-transformers embeddings) and is never exposed to
+# untrusted request input. Re-evaluate when an upstream fix ships.
+reason = "torch DoS GHSA-rrmf-rvhw-rf47: no upstream fix available; ml-extra only, not in request path"

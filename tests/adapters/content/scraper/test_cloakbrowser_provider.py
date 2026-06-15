@@ -260,7 +260,6 @@ class TestCloakBrowserProvider:
         assert any(event == "cloakbrowser_failure" for _, event, _ in audit_calls)
 
 
-
 class TestStealthKnobs:
     def test_fingerprint_seed_is_stable_per_domain(self) -> None:
         from app.adapters.content.scraper.cloakbrowser_provider import _seed_for_url

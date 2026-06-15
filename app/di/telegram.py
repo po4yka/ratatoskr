@@ -22,13 +22,13 @@ from app.adapters.transcription import TranscriptionService, get_or_create_trans
 from app.agents.multi_source_aggregation_agent import MultiSourceAggregationAgent
 from app.agents.multi_source_extraction_agent import MultiSourceExtractionAgent
 from app.agents.relationship_analysis_agent import RelationshipAnalysisAgent
+from app.application.dto.vector_search import VectorSearchHitDTO
 from app.application.services.adaptive_timeout import AdaptiveTimeoutService
 from app.application.services.aggregation_rollout import AggregationRolloutGate
 from app.application.services.llm_cascade_timeout import compute_llm_cascade_floor
 from app.application.services.multi_source_aggregation_service import (
     MultiSourceAggregationService,
 )
-from app.application.dto.vector_search import VectorSearchHitDTO
 from app.application.services.related_reads_service import RelatedReadsService
 from app.application.services.transcription_job_service import TranscriptionJobService
 from app.application.services.tts_service import TTSService

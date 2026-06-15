@@ -35,10 +35,7 @@ def _count_endpoints_in_file(path: Path) -> int:
                 and decorator.func.attr in _HTTP_METHODS
             ):
                 count += 1
-            elif (
-                isinstance(decorator, ast.Attribute)
-                and decorator.attr in _HTTP_METHODS
-            ):
+            elif isinstance(decorator, ast.Attribute) and decorator.attr in _HTTP_METHODS:
                 # Bare attribute reference without call args (rare but valid)
                 count += 1
     return count

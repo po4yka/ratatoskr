@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.lifecycle_manager import TelegramLifecycleManager
 from app.adapters.telegram.telethon_compat import normalize_parse_mode
-from app.di.repositories import build_audit_log_repository as create_bot_audit_repository
-from app.di.telegram import build_telegram_runtime as build_bot_runtime
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import generate_correlation_id, get_logger, setup_json_logging
 from app.core.time_utils import UTC, format_iso_z
+from app.di.repositories import build_audit_log_repository as create_bot_audit_repository
+from app.di.telegram import build_telegram_runtime as build_bot_runtime
 
 if TYPE_CHECKING:
     from app.config import AppConfig

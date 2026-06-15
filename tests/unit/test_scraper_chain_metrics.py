@@ -18,6 +18,7 @@ by reading the current label value before the action and asserting the delta.
 This avoids import-order coupling and stays robust to metric-object
 initialization order.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -28,7 +29,6 @@ import pytest
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.observability import metrics as metrics_module
-
 
 # ---------------------------------------------------------------------------
 # Low-level prometheus_client introspection helpers
@@ -62,7 +62,6 @@ def _histogram_sum(histogram: Any, **labels: str) -> float:
         return histogram.labels(**labels)._sum.get()
     except Exception:
         return 0.0
-
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +148,9 @@ async def test_success_chain_attempts_increments() -> None:
         await chain.scrape_markdown("https://example.com/article")
 
     after = _counter_value(metrics_module.SCRAPER_CHAIN_ATTEMPTS_TOTAL, provider=name)
-    assert after - before == pytest.approx(1.0), "chain_attempts_total must increment by 1 on success"
+    assert after - before == pytest.approx(1.0), (
+        "chain_attempts_total must increment by 1 on success"
+    )
 
 
 @pytest.mark.asyncio
@@ -165,7 +166,9 @@ async def test_success_chain_successes_increments() -> None:
         await chain.scrape_markdown("https://example.com/article")
 
     after = _counter_value(metrics_module.SCRAPER_CHAIN_SUCCESSES_TOTAL, provider=name)
-    assert after - before == pytest.approx(1.0), "chain_successes_total must increment by 1 on success"
+    assert after - before == pytest.approx(1.0), (
+        "chain_successes_total must increment by 1 on success"
+    )
 
 
 @pytest.mark.asyncio
@@ -188,15 +191,20 @@ async def test_success_chain_failures_not_incremented() -> None:
     with _SAFE_URL:
         await chain.scrape_markdown("https://example.com/article")
 
-    assert _counter_value(
-        metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=name, reason="empty"
-    ) == before_empty, "failures{empty} must not increment on success"
-    assert _counter_value(
-        metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=name, reason="error"
-    ) == before_error, "failures{error} must not increment on success"
-    assert _counter_value(
-        metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=name, reason="too_short"
-    ) == before_too_short, "failures{too_short} must not increment on success"
+    assert (
+        _counter_value(metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=name, reason="empty")
+        == before_empty
+    ), "failures{empty} must not increment on success"
+    assert (
+        _counter_value(metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=name, reason="error")
+        == before_error
+    ), "failures{error} must not increment on success"
+    assert (
+        _counter_value(
+            metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=name, reason="too_short"
+        )
+        == before_too_short
+    ), "failures{too_short} must not increment on success"
 
 
 @pytest.mark.asyncio
@@ -211,9 +219,10 @@ async def test_success_chain_duration_observed() -> None:
     provider = _make_provider(name, _ok_result())
     chain = _make_chain(provider)
 
-    with _SAFE_URL, patch(
-        "app.adapters.content.scraper.chain.record_scraper_chain_duration"
-    ) as mock_dur:
+    with (
+        _SAFE_URL,
+        patch("app.adapters.content.scraper.chain.record_scraper_chain_duration") as mock_dur,
+    ):
         await chain.scrape_markdown("https://example.com/article")
 
     mock_dur.assert_called_once_with(provider=name, latency_seconds=pytest.approx(0.0, abs=5.0))
@@ -298,7 +307,9 @@ async def test_empty_result_chain_attempts_still_increments() -> None:
         await chain.scrape_markdown("https://example.com/article")
 
     after = _counter_value(metrics_module.SCRAPER_CHAIN_ATTEMPTS_TOTAL, provider=name)
-    assert after - before == pytest.approx(1.0), "chain_attempts_total must increment even on failure"
+    assert after - before == pytest.approx(1.0), (
+        "chain_attempts_total must increment even on failure"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +402,9 @@ async def test_too_short_chain_failures_too_short_increments() -> None:
     after = _counter_value(
         metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=name, reason="too_short"
     )
-    assert after - before == pytest.approx(1.0), "failures{too_short} must increment on thin content"
+    assert after - before == pytest.approx(1.0), (
+        "failures{too_short} must increment on thin content"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -445,9 +458,10 @@ async def test_fallback_first_fails_second_succeeds_chain_metrics() -> None:
         metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=failing_name, reason="empty"
     ) - before_fail_failures == pytest.approx(1.0), "failing provider: chain_failures{empty}+1"
 
-    assert _counter_value(
-        metrics_module.SCRAPER_CHAIN_SUCCESSES_TOTAL, provider=failing_name
-    ) == before_fail_successes, "failing provider: chain_successes must NOT increment"
+    assert (
+        _counter_value(metrics_module.SCRAPER_CHAIN_SUCCESSES_TOTAL, provider=failing_name)
+        == before_fail_successes
+    ), "failing provider: chain_successes must NOT increment"
 
     # Winning provider assertions
     assert _counter_value(
@@ -458,9 +472,12 @@ async def test_fallback_first_fails_second_succeeds_chain_metrics() -> None:
         metrics_module.SCRAPER_CHAIN_SUCCESSES_TOTAL, provider=winning_name
     ) - before_win_successes == pytest.approx(1.0), "winning provider: chain_successes+1"
 
-    assert _counter_value(
-        metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=winning_name, reason="empty"
-    ) == before_win_failures, "winning provider: chain_failures must NOT increment"
+    assert (
+        _counter_value(
+            metrics_module.SCRAPER_CHAIN_FAILURES_TOTAL, provider=winning_name, reason="empty"
+        )
+        == before_win_failures
+    ), "winning provider: chain_failures must NOT increment"
 
 
 @pytest.mark.asyncio
@@ -509,9 +526,10 @@ async def test_duration_histogram_recorded_on_failure() -> None:
     provider = _make_provider(name, _empty_result())
     chain = _make_chain(provider)
 
-    with _SAFE_URL, patch(
-        "app.adapters.content.scraper.chain.record_scraper_chain_duration"
-    ) as mock_dur:
+    with (
+        _SAFE_URL,
+        patch("app.adapters.content.scraper.chain.record_scraper_chain_duration") as mock_dur,
+    ):
         await chain.scrape_markdown("https://example.com/article")
 
     mock_dur.assert_called_once_with(provider=name, latency_seconds=pytest.approx(0.0, abs=5.0))
@@ -524,9 +542,10 @@ async def test_duration_histogram_recorded_on_exception() -> None:
     provider = _make_raising_provider(name, RuntimeError("sidecar unavailable"))
     chain = _make_chain(provider)
 
-    with _SAFE_URL, patch(
-        "app.adapters.content.scraper.chain.record_scraper_chain_duration"
-    ) as mock_dur:
+    with (
+        _SAFE_URL,
+        patch("app.adapters.content.scraper.chain.record_scraper_chain_duration") as mock_dur,
+    ):
         await chain.scrape_markdown("https://example.com/article")
 
     mock_dur.assert_called_once_with(provider=name, latency_seconds=pytest.approx(0.0, abs=5.0))
@@ -558,4 +577,6 @@ async def test_total_latency_observed_when_all_providers_fail() -> None:
         mode="serial",
         outcome="empty",
     )
-    assert after_sum > before_sum, "chain_total_latency_seconds{empty} must be observed on exhaustion"
+    assert after_sum > before_sum, (
+        "chain_total_latency_seconds{empty} must be observed on exhaustion"
+    )

@@ -31,8 +31,10 @@ already ships.
 ## The 8 themes (ranked by impact)
 
 ### 1. DDD ports/adapters/DTO layering with one implementation each — **~3,500L**
+
 The single largest cluster. Hexagonal scaffolding around a personal bot that has
 exactly one concrete implementation of everything.
+
 - `app/application/ports/` — **41–44 `Protocol` Port classes** wrapping repos that have one impl (`~2,000L`).
 - DTO triple-mapping: `summary_dto.py` + `request_dto.py` with `to/from_domain_model` (`237L`), used only by tests.
 - `app/di/repositories.py` — 19 `build_X_repository` factories, each `return XAdapter(...)` (`80L`).
@@ -42,6 +44,7 @@ exactly one concrete implementation of everything.
 - `GetUnreadSummariesUseCase` maps repo dicts → domain → back (`70L`).
 
 ### 2. Dead / superseded subsystems left by the migration — **~3,000L+**
+
 - **Domain event-bus messaging** (`app/infrastructure/messaging/`): `event_bus.py` + `wiring.py` + 11 handlers (`1,757L`), driven by domain events that **are subscribed but never published** (`request_events/tag_events/rule_events` — `330L`). Only `SummaryMarkedAsRead` is ever published, and its handler just re-persists what mark-as-read already wrote.
 - `migrate_vector_store.py` — finished ChromaDB→Qdrant one-shot CLI; **no `chromadb` dep or `chroma` reference exists anymore** (`458L`).
 - `commands.py` — old Telegram command framework, superseded by `command_dispatch/` (`234L`).
@@ -51,35 +54,42 @@ exactly one concrete implementation of everything.
 - `db/runtime/operation_executor.py` + `DatabaseExecutorPort` — callers already use `Database.session()` directly (`210L`).
 
 ### 3. Alternate LLM providers that are never used — **~1,700L**
+
 `app/adapters/llm/openai/`, `anthropic/`, `ollama` branches, `message_sanitizer.py`,
 their config classes, and the `LLMClientFactory` branches. In practice everything
 goes through OpenRouter. (`yagni` — also a candidate to drop the `openai`/`anthropic`
 SDKs from deps if they're only here for this.)
 
 ### 4. Test bloat — the largest line category — **~9,000L+**
+
 `tests/` is bigger than `app/`. Verified cuttable:
+
 - 9 "coverage-gaming" test files whose docstrings cite source line numbers / uncovered branches (`4,500L`).
 - `tests/architecture/test_lint_rules.py` + closure/mutability tests that **shell out to `ruff` to re-test what ruff + CI already enforce** (`1,070L`).
 - `test_ports_compliance.py`, `test_tier2_direct_module_coverage.py`, exhaustive `test_telegram_models.py`, dead `tests/characterization/`.
 - *(Plus the git_backup test footprint — see Uncertain, `~3,000L`.)*
 
 ### 5. Multi-tenant / collaboration machinery in a single-owner bot — **~650L**
+
 - Collections sharing/invite/ACL: router (`95L`) + repository (`250L`) + `CollectionService` RBAC (`130L`).
 - `AccessController` failed-attempt/stranger-defense system (`150L`).
 - Dead per-request user-scoping in `mcp/context.py` (`30L`).
 
 ### 6. `git_backup` over-tooling ported wholesale from "gitout" — **~900L**
+
 For a default-**off**, single-user backup: Healthchecks.io pings, CSV/JSONL metrics
 export, a configurable `RetryPolicy`/`BackoffStrategy` engine, a 9-category
 `ErrorCategory` taxonomy, and a `_preflight_storage_check`. A flat
 "list due → `git remote update --prune` under a semaphore" loop covers it.
 
 ### 7. Config declared ~4× + hot-reload nobody triggers — **~380L**
+
 - `config_holder.py` `ConfigReloader` background poll loop for runtime model hot-reload (`190L`).
 - `load_models_yaml()` duplicates `load_ratatoskr_yaml()` YAML parsing (`100L`).
 - `AppConfig` schema restated across settings layers (`90L`).
 
 ### 8. Sync subsystem over-built — **~270L**
+
 `SyncService`/`SyncFacade` double wrapper (theme 1), the pluggable
 `SyncEntityAdapter` framework (`180L`), `_Null*Repository` objects, and datetime→ISO
 coercion reimplemented 3× (`serializer.py`).
@@ -272,6 +282,7 @@ two-layer `SearchFilters`, `token_crypto`, `circuit_breaker`, twitter
 `load_models_yaml` (not a true duplicate).
 
 **Deliberately DEFERRED (needs CI-green + review, not done):**
+
 - **`application/ports` collapse (~2000L)** — a second audit agent flagged this
   same target as "keep the seam"; collapsing 41 Port protocols touches the whole
   app and can't be verified without the integration suite. Decide the seam first.

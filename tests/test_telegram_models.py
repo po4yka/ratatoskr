@@ -260,7 +260,9 @@ class TestTelegramMessage(unittest.TestCase):
         self.mock_message.text = "Forwarded with buttons"
         self.mock_message.forward_from_chat = MockForwardChat()
         self.mock_message.forward_from_message_id = 54321
-        self.mock_message.reply_markup = MockReplyMarkup([[MockButton("Test", "https://example.com")]])
+        self.mock_message.reply_markup = MockReplyMarkup(
+            [[MockButton("Test", "https://example.com")]]
+        )
 
         message = TelegramMessage.from_telegram_message(self.mock_message)
 
