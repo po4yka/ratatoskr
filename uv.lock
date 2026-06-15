@@ -4569,7 +4569,7 @@ requires-dist = [
     { name = "ratatoskr", extras = ["inference-core"], marker = "extra == 'ml'" },
     { name = "redis", specifier = ">=7.1.0" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.9.0" },
-    { name = "scrapegraphai", marker = "extra == 'scraper-ai'", specifier = ">=2.1.2,<3" },
+    { name = "scrapegraphai", marker = "extra == 'scraper-ai'", specifier = ">=2.1.3,<3" },
     { name = "scrapling", specifier = ">=0.4.9,<1" },
     { name = "sentence-transformers", marker = "extra == 'inference-core'", specifier = ">=5.5.1,<6" },
     { name = "sentry-sdk", extras = ["fastapi", "loguru"], marker = "extra == 'monitoring'", specifier = ">=2.61.1,<3" },
