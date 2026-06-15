@@ -25,7 +25,6 @@ from .deployment import DeploymentConfig
 from .digest import ChannelDigestConfig
 from .firecrawl import FirecrawlConfig
 from .git_backup import GitBackupConfig
-from .langgraph import LangGraphCheckpointConfig
 from .github import GitHubConfig
 from .import_export import ImportConfig
 from .integrations import (
@@ -37,6 +36,7 @@ from .integrations import (
     VectorReconcileConfig,
     WebSearchConfig,
 )
+from .langgraph import LangGraphCheckpointConfig
 from .llm import (
     LLMUsageBudgetConfig,
     ModelRoutingConfig,

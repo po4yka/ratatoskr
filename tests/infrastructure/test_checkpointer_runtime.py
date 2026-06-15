@@ -35,7 +35,7 @@ def _cfg(*, schema="langgraph", dsn_override=None, strict_msgpack=True, pmin=1, 
     )
 
 
-def _install_stubs(monkeypatch, *, guard_database=True):
+def _install_stubs(monkeypatch, *, guard_database=True, setup_error=None):
     pool = MagicMock()
     pool.open = AsyncMock()
     pool.close = AsyncMock()
@@ -48,7 +48,7 @@ def _install_stubs(monkeypatch, *, guard_database=True):
     pool_class = MagicMock(return_value=pool)
 
     saver = MagicMock()
-    saver.setup = AsyncMock()
+    saver.setup = AsyncMock(side_effect=setup_error)
     saver_class = MagicMock(return_value=saver)
     serde_class = MagicMock(return_value=MagicMock())
 
@@ -144,3 +144,27 @@ async def test_stop_closes_pool(monkeypatch):
     m.pool.close.assert_awaited_once()
     with pytest.raises(RuntimeError):
         _ = rt.saver
+
+
+async def test_start_closes_pool_on_setup_failure(monkeypatch):
+    """A failure after pool.open() must not leak the pool (failure isolation)."""
+    m = _install_stubs(monkeypatch, setup_error=RuntimeError("setup boom"))
+    rt = CheckpointerRuntime(cfg=_cfg())
+    with pytest.raises(RuntimeError):
+        await rt.start()
+    m.pool.close.assert_awaited_once()  # opened pool cleaned up, not leaked
+    with pytest.raises(RuntimeError):
+        _ = rt.saver  # never became ready
+
+
+async def test_configure_callback_pins_search_path(monkeypatch):
+    """The per-connection configure callback sets search_path to the schema."""
+    m = _install_stubs(monkeypatch)
+    rt = CheckpointerRuntime(cfg=_cfg(schema="langgraph"))
+    await rt.start()
+    configure = m.pool_class.call_args.kwargs["configure"]
+    conn = MagicMock()
+    conn.execute = AsyncMock()
+    await configure(conn)
+    sql = conn.execute.await_args.args[0]
+    assert "SET search_path" in sql and "langgraph" in sql

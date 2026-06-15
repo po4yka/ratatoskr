@@ -56,21 +56,6 @@ async def main() -> None:
     db = build_runtime_database(cfg, self_heal=True)
     await db.migrate()
 
-    # Start the LangGraph Postgres checkpointer when enabled (opt-in,
-    # failure-isolated; ADR-0004). Dedicated psycopg3 pool -- not Database.
-    checkpointer_runtime: Any = None
-    if cfg.langgraph_checkpoint.enabled:
-        try:
-            from app.infrastructure.checkpointing import CheckpointerRuntime
-
-            checkpointer_runtime = CheckpointerRuntime(cfg=cfg)
-            await checkpointer_runtime.start()
-        except Exception:
-            logging.getLogger(__name__).warning(
-                "langgraph_checkpointer_startup_failed", exc_info=True
-            )
-            checkpointer_runtime = None
-
     db_write_queue = DbWriteQueue(maxsize=256)
     db_write_queue.start()
 
@@ -95,7 +80,22 @@ async def main() -> None:
         broker = None
 
     config_reloader.start()
+    # Start the LangGraph Postgres checkpointer when enabled (opt-in,
+    # failure-isolated; ADR-0004). Dedicated psycopg3 pool -- not Database.
+    # Started inside the try so the finally below always tears the pool down.
+    checkpointer_runtime: Any = None
     try:
+        if cfg.langgraph_checkpoint.enabled:
+            try:
+                from app.infrastructure.checkpointing import CheckpointerRuntime
+
+                checkpointer_runtime = CheckpointerRuntime(cfg=cfg)
+                await checkpointer_runtime.start()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "langgraph_checkpointer_startup_failed", exc_info=True
+                )
+                checkpointer_runtime = None
         await bot.start()
     finally:
         try:

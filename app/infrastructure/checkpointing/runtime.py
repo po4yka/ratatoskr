@@ -24,6 +24,11 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Bounded wait for the dedicated pool to establish its first connection. The
+# checkpointer is optional and failure-isolated, so a slow/unreachable Postgres
+# must not stall service startup for the psycopg_pool default (30s).
+_POOL_OPEN_TIMEOUT_SEC = 10.0
+
 
 def _psycopg_dsn(database_dsn: str, dsn_override: str | None) -> str:
     """Return a psycopg3 DSN, stripping the asyncpg driver suffix.
@@ -78,19 +83,29 @@ class CheckpointerRuntime:
             configure=_configure,
             name="langgraph-checkpointer",
         )
-        await pool.open(wait=True)
+        # Bounded open so a slow/unreachable Postgres cannot stall service
+        # startup (the checkpointer is optional and failure-isolated).
+        await pool.open(wait=True, timeout=_POOL_OPEN_TIMEOUT_SEC)
         self._pool = pool
 
-        # Create the dedicated schema before setup() (search_path may point at a
-        # not-yet-existing schema; CREATE SCHEMA is schema-name explicit).
-        async with pool.connection() as conn:
-            await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+        try:
+            # Create the dedicated schema before setup() (the per-connection
+            # search_path may point at a not-yet-existing schema; CREATE SCHEMA is
+            # schema-name explicit). `schema` is validated to [A-Za-z0-9_] at
+            # config time, so the interpolation is injection-safe.
+            async with pool.connection() as conn:
+                await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
 
-        # strict_msgpack -> no pickle fallback (no arbitrary-module deserialization).
-        serde = JsonPlusSerializer(pickle_fallback=not cp_cfg.strict_msgpack)
-        saver = AsyncPostgresSaver(pool, serde=serde)
-        await saver.setup()
-        self._saver = saver
+            # strict_msgpack -> no pickle fallback (no arbitrary-module deserialization).
+            serde = JsonPlusSerializer(pickle_fallback=not cp_cfg.strict_msgpack)
+            saver = AsyncPostgresSaver(pool, serde=serde)
+            await saver.setup()
+            self._saver = saver
+        except BaseException:
+            # Never leak the just-opened pool if schema creation / setup fails:
+            # the caller may discard this instance on error (failure isolation).
+            await self.stop()
+            raise
 
         logger.info(
             "langgraph_checkpointer_ready",
