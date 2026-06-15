@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.adapters.content.summary_section_stream_assembler import SummarySectionStreamAssembler
+from app.adapters.content.streaming.section_assembler import SummarySectionStreamAssembler
 
 
 def test_section_assembler_emits_sections_in_required_order() -> None:

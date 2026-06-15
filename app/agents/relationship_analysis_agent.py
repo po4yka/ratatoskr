@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -367,12 +368,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
             return None
 
         # Find common prefix
-        prefix = cleaned[0]
-        for title in cleaned[1:]:
-            while prefix and not title.startswith(prefix):
-                prefix = prefix[:-1]
-
-        prefix = prefix.strip(" -:.")
+        prefix = os.path.commonprefix(cleaned).strip(" -:.")
         return prefix if len(prefix) >= 10 else None
 
     def _detect_cluster_from_metadata(

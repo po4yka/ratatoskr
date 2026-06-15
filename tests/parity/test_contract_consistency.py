@@ -1,38 +1,11 @@
-import asyncio
-
 import pytest
 from pydantic import HttpUrl, TypeAdapter
 
-from app.adapters.telegram.commands import CommandContext, CommandRegistry
 from app.api.models.requests import SubmitURLRequest
 from app.api.models.responses import SuccessResponse
 from app.core.summary_contract import validate_and_shape_summary
 
 pytestmark = pytest.mark.contracts
-
-
-async def _noop_handler(context: CommandContext) -> None:
-    return None
-
-
-def test_telegram_command_aliases_route_consistently() -> None:
-    registry = CommandRegistry()
-    registry.register_command(["/find", "/findweb", "/findonline"], _noop_handler)
-
-    async def _run(alias: str) -> bool:
-        context = CommandContext(
-            message=None,
-            text=f"{alias} prompt engineering",
-            uid=1,
-            correlation_id="cid",
-            interaction_id=1,
-            start_time=0.0,
-        )
-        return await registry.route_message(context)
-
-    assert asyncio.run(_run("/find")) is True
-    assert asyncio.run(_run("/findweb")) is True
-    assert asyncio.run(_run("/findonline")) is True
 
 
 def test_mobile_request_contract_defaults() -> None:

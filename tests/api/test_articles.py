@@ -7,7 +7,7 @@ import pytest_asyncio
 
 from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.exceptions import ResourceNotFoundError
-from app.api.routers.summaries import get_summary, get_summary_by_url
+from app.api.routers.content.summaries import get_summary, get_summary_by_url
 from app.db.models import Request, Summary
 
 

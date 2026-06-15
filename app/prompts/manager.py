@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -458,41 +457,8 @@ def get_prompt_manager() -> PromptManager:
     return _default_manager
 
 
-@lru_cache(maxsize=4)
-def get_system_prompt(lang: str = "en", *, include_examples: bool = True) -> str:
-    """Convenience function to get a system prompt.
-
-    This is a cached wrapper around PromptManager.get_system_prompt().
-
-    Args:
-        lang: Language code ('en' or 'ru')
-        include_examples: Whether to include few-shot examples
-
-    Returns:
-        Complete system prompt
-    """
-    manager = get_prompt_manager()
-    return manager.get_system_prompt(lang, include_examples=include_examples)
-
-
-def get_contract_system_prompt(
-    contract_id: SummaryContractId = "default",
-    lang: str = "en",
-    *,
-    include_examples: bool = True,
-) -> str:
-    """Convenience function to get a system prompt for a summary contract."""
-    manager = get_prompt_manager()
-    return manager.get_contract_system_prompt(
-        contract_id,
-        lang,
-        include_examples=include_examples,
-    )
-
-
 def reset_prompt_manager() -> None:
     """Reset module-level caches. Intended for test teardown only."""
     global _default_manager
     _default_manager = None
-    get_system_prompt.cache_clear()
     clear_prompt_file_cache()

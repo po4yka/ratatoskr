@@ -6,38 +6,21 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.api.dependencies.database import get_auth_repository as get_db_auth_repository
+from app.api.exceptions import AuthenticationError, AuthorizationError
+from app.api.routers.auth.tokens import decode_token, validate_client_id
+from app.config import Config
+from app.core.logging_utils import get_logger
+
 
 class AuthenticatedUser(TypedDict):
     user_id: int
     username: str | None
     client_id: str
 
-
-from app.core.logging_utils import get_logger  # noqa: E402
-
-try:
-    from fastapi import Depends, Request  # noqa: TC002 - used at runtime by FastAPI DI
-    from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-except Exception:  # pragma: no cover - fallback for environments without compatible FastAPI
-    get_logger(__name__).debug("fastapi_security_import_failed", exc_info=True)
-
-    class HTTPAuthorizationCredentials:  # type: ignore[no-redef]
-        ...
-
-    class HTTPBearer:  # type: ignore[no-redef]
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    def Depends(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc, unused-ignore]  # noqa: N802
-        return None
-
-
-from app.api.dependencies.database import (  # noqa: E402
-    get_auth_repository as get_db_auth_repository,
-)
-from app.api.exceptions import AuthenticationError, AuthorizationError  # noqa: E402
-from app.api.routers.auth.tokens import decode_token, validate_client_id  # noqa: E402
-from app.config import Config  # noqa: E402
 
 logger = get_logger(__name__)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.adapters.llm.usage_budget import (
+from app.core.llm_usage_budget import (
     LLMUsageSnapshot,
     evaluate_aggregate_budget,
     evaluate_request_usage,

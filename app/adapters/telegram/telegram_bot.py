@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.telegram.component_wiring import TelegramComponentWiring
 from app.adapters.telegram.lifecycle_manager import TelegramLifecycleManager
 from app.adapters.telegram.telethon_compat import normalize_parse_mode
 from app.bootstrap.telegram_runtime import build_bot_runtime, create_bot_audit_repository
@@ -34,7 +33,7 @@ class TelegramBot:
     db: Database
     db_write_queue: DbWriteQueue | None = None
 
-    # Dynamically assigned by component_wiring.bind_runtime_components()
+    # Dynamically assigned in __post_init__ after build_bot_runtime()
     telegram_client: Any = field(default=None, init=False, repr=False)
     response_formatter: Any = field(default=None, init=False, repr=False)
     url_processor: Any = field(default=None, init=False, repr=False)
@@ -52,8 +51,6 @@ class TelegramBot:
                 "log_level": self.cfg.runtime.log_level,
             },
         )
-
-        self._component_wiring = TelegramComponentWiring(cfg=self.cfg)
 
         self._audit_tasks: set[asyncio.Task[Any]] = set()
         self.audit_repo = create_bot_audit_repository(self.db)
@@ -75,11 +72,26 @@ class TelegramBot:
         self._ext_sem_obj = None
         self._ext_sem_size = max(1, self.cfg.runtime.max_concurrent_calls)
 
-        self._component_wiring.bind_runtime_components(
-            bot=self,
-            components=components,
-            llm_client=self._llm_client,
-        )
+        # Assign components and wire cross-component dependencies.
+        self.telegram_client = components.telegram_client
+        self.response_formatter = components.response_formatter
+        self.url_processor = components.url_processor
+        self.forward_processor = components.forward_processor
+        self.message_handler = components.message_handler
+        self.topic_searcher = components.search.topic_searcher
+        self.local_searcher = components.search.local_searcher
+        self.embedding_service = components.search.embedding_service
+        self.vector_search_service = components.search.vector_search_service
+        self.query_expansion_service = components.search.query_expansion_service
+        self.hybrid_search_service = components.search.hybrid_search_service
+        self.vector_store = components.search.vector_store
+        self._application_services = components.application_services
+        self._adaptive_timeout_service = components.adaptive_timeout_service
+
+        self.message_handler.command_processor.runtime_state.url_processor = self.url_processor
+        self.message_handler.url_processor = self.url_processor
+
+        self._awaiting_url_users = self.message_handler.url_handler._awaiting_url_users
 
         # Lifecycle helpers for background startup/shutdown orchestration.
         self._lifecycle = TelegramLifecycleManager(self)
@@ -602,24 +614,6 @@ class TelegramBot:
                 raise_if_cancelled(inner_exc)
         _ = metadata
 
-    async def handle_url_flow(
-        self,
-        message: Any,
-        url_text: str,
-        *,
-        correlation_id: str | None = None,
-        interaction_id: int | None = None,
-        silent: bool = False,
-    ) -> None:
-        """Adapter used by command/url handlers to process URL flows."""
-        await self._handle_url_flow(
-            message,
-            url_text,
-            correlation_id=correlation_id,
-            interaction_id=interaction_id,
-            silent=silent,
-        )
-
     async def _handle_url_flow(
         self,
         message: Any,
@@ -653,18 +647,6 @@ class TelegramBot:
         cid = correlation_id or generate_correlation_id()
         await self.forward_processor.handle_forward_flow(
             message, correlation_id=cid, interaction_id=interaction_id
-        )
-
-    async def handle_forward_flow(
-        self,
-        message: Any,
-        *,
-        correlation_id: str | None = None,
-        interaction_id: int | None = None,
-    ) -> None:
-        """Compatibility shim mirroring the URL flow adapter."""
-        await self._handle_forward_flow(
-            message, correlation_id=correlation_id, interaction_id=interaction_id
         )
 
     async def _persist_message_snapshot(self, request_id: int, message: Any) -> None:

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from app.api.exceptions import ProcessingError
 from app.config.settings import load_config
 from app.core.logging_utils import get_logger
-from app.db.model_registry import ALL_MODELS
+from app.db.models import ALL_MODELS
 from app.infrastructure.cache.redis_cache import RedisCache
 
 if TYPE_CHECKING:

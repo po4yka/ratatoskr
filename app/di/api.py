@@ -25,12 +25,12 @@ from app.application.use_cases.search_read_model import SearchReadModelUseCase
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.config import load_config
 from app.core.logging_utils import get_logger
-from app.di.api_runtime_holder import (  # noqa: F401  - get/set/clear re-exported for back-compat
+from app.db.api_runtime_holder import (  # noqa: F401  - re-exported for back-compat
     _current_runtime_holder,
     clear_current_api_runtime,
-    get_current_api_runtime,
     set_current_api_runtime,
 )
+from app.db.api_runtime_holder import _require_api_runtime as get_current_api_runtime
 from app.di.database import build_runtime_database
 from app.di.repositories import (
     build_crawl_result_repository,
@@ -65,7 +65,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # The process-wide runtime holder + its get/set/clear accessors live in the
-# api-free app.di.api_runtime_holder module (imported above and re-exported here)
+# api-free app.db.api_runtime_holder module (imported above and re-exported here)
 # so infrastructure can resolve the runtime DB without importing app.api.
 _runtime_lock = asyncio.Lock()
 

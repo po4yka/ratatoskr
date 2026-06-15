@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import re
 import time
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
@@ -50,20 +51,13 @@ class SemanticSearchService:
     def _cosine_similarity(query_vector: list[float], candidate_vector: list[float]) -> float:
         if not query_vector or not candidate_vector:
             return 0.0
-
-        dot = 0.0
-        query_norm = 0.0
-        candidate_norm = 0.0
-        for query_item, candidate_item in zip(query_vector, candidate_vector, strict=False):
-            query_float = float(query_item)
-            candidate_float = float(candidate_item)
-            dot += query_float * candidate_float
-            query_norm += query_float * query_float
-            candidate_norm += candidate_float * candidate_float
-
-        if query_norm <= 0.0 or candidate_norm <= 0.0:
+        q = np.array(query_vector, dtype=np.float64)
+        c = np.array(candidate_vector, dtype=np.float64)
+        q_norm = np.linalg.norm(q)
+        c_norm = np.linalg.norm(c)
+        if q_norm <= 0.0 or c_norm <= 0.0:
             return 0.0
-        return max(0.0, min(1.0, dot / (math.sqrt(query_norm) * math.sqrt(candidate_norm))))
+        return float(np.clip(np.dot(q, c) / (q_norm * c_norm), 0.0, 1.0))
 
     @staticmethod
     def _extract_query_tags(text: str) -> list[str]:

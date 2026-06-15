@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.adapters.content.llm_call_budget import LLMCallBudget, LLMCallCapExceeded
+from app.core.llm_call_budget import LLMCallBudget, LLMCallCapExceeded
 
 
 def test_budget_charges_up_to_limit_then_raises() -> None:

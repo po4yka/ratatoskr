@@ -28,6 +28,7 @@ from app.application.services.llm_cascade_timeout import compute_llm_cascade_flo
 from app.application.services.multi_source_aggregation_service import (
     MultiSourceAggregationService,
 )
+from app.application.dto.vector_search import VectorSearchHitDTO
 from app.application.services.related_reads_service import RelatedReadsService
 from app.application.services.transcription_job_service import TranscriptionJobService
 from app.application.services.tts_service import TTSService
@@ -65,7 +66,6 @@ from app.infrastructure.persistence.repositories.audio_generation_repository imp
 from app.infrastructure.persistence.repositories.latency_stats_repository import (
     LatencyStatsRepositoryAdapter,
 )
-from app.infrastructure.search.vector_search_port_adapter import VectorSearchPortAdapter
 from app.infrastructure.search.vector_search_service import VectorSearchService
 from app.security.file_validation import SecureFileValidator
 
@@ -682,8 +682,29 @@ def _build_related_reads_service(
             max_results=10,
             min_similarity=0.3,
         )
+        _svc = vector_search_service
+
+        class _InlineAdapter:
+            async def search(
+                self, query: str, *, correlation_id: str | None = None
+            ) -> list[VectorSearchHitDTO]:
+                results = await _svc.search(query, correlation_id=correlation_id)
+                return [
+                    VectorSearchHitDTO(
+                        request_id=r.request_id,
+                        summary_id=r.summary_id,
+                        similarity_score=r.similarity_score,
+                        url=r.url,
+                        title=r.title,
+                        snippet=r.snippet,
+                        source=r.source,
+                        published_at=r.published_at,
+                    )
+                    for r in results
+                ]
+
         related_reads_service = RelatedReadsService(
-            VectorSearchPortAdapter(vector_search_service),
+            _InlineAdapter(),
             min_similarity=cfg.runtime.related_reads_min_similarity,
         )
         logger.info("related_reads_service_initialized")
