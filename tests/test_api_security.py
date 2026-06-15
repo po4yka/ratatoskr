@@ -133,26 +133,34 @@ class TestAuthorizationChecks:
 
     @pytest.mark.asyncio
     async def test_cannot_access_other_users_summary(self, mock_user, other_user):
-        """Test that users cannot access each other's summaries via use-case layer."""
-        from app.api.dependencies.database import get_summary_read_model_use_case
+        """The read-model use case denies access to a summary owned by another user.
 
-        # get_summary_by_id_for_user checks user ownership and returns None
-        # when the requesting user doesn't own the summary.
-        mock_use_case = MagicMock()
-        mock_use_case.get_summary_by_id_for_user = AsyncMock(return_value=None)
+        get_summary_by_id_for_user compares the stored summary's user_id to the
+        requester and returns None when they differ; the router maps None to 404.
+        """
+        from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 
-        with patch(
-            "app.api.dependencies.database.get_summary_read_model_use_case",
-            return_value=mock_use_case,
-        ):
-            use_case = get_summary_read_model_use_case()
-            result = await use_case.get_summary_by_id_for_user(
-                user_id=other_user["user_id"],
-                summary_id=42,
+        owned_summary = {"id": 42, "user_id": mock_user["user_id"], "is_deleted": False}
+        summary_repo = MagicMock()
+        summary_repo.async_get_summary_by_id = AsyncMock(return_value=owned_summary)
+        use_case = SummaryReadModelUseCase(
+            summary_repo, MagicMock(), MagicMock(), MagicMock()
+        )
+
+        # The owner can read their own summary.
+        assert (
+            await use_case.get_summary_by_id_for_user(
+                user_id=mock_user["user_id"], summary_id=42
             )
-            # The use case returns None for inaccessible summaries;
-            # the router/caller is responsible for raising ResourceNotFoundError.
-            assert result is None
+            == owned_summary
+        )
+        # A different user is denied (None -> 404 at the router).
+        assert (
+            await use_case.get_summary_by_id_for_user(
+                user_id=other_user["user_id"], summary_id=42
+            )
+            is None
+        )
 
     @pytest.mark.asyncio
     async def test_cannot_access_other_users_request(self, mock_user, other_user):
