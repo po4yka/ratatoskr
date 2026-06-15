@@ -302,7 +302,7 @@ mcp = [
 
 # CocoIndex incremental ETL: live sync from Postgres summaries to Qdrant
 cocoindex = [
-  "cocoindex>=1.0.3,<1.1",
+  "cocoindex>=1.0.10,<1.1",
   "psycopg[binary]>=3.3.4",
 ]
 
