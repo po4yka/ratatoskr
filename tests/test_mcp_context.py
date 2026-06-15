@@ -155,110 +155,6 @@ async def test_get_vector_service_forwards_required_and_timeout(
     }
 
 
-def test_request_user_scope_prefers_override_and_resets_to_startup_scope() -> None:
-    context = McpServerContext(user_id=111)
-
-    assert context.user_id == 111
-
-    token = context.set_request_user_scope(222)
-    try:
-        assert context.user_id == 222
-    finally:
-        context.reset_request_user_scope(token)
-
-    assert context.user_id == 111
-
-
-def test_init_runtime_uses_startup_scope_even_with_request_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import app.di.mcp as mcp_di
-
-    captured: dict[str, Any] = {}
-
-    def fake_build_mcp_runtime(
-        *,
-        database_dsn: str | None = None,
-        user_id: int | None = None,
-    ) -> Any:
-        captured["database_dsn"] = database_dsn
-        captured["user_id"] = user_id
-        return _fake_runtime(database_dsn, user_id)
-
-    monkeypatch.setattr(mcp_di, "build_mcp_runtime", fake_build_mcp_runtime)
-
-    context = McpServerContext(
-        database_dsn="postgresql+asyncpg://u:p@localhost:5432/request_scope",
-        user_id=111,
-    )
-    with context.request_user_scope(222):
-        context.init_runtime()
-        assert captured == {
-            "database_dsn": "postgresql+asyncpg://u:p@localhost:5432/request_scope",
-            "user_id": 111,
-        }
-        assert context.user_id == 222
-
-    assert context.runtime.scope.user_id == 111
-    assert context.user_id == 111
-
-
-def test_nested_request_user_scopes_restore_without_mutating_runtime_scope() -> None:
-    context = McpServerContext(user_id=111)
-    context._runtime = SimpleNamespace(
-        scope=SimpleNamespace(user_id=111),
-        vector_state=SimpleNamespace(last_failed_at=None),
-        local_vector_state=SimpleNamespace(last_failed_at=None),
-    )
-
-    with context.request_user_scope(222):
-        assert context.user_id == 222
-        assert context.runtime.scope.user_id == 111
-
-        with context.request_user_scope(None):
-            assert context.user_id is None
-            assert context.runtime.scope.user_id == 111
-
-        assert context.user_id == 222
-
-    assert context.user_id == 111
-
-
-def test_scope_filters_use_effective_request_user_scope() -> None:
-    class _Field:
-        __hash__ = object.__hash__
-
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def __eq__(self, other: Any) -> tuple[str, Any]:  # type: ignore[override]
-            return (self.name, other)
-
-    class _RequestModel:
-        is_deleted = _Field("is_deleted")
-        user_id = _Field("user_id")
-
-    class _CollectionModel:
-        is_deleted = _Field("is_deleted")
-        user_id = _Field("user_id")
-
-    context = McpServerContext(user_id=7)
-
-    with context.request_user_scope(8):
-        assert context.request_scope_filters(_RequestModel) == [
-            ("is_deleted", False),
-            ("user_id", 8),
-        ]
-        assert context.collection_scope_filters(_CollectionModel) == [
-            ("is_deleted", False),
-            ("user_id", 8),
-        ]
-
-    with context.request_user_scope(None):
-        assert context.request_scope_filters(_RequestModel) == [("is_deleted", False)]
-        assert context.collection_scope_filters(_CollectionModel) == [("is_deleted", False)]
-
-
 def test_request_identity_scope_exposes_user_and_client() -> None:
     context = McpServerContext(user_id=111)
     identity = McpRequestIdentity(
@@ -280,21 +176,6 @@ def test_request_identity_scope_exposes_user_and_client() -> None:
     assert context.auth_source is None
 
 
-def test_request_identity_scope_takes_precedence_over_request_user_override() -> None:
-    context = McpServerContext(user_id=111)
-    identity = McpRequestIdentity(
-        user_id=222,
-        client_id="mcp-client",
-        username=None,
-        auth_source="forwarded_bearer",
-    )
-
-    with context.request_user_scope(333):
-        with context.request_identity_scope(identity):
-            assert context.user_id == 222
-            assert context.client_id == "mcp-client"
-
-        assert context.user_id == 333
 
 
 def test_active_mcp_request_identity_takes_precedence() -> None:

@@ -189,7 +189,10 @@ def test_tuned_firecrawl_wait_for_ms_caps_at_ten_seconds() -> None:
 
 
 def test_browser_providers_constant_matches_expected_set() -> None:
-    assert frozenset({"playwright", "crawlee"}) == BROWSER_PROVIDERS
+    # cloakbrowser is a CDP-sidecar browser driver and benefits from the
+    # JS-heavy reorder alongside playwright and crawlee; scrapegraph_ai does
+    # not (it is an LLM fallback, not a browser driver).
+    assert frozenset({"playwright", "crawlee", "cloakbrowser"}) == BROWSER_PROVIDERS
 
 
 # ---------------------------------------------------------------------------

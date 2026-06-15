@@ -26,9 +26,6 @@ class DatabaseInspectionService:
         self._last_rollback_count: int | None = None
         self._last_rollback_checked_at = 0.0
 
-    def check_integrity(self) -> tuple[bool, str]:
-        return cast("tuple[bool, str]", _run_sync(self.async_check_integrity()))
-
     async def async_check_integrity(self) -> tuple[bool, str]:
         try:
             async with self._session_maker() as session:
@@ -105,19 +102,6 @@ class DatabaseInspectionService:
     @staticmethod
     async def _last_created_at(session: AsyncSession, column: Any) -> Any:
         return await session.scalar(select(column).order_by(column.desc()).limit(1))
-
-    def verify_processing_integrity(
-        self,
-        *,
-        required_fields: Iterable[str] | None = None,
-        limit: int | None = None,
-    ) -> dict[str, Any]:
-        return cast(
-            "dict[str, Any]",
-            _run_sync(
-                self.async_verify_processing_integrity(required_fields=required_fields, limit=limit)
-            ),
-        )
 
     async def async_verify_processing_integrity(
         self,

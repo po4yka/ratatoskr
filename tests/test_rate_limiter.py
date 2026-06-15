@@ -134,47 +134,6 @@ class TestRateLimiter(unittest.IsolatedAsyncioTestCase):
         allowed, _ = await limiter.check_and_record(user_id, cost=1)
         assert not allowed
 
-    async def test_get_user_status(self):
-        """Test getting user status."""
-        limiter = UserRateLimiter(
-            RateLimitConfig(max_requests=5, window_seconds=10, max_concurrent=3)
-        )
-
-        user_id = 12345
-
-        # Make some requests
-        await limiter.check_and_record(user_id)
-        await limiter.check_and_record(user_id)
-        await limiter.acquire_concurrent_slot(user_id)
-
-        status = await limiter.compute_user_status(user_id)
-
-        assert status["user_id"] == user_id
-        assert status["requests_in_window"] == 2
-        assert status["max_requests"] == 5
-        assert status["concurrent_operations"] == 1
-        assert status["max_concurrent"] == 3
-        assert not status["is_limited"]
-
-    async def test_reset_user(self):
-        """Test resetting user rate limit state."""
-        limiter = UserRateLimiter(RateLimitConfig(max_requests=2, window_seconds=10))
-
-        user_id = 12345
-
-        # Exhaust rate limit
-        await limiter.check_and_record(user_id)
-        await limiter.check_and_record(user_id)
-        allowed, _ = await limiter.check_and_record(user_id)
-        assert not allowed
-
-        # Reset user
-        await limiter.reset_user(user_id)
-
-        # Should work again
-        allowed, _ = await limiter.check_and_record(user_id)
-        assert allowed
-
     async def test_cleanup_expired(self):
         """Test cleanup of expired entries using injected clock."""
         _now = [0.0]

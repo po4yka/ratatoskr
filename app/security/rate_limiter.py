@@ -207,59 +207,6 @@ class UserRateLimiter:
                     extra={"user_id": user_id, "remaining": self._user_concurrent.get(user_id, 0)},
                 )
 
-    async def compute_user_status(self, user_id: int) -> dict[str, Any]:
-        """Get current rate limit status for a user.
-
-        Also prunes expired entries from the user request window as a side
-        effect of computing the current count.
-
-        Args:
-            user_id: Telegram user ID
-
-        Returns:
-            Dictionary with user's current status
-
-        """
-        async with self._lock:
-            now = self._clock()
-            user_queue = self._user_requests[user_id]
-
-            cutoff_time = now - self._config.window_seconds
-            while user_queue and user_queue[0] < cutoff_time:
-                user_queue.popleft()
-
-            cooldown_remaining = 0
-            if user_id in self._user_cooldowns:
-                cooldown_remaining = max(0, int(self._user_cooldowns[user_id] - now))
-
-            return {
-                "user_id": user_id,
-                "requests_in_window": len(user_queue),
-                "max_requests": self._config.max_requests,
-                "window_seconds": self._config.window_seconds,
-                "concurrent_operations": self._user_concurrent.get(user_id, 0),
-                "max_concurrent": self._config.max_concurrent,
-                "cooldown_remaining": cooldown_remaining,
-                "is_limited": len(user_queue) >= self._config.max_requests
-                or cooldown_remaining > 0,
-            }
-
-    async def reset_user(self, user_id: int) -> None:
-        """Reset rate limit state for a user (admin function).
-
-        Args:
-            user_id: Telegram user ID
-
-        """
-        async with self._lock:
-            if user_id in self._user_requests:
-                del self._user_requests[user_id]
-            if user_id in self._user_concurrent:
-                del self._user_concurrent[user_id]
-            if user_id in self._user_cooldowns:
-                del self._user_cooldowns[user_id]
-            logger.info("rate_limit_user_reset", extra={"user_id": user_id})
-
     async def cleanup_expired(self) -> int:
         """Clean up expired entries to prevent memory leaks.
 

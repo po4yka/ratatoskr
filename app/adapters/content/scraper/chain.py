@@ -70,6 +70,14 @@ _ERROR_PAGE_MAX_LENGTH = 1500
 # self-hosted, both treated as cost-bearing); the browser tier spins up real
 # browsers and is the slowest. ``direct_pdf`` is content-specific and always
 # runs first when applicable, so it's intentionally left out of any race.
+#
+# _BROWSER_TIER_PROVIDERS mirrors the requires_browser=True entries in
+# SCRAPER_PROVIDER_DESCRIPTORS (factory.py). Importing factory here would be
+# circular (factory imports ContentScraperChain), so keep the set inline and
+# aligned to the descriptor flags: cloakbrowser, playwright, crawlee.
+# scrapegraph_ai does NOT set requires_browser and runs as a pure HTTP/LLM
+# provider, so it belongs in the browser tier only for tiering/racing but not
+# for the BROWSER_PROVIDERS JS-heavy-reorder set.
 _FREE_TIER_PROVIDERS = frozenset({"scrapling", "defuddle", "direct_html", "crawl4ai"})
 _PAID_TIER_PROVIDERS = frozenset({"firecrawl"})
 _BROWSER_TIER_PROVIDERS = frozenset({"playwright", "crawlee", "cloakbrowser", "scrapegraph_ai"})

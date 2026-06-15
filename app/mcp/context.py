@@ -39,10 +39,6 @@ class McpServerContext:
                 default=_NO_REQUEST_USER_SCOPE,
             )
         )
-        self._request_user_id: contextvars.ContextVar[int | None | object] = contextvars.ContextVar(
-            "mcp_request_user_id",
-            default=_NO_REQUEST_USER_SCOPE,
-        )
         self._api_runtime_lock: asyncio.Lock | None = None
         self._vector_retry_interval_sec = (
             vector_retry_interval_sec
@@ -60,9 +56,6 @@ class McpServerContext:
         identity = self.request_identity
         if identity is not None:
             return identity.user_id
-        request_user_id = self._request_user_id.get()
-        if request_user_id is not _NO_REQUEST_USER_SCOPE:
-            return cast("int | None", request_user_id)
         return self._runtime.scope.user_id if self._runtime is not None else self._user_id
 
     @property
@@ -175,20 +168,6 @@ class McpServerContext:
             yield
         finally:
             self.reset_request_identity(token)
-
-    def set_request_user_scope(self, user_id: int | None) -> contextvars.Token[Any]:
-        return self._request_user_id.set(user_id)
-
-    def reset_request_user_scope(self, token: contextvars.Token[Any]) -> None:
-        self._request_user_id.reset(token)
-
-    @contextlib.contextmanager
-    def request_user_scope(self, user_id: int | None) -> Iterator[None]:
-        token = self.set_request_user_scope(user_id)
-        try:
-            yield
-        finally:
-            self.reset_request_user_scope(token)
 
     async def init_api_runtime(
         self,

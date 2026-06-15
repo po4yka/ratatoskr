@@ -4,37 +4,37 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-BROWSER_PROVIDERS: frozenset[str] = frozenset({"playwright", "crawlee"})
+from app.config.scraper import profile_retry_budget, profile_timeout_multiplier
 
-PROFILE_TIMEOUT_MULTIPLIERS: dict[str, float] = {
-    "fast": 0.75,
-    "balanced": 1.0,
-    "robust": 1.35,
-}
-
-_ALLOWED_PROFILES = frozenset(PROFILE_TIMEOUT_MULTIPLIERS)
+# Re-export so existing callers (tests, providers) keep working without changes.
+__all__ = [
+    "BROWSER_PROVIDERS",
+    "is_js_heavy_url",
+    "normalize_hosts",
+    "normalize_profile",
+    "profile_retry_budget",
+    "profile_timeout_multiplier",
+    "tuned_firecrawl_wait_for_ms",
+    "tuned_provider_timeout",
+]
 
 
 def normalize_profile(profile: str) -> str:
+    """Normalise a profile name to one of fast/balanced/robust."""
     value = profile.strip().lower()
-    if value not in _ALLOWED_PROFILES:
+    if value not in {"fast", "balanced", "robust"}:
         return "balanced"
     return value
 
 
-def profile_timeout_multiplier(profile: str) -> float:
-    normalized = normalize_profile(profile)
-    return PROFILE_TIMEOUT_MULTIPLIERS[normalized]
-
-
-def profile_retry_budget(base_retries: int, profile: str) -> int:
-    normalized = normalize_profile(profile)
-    retries = max(0, int(base_retries))
-    if normalized == "fast":
-        return min(retries, 1)
-    if normalized == "robust":
-        return min(retries + 1, 5)
-    return retries
+# Providers used for JS-heavy URL reordering (in-process or CDP-sidecar browser
+# drivers that benefit from running first on JS-heavy hosts). This is a subset
+# of the chain's _BROWSER_TIER_PROVIDERS: scrapegraph_ai is in the tier for
+# racing/grouping purposes but does not benefit from the JS-heavy reorder
+# (it is an LLM fallback, not a browser driver).
+# cloakbrowser IS a browser driver and benefits from the reorder, so it is
+# included here alongside playwright and crawlee.
+BROWSER_PROVIDERS: frozenset[str] = frozenset({"playwright", "crawlee", "cloakbrowser"})
 
 
 def normalize_hosts(hosts: tuple[str, ...] | list[str]) -> tuple[str, ...]:
