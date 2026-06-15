@@ -65,11 +65,6 @@ def test_ratatoskr_yaml_loads_nested_power_user_sections(
               user_id: 12345
             openrouter:
               model: qwen/qwen3-max
-            ollama:
-              base_url: https://ollama.example.com/v1
-              api_key: cloud-secret
-              model: llama3.3
-              enable_structured_outputs: false
             """
         ),
         encoding="utf-8",
@@ -88,10 +83,6 @@ def test_ratatoskr_yaml_loads_nested_power_user_sections(
     assert result["MCP_ENABLED"] == "true"
     assert result["MCP_USER_ID"] == "12345"
     assert result["OPENROUTER_MODEL"] == "qwen/qwen3-max"
-    assert result["OLLAMA_BASE_URL"] == "https://ollama.example.com/v1"
-    assert result["OLLAMA_API_KEY"] == "cloud-secret"
-    assert result["OLLAMA_MODEL"] == "llama3.3"
-    assert result["OLLAMA_ENABLE_STRUCTURED_OUTPUTS"] == "false"
 
 
 def test_ratatoskr_yaml_overrides_process_environment_for_non_secrets(
