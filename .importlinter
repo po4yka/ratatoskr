@@ -59,3 +59,63 @@ source_modules =
     app.adapters.content
 forbidden_modules =
     app.adapters.telegram
+
+[importlinter:contract:layered-architecture]
+name = layered architecture (combined adapters+infrastructure tier)
+# ADR-0014 project-wide ports-and-adapters layering, landed strangler-fig
+# (ADR-0018). Ordered high -> low; a higher tier may import lower tiers, never
+# the reverse. Two tiers are COMBINED (":" = non-independent: intra-tier
+# imports allowed) to tolerate today's reality:
+#   * adapters : infrastructure  -- 26 adapters->infra + 3 infra->adapters
+#     bidirectional imports exist; the strict split is deferred (see the
+#     DISABLED "layered-architecture-strict" sketch below).
+#   * api : di : tasks           -- 20+ api->di composition-root edges etc.
+# This is the only layered contract that is GREEN today; do not tighten it
+# here. tasks-no-api / infrastructure-no-api still gate the cross-tier edges
+# that matter.
+type = layers
+layers =
+    app.api : app.di : app.tasks
+    app.adapters : app.infrastructure
+    app.application
+    app.domain
+ignore_imports =
+    # Deferred (telegram-decoupling cleanup): the telegram adapter is still
+    # coupled to the outer tiers -- composition wiring + lazy task/job imports.
+    # Scoped to telegram so every OTHER adapter stays strict. Remove each line
+    # as the import is removed.
+    app.adapters.telegram.telegram_bot -> app.di.repositories
+    app.adapters.telegram.telegram_bot -> app.di.telegram
+    app.adapters.telegram.url_handler -> app.api.background.durable_jobs
+    app.adapters.telegram.url_handler -> app.tasks.url_processing
+    app.adapters.telegram.command_handlers.admin_handler -> app.api.services.admin_read_service
+# warn (not error) on an unmatched ignore so removing one of the edges above in
+# a sibling track does not turn this gate red unexpectedly.
+unmatched_ignore_imports_alerting = warn
+
+# === DISABLED until the owning tracks remove the violations (ADR-0018) ========
+# Strict adapters | infrastructure split: enable once the 26+3 bidirectional
+# imports are gone (T4 unified-retrieval converges most infra<->adapters vector
+# coupling). Replaces the combined middle tier above with two independent ones:
+# [importlinter:contract:layered-architecture-strict]
+# name = layered architecture (strict adapters | infrastructure split)
+# type = layers
+# layers =
+#     app.api : app.di : app.tasks
+#     app.adapters | app.infrastructure
+#     app.application
+#     app.domain
+#
+# Reach-application-via-ports: adapters/api/tasks must call application
+# capabilities through ports / use-cases, not concrete app.application.services
+# classes (~58 violators migrate per owning track T4/T5/T7; enable at the final
+# cutover, T9):
+# [importlinter:contract:application-via-ports]
+# name = outer layers reach application only via ports, not concrete services
+# type = forbidden
+# source_modules =
+#     app.adapters
+#     app.api
+#     app.tasks
+# forbidden_modules =
+#     app.application.services

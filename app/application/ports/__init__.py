@@ -13,6 +13,7 @@ from .audit import AuditLogRepositoryPort
 from .backups import BackupRepositoryPort
 from .batch_sessions import BatchSessionRepositoryPort
 from .cache import CachePort
+from .extraction import ExtractionPort
 from .imports import BookmarkImportPort, ImportJobRepositoryPort
 from .message_persistence import MessagePersistencePort
 from .repository_analysis import RepositoryAnalysisRecord, RepositoryAnalysisRepositoryPort
@@ -23,6 +24,7 @@ from .requests import (
     RequestRepositoryPort,
     VideoDownloadRepositoryPort,
 )
+from .retrieval import RetrievalPort
 from .rules import (
     CollectionMembershipPort,
     RuleContextPort,
@@ -49,6 +51,7 @@ from .social_connections import (
     SocialConnectionUpsert,
     SocialFetchAttemptCreate,
 )
+from .stream_sink import StreamSinkPort
 from .summaries import SummaryRepositoryPort, TagRepositoryPort
 from .transcriptions import (
     LeasedTranscriptionJob,
@@ -75,6 +78,7 @@ __all__ = [
     "CrawlResultRepositoryPort",
     "EmbeddingProviderPort",
     "EmbeddingRepositoryPort",
+    "ExtractionPort",
     "ImportJobRepositoryPort",
     "LLMCallRecord",
     "LLMRepositoryPort",
@@ -83,6 +87,7 @@ __all__ = [
     "RepositoryAnalysisRecord",
     "RepositoryAnalysisRepositoryPort",
     "RequestRepositoryPort",
+    "RetrievalPort",
     "RuleContextPort",
     "RuleRateLimiterPort",
     "RuleRepositoryPort",
@@ -92,6 +97,7 @@ __all__ = [
     "SocialConnectionUpdate",
     "SocialConnectionUpsert",
     "SocialFetchAttemptCreate",
+    "StreamSinkPort",
     "SummaryRepositoryPort",
     "TTSProviderPort",
     "TagRepositoryPort",
