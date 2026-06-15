@@ -16,7 +16,7 @@ We are re-adopting LangGraph for a **different use case the original ADR never e
 
 ### Decision
 
-- Adopt LangGraph (+ `langgraph-checkpoint-postgres`) to orchestrate the `retrieve-grounding → summarize → validate → repair↺ → persist` graph, scoped to the genuinely-stateful core cycle (not a big-bang replacement of the whole `url_processor` pipeline).
+- Adopt LangGraph (+ `langgraph-checkpoint-postgres`) to orchestrate the summarization pipeline as a state graph. **Target scope (revised 2026-06-15): the whole pipeline** — extraction, RAG grounding, summarize, validate, repair, enrich, persist, notify — as graph nodes calling application ports. The end-state node architecture is specified in [ADR-0015](0015-summarization-pipeline-target-architecture.md). (The original 2026-06-15 framing scoped this to the core summarize/validate/repair cycle; the committed clean rewrite broadens it to the full pipeline.)
 - Re-add the dependencies as an optional `graph` extra; the default image is unaffected unless the extra is installed.
 - **Narrow — not lift entirely — the `banned-api` guard**: keep banning the kitchen-sink `langchain` monorepo and `langchain_community`; allow `langgraph` and `langchain_core`.
 - Keep `instructor` for structured output (no `langchain-openai`); reuse our own embedding + Qdrant clients (no `langchain-qdrant`).
@@ -30,7 +30,7 @@ They are complementary, not duplicative. LangGraph is **not** adopted as a task 
 
 ### Guardrails
 
-- Default **OFF** (`SUMMARIZE_GRAPH_ENABLED=false`); the legacy `app/adapters/content/pure_summary_service.py` path stays the default.
+- `SUMMARIZE_GRAPH_ENABLED` is a **transitional** migration flag, not a permanent toggle: the graph becomes the single summarize path at a parity-gated **hard cutover** ([ADR-0013](0013-graph-rollout-legacy-migration.md)), after which the legacy `pure_summary_service` path and the flag are both deleted. Flag lifecycle governed by [ADR-0018](0018-refactor-strategy-and-invariants.md).
 - Checkpoint tables live in a dedicated `langgraph` Postgres schema, created by `.setup()` (not Alembic), trivially droppable.
 - `thread_id = correlation_id` so resumable runs preserve the sacred correlation ID.
 
