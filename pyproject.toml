@@ -110,14 +110,15 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-# LangGraph/LangChain was evaluated and intentionally removed.
-# See docs/decisions/0001-no-langgraph.md before re-introducing.
-"langchain" = {msg = "LangGraph/LangChain was intentionally removed — see docs/decisions/0001-no-langgraph.md"}
-"langgraph" = {msg = "LangGraph/LangChain was intentionally removed — see docs/decisions/0001-no-langgraph.md"}
-"langchain_core" = {msg = "LangGraph/LangChain was intentionally removed — see docs/decisions/0001-no-langgraph.md"}
-"langchain_community" = {msg = "LangGraph/LangChain was intentionally removed — see docs/decisions/0001-no-langgraph.md"}
-"langchain_openai" = {msg = "LangGraph/LangChain was intentionally removed — see docs/decisions/0001-no-langgraph.md"}
-"langgraph_checkpoint" = {msg = "LangGraph/LangChain was intentionally removed — see docs/decisions/0001-no-langgraph.md"}
+# ADR-0001 was reversed (2026-06-15): langgraph + langchain_core are re-adopted for the
+# summarize-pipeline graph, installed via the optional `graph` extra. The kitchen-sink
+# `langchain` monorepo and `langchain_community` stay banned (we use only the focused
+# packages, and both are transitive-only via scrapegraphai); `langchain_openai` stays
+# banned because structured output uses `instructor` (ADR-0006), not LangChain's client.
+# See docs/decisions/0001-no-langgraph.md.
+"langchain" = {msg = "Use the focused langgraph / langchain_core packages, not the langchain monorepo — see docs/decisions/0001-no-langgraph.md"}
+"langchain_community" = {msg = "langchain_community is transitive-only (scrapegraphai); do not import it directly — see docs/decisions/0001-no-langgraph.md"}
+"langchain_openai" = {msg = "Structured output uses instructor, not langchain-openai — see docs/decisions/0006-llm-structured-output-instructor.md"}
 
 [tool.mypy]
 python_version = "3.13"
@@ -314,6 +315,21 @@ otel = [
   "opentelemetry-instrumentation-httpx>=0.63b1,<1",
   "opentelemetry-instrumentation-redis>=0.63b1,<1",
   "opentelemetry-instrumentation-logging>=0.63b1,<1",
+]
+
+# LangGraph summarize-pipeline orchestration + Postgres checkpointing (ADR-0001 reversed; ADR-0004).
+# Optional and NOT installed by the default image — the runtime is unaffected until a deployment
+# opts in. langgraph + langchain-core are already transitive (via scrapegraphai); this extra
+# promotes them to direct deps and adds the checkpointer. psycopg[binary] overlaps the cocoindex
+# extra (intentional, same pin); psycopg-pool is new. langgraph-checkpoint-postgres floor is >=3:
+# the 3.x line is the only one compatible with langgraph 1.x (it requires langgraph-checkpoint>=4.1.0).
+# No langchain-openai (ADR-0006 keeps instructor) and no langchain-qdrant (reuse our Qdrant client).
+graph = [
+  "langgraph>=1.2.4,<2",
+  "langchain-core>=1.4.0,<2",
+  "langgraph-checkpoint-postgres>=3,<4",
+  "psycopg[binary]>=3.3.4",
+  "psycopg-pool>=3.2",
 ]
 
 

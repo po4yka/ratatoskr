@@ -647,9 +647,12 @@ jobs:
       # Export ALL extras so Safety sees the complete dependency surface.
       # The prepare-environment artifact only includes api, ml, youtube, export,
       # scheduler, mcp — extras otel, cocoindex, push, transcription, gemini,
-      # scraper_ai, attachment, browser_scraper, monitoring, and langgraph were
-      # previously omitted. We regenerate a comprehensive requirements file here
-      # rather than relying on the shared artifact.
+      # scraper_ai, attachment, browser_scraper, monitoring, and graph are
+      # omitted there. We regenerate a comprehensive requirements file here
+      # rather than relying on the shared artifact. The `graph` extra (ADR-0001
+      # reversed) adds langgraph-checkpoint-postgres + psycopg-pool on top of the
+      # langchain/langgraph ecosystem already pulled transitively by scraper_ai,
+      # so Safety/pip-audit triage those advisories too.
       - name: Export comprehensive requirements (all extras)
         run: |
           uv export --no-dev --no-hashes --format requirements-txt -p 3.13 \
@@ -668,6 +671,7 @@ jobs:
             --extra attachment \
             --extra browser_scraper \
             --extra monitoring \
+            --extra graph \
             -o requirements-safety.txt
           # Dev group (type-stubs, test tools) also carry CVE-able packages
           uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 \
