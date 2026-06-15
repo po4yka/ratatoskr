@@ -13,8 +13,8 @@ Ratatoskr provides CLI tools for:
 - External API access via the packaged `ratatoskr` client
 - Testing summarization without Telegram (`summary.py`)
 - Database migrations (`migrate_db.py`)
-- Search functionality testing (`search.py`, `search_compare.py`)
-- Embedding and vector store management (`backfill_embeddings.py`, `backfill_vector_store.py`, `migrate_vector_store.py`)
+- Search functionality testing (`search.py`)
+- Embedding and vector store management (`backfill_embeddings.py`, `backfill_vector_store.py`)
 - Signal-scoring eval export and precision checks (`signal_eval.py`)
 - MCP server (`mcp_server.py`)
 
@@ -348,75 +348,6 @@ python -m app.cli.search "машинное обучение" --lang ru
 
 ---
 
-## Search Comparison
-
-**Command:** `python -m app.cli.search_compare`
-
-**Purpose:** Compare FTS vs Vector vs Hybrid search quality.
-
-### Basic Usage
-
-```bash
-# Compare all search modes
-python -m app.cli.search_compare "query1" "query2" "query3"
-
-# Run with test queries from file
-python -m app.cli.search_compare --queries-file test_queries.txt
-```
-
-### Options
-
-| Option | Type | Default | Description |
-| -------- | ------ | --------- | ------------- |
-| `queries` | list | - | Queries to test (positional arguments) |
-| `--queries-file` | string | - | File with queries (one per line) |
-| `--output-csv` | string | - | Save comparison to CSV file |
-| `--limit` | int | 10 | Results per query |
-
-### Examples
-
-**Compare Search Modes:**
-
-```bash
-python -m app.cli.search_compare \
-  "machine learning" \
-  "neural networks" \
-  "AI ethics"
-
-# Output:
-# Query: machine learning
-# FTS:    10 results, avg score: 0.82, top: "ML Tutorial 2026"
-# Vector: 10 results, avg score: 0.91, top: "Understanding ML"
-# Hybrid: 10 results, avg score: 0.88, top: "ML Tutorial 2026"
-# ---
-# [similar output for other queries]
-```
-
-**Export to CSV:**
-
-```bash
-python -m app.cli.search_compare \
-  --queries-file queries.txt \
-  --output-csv comparison.csv
-
-# comparison.csv columns:
-# query, mode, rank, score, title, url
-```
-
-**Benchmark Performance:**
-
-```bash
-time python -m app.cli.search_compare \
-  "query1" "query2" "query3" "query4" "query5"
-
-# Outputs:
-# FTS:    avg 3.2ms per query
-# Vector: avg 125ms per query
-# Hybrid: avg 180ms per query
-```
-
----
-
 ## Backfill Embeddings
 
 **Command:** `python -m app.cli.backfill_embeddings`
@@ -593,55 +524,6 @@ docker compose -f ops/docker/docker-compose.yml up -d qdrant
 QDRANT_URL=http://localhost:6333
 QDRANT_COLLECTION_VERSION=v1
 QDRANT_REQUIRED=true
-```
-
----
-
-## Migrate Vector Store
-
-**Command:** `python -m app.cli.migrate_vector_store`
-
-**Purpose:** One-shot Chroma → Qdrant cutover tool. Reads all vectors from a running ChromaDB instance and writes them to Qdrant.
-
-### Basic Usage
-
-```bash
-# Migrate from local ChromaDB to local Qdrant
-python -m app.cli.migrate_vector_store \
-  --chroma-host http://localhost:8000 \
-  --qdrant-url http://localhost:6333
-```
-
-### Options
-
-| Option | Type | Default | Description |
-| -------- | ------ | --------- | ------------- |
-| `--chroma-host` | string | `http://localhost:8000` | ChromaDB source host URL |
-| `--chroma-token` | string | - | ChromaDB bearer token (if secured) |
-| `--qdrant-url` | string | config/env | Qdrant destination URL |
-| `--qdrant-api-key` | string | config/env | Qdrant API key (if secured) |
-| `--collection` | string | summaries | Collection name (same in both stores) |
-| `--batch-size` | int | 100 | Vectors per upsert batch |
-| `--dry-run` | flag | false | Read from Chroma but do not write to Qdrant |
-
-### Examples
-
-```bash
-# Dry-run to verify read access
-python -m app.cli.migrate_vector_store \
-  --chroma-host http://localhost:8000 \
-  --qdrant-url http://localhost:6333 \
-  --dry-run
-
-# Full migration
-python -m app.cli.migrate_vector_store \
-  --chroma-host http://localhost:8000 \
-  --qdrant-url http://localhost:6333
-
-# Verify counts after migration
-curl http://localhost:6333/collections/summaries
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-  "SELECT count(*) FROM summary_embeddings;"
 ```
 
 ---
@@ -916,10 +798,7 @@ python -m app.cli.backfill_embeddings
 # 2. Backfill Qdrant
 python -m app.cli.backfill_vector_store
 
-# 3. Compare search modes
-python -m app.cli.search_compare "test query"
-
-# 4. Benchmark
+# 3. Benchmark
 time python -m app.cli.search "test query" --mode vector
 ```
 

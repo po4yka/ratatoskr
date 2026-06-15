@@ -493,23 +493,6 @@ docker start qdrant
 
 ---
 
-## Migrate from ChromaDB (one-shot cutover)
-
-If you have an existing ChromaDB instance, use the migration tool to copy vectors to Qdrant:
-
-```bash
-# One-shot Chroma → Qdrant cutover
-python -m app.cli.migrate_vector_store \
-  --chroma-host http://localhost:8000 \
-  --qdrant-url http://localhost:6333
-
-# After migration, verify count matches
-curl http://localhost:6333/collections/summaries
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT COUNT(*) FROM summary_embeddings;"
-```
-
----
-
 ## Disable Qdrant (Rollback)
 
 ```bash

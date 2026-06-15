@@ -10,7 +10,6 @@ from app.application import ports as repository_ports
 from app.application.services.summarization import llm_response_workflow_execution
 from app.core import async_utils, logging_utils, ui_strings
 from app.core.summary_contract_impl import contract as summary_contract
-from app.infrastructure.cache import batch_progress_cache
 from app.infrastructure.persistence import protocol as persistence_protocol
 from app.infrastructure.persistence.repositories import summary_repository
 from tests.conftest import make_test_app_config
@@ -27,7 +26,6 @@ DIRECT_MODULES = [
     logging_utils,
     ui_strings,
     summary_contract,
-    batch_progress_cache,
     persistence_protocol,
     summary_repository,
 ]

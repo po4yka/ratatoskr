@@ -39,12 +39,6 @@ class RedisConfig(BaseModel):
     )
     llm_ttl_seconds: int = Field(default=7_200, validation_alias="REDIS_LLM_TTL_SECONDS")
 
-    # Phase 1: Quick wins cache TTLs
-    query_cache_ttl_seconds: int = Field(
-        default=300,
-        validation_alias="REDIS_QUERY_CACHE_TTL_SECONDS",
-        description="TTL for query result cache (default: 5 minutes)",
-    )
     trending_cache_ttl_seconds: int = Field(
         default=300,
         validation_alias="REDIS_TRENDING_CACHE_TTL_SECONDS",
@@ -173,7 +167,6 @@ class RedisConfig(BaseModel):
     @field_validator(
         "firecrawl_ttl_seconds",
         "llm_ttl_seconds",
-        "query_cache_ttl_seconds",
         "trending_cache_ttl_seconds",
         "auth_token_cache_ttl_seconds",
         "batch_progress_ttl_seconds",
@@ -194,7 +187,6 @@ class RedisConfig(BaseModel):
         ttl_limits: dict[str, tuple[int, int]] = {
             "firecrawl_ttl_seconds": (60, 86_400 * 14),  # 1 min to 14 days
             "llm_ttl_seconds": (60, 86_400 * 14),  # 1 min to 14 days
-            "query_cache_ttl_seconds": (10, 86_400),  # 10 sec to 1 day
             "trending_cache_ttl_seconds": (10, 86_400),  # 10 sec to 1 day
             "auth_token_cache_ttl_seconds": (60, 86_400 * 30),  # 1 min to 30 days
             "batch_progress_ttl_seconds": (60, 86_400),  # 1 min to 1 day

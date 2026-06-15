@@ -583,17 +583,6 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
-    # ---- Agent validation-failure counter (Phase 4c) --------------------
-    # Incremented each time ValidationAgent rejects a summary.
-    # Low-cardinality label "reason" (e.g. "missing_field", "length_exceeded",
-    # "schema_mismatch", "language_mismatch", "unknown").
-    AGENT_VALIDATION_FAILURES_TOTAL = Counter(
-        "ratatoskr_agent_validation_failures_total",
-        "Total ValidationAgent failures by reason",
-        ["reason"],
-        registry=REGISTRY,
-    )
-
 else:
     # Create dummy metrics when prometheus_client is not available
     REGISTRY = None
@@ -652,7 +641,6 @@ else:
     SOCIAL_CONNECTION_STATUS_TOTAL = None
     URL_PROCESSOR_IN_FLIGHT = None
     SCHEDULER_QUEUE_DEPTH = None
-    AGENT_VALIDATION_FAILURES_TOTAL = None
     SCRAPER_CHAIN_ATTEMPTS_TOTAL = None
     SCRAPER_CHAIN_SUCCESSES_TOTAL = None
     SCRAPER_CHAIN_DURATION_SECONDS = None
@@ -1328,19 +1316,6 @@ def set_scheduler_queue_depth(queue: str, depth: int) -> None:
     if depth < 0:
         return
     SCHEDULER_QUEUE_DEPTH.labels(queue=_metric_label(queue)).set(depth)
-
-
-def record_agent_validation_failure(*, reason: str) -> None:
-    """Increment the agent validation-failure counter.
-
-    Args:
-        reason: Low-cardinality failure reason.  Use one of:
-            "missing_field", "length_exceeded", "schema_mismatch",
-            "language_mismatch", "unknown".
-    """
-    if not PROMETHEUS_AVAILABLE or AGENT_VALIDATION_FAILURES_TOTAL is None:
-        return
-    AGENT_VALIDATION_FAILURES_TOTAL.labels(reason=_metric_label(reason)).inc()
 
 
 def record_llm_request_total_latency(
