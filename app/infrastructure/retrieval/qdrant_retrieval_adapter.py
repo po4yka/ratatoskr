@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 
 from app.application.dto.vector_search import EntityType, RetrievalHit, RetrievalResult
+from app.core.lang import detect_language
 from app.core.logging_utils import get_logger
 from app.db.models.core import Request, Summary
 from app.db.models.git_backup import GitMirror
@@ -42,12 +43,29 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Entity types that carry a per-entity ``user_id`` payload and therefore get a
-# mandatory ``user_id`` filter condition (defense-in-depth IDOR). ``x_wiki`` is
-# shared wiki content and is scoped by environment + user_scope only.
+# Entity types that carry a per-entity ``user_id`` payload. They receive a
+# ``user_id`` filter condition WHEN scope.user_id is supplied. ``x_wiki`` is
+# shared wiki content, scoped by environment + user_scope only.
 _USER_SCOPED: frozenset[EntityType] = frozenset(
     {EntityType.SUMMARY, EntityType.REPOSITORY, EntityType.GIT_MIRROR}
 )
+
+# Entity types for which scope.user_id is MANDATORY (the IDOR guard hard-fails
+# without it). Summary is intentionally excluded: like the legacy
+# StoreVectorSearchService it supports an owner-wide query (user_id optional),
+# always still bounded by environment + user_scope. Keep this in lockstep with
+# the summary policy if multi-tenancy is ever introduced (CLAUDE.md rule 12).
+_REQUIRE_USER_ID: frozenset[EntityType] = frozenset({EntityType.REPOSITORY, EntityType.GIT_MIRROR})
+
+# Entity types whose min_similarity is applied as a Qdrant ``score_threshold``
+# (the legacy repository / git_mirror services do this; default 0.2). The
+# summary path deliberately does NOT threshold at Qdrant -- StoreVectorSearchService
+# filters min_similarity in the API layer, so the candidate set + pagination /
+# has_more stay byte-stable.
+_QDRANT_SCORE_THRESHOLD_ENTITIES: frozenset[EntityType] = frozenset(
+    {EntityType.REPOSITORY, EntityType.GIT_MIRROR}
+)
+_DEFAULT_MIN_SIMILARITY = 0.2
 
 # Qdrant payload key that carries each entity's primary id.
 _ENTITY_ID_KEY: dict[EntityType, str] = {
@@ -101,10 +119,10 @@ class QdrantRetrievalAdapter:
         query_vector: list[float] = (
             list(vector)
             if vector is not None
-            else await self._embed(query or "", filters, expand_query=expand_query)
+            else await self._embed(query or "", entity_type, filters, expand_query=expand_query)
         )
         qdrant_filter = self._build_filter(entity_type, scope, filters)
-        score_threshold = self._score_threshold(filters)
+        score_threshold = self._score_threshold(entity_type, filters)
 
         vqresult = await asyncio.to_thread(
             self._vector_store.query_filter,
@@ -161,12 +179,14 @@ class QdrantRetrievalAdapter:
     ) -> Any:
         """Build the native Qdrant filter for ``entity_type``.
 
-        ``environment`` and ``user_scope`` are ALWAYS added; user-scoped
-        entities also get ``user_id``. This is the only filter-build site, so a
-        caller cannot produce an unscoped query. Per-entity branches reproduce
-        the exact conditions the legacy services used (summary: language + tags,
-        no ``entity_type`` match so legacy summary points without the field are
-        still found; repository: primary_language MatchAny + topics MinShould +
+        ``environment`` and ``user_scope`` are ALWAYS added; user-scoped entities
+        also get ``user_id`` WHEN ``scope.user_id`` is set (repository / git_mirror
+        require it via ``_require_user_scope``; summary is owner-wide when it is
+        None). This is the only filter-build site, so a caller cannot produce a
+        query without environment + user_scope. Per-entity branches reproduce the
+        exact conditions the legacy services used (summary: language + tags, no
+        ``entity_type`` match so legacy summary points without the field are still
+        found; repository: primary_language MatchAny + topics MinShould +
         is_starred + source; git_mirror / x_wiki: entity_type only).
         """
         from qdrant_client.models import (
@@ -232,23 +252,39 @@ class QdrantRetrievalAdapter:
 
     @staticmethod
     def _require_user_scope(entity_type: EntityType, scope: RetrievalScope) -> None:
-        if entity_type in (EntityType.REPOSITORY, EntityType.GIT_MIRROR) and scope.user_id is None:
+        if entity_type in _REQUIRE_USER_ID and scope.user_id is None:
             msg = (
                 f"retrieval of entity_type={entity_type.value} requires scope.user_id (IDOR guard)"
             )
             raise ValueError(msg)
 
     @staticmethod
-    def _score_threshold(filters: Mapping[str, Any] | None) -> float | None:
-        if filters is None:
+    def _score_threshold(
+        entity_type: EntityType, filters: Mapping[str, Any] | None
+    ) -> float | None:
+        if entity_type not in _QDRANT_SCORE_THRESHOLD_ENTITIES:
+            # Summary / x_wiki: no Qdrant-side threshold (the summary oracle
+            # filters min_similarity in the API layer), so the returned
+            # candidate set + pagination match the legacy path.
             return None
-        value = filters.get("min_similarity")
-        return None if value is None else float(value)
+        value = (filters or {}).get("min_similarity")
+        # Reproduce the legacy repository / git_mirror default of 0.2 when unset.
+        return _DEFAULT_MIN_SIMILARITY if value is None else float(value)
 
     async def _embed(
-        self, query: str, filters: Mapping[str, Any] | None, *, expand_query: bool
+        self,
+        query: str,
+        entity_type: EntityType,
+        filters: Mapping[str, Any] | None,
+        *,
+        expand_query: bool,
     ) -> list[float]:
         text = query.strip()
+        language = (filters or {}).get("language")
+        if language is None and entity_type is EntityType.SUMMARY:
+            # Mirror StoreVectorSearchService: summaries embed with the query's
+            # detected language so the query vector matches the legacy path.
+            language = detect_language(text)
         if expand_query and self._query_expansion is not None:
             # Provisional: append expansion terms as plain text before embedding.
             # The exact expansion-for-embedding semantics are tuned at cutover.
@@ -259,7 +295,6 @@ class QdrantRetrievalAdapter:
                     text = " ".join([text, *terms])
             except Exception:  # expansion is best-effort, never fatal
                 logger.debug("retrieval_query_expansion_failed")
-        language = (filters or {}).get("language")
         embedding = await self._embedding_service.generate_embedding(
             text, language=language, task_type="query"
         )
@@ -278,6 +313,9 @@ class QdrantRetrievalAdapter:
                 # non-summary point lacking summary_id) -- reproduces the
                 # hydration-skip the legacy summary service relied on.
                 continue
+            # hit.distance is already max(0, 1 - similarity) from the store, so
+            # score == clamp(similarity) and distance == 1 - score round-trips
+            # stably -- this is intentional, not a double-conversion bug.
             score = max(0.0, min(1.0, 1.0 - float(hit.distance)))
             hits.append(
                 RetrievalHit(
@@ -301,20 +339,41 @@ class QdrantRetrievalAdapter:
     ) -> list[RetrievalHit]:
         if not hits or scope.user_id is None:
             return hits
-        ids = [int(hit.entity_id) for hit in hits]
+
+        # Dedup by entity_id keeping first-seen (= highest Qdrant rank) and skip
+        # non-int-castable ids -- mirrors the legacy repository / git_mirror
+        # services (which key a dict on first sight and ``except (TypeError,
+        # ValueError): continue``). Without this, a chunked entity (>1 point)
+        # would surface as duplicate hits.
+        ordered_ids: list[int] = []
+        seen: set[int] = set()
+        unique_hits: list[RetrievalHit] = []
+        for hit in hits:
+            try:
+                entity_id_int = int(hit.entity_id)
+            except (TypeError, ValueError):
+                continue
+            if entity_id_int in seen:
+                continue
+            seen.add(entity_id_int)
+            ordered_ids.append(entity_id_int)
+            unique_hits.append(hit)
+        if not ordered_ids:
+            return []
+
         rows: dict[int, Any] = {}
         async with self._db.session() as session:
             if entity_type is EntityType.REPOSITORY:
                 repo_result = await session.execute(
                     select(Repository).where(
-                        Repository.id.in_(ids), Repository.user_id == scope.user_id
+                        Repository.id.in_(ordered_ids), Repository.user_id == scope.user_id
                     )
                 )
                 rows = {row.id: row for row in repo_result.scalars().all()}
             else:
                 mirror_result = await session.execute(
                     select(GitMirror).where(
-                        GitMirror.id.in_(ids), GitMirror.user_id == scope.user_id
+                        GitMirror.id.in_(ordered_ids), GitMirror.user_id == scope.user_id
                     )
                 )
                 rows = {row.id: row for row in mirror_result.scalars().all()}
@@ -322,7 +381,7 @@ class QdrantRetrievalAdapter:
         # Preserve Qdrant rank order; drop hits whose row is missing (the
         # defense-in-depth Postgres-side user_id re-filter rejected it).
         hydrated: list[RetrievalHit] = []
-        for hit in hits:
+        for hit in unique_hits:
             row = rows.get(int(hit.entity_id))
             if row is None:
                 continue

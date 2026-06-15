@@ -156,7 +156,10 @@ async def test_summary_retrieve_skips_hits_without_entity_id() -> None:
     assert [h.entity_id for h in result.hits] == ["1"]
 
 
-async def test_find_similar_repository_excludes_seed_and_scopes() -> None:
+async def test_find_similar_builds_seed_exclusion_filter() -> None:
+    # Proves the adapter CONSTRUCTS the right seed point_id + must_not + scope.
+    # That Qdrant actually HONORS the must_not is proven end-to-end in
+    # tests/integration/test_qdrant_store_retrieval.py::test_adapter_find_similar_filter_excludes_seed.
     store = _FakeStore([])  # empty -> no hydration / no DB access
     adapter = QdrantRetrievalAdapter(
         vector_store=store, embedding_service=_FakeEmbedding(), db=None
@@ -202,3 +205,89 @@ async def test_rerank_reorders_via_injected_reranker() -> None:
     )
     # Reranker reversed the candidate order; default rerank=False would keep 0,1,2.
     assert [h.entity_id for h in result.hits] == ["2", "1", "0"]
+
+
+async def test_rerank_appends_dropped_hits() -> None:
+    hits = [
+        VectorQueryHit(id=f"p{i}", distance=0.1 * i, metadata={"summary_id": i}) for i in range(3)
+    ]
+
+    class _DropLastReranker:
+        async def rerank(self, query: str, documents: list[Any], **_kwargs: Any) -> list[Any]:
+            # Keep all but the last (reversed); the dropped one must reappear at the end.
+            return list(reversed(documents[:-1]))
+
+    adapter = QdrantRetrievalAdapter(
+        vector_store=_FakeStore(hits),
+        embedding_service=_FakeEmbedding(),
+        db=None,
+        reranker=_DropLastReranker(),
+    )
+    result = await adapter.retrieve(
+        entity_type=EntityType.SUMMARY, scope=SCOPE, query="x", rerank=True
+    )
+    # reranker returns [p1, p0] (dropping p2); adapter appends the dropped p2 last.
+    assert [h.entity_id for h in result.hits] == ["1", "0", "2"]
+
+
+def test_summary_user_id_optional_owner_wide() -> None:
+    # Summary is owner-wide when user_id is None: _build_filter omits the user_id
+    # condition but ALWAYS keeps environment + user_scope.
+    adapter = _adapter()
+    scope = RetrievalScope(environment="prod", user_scope="public", user_id=None)
+    keys = _must_keys(adapter._build_filter(EntityType.SUMMARY, scope, None))
+    assert "user_id" not in keys
+    assert {"environment", "user_scope"} <= keys
+
+
+async def test_summary_retrieve_allows_user_id_none() -> None:
+    # Unlike repository/git_mirror, summary retrieve does NOT raise without user_id.
+    scope = RetrievalScope(environment="prod", user_scope="public", user_id=None)
+    adapter = QdrantRetrievalAdapter(
+        vector_store=_FakeStore([]), embedding_service=_FakeEmbedding(), db=None
+    )
+    result = await adapter.retrieve(entity_type=EntityType.SUMMARY, scope=scope, query="x")
+    assert result.total == 0
+
+
+def test_score_threshold_defaults_per_entity_type() -> None:
+    adapter = _adapter()
+    # repo/mirror reproduce the legacy 0.2 default when min_similarity is unset...
+    assert adapter._score_threshold(EntityType.REPOSITORY, None) == pytest.approx(0.2)
+    assert adapter._score_threshold(EntityType.GIT_MIRROR, None) == pytest.approx(0.2)
+    # ...and honour an explicit value.
+    assert adapter._score_threshold(
+        EntityType.REPOSITORY, {"min_similarity": 0.5}
+    ) == pytest.approx(0.5)
+    # summary / x_wiki never threshold at Qdrant (legacy filters in the API layer).
+    assert adapter._score_threshold(EntityType.SUMMARY, {"min_similarity": 0.5}) is None
+    assert adapter._score_threshold(EntityType.X_WIKI, None) is None
+
+
+class _RecordingEmbedding:
+    def __init__(self) -> None:
+        self.last_language: str | None | object = "UNSET"
+
+    async def generate_embedding(
+        self, text: str, *, language: str | None = None, task_type: str = "document"
+    ) -> list[float]:
+        self.last_language = language
+        return [0.1, 0.2, 0.3]
+
+
+async def test_summary_embed_detects_language_when_unset() -> None:
+    embedding = _RecordingEmbedding()
+    adapter = QdrantRetrievalAdapter(
+        vector_store=_FakeStore([]), embedding_service=embedding, db=None
+    )
+    await adapter.retrieve(entity_type=EntityType.SUMMARY, scope=SCOPE, query="привет мир")
+    assert embedding.last_language == "ru"  # detect_language found Cyrillic
+
+
+async def test_repository_embed_does_not_detect_language() -> None:
+    embedding = _RecordingEmbedding()
+    adapter = QdrantRetrievalAdapter(
+        vector_store=_FakeStore([]), embedding_service=embedding, db=None
+    )
+    await adapter.retrieve(entity_type=EntityType.REPOSITORY, scope=SCOPE, query="привет")
+    assert embedding.last_language is None  # repo passes language as-is, no detection

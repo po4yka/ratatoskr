@@ -39,10 +39,16 @@ class RetrievalScope:
 
     Centralizes the IDOR / tenant guard (CLAUDE.md rule 12, ADR-0005/0012). The
     retrieval port REQUIRES a scope on every call, and the Qdrant adapter
-    unconditionally injects ``environment`` + ``user_scope`` (plus per-entity
-    ``user_id`` for user-scoped entities) into the Qdrant filter, so no caller
-    can structurally omit it. ``environment`` and ``user_scope`` are required
-    (no defaults) -- a scope cannot be constructed without them.
+    unconditionally injects ``environment`` + ``user_scope`` into the Qdrant
+    filter, so no caller can structurally omit them. ``environment`` and
+    ``user_scope`` are required (no defaults) -- a scope cannot be constructed
+    without them -- and must be the canonical (lowercased) values the index was
+    written with, since the adapter matches them verbatim.
+
+    ``user_id`` is REQUIRED for repository / git_mirror retrieval (the adapter
+    raises without it) and OPTIONAL for summary, which is owner-wide when it is
+    None, matching the legacy StoreVectorSearchService. x_wiki is shared content
+    and is not user-partitioned.
     """
 
     environment: str
@@ -74,7 +80,13 @@ class RetrievalHit:
 
 @dataclass(frozen=True, slots=True)
 class RetrievalResult:
-    """Ordered hits for a single retrieval call (Qdrant rank order preserved)."""
+    """Ordered hits for a single retrieval call (Qdrant rank order preserved).
+
+    ``total`` is the number of hits IN THIS RESULT (post-hydration / post-rerank),
+    not a pre-pagination candidate count. The port does not page server-side: a
+    caller needing ``offset`` / ``has_more`` over-fetches via ``top_k`` and slices,
+    the way the legacy services did (top_k = limit + offset + buffer).
+    """
 
     hits: list[RetrievalHit]
     total: int
