@@ -109,6 +109,7 @@ class QdrantRetrievalAdapter:
         filters: Mapping[str, Any] | None = None,
         rerank: bool = False,
         expand_query: bool = False,
+        exclude_request_id: int | None = None,
         correlation_id: str | None = None,
     ) -> RetrievalResult:
         if query is None and vector is None:
@@ -121,7 +122,9 @@ class QdrantRetrievalAdapter:
             if vector is not None
             else await self._embed(query or "", entity_type, filters, expand_query=expand_query)
         )
-        qdrant_filter = self._build_filter(entity_type, scope, filters)
+        qdrant_filter = self._build_filter(
+            entity_type, scope, filters, exclude_request_id=exclude_request_id
+        )
         score_threshold = self._score_threshold(entity_type, filters)
 
         vqresult = await asyncio.to_thread(
@@ -176,6 +179,7 @@ class QdrantRetrievalAdapter:
         filters: Mapping[str, Any] | None,
         *,
         exclude_point_id: str | None = None,
+        exclude_request_id: int | None = None,
     ) -> Any:
         """Build the native Qdrant filter for ``entity_type``.
 
@@ -188,6 +192,10 @@ class QdrantRetrievalAdapter:
         ``entity_type`` match so legacy summary points without the field are still
         found; repository: primary_language MatchAny + topics MinShould +
         is_starred + source; git_mirror / x_wiki: entity_type only).
+
+        ``exclude_point_id`` (find_similar's seed) and ``exclude_request_id`` (the
+        ground node's current request) both land in ``must_not`` here, so every
+        exclusion shares the one IDOR-safe filter rather than a parallel path.
         """
         from qdrant_client.models import (
             FieldCondition,
@@ -240,11 +248,23 @@ class QdrantRetrievalAdapter:
                 if source is not None:
                     must.append(FieldCondition(key="source", match=MatchValue(value=source)))
 
-        must_not: list[Any] | None = None
+        must_not: list[Any] = []
         if exclude_point_id is not None:
-            must_not = [HasIdCondition(has_id=[exclude_point_id])]
+            must_not.append(HasIdCondition(has_id=[exclude_point_id]))
+        if exclude_request_id is not None:
+            # Exclude the current request's own summary point(s) by payload
+            # request_id -- the ground node can't compute the not-yet-created
+            # summary's point id, so it excludes by request_id instead.
+            must_not.append(
+                FieldCondition(key="request_id", match=MatchValue(value=exclude_request_id))
+            )
 
-        return Filter(must=must, should=should, min_should=min_should, must_not=must_not)
+        return Filter(
+            must=must,
+            should=should,
+            min_should=min_should,
+            must_not=must_not or None,
+        )
 
     # ------------------------------------------------------------------
     # Helpers

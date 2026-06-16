@@ -448,6 +448,73 @@ class QdrantVectorStore:
                     raise VectorStoreError(str(exc)) from exc
                 self._available = False
 
+    def replace_summary_point(
+        self,
+        request_id: int | str,
+        raw_id: str,
+        vector: Sequence[float],
+        payload: dict[str, Any],
+        *,
+        wait: bool = True,
+    ) -> None:
+        """Replace a request's single summary point, writing ``payload`` VERBATIM.
+
+        The read-your-writes fast-path (ADR-0012) uses this instead of
+        :meth:`replace_request_notes` because ``payload`` must be byte-identical
+        to the point the CocoIndex flow emits for the same summary
+        (:mod:`app.infrastructure.vector.summary_point`): no empty-list pruning
+        and no scope overwrite (``_build_points`` would do both), so the
+        reconciler sees no drift. Deletes any stale points for ``request_id`` so
+        a re-summarization (new ``summary_id``) leaves no orphan. Fully
+        synchronous -- callers wrap it in ``asyncio.to_thread``.
+        """
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            logger.warning(
+                "vector_replace_skipped",
+                extra={"reason": "not_available", "request_id": request_id, "count": 1},
+            )
+            return
+
+        point_uuid = _str_to_uuid(raw_id)
+        point = PointStruct(id=point_uuid, vector=list(vector), payload=dict(payload))
+
+        client = self._client
+        with _get_tracer().start_as_current_span("vector.replace") as span:
+            span.set_attribute(VECTOR_OPERATION, "replace")
+            t0 = time.perf_counter()
+            try:
+                existing_uuid_strs = self._fetch_request_point_ids(request_id)
+                client.upsert(
+                    collection_name=self._collection_name,
+                    points=[point],
+                    wait=wait,
+                )
+                stale = existing_uuid_strs - {point_uuid}
+                if stale:
+                    client.delete(
+                        collection_name=self._collection_name,
+                        points_selector=PointIdsList(points=list(stale)),
+                        wait=wait,
+                    )
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace", elapsed)
+                record_vector_write(operation="replace", status="success")
+                span.set_attribute(VECTOR_STATUS, "success")
+            except Exception as exc:
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace", elapsed)
+                logger.error(
+                    "vector_replace_summary_failed",
+                    extra={"request_id": request_id, "error": str(exc)},
+                )
+                record_vector_write(operation="replace", status="failed")
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
+
     # ------------------------------------------------------------------
     # Read operations
     # ------------------------------------------------------------------

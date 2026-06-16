@@ -30,6 +30,18 @@ if TYPE_CHECKING:
     from app.application.ports.retrieval import RetrievalPort
     from app.application.ports.stream_sink import StreamSinkPort
     from app.application.ports.summaries import SummaryRepositoryPort
+    from app.application.ports.summary_index import SummaryIndexPort
+
+
+def build_summary_index_adapter(*, vector_store: Any, embedding_service: Any) -> SummaryIndexPort:
+    """Construct the read-your-writes summary indexer (ADR-0012).
+
+    Imported lazily so this module stays importable without the vector stack in
+    the import-linter / unit-test envs (matches the langgraph lazy-import seam).
+    """
+    from app.infrastructure.vector.summary_index_adapter import QdrantSummaryIndexAdapter
+
+    return QdrantSummaryIndexAdapter(vector_store=vector_store, embedding_service=embedding_service)
 
 
 def build_summarize_deps(
@@ -40,8 +52,15 @@ def build_summarize_deps(
     stream_sink: StreamSinkPort,
     summaries: SummaryRepositoryPort,
     requests: RequestRepositoryPort,
+    summary_index: SummaryIndexPort,
+    rag_enabled: bool = False,
+    rag_top_k: int = 5,
 ) -> SummarizeDeps:
-    """Pack already-constructed ports into the node dependency bundle."""
+    """Pack already-constructed ports + RAG knobs into the node dependency bundle.
+
+    ``rag_enabled`` / ``rag_top_k`` come from ``RuntimeConfig`` at this composition
+    root so the ground node never imports ``app.config`` (application-no-outward).
+    """
     return SummarizeDeps(
         llm_client=llm_client,
         retrieval=retrieval,
@@ -49,6 +68,9 @@ def build_summarize_deps(
         stream_sink=stream_sink,
         summaries=summaries,
         requests=requests,
+        summary_index=summary_index,
+        rag_enabled=rag_enabled,
+        rag_top_k=rag_top_k,
     )
 
 

@@ -42,6 +42,7 @@ class RetrievalPort(Protocol):
         filters: Mapping[str, Any] | None = None,
         rerank: bool = False,
         expand_query: bool = False,
+        exclude_request_id: int | None = None,
         correlation_id: str | None = None,
     ) -> RetrievalResult:
         """Return the top-``top_k`` hits for ``query`` OR ``vector``.
@@ -49,6 +50,12 @@ class RetrievalPort(Protocol):
         Exactly one of ``query`` (embedded by the adapter) or ``vector`` (a
         precomputed embedding) is supplied. ``scope`` is mandatory and is
         merged with any optional ``filters``; callers cannot bypass it.
+
+        ``exclude_request_id`` drops every point whose ``request_id`` payload
+        equals it, via the same centralized filter -- the summarize ``ground``
+        node passes the current request so a re-summarization never grounds on
+        its own prior summary (ADR-0005/0012). It composes with ``scope``; it is
+        not a bypass.
 
         ``rerank`` and ``expand_query`` default to ``False`` so the result
         ordering reproduces the un-reranked, un-expanded legacy behavior

@@ -886,6 +886,17 @@ Notes:
 
 ---
 
+## Summarize Graph RAG Grounding
+
+Optional retrieval-augmented grounding in the summarize graph's `ground` node (ADR-0005/0012/0016): retrieve top-k scope-filtered prior summaries via the unified retrieval port and inject an anti-contamination "related prior summaries (reference only)" block into the system prompt. Paired with a synchronous read-your-writes index-on-write in the `persist` node, so a new summary is retrievable immediately (freshness) while CocoIndex + the reconciler remain the convergence/backfill path. Configuration owner: `app/config/runtime.py::RuntimeConfig`. Embedding models are **not** configured here — they come from `ratatoskr.yaml` only (no code default).
+
+| Variable | Type | Default | Purpose |
+|---|---|---|---|
+| `SUMMARIZE_RAG_ENABLED` | bool | `false` | Master switch for RAG grounding in the `ground` node. Default off — when off the node is a no-op and summarize output is byte-identical to the non-RAG path. Independent of `SUMMARIZE_GRAPH_ENABLED`. **REMOVAL TRIGGER:** delete at the T6 cutover once grounding is the default (no flag outlives its migration, ADR-0018). |
+| `RAG_TOP_K` | int (≥1) | `5` | Number of prior summaries the `ground` node retrieves when `SUMMARIZE_RAG_ENABLED` is on. **REMOVAL TRIGGER:** retire alongside `SUMMARIZE_RAG_ENABLED` at the T6 cutover. |
+
+---
+
 ## Configuration Validation Checklist
 
 Use this checklist to verify your configuration before deploying:

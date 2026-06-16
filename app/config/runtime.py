@@ -169,6 +169,27 @@ class RuntimeConfig(BaseModel):
             "cutover (no flag outlives its migration, ADR-0018). Default off."
         ),
     )
+    summarize_rag_enabled: bool = Field(
+        default=False,
+        validation_alias="SUMMARIZE_RAG_ENABLED",
+        description=(
+            "Enable RAG grounding in the summarize graph's ground node: retrieve "
+            "top-k scope-filtered prior summaries and inject an anti-contamination "
+            "'related prior summaries (reference only)' block into the system prompt "
+            "(ADR-0005/0012/0016). TRANSITIONAL/opt-in: default off; REMOVE at the T6 "
+            "cutover once grounding is the default (no flag outlives its migration, "
+            "ADR-0018). Independent of SUMMARIZE_GRAPH_ENABLED."
+        ),
+    )
+    rag_top_k: int = Field(
+        default=5,
+        validation_alias="RAG_TOP_K",
+        description=(
+            "Number of prior summaries the ground node retrieves when "
+            "SUMMARIZE_RAG_ENABLED is on. REMOVE alongside SUMMARIZE_RAG_ENABLED at "
+            "the T6 cutover (ADR-0018)."
+        ),
+    )
     aggregation_bundle_enabled: bool = Field(
         default=True, validation_alias="AGGREGATION_BUNDLE_ENABLED"
     )

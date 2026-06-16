@@ -76,6 +76,11 @@ def test_graph_dependencies_packs_ports() -> None:
         stream_sink=sentinel,
         summaries=sentinel,
         requests=sentinel,
+        summary_index=sentinel,
     )
     assert isinstance(deps, SummarizeDeps)
     assert deps.retrieval is sentinel
+    assert deps.summary_index is sentinel
+    # RAG knobs default to off / 5 unless the composition root overrides them.
+    assert deps.rag_enabled is False
+    assert deps.rag_top_k == 5

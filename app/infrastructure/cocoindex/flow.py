@@ -25,89 +25,18 @@ from app.infrastructure.cocoindex.embedding_bridge import (
     summary_id_to_point_id,
 )
 
+# Summary point shape (indexable text + payload) lives in a dependency-light
+# module shared with the read-your-writes fast-path, so the CocoIndex flow
+# (convergence/backfill) and the synchronous index-on-write (freshness) emit
+# byte-identical points and the reconciler reports no drift (ADR-0012). Aliased
+# to the historical private names to keep the flow body unchanged.
+from app.infrastructure.vector.summary_point import (
+    build_summary_qdrant_payload as _build_qdrant_payload,
+    coerce_summary_payload as _coerce_summary_payload,
+    extract_indexable_text as _extract_indexable_text,
+)
+
 logger = get_logger(__name__)
-
-
-def _coerce_summary_payload(
-    json_payload: str | dict[str, Any] | None,
-) -> tuple[dict[str, Any], str | None]:
-    """Parse a summary's json_payload once.
-
-    Returns ``(payload_dict, raw_fallback)``: ``payload_dict`` is the parsed
-    object (``{}`` when absent, non-object, or unparseable), and
-    ``raw_fallback`` is the truncated raw string to embed *only* when a string
-    payload failed to parse (``None`` otherwise) -- preserving the original
-    text-extraction fallback without re-parsing in each helper.
-    """
-    if not json_payload:
-        return {}, None
-    if isinstance(json_payload, str):
-        try:
-            parsed = json.loads(json_payload)
-        except (json.JSONDecodeError, ValueError):
-            return {}, json_payload[:2000]
-        return (parsed if isinstance(parsed, dict) else {}), None
-    return (json_payload if isinstance(json_payload, dict) else {}), None
-
-
-def _extract_indexable_text(payload: dict[str, Any], *, raw_fallback: str | None = None) -> str:
-    """Extract the text we embed from a parsed summary payload.
-
-    Mirrors the logic in app.core.embedding_text.prepare_text_for_embedding
-    but operates on the parsed payload without the token-length truncation
-    (CocoIndex handles batching/chunking at the flow level).
-    """
-    if not payload:
-        return raw_fallback or ""
-
-    parts: list[str] = []
-    metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
-    title = metadata.get("title") or payload.get("title") or ""
-    if title:
-        parts.append(title)
-    for key in ("summary_1000", "summary_250", "tldr"):
-        val = payload.get(key)
-        if val and isinstance(val, str):
-            parts.append(val)
-            break
-    key_ideas = payload.get("key_ideas")
-    if isinstance(key_ideas, list):
-        parts.extend(str(k) for k in key_ideas[:5] if k)
-    tags = payload.get("topic_tags")
-    if isinstance(tags, list):
-        parts.append(" ".join(str(t) for t in tags[:10] if t))
-    return " ".join(parts)[:4000]
-
-
-def _build_qdrant_payload(
-    summary_id: int,
-    request_id: int,
-    lang: str | None,
-    payload: dict[str, Any],
-    user_scope: str,
-    environment: str,
-) -> dict[str, Any]:
-    """Build the Qdrant point payload dict from a parsed summary payload.
-
-    Must be compatible with the payload schema produced by
-    app.infrastructure.vector.metadata_builder.MetadataBuilder so that
-    the existing query() path keeps working.
-    """
-    metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
-    return {
-        "entity_type": "summary",
-        "summary_id": summary_id,
-        "request_id": request_id,
-        "language": lang or "en",
-        "user_scope": user_scope,
-        "environment": environment,
-        "title": metadata.get("title") or payload.get("title") or "",
-        "url": metadata.get("url") or payload.get("url") or "",
-        "source_type": payload.get("source_type") or "",
-        "tldr": payload.get("tldr") or "",
-        "topic_tags": payload.get("topic_tags") or [],
-        "summary_250": payload.get("summary_250") or "",
-    }
 
 
 def _parse_json_object(value: str | dict[str, Any] | list[Any] | None) -> dict[str, Any]:

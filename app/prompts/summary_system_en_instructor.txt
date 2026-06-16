@@ -21,3 +21,4 @@ Rules:
 - hallucination_risk: exactly one of: low, med, high, unknown. Use unknown when risk cannot be assessed from the source.
 - source_type: exactly one of: news, blog, research, opinion, tutorial, reference.
 - temporal_freshness: exactly one of: breaking, recent, evergreen.
+- If a "RELATED PRIOR SUMMARIES (reference only)" block is provided, treat it as reference context only: do not summarize those entries, and do not introduce facts or cross-references absent from the current source.

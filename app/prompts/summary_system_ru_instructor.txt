@@ -21,3 +21,4 @@
 - hallucination_risk: строго одно из: low, med, high, unknown. Используйте unknown, если риск нельзя оценить по источнику.
 - source_type: строго одно из: news, blog, research, opinion, tutorial, reference.
 - temporal_freshness: строго одно из: breaking, recent, evergreen.
+- Если предоставлен блок "RELATED PRIOR SUMMARIES (reference only)", используйте его только как справочный контекст: НЕ резюмируйте эти записи и НЕ добавляйте факты или перекрёстные ссылки, отсутствующие в текущем источнике.

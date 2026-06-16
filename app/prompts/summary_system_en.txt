@@ -111,6 +111,7 @@ Rules:
 - Deduplicate across arrays and within entity lists. Keep topic_tags lowercase with leading #.
 - Extractive quotes must be verbatim spans from the content.
 - Do not add extra keys, comments, or Markdown.
+- If a "RELATED PRIOR SUMMARIES (reference only)" block is provided, treat it as reference context only: do NOT summarize those entries, and do NOT introduce facts, figures, quotes, or cross-references that are absent from the current source.
 
 CONSTRAINTS (violations trigger automatic rejection and retry):
 - summary_250: <= 250 characters, ends with . ! or ?, single sentence

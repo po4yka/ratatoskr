@@ -37,9 +37,33 @@ class SummarizeState(TypedDict, total=False):
     request_id: int
     lang: str
 
+    # Retrieval scope for the ground node's mandatory IDOR-safe filter
+    # (ADR-0005/0012/0016). Populated by ingest/extract (T7) from config + the
+    # request owner; the ground node no-ops if any is absent.
+    user_scope: str
+    environment: str
+    user_id: int
+
+    # ground's RAG query: the extracted source text the ground node embeds to
+    # find related prior summaries. A serializable str (not a live object), but
+    # the only bulk field here -- ground is the one node that needs the content
+    # and may only import the retrieval port, so it is handed the text via state
+    # (ponytail: a content handle could replace it once extract owns re-fetch).
+    source_text: str
+
     # Working fields populated as the graph advances.
     grounding_ids: list[str]
+    # Anti-contamination "related prior summaries (reference only)" block written
+    # by ground (empty when RAG is off / no hits) and concatenated into the
+    # system prompt by build_prompt -- the ground<->build_prompt seam (ADR-0015).
+    grounding_block: str
+    # Assembled system prompt (build_prompt seam; full base-prompt assembly is
+    # T7). build_prompt appends grounding_block here.
+    system_prompt: str
     summary: dict[str, Any]
+    # DB id of the persisted summary; set when the summary row exists so the
+    # persist node's read-your-writes fast-path can build the Qdrant point id.
+    summary_id: int
     validation_errors: list[str]
     repair_attempts: int
     call_count: int

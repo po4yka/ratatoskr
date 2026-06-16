@@ -107,7 +107,13 @@ def _real_deps():
 
     m = MagicMock()
     return SummarizeDeps(
-        llm_client=m, retrieval=m, extraction=m, stream_sink=m, summaries=m, requests=m
+        llm_client=m,
+        retrieval=m,
+        extraction=m,
+        stream_sink=m,
+        summaries=m,
+        requests=m,
+        summary_index=m,
     )
 
 

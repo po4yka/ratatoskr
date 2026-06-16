@@ -70,6 +70,16 @@ class VectorStore(Protocol):
         wait: bool = True,
     ) -> None: ...
 
+    def replace_summary_point(
+        self,
+        request_id: int | str,
+        raw_id: str,
+        vector: Sequence[float],
+        payload: dict[str, Any],
+        *,
+        wait: bool = True,
+    ) -> None: ...
+
     def query(
         self,
         query_vector: Sequence[float],

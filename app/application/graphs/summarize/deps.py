@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.application.ports.retrieval import RetrievalPort
     from app.application.ports.stream_sink import StreamSinkPort
     from app.application.ports.summaries import SummaryRepositoryPort
+    from app.application.ports.summary_index import SummaryIndexPort
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,3 +36,10 @@ class SummarizeDeps:
     stream_sink: StreamSinkPort
     summaries: SummaryRepositoryPort
     requests: RequestRepositoryPort
+    # Read-your-writes fast-path used by the persist node (ADR-0012).
+    summary_index: SummaryIndexPort
+    # RAG grounding knobs injected from RuntimeConfig at the composition root, so
+    # nodes never import app.config (application-no-outward). ADR-0018: the flag
+    # is transitional and retires at the T6 cutover.
+    rag_enabled: bool = False
+    rag_top_k: int = 5

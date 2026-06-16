@@ -140,6 +140,7 @@ async def run_summarize_graph(
         "request_id": request_id,
         "lang": lang,
         "grounding_ids": [],
+        "grounding_block": "",
         "summary": {},
         "validation_errors": [],
         "repair_attempts": 0,
