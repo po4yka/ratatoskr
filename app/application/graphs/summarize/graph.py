@@ -124,6 +124,9 @@ async def run_summarize_graph(
     correlation_id: str,
     request_id: int,
     lang: str,
+    input_url: str = "",
+    user_scope: str | None = None,
+    environment: str | None = None,
     recursion_limit: int = DEFAULT_RECURSION_LIMIT,
 ) -> dict[str, Any]:
     """Invoke a compiled summarize graph for one request.
@@ -139,13 +142,20 @@ async def run_summarize_graph(
         "correlation_id": correlation_id,
         "request_id": request_id,
         "lang": lang,
+        "input_url": input_url,
+        "source_text": "",
         "grounding_ids": [],
         "grounding_block": "",
         "summary": {},
         "validation_errors": [],
         "repair_attempts": 0,
         "call_count": 0,
+        "llm_calls": [],
     }
+    if user_scope is not None:
+        initial_state["user_scope"] = user_scope
+    if environment is not None:
+        initial_state["environment"] = environment
     config: dict[str, Any] = {
         "configurable": {"thread_id": correlation_id},
         "recursion_limit": recursion_limit,
