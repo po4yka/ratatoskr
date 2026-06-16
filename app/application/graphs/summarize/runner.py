@@ -34,6 +34,9 @@ async def maybe_run_summarize_graph(
     correlation_id: str,
     request_id: int,
     lang: str,
+    input_url: str = "",
+    user_scope: str | None = None,
+    environment: str | None = None,
 ) -> dict[str, Any] | None:
     """Run the summarize graph iff the flag is on; else ``None`` (legacy fallback).
 
@@ -49,4 +52,7 @@ async def maybe_run_summarize_graph(
         correlation_id=correlation_id,
         request_id=request_id,
         lang=lang,
+        input_url=input_url,
+        user_scope=user_scope,
+        environment=environment,
     )

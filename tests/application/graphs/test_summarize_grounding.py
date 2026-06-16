@@ -1,7 +1,9 @@
-"""T6: ground / build_prompt / persist grounding + read-your-writes behavior.
+"""T6/T7: ground / build_prompt / persist grounding + read-your-writes behavior.
 
 CI-safe (no langgraph, no Qdrant, no Postgres): nodes are plain
-``async def(state, *, deps)`` exercised with fake ports.
+``async def(state, *, deps)`` exercised with fake ports. The ground-node tests are
+T6; the build_prompt + persist tests track the T7 node bodies (full prompt
+assembly; summary + llm_calls persistence + freshness index).
 """
 
 from __future__ import annotations
@@ -51,6 +53,30 @@ class _FakeSummaryIndex:
             raise RuntimeError("qdrant down")
 
 
+class _FakeSummaries:
+    """Records finalize calls and returns a canned summary id."""
+
+    def __init__(self, *, summary_id: int | None = None) -> None:
+        self._summary_id = summary_id
+        self.finalized: list[dict[str, Any]] = []
+
+    async def async_finalize_request_summary(self, **kwargs: Any) -> int:
+        self.finalized.append(kwargs)
+        return 1
+
+    async def async_get_summary_id_by_request(self, request_id: int) -> int | None:
+        return self._summary_id
+
+
+class _FakeLLMRepo:
+    def __init__(self) -> None:
+        self.records: list[dict[str, Any]] = []
+
+    async def async_insert_llm_call(self, record: dict[str, Any]) -> int:
+        self.records.append(dict(record))
+        return len(self.records)
+
+
 def _summary_hit(
     entity_id: str, *, title: str, tldr: str = "", summary_250: str = ""
 ) -> RetrievalHit:
@@ -73,17 +99,23 @@ def _deps(
     *,
     retrieval: Any = None,
     summary_index: Any = None,
+    summaries: Any = None,
+    llm_repo: Any = None,
     rag_enabled: bool = False,
     rag_top_k: int = 5,
 ) -> SummarizeDeps:
+    # _FakeSummaries implements only the methods the persist node calls; typed Any
+    # so mypy accepts it as the (much wider) SummaryRepositoryPort.
+    summaries_port: Any = summaries or _FakeSummaries()
     return SummarizeDeps(
         llm_client=MagicMock(),
         retrieval=retrieval or _FakeRetrieval(),
         extraction=MagicMock(),
         stream_sink=MagicMock(),
-        summaries=MagicMock(),
+        summaries=summaries_port,
         requests=MagicMock(),
         summary_index=summary_index or _FakeSummaryIndex(),
+        llm_repo=llm_repo,
         rag_enabled=rag_enabled,
         rag_top_k=rag_top_k,
     )
@@ -106,7 +138,7 @@ def _grounded_state(**over: Any) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# ground node
+# ground node (T6)
 # --------------------------------------------------------------------------- #
 
 
@@ -179,37 +211,79 @@ async def test_ground_empty_when_no_hits() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# build_prompt node (grounding concatenation seam)
+# build_prompt node (T7 full assembly + grounding concatenation seam)
 # --------------------------------------------------------------------------- #
 
 
-async def test_build_prompt_noop_without_grounding_block() -> None:
-    # Flag-off parity: no grounding block -> no prompt delta.
-    assert await build_prompt(_grounded_state(grounding_block=""), deps=_deps()) == {}
+async def test_build_prompt_assembles_instructor_prompt_without_grounding() -> None:
+    # No grounding block -> the system prompt is the instructor prompt (no header),
+    # and the LLM messages are assembled (flag-off RAG parity).
+    out = await build_prompt(_grounded_state(grounding_block=""), deps=_deps())
+    assert GROUNDING_BLOCK_HEADER not in out["system_prompt"]
+    assert out["messages"][0]["role"] == "system"
+    assert out["messages"][1]["role"] == "user"
+    assert "distributed databases" in out["messages"][1]["content"]
+    assert out["max_tokens"] >= 1536
 
 
-async def test_build_prompt_appends_block_to_base_system_prompt() -> None:
-    state = _grounded_state(grounding_block="=== BLOCK ===\n1. x", system_prompt="BASE PROMPT")
-    out = await build_prompt(state, deps=_deps())
-    assert out == {"system_prompt": "BASE PROMPT\n\n=== BLOCK ===\n1. x"}
+async def test_build_prompt_appends_grounding_block_after_instructor_prompt() -> None:
+    block = f"{GROUNDING_BLOCK_HEADER}\n1. x\n{GROUNDING_BLOCK_FOOTER}"
+    out = await build_prompt(_grounded_state(grounding_block=block), deps=_deps())
+    # The block is concatenated after the instructor system prompt (seam preserved).
+    assert out["system_prompt"].endswith(block)
+    assert GROUNDING_BLOCK_HEADER in out["system_prompt"]
+    # And the same system prompt is the first message.
+    assert out["messages"][0]["content"] == out["system_prompt"]
 
 
-async def test_build_prompt_uses_block_alone_when_no_base() -> None:
-    state = _grounded_state(grounding_block="=== BLOCK ===")
-    out = await build_prompt(state, deps=_deps())
-    assert out == {"system_prompt": "=== BLOCK ==="}
+async def test_build_prompt_noop_when_no_content_and_no_block() -> None:
+    # No extracted content and no grounding -> preserve the T6 grounding-only seam
+    # (no prompt delta, byte-identical to the no-RAG no-content path).
+    assert (
+        await build_prompt(_grounded_state(source_text="", grounding_block=""), deps=_deps()) == {}
+    )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_ground_then_build_prompt_flag_parity(enabled: bool) -> None:
+    """End-to-end node parity: flag off => no grounding block in the prompt."""
+    fake = _FakeRetrieval(hits=[_summary_hit("1", title="Prior", tldr="t")])
+    deps = _deps(retrieval=fake, rag_enabled=enabled)
+    state = _grounded_state()
+    state.update(await ground(state, deps=deps))
+    out = await build_prompt(state, deps=deps)
+    if enabled:
+        assert GROUNDING_BLOCK_HEADER in out["system_prompt"]
+    else:
+        # No grounding leaked into the assembled prompt.
+        assert GROUNDING_BLOCK_HEADER not in out["system_prompt"]
 
 
 # --------------------------------------------------------------------------- #
-# persist node (read-your-writes fast-path)
+# persist node (T7: summary + llm_calls + T6 read-your-writes fast-path)
 # --------------------------------------------------------------------------- #
 
 
-async def test_persist_indexes_summary_on_write() -> None:
+async def test_persist_finalizes_summary_and_indexes_on_write() -> None:
     index = _FakeSummaryIndex()
-    state = _grounded_state(summary={"tldr": "hi"}, summary_id=100)
-    out = await persist(state, deps=_deps(summary_index=index))
-    assert out == {}
+    summaries = _FakeSummaries(summary_id=100)
+    llm_repo = _FakeLLMRepo()
+    state = _grounded_state(
+        summary={"tldr": "hi"},
+        llm_calls=[{"request_id": 42, "provider": "openrouter", "attempt_trigger": "graph_node"}],
+    )
+    out = await persist(
+        state, deps=_deps(summary_index=index, summaries=summaries, llm_repo=llm_repo)
+    )
+
+    assert out == {"summary_id": 100}
+    # Summary finalized (request -> COMPLETED).
+    assert len(summaries.finalized) == 1
+    assert summaries.finalized[0]["request_id"] == 42
+    # llm_calls persisted with the graph_node trigger (persist-everything).
+    assert len(llm_repo.records) == 1
+    assert llm_repo.records[0]["attempt_trigger"] == "graph_node"
+    # Read-your-writes index fired with the resolved summary id.
     assert len(index.calls) == 1
     call = index.calls[0]
     assert call["request_id"] == 42
@@ -220,31 +294,32 @@ async def test_persist_indexes_summary_on_write() -> None:
     assert call["correlation_id"] == "cid-1"
 
 
-async def test_persist_skips_when_no_summary_id() -> None:
+async def test_persist_skips_index_when_no_summary_id() -> None:
     index = _FakeSummaryIndex()
-    state = _grounded_state(summary={"tldr": "hi"})  # no summary_id yet
-    await persist(state, deps=_deps(summary_index=index))
+    summaries = _FakeSummaries(summary_id=None)  # id never resolves
+    state = _grounded_state(summary={"tldr": "hi"})
+    out = await persist(state, deps=_deps(summary_index=index, summaries=summaries))
+    # Summary still finalized, but no id -> no freshness index.
+    assert len(summaries.finalized) == 1
     assert index.calls == []
+    assert out == {}
 
 
 async def test_persist_swallows_index_failure_and_completes() -> None:
     # Resilience: a Qdrant failure must NOT propagate (ADR-0012).
     index = _FakeSummaryIndex(raises=True)
-    state = _grounded_state(summary={"tldr": "hi"}, summary_id=100)
-    out = await persist(state, deps=_deps(summary_index=index))
-    assert out == {}  # request completion is never blocked
+    summaries = _FakeSummaries(summary_id=100)
+    state = _grounded_state(summary={"tldr": "hi"})
+    out = await persist(state, deps=_deps(summary_index=index, summaries=summaries))
+    assert out == {"summary_id": 100}  # request completion is never blocked
     assert len(index.calls) == 1  # it was attempted
 
 
-@pytest.mark.parametrize("enabled", [True, False])
-async def test_ground_then_build_prompt_flag_parity(enabled: bool) -> None:
-    """End-to-end node parity: flag off => build_prompt produces no delta."""
-    fake = _FakeRetrieval(hits=[_summary_hit("1", title="Prior", tldr="t")])
-    deps = _deps(retrieval=fake, rag_enabled=enabled)
-    state = _grounded_state()
-    state.update(await ground(state, deps=deps))
-    out = await build_prompt(state, deps=deps)
-    if enabled:
-        assert out["system_prompt"].startswith(GROUNDING_BLOCK_HEADER)
-    else:
-        assert out == {}  # byte-identical to the no-RAG path
+async def test_persist_noop_without_summary() -> None:
+    # Nothing produced -> no persistence, no index.
+    index = _FakeSummaryIndex()
+    summaries = _FakeSummaries(summary_id=100)
+    out = await persist(_grounded_state(), deps=_deps(summary_index=index, summaries=summaries))
+    assert out == {}
+    assert summaries.finalized == []
+    assert index.calls == []

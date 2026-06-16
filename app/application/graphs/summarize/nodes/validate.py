@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.core.summary_contract import validate_and_shape_summary
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -13,11 +14,18 @@ if TYPE_CHECKING:
 
 @graph_node("validate")
 async def validate(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any]:
-    """Validate ``state['summary']`` against the strict summary contract.
+    """Validate + shape ``state['summary']`` against the strict summary contract.
 
-    STUB (T5): reports no errors (valid), so the skeleton routes validate ->
-    enrich. The real contract validation (``app.core.summary_contract``) that
-    populates ``validation_errors`` and drives the validate -> repair loop lands
-    in T7.
+    On success: replace ``summary`` with the canonical shaped payload and clear
+    ``validation_errors`` (router -> enrich). On a contract ``ValidationError``:
+    populate ``validation_errors`` (router -> repair). No summary yet (the
+    no-content path) is treated as valid-and-empty so the skeleton still drains.
     """
-    return {"validation_errors": []}
+    summary = state.get("summary")
+    if not summary:
+        return {"validation_errors": []}
+    try:
+        shaped = validate_and_shape_summary(summary)
+    except Exception as exc:
+        return {"validation_errors": [str(exc)]}
+    return {"summary": shaped, "validation_errors": []}
