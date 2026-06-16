@@ -19,7 +19,14 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from app.application.graphs.summarize.deps import SummarizeDeps
-from app.application.graphs.summarize.graph import build_summarize_graph
+from app.application.graphs.summarize.graph import (
+    DEFAULT_RECURSION_LIMIT,
+    build_initial_state,
+    build_summarize_graph,
+    invocation_config,
+    reason_code_for_exception,
+)
+from app.application.graphs.summarize.lifecycle import route_terminal_failure
 
 logger = logging.getLogger(__name__)
 
@@ -128,3 +135,95 @@ def build_summarize_graph_app(*, deps: SummarizeDeps, checkpointer: Any | None =
         logger.info("summarize_graph_using_in_memory_checkpointer")
         checkpointer = InMemorySaver()
     return build_summarize_graph(deps=deps, checkpointer=checkpointer)
+
+
+def build_stream_sink(*, hub: Any | None = None) -> StreamSinkPort:
+    """Construct the StreamHub-backed stream sink (ADR-0017).
+
+    Imported lazily so this module stays importable without the streaming stack
+    in minimal envs (matches the other adapter seams in this module). Inject the
+    result into :func:`build_summarize_deps` as ``stream_sink``.
+    """
+    from app.adapters.content.streaming.stream_sink_hub import StreamHubStreamSink
+
+    return StreamHubStreamSink(hub=hub)
+
+
+async def run_summarize_graph_streamed(
+    *,
+    graph: Any,
+    deps: SummarizeDeps,
+    sink: StreamSinkPort,
+    correlation_id: str,
+    request_id: int,
+    lang: str,
+    input_url: str = "",
+    user_scope: str | None = None,
+    environment: str | None = None,
+    recursion_limit: int | None = None,
+) -> dict[str, Any]:
+    """Drive the summarize graph via ``astream_events``, bridging events to the sink.
+
+    This is the streaming "runner" (ADR-0017): it owns the bridge lifecycle
+    (created on run start, discarded on terminal completion) so the summarize
+    node stays framework-agnostic. ``astream_events`` is the single driver -- it
+    executes the graph AND yields the events the bridge translates into
+    ``StreamHub`` progress; there is no separate ``ainvoke``.
+
+    Streamed tokens are an ephemeral side-channel: the bridge's assembler is
+    local to this call and never enters checkpoint state (ADR-0011). Terminal
+    ``done`` / ``error`` are emitted by ``BackgroundProgressPublisher``, not here,
+    so each request_id stream terminates exactly once.
+
+    On any node/recursion/budget failure, routes to the single terminal-failure
+    path and returns ``{"error": ...}``; otherwise returns the final graph state.
+    """
+    from app.adapters.content.streaming.graph_event_bridge import GraphEventBridge
+
+    limit = DEFAULT_RECURSION_LIMIT if recursion_limit is None else recursion_limit
+    # stream=True flips the summarize node onto its token-streaming LLM path so the
+    # bridge below actually receives summary_token events (ADR-0017).
+    initial_state = build_initial_state(
+        correlation_id=correlation_id,
+        request_id=request_id,
+        lang=lang,
+        input_url=input_url,
+        user_scope=user_scope,
+        environment=environment,
+        stream=True,
+    )
+    config = invocation_config(correlation_id=correlation_id, recursion_limit=limit)
+    bridge = GraphEventBridge(sink=sink, request_id=str(request_id), correlation_id=correlation_id)
+    final_state: dict[str, Any] = {}
+    try:
+        async for event in graph.astream_events(initial_state, config=config, version="v2"):
+            await bridge.dispatch(event)
+            captured = _final_state_from_event(event)
+            if captured is not None:
+                final_state = captured
+        return final_state
+    except Exception as exc:
+        # Single terminal sink (ADR-0011), mirroring run_summarize_graph: a node
+        # exception, GraphRecursionError, or CallBudgetExceeded all route here.
+        # BaseException (cancellation) is deliberately not caught.
+        logger.warning(
+            "summarize_graph_streamed_terminal_failure",
+            extra={"correlation_id": correlation_id, "error_type": type(exc).__name__},
+        )
+        message = await route_terminal_failure(
+            initial_state, deps, exc, reason_code=reason_code_for_exception(exc)
+        )
+        return {"error": message, "correlation_id": correlation_id, "request_id": request_id}
+
+
+def _final_state_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Best-effort: the root graph's ``on_chain_end`` output is the final state.
+
+    The root run has no parents; nested node/runnable ends carry ``parent_ids``.
+    Not load-bearing (T9 parity asserts output via ``ainvoke``) -- the streaming
+    path returns it as a convenience for callers.
+    """
+    if event.get("event") != "on_chain_end" or event.get("parent_ids"):
+        return None
+    output = event.get("data", {}).get("output")
+    return output if isinstance(output, dict) else None

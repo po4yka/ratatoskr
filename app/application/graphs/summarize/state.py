@@ -40,6 +40,12 @@ class SummarizeState(TypedDict, total=False):
     # Raw input URL the extract node resolves through the extraction port. Settled
     # by ingest/the runner; a small primitive str (not bulk content).
     input_url: str
+    # Mode flag (NOT a stream buffer): the streaming runner sets it True so the
+    # summarize node takes the token-streaming LLM path (deltas dispatched as
+    # ``summary_token`` custom events, bridged to StreamHub by T8). The ainvoke
+    # path leaves it False so T9 parity stays byte-identical. Streamed tokens are
+    # NEVER stored in state -- only this bool (ADR-0011/0017).
+    stream: bool
 
     # Extraction handles written by the extract node (id-based; bulk content lives
     # in source_text / the crawl row, not duplicated here). ADR-0015.

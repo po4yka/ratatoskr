@@ -82,6 +82,66 @@ _NODES: dict[str, Any] = {
 }
 
 
+def build_initial_state(
+    *,
+    correlation_id: str,
+    request_id: int,
+    lang: str,
+    input_url: str = "",
+    user_scope: str | None = None,
+    environment: str | None = None,
+    stream: bool = False,
+) -> SummarizeState:
+    """The per-invocation initial graph state (serializable primitives only).
+
+    Shared by :func:`run_summarize_graph` (ainvoke) and the streaming driver in
+    :mod:`app.di.graphs` so the two construct byte-identical state -- no stream
+    buffer / token field ever appears here (ADR-0011/0017). ``stream`` is a plain
+    mode flag (NOT a buffer): the streaming runner sets it so the summarize node
+    takes the token-streaming LLM path; the ainvoke path leaves it False so T9
+    parity stays byte-identical.
+    """
+    initial_state: SummarizeState = {
+        "correlation_id": correlation_id,
+        "request_id": request_id,
+        "lang": lang,
+        "input_url": input_url,
+        "source_text": "",
+        "grounding_ids": [],
+        "grounding_block": "",
+        "summary": {},
+        "validation_errors": [],
+        "repair_attempts": 0,
+        "call_count": 0,
+        "llm_calls": [],
+        "stream": stream,
+    }
+    if user_scope is not None:
+        initial_state["user_scope"] = user_scope
+    if environment is not None:
+        initial_state["environment"] = environment
+    return initial_state
+
+
+def invocation_config(*, correlation_id: str, recursion_limit: int) -> dict[str, Any]:
+    """Per-invocation langgraph config: ``thread_id == correlation_id`` (sacred)."""
+    return {
+        "configurable": {"thread_id": correlation_id},
+        "recursion_limit": recursion_limit,
+    }
+
+
+def reason_code_for_exception(exc: BaseException) -> str:
+    """Map a terminal exception to its failure reason code (single mapping)."""
+    if isinstance(exc, CallBudgetExceeded):
+        return REASON_GRAPH_CALL_BUDGET_EXCEEDED
+    # Matched by name, not isinstance, to avoid importing langgraph at module
+    # scope (the no-graph-extra import invariant, ADR-0018).
+    if type(exc).__name__ == "GraphRecursionError":
+        return REASON_GRAPH_RECURSION_LIMIT
+    return REASON_GRAPH_NODE_FAILURE
+
+
 def _route_after_validate(state: SummarizeState) -> str:
     """Conditional edge: valid summary -> ``enrich``; otherwise -> ``repair``.
 
@@ -138,42 +198,22 @@ async def run_summarize_graph(
     (``BaseException``) is never swallowed. On failure returns
     ``{"error": "<message>", ...}``; on success returns the final graph state.
     """
-    initial_state: SummarizeState = {
-        "correlation_id": correlation_id,
-        "request_id": request_id,
-        "lang": lang,
-        "input_url": input_url,
-        "source_text": "",
-        "grounding_ids": [],
-        "grounding_block": "",
-        "summary": {},
-        "validation_errors": [],
-        "repair_attempts": 0,
-        "call_count": 0,
-        "llm_calls": [],
-    }
-    if user_scope is not None:
-        initial_state["user_scope"] = user_scope
-    if environment is not None:
-        initial_state["environment"] = environment
-    config: dict[str, Any] = {
-        "configurable": {"thread_id": correlation_id},
-        "recursion_limit": recursion_limit,
-    }
+    initial_state = build_initial_state(
+        correlation_id=correlation_id,
+        request_id=request_id,
+        lang=lang,
+        input_url=input_url,
+        user_scope=user_scope,
+        environment=environment,
+    )
+    config = invocation_config(correlation_id=correlation_id, recursion_limit=recursion_limit)
     try:
         return await graph.ainvoke(initial_state, config=config)
     except Exception as exc:
         # Single terminal sink (ADR-0011): a node exception, GraphRecursionError,
         # and CallBudgetExceeded all route here. BaseException (e.g. cancellation)
         # is deliberately NOT caught.
-        if isinstance(exc, CallBudgetExceeded):
-            reason_code = REASON_GRAPH_CALL_BUDGET_EXCEEDED
-        elif type(exc).__name__ == "GraphRecursionError":
-            # Matched by name, not isinstance, to avoid importing langgraph at
-            # module scope (the no-graph-extra import invariant, ADR-0018).
-            reason_code = REASON_GRAPH_RECURSION_LIMIT
-        else:
-            reason_code = REASON_GRAPH_NODE_FAILURE
+        reason_code = reason_code_for_exception(exc)
         logger.warning(
             "summarize_graph_terminal_failure",
             extra={"correlation_id": correlation_id, "error_type": type(exc).__name__},

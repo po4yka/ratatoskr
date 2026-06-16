@@ -13,6 +13,11 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+# Custom astream_events name the summarize node dispatches per summary token
+# delta (ADR-0017). Lives here so the application node (producer) and the
+# adapters streaming bridge (consumer) share ONE literal without crossing layers.
+SUMMARY_TOKEN_EVENT = "summary_token"
+
 
 class ProcessingStage(StrEnum):
     """Canonical public processing stages for request status polling and streams."""
@@ -35,4 +40,4 @@ class ProgressEventKind(StrEnum):
     ERROR = "error"
 
 
-__all__ = ["ProcessingStage", "ProgressEventKind"]
+__all__ = ["SUMMARY_TOKEN_EVENT", "ProcessingStage", "ProgressEventKind"]

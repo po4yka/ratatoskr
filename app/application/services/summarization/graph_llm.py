@@ -23,6 +23,8 @@ from app.application.services.summarization.graph_prompt import _PROMPTS_DIR
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from app.application.ports.llm_client import LLMClientProtocol
 
 logger = logging.getLogger(__name__)
@@ -158,6 +160,80 @@ async def summarize_with_instructor(
         "tokens_completion": getattr(result, "tokens_completion", None),
         "cost_usd": getattr(result, "cost_usd", None),
         "latency_ms": getattr(result, "latency_ms", None),
+    }
+    return summary, call_meta
+
+
+async def summarize_streaming(
+    *,
+    llm_client: LLMClientProtocol,
+    messages: list[dict[str, Any]],
+    source_content: str,
+    max_tokens: int | None,
+    model_override: str | None,
+    temperature: float,
+    structured_output_mode: str | None,
+    on_token: Callable[[str], Awaitable[None] | None],
+    request_id: int | None = None,
+    correlation_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Token-streaming summary path (ADR-0017): ONE ``chat(stream=True)`` call.
+
+    The model is asked for a JSON object; ``on_token`` receives each raw text
+    delta (dispatched as a ``summary_token`` event so the T8 bridge drives live
+    section previews). The accumulated text is parsed tolerantly -- a malformed
+    or partial object is handed forward as-is for the validate->repair loop to
+    correct (no hard schema-validation here, unlike the structured path). The
+    injection / quality post-processing is shared with
+    :func:`summarize_with_instructor` so output shape stays consistent.
+
+    Returns ``(summary, call_meta)``. Raises ``ValueError`` only when the call
+    fails outright or yields no JSON object (routed to the terminal path).
+    """
+    result = await llm_client.chat(
+        messages,
+        stream=True,
+        on_stream_delta=on_token,
+        response_format={"type": "json_object"},
+        max_tokens=max_tokens,
+        temperature=temperature,
+        model_override=model_override,
+        request_id=request_id,
+    )
+    if result.status != CallStatus.OK:
+        logger.warning(
+            "summarize_graph_streaming_failed",
+            extra={"cid": correlation_id, "error": result.error_text},
+        )
+        raise ValueError(f"Streaming LLM call failed: {result.error_text}")
+
+    # Prefer the provider-parsed JSON (json_object mode); fall back to tolerant
+    # extraction from the accumulated text the deltas built.
+    parsed: Any = result.response_json
+    if not isinstance(parsed, dict):
+        try:
+            parsed = extract_json(result.response_text or "")
+        except Exception as exc:
+            raise ValueError(f"Streaming summary produced no parseable JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("Streaming summary produced no JSON object")
+
+    summary = mark_prompt_injection_metadata(parsed, source_content)
+    quality = summary.get("quality")
+    merge_summary_quality_metadata(
+        summary,
+        model_used=result.model,
+        structured_output_mode=structured_output_mode,
+        prompt_injection_suspected=(
+            quality.get("prompt_injection_suspected", False) if isinstance(quality, dict) else False
+        ),
+    )
+    call_meta = {
+        "model": result.model,
+        "tokens_prompt": result.tokens_prompt,
+        "tokens_completion": result.tokens_completion,
+        "cost_usd": result.cost_usd,
+        "latency_ms": result.latency_ms,
     }
     return summary, call_meta
 
