@@ -32,13 +32,14 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.streaming.section_assembler import SummarySectionStreamAssembler
-from app.application.dto.stream_enums import ProcessingStage
+from app.application.dto.stream_enums import SUMMARY_TOKEN_EVENT, ProcessingStage
 
 if TYPE_CHECKING:
     from app.application.ports.stream_sink import StreamSinkPort
 
-# Custom astream_events name the summarize node (T7) dispatches per token delta.
-SUMMARY_TOKEN_EVENT = "summary_token"
+# Re-exported for callers that import the event name from the bridge; the single
+# source of truth is app.application.dto.stream_enums (shared with the producer node).
+__all__ = ["SUMMARY_TOKEN_EVENT", "GraphEventBridge"]
 
 # node name -> the stage emitted when that node starts. Nodes not listed
 # (ingest/ground/build_prompt/repair/enrich) emit no stage, matching the five

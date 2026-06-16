@@ -157,6 +157,9 @@ async def run_summarize_graph_streamed(
     correlation_id: str,
     request_id: int,
     lang: str,
+    input_url: str = "",
+    user_scope: str | None = None,
+    environment: str | None = None,
     recursion_limit: int | None = None,
 ) -> dict[str, Any]:
     """Drive the summarize graph via ``astream_events``, bridging events to the sink.
@@ -178,8 +181,16 @@ async def run_summarize_graph_streamed(
     from app.adapters.content.streaming.graph_event_bridge import GraphEventBridge
 
     limit = DEFAULT_RECURSION_LIMIT if recursion_limit is None else recursion_limit
+    # stream=True flips the summarize node onto its token-streaming LLM path so the
+    # bridge below actually receives summary_token events (ADR-0017).
     initial_state = build_initial_state(
-        correlation_id=correlation_id, request_id=request_id, lang=lang
+        correlation_id=correlation_id,
+        request_id=request_id,
+        lang=lang,
+        input_url=input_url,
+        user_scope=user_scope,
+        environment=environment,
+        stream=True,
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=limit)
     bridge = GraphEventBridge(sink=sink, request_id=str(request_id), correlation_id=correlation_id)

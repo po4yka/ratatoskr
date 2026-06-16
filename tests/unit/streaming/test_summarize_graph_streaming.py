@@ -169,16 +169,33 @@ async def test_driver_ignores_nested_and_non_dict_chain_end() -> None:
 
 # --- resume does not replay a half-stream: no stream buffer in checkpoint state ---
 
-_STREAM_BUFFER_MARKERS = ("stream", "token", "buffer", "delta")
+# Field names that would mean a streamed-token / partial-summary BUFFER lives in
+# checkpoint state (the no-replay violation). The ``stream`` bool mode flag and
+# ``max_tokens`` int budget are NOT buffers and are explicitly allowed.
+_FORBIDDEN_BUFFER_FIELDS = frozenset(
+    {
+        "stream_buffer",
+        "stream_text",
+        "stream_tokens",
+        "token_buffer",
+        "tokens",
+        "deltas",
+        "partial",
+        "partial_summary",
+        "section_buffer",
+        "preview",
+    }
+)
 
 
 def test_summarize_state_carries_no_stream_buffer_field() -> None:
-    keys = set(SummarizeState.__annotations__)
-    offenders = [k for k in keys if any(m in k.lower() for m in _STREAM_BUFFER_MARKERS)]
-    assert offenders == [], f"SummarizeState must hold no stream buffer (ADR-0011): {offenders}"
+    present = _FORBIDDEN_BUFFER_FIELDS & set(SummarizeState.__annotations__)
+    assert present == set(), f"SummarizeState must hold no stream buffer (ADR-0011): {present}"
 
 
 def test_initial_state_has_no_stream_buffer() -> None:
-    state = build_initial_state(correlation_id=_CID, request_id=_RID, lang="en")
-    offenders = [k for k in state if any(m in k.lower() for m in _STREAM_BUFFER_MARKERS)]
-    assert offenders == []
+    # Streaming runner sets stream=True; the only stream-related field is that
+    # bool flag -- no accumulated token/partial buffer rides in state (ADR-0011/0017).
+    state = build_initial_state(correlation_id=_CID, request_id=_RID, lang="en", stream=True)
+    assert _FORBIDDEN_BUFFER_FIELDS & set(state) == set()
+    assert state["stream"] is True

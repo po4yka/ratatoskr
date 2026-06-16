@@ -52,7 +52,10 @@ def test_state_annotations_are_serializable_primitives() -> None:
     hints = typing.get_type_hints(SummarizeState)
     for name, hint in hints.items():
         origin = typing.get_origin(hint) or hint
-        assert origin in {str, int, list, dict}, f"{name}: {hint!r} is not a serializable primitive"
+        # bool is JSON/msgpack-serializable (e.g. the ``stream`` mode flag, ADR-0017).
+        assert origin in {str, int, bool, list, dict}, (
+            f"{name}: {hint!r} is not a serializable primitive"
+        )
 
 
 def test_real_msgpack_roundtrip_with_langgraph_serializer() -> None:
