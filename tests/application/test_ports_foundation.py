@@ -19,12 +19,13 @@ def test_new_ports_are_runtime_checkable() -> None:
         assert getattr(port, "_is_runtime_protocol", False) is True
 
 
-def test_stream_hub_satisfies_stream_sink_port() -> None:
-    # The real StreamHub.publish(request_id, event) IS the StreamSink surface
-    # (ADR-0017): the hub is the bridge target the T8 adapter wraps.
-    from app.adapters.content.streaming.stream_hub import StreamHub
+def test_stream_hub_adapter_satisfies_stream_sink_port() -> None:
+    # T8 finalized the StreamSink surface (stage/section/warning/done/error);
+    # the StreamHubStreamSink adapter is now the structural implementation that
+    # wraps the raw StreamHub.publish target (ADR-0017).
+    from app.adapters.content.streaming.stream_sink_hub import StreamHubStreamSink
 
-    assert isinstance(StreamHub(), StreamSinkPort)
+    assert isinstance(StreamHubStreamSink(), StreamSinkPort)
 
 
 def test_retrieval_adapter_shape_satisfies_port() -> None:
