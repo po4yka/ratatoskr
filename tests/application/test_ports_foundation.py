@@ -65,11 +65,11 @@ def test_retrieval_hit_and_result_shapes() -> None:
 
 
 def test_graph_dependencies_packs_ports() -> None:
-    from app.di.graphs import build_graph_dependencies
-    from app.di.types import GraphDependencies
+    from app.application.graphs.summarize.deps import SummarizeDeps
+    from app.di.graphs import build_summarize_deps
 
     sentinel: Any = object()
-    deps = build_graph_dependencies(
+    deps = build_summarize_deps(
         llm_client=sentinel,
         retrieval=sentinel,
         extraction=sentinel,
@@ -77,5 +77,5 @@ def test_graph_dependencies_packs_ports() -> None:
         summaries=sentinel,
         requests=sentinel,
     )
-    assert isinstance(deps, GraphDependencies)
+    assert isinstance(deps, SummarizeDeps)
     assert deps.retrieval is sentinel

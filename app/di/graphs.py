@@ -1,21 +1,27 @@
 """Composition root for the summarize graph (ADR-0010).
 
-STUB. Wires already-constructed port implementations into the port-typed node
-dependency bundle (:class:`app.di.types.GraphDependencies`). No ``StateGraph``
-is assembled yet -- the graph skeleton and its compile entrypoint land in T5.
+Promotes the T3 stub: wires already-constructed application ports into the
+port-typed :class:`SummarizeDeps` bundle and compiles the ``StateGraph`` with a
+pluggable checkpointer. This module and
+``app/application/graphs/summarize/graph.py`` are the ONLY langgraph-coupled
+surfaces (ADR-0010/0018); nodes stay framework-free.
 
-``langgraph`` MUST NOT be imported here: the banned-api guard still forbids it
-until T1 lifts it (ADR-0001), and even afterwards this seam stays
-framework-light. This module exists so sibling tracks have a stable
-composition seam to extend, and so the import-linter CI job (which imports
-``app.*`` at graph-build) sees no optional-dependency import.
+langgraph is imported **lazily** inside :func:`build_summarize_graph_app` so this
+module stays importable in the import-linter / mypy / unit-test CI envs, which do
+not install the optional ``graph`` extra. T5 defaults the checkpointer to an
+in-memory saver; T2's ``AsyncPostgresSaver`` is injected at this same seam at
+cutover.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, Any
 
-from app.di.types import GraphDependencies
+from app.application.graphs.summarize.deps import SummarizeDeps
+from app.application.graphs.summarize.graph import build_summarize_graph
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.application.ports.extraction import ExtractionPort
@@ -26,7 +32,7 @@ if TYPE_CHECKING:
     from app.application.ports.summaries import SummaryRepositoryPort
 
 
-def build_graph_dependencies(
+def build_summarize_deps(
     *,
     llm_client: LLMClientProtocol,
     retrieval: RetrievalPort,
@@ -34,14 +40,9 @@ def build_graph_dependencies(
     stream_sink: StreamSinkPort,
     summaries: SummaryRepositoryPort,
     requests: RequestRepositoryPort,
-) -> GraphDependencies:
-    """Pack port implementations into the node dependency bundle (STUB).
-
-    T5 extends this to build and compile the ``StateGraph`` (injecting the
-    checkpointer from T2). Today it only assembles :class:`GraphDependencies`
-    from ports that DI has already constructed.
-    """
-    return GraphDependencies(
+) -> SummarizeDeps:
+    """Pack already-constructed ports into the node dependency bundle."""
+    return SummarizeDeps(
         llm_client=llm_client,
         retrieval=retrieval,
         extraction=extraction,
@@ -49,3 +50,21 @@ def build_graph_dependencies(
         summaries=summaries,
         requests=requests,
     )
+
+
+def build_summarize_graph_app(*, deps: SummarizeDeps, checkpointer: Any | None = None) -> Any:
+    """Compile the summarize graph, defaulting to an in-memory checkpointer.
+
+    When ``checkpointer`` is ``None`` an ``InMemorySaver`` is used (testable without
+    the T2 Postgres pool). Production wiring passes T2's ``AsyncPostgresSaver`` here.
+    langgraph is imported lazily so importing this module never requires the
+    ``graph`` extra.
+    """
+    if checkpointer is None:
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        # Non-durable: log so a production wiring that forgot the Postgres saver
+        # (T2 AsyncPostgresSaver) is observable rather than silent.
+        logger.info("summarize_graph_using_in_memory_checkpointer")
+        checkpointer = InMemorySaver()
+    return build_summarize_graph(deps=deps, checkpointer=checkpointer)

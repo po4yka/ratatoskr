@@ -194,3 +194,18 @@ QUEUE_DEPTH = "ratatoskr.queue.depth"
 # Boolean indicating whether the task result was an error (maps to
 # TaskiqResult.is_err).  Used by OtelMiddleware on the taskiq.* span.
 TASK_IS_ERR = "ratatoskr.task.is_err"
+
+# ---------------------------------------------------------------------------
+# Phase 6 -- LangGraph summarize graph  (graph.* spans, ADR-0010/0011)
+# ---------------------------------------------------------------------------
+
+# Logical graph name (e.g. "summarize").
+GRAPH_NAME = "ratatoskr.graph.name"
+
+# Canonical node name within the graph (e.g. "ingest", "extract",
+# "summarize", "validate", "repair", "persist").
+GRAPH_NODE = "ratatoskr.graph.node"
+
+# The graph thread_id, which is ALWAYS the request correlation_id (sacred,
+# ADR-0011). Carried on graph spans so a resumable run stays correlated.
+GRAPH_THREAD_ID = "ratatoskr.graph.thread_id"

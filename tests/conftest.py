@@ -12,27 +12,23 @@ from typing import Any
 import pytest
 
 
-# Python 3.10 compatibility shims (must be before app imports)
+# Python 3.10 compatibility shims (must be before app imports).
+#
+# The typing.NotRequired shim was REMOVED: NotRequired is native on Python 3.11+
+# (this repo targets 3.13), and globally rebinding ``typing.NotRequired`` to a stub
+# broke pydantic schema generation for langchain-core message TypedDicts
+# (``NotRequired[Literal[...]]`` -> PydanticSchemaGenerationError), which fires when
+# langgraph is imported under pytest. T5's real-langgraph tests need the native
+# ``typing.NotRequired``. The StrEnum / UTC shims are retained unchanged.
 class StrEnum(str, Enum):
     """Compatibility shim for StrEnum (Python 3.11+)."""
 
 
-class _NotRequiredMeta(type):
-    def __getitem__(cls, item: Any) -> Any:
-        return item
-
-
-class NotRequired(metaclass=_NotRequiredMeta):
-    """Compatibility shim for NotRequired (Python 3.11+)."""
-
-
 import datetime as dt_module
 import enum
-import typing
 from datetime import timezone
 
 enum.StrEnum = StrEnum  # type: ignore[misc,assignment]
-typing.NotRequired = NotRequired  # type: ignore[assignment]
 dt_module.UTC = timezone.utc
 
 from app.api.dependencies.database import clear_session_manager

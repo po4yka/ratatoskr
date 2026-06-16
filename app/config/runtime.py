@@ -158,6 +158,17 @@ class RuntimeConfig(BaseModel):
     summary_two_pass_enabled: bool = Field(
         default=False, validation_alias="SUMMARY_TWO_PASS_ENABLED"
     )
+    summarize_graph_enabled: bool = Field(
+        default=False,
+        validation_alias="SUMMARIZE_GRAPH_ENABLED",
+        description=(
+            "Route summarization through the LangGraph StateGraph "
+            "(app.application.graphs.summarize) instead of the legacy "
+            "url_processor path (ADR-0010/0011/0013). TRANSITIONAL: exists only "
+            "to run both paths for parity comparison; removed at the T9 hard "
+            "cutover (no flag outlives its migration, ADR-0018). Default off."
+        ),
+    )
     aggregation_bundle_enabled: bool = Field(
         default=True, validation_alias="AGGREGATION_BUNDLE_ENABLED"
     )

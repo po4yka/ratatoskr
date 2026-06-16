@@ -10,12 +10,6 @@ if TYPE_CHECKING:
     from app.adapters.content.scraper.protocol import ContentScraperProtocol
     from app.adapters.external.firecrawl.client import FirecrawlClient
     from app.adapters.llm.protocol import LLMClientProtocol
-    from app.application.ports.extraction import ExtractionPort
-    from app.application.ports.llm_client import LLMClientProtocol as LLMClientPort
-    from app.application.ports.requests import RequestRepositoryPort
-    from app.application.ports.retrieval import RetrievalPort
-    from app.application.ports.stream_sink import StreamSinkPort
-    from app.application.ports.summaries import SummaryRepositoryPort
     from app.config import AppConfig
     from app.db.session import Database
 
@@ -42,24 +36,6 @@ class SearchDependencies:
     vector_search_service: Any | None
     hybrid_search_service: Any
     query_expansion_service: Any | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class GraphDependencies:
-    """Port-typed dependency bundle for the summarize-graph nodes (ADR-0010).
-
-    Wired from concrete adapters / infrastructure in :mod:`app.di.graphs`;
-    nodes receive it via graph config / ``functools.partial`` and never via
-    serializable graph state (ADR-0011). Typed against application ports only,
-    so the graph stays adapter-agnostic. The ``StateGraph`` itself lands in T5.
-    """
-
-    llm_client: LLMClientPort
-    retrieval: RetrievalPort
-    extraction: ExtractionPort
-    stream_sink: StreamSinkPort
-    summaries: SummaryRepositoryPort
-    requests: RequestRepositoryPort
 
 
 @dataclass(frozen=True, slots=True)

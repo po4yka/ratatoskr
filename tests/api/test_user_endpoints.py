@@ -19,20 +19,12 @@ class StrEnum(str, Enum):
     """Compatibility shim for StrEnum (Python 3.11+)."""
 
 
-class _NotRequiredMeta(type):
-    def __getitem__(cls, item: Any) -> Any:
-        return item
-
-
-class NotRequired(metaclass=_NotRequiredMeta):
-    """Compatibility shim for NotRequired (Python 3.11+)."""
-
-
+# The typing.NotRequired shim was REMOVED here (as in tests/conftest.py): it is
+# native on Python 3.11+ and globally rebinding it broke langchain-core/langgraph
+# pydantic schema generation. The StrEnum shim is retained unchanged.
 import enum
-import typing
 
 enum.StrEnum = StrEnum  # type: ignore[misc,assignment]
-typing.NotRequired = NotRequired  # type: ignore[assignment]
 
 from sqlalchemy import select
 
