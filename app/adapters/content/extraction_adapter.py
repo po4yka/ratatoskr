@@ -81,9 +81,13 @@ class ContentExtractionAdapter:
             detected_lang=detected_lang,
             dedupe_hash=dedupe_hash,
             title=_extract_title(metadata),
-            # Pure-path parity: the summarize path routes with has_images=False, so
-            # the graph carries no image handles (vision routing is out of scope here).
-            images=[],
+            # Article-vision (audit #2): the pure extractor already quality-filtered +
+            # role-filtered the article's image candidates into the normalized source
+            # document's media list (``extract_firecrawl_image_assets``). Lift those
+            # URLs so the graph build_prompt node can route image-rich articles to the
+            # vision model -- byte-for-byte the same candidate set the legacy
+            # interactive path used. Empty for sources with no images.
+            images=_extract_image_urls(metadata),
             metadata={
                 "extraction_method": metadata.get("extraction_method"),
                 "http_status": metadata.get("http_status"),
@@ -91,6 +95,32 @@ class ContentExtractionAdapter:
                 "source_format": metadata.get("source_format"),
             },
         )
+
+
+def _extract_image_urls(metadata: dict[str, Any]) -> list[str]:
+    """Lift the quality-filtered article image URLs from the pure-extraction metadata.
+
+    The pure path stamps the role-/quality-filtered image candidates onto the
+    normalized source document's ``media`` list (image assets only). We project the
+    non-empty ``url`` of each, preserving order, so build_prompt sees the SAME
+    candidate set the legacy interactive path forwarded to the vision model. The
+    URL-level ``_is_valid_image_url`` guard runs in build_prompt (single source of
+    truth), so no validation is duplicated here.
+    """
+    nsd = metadata.get("normalized_source_document")
+    if not isinstance(nsd, dict):
+        return []
+    media = nsd.get("media")
+    if not isinstance(media, list):
+        return []
+    urls: list[str] = []
+    for asset in media:
+        if not isinstance(asset, dict):
+            continue
+        url = asset.get("url")
+        if isinstance(url, str) and url.strip():
+            urls.append(url.strip())
+    return urls
 
 
 def _extract_title(metadata: dict[str, Any]) -> str | None:

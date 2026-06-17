@@ -70,6 +70,7 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
     routing = cfg.model_routing
     openrouter = cfg.openrouter
     runtime = cfg.runtime
+    attachment = cfg.attachment
     long_context_model = (
         routing.long_context_model if routing.enabled else openrouter.long_context_model
     )
@@ -87,6 +88,9 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
         two_pass_enabled=bool(getattr(runtime, "summary_two_pass_enabled", False)),
         routing_enabled=bool(routing.enabled),
         preferred_lang=str(getattr(runtime, "preferred_lang", None) or "auto"),
+        article_vision_enabled=bool(getattr(attachment, "article_vision_enabled", False)),
+        article_vision_min_images=int(getattr(attachment, "article_vision_min_images", 1)),
+        vision_model=getattr(attachment, "vision_model", None),
     )
 
 
@@ -179,6 +183,12 @@ def build_model_router(cfg: AppConfig) -> Any:
     ``resolve_model_for_content`` is keyword-only, so a positional partial would
     ``TypeError``. Returns ``None`` when routing is disabled so the conservative
     path (long-context override / base model) is taken.
+
+    ``has_images=False`` is deliberate (audit #2): article-vision routing is resolved
+    UPSTREAM in the ``build_prompt`` node (it owns the image set + multimodal message
+    assembly and gives vision priority over content-tier), so by the time this tier
+    router is consulted ``model_override`` is already pinned when vision applies. The
+    router therefore never needs to re-derive the vision model.
     """
     if not cfg.model_routing.enabled:
         return None

@@ -150,6 +150,99 @@ async def test_gap1_tier_routing_skipped_when_model_router_is_none() -> None:
 
 
 # ===========================================================================
+# Article-vision routing in build_prompt (audit #2)
+# ===========================================================================
+
+_IMG = [
+    "https://cdn.example.com/photos/a.jpg",
+    "https://cdn.example.com/photos/b.jpg",
+    "https://cdn.example.com/photos/c.jpg",
+]
+
+
+def _vision_config(**over: Any) -> SummarizeConfig:
+    base: dict[str, Any] = {
+        "article_vision_enabled": True,
+        "article_vision_min_images": 3,
+        "vision_model": "vision-x",
+    }
+    base.update(over)
+    return _config(**base)
+
+
+async def test_vision_routes_to_vision_model_with_multimodal_message() -> None:
+    """>=min_images valid images -> vision model override + multimodal user message."""
+    deps = _deps(config=_vision_config())
+    state = _state(source_text="image-rich article body", images=_IMG)
+    out = await build_prompt(state, deps=deps)
+
+    assert out["model_override"] == "vision-x"
+    user_msg = out["messages"][1]
+    assert user_msg["role"] == "user"
+    # Multimodal content: leading text part + one image_url part per valid image.
+    parts = user_msg["content"]
+    assert isinstance(parts, list)
+    assert parts[0]["type"] == "text"
+    image_parts = [p for p in parts if p["type"] == "image_url"]
+    assert [p["image_url"]["url"] for p in image_parts] == _IMG
+
+
+async def test_vision_skipped_below_min_images_threshold() -> None:
+    """Fewer than min_images valid images -> text-only path, no vision override."""
+    deps = _deps(config=_vision_config())  # min_images=3
+    state = _state(source_text="body", images=_IMG[:2])
+    out = await build_prompt(state, deps=deps)
+
+    assert out["model_override"] == ""
+    assert isinstance(out["messages"][1]["content"], str)  # plain text message
+
+
+async def test_vision_skipped_when_disabled() -> None:
+    """article_vision_enabled=False -> text-only even with enough images."""
+    deps = _deps(config=_vision_config(article_vision_enabled=False))
+    state = _state(source_text="body", images=_IMG)
+    out = await build_prompt(state, deps=deps)
+
+    assert out["model_override"] == ""
+    assert isinstance(out["messages"][1]["content"], str)
+
+
+async def test_vision_filters_invalid_image_urls_before_thresholding() -> None:
+    """Invalid URLs (non-https / template literals / non-image ext) are dropped.
+
+    Three candidates but only two pass the validator -> below the 3-image threshold,
+    so the text path is taken. Pins that the SAME filter governs model selection and
+    message assembly (no divergence with the legacy path)."""
+    deps = _deps(config=_vision_config())
+    images = [
+        "https://cdn.example.com/photos/a.jpg",
+        "http://insecure.example.com/b.jpg",  # not https -> dropped
+        "https://cdn.example.com/image/fetch/$s_!template!",  # leaked literal -> dropped
+    ]
+    state = _state(source_text="body", images=images)
+    out = await build_prompt(state, deps=deps)
+
+    assert out["model_override"] == ""  # only 1 valid < 3
+    assert isinstance(out["messages"][1]["content"], str)
+
+
+async def test_vision_override_yields_to_long_context() -> None:
+    """Long-context override wins over vision (legacy _prepare_summary_content order)."""
+    deps = _deps(
+        config=_vision_config(
+            long_context_threshold_tokens=1,
+            long_context_model="long-ctx-model",
+        )
+    )
+    state = _state(source_text="enough body to exceed the 1-token threshold", images=_IMG)
+    out = await build_prompt(state, deps=deps)
+
+    # Long-context pins the model, but the message is still multimodal (vision active).
+    assert out["model_override"] == "long-ctx-model"
+    assert isinstance(out["messages"][1]["content"], list)
+
+
+# ===========================================================================
 # GAP 2 — Redis LLM summary cache
 # ===========================================================================
 

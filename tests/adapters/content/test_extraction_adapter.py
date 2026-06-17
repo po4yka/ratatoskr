@@ -129,3 +129,69 @@ async def test_extract_skips_lang_persist_when_no_request_id() -> None:
     repo = _FakeRequestRepo()
     await _adapter(extractor, repo).extract(ExtractionRequest(url="https://example.com"))
     assert repo.lang_updates == []  # nothing to attach lang to
+
+
+# --------------------------------------------------------------------------- #
+# Article-vision image lifting (audit #2): the adapter projects the quality-/
+# role-filtered image URLs from the normalized source document's ``media`` list so
+# the graph build_prompt node can route image-rich articles to the vision model.
+# Before the fix the adapter hardcoded ``images=[]`` and the path was dead.
+# --------------------------------------------------------------------------- #
+
+
+async def test_extract_lifts_image_urls_from_nsd_media() -> None:
+    extractor = _FakeContentExtractor(
+        result=(
+            "text",
+            "markdown",
+            {
+                "detected_lang": "en",
+                "normalized_source_document": {
+                    "title": "T",
+                    "media": [
+                        {"kind": "image", "url": "https://cdn.example.com/a.jpg"},
+                        {"kind": "image", "url": "https://cdn.example.com/b.jpg"},
+                    ],
+                },
+            },
+        )
+    )
+    result = await _adapter(extractor, _FakeRequestRepo()).extract(
+        ExtractionRequest(url="https://example.com", request_id=1)
+    )
+    assert result.images == [
+        "https://cdn.example.com/a.jpg",
+        "https://cdn.example.com/b.jpg",
+    ]
+
+
+async def test_extract_images_empty_when_no_media() -> None:
+    # No NSD / no media -> empty image list (sources without images stay text-only).
+    extractor = _FakeContentExtractor(result=("text", "markdown", {"detected_lang": "en"}))
+    result = await _adapter(extractor, _FakeRequestRepo()).extract(
+        ExtractionRequest(url="https://example.com", request_id=1)
+    )
+    assert result.images == []
+
+
+async def test_extract_images_skip_media_entries_without_url() -> None:
+    extractor = _FakeContentExtractor(
+        result=(
+            "text",
+            "markdown",
+            {
+                "detected_lang": "en",
+                "normalized_source_document": {
+                    "media": [
+                        {"kind": "image", "url": "   "},  # blank -> dropped
+                        {"kind": "image"},  # no url -> dropped
+                        {"kind": "image", "url": "https://cdn.example.com/c.jpg"},
+                    ]
+                },
+            },
+        )
+    )
+    result = await _adapter(extractor, _FakeRequestRepo()).extract(
+        ExtractionRequest(url="https://example.com", request_id=1)
+    )
+    assert result.images == ["https://cdn.example.com/c.jpg"]

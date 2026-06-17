@@ -67,6 +67,14 @@ class SummarizeConfig:
     # non-English content is summarized/cached/persisted in its own language rather
     # than the pre-extraction default. A forced ``en``/``ru`` here pins the output.
     preferred_lang: str = "auto"
+    # Article-vision routing (audit #2), sourced from ``cfg.attachment`` at the
+    # composition root. When ``article_vision_enabled`` is True and the extracted
+    # valid-image count reaches ``article_vision_min_images``, build_prompt assembles
+    # a multimodal user message and routes to ``vision_model``. Defaults keep the
+    # text-only path for bare-mock deps (vision off, no vision model).
+    article_vision_enabled: bool = False
+    article_vision_min_images: int = 1
+    vision_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

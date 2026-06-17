@@ -59,6 +59,11 @@ class SummarizeState(TypedDict, total=False):
     content_source: str
     detected_lang: str
     title: str
+    # Article-image URLs the extract node lifts from the extraction result (audit
+    # #2). A serializable list[str] of HTTPS URLs (not bulk content); build_prompt
+    # routes image-rich articles to the vision model + a multimodal user message
+    # when the valid count reaches ``article_vision_min_images``.
+    images: list[str]
 
     # Retrieval scope for the ground node's mandatory IDOR-safe filter
     # (ADR-0005/0012/0016). Populated by ingest/extract (T7) from config + the

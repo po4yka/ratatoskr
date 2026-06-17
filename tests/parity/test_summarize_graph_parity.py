@@ -49,7 +49,15 @@ _SOURCE_KINDS = [
     ("instagram_meta", "https://www.instagram.com/p/abc/"),
 ]
 
-_DELTA_KEYS = {"lang", "source_text", "content_source", "detected_lang", "dedupe_hash", "title"}
+_DELTA_KEYS = {
+    "lang",
+    "source_text",
+    "content_source",
+    "detected_lang",
+    "dedupe_hash",
+    "title",
+    "images",
+}
 
 
 class _FakeExtraction:

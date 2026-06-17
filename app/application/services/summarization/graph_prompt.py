@@ -14,8 +14,10 @@ faithfully rather than imported across the layer boundary.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from app.core.content_cleaner import clean_content_for_llm, detect_prompt_injection_patterns
 from app.core.lang import LANG_RU
@@ -28,6 +30,62 @@ if TYPE_CHECKING:
 # Dynamic output-token budget bounds (verbatim from pure_summary_service).
 _MIN_OUTPUT_TOKENS = 1536
 _MAX_OUTPUT_TOKENS = 12288
+
+# Image-URL validation literals (verbatim parity with summary_request_factory so the
+# graph forwards EXACTLY the same image set to the vision model as the legacy path).
+_INVALID_IMAGE_SEGMENTS = ("/undefined", "/null", "/none", "/[object%20object]")
+# Cloudflare image resize proxy paths (e.g. /p/w_36, /p/fl_progressive:steep/...)
+# These rate-limit external fetchers (429) causing OpenRouter to return HTTP 400.
+_CF_IMAGE_PROXY_RE = re.compile(r"^/p/(?:w_|h_|c_|fl_|q_|f_|pg_|\d)")
+
+
+def is_valid_image_url(url: str) -> bool:
+    """Validate an image URL before forwarding it to a vision model.
+
+    Verbatim parity with ``summary_request_factory._is_valid_image_url``: rejects
+    URLs with leaked JS template variables (``$``/``/undefined``), non-image
+    extensions, and Cloudflare resize-proxy paths, while allowing plausible
+    extension-less CDN routes through.
+    """
+    if not url or not url.startswith("https://"):
+        return False
+    if "$" in url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    path = parsed.path.lower()
+    if not path or path == "/":
+        return False
+    if any(segment in path for segment in _INVALID_IMAGE_SEGMENTS):
+        return False
+    if path.endswith(("/undefined", "/null", "/none")):
+        return False
+    if path.endswith((".html", ".htm", ".json", ".xml", ".pdf")):
+        return False
+    if _CF_IMAGE_PROXY_RE.match(path):
+        return False
+    return True
+
+
+def filter_valid_images(images: list[str] | None) -> list[str]:
+    """Keep only the image URLs that pass :func:`is_valid_image_url` (order-preserving)."""
+    return [url for url in (images or []) if is_valid_image_url(url)]
+
+
+def build_multimodal_user_content(user_prompt: str, images: list[str]) -> list[dict[str, Any]]:
+    """Assemble a multimodal user-message ``content`` list (text + image_url parts).
+
+    Verbatim parity with ``summary_request_factory.build_summary_messages``: a
+    leading ``text`` part followed by one ``image_url`` part per (already-validated)
+    image. Callers only build this when at least one valid image exists.
+    """
+    content_parts: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+    for uri in images:
+        content_parts.append({"type": "image_url", "image_url": {"url": uri}})
+    return content_parts
+
 
 # app/prompts dir from this module: parents[3] == app/.
 _PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"

@@ -99,6 +99,7 @@ async def test_extract_writes_minimal_serializable_state_delta() -> None:
         "detected_lang": "en",
         "dedupe_hash": "abc123",
         "title": "T2",
+        "images": [],
     }
     # Serializable-primitive invariant (ADR-0011): no live objects leak into state.
     assert json.loads(json.dumps(out)) == out
@@ -147,7 +148,8 @@ async def test_extract_uniform_state_delta_per_source_kind(
     assert len(fake.calls) == 1
     assert fake.calls[0].url == url
     # Uniform, serializable, id-based delta for every source kind. ``lang`` is the
-    # promoted output language (choose_language(preferred, detected)); uniform too.
+    # promoted output language (choose_language(preferred, detected)); ``images`` the
+    # lifted article-image URLs (audit #2). Both uniform across source kinds.
     assert set(out) == {
         "lang",
         "source_text",
@@ -155,6 +157,7 @@ async def test_extract_uniform_state_delta_per_source_kind(
         "detected_lang",
         "dedupe_hash",
         "title",
+        "images",
     }
     assert out["source_text"] == f"content for {kind}"
     assert out["content_source"] == source
