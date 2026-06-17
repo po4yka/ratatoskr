@@ -33,6 +33,7 @@ class ResponseSenderReplyFlow:
         reply_markup: Any = None,
         disable_web_page_preview: bool | None = None,
         message_thread_id: int | None = None,
+        silent: bool = False,
     ) -> None:
         prepared = validate_and_truncate(
             self._state,
@@ -53,6 +54,8 @@ class ResponseSenderReplyFlow:
                 kwargs["parse_mode"] = parse_mode
             if reply_markup is not None:
                 kwargs["reply_markup"] = reply_markup
+            if silent:
+                kwargs["silent"] = True
             await self._state.safe_reply_func(message, text, **kwargs)
             return
 
@@ -64,6 +67,7 @@ class ResponseSenderReplyFlow:
                     parse_mode=parse_mode,
                     reply_markup=reply_markup,
                     disable_web_page_preview=disable_web_page_preview,
+                    silent=silent,
                 )
                 if message_thread_id is not None and self._state.telegram_client is not None:
                     client = getattr(self._state.telegram_client, "client", None)

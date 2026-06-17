@@ -77,6 +77,7 @@ def build_message_kwargs(
     parse_mode: str | None = None,
     reply_markup: Any | None = None,
     disable_web_page_preview: bool | None = None,
+    silent: bool = False,
 ) -> dict[str, Any]:
     """Build optional kwargs for Telegram send/edit methods."""
     kwargs: dict[str, Any] = {}
@@ -86,6 +87,8 @@ def build_message_kwargs(
         kwargs["reply_markup"] = reply_markup
     if disable_web_page_preview is not None:
         kwargs["disable_web_page_preview"] = disable_web_page_preview
+    if silent:
+        kwargs["silent"] = True
     return kwargs
 
 

@@ -66,6 +66,7 @@ class ResponseSender(Protocol):
         reply_markup: Any = None,
         disable_web_page_preview: bool | None = None,
         message_thread_id: int | None = None,
+        silent: bool = False,
     ) -> None:
         """Safely reply to a message with comprehensive security checks."""
         ...

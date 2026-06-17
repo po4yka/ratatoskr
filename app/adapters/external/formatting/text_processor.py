@@ -189,13 +189,32 @@ class TextProcessorImpl:
         return re.sub(url_pattern, replace_url, text)
 
     async def send_long_text(
-        self, message: Any, text: str, *, parse_mode: str | None = None
+        self,
+        message: Any,
+        text: str,
+        *,
+        parse_mode: str | None = None,
+        silent_after_first: bool = True,
     ) -> None:
-        """Send text, splitting into multiple messages if too long for Telegram."""
+        """Send text, splitting into multiple messages if too long for Telegram.
+
+        When a long body splits into several chunks, only the first fires a
+        notification; trailing chunks are delivered silently so one summary does
+        not spam the owner with a notification per chunk.
+        """
         is_html = isinstance(parse_mode, str) and parse_mode.upper() == "HTML"
-        for chunk in self.chunk_text(text, max_len=self._max_message_chars, html_aware=is_html):
-            if chunk:
-                await self._response_sender.safe_reply(message, chunk, parse_mode=parse_mode)
+        chunks = [
+            c
+            for c in self.chunk_text(text, max_len=self._max_message_chars, html_aware=is_html)
+            if c
+        ]
+        for index, chunk in enumerate(chunks):
+            await self._response_sender.safe_reply(
+                message,
+                chunk,
+                parse_mode=parse_mode,
+                silent=silent_after_first and index > 0,
+            )
 
     async def send_markdown(self, message: Any, md_text: str) -> None:
         """Render a Markdown string to Telegram HTML and send it (split if long)."""

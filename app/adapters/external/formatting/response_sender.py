@@ -75,6 +75,7 @@ class ResponseSenderImpl:
         reply_markup: Any = None,
         disable_web_page_preview: bool | None = None,
         message_thread_id: int | None = None,
+        silent: bool = False,
     ) -> None:
         await self._reply_flow.safe_reply(
             message,
@@ -83,6 +84,7 @@ class ResponseSenderImpl:
             reply_markup=reply_markup,
             disable_web_page_preview=disable_web_page_preview,
             message_thread_id=message_thread_id,
+            silent=silent,
         )
 
     async def safe_reply_with_id(
