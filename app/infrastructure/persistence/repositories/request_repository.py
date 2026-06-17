@@ -305,9 +305,19 @@ class RequestRepositoryAdapter:
         async with self._database.transaction() as session:
             stmt = insert(Request).values(**payload)
             if conflict_target:
+                # Never overwrite create-time ownership on a dedupe conflict:
+                # a repeat of the same URL/paper from a different identity must
+                # not rewrite ``user_id`` (IDOR / ownership-transfer guard).
+                # ``user_id`` is excluded from the ON CONFLICT set alongside the
+                # conflict target itself.
+                immutable_on_conflict = {conflict_target, "user_id"}
                 stmt = stmt.on_conflict_do_update(
                     index_elements=[getattr(Request, conflict_target)],
-                    set_={key: value for key, value in payload.items() if key != conflict_target},
+                    set_={
+                        key: value
+                        for key, value in payload.items()
+                        if key not in immutable_on_conflict
+                    },
                 )
             returning_stmt = stmt.returning(Request.id)
             inserted_id = await session.scalar(returning_stmt)
