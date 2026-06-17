@@ -529,6 +529,64 @@ async def test_dry_run_analyze_failure_does_not_mark_pending(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_sync_body_with_bot_builds_and_passes_bot(monkeypatch):
+    """The worker entrypoint builds a Telethon bot and passes it into _sync_body."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _sync_body_with_bot
+
+    bot = MagicMock()
+    bot.__aenter__ = AsyncMock(return_value=bot)
+    bot.__aexit__ = AsyncMock(return_value=False)
+
+    captured: dict = {}
+
+    async def _fake_sync_body(cfg, db, *, bot=None):
+        captured["bot"] = bot
+        return MagicMock()
+
+    with (
+        patch("app.tasks.github_sync.create_digest_bot_client", return_value=bot),
+        patch("app.tasks.github_sync._sync_body", side_effect=_fake_sync_body),
+    ):
+        await _sync_body_with_bot(_build_cfg(), MagicMock())
+
+    # The worker-built bot was connected (async with) and handed to _sync_body.
+    assert captured["bot"] is bot
+    bot.__aenter__.assert_awaited_once()
+    bot.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sync_body_with_bot_falls_back_when_bot_unavailable(monkeypatch):
+    """If the worker bot cannot be built, the sync still runs with bot=None."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _sync_body_with_bot
+
+    captured: dict = {}
+
+    async def _fake_sync_body(cfg, db, *, bot=None):
+        captured["bot"] = bot
+        return MagicMock()
+
+    with (
+        patch(
+            "app.tasks.github_sync.create_digest_bot_client",
+            side_effect=RuntimeError("telethon unavailable"),
+        ),
+        patch("app.tasks.github_sync._sync_body", side_effect=_fake_sync_body),
+    ):
+        await _sync_body_with_bot(_build_cfg(), MagicMock())
+
+    assert captured["bot"] is None
+
+
+@pytest.mark.asyncio
 async def test_concurrency_cap_observed(monkeypatch):
     """llm_concurrency=1 — semaphore constructed with that value; analyses complete."""
     _stub_taskiq(monkeypatch)

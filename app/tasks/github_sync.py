@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -36,7 +37,7 @@ from app.observability.metrics_repositories import (
 )
 from app.security.token_crypto import decrypt_token
 from app.tasks.broker import broker
-from app.tasks.deps import get_app_config, get_db
+from app.tasks.deps import create_digest_bot_client, get_app_config, get_db
 
 logger = get_logger(__name__)
 
@@ -82,7 +83,27 @@ async def sync_all_active_integrations(
                 llm_calls_made=0,
                 llm_calls_deferred=0,
             )
-        return await _sync_body(cfg, db, bot=None)
+        return await _sync_body_with_bot(cfg, db)
+
+
+async def _sync_body_with_bot(cfg: AppConfig, db: Database) -> SyncSummary:
+    """Run the sync with a worker-side Telethon bot for needs_reauth DMs.
+
+    The Taskiq worker shares no Telethon state with the long-running bot
+    process, so it builds its own short-lived bot client (the pattern used by
+    the digest and git-backup tasks) solely to deliver the needs_reauth owner
+    DM. Best-effort: if the bot cannot be built or connected, the sync still
+    runs with bot=None and the DM is skipped — a Telethon problem must never
+    break the GitHub sync.
+    """
+    async with AsyncExitStack() as stack:
+        bot: Any = None
+        try:
+            bot = await stack.enter_async_context(create_digest_bot_client(cfg))
+        except Exception:
+            logger.warning("github_sync_bot_client_unavailable")
+            bot = None
+        return await _sync_body(cfg, db, bot=bot)
 
 
 async def _sync_body(
@@ -681,15 +702,15 @@ async def _notify_needs_reauth(
     ):
         return
     if bot is None:
-        # Taskiq workers do not share Telethon state with the long-running bot
-        # process. Sending a DM requires the Telethon client which is only
-        # alive in the bot process. Log and skip rather than fake-wiring a
-        # client that would fail at runtime.
+        # No bot was wired: the CLI/dry-run path passes bot=None, or the worker
+        # could not build a Telethon client. The scheduled task normally builds
+        # a worker-side bot via _sync_body_with_bot, so the real run does deliver
+        # the DM; skip cleanly when there is genuinely no client.
         logger.info(
             "needs_reauth_dm_skipped",
             extra={
                 "event": "needs_reauth_dm_skipped",
-                "reason": "no_bot_in_taskiq_worker",
+                "reason": "no_bot_available",
                 "user_id": integration.user_id,
                 "cid": correlation_id,
             },
