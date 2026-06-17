@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime  # noqa: TC003
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -33,6 +34,49 @@ _LINK_NEXT_RE = re.compile(r'<([^>]+)>;\s*rel="next"')
 _REDACTED_HEADER_KEYS = frozenset({"authorization", "token", "x-github-token"})
 
 logger = get_logger(__name__)
+
+_RATE_LIMIT_FALLBACK_SEC = 60
+
+
+def _rate_limit_reset_epoch(response: httpx.Response, *, now: float | None = None) -> int:
+    """Derive a unix-epoch reset time from a rate-limited response.
+
+    Prefers ``Retry-After`` (integer seconds or an HTTP-date), then
+    ``X-RateLimit-Reset``, falling back to ``now + 60s`` when nothing parses.
+    """
+    now = time.time() if now is None else now
+    retry_after = response.headers.get("Retry-After", "").strip()
+    if retry_after:
+        try:
+            return int(now) + max(0, int(retry_after))
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(retry_after)
+            except (TypeError, ValueError):
+                parsed = None
+            if parsed is not None:
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=UTC)
+                return int(parsed.timestamp())
+    reset = response.headers.get("X-RateLimit-Reset", "").strip()
+    if reset:
+        try:
+            return int(reset)
+        except ValueError:
+            pass
+    return int(now) + _RATE_LIMIT_FALLBACK_SEC
+
+
+def _is_rate_limited(response: httpx.Response) -> bool:
+    """True when *response* is a primary 403, secondary 403, or 429 rate limit."""
+    if response.status_code == 429:
+        return True
+    if response.status_code == 403:
+        if response.headers.get("X-RateLimit-Remaining", "") == "0":
+            return True
+        if response.headers.get("Retry-After", "").strip():
+            return True
+    return False
 
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
@@ -117,7 +161,7 @@ class GitHubAPIClient:
 
         Raises:
             GitHubAuthError: on 401.
-            GitHubRateLimitError: on 403 with X-RateLimit-Remaining == 0.
+            GitHubRateLimitError: on 429 or a 403 rate limit (primary or secondary).
             GitHubNotFoundError: on 404.
             GitHubServerError: when all retries on 5xx are exhausted.
             httpx.HTTPError: on other HTTP errors after retries.
@@ -153,12 +197,11 @@ class GitHubAPIClient:
                 if status == 401:
                     raise GitHubAuthError(f"GitHub returned 401 Unauthorized for {url}")
 
+                if _is_rate_limited(response):
+                    raise GitHubRateLimitError(reset_epoch=_rate_limit_reset_epoch(response))
+
                 if status == 403:
-                    remaining = response.headers.get("X-RateLimit-Remaining", "")
-                    if remaining == "0":
-                        reset_epoch = int(response.headers.get("X-RateLimit-Reset", "0"))
-                        raise GitHubRateLimitError(reset_epoch=reset_epoch)
-                    # Other 403s (e.g. forbidden scope) — treat as auth error
+                    # Non-rate-limit 403 (e.g. forbidden scope) — treat as auth error
                     raise GitHubAuthError(f"GitHub returned 403 Forbidden for {url}")
 
                 if status == 404:
@@ -301,11 +344,9 @@ class GitHubAPIClient:
                 status = response.status_code
                 if status == 401:
                     raise GitHubAuthError(f"GitHub returned 401 for {url}")
+                if _is_rate_limited(response):
+                    raise GitHubRateLimitError(reset_epoch=_rate_limit_reset_epoch(response))
                 if status == 403:
-                    remaining = response.headers.get("X-RateLimit-Remaining", "")
-                    if remaining == "0":
-                        reset_epoch = int(response.headers.get("X-RateLimit-Reset", "0"))
-                        raise GitHubRateLimitError(reset_epoch=reset_epoch)
                     raise GitHubAuthError(f"GitHub returned 403 for {url}")
                 if status == 404:
                     raise GitHubNotFoundError(f"GitHub returned 404 for {url}")

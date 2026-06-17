@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx
@@ -157,6 +159,68 @@ async def test_403_rate_limit_raises_github_rate_limit_error_with_reset() -> Non
                 await gh.get_repo("tiangolo", "fastapi")
 
     assert exc_info.value.reset_epoch == reset_ts
+
+
+# ---------------------------------------------------------------------------
+# 5b. Secondary rate limit (403 + Retry-After, remaining != 0) and 429
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_403_secondary_limit_retry_after_seconds() -> None:
+    async with respx.mock:
+        respx.get(REPO_URL).mock(
+            return_value=httpx.Response(
+                403,
+                json={"message": "You have exceeded a secondary rate limit"},
+                headers={"X-RateLimit-Remaining": "57", "Retry-After": "30"},
+            )
+        )
+
+        async with _make_client() as gh:
+            with pytest.raises(GitHubRateLimitError) as exc_info:
+                await gh.get_repo("tiangolo", "fastapi")
+
+    assert 25 <= exc_info.value.reset_epoch - int(time.time()) <= 31
+
+
+@pytest.mark.asyncio
+async def test_403_secondary_limit_retry_after_http_date() -> None:
+    http_date = "Wed, 21 Oct 2099 07:28:00 GMT"
+    expected = int(parsedate_to_datetime(http_date).timestamp())
+
+    async with respx.mock:
+        respx.get(REPO_URL).mock(
+            return_value=httpx.Response(
+                403,
+                json={"message": "secondary rate limit"},
+                headers={"X-RateLimit-Remaining": "57", "Retry-After": http_date},
+            )
+        )
+
+        async with _make_client() as gh:
+            with pytest.raises(GitHubRateLimitError) as exc_info:
+                await gh.get_repo("tiangolo", "fastapi")
+
+    assert exc_info.value.reset_epoch == expected
+
+
+@pytest.mark.asyncio
+async def test_429_raises_github_rate_limit_error() -> None:
+    async with respx.mock:
+        respx.get(REPO_URL).mock(
+            return_value=httpx.Response(
+                429,
+                json={"message": "Too Many Requests"},
+                headers={"Retry-After": "45"},
+            )
+        )
+
+        async with _make_client() as gh:
+            with pytest.raises(GitHubRateLimitError) as exc_info:
+                await gh.get_repo("tiangolo", "fastapi")
+
+    assert 40 <= exc_info.value.reset_epoch - int(time.time()) <= 46
 
 
 # ---------------------------------------------------------------------------
