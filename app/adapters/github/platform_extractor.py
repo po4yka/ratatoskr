@@ -98,13 +98,24 @@ class GitHubPlatformExtractor:
         # 5. Construct GitHubAPIClient via factory
         client = self._client_factory(token)
 
-        # 6. Fetch repo, readme, languages
+        # 6. Fetch repo, then a conditional README — reuse a stored ETag so an
+        #    unchanged README costs a free 304 instead of a full download.
         async with client:
             repo_dto = await client.get_repo(owner, name)
-            readme_raw = await client.get_readme(owner, name)
+            cached_etag, cached_excerpt = await self._load_cached_readme(
+                user_id, repo_dto_id=repo_dto.id
+            )
+            readme = await client.get_readme(owner, name, etag=cached_etag)
             languages = await client.get_languages(owner, name)
 
-        readme_excerpt = truncate_readme(readme_raw, self._github_config.readme_max_bytes)
+        if readme.not_modified:
+            # 304: keep the README excerpt and ETag we already stored so the
+            # content hash stays stable and analysis is not re-run needlessly.
+            readme_excerpt = cached_excerpt
+            readme_etag = cached_etag
+        else:
+            readme_excerpt = truncate_readme(readme.content, self._github_config.readme_max_bytes)
+            readme_etag = readme.etag
 
         logger.info(
             "github_extractor_fetched",
@@ -125,6 +136,7 @@ class GitHubPlatformExtractor:
             repo_dto=repo_dto,
             languages=languages,
             readme_excerpt=readme_excerpt,
+            readme_etag=readme_etag,
         )
 
         # 8. Enqueue analysis (await directly for manual ingestion path)
@@ -178,6 +190,26 @@ class GitHubPlatformExtractor:
             )
         return integration
 
+    async def _load_cached_readme(
+        self, user_id: int, *, repo_dto_id: int
+    ) -> tuple[str | None, str | None]:
+        """Return (readme_etag, readme_excerpt) for an existing row, or (None, None).
+
+        Used only to make the README fetch conditional; a missing row means a
+        first-time ingest and an unconditional fetch.
+        """
+        async with self._db.session() as session:
+            result = await session.execute(
+                select(Repository.readme_etag, Repository.readme_excerpt).where(
+                    Repository.github_id == repo_dto_id,
+                    Repository.user_id == user_id,
+                )
+            )
+            row = result.first()
+        if row is None:
+            return None, None
+        return row[0], row[1]
+
     async def _upsert_repository(
         self,
         *,
@@ -187,6 +219,7 @@ class GitHubPlatformExtractor:
         repo_dto: object,
         languages: dict[str, int],
         readme_excerpt: str | None,
+        readme_etag: str | None,
     ) -> int:
         from app.adapters.github.types import RepositoryDTO
 
@@ -217,7 +250,7 @@ class GitHubPlatformExtractor:
             "pushed_at": repo_dto.pushed_at,
             "created_at_github": repo_dto.created_at,
             "readme_excerpt": readme_excerpt,
-            "readme_etag": None,
+            "readme_etag": readme_etag,
             "source": RepoSource.MANUAL,
             "is_starred": False,
             "user_id": user_id,
@@ -240,7 +273,7 @@ class GitHubPlatformExtractor:
             "pushed_at": repo_dto.pushed_at,
             "homepage_url": repo_dto.homepage,
             "readme_excerpt": readme_excerpt,
-            "readme_etag": None,
+            "readme_etag": readme_etag,
             "last_synced_at": now,
         }
 

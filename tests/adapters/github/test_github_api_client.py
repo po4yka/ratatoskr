@@ -83,37 +83,58 @@ async def test_get_repo_happy_path() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. get_readme returns raw markdown
+# 2. get_readme conditional fetch: 200 captures ETag, 304 preserves it, 404 empty
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_get_readme_returns_raw_markdown() -> None:
+async def test_get_readme_returns_new_etag_on_200() -> None:
     markdown = "# FastAPI\n\nA modern web framework."
 
     async with respx.mock:
-        respx.get(README_URL).mock(return_value=httpx.Response(200, text=markdown))
+        respx.get(README_URL).mock(
+            return_value=httpx.Response(200, text=markdown, headers={"ETag": '"abc123"'})
+        )
 
         async with _make_client() as gh:
             result = await gh.get_readme("tiangolo", "fastapi")
 
-    assert result == markdown
-
-
-# ---------------------------------------------------------------------------
-# 3. get_readme 404 returns None
-# ---------------------------------------------------------------------------
+    assert result.content == markdown
+    assert result.etag == '"abc123"'
+    assert result.not_modified is False
 
 
 @pytest.mark.asyncio
-async def test_get_readme_404_returns_none() -> None:
+async def test_get_readme_304_sends_if_none_match_and_reports_not_modified() -> None:
+    captured: dict[str, str] = {}
+
+    def _responder(request: httpx.Request) -> httpx.Response:
+        captured["if_none_match"] = request.headers.get("If-None-Match", "")
+        return httpx.Response(304)
+
+    async with respx.mock:
+        respx.get(README_URL).mock(side_effect=_responder)
+
+        async with _make_client() as gh:
+            result = await gh.get_readme("tiangolo", "fastapi", etag='"abc123"')
+
+    assert captured["if_none_match"] == '"abc123"'
+    assert result.not_modified is True
+    assert result.content is None
+    assert result.etag == '"abc123"'
+
+
+@pytest.mark.asyncio
+async def test_get_readme_404_returns_empty_result() -> None:
     async with respx.mock:
         respx.get(README_URL).mock(return_value=httpx.Response(404, json={"message": "Not Found"}))
 
         async with _make_client() as gh:
             result = await gh.get_readme("tiangolo", "fastapi")
 
-    assert result is None
+    assert result.content is None
+    assert result.etag is None
+    assert result.not_modified is False
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.adapters.github.exceptions import GitHubIntegrationRequiredError
+from app.adapters.github.github_api_client import ReadmeResult
 from app.adapters.github.platform_extractor import GitHubPlatformExtractor, truncate_readme
 from app.adapters.github.types import RepositoryDTO
 from app.db.models.repository import (
@@ -45,9 +46,14 @@ def _make_integration(
     return ig
 
 
-def _make_db(integration: UserGitHubIntegration | None, repository_id: int = 99) -> Any:
-    """Build a mock Database whose session() yields the integration and
-    whose transaction() yields a session that returns *repository_id*."""
+def _make_db(
+    integration: UserGitHubIntegration | None,
+    repository_id: int = 99,
+    cached_readme: tuple[str | None, str | None] = (None, None),
+) -> Any:
+    """Build a mock Database whose session() yields the integration and the
+    cached README row, and whose transaction() yields a session returning
+    *repository_id*."""
     db = MagicMock()
 
     @asynccontextmanager
@@ -55,6 +61,8 @@ def _make_db(integration: UserGitHubIntegration | None, repository_id: int = 99)
         session = AsyncMock()
         result = MagicMock()
         result.scalar_one_or_none.return_value = integration
+        # _load_cached_readme reads (readme_etag, readme_excerpt) via .first().
+        result.first.return_value = cached_readme
         session.execute = AsyncMock(return_value=result)
         yield session
 
@@ -93,15 +101,27 @@ def _make_request(url: str = "https://github.com/tiangolo/fastapi", user_id: int
     )
 
 
-def _stub_client_factory(repo_dto: RepositoryDTO, readme: str | None, languages: dict) -> Any:
-    """Return a factory that produces a context-manager-compatible mock client."""
+def _stub_client_factory(
+    repo_dto: RepositoryDTO,
+    readme: str | None,
+    languages: dict,
+    *,
+    not_modified: bool = False,
+    etag: str | None = None,
+) -> Any:
+    """Return a factory that produces a context-manager-compatible mock client.
+
+    get_readme now returns a ReadmeResult; *not_modified* simulates a 304.
+    """
 
     def factory(token: str) -> Any:
         client = AsyncMock()
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=False)
         client.get_repo = AsyncMock(return_value=repo_dto)
-        client.get_readme = AsyncMock(return_value=readme)
+        client.get_readme = AsyncMock(
+            return_value=ReadmeResult(content=readme, etag=etag, not_modified=not_modified)
+        )
         client.get_languages = AsyncMock(return_value=languages)
         return client
 
@@ -273,6 +293,35 @@ class TestExtractHappyPath:
         # content_text should still be formed, just without readme body
         assert "# README" in result.content_text
         # No exception raised
+
+    async def test_readme_304_preserves_cached_excerpt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 304 (not_modified) keeps the stored README excerpt instead of wiping it."""
+        repo_dto = _make_repo_dto()
+        ig = _make_integration()
+        db = _make_db(
+            integration=ig,
+            repository_id=55,
+            cached_readme=("etag-XYZ", "cached readme body XYZ"),
+        )
+        analyze_uc = _make_analyze_use_case()
+        # content is ignored because not_modified=True simulates a 304 response.
+        factory = _stub_client_factory(repo_dto, None, {}, not_modified=True, etag="etag-XYZ")
+
+        ext = GitHubPlatformExtractor(
+            db=db,
+            github_config=_make_github_config(),
+            analyze_use_case=analyze_uc,
+            client_factory=factory,
+        )
+
+        monkeypatch.setattr("app.security.token_crypto.decrypt_token", lambda _ct: "stub_token")
+
+        result = await ext.extract(_make_request())
+
+        # The cached excerpt is reused (not wiped) on a 304.
+        assert "cached readme body XYZ" in result.content_text
 
 
 # ---------------------------------------------------------------------------

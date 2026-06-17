@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
@@ -86,6 +87,22 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
         k: ("***REDACTED***" if k.lower() in _REDACTED_HEADER_KEYS else v)
         for k, v in headers.items()
     }
+
+
+@dataclass(frozen=True, slots=True)
+class ReadmeResult:
+    """Outcome of a conditional README fetch.
+
+    - ``not_modified`` is True when GitHub answered 304 (the caller keeps
+      whatever README/ETag it already stored).
+    - ``content`` is the raw markdown on a 200, or None when the repo has no
+      README (404). It is always None when ``not_modified`` is True.
+    - ``etag`` is the new ETag from a 200 response (None on 404).
+    """
+
+    content: str | None
+    etag: str | None
+    not_modified: bool
 
 
 class GitHubAPIClient:
@@ -247,12 +264,27 @@ class GitHubAPIClient:
         response = await self._request("GET", f"/repos/{owner}/{name}")
         return RepositoryDTO.model_validate(response.json())
 
-    async def get_readme(self, owner: str, name: str, *, ref: str | None = None) -> str | None:
+    async def get_readme(
+        self,
+        owner: str,
+        name: str,
+        *,
+        ref: str | None = None,
+        etag: str | None = None,
+    ) -> ReadmeResult:
         """GET /repos/{owner}/{name}/readme with Accept: application/vnd.github.raw.
 
-        Returns the raw markdown string, or None if the repo has no README (404).
+        When *etag* is supplied it is sent as ``If-None-Match`` so GitHub can
+        answer 304 Not Modified (cheap, and free against the rate limit).
+
+        Returns a :class:`ReadmeResult`:
+          - 200 -> ``content`` = raw markdown, ``etag`` = new ETag.
+          - 304 -> ``not_modified`` = True (caller keeps its stored README).
+          - 404 -> ``content`` = None (the repo has no README).
         """
         headers = {"Accept": "application/vnd.github.raw"}
+        if etag:
+            headers["If-None-Match"] = etag
         params: dict[str, Any] = {}
         if ref is not None:
             params["ref"] = ref
@@ -264,8 +296,14 @@ class GitHubAPIClient:
                 params=params or None,
             )
         except GitHubNotFoundError:
-            return None
-        return response.text
+            return ReadmeResult(content=None, etag=None, not_modified=False)
+        if response.status_code == 304:
+            return ReadmeResult(content=None, etag=etag, not_modified=True)
+        return ReadmeResult(
+            content=response.text,
+            etag=response.headers.get("ETag"),
+            not_modified=False,
+        )
 
     async def get_languages(self, owner: str, name: str) -> dict[str, int]:
         """GET /repos/{owner}/{name}/languages -> dict[language, bytes]."""
