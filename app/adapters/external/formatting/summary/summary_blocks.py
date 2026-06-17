@@ -175,12 +175,24 @@ class SummaryBlocksPresenter:
         # Medium detailed bodies collapse behind Telegram's "Show More". Short
         # ones stay inline (escaped, no quote bar); bodies over one message split
         # across messages anyway, so they too stay plain rather than collapsing
-        # only their first chunk (the `tldr` field has no length cap).
-        if EXPANDABLE_MIN_CHARS < len(content) <= EXPANDABLE_MAX_CHARS:
+        # only their first chunk (the `tldr` field has no length cap). The upper
+        # bound tracks the live, config-driven per-message ceiling so it widens
+        # automatically when TELEGRAM_MAX_MESSAGE_CHARS is raised.
+        if EXPANDABLE_MIN_CHARS < len(content) <= self._expandable_max_chars():
             body = blockquote(content, expandable=True)
         else:
             body = html.escape(content)
         return f"{label}:\n{body}"
+
+    def _expandable_max_chars(self) -> int:
+        """Upper bound of the collapse band, derived from the live ceiling.
+
+        A body must fit one message to collapse usefully (above the ceiling it
+        splits and only the first chunk would collapse), so cap a margin below
+        the configured per-message limit. Falls back to the module default.
+        """
+        ceiling = getattr(self._context.text_processor, "max_message_chars", None)
+        return ceiling - 100 if isinstance(ceiling, int) else EXPANDABLE_MAX_CHARS
 
     def build_key_ideas_text(self, shaped: dict[str, Any]) -> str | None:
         """Return formatted key ideas text, or None."""
@@ -230,7 +242,11 @@ class SummaryBlocksPresenter:
                 continue
             text = str(quote["text"]).strip()
             if text:
-                lines.append(maybe_expandable_blockquote(f"{i}. {text}"))
+                lines.append(
+                    maybe_expandable_blockquote(
+                        f"{i}. {text}", max_chars=self._expandable_max_chars()
+                    )
+                )
         return "\n".join(lines) if len(lines) > 1 else None
 
     @staticmethod

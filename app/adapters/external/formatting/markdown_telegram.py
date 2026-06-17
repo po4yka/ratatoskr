@@ -32,9 +32,10 @@ EXPANDABLE_MIN_CHARS = 500
 
 # Collapsing only helps when the body fits in one message; past the chunk limit
 # it splits across messages anyway and only the first chunk would collapse, so a
-# body this long is left as a plain (non-expandable) quote. Tied to the default
-# max_message_chars (3500); a lower runtime limit could still split a body.
-EXPANDABLE_MAX_CHARS = 3400
+# body this long is left as a plain (non-expandable) quote. This module-level
+# default tracks the default max_message_chars (3900) minus a margin; callers
+# with the live (config-driven) ceiling pass max_chars= to track it exactly.
+EXPANDABLE_MAX_CHARS = 3800
 
 # Schemes Telegram accepts in <a href>. Anything else drops the link, keeps text.
 _SAFE_URL_PREFIXES = ("http://", "https://", "tg://", "mailto:")
@@ -78,18 +79,21 @@ def blockquote(content: str, *, escape: bool = True, expandable: bool = False) -
 
 
 def maybe_expandable_blockquote(
-    content: str, *, escape: bool = True, threshold: int = EXPANDABLE_MIN_CHARS
+    content: str,
+    *,
+    escape: bool = True,
+    threshold: int = EXPANDABLE_MIN_CHARS,
+    max_chars: int = EXPANDABLE_MAX_CHARS,
 ) -> str:
-    """Blockquote that collapses only for a body in the [threshold, max] band.
+    """Blockquote that collapses only for a body in the [threshold, max_chars] band.
 
-    Below *threshold* it isn't worth collapsing; above ``EXPANDABLE_MAX_CHARS``
-    the body splits across messages anyway (the collapse would apply to only the
-    first chunk), so emit a plain blockquote instead.
+    Below *threshold* it isn't worth collapsing; above *max_chars* the body
+    splits across messages anyway (the collapse would apply to only the first
+    chunk), so emit a plain blockquote instead. Pass *max_chars* derived from the
+    live per-message ceiling so the band tracks it.
     """
     visible = len(content) if escape else _visible_len(content)
-    return blockquote(
-        content, escape=escape, expandable=threshold < visible <= EXPANDABLE_MAX_CHARS
-    )
+    return blockquote(content, escape=escape, expandable=threshold < visible <= max_chars)
 
 
 def render_markdown(md_text: str, *, expandable_threshold: int = EXPANDABLE_MIN_CHARS) -> str:

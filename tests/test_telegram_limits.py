@@ -17,3 +17,32 @@ def test_text_processor_exposes_max_message_chars() -> None:
 
     tp = TextProcessorImpl(response_sender=None, max_message_chars=3900)  # type: ignore[arg-type]
     assert tp.max_message_chars == 3900
+
+
+def _presenter_with_ceiling(ceiling: int) -> object:
+    from types import SimpleNamespace
+
+    from app.adapters.external.formatting.summary.presenter_context import SummaryPresenterContext
+    from app.adapters.external.formatting.summary.summary_blocks import SummaryBlocksPresenter
+
+    ctx = SummaryPresenterContext(
+        response_sender=None,  # type: ignore[arg-type]
+        text_processor=SimpleNamespace(  # type: ignore[arg-type]
+            sanitize_summary_text=lambda s: s, max_message_chars=ceiling
+        ),
+        data_formatter=None,  # type: ignore[arg-type]
+        verbosity_resolver=None,
+        progress_tracker=None,
+        topic_manager=None,
+        lang="en",
+    )
+    return SummaryBlocksPresenter(ctx)  # type: ignore[arg-type]
+
+
+def test_expandable_band_tracks_configured_ceiling() -> None:
+    # ceiling 2000 -> collapse band upper bound ~1900.
+    presenter = _presenter_with_ceiling(2000)
+    in_band = presenter.build_summary_field_text({"summary_1500": "x" * 1500}, include_tldr=False)
+    assert in_band is not None and "<blockquote expandable>" in in_band
+    over = presenter.build_summary_field_text({"summary_1500": "x" * 1950}, include_tldr=False)
+    assert over is not None and "<blockquote" not in over  # over ceiling -> plain, splits cleanly
