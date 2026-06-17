@@ -85,7 +85,7 @@ _NODES: dict[str, Any] = {
 def build_initial_state(
     *,
     correlation_id: str,
-    request_id: int,
+    request_id: int | None,
     lang: str,
     input_url: str = "",
     source_text: str = "",
@@ -107,6 +107,9 @@ def build_initial_state(
     with an empty ``input_url`` so the ``extract`` node no-ops (it returns ``{}``
     when no URL is settled) and leaves the pre-provided ``source_text`` untouched.
     Defaults to ``""`` so the URL path stays byte-identical (extract overwrites it).
+    The same content-only callers pass ``request_id=None`` (no request row): the
+    persist node short-circuits every DB write when it is ``None`` rather than
+    INSERTing a Summary against ``requests.id`` that does not exist (FK violation).
     """
     initial_state: SummarizeState = {
         "correlation_id": correlation_id,
@@ -189,7 +192,7 @@ async def run_summarize_graph(
     graph: Any,
     deps: SummarizeDeps,
     correlation_id: str,
-    request_id: int,
+    request_id: int | None,
     lang: str,
     input_url: str = "",
     user_scope: str | None = None,

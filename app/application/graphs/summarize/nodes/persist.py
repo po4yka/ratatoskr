@@ -45,6 +45,11 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     """
     summary = state.get("summary") or {}
     request_id = state.get("request_id")
+    # ``request_id is None`` is the content-only path (no request row): short-circuit
+    # ALL DB writes -- finalize, llm_calls, and the index fast-path. INSERTing a
+    # Summary / LLMCall against a non-existent ``requests.id`` (None, or the old ``0``
+    # sentinel) raises ForeignKeyViolationError that the facade silently swallows to
+    # ``{}``. The summary still returns to the caller; it is just never persisted here.
     if not summary or request_id is None:
         return {}
 
@@ -100,7 +105,10 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
 
 async def _persist_llm_calls(state: SummarizeState, deps: SummarizeDeps) -> None:
     """Write the accumulated llm_calls (persist-everything); best-effort per row."""
-    if deps.llm_repo is None:
+    # No request row (content-only path) -> every llm_call record would FK-violate
+    # against ``requests.id``; skip persistence (the ``persist`` entry guard already
+    # short-circuits, this is defense-in-depth for direct callers).
+    if deps.llm_repo is None or state.get("request_id") is None:
         return
     for record in state.get("llm_calls") or []:
         try:

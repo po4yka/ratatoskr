@@ -194,10 +194,13 @@ class GraphURLProcessor:
         lang = request.chosen_lang or "en"
         correlation_id = request.correlation_id or ""
         # No persistence target for the content-only path (no request row / silent
-        # summarization); the graph persist node no-ops when request_id is None.
+        # summarization); the graph persist node short-circuits every DB write when
+        # request_id is None. ``0`` is NOT a usable sentinel -- it is a real FK value
+        # and INSERTing a Summary against requests.id=0 raises ForeignKeyViolationError
+        # the broad except below would swallow to ``{}`` (audit #1).
         initial_state = build_initial_state(
             correlation_id=correlation_id,
-            request_id=0,
+            request_id=None,
             lang=lang,
             input_url="",
             source_text=content_text,

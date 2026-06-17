@@ -34,8 +34,14 @@ class SummarizeState(TypedDict, total=False):
     """Checkpoint state for the summarize graph (serializable primitives only)."""
 
     # Identity -- established at ingest; correlation_id == thread_id (sacred).
+    # ``request_id`` is ``None`` for the content-only summarize path (the T9 facade
+    # ``summarize`` entrypoint has no request row); the persist node short-circuits
+    # all DB writes when it is ``None`` rather than INSERTing a Summary against a
+    # non-existent ``requests.id`` (FK violation). The URL path always supplies a
+    # real id. ``0`` is NEVER a valid sentinel -- it FK-violates exactly like any
+    # other absent row.
     correlation_id: str
-    request_id: int
+    request_id: int | None
     lang: str
     # Raw input URL the extract node resolves through the extraction port. Settled
     # by ingest/the runner; a small primitive str (not bulk content).

@@ -47,15 +47,25 @@ def test_max_repair_attempts_is_positive() -> None:
 def test_state_annotations_are_serializable_primitives() -> None:
     # Ties the guard to the real schema (runs without langgraph): a future
     # non-primitive field on SummarizeState fails CI here.
+    import types
     import typing
+
+    # bool is JSON/msgpack-serializable (e.g. the ``stream`` mode flag, ADR-0017).
+    # ``NoneType`` is serializable too (``request_id`` is ``int | None`` for the
+    # content-only path -- no request row, audit #1).
+    _PRIMITIVES = {str, int, bool, list, dict, type(None)}
+
+    def _is_primitive(hint: object) -> bool:
+        origin = typing.get_origin(hint) or hint
+        # Optional / unions of primitives (e.g. ``int | None``) are serializable iff
+        # every member is a primitive.
+        if origin in {typing.Union, types.UnionType}:
+            return all(_is_primitive(arg) for arg in typing.get_args(hint))
+        return origin in _PRIMITIVES
 
     hints = typing.get_type_hints(SummarizeState)
     for name, hint in hints.items():
-        origin = typing.get_origin(hint) or hint
-        # bool is JSON/msgpack-serializable (e.g. the ``stream`` mode flag, ADR-0017).
-        assert origin in {str, int, bool, list, dict}, (
-            f"{name}: {hint!r} is not a serializable primitive"
-        )
+        assert _is_primitive(hint), f"{name}: {hint!r} is not a serializable primitive"
 
 
 def test_real_msgpack_roundtrip_with_langgraph_serializer() -> None:

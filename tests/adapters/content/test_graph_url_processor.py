@@ -320,6 +320,72 @@ async def test_content_only_summarize_applies_quality_metadata():
     assert quality.get("extraction_confidence") == 0.9
 
 
+async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monkeypatch):
+    """audit #1: facade.summarize() must pass request_id=None so the REAL persist
+    node short-circuits every DB write (no FK violation against requests.id=0).
+
+    Drives the real ``persist`` node (no langgraph): the graph stub's ``ainvoke``
+    invokes ``persist`` against the facade-built initial state (with a summary
+    grafted on, mimicking the spine), then returns the final state. Asserts the
+    persist node NEVER awaits async_finalize_request_summary / async_insert_llm_call /
+    index_summary (zero DB writes), and the facade still returns a shaped dict.
+    """
+    from app.application.graphs.summarize.deps import SummarizeDeps
+    from app.application.graphs.summarize.nodes import persist as persist_node_fn
+
+    finalize = AsyncMock()
+    insert_llm = AsyncMock()
+    index = AsyncMock()
+    persist_deps = SummarizeDeps(
+        llm_client=MagicMock(),
+        retrieval=MagicMock(),
+        extraction=MagicMock(),
+        stream_sink=MagicMock(),
+        summaries=MagicMock(
+            async_finalize_request_summary=finalize,
+            async_get_summary_id_by_request=AsyncMock(return_value=123),
+        ),
+        requests=MagicMock(),
+        summary_index=MagicMock(index_summary=index),
+        llm_repo=MagicMock(async_insert_llm_call=insert_llm),
+        crawl_repo=MagicMock(),
+    )
+
+    async def _ainvoke(state, *, config):
+        # Graft a summary + an llm_call onto the state as the real spine would,
+        # then run the REAL persist node against the facade-built state.
+        state = dict(state)
+        state["summary"] = dict(_GOOD_SUMMARY)
+        state["llm_calls"] = [{"request_id": state.get("request_id"), "status": "ok"}]
+        state["user_scope"] = "owner"
+        state["environment"] = "prod"
+        out = await persist_node_fn(state, deps=persist_deps)
+        state.update(out)
+        return state
+
+    graph = MagicMock(ainvoke=_ainvoke)
+    facade = _facade(graph=graph)
+
+    out = await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id="cid-noreq",
+            source_coverage="full",
+        )
+    )
+
+    # The content-only path has NO request row -> request_id must be None.
+    # The real persist node must therefore write NOTHING.
+    finalize.assert_not_awaited()
+    insert_llm.assert_not_awaited()
+    index.assert_not_awaited()
+    # The shaped summary dict still returns to the caller.
+    assert out.get("tldr") == "t"
+    assert out.get("summary_250") == "s"
+
+
 async def test_content_only_summarize_empty_content_raises_value_error():
     """Empty/whitespace content raises ValueError, byte-for-byte with the legacy
     ``PureSummaryService.summarize`` (the 4 callers wrap it in a StageError)."""
