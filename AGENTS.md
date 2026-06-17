@@ -43,7 +43,8 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 ## Critical Files
 
 - `app/adapters/telegram/message_router.py` -- Central routing logic
-- `app/adapters/content/url_processor.py` -- URL processing orchestration
+- `app/adapters/content/graph_url_processor.py` -- URL-flow facade (`GraphURLProcessor`) -- sole summarize entrypoint, delegates to the graph
+- `app/application/graphs/summarize/` -- Summarize `StateGraph`: `graph.py` (assembly/invocation), `nodes/` (ingest → extract → ground → build_prompt → summarize → validate → repair → enrich → persist → notify), `deps.py`, `state.py`, `lifecycle.py`
 - `app/core/summary_contract.py` -- Summary descriptor registry and strict contract validation
 - `app/core/url_utils.py` -- URL normalization and deduplication
 - `app/infrastructure/cocoindex/flow.py` -- CocoIndex summary + repository Qdrant flows
@@ -64,8 +65,8 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 | Auth and sessions | `app/api/routers/auth/`, `app/api/routers/auth/tokens.py`, `app/api/routers/auth/cookies.py`, `app/infrastructure/persistence/repositories/auth_repository.py`, `app/db/models/core.py::RefreshToken` | `docs/reference/mobile-api.md#authentication-modes`, `docs/reference/troubleshooting.md#refresh-token-stops-working` |
 | API contracts | `app/api/main.py`, `app/api/models/`, `app/api/routers/`, `tools/scripts/generate_openapi.py`, `docs/openapi/mobile_api.yaml` | `docs/reference/openapi-contract-workflow.md`, `docs/reference/mobile-api.md#api-surface-freeze-policy` |
 | Sync v2 | `app/api/routers/sync.py`, `app/api/services/sync/`, `app/infrastructure/persistence/sync_aux_read_adapter.py` | `docs/reference/sync-protocol.md`, `docs/reference/troubleshooting.md#sync-conflicts` |
-| Request processing stuck | `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob` | `docs/reference/troubleshooting.md#request-stuck-in-processing` |
-| LLM parse / repair | `app/adapters/content/llm_response_workflow_attempts.py`, `app/adapters/content/llm_response_workflow_repair.py`, `app/core/summary_contract.py`, `app/prompts/manager.py` | `docs/reference/troubleshooting.md#json-parsing-failures`, `docs/reference/summary-contract.md` |
+| Request processing stuck | Sole path is the summarize graph: `app/adapters/content/graph_url_processor.py` (`GraphURLProcessor.handle_url_flow`), graph spine `app/application/graphs/summarize/` (`graph.py` + `nodes/`, especially `ingest`/`extract`/`persist`/`notify`), `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob` | `docs/reference/troubleshooting.md#request-stuck-in-processing` |
+| LLM parse / repair | Validation + repair are graph nodes: `app/application/graphs/summarize/nodes/validate.py` and `repair.py`, backed by `app/application/services/summarization/llm_response_workflow_attempts.py` + `llm_response_workflow_repair.py` + `graph_llm.py`, and `app/core/summary_contract.py`; `app/prompts/manager.py` for prompt binding | `docs/reference/troubleshooting.md#json-parsing-failures`, `docs/reference/summary-contract.md` |
 | Extraction providers | `app/adapters/content/scraper/`, `app/adapters/content/platform_extraction/`, `app/adapters/youtube/`, `app/adapters/twitter/`, `app/adapters/academic/` | `docs/explanation/scraper-chain.md`, `docs/reference/troubleshooting.md#content-extraction-failures` |
 | Source ingestion and signals | `app/adapters/ingestors/`, `app/adapters/rss/`, `app/adapters/digest/`, `app/api/routers/social/signals.py` | `docs/guides/configure-source-ingestors.md` |
 | Vector drift / reconciliation | `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, `app/cli/backfill_vector_store.py`, `app/infrastructure/cocoindex/flow.py` | `docs/cocoindex.md`, `docs/reference/troubleshooting.md`; extend via `VectorIndexedEntityAdapter` |

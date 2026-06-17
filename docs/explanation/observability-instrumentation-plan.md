@@ -16,7 +16,7 @@ The OTel SDK is wired and operational today. `init_tracing()` is called in five 
 | Layer | Span | Prometheus metrics |
 |---|---|---|
 | Telegram intake | `telegram.update` with `ratatoskr.correlation_id` (`message_router.py:154`) | None at message-router level |
-| URL orchestration | `url_flow.process` with url and correlation_id (`url_processor.py:230`) | `record_llm_request_total_latency` in finally-block (`:543`) |
+| URL orchestration | `url_flow.process` with url and correlation_id (`graph_url_processor.py::_run_url_flow`) | `record_llm_request_total_latency` in finally-block (`_run_url_flow_inner`) |
 | Scraper chain (chain level) | `scraper.chain` with url and mode (`:225`); sets `scraper.winner` and `scraper.attempts` on success and exhaustion paths | `record_scraper_chain_total_latency` in `_record_outcome` closure (`:186`) |
 | Scraper chain (per-rung level) | `scraper.<name>` span opened at `chain.py:468`; outcome set at lines 479/482/506/520/543/561/565 | None — `record_scraper_attempt` and `record_scraper_attempt_latency` defined in `metrics.py:1075` and `:1089` but have zero call sites anywhere in the scraper package |
 | LLM client `chat()` | `llm.chat` span at `openrouter_client.py:511`; sets `cost_usd` and `latency_ms` only | `record_per_model_latency`, `record_per_model_timeout`, `record_per_model_circuit_breaker_state` called across `chat_engine.py` |
@@ -153,11 +153,11 @@ After restructuring, add `span.set_attribute("ratatoskr.llm.model_served", resul
 
 #### 3b. Propagate correlation_id to the `url_flow.process` span
 
-The span at `url_processor.py:230` already sets `ratatoskr.correlation_id` as a direct attribute. Verify `set_correlation_id_attr` from `otel.py:137` is also called inside this span so Tempo's baggage-propagation picks it up consistently (the span attribute alone is not propagated to child spans unless also set via `set_correlation_id_attr`).
+The span in `graph_url_processor.py::_run_url_flow` already sets `ratatoskr.correlation_id` as a direct attribute. Verify `set_correlation_id_attr` from `otel.py:137` is also called inside this span so Tempo's baggage-propagation picks it up consistently (the span attribute alone is not propagated to child spans unless also set via `set_correlation_id_attr`).
 
 | File:line | What to add | Notes |
 |---|---|---|
-| `url_processor.py:232` (inside existing span context, after span opens) | `from app.observability.otel import set_correlation_id_attr; set_correlation_id_attr(request.correlation_id)` | Sets the active-span attribute via the standard helper, consistent with `message_router.py:160` pattern |
+| `graph_url_processor.py::_run_url_flow` (inside existing span context, after span opens) | `from app.observability.otel import set_correlation_id_attr; set_correlation_id_attr(request.correlation_id)` | Sets the active-span attribute via the standard helper, consistent with `message_router.py:160` pattern |
 
 #### 3c. Add `url_flow.cache_hit` span event for cache-served responses
 
@@ -256,7 +256,7 @@ URL_PROCESSOR_IN_FLIGHT = Gauge(
 )
 ```
 
-Wire as a context manager increment/decrement at `url_processor.py:230` (span open, increment) and the finally-block at `url_processor.py:543` (decrement). This is a single-process gauge — valid for the current architecture where one Docker container handles all requests.
+Wire as a context manager increment/decrement at `graph_url_processor.py::_run_url_flow_inner` (span open, increment) and its finally-block (decrement); `set_url_processor_in_flight` is already defined in `app/observability/metrics.py` and called there. This is a single-process gauge — valid for the current architecture where one Docker container handles all requests.
 
 ---
 

@@ -270,6 +270,6 @@ When implementing a task, also update any CLAUDE.md or skill content that the ch
 
 ---
 
-**Last Updated:** 2026-05-29
+**Last Updated:** 2026-06-17
 
 Reading order for orientation: this file → `docs/SPEC.md` → relevant `docs/explanation/*.md` or `docs/reference/*.md` → matching `.claude/skills/<name>/SKILL.md`.

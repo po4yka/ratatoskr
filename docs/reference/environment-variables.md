@@ -868,7 +868,7 @@ Persistent LangGraph graph state between nodes via a dedicated `AsyncPostgresSav
 
 | Variable | Type | Default | Purpose |
 |---|---|---|---|
-| `LANGGRAPH_CHECKPOINT_ENABLED` | bool | `false` | Master switch. When false, no psycopg3 pool is opened, no `langgraph` schema is created, and the prune job early-returns. Gated off until the graph cutover (ADR-0013). |
+| `LANGGRAPH_CHECKPOINT_ENABLED` | bool | `false` | Master switch. When false, no psycopg3 pool is opened, no `langgraph` schema is created, and the prune job early-returns. The graph is the sole summarize path post-T9 cutover; checkpointing is an opt-in operational feature, not a migration gate. |
 | `LANGGRAPH_STRICT_MSGPACK` | bool | `true` | When true, the checkpoint serializer disables the pickle fallback so checkpoint blobs never trigger arbitrary-module deserialization (ADR-0004 security posture). |
 | `LANGGRAPH_CHECKPOINT_SCHEMA` | str | `langgraph` | Dedicated Postgres schema for the checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`). Created by `AsyncPostgresSaver.setup()`, not Alembic-managed; droppable to reset graph state. Must be alphanumeric/underscore. |
 | `LANGGRAPH_CHECKPOINT_POOL_MIN_SIZE` | int (≥1) | `1` | Minimum size of the dedicated psycopg3 checkpointer pool (ADR-0004). |
@@ -892,8 +892,22 @@ Optional retrieval-augmented grounding in the summarize graph's `ground` node (A
 
 | Variable | Type | Default | Purpose |
 |---|---|---|---|
-| `SUMMARIZE_RAG_ENABLED` | bool | `false` | Master switch for RAG grounding in the `ground` node. Default off — when off the node is a no-op and summarize output is byte-identical to the non-RAG path. **REMOVAL TRIGGER:** delete at the T6 cutover once grounding is the default (no flag outlives its migration, ADR-0018). |
-| `RAG_TOP_K` | int (≥1) | `5` | Number of prior summaries the `ground` node retrieves when `SUMMARIZE_RAG_ENABLED` is on. **REMOVAL TRIGGER:** retire alongside `SUMMARIZE_RAG_ENABLED` at the T6 cutover. |
+| `SUMMARIZE_RAG_ENABLED` | bool | `false` | Master switch for RAG grounding in the `ground` node. Default off — when off the node is a no-op and summarize output is byte-identical to the non-RAG path. **Transitional flag** — retire at the T6 cutover once grounding is the default (ADR-0018). |
+| `RAG_TOP_K` | int (≥1) | `5` | Number of prior summaries the `ground` node retrieves when `SUMMARIZE_RAG_ENABLED` is on. **Transitional** — retire alongside `SUMMARIZE_RAG_ENABLED` at the T6 cutover. |
+
+---
+
+## Article Vision Routing
+
+Controls whether extracted article images are sent to a vision model for richer summaries. Applies inside the summarize graph's `extract` / `build_prompt` routing: when enabled and the image count clears the threshold, `ATTACHMENT_VISION_MODEL` (set in `ratatoskr.yaml`) is used instead of the text-only model. Configuration owner: `app/config/media.py::AttachmentConfig`.
+
+| Variable | Type | Default | Purpose |
+|---|---|---|---|
+| `ARTICLE_VISION_ENABLED` | bool | `false` | Master switch. When false, articles always take the text-only summarize path regardless of image count. |
+| `ARTICLE_VISION_MIN_IMAGES` | int (≥1) | `1` | Minimum number of extracted images required to route an HTML article to the vision model. Raise to `2`–`3` to skip vision for articles that only have a single OG/header image. |
+| `VISION_ROUTING_ROLE_FILTER_ENABLED` | bool | `true` | When true, decorative header images (`og:image` / `ogImage`) and small thumbnails are excluded from the candidate count before the `ARTICLE_VISION_MIN_IMAGES` gate fires, provided at least one content-area image survives. Articles whose only images are decorative thus take the text path. Disable to restore count-only routing. |
+
+Vision model selection (`ATTACHMENT_VISION_MODEL`, `ATTACHMENT_VISION_FALLBACK_MODELS`) has no code default — set in the `attachment:` section of `ratatoskr.yaml`. The bot hard-fails at startup if absent.
 
 ---
 

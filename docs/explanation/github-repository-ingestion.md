@@ -20,7 +20,7 @@ The GitHub repository subsystem treats a GitHub repo the same way the rest of Ra
 github.com/<owner>/<repo> URL
   |
   v
-URLProcessor (app/adapters/content/url_processor.py)
+GraphURLProcessor facade (app/adapters/content/graph_url_processor.py)
   |-- is_github_repo_url() check (app/adapters/github/url_patterns.py)
   v
 GitHubPlatformExtractor (app/adapters/github/platform_extractor.py)

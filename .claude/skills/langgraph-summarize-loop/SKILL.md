@@ -173,6 +173,52 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
   `docs/decisions/0011-graph-runtime-contract.md`,
   `docs/decisions/0015-summarization-pipeline-target-architecture.md`.
 
+## The Facade Entrypoint: GraphURLProcessor
+
+`app/adapters/content/graph_url_processor.py::GraphURLProcessor` is the **sole
+production entrypoint** post-T9. It exposes two public methods:
+
+| Method | What it does |
+| ------ | ------------ |
+| `handle_url_flow` | Full interactive/silent/batch URL flow: cache short-circuit, typing indicator, OTel span, in-flight gauge + latency metric, `Request` row creation, `RequestProcessingJob` crash-recovery lease, graph invocation, terminal-failure notification, post-summary tasks. |
+| `summarize` | Content-only path: caller pre-extracts text and passes `content_text`; `request_id=None`; the graph skips extraction (`extract` node no-ops when `source_text` is already set) and runs summarize → validate → repair → enrich only. The `persist` node short-circuits **every** DB write when `request_id is None`. Returns the shaped summary dict. On success, runs LLM metadata-completion (title/author/dates) + RAG-field enrichment as best-effort post-steps. |
+
+The `RequestProcessingJob` crash-recovery lease is owned by `handle_url_flow` (not
+the graph nodes). If the process crashes between job creation and notify, the lease
+expires and the job becomes reschedulable.
+
+## Detected Language and Vision Routing
+
+**Detected language**: the `ingest` node resolves `lang` from `request.chosen_lang`
+(user override) or from language detection on the URL/content. `build_prompt` selects
+`summary_system_{lang}.txt` accordingly. Both `en` and `ru` prompt files must be
+updated together -- a lockstep test enforces shared grounding-guard wording.
+
+**Article vision**: when `ARTICLE_VISION_ENABLED=true` and the extracted article
+contains ≥ `ARTICLE_VISION_MIN_IMAGES` images (filtered by
+`VISION_ROUTING_ROLE_FILTER_ENABLED` to exclude decorative OG/header images), the
+`extract` or `build_prompt` node routes the call to `ATTACHMENT_VISION_MODEL`
+(from `ratatoskr.yaml`) instead of the text-only model. Articles with fewer images
+after filtering take the standard text path.
+
+## Redis Summary Cache
+
+`app/adapters/content/summary_cache_adapter.py::SummaryCacheAdapter` (implements
+`SummaryCachePort`) is checked by `handle_url_flow` **before** graph invocation. A
+cache hit returns the stored summary immediately, skipping all graph nodes. Cache
+keys are env-scoped:
+
+```
+("llm", environment, user_scope, prompt_version, lang_key, url_hash)
+```
+
+TTL is controlled by `REDIS_LLM_TTL_SECONDS` (default `7200` seconds = 2 h).
+Flushing stale cache entries:
+
+```bash
+redis-cli KEYS "llm:*" | xargs redis-cli DEL
+```
+
 ## Important Notes
 
 - **langgraph is confined** to the graph-assembly seam (`graph.py`) plus
@@ -184,9 +230,9 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
   `0036`.
 - `MAX_REPAIR_ATTEMPTS` and `recursion_limit` are two independent budgets; the repair
   budget is the primary terminator and the recursion limit only catches a runaway.
-- The graph persists checkpoints; resuming a partially-failed request reuses the
-  prior state. State holds serializable primitives only -- never a port, session, or
-  live object (ADR-0011).
+- The graph persists checkpoints when `LANGGRAPH_CHECKPOINT_ENABLED=true` (default
+  off); resuming a partially-failed request reuses the prior state. State holds
+  serializable primitives only -- never a port, session, or live object (ADR-0011).
 - Streaming reuses the same in-flight `LLMCall` row, so a stream fallback does not
   reset `attempt_index`.
 - Cost reconciliation: `tokens_prompt` + `tokens_completion` + `cost_usd` are
@@ -195,3 +241,6 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
   the `_instructor` variants) when changing prompt behavior -- `build_prompt` reads
   whichever matches the request language, and an en+ru lockstep test asserts the
   shared grounding-guard wording.
+- The legacy `url_processor.py` / `pure_summary_service.py` /
+  `interactive_summary_service.py` and the `SUMMARIZE_GRAPH_ENABLED` flag are
+  **deleted** (T9 cutover). There is no flag gate; the graph is the only path.

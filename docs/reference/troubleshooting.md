@@ -508,28 +508,44 @@ curl https://openrouter.ai/api/v1/models | jq '.data[] | select(.id | contains("
 
 ### JSON Parsing Failures
 
-**Symptom**: "Failed to parse summary JSON" even after retries.
+**Symptom**: "Failed to parse summary JSON" or contract validation errors even after retries, or the request ends in the terminal-failure path with `Error ID: <correlation_id>`.
 
-**Cause**: Model producing invalid JSON or missing required fields.
+**Cause**: The `validate` node detected contract violations (missing required fields, value out of range, wrong type) and the `repair` node could not fix them within `MAX_REPAIR_ATTEMPTS = 3` re-prompts. All repair attempts are written to `llm_calls` with `attempt_trigger = 'graph_node'`.
 
-**Solution**:
+**Triage**:
 
 ```bash
-# Enable JSON repair fallback
-echo "ENABLE_JSON_REPAIR=true" >> .env
+# See all LLM attempts + validation errors for the request
+docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
+  "SELECT attempt_index, attempt_trigger, model, status,
+          left(error_text, 120) AS err_preview
+     FROM llm_calls
+    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>')
+    ORDER BY attempt_index;"
 
-# Try different model (some models better at JSON)
-echo "OPENROUTER_MODEL=qwen/qwen3-max" >> .env  # Qwen is excellent at JSON
+# 1 + MAX_REPAIR_ATTEMPTS = 4 rows all with status='error' means repair budget exhausted
+```
 
-# Enable structured outputs (if model supports)
+**Solutions**:
+
+```bash
+# Try a model with stronger JSON / instruction-following
+echo "OPENROUTER_MODEL=qwen/qwen3-max" >> .env  # Qwen is reliable at structured output
+
+# Enable structured outputs if the model supports it
 echo "OPENROUTER_ENABLE_STRUCTURED_OUTPUTS=true" >> .env
 
-# Check actual LLM response in database
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-  "SELECT response_json FROM llm_calls
-     WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>')
-     ORDER BY attempt_index;"
+# Check the full validation error fed back into the repair prompt
+docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
+  "SELECT attempt_index, error_text
+     FROM llm_calls
+    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>')
+    ORDER BY attempt_index;"
 ```
+
+The repair loop (`validate → repair → validate`) lives in
+`app/application/graphs/summarize/nodes/validate.py` and `repair.py`. Contract
+rules are in `app/core/summary_contract.py`.
 
 ---
 
@@ -889,11 +905,29 @@ curl -X POST http://localhost:8000/v1/auth/telegram-login \
 # Find the request and durable processing job by correlation/request id
 grep "<correlation_id>" /var/log/ratatoskr/app.log
 
+# Check the request and job status in the DB
+docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -x -c \
+  "SELECT r.status, r.error_type, j.status AS job_status, j.lease_expires_at
+     FROM requests r
+     LEFT JOIN request_processing_jobs j ON j.request_id = r.id
+    WHERE r.correlation_id = '<correlation_id>';"
+
 # Reproduce with the CLI runner and debug logs
 python -m app.cli.summary --url <URL> --log-level DEBUG
 ```
 
-**Likely owners**: the `app/adapters/content/graph_url_processor.py` facade and the summarize graph (`app/application/graphs/summarize/` -- especially the `ingest`/`extract`/`persist`/`notify` nodes and `lifecycle.py`), `app/adapters/content/platform_extraction/lifecycle.py`, `app/adapters/content/streaming/`, and `app/db/models/core.py::RequestProcessingJob`.
+**Likely owners**:
+
+- `app/adapters/content/graph_url_processor.py::GraphURLProcessor.handle_url_flow` --
+  owns the `RequestProcessingJob` crash-recovery lease; if the process crashed between
+  job creation and graph completion the lease has an expiry after which the job is
+  reschedulable.
+- Summarize graph: `app/application/graphs/summarize/` -- especially the
+  `extract` node (scraper chain hang), `persist` node (DB write failure), `notify`
+  node (Telegram send failure), and `lifecycle.py::route_terminal_failure`.
+- `app/adapters/content/platform_extraction/lifecycle.py` -- extraction timeout.
+- `app/adapters/content/streaming/` -- SSE stream never closed.
+- `app/db/models/core.py::RequestProcessingJob` -- lease expiry.
 
 ### Sync Conflicts
 

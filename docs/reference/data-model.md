@@ -735,6 +735,8 @@ CREATE INDEX idx_video_downloads_video_id ON video_downloads(video_id);
 CREATE TABLE llm_calls (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
     request_id               TEXT REFERENCES requests(id),
+    attempt_index            INTEGER NOT NULL,  -- 1-based, monotonic per request_id
+    attempt_trigger          attempt_trigger_enum NOT NULL,  -- see values below
     provider                 TEXT DEFAULT 'openrouter',
     model                    TEXT NOT NULL,
     endpoint                 TEXT DEFAULT '/api/v1/chat/completions',
@@ -749,15 +751,29 @@ CREATE TABLE llm_calls (
     cost_usd                 REAL,
     latency_ms               INTEGER,
     status                   TEXT DEFAULT 'ok',  -- 'ok'|'error'
-    error_message            TEXT,
+    error_text               TEXT,  -- Validator feedback or error details
     created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
+**`attempt_trigger` values (Postgres enum, migration `0036`):**
+
+| Value | Meaning |
+|---|---|
+| `graph_node` | **Active value** — LLM call issued by a summarize graph node (`summarize` or `repair`). Every post-T9 summarization writes this. |
+| `initial` | First call on a fresh request (legacy request lifecycle). |
+| `user_retry` | First call of a request cloned by the mobile-API retry action. |
+| `auto_backfill` | Reserved — no active code path writes it. |
+| `repair_loop` | Legacy JSON-repair trigger; the graph's `repair` node uses `graph_node` instead. |
+| `stream_fallback_retry` | Reserved — streaming reuses the in-flight row rather than inserting a new one. |
+| `webwright_tool` | Reserved — the Webwright enricher (Path C) that wrote it was removed. |
+
 **Fields:**
 
 - `id` (int, PK, autoincrement) - Internal ID
-- `request_id` (str, FK) - Foreign key to `requests`
+- `request_id` (str, FK, nullable) - Foreign key to `requests`; `NULL` on the content-only summarize path (no request row)
+- `attempt_index` (int) - 1-based monotonic counter per `request_id`
+- `attempt_trigger` (enum) - What triggered this LLM call (see table above)
 - `provider` (str) - LLM provider (`openrouter`, `openai`, `anthropic`, or `ollama`)
 - `model` (str) - Model name (e.g., `deepseek/deepseek-v4-flash`)
 - `endpoint` (str) - API endpoint
@@ -772,7 +788,7 @@ CREATE TABLE llm_calls (
 - `cost_usd` (float, nullable) - Estimated cost in USD
 - `latency_ms` (int, nullable) - API call latency
 - `status` (str) - Call status (`ok` or `error`)
-- `error_message` (str, nullable) - Error details if failed
+- `error_text` (str, nullable) - Validator feedback (fed back into the repair prompt) or error details
 - `created_at` (datetime) - Record creation timestamp
 
 **Indexes:**

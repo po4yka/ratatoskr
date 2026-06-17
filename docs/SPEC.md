@@ -75,7 +75,7 @@ Scholarly-paper URLs (arXiv, SSRN, NBER, OSF preprints, ResearchGate, RePEc) are
 
 ## Multi-Agent Architecture
 
-ContentExtraction, Validation, and WebSearch agents; self-correction retry loop via `instructor`'s `chat_structured` at `app/adapters/content/pure_summary_service.py`; signal-scoring v0 integration; usage examples and test hints.
+ContentExtraction, Validation, and WebSearch agents; self-correction retry loop is the LangGraph summarize graph's `validate ↺ repair` cycle (`app/application/graphs/summarize/nodes/validate.py` + `repair.py`), backed by `app/application/services/summarization/graph_llm.py::summarize_with_instructor`; signal-scoring v0 integration; usage examples and test hints.
 
 → [Multi-Agent Architecture](explanation/multi-agent-architecture.md)
 

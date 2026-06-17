@@ -4,6 +4,8 @@
 
 ADRs: [`docs/decisions/`](decisions/) (0001 reversed: langgraph/langchain_core allowed, langchain/langchain_community still banned; 0006 keeps instructor; 0014 ports-and-adapters; 0015 pipeline target; 0018 strategy + invariants).
 
+> **Status (as of 2026-06-17): T1–T9 DELIVERED.** The LangGraph summarize graph (`app/application/graphs/summarize/`) is the sole summarize path. Legacy files (`url_processor.py`, `pure_summary_service.py`, `interactive_summary_service.py`) are deleted. The `GraphURLProcessor` facade (`app/adapters/content/graph_url_processor.py`) is the only URL-flow entry point, wired via DI with no flag gate. `SUMMARIZE_GRAPH_ENABLED` and all T5–T9 transitional flags are retired. The per-track sections below are the historical plan; they are preserved as the design record.
+
 ---
 
 ## 1. Invariants (ADR-0018) — non-negotiable, every wave preserves
