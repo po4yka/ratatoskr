@@ -447,12 +447,20 @@ def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessing
         build_summary_repository,
         build_user_repository,
     )
+    from app.di.search import build_search_dependencies
     from app.di.shared import LazySemaphoreFactory, build_response_formatter, build_url_processor
 
     audit_func: Any = lambda *_a, **_kw: None  # noqa: E731
     sem_factory = LazySemaphoreFactory(cfg.runtime.max_concurrent_calls)
     llm_client = LLMClientFactory.create_from_config(cfg, audit=audit_func)
     response_formatter = build_response_formatter(cfg)
+
+    # The worker single-URL path is the PRIMARY summarize entrypoint
+    # (url_worker_enqueue_enabled defaults true), so it must wire the vector
+    # store + embedding service into the facade exactly like the Telegram/CLI
+    # path. Without them the graph builds a QdrantSummaryIndexAdapter(None, None),
+    # silently no-opping ADR-0012 read-your-writes freshness on the live path.
+    search = build_search_dependencies(cfg, db, llm_client=llm_client, audit_func=audit_func)
 
     url_processor = build_url_processor(
         cfg=cfg,
@@ -467,6 +475,8 @@ def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessing
         crawl_result_repo=build_crawl_result_repository(db),
         llm_repo=build_llm_repository(db),
         user_repo=build_user_repository(db),
+        vector_store=search.vector_store,
+        embedding_service=search.embedding_service,
     )
 
     telegram_sender = WorkerTelegramSender(bot_token=cfg.telegram.bot_token)

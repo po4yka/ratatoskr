@@ -384,3 +384,63 @@ def test_format_summary_uses_card_sections_canonical_output(monkeypatch):
     assert "The article argues X." in result
     # Should NOT be the fallback placeholder.
     assert "Summary ready" not in result
+
+
+def test_worker_runtime_wires_vector_store_and_embeddings(monkeypatch):
+    """The worker URL-processing runtime must wire vector_store + embedding_service.
+
+    Regression for audit #6: ``_build_url_processing_runtime`` previously omitted
+    ``vector_store`` / ``embedding_service`` from ``build_url_processor``, so the
+    graph built a ``QdrantSummaryIndexAdapter(None, None)`` and ADR-0012
+    read-your-writes freshness was a silent no-op on the PRIMARY (worker) path.
+    The builder must pass the vector store + embedding service sourced from
+    ``build_search_dependencies`` straight through.
+    """
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    sentinel_store = object()
+    sentinel_embed = object()
+    fake_search = SimpleNamespace(vector_store=sentinel_store, embedding_service=sentinel_embed)
+    captured: dict[str, object] = {}
+
+    def _capture_build_url_processor(**kwargs):
+        captured.update(kwargs)
+        return MagicMock()
+
+    from app.tasks.url_processing import _build_url_processing_runtime
+
+    with (
+        patch(
+            "app.di.search.build_search_dependencies",
+            new=MagicMock(return_value=fake_search),
+        ),
+        patch(
+            "app.di.shared.build_url_processor",
+            new=_capture_build_url_processor,
+        ),
+        patch(
+            "app.adapters.content.scraper.factory.ContentScraperFactory.create_from_config",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.llm.LLMClientFactory.create_from_config",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.di.shared.build_response_formatter",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.telegram.worker_telegram_sender.WorkerTelegramSender",
+            new=MagicMock(),
+        ),
+    ):
+        _build_url_processing_runtime(_build_cfg(), MagicMock())
+
+    assert captured.get("vector_store") is sentinel_store
+    assert captured.get("embedding_service") is sentinel_embed
