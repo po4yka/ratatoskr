@@ -162,6 +162,7 @@ class GraphURLProcessor:
             silent=request.effective_silent,
         )
         if cached_result is not None:
+            await self._react(request, "✅")  # cache hit is a success outcome
             return cached_result
 
         # Parity concern 2 -- typing indicator wrapping the active flow.
