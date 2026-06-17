@@ -198,6 +198,7 @@ def build_url_processor(
     vector_store: Any | None = None,
     embedding_service: Any | None = None,
     redis_cache: Any | None = None,
+    checkpointer: Any | None = None,
 ) -> Any:
     """Build the graph-backed URL-flow facade for Telegram, API, and CLI runtimes.
 
@@ -216,6 +217,11 @@ def build_url_processor(
     ``vector_store`` / ``embedding_service`` back the graph's retrieval (ground) and
     read-your-writes index (persist) seams; both tolerate ``None`` (RAG off by
     default; the index write is best-effort, reconciler backfills).
+
+    ``checkpointer`` is forwarded to the compiled graph (audit #15): when
+    ``LANGGRAPH_CHECKPOINT_ENABLED`` is set, callers pass
+    ``CheckpointerRuntime.saver`` (the Postgres ``AsyncPostgresSaver``) so node
+    state persists durably; ``None`` keeps the in-memory saver (flag-off behavior).
     """
     from app.adapters.content.cached_summary_responder import CachedSummaryResponder
     from app.adapters.content.content_extractor import ContentExtractor
@@ -308,6 +314,7 @@ def build_url_processor(
         vector_store=vector_store,
         embedding_service=embedding_service,
         redis_cache=redis_cache,
+        checkpointer=checkpointer,
     )
 
 

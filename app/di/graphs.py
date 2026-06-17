@@ -149,15 +149,17 @@ def build_summarize_graph_app(*, deps: SummarizeDeps, checkpointer: Any | None =
     """Compile the summarize graph, defaulting to an in-memory checkpointer.
 
     When ``checkpointer`` is ``None`` an ``InMemorySaver`` is used (testable without
-    the T2 Postgres pool). Production wiring passes T2's ``AsyncPostgresSaver`` here.
-    langgraph is imported lazily so importing this module never requires the
-    ``graph`` extra.
+    the Postgres pool, and the behavior when ``LANGGRAPH_CHECKPOINT_ENABLED`` is
+    off). Production wiring passes ``CheckpointerRuntime.saver`` (the
+    ``AsyncPostgresSaver``) here via :func:`assemble_graph_url_processor` ->
+    :func:`build_url_processor`. langgraph is imported lazily so importing this
+    module never requires the ``graph`` extra.
     """
     if checkpointer is None:
         from langgraph.checkpoint.memory import InMemorySaver
 
         # Non-durable: log so a production wiring that forgot the Postgres saver
-        # (T2 AsyncPostgresSaver) is observable rather than silent.
+        # (CheckpointerRuntime.saver) is observable rather than silent.
         logger.info("summarize_graph_using_in_memory_checkpointer")
         checkpointer = InMemorySaver()
     return build_summarize_graph(deps=deps, checkpointer=checkpointer)
@@ -397,6 +399,7 @@ def assemble_graph_url_processor(
     vector_store: Any | None = None,
     embedding_service: Any | None = None,
     redis_cache: Any | None = None,
+    checkpointer: Any | None = None,
 ) -> Any:
     """Assemble the full summarize graph + the graph-backed URL-flow facade (T9 cutover).
 
@@ -413,6 +416,12 @@ def assemble_graph_url_processor(
     node) and the read-your-writes summary index (persist node, ADR-0012); both
     tolerate ``None`` (ground is RAG-gated off by default; the index write is
     best-effort and the reconciler backfills).
+
+    ``checkpointer`` is the LangGraph saver the compiled graph persists node state
+    into (audit #15). Production passes ``CheckpointerRuntime.saver`` (the Postgres
+    ``AsyncPostgresSaver``) when ``LANGGRAPH_CHECKPOINT_ENABLED`` is set; ``None``
+    falls back to an ``InMemorySaver`` (the flag-off behavior), so the graph is
+    never compiled without a checkpointer.
     """
     from app.di.extraction import build_extraction_port
 
@@ -445,7 +454,7 @@ def assemble_graph_url_processor(
         summary_cache=build_summary_cache_adapter(cfg, cache=redis_cache),
         crawl_repo=crawl_result_repo,
     )
-    graph = build_summarize_graph_app(deps=deps)
+    graph = build_summarize_graph_app(deps=deps, checkpointer=checkpointer)
     return build_graph_url_processor(
         cfg=cfg,
         db=db,

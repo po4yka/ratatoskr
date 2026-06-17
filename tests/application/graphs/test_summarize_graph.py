@@ -166,3 +166,73 @@ async def test_di_compiles_with_default_in_memory_checkpointer() -> None:
 
     graph = build_summarize_graph_app(deps=_real_deps())
     assert graph is not None
+
+
+def test_build_summarize_graph_app_forwards_injected_checkpointer(monkeypatch) -> None:
+    """An injected checkpointer must reach the compiled graph (audit #15).
+
+    Regression: ``build_summarize_graph_app`` previously only ever saw ``None`` from
+    its callers, so the graph always compiled with the in-memory saver even when the
+    Postgres ``CheckpointerRuntime.saver`` was available. When a checkpointer is
+    passed it must be forwarded verbatim (never replaced by an ``InMemorySaver``).
+    """
+    import app.di.graphs as graphs_mod
+
+    captured: dict[str, object] = {}
+
+    def _capture(*, deps, checkpointer):
+        captured["checkpointer"] = checkpointer
+        return MagicMock()
+
+    monkeypatch.setattr(graphs_mod, "build_summarize_graph", _capture)
+    sentinel = object()
+    graphs_mod.build_summarize_graph_app(deps=_real_deps(), checkpointer=sentinel)
+
+    assert captured["checkpointer"] is sentinel
+
+
+def test_assemble_graph_url_processor_threads_checkpointer(monkeypatch) -> None:
+    """``assemble_graph_url_processor`` must thread its checkpointer to the compiled graph.
+
+    Regression for audit #15: the assemble seam compiled the graph with
+    ``build_summarize_graph_app(deps=deps)`` and dropped any checkpointer on the
+    floor, so the Postgres saver injected at the runtime seam never reached the
+    graph. The ``checkpointer`` kwarg must flow through to ``build_summarize_graph_app``.
+    """
+    import app.di.graphs as graphs_mod
+
+    captured: dict[str, object] = {}
+
+    def _capture_app(*, deps, checkpointer=None):
+        captured["checkpointer"] = checkpointer
+        return MagicMock()
+
+    monkeypatch.setattr(graphs_mod, "build_summarize_graph_app", _capture_app)
+    # Stub the facade builder so we exercise only the assemble -> app seam.
+    monkeypatch.setattr(graphs_mod, "build_graph_url_processor", lambda **_kw: MagicMock())
+
+    cfg = MagicMock()
+    cfg.runtime.summarize_rag_enabled = False
+    cfg.runtime.rag_top_k = 5
+    cfg.model_routing.enabled = False
+    sentinel = object()
+
+    graphs_mod.assemble_graph_url_processor(
+        cfg=cfg,
+        db=MagicMock(),
+        content_extractor=MagicMock(),
+        cached_summary_responder=MagicMock(),
+        summary_delivery=MagicMock(),
+        post_summary_tasks=MagicMock(),
+        response_formatter=MagicMock(),
+        audit_func=MagicMock(),
+        summarization_runtime=MagicMock(),
+        llm_client=MagicMock(),
+        request_repo=MagicMock(),
+        summary_repo=MagicMock(),
+        crawl_result_repo=MagicMock(),
+        llm_repo=MagicMock(),
+        checkpointer=sentinel,
+    )
+
+    assert captured["checkpointer"] is sentinel
