@@ -60,6 +60,13 @@ class SummarizeConfig:
     # deps.model_router to pick a per-tier model after long-context routing.
     # Sourced from cfg.model_routing.enabled at the composition root (rule 11).
     routing_enabled: bool = False
+    # Output-language preference sourced from ``cfg.runtime.preferred_lang`` at the
+    # composition root (default ``auto`` in ``ratatoskr.yaml``). The extract node
+    # resolves the final ``state['lang']`` via ``choose_language(preferred_lang,
+    # detected_lang)`` so the content's detected language wins under ``auto`` --
+    # non-English content is summarized/cached/persisted in its own language rather
+    # than the pre-extraction default. A forced ``en``/``ru`` here pins the output.
+    preferred_lang: str = "auto"
 
 
 @dataclass(frozen=True, slots=True)

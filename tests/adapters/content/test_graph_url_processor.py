@@ -559,3 +559,32 @@ async def test_create_request_row_null_owner_when_no_from_user(monkeypatch):
     _, kwargs = mp.request_repo.async_create_request.call_args
     assert kwargs["user_id"] is None
     assert kwargs["chat_id"] is None  # read from ``chat.id``, not ``chat_id``
+
+
+# --------------------------------------------------------------------------- #
+# (g) language seed: ``_resolve_lang`` must NOT collapse ``auto`` to ``en``
+# (audit #3). The graph's extract node re-resolves state['lang'] from the
+# content's detected language, so a premature ``auto -> en`` collapse here would
+# force every non-English article onto the English summary/prompt/cache path.
+# --------------------------------------------------------------------------- #
+
+
+async def test_resolve_lang_seeds_raw_auto_preference():
+    cfg = _cfg()
+    cfg.runtime.preferred_lang = "auto"
+    facade = _facade(cfg=cfg)
+    assert facade._resolve_lang(_url_request()) == "auto"
+
+
+async def test_resolve_lang_passes_forced_preference_through():
+    cfg = _cfg()
+    cfg.runtime.preferred_lang = "ru"
+    facade = _facade(cfg=cfg)
+    assert facade._resolve_lang(_url_request()) == "ru"
+
+
+async def test_resolve_lang_defaults_to_auto_when_preference_unset():
+    cfg = _cfg()
+    cfg.runtime.preferred_lang = None
+    facade = _facade(cfg=cfg)
+    assert facade._resolve_lang(_url_request()) == "auto"

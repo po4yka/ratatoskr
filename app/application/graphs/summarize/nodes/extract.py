@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from app.application.graphs.summarize.deps import SummarizeConfig
 from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.ports.extraction import ExtractionRequest
+from app.core.lang import choose_language
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -41,7 +43,19 @@ async def extract(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
         )
     )
 
+    # Promote the chosen output language now that the content's language is known.
+    # Under the shipped ``preferred_lang: auto`` the detected language wins, so
+    # non-English content is summarized/cached/persisted in its own language --
+    # downstream nodes (ground/build_prompt/summarize) and the cache key all read
+    # ``state['lang']``, which is otherwise still the pre-extraction default ``en``.
+    # A forced ``en``/``ru`` preference still pins the output (choose_language
+    # returns the preference verbatim when it is en/ru).
+    config = deps.config if isinstance(deps.config, SummarizeConfig) else None
+    preferred = config.preferred_lang if config is not None else (state.get("lang") or "auto")
+    lang = choose_language(preferred, result.detected_lang)
+
     return {
+        "lang": lang,
         "source_text": result.content_text,
         "content_source": result.content_source,
         "detected_lang": result.detected_lang,

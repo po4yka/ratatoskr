@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.application.graphs.summarize.deps import SummarizeDeps
+from app.application.graphs.summarize.deps import SummarizeConfig, SummarizeDeps
 from app.application.graphs.summarize.nodes import extract
 from app.application.ports.extraction import ExtractionRequest, ExtractionResult
 
@@ -28,7 +28,7 @@ class _FakeExtraction:
         return self.result
 
 
-def _deps(extraction: Any) -> SummarizeDeps:
+def _deps(extraction: Any, *, config: SummarizeConfig | None = None) -> SummarizeDeps:
     m = MagicMock()
     return SummarizeDeps(
         llm_client=m,
@@ -38,7 +38,19 @@ def _deps(extraction: Any) -> SummarizeDeps:
         summaries=m,
         requests=m,
         summary_index=m,
+        config=config,
     )
+
+
+def _config(**over: Any) -> SummarizeConfig:
+    base: dict[str, Any] = {
+        "model": "base-model",
+        "temperature": 0.2,
+        "structured_output_mode": "json_schema",
+        "long_context_threshold_tokens": 1_000_000,
+    }
+    base.update(over)
+    return SummarizeConfig(**base)
 
 
 def _state(**over: Any) -> dict[str, Any]:
@@ -81,6 +93,7 @@ async def test_extract_writes_minimal_serializable_state_delta() -> None:
     fake = _FakeExtraction(_result(content_text="BODY", content_source="html", title="T2"))
     out = await extract(_state(input_url="https://example.com/x"), deps=_deps(fake))
     assert out == {
+        "lang": "en",
         "source_text": "BODY",
         "content_source": "html",
         "detected_lang": "en",
@@ -133,8 +146,67 @@ async def test_extract_uniform_state_delta_per_source_kind(
     # into the node -- dispatch lives inside the single ExtractionPort adapter).
     assert len(fake.calls) == 1
     assert fake.calls[0].url == url
-    # Uniform, serializable, id-based delta for every source kind.
-    assert set(out) == {"source_text", "content_source", "detected_lang", "dedupe_hash", "title"}
+    # Uniform, serializable, id-based delta for every source kind. ``lang`` is the
+    # promoted output language (choose_language(preferred, detected)); uniform too.
+    assert set(out) == {
+        "lang",
+        "source_text",
+        "content_source",
+        "detected_lang",
+        "dedupe_hash",
+        "title",
+    }
     assert out["source_text"] == f"content for {kind}"
     assert out["content_source"] == source
     assert json.loads(json.dumps(out)) == out
+
+
+# --------------------------------------------------------------------------- #
+# Language promotion (audit #3): under the shipped ``preferred_lang: auto`` the
+# CONTENT's detected language must win, so non-English content is summarized in
+# its own language. Before the fix, extract wrote ``detected_lang`` but never
+# promoted it to ``state['lang']`` -- the pre-extraction default ``en`` leaked
+# through to build_prompt / summarize / the cache key.
+# --------------------------------------------------------------------------- #
+
+
+async def test_extract_promotes_detected_lang_under_auto_preference() -> None:
+    """preferred_lang=auto + Cyrillic content -> state['lang']=='ru' (not en)."""
+    fake = _FakeExtraction(_result(content_text="Это статья на русском языке.", detected_lang="ru"))
+    out = await extract(
+        _state(input_url="https://example.com/ru", lang="auto"),
+        deps=_deps(fake, config=_config(preferred_lang="auto")),
+    )
+    assert out["lang"] == "ru"
+    assert out["detected_lang"] == "ru"
+
+
+async def test_extract_auto_preference_keeps_english_for_english_content() -> None:
+    """preferred_lang=auto + English content -> state['lang']=='en'."""
+    fake = _FakeExtraction(_result(content_text="An English article.", detected_lang="en"))
+    out = await extract(
+        _state(input_url="https://example.com/en", lang="auto"),
+        deps=_deps(fake, config=_config(preferred_lang="auto")),
+    )
+    assert out["lang"] == "en"
+
+
+async def test_extract_forced_preference_pins_output_lang() -> None:
+    """A forced en/ru preference overrides the detected language (choose_language)."""
+    fake = _FakeExtraction(_result(content_text="Это статья на русском языке.", detected_lang="ru"))
+    out = await extract(
+        _state(input_url="https://example.com/ru", lang="en"),
+        deps=_deps(fake, config=_config(preferred_lang="en")),
+    )
+    assert out["lang"] == "en"  # preference pins output even for ru content
+
+
+async def test_extract_falls_back_to_state_lang_without_config() -> None:
+    """No config (bare-mock deps) -> the seeded state lang seeds the resolution."""
+    fake = _FakeExtraction(_result(content_text="Это статья на русском языке.", detected_lang="ru"))
+    out = await extract(
+        _state(input_url="https://example.com/ru", lang="auto"),
+        deps=_deps(fake, config=None),
+    )
+    # state['lang']=='auto' -> detected ('ru') wins.
+    assert out["lang"] == "ru"

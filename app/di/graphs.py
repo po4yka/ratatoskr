@@ -86,6 +86,7 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
         sticky_fallback_enabled=bool(getattr(runtime, "llm_sticky_failure_force_fallback", True)),
         two_pass_enabled=bool(getattr(runtime, "summary_two_pass_enabled", False)),
         routing_enabled=bool(routing.enabled),
+        preferred_lang=str(getattr(runtime, "preferred_lang", None) or "auto"),
     )
 
 

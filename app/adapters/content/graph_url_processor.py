@@ -539,15 +539,19 @@ class GraphURLProcessor:
         return req_id
 
     def _resolve_lang(self, request: URLFlowRequest) -> str:
-        """Resolve the chosen output language from runtime preference (pre-graph).
+        """Seed the graph's initial ``lang`` with the RAW runtime preference.
 
-        Used only to seed the graph's initial ``lang`` and the delivery context
-        before the graph re-detects. Post-summary gating uses the detected language
-        read back from ``final_state`` (see ``_detected_lang`` / the post-summary
-        block) so it matches the legacy context builder.
+        Under the shipped ``preferred_lang: auto`` we must NOT collapse to ``en``
+        here: the extract node re-resolves ``state['lang']`` via
+        ``choose_language(preferred_lang, detected_lang)`` once the content's
+        language is known, so a premature ``auto -> en`` collapse would force every
+        non-English article onto the English summary/prompt/cache path before extract
+        ever runs. A forced ``en``/``ru`` preference still pins the output downstream.
+        Post-summary gating reads the detected language back from ``final_state`` (see
+        ``_detected_lang`` / the post-summary block) so it matches the legacy
+        context builder.
         """
-        preferred = getattr(self.cfg.runtime, "preferred_lang", None) or "en"
-        return choose_language(preferred, None)
+        return getattr(self.cfg.runtime, "preferred_lang", None) or "auto"
 
     @staticmethod
     def _detected_lang(final_state: Any) -> str | None:
