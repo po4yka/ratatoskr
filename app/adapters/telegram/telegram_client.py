@@ -144,7 +144,9 @@ class TelegramClient:
                     language_code="ru",
                 )
             with contextlib.suppress(Exception):
-                await self.client.set_chat_menu_button()
+                api_base = (self.cfg.telegram.api_base_url or "").rstrip("/")
+                if api_base:
+                    await self.client.set_chat_menu_button(text="Open", url=api_base)
             logger.info(
                 "bot_commands_set",
                 extra={"count_en": len(commands_en), "count_ru": len(commands_ru)},

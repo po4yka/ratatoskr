@@ -338,8 +338,26 @@ class TelethonBotClient:
             raise_if_cancelled(exc)
             logger.warning("set_bot_info_failed", extra={"error": str(exc)})
 
-    async def set_chat_menu_button(self, **_kwargs: Any) -> None:
-        return None
+    async def set_chat_menu_button(self, *, text: str = "Open", url: str | None = None) -> None:
+        """Set the bot's persistent menu button to launch the Mini App.
+
+        With a ``url`` the menu button opens an in-Telegram WebView (Mini App).
+        Over MTProto the request needs a user; ``InputUserEmpty`` sets the
+        global default for all users (the deployment is single-tenant). Without
+        a url this is a graceful no-op.
+        """
+        if functions is None or types is None or not url:
+            return
+        try:
+            await self._client(
+                functions.bots.SetBotMenuButtonRequest(
+                    user_id=types.InputUserEmpty(),
+                    button=types.BotMenuButton(text=text, url=url),
+                )
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning("set_chat_menu_button_failed", extra={"error": str(exc)})
 
     async def send_custom_request(self, custom_method: str, params: dict[str, Any]) -> Any:
         if functions is None or types is None:
