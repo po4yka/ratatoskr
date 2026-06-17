@@ -1,8 +1,8 @@
 """Integration tests for the T4 store primitives: query_filter + find_similar_by_id.
 
 Runs against an in-memory Qdrant client (no external service / no Postgres).
-Repository points are seeded via the raw client so the payload is exactly what
-CocoIndex writes (the high-level upsert_notes path validates summary metadata).
+Repository points are seeded via the raw client so the payload matches the shared
+point shape (the high-level upsert_notes path validates summary metadata).
 """
 
 from __future__ import annotations

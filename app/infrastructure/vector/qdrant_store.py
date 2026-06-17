@@ -461,10 +461,9 @@ class QdrantVectorStore:
 
         The read-your-writes fast-path (ADR-0012) uses this instead of
         :meth:`replace_request_notes` because ``payload`` must be byte-identical
-        to the point the CocoIndex flow emits for the same summary
-        (:mod:`app.infrastructure.vector.summary_point`): no empty-list pruning
-        and no scope overwrite (``_build_points`` would do both), so the
-        reconciler sees no drift. Deletes any stale points for ``request_id`` so
+        to the shared point shape (:mod:`app.infrastructure.vector.summary_point`):
+        no empty-list pruning and no scope overwrite (``_build_points`` would do
+        both), so the reconciler sees no drift. Deletes any stale points for ``request_id`` so
         a re-summarization (new ``summary_id``) leaves no orphan. Fully
         synchronous -- callers wrap it in ``asyncio.to_thread``.
         """

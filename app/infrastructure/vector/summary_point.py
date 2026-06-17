@@ -1,12 +1,11 @@
 """Single source of truth for a summary's Qdrant point shape (ADR-0012).
 
-Both the CocoIndex poll-ETL flow (:mod:`app.infrastructure.cocoindex.flow`,
-convergence/backfill) and the synchronous read-your-writes fast-path
+Both the Taskiq reconciler (``ratatoskr.vector.reconcile``, convergence/backfill)
+and the synchronous read-your-writes fast-path
 (:mod:`app.infrastructure.vector.summary_index_adapter`, freshness) build the
 SAME point from a summary payload here, so the two writers never disagree and
 the reconciler sees no drift. Keep this module dependency-light (``json`` +
-stdlib only) -- the fast-path runs in the request hot path and must not pull in
-the optional ``cocoindex`` extra.
+stdlib only) -- the fast-path runs in the request hot path.
 """
 
 from __future__ import annotations
@@ -42,9 +41,9 @@ def extract_indexable_text(payload: dict[str, Any], *, raw_fallback: str | None 
 
     Mirrors the logic in app.core.embedding_text.prepare_text_for_embedding
     but operates on the parsed payload without the token-length truncation
-    (CocoIndex handles batching/chunking at the flow level). The fast-path MUST
+    (batching/chunking are not done here; one point per summary). The fast-path MUST
     embed this exact text (not prepare_text_for_embedding) or the vector would
-    diverge from the CocoIndex point for the same summary.
+    diverge from the shared point shape (summary_point.py) for the same summary.
     """
     if not payload:
         return raw_fallback or ""
@@ -80,8 +79,8 @@ def build_summary_qdrant_payload(
 
     Must be compatible with the payload schema produced by
     app.infrastructure.vector.metadata_builder.MetadataBuilder so that the
-    existing query() path keeps working, and IDENTICAL between the CocoIndex
-    flow and the read-your-writes fast-path so the reconciler reports no drift.
+    existing query() path keeps working, and IDENTICAL between the reconciler
+    and the read-your-writes fast-path so the reconciler reports no drift.
     """
     metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
     return {

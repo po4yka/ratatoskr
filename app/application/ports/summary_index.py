@@ -2,8 +2,8 @@
 
 The summarize graph's ``persist`` node calls this AFTER the summary row exists
 and BEFORE the request is marked done, so a subsequent request's ``ground`` node
-retrieves the new summary immediately -- without waiting for the CocoIndex poll
-(freshness; CocoIndex / the reconciler remain the convergence/backfill path).
+retrieves the new summary immediately -- without waiting for the next reconciler
+pass (freshness; the reconciler remains the convergence/backfill path).
 
 Like every application port this is typed against the application tier only, so
 ``application-no-outward`` stays green: the persist node depends on this Protocol,
@@ -34,11 +34,11 @@ class SummaryIndexPort(Protocol):
         scope: RetrievalScope,
         correlation_id: str | None = None,
     ) -> None:
-        """Embed + upsert the summary's Qdrant point, byte-compatible with CocoIndex.
+        """Embed + upsert the summary's Qdrant point using the shared point shape.
 
         Implementations build the point from
         :mod:`app.infrastructure.vector.summary_point` so it is byte-identical to
-        the CocoIndex flow's point for the same summary (no reconciler drift).
+        the reconciler's point for the same summary (no drift).
         May raise on a vector-store failure; the persist node treats indexing as
         best-effort and never lets it block request completion (ADR-0012).
         """

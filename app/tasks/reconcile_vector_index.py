@@ -2,8 +2,9 @@
 
 Periodically scans ``summary_embeddings`` for rows whose ``last_indexed_at``
 lags ``summaries.updated_at`` (or is unset entirely) and re-runs
-:class:`SummaryEmbeddingGenerator` against each summary. Acts as a fallback
-for the CocoIndex live updater.
+:class:`SummaryEmbeddingGenerator` against each summary. This is the
+convergence/backfill path complementing the synchronous fast-path writer in
+the summarize graph's persist node.
 """
 
 from __future__ import annotations

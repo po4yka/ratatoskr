@@ -488,10 +488,11 @@ class QdrantConfig(BaseModel):
 class VectorReconcileConfig(BaseModel):
     """Steady-state vector-index reconciler configuration.
 
-    Acts as a fallback for the CocoIndex live updater: when CocoIndex is
-    disabled or misbehaves, this Taskiq job periodically scans
+    This Taskiq job is the convergence/backfill path: it periodically scans
     ``summary_embeddings`` for rows whose ``last_indexed_at`` lags
-    ``summaries.updated_at`` and requeues per-summary embedding work.
+    ``summaries.updated_at`` and re-embeds them. It is not a fallback for
+    anything -- the fast-path writer in the persist node handles freshness,
+    and this reconciler ensures steady-state convergence.
     """
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)

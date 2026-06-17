@@ -30,7 +30,7 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     Then T6's read-your-writes vector fast-path (ADR-0012): once the summary row
     exists -- and BEFORE the request is considered done by downstream pollers --
     the summary is indexed into Qdrant synchronously so a subsequent request's
-    ``ground`` node sees it without waiting for the CocoIndex poll. Best-effort:
+    ``ground`` node sees it without waiting for the next reconciler pass. Best-effort:
     a vector-store failure is logged (with ``correlation_id``) and left to the
     reconciler; the summary row is the source of truth and completion is never
     blocked. Not gated by ``SUMMARIZE_RAG_ENABLED`` -- every persisted summary
@@ -133,12 +133,13 @@ async def _index_summary_for_freshness(
     user_scope = state.get("user_scope")
     environment = state.get("environment")
     if not summary or summary_id is None or request_id is None or not user_scope or not environment:
-        # Nothing persisted yet or scope unavailable -- the reconciler / CocoIndex
-        # still converge later.
+        # Nothing persisted yet or scope unavailable -- the reconciler still
+        # converges later.
         return
 
-    # Owner-wide summary point (no user_id in the payload -- matches CocoIndex);
-    # user_scope + environment are the partition the index writes + ground reads.
+    # Owner-wide summary point (no user_id in the payload -- matches the shared
+    # point shape); user_scope + environment are the partition the index writes
+    # + ground reads.
     scope = RetrievalScope(environment=environment, user_scope=user_scope, user_id=None)
     try:
         await deps.summary_index.index_summary(

@@ -2,11 +2,11 @@
 
 Implements :class:`app.application.ports.summary_index.SummaryIndexPort`. Embeds
 and upserts a summary's point SYNCHRONOUSLY on the persist path so a new summary
-is retrievable before the next CocoIndex poll. The point is byte-identical to the
-one the CocoIndex flow emits for the same summary -- same point id, same indexable
+is retrievable before the next reconciler pass. The point is byte-identical to the
+one the reconciler writes for the same summary -- same point id, same indexable
 text (hence same vector), same payload -- because both build it from
-:mod:`app.infrastructure.vector.summary_point`. Fast path = freshness; CocoIndex /
-the reconciler = convergence.
+:mod:`app.infrastructure.vector.summary_point`. Fast path = freshness;
+the reconciler = convergence/backfill.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class QdrantSummaryIndexAdapter:
             return
 
         # task_type="document" + the summary's own ``lang`` (NOT defaulted to
-        # "en") match the CocoIndex flow's embed call exactly, so the vector is
+        # "en") match the reconciler's embed call exactly, so the vector is
         # identical. (Only the payload's ``language`` key is "en"-defaulted.)
         embedding = await self._embedding_service.generate_embedding(
             text, language=lang, task_type="document"
@@ -69,7 +69,7 @@ class QdrantSummaryIndexAdapter:
             summary_id, request_id, lang, payload_dict, scope.user_scope, scope.environment
         )
         # raw_id "{request_id}:{summary_id}" -> str_to_uuid is exactly the
-        # CocoIndex summary_point_id namespace, so the fast-path and the poll-ETL
+        # shared summary_point_id namespace, so the fast-path and the reconciler
         # converge on one point.
         raw_id = f"{request_id}:{summary_id}"
         await asyncio.to_thread(

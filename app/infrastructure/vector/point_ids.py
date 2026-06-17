@@ -1,4 +1,4 @@
-"""Deterministic Qdrant point IDs shared by fast-path and CocoIndex writers."""
+"""Deterministic Qdrant point IDs shared by the fast path and the reconciler."""
 
 from __future__ import annotations
 

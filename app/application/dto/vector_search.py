@@ -22,9 +22,9 @@ class VectorSearchHitDTO:
 class EntityType(StrEnum):
     """Retrievable entity discriminator for the unified retrieval port (ADR-0016).
 
-    Values match the Qdrant payload ``entity_type`` written by the CocoIndex
-    flows (``cocoindex/flow.py`` writes ``"summary"`` / ``"repository"``); the
-    single Qdrant adapter maps each to its filter + hydration path.
+    Values match the Qdrant payload ``entity_type`` written by the fast path and
+    the reconciler (``"summary"`` / ``"repository"``); the single Qdrant adapter
+    maps each to its filter + hydration path.
     """
 
     SUMMARY = "summary"

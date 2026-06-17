@@ -50,7 +50,7 @@ async def ground(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         # unscoped query (the centralized filter's IDOR guard requires scope).
         return empty
 
-    # Summaries are owner-wide at the vector layer: the CocoIndex point carries
+    # Summaries are owner-wide at the vector layer: the shared point shape carries
     # no user_id, so user_scope + environment ARE the partition. Passing user_id
     # would filter on a payload field that does not exist -> zero hits. The
     # Postgres-side IDOR re-filter (CLAUDE.md rule 12) guards hydration paths, not

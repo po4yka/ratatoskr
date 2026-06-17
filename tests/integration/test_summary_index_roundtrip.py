@@ -1,9 +1,10 @@
 """T6 integration: read-your-writes summary index-on-write + byte-compat.
 
 In-memory Qdrant (no external service, no Postgres). Proves the persist fast-path
-writes a point the ground retrieval reads back IMMEDIATELY (no CocoIndex poll),
-that the current request is excluded, that cross-scope summaries never leak, and
-that the stored payload + point id are byte-identical to the CocoIndex flow.
+writes a point the ground retrieval reads back IMMEDIATELY (no reconciler pass
+needed), that the current request is excluded, that cross-scope summaries never
+leak, and that the stored payload + point id are byte-identical to the shared
+point shape (summary_point.py) so the reconciler sees no drift.
 """
 
 from __future__ import annotations
@@ -100,7 +101,7 @@ async def test_read_your_writes_summary_is_retrievable_immediately(
     scope = RetrievalScope(environment="test", user_scope="unit", user_id=None)
     await _index(store, request_id=1, summary_id=10, scope=scope)
 
-    # No CocoIndex poll happened -- the fast-path point must already be queryable.
+    # No reconciler pass happened -- the fast-path point must already be queryable.
     result = await _retrieval(store).retrieve(
         entity_type=EntityType.SUMMARY, scope=scope, query="consensus", top_k=10
     )
@@ -141,7 +142,7 @@ async def test_cross_scope_summary_never_returned(store: QdrantVectorStore) -> N
 
 
 @pytest.mark.integration
-async def test_fastpath_payload_is_byte_compatible_with_cocoindex(
+async def test_fastpath_payload_is_byte_compatible_with_shared_point_shape(
     store: QdrantVectorStore,
 ) -> None:
     scope = RetrievalScope(environment="test", user_scope="unit", user_id=7)
@@ -151,14 +152,16 @@ async def test_fastpath_payload_is_byte_compatible_with_cocoindex(
     records = store._client.retrieve(
         collection_name=store._collection_name, ids=[point_id], with_payload=True
     )
-    assert len(records) == 1, "fast-path point not found at the CocoIndex point id"
+    assert len(records) == 1, "fast-path point not found at the shared point id"
 
     expected = build_summary_qdrant_payload(10, 1, "en", _summary(10), "unit", "test")
-    # Byte-identical to what the CocoIndex flow would write for the same summary:
+    # Byte-identical to what the reconciler would write for the same summary:
     # same point id (asserted by the lookup above) + same payload (no drift).
+    # Both the fast path and the reconciler build the point from summary_point.py,
+    # so the reconciler sees no drift after the fast path has written.
     # NOTE (T7 closure): this builds `expected` from the same in-memory summary
     # dict the fast-path uses. When T7 lands persist's actual summary-row write,
     # add a test that builds the point from the persisted `json_payload` column
-    # (the shape CocoIndex reads) and asserts equality -- closing the last gap
+    # (the shape the reconciler reads) and asserts equality -- closing the last gap
     # between `state["summary"]` and the stored JSON.
     assert records[0].payload == expected
