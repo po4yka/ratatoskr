@@ -87,8 +87,11 @@ def create_inline_keyboard(
                 ),
             ],
         ]
-        if source_url:
-            # One-tap copy of the source link, alongside the rating buttons.
+        # Telegram caps KeyboardButtonCopy.copy_text at 256 UTF-8 bytes; a longer
+        # value makes the server reject the WHOLE keyboard (losing the action +
+        # rating buttons and the bot_reply_message_id that reaction feedback needs).
+        # Skip the copy button for over-long URLs; the rest of the keyboard sends.
+        if source_url and len(source_url.encode("utf-8")) <= 256:
             keyboard[-1].append(InlineKeyboardButton("📋", copy_text=source_url))
         return InlineKeyboardMarkup(keyboard)
     except Exception as exc:

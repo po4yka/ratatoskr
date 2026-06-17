@@ -65,3 +65,14 @@ def test_summary_keyboard_adds_copy_button_only_with_source_url() -> None:
     assert not any(
         getattr(b, "copy_text", None) for row in without_url.inline_keyboard for b in row
     )
+
+
+def test_oversized_url_skips_copy_button_but_keeps_keyboard() -> None:
+    from app.adapters.external.formatting.summary.action_buttons import create_inline_keyboard
+
+    long_url = "https://example.com/" + "a" * 300  # > 256 UTF-8 bytes
+    kb = create_inline_keyboard(7, source_url=long_url)
+    assert kb is not None  # the rest of the keyboard still builds
+    assert not any(getattr(b, "copy_text", None) for row in kb.inline_keyboard for b in row)
+    # the standard rows survive
+    assert any(getattr(b, "callback_data", None) for row in kb.inline_keyboard for b in row)
