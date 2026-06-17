@@ -99,7 +99,11 @@ def _facade(**over: Any) -> GraphURLProcessor:
             send_processing_failure=AsyncMock(return_value=URLProcessingFlowResult(success=False)),
             aclose=AsyncMock(),
         ),
-        "response_formatter": MagicMock(send_error_notification=AsyncMock()),
+        "response_formatter": MagicMock(
+            send_error_notification=AsyncMock(),
+            react=AsyncMock(),
+            send_cover_message=AsyncMock(),
+        ),
         "request_repo": MagicMock(
             async_create_request=AsyncMock(return_value=777),
             async_update_request_status=AsyncMock(),
