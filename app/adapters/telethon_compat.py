@@ -289,6 +289,36 @@ class TelethonBotClient:
             raise_if_cancelled(exc)
             logger.debug("send_reaction_failed", extra={"chat_id": chat_id, "error": str(exc)})
 
+    async def send_cover_message(self, *, chat_id: int, text: str, url: str) -> Any:
+        """Send a message with the source link preview floated ABOVE the text.
+
+        Telegram's high-level send_message cannot set ``invert_media`` (preview
+        above text), so build the raw ``messages.sendMessage`` request. The URL
+        in the message body triggers Telegram's auto-preview; ``invert_media``
+        floats it up as a header/cover card. Best-effort: returns None on error.
+        """
+        if functions is None or types is None or not url:
+            return None
+        from telethon.extensions import html as _html
+
+        raw_text, entities = _html.parse(text)
+        if url not in raw_text:  # append pristine (outside HTML parsing) so a
+            raw_text = f"{raw_text}\n{url}"  # preview is generated to invert
+        try:
+            peer = await self._client.get_input_entity(chat_id)
+            return await self._client(
+                functions.messages.SendMessageRequest(
+                    peer=peer,
+                    message=raw_text,
+                    entities=entities or None,
+                    invert_media=True,
+                )
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.debug("send_cover_failed", extra={"chat_id": chat_id, "error": str(exc)})
+            return None
+
     async def edit_message_text(
         self,
         *,

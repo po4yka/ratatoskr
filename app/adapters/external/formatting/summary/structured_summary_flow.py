@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.external.formatting.html_repair import repair_html_chunk
@@ -91,6 +92,26 @@ class StructuredSummaryFlow:
         return (
             await self._context.verbosity_resolver.get_verbosity(message)
         ) == VerbosityLevel.READER
+
+    async def _maybe_send_cover(self, message: Any, shaped: dict[str, Any]) -> None:
+        """Best-effort article cover card (source preview above the title).
+
+        Sent before the summary to give each one a visual anchor instead of a
+        wall of text. Requires a known source URL; silently skips otherwise.
+        """
+        url = str(shaped.get("canonical_url") or "").strip()
+        if not url:
+            return
+        chat_id = getattr(getattr(message, "chat", None), "id", None)
+        if not isinstance(chat_id, int):
+            return
+        metadata = shaped.get("metadata") or {}
+        title = str(metadata.get("title") or "").strip() if isinstance(metadata, dict) else ""
+        text = f"<b>{html.escape(title)}</b>" if title else ""
+        try:
+            await self._context.response_sender.send_cover_message(chat_id, text, url)
+        except Exception as exc:
+            raise_if_cancelled(exc)
 
     def _build_card_sections(
         self, summary_shaped: dict[str, Any], llm: Any, chunks: int | None, *, reader: bool
@@ -276,6 +297,8 @@ class StructuredSummaryFlow:
     ) -> int | None:
         try:
             reader = await self._is_reader_mode(message)
+            if not reader:
+                await self._maybe_send_cover(message, summary_shaped)
             job_card_finalized, card_text = await self._finalize_compact_card(
                 message,
                 summary_shaped,

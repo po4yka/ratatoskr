@@ -48,6 +48,26 @@ async def test_react_sends_single_emoji_reaction() -> None:
     assert len(req.reaction) == 1 and req.reaction[0].emoticon == "✅"
 
 
+async def test_send_cover_message_inverts_media_and_carries_url() -> None:
+    from telethon import functions
+
+    client, mock = _client_with_mock()
+    await client.send_cover_message(
+        chat_id=99, text="<b>Title</b>", url="https://src.example.com/a"
+    )
+    req = mock.call_args.args[0]
+    assert isinstance(req, functions.messages.SendMessageRequest)
+    assert req.invert_media is True  # preview floated above the text
+    assert "https://src.example.com/a" in req.message  # URL present -> preview generated
+    assert "Title" in req.message
+
+
+async def test_send_cover_message_noop_without_url() -> None:
+    client, mock = _client_with_mock()
+    assert await client.send_cover_message(chat_id=99, text="x", url="") is None
+    mock.assert_not_awaited()
+
+
 def test_filter_send_kwargs_translates_disable_web_page_preview() -> None:
     from app.adapters.telethon_compat import _filter_send_kwargs
 

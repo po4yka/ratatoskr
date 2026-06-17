@@ -101,6 +101,14 @@ class ResponseSender(Protocol):
         """Send chat action (typing/upload indicator) to Telegram."""
         ...
 
+    async def react(self, chat_id: int, message_id: int, emoji: str) -> bool:
+        """React to a message with an emoji (best-effort status ack)."""
+        ...
+
+    async def send_cover_message(self, chat_id: int, text: str, url: str) -> bool:
+        """Send a source-link cover card (preview above text). Best-effort."""
+        ...
+
     async def reply_json(
         self,
         message: Any,

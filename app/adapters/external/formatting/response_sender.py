@@ -152,6 +152,9 @@ class ResponseSenderImpl:
     async def react(self, chat_id: int, message_id: int, emoji: str) -> bool:
         return await self._reply_flow.react(chat_id, message_id, emoji)
 
+    async def send_cover_message(self, chat_id: int, text: str, url: str) -> bool:
+        return await self._reply_flow.send_cover_message(chat_id, text, url)
+
     async def send_message_draft(
         self,
         message: Any,

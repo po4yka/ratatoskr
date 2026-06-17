@@ -245,6 +245,25 @@ class ResponseSenderReplyFlow:
             logger.debug("react_failed", extra={"chat_id": chat_id, "error": str(exc)})
             return False
 
+    async def send_cover_message(self, chat_id: int, text: str, url: str) -> bool:
+        """Send a source-link cover card (preview above text). Best-effort."""
+        if not isinstance(chat_id, int) or chat_id == 0 or not url:
+            return False
+
+        client = None
+        if self._state.telegram_client and hasattr(self._state.telegram_client, "client"):
+            client = self._state.telegram_client.client
+        if client is None or not hasattr(client, "send_cover_message"):
+            return False
+
+        try:
+            await client.send_cover_message(chat_id=chat_id, text=text, url=url)
+            return True
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.debug("send_cover_failed", extra={"chat_id": chat_id, "error": str(exc)})
+            return False
+
     async def _send_via_client_with_id(
         self,
         client: Any,
