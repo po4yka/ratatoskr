@@ -6,11 +6,17 @@ composition root (:mod:`app.di.graphs`) into
 ``summary_cache``, so graph nodes never import this module
 (``application-no-outward``).
 
-The key scheme mirrors ``LLMSummaryCache.get_cached_summary`` /
-``write_summary_cache`` exactly:
-  ``("llm", prompt_version, lang_key, url_hash)``
-so cache entries produced by the legacy interactive path are reusable by the
-graph path and vice-versa (zero key drift).
+Key scheme (graph path -- the sole live summarize path post-cutover):
+  ``("llm", environment, user_scope, prompt_version, lang_key, url_hash)``
+
+The ``environment`` / ``user_scope`` prefix namespaces entries so a dev and a
+prod (or two tenant scopes) sharing one Redis never read each other's
+summaries. This intentionally diverges from the legacy
+``LLMSummaryCache.get_cached_summary`` / ``write_summary_cache`` scheme
+(``("llm", prompt_version, lang_key, url_hash)`` -- unscoped): byte-parity with
+the legacy path is deliberately dropped here. The legacy cache feeds only the
+retired interactive ``summarization_runtime`` path and is not on the graph's
+read/write path, so the two schemes no longer need to agree.
 """
 
 from __future__ import annotations
@@ -43,17 +49,34 @@ class SummaryCacheAdapter:
         cache: CachePort,
         prompt_version: str,
         ttl_seconds: int = 7_200,
+        environment: str = "dev",
+        user_scope: str = "public",
     ) -> None:
         self._cache = cache
         self._prompt_version = prompt_version
         self._ttl_seconds = ttl_seconds
+        # Namespace cache keys so a dev/prod (or two tenant scopes) sharing one
+        # Redis never read each other's summaries. Empty values collapse to a
+        # stable sentinel so the key length stays fixed.
+        self._environment = environment or "dev"
+        self._user_scope = user_scope or "public"
+
+    def _key_parts(self, lang_key: str, url_hash: str) -> tuple[str, ...]:
+        return (
+            "llm",
+            self._environment,
+            self._user_scope,
+            self._prompt_version,
+            lang_key,
+            url_hash,
+        )
 
     async def get(self, url_hash: str, lang: str) -> dict[str, Any] | None:
         """Return a cached summary or None on miss / disabled / validation failure."""
         if not url_hash or not self._cache.enabled:
             return None
         lang_key = lang or "auto"
-        cached = await self._cache.get_json("llm", self._prompt_version, lang_key, url_hash)
+        cached = await self._cache.get_json(*self._key_parts(lang_key, url_hash))
         if not isinstance(cached, dict):
             return None
         if not summary_has_content(cached, required_fields=_REQUIRED_FIELDS):
@@ -78,5 +101,5 @@ class SummaryCacheAdapter:
         await self._cache.set_json(
             value=summary,
             ttl_seconds=self._ttl_seconds,
-            parts=("llm", self._prompt_version, lang_key, url_hash),
+            parts=self._key_parts(lang_key, url_hash),
         )

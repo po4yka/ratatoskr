@@ -212,8 +212,11 @@ def build_summary_cache_adapter(cfg: AppConfig, *, cache: Any | None = None) -> 
     """Build the Redis-backed summary cache port for ``SummarizeDeps`` (FIX-2).
 
     TTL is sourced from ``cfg.redis.llm_ttl_seconds`` (not hardcoded) and the
-    prompt_version from ``cfg.runtime.summary_prompt_version`` -- the same values
-    the legacy ``LLMSummaryCache`` uses, so cache entries are reusable across paths.
+    prompt_version from ``cfg.runtime.summary_prompt_version``. The key is also
+    namespaced by ``cfg.vector_store.environment`` / ``user_scope`` so dev and
+    prod (or two tenant scopes) sharing one Redis never read each other's
+    summaries -- see :mod:`app.adapters.content.summary_cache_adapter` for the
+    deliberate divergence from the legacy ``LLMSummaryCache`` key scheme.
     """
     from app.adapters.content.summary_cache_adapter import SummaryCacheAdapter
 
@@ -225,6 +228,8 @@ def build_summary_cache_adapter(cfg: AppConfig, *, cache: Any | None = None) -> 
         cache=cache,
         prompt_version=cfg.runtime.summary_prompt_version,
         ttl_seconds=int(getattr(cfg.redis, "llm_ttl_seconds", 7_200)),
+        environment=cfg.vector_store.environment,
+        user_scope=cfg.vector_store.user_scope,
     )
 
 
