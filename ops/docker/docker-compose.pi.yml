@@ -26,6 +26,9 @@ services:
   ratatoskr:
     environment:
       - QDRANT_URL=http://host-gateway:6333
+      # Cap glibc malloc arenas (default up to 8*cores) to curb RSS growth on
+      # the long-lived async process; Pi-tuning, see CLAUDE.md.
+      - MALLOC_ARENA_MAX=2
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
       - SCRAPER_PROFILE=${SCRAPER_PROFILE:-balanced}
@@ -50,6 +53,7 @@ services:
   worker:
     environment:
       - QDRANT_URL=http://host-gateway:6333
+      - MALLOC_ARENA_MAX=2
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
       - TASKIQ_WORKER_CONCURRENCY=${TASKIQ_WORKER_CONCURRENCY:-1}
@@ -78,6 +82,7 @@ services:
   mobile-api:
     environment:
       - QDRANT_URL=http://host-gateway:6333
+      - MALLOC_ARENA_MAX=2
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - API_WORKERS=${API_WORKERS:-1}
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
