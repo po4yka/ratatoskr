@@ -67,6 +67,7 @@ class InlineKeyboardButton:
     callback_data: str | bytes | None = None
     url: str | None = None
     web_app: WebAppInfo | None = None
+    copy_text: str | None = None
     style: str | None = None
 
 
@@ -134,6 +135,9 @@ def _inline_button_to_telethon(button: InlineKeyboardButton) -> Any:
         if types is not None:
             return types.KeyboardButtonWebView(text=button.text, url=button.web_app.url)
         return Button.url(button.text, button.web_app.url)
+    if button.copy_text and types is not None:
+        # One-tap copy-to-clipboard button (no Button helper exists for it).
+        return types.KeyboardButtonCopy(text=button.text, copy_text=button.copy_text)
     data = button.callback_data or ""
     if isinstance(data, str):
         data = data.encode("utf-8")

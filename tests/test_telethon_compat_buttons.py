@@ -39,3 +39,29 @@ def test_plain_url_and_callback_buttons_unchanged() -> None:
     assert getattr(url_btn, "url", None) == "https://x.com"
     cb_btn = _inline_button_to_telethon(InlineKeyboardButton("Save", callback_data="save:1"))
     assert getattr(cb_btn, "data", None) == b"save:1"
+
+
+def test_copy_text_button_is_keyboard_button_copy() -> None:
+    btn = _inline_button_to_telethon(
+        InlineKeyboardButton("📋", copy_text="https://src.example.com/article")
+    )
+    assert isinstance(btn, types.KeyboardButtonCopy)
+    assert btn.copy_text == "https://src.example.com/article"
+
+
+def test_summary_keyboard_adds_copy_button_only_with_source_url() -> None:
+    from app.adapters.external.formatting.summary.action_buttons import create_inline_keyboard
+
+    with_url = create_inline_keyboard(7, source_url="https://src.example.com/a")
+    copy_btns = [
+        b
+        for row in with_url.inline_keyboard
+        for b in row
+        if getattr(b, "copy_text", None) == "https://src.example.com/a"
+    ]
+    assert len(copy_btns) == 1
+
+    without_url = create_inline_keyboard(7)
+    assert not any(
+        getattr(b, "copy_text", None) for row in without_url.inline_keyboard for b in row
+    )

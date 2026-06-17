@@ -49,15 +49,24 @@ class StructuredSummaryFlow:
         )
 
     def _create_inline_keyboard(
-        self, summary_id: int | str, correlation_id: str | None = None
+        self,
+        summary_id: int | str,
+        correlation_id: str | None = None,
+        source_url: str | None = None,
     ) -> Any:
-        return create_inline_keyboard(summary_id, correlation_id, lang=self._context.lang)
+        return create_inline_keyboard(
+            summary_id, correlation_id, lang=self._context.lang, source_url=source_url
+        )
 
     async def _send_action_buttons(
-        self, message: Any, summary_id: int | str, correlation_id: str | None = None
+        self,
+        message: Any,
+        summary_id: int | str,
+        correlation_id: str | None = None,
+        source_url: str | None = None,
     ) -> int | None:
         try:
-            keyboard = self._create_inline_keyboard(summary_id, correlation_id)
+            keyboard = self._create_inline_keyboard(summary_id, correlation_id, source_url)
             if keyboard:
                 msg_id = await self._context.response_sender.safe_reply_with_id(
                     message,
@@ -309,7 +318,9 @@ class StructuredSummaryFlow:
             # Attach action buttons to a final message (or to the last sent message)
             bot_reply_id: int | None = None
             if summary_id and not job_card_finalized:
-                bot_reply_id = await self._send_action_buttons(message, summary_id, correlation_id)
+                bot_reply_id = await self._send_action_buttons(
+                    message, summary_id, correlation_id, summary_shaped.get("canonical_url")
+                )
 
             await self._crosspost_to_topic(
                 message,
@@ -380,7 +391,9 @@ class StructuredSummaryFlow:
             raise_if_cancelled(exc)
 
         if summary_id:
-            await self._send_action_buttons(message, summary_id)
+            await self._send_action_buttons(
+                message, summary_id, source_url=forward_shaped.get("canonical_url")
+            )
 
     async def _crosspost_to_topic(
         self,

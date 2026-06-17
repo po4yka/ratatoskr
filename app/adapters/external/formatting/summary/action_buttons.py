@@ -39,6 +39,7 @@ def create_inline_keyboard(
     summary_id: int | str,
     correlation_id: str | None = None,
     lang: str = "en",
+    source_url: str | None = None,
 ) -> Any:
     try:
         summary_id_str = str(summary_id)
@@ -86,6 +87,9 @@ def create_inline_keyboard(
                 ),
             ],
         ]
+        if source_url:
+            # One-tap copy of the source link, alongside the rating buttons.
+            keyboard[-1].append(InlineKeyboardButton("📋", copy_text=source_url))
         return InlineKeyboardMarkup(keyboard)
     except Exception as exc:
         logger.warning(
