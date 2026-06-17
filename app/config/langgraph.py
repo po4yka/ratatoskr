@@ -64,9 +64,8 @@ class LangGraphCheckpointConfig(BaseModel):
         validation_alias="LANGGRAPH_CHECKPOINT_POOL_MAX_SIZE",
         description=(
             "Maximum size of the dedicated psycopg3 checkpointer pool. ADR-0004 "
-            "specifies 5 (this is the authoritative value for THIS pool; the "
-            "max=10 figure in docs/cocoindex.md refers to the separate CocoIndex "
-            "pool). Counts against the Postgres connection budget."
+            "specifies 5 (the authoritative value for THIS pool). "
+            "Counts against the Postgres connection budget."
         ),
     )
     dsn_override: str | None = Field(

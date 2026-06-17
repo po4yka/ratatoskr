@@ -303,12 +303,6 @@ mcp = [
   "mcp>=1.27.2,<2",
 ]
 
-# CocoIndex incremental ETL: live sync from Postgres summaries to Qdrant
-cocoindex = [
-  "cocoindex>=1.0.3,<1.1",
-  "psycopg[binary]>=3.3.4",
-]
-
 # OpenTelemetry distributed tracing (Tempo backend)
 otel = [
   "opentelemetry-api>=1.41,<2",
@@ -323,8 +317,8 @@ otel = [
 # LangGraph summarize-pipeline orchestration + Postgres checkpointing (ADR-0001 reversed; ADR-0004).
 # Optional and NOT installed by the default image — the runtime is unaffected until a deployment
 # opts in. langgraph + langchain-core are already transitive (via scrapegraphai); this extra
-# promotes them to direct deps and adds the checkpointer. psycopg[binary] overlaps the cocoindex
-# extra (intentional, same pin); psycopg-pool is new. langgraph-checkpoint-postgres floor is >=3:
+# promotes them to direct deps and adds the checkpointer. psycopg[binary] is a direct dep here;
+# psycopg-pool is new. langgraph-checkpoint-postgres floor is >=3:
 # the 3.x line is the only one compatible with langgraph 1.x (it requires langgraph-checkpoint>=4.1.0).
 # No langchain-openai (ADR-0006 keeps instructor) and no langchain-qdrant (reuse our Qdrant client).
 graph = [

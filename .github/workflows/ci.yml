@@ -647,7 +647,7 @@ jobs:
 
       # Export ALL extras so Safety sees the complete dependency surface.
       # The prepare-environment artifact only includes api, ml, youtube, export,
-      # scheduler, mcp — extras otel, cocoindex, push, transcription, gemini,
+      # scheduler, mcp — extras otel, push, transcription, gemini,
       # scraper_ai, attachment, browser_scraper, monitoring, and graph are
       # omitted there. We regenerate a comprehensive requirements file here
       # rather than relying on the shared artifact. The `graph` extra (ADR-0001
@@ -664,7 +664,6 @@ jobs:
             --extra scheduler \
             --extra mcp \
             --extra otel \
-            --extra cocoindex \
             --extra push \
             --extra transcription \
             --extra gemini \
