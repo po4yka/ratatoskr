@@ -126,8 +126,13 @@ def _inline_button_to_telethon(button: InlineKeyboardButton) -> Any:
     if button.url:
         return Button.url(button.text, button.url)
     if button.web_app:
-        # Telethon has no first-class WebApp button helper in all supported
-        # versions. A URL button keeps the flow usable on older runtimes.
+        # Real in-Telegram Mini App button (in-app container + initData +
+        # postEvent channel), not an external browser tab. Telethon's Button
+        # helper has no webview constructor, so emit the raw TL type --
+        # build_reply_markup accepts it (KeyboardButton family). Fall back to a
+        # URL button only when telethon types are unavailable (minimal env).
+        if types is not None:
+            return types.KeyboardButtonWebView(text=button.text, url=button.web_app.url)
         return Button.url(button.text, button.web_app.url)
     data = button.callback_data or ""
     if isinstance(data, str):
@@ -139,6 +144,10 @@ def _reply_button_to_telethon(button: KeyboardButton) -> Any:
     if button.request_contact:
         return Button.request_phone(button.text)
     if button.web_app:
+        # SimpleWebView (reply-keyboard variant): required for WebApp.sendData()
+        # to reach the bot -- inline webview buttons cannot send data back.
+        if types is not None:
+            return types.KeyboardButtonSimpleWebView(text=button.text, url=button.web_app.url)
         return Button.url(button.text, button.web_app.url)
     return Button.text(button.text)
 
