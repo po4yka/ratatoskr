@@ -31,7 +31,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | GitHub repo ingestion subsystem | `docs/explanation/github-repository-ingestion.md` |
 | On-disk git mirroring (git backup) | `docs/explanation/git-mirroring.md` |
 | fieldtheory-cli integration (bookmarks, wiki, MCP search, Telegram) | `docs/explanation/x-bookmarks-integration.md` |
-| Vector index + CocoIndex sync | `docs/cocoindex.md` |
+| Vector index sync | `docs/vector-index-sync.md` |
 | Authoritative env-var reference (820 lines) | `docs/reference/environment-variables.md` |
 | Authoritative DB schema | `docs/reference/data-model.md` |
 | Summary JSON contract spec | `docs/reference/summary-contract.md` |
@@ -49,7 +49,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Request stuck in processing | The summarize graph is the sole path: start with the URL-flow facade `app/adapters/content/graph_url_processor.py` (`GraphURLProcessor.handle_url_flow`), the graph spine `app/application/graphs/summarize/` (`graph.py` + `nodes/`, especially `ingest`/`extract`/`persist`/`notify`), `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob`, and `docs/reference/troubleshooting.md#request-stuck-in-processing`; keep correlation IDs intact across any repair (`thread_id == correlation_id`). |
 | LLM parse failure | Validation + repair are graph nodes: `app/application/graphs/summarize/nodes/validate.py` and `repair.py`, backed by `app/application/services/summarization/llm_response_workflow_attempts.py` + `llm_response_workflow_repair.py`, `app/application/services/summarization/graph_llm.py` (`summarize_with_instructor`), and `app/core/summary_contract.py`; runtime prompt/schema binding is `SummaryContractDescriptor` plus `PromptManager.get_contract_system_prompt()`; the validate → repair ↺ validate loop is bounded by `MAX_REPAIR_ATTEMPTS` (`app/application/graphs/summarize/state.py`) and langgraph's per-invocation `recursion_limit`; failure recipe is `docs/reference/troubleshooting.md#json-parsing-failures`. |
 | Extraction provider behavior | Generic URL extraction is `app/adapters/content/scraper/` plus `app/adapters/content/platform_extraction/`; platform-specific bypasses are `app/adapters/youtube/`, `app/adapters/twitter/`, and `app/adapters/academic/`; provider docs are `docs/explanation/scraper-chain.md`. |
-| Source ingestion and vector repair | Source ingestors live in `app/adapters/ingestors/`, RSS/digest helpers in `app/adapters/rss/` and `app/adapters/digest/`, signal API in `app/api/routers/social/signals.py`, vector reconciliation in `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/cli/backfill_vector_store.py`; new vectorized entity types should implement `VectorIndexedEntityAdapter`; vector drift docs are `docs/cocoindex.md`. |
+| Source ingestion and vector repair | Source ingestors live in `app/adapters/ingestors/`, RSS/digest helpers in `app/adapters/rss/` and `app/adapters/digest/`, signal API in `app/api/routers/social/signals.py`, vector reconciliation in `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, and `app/cli/backfill_vector_store.py`; new vectorized entity types should implement `VectorIndexedEntityAdapter`; vector drift docs are `docs/vector-index-sync.md`. |
 | On-disk git mirroring (git backup) | Engine and service: `app/adapters/git_backup/` (`mirror_service.py` = `GitMirrorService`, `repository.py` = `GitMirrorRepository`). Config: `app/config/git_backup.py` (`GitBackupConfig`). DB model: `app/db/models/git_backup.py` (`GitMirror`). Scheduled Taskiq job: `app/tasks/git_backup_sync.py` (task name `ratatoskr.git_backup.sync`, Redis-locked, cron `GIT_BACKUP_SYNC_CRON`). Telegram commands `/mirror` and `/mirrors`: `app/adapters/telegram/command_handlers/git_mirror_handler.py`. REST endpoints `GET/POST/DELETE /v1/git-mirrors`: `app/api/routers/git_mirrors.py`. **Distinct from the GitHub API-based metadata ingestion** (`app/adapters/github/`, `app/tasks/github_sync.py`) which never clones to disk — that path fetches repo metadata and indexes it in PostgreSQL + Qdrant. Git backup performs actual `git clone --mirror` of full history to `GIT_BACKUP_DATA_PATH` and reuses `GITHUB_TOKEN_ENCRYPTION_KEY` for authenticated clones. |
 
 ## Directory Structure
@@ -80,7 +80,7 @@ app/
 +-- db/                 # Models + Database session manager + Alembic migrations
 +-- di/                 # Runtime composition
 +-- domain/             # Domain models and services
-+-- infrastructure/     # Persistence, cache, vector store, embedding, cocoindex
++-- infrastructure/     # Persistence, cache, vector store, embedding
 +-- mcp/                # Model Context Protocol server
 +-- observability/      # Prometheus metrics (metrics.py), OTel tracing (otel.py: provider/exporters/Telethon helper), ratatoskr.* span-attribute constants (attributes.py)
 +-- prompts/            # LLM system prompts (en/ru, summary / combined_summary / instructor)
@@ -139,7 +139,7 @@ Task-oriented skills under `.claude/skills/`. Each carries its own workflow, tri
 | `debugging-apis` | Firecrawl / OpenRouter request-response inspection, retry / cost / rate-limit triage |
 | `validating-summaries` | summary JSON contract checks, character-limit failures |
 | `langgraph-summarize-loop` | summarize-graph node walk + retry / repair-loop / `attempt_trigger` debugging (the graph is the sole summarize path; `attempt_trigger='graph_node'`) |
-| `vector-index-sync` | Qdrant + `summary_embeddings` + CocoIndex reconciliation |
+| `vector-index-sync` | Qdrant + `summary_embeddings` + reconciler (fast path + Taskiq backfill) |
 | `scraper-chain-debugging` | content-scraper fallback chain failures (now includes the Webwright rung) |
 | `digest-subsystem-ops` | channel digest userbot, `/init_session` flow, scheduling |
 | `pi-deploy` | building and shipping the image to the Raspberry Pi |
@@ -250,7 +250,7 @@ Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bear
 | `DIGEST_ENABLED`, `API_BASE_URL` | Channel digest subsystem on/off + Mini App callback URL |
 | `GITHUB_TOKEN_ENCRYPTION_KEY` | Fernet key for at-rest GitHub PAT / OAuth tokens |
 | `EMBEDDING_PROVIDER` | `local` (sentence-transformers) or `gemini` -- switching invalidates all existing vectors |
-| `RATATOSKR_COCOINDEX_ENABLED`, `VECTOR_RECONCILE_ENABLED` | Vector-index sync writers. **CocoIndex + reconciler are now convergence/backfill only** -- the summarize graph's persist node writes a read-your-writes Qdrant point synchronously (byte-identical via `app/infrastructure/vector/summary_point.py`) so a new summary is retrievable before the next poll (ADR-0012). |
+| `VECTOR_RECONCILE_ENABLED` | Taskiq reconciler for vector-index convergence/backfill (default `true`). The summarize graph's persist node writes a read-your-writes Qdrant point synchronously (byte-identical via `app/infrastructure/vector/summary_point.py`) so a new summary is retrievable immediately; the reconciler closes any gaps on its 30-minute cadence (ADR-0012). See `docs/vector-index-sync.md`. |
 | `SUMMARIZE_RAG_ENABLED`, `RAG_TOP_K` | RAG grounding in the summarize graph's `ground` node (default off): retrieve top-k scope-filtered prior summaries via the unified retrieval port + inject an anti-contamination "related prior summaries (reference only)" block into the system prompt (ADR-0005/0012/0016). Transitional flag, retired at the T6 cutover. Embedding models stay in `ratatoskr.yaml`. |
 | `X_BOOKMARKS_SYNC_ENABLED`, `X_BOOKMARKS_SYNC_CRON`, `X_WIKI_SYNC_CRON` | Master switch + cron for the two x_bookmarks delta-scan Taskiq jobs (bookmark + wiki). Both jobs share the `enabled` flag. |
 | `X_BOOKMARKS_DB_PATH`, `X_WIKI_LIBRARY_PATH`, `X_IDEAS_PATH` | Container-side paths to the host-mounted `~/.fieldtheory/` subtrees (`bookmarks.db`, `library/`, `ideas/`). Defaults: `/x_bookmarks/...` — bind-mounted read-only by the operator. |

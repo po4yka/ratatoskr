@@ -23,7 +23,7 @@ Checkpoint rows may contain article content and LLM request/response payloads â€
 
 ## Consequences
 
-- Two Postgres drivers in-process (asyncpg + psycopg3) and two pools. Verified compatible (separate C extensions, independent pools). The connection-budget math in `docs/cocoindex.md` must include this pool.
+- Two Postgres drivers in-process (asyncpg + psycopg3) and two pools. Verified compatible (separate C extensions, independent pools). The connection-budget math in `docs/vector-index-sync.md` must include this pool.
 - A non-Alembic schema exists; ops must know `langgraph.*` tables are managed by the checkpointer (`.setup()`) and are droppable to reset graph state.
 - Gated OFF with LangGraph itself (`SUMMARIZE_GRAPH_ENABLED` / `LANGGRAPH_CHECKPOINT_ENABLED`).
 

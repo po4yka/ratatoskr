@@ -12,7 +12,7 @@ That decision was correct **for LangGraph-as-durable-task-backend**: Taskiq + Re
 
 ## Reversal (2026-06-15)
 
-We are re-adopting LangGraph for a **different use case the original ADR never evaluated**: orchestrating the summarize/repair workflow as a checkpointed state graph, with a RAG grounding node over the existing CocoIndex/Qdrant corpus.
+We are re-adopting LangGraph for a **different use case the original ADR never evaluated**: orchestrating the summarize/repair workflow as a checkpointed state graph, with a RAG grounding node over the existing Qdrant corpus.
 
 ### Decision
 
@@ -37,7 +37,7 @@ They are complementary, not duplicative. LangGraph is **not** adopted as a task 
 ### Consequences
 
 - New deps under the `graph` extra: `langgraph`, `langgraph-checkpoint-postgres`, `langchain-core`, `psycopg3` + `psycopg-pool` (~30 transitive packages; record in `docs/reference/dependency-supply-chain.md`).
-- A second (psycopg3) Postgres pool when checkpointing is enabled; the connection-budget math in `docs/cocoindex.md` is updated accordingly.
+- A second (psycopg3) Postgres pool when checkpointing is enabled; the connection-budget math in `docs/vector-index-sync.md` is updated accordingly.
 - Security scanners (OSV / pip-audit / Safety) must triage any `langchain*` advisories.
 
 ### Implementation status

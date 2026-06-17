@@ -63,15 +63,15 @@ For the guided walkthrough, see the [5-minute Quickstart Tutorial](docs/guides/q
 - **Real-time progress streaming** — `GET /v1/requests/{id}/stream` is a Server-Sent Events stream of phase + section events for in-flight summaries. Consumed by the web SubmitPage and by the Telegram URL flow's progressive draft-message updates.
 - **MCP server** — Expose summaries and search to external AI agents via the Model Context Protocol. See [MCP Server](docs/reference/mcp-server.md).
 - **Multi-agent pipeline** — ContentExtraction, Summarization, Validation, and WebSearch agents coordinate via the classic orchestrator; LangGraph backs the summarize/validate retry graph and LangChain structured output is used where models support it. See [Multi-Agent Architecture](docs/explanation/multi-agent-architecture.md).
-- **Semantic search** — Qdrant vector store with local (sentence-transformers) or Gemini embedding providers. Summary and repository vectors are reconciled through deterministic point IDs, fast-path writes, and optional CocoIndex live flows.
-- **GitHub repositories** — Index your starred GitHub repos as a searchable knowledge base. Paste a `github.com/<owner>/<repo>` URL for immediate ingestion, or connect a PAT / OAuth Device Flow token and let the daily sync import and LLM-analyze your entire stars list automatically. Repo analysis prefers LangChain structured output and analyzed repos are exported to Qdrant by the repository fast path plus CocoIndex. See [Setup: GitHub integration](#setup-github-integration-optional) below.
+- **Semantic search** — Qdrant vector store with local (sentence-transformers) or Gemini embedding providers. Summary and repository vectors are kept in sync via deterministic point IDs, synchronous fast-path writes, and the Taskiq reconciler.
+- **GitHub repositories** — Index your starred GitHub repos as a searchable knowledge base. Paste a `github.com/<owner>/<repo>` URL for immediate ingestion, or connect a PAT / OAuth Device Flow token and let the daily sync import and LLM-analyze your entire stars list automatically. Repo analysis prefers LangChain structured output and analyzed repos are exported to Qdrant by the repository fast path with reconciler-based backfill. See [Setup: GitHub integration](#setup-github-integration-optional) below.
 - **Channel digests** — Subscribe to Telegram channels and receive periodic structured recaps.
 - **RSS feeds** — Ingest RSS feed items as summarization sources.
 - **Text-to-speech** — Optional ElevenLabs TTS audio generation for summaries.
 
 ## Setup: GitHub integration (optional)
 
-Ratatoskr can index your GitHub repositories as a first-class searchable archive. All three steps below require a running Qdrant instance (`QDRANT_URL`). To use the CocoIndex reconciler for repository and summary vectors, install the extra with `pip install -e ".[cocoindex]"` and set `RATATOSKR_COCOINDEX_ENABLED=1`.
+Ratatoskr can index your GitHub repositories as a first-class searchable archive. All three steps below require a running Qdrant instance (`QDRANT_URL`).
 
 **1. Generate a Fernet encryption key** (required for token storage):
 

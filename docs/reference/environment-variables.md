@@ -444,20 +444,9 @@ Controls which embedding backend generates vectors for semantic search.
 - `google-genai` package is an optional dependency (`pip install ratatoskr[gemini]`). The app works without it when `EMBEDDING_PROVIDER=local`.
 - Gemini uses task-type-aware embeddings: `RETRIEVAL_DOCUMENT` for indexing, `RETRIEVAL_QUERY` for search queries.
 
-## Vector-Index Sync (CocoIndex + Reconciler)
+## Vector-Index Sync
 
-See [`docs/cocoindex.md`](../cocoindex.md) for architecture, summary/repository indexing semantics, drift detection, and rollback procedure.
-
-### CocoIndex live updater (opt-in)
-
-| Variable | Default | Description |
-| ---------- | --------- | ------------- |
-| `RATATOSKR_COCOINDEX_ENABLED` | `0` | Enable CocoIndex `FlowLiveUpdater` inside FastAPI |
-| `RATATOSKR_COCOINDEX_DSN` | _(DATABASE_URL)_ | Override Postgres DSN (asyncpg prefix stripped automatically) |
-| `RATATOSKR_COCOINDEX_POLL_INTERVAL_SEC` | `30` | Seconds between watermark polls when LISTEN/NOTIFY is idle |
-| `RATATOSKR_COCOINDEX_LISTEN_CHANNEL` | `ratatoskr_summaries_changed` | Postgres LISTEN/NOTIFY channel |
-| `RATATOSKR_COCOINDEX_BATCH_SIZE` | `32` | Rows per processing batch |
-| `RATATOSKR_COCOINDEX_POOL_MAX` | `4` | Max psycopg3 connections (counts against `max_connections`) |
+See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, summary/repository indexing semantics, drift detection, and the fast path + reconciler model.
 
 ### Vector reconciler (Taskiq, on by default)
 
@@ -872,7 +861,7 @@ Persistent LangGraph graph state between nodes via a dedicated `AsyncPostgresSav
 | `LANGGRAPH_STRICT_MSGPACK` | bool | `true` | When true, the checkpoint serializer disables the pickle fallback so checkpoint blobs never trigger arbitrary-module deserialization (ADR-0004 security posture). |
 | `LANGGRAPH_CHECKPOINT_SCHEMA` | str | `langgraph` | Dedicated Postgres schema for the checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`). Created by `AsyncPostgresSaver.setup()`, not Alembic-managed; droppable to reset graph state. Must be alphanumeric/underscore. |
 | `LANGGRAPH_CHECKPOINT_POOL_MIN_SIZE` | int (≥1) | `1` | Minimum size of the dedicated psycopg3 checkpointer pool (ADR-0004). |
-| `LANGGRAPH_CHECKPOINT_POOL_MAX_SIZE` | int (≥1) | `5` | Maximum size of the dedicated psycopg3 checkpointer pool. **ADR-0004 authoritative value is 5 for this pool** — distinct from the CocoIndex pool. Counts against the Postgres connection budget (see `docs/cocoindex.md`). |
+| `LANGGRAPH_CHECKPOINT_POOL_MAX_SIZE` | int (≥1) | `5` | Maximum size of the dedicated psycopg3 checkpointer pool. **ADR-0004 authoritative value is 5 for this pool.** Counts against the Postgres connection budget (see `docs/vector-index-sync.md`). |
 | `LANGGRAPH_CHECKPOINT_DSN` | str \| None | `None` | Optional psycopg3 DSN override. When unset, the checkpointer derives its DSN from `DATABASE_URL` by stripping the `+asyncpg` driver suffix (psycopg3 uses the bare `postgresql://` scheme). |
 | `LANGGRAPH_CHECKPOINT_RETENTION_DAYS` | int (≥1) | `90` | Age in days past which a run's checkpoint rows are pruned by the nightly prune job. Aligned with the `AuditLog` 90-day ceiling (auth memo Decision 3 / ADR-0004). |
 | `LANGGRAPH_CHECKPOINT_PRUNE_CRON` | str | `"30 4 * * *"` | UTC 5-field cron expression for the nightly checkpoint prune job. Default is offset from the git-backup sync (`0 4 * * *`) to avoid overlap. |
@@ -888,7 +877,7 @@ Notes:
 
 ## Summarize Graph RAG Grounding
 
-Optional retrieval-augmented grounding in the summarize graph's `ground` node (ADR-0005/0012/0016): retrieve top-k scope-filtered prior summaries via the unified retrieval port and inject an anti-contamination "related prior summaries (reference only)" block into the system prompt. Paired with a synchronous read-your-writes index-on-write in the `persist` node, so a new summary is retrievable immediately (freshness) while CocoIndex + the reconciler remain the convergence/backfill path. Configuration owner: `app/config/runtime.py::RuntimeConfig`. Embedding models are **not** configured here — they come from `ratatoskr.yaml` only (no code default).
+Optional retrieval-augmented grounding in the summarize graph's `ground` node (ADR-0005/0012/0016): retrieve top-k scope-filtered prior summaries via the unified retrieval port and inject an anti-contamination "related prior summaries (reference only)" block into the system prompt. Paired with a synchronous read-your-writes index-on-write in the `persist` node, so a new summary is retrievable immediately (freshness) while the reconciler handles convergence/backfill. Configuration owner: `app/config/runtime.py::RuntimeConfig`. Embedding models are **not** configured here — they come from `ratatoskr.yaml` only (no code default).
 
 | Variable | Type | Default | Purpose |
 |---|---|---|---|

@@ -10,7 +10,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 
 Async Telegram bot that summarizes web articles, YouTube videos, and forwarded channel posts. Returns structured JSON summaries with a strict contract. Single Docker container, owner-only access.
 
-**Stack:** Python 3.13+, Telethon, Scrapling/Firecrawl/Playwright (scraper chain), OpenRouter (LLM), PostgreSQL 16 via SQLAlchemy 2.0 + asyncpg (Alembic migrations), Qdrant (vector store), CocoIndex (optional live vector sync), Taskiq (Redis-backed worker), FastAPI, React 18 + TypeScript + Vite (Frost web frontend).
+**Stack:** Python 3.13+, Telethon, Scrapling/Firecrawl/Playwright (scraper chain), OpenRouter (LLM), PostgreSQL 16 via SQLAlchemy 2.0 + asyncpg (Alembic migrations), Qdrant (vector store), Taskiq (Redis-backed worker), FastAPI, React 18 + TypeScript + Vite (Frost web frontend).
 
 ## Architecture
 
@@ -37,7 +37,7 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 | Core | `app/core/` | URL normalization, JSON parsing, summary contract, logging |
 | Database | `app/db/` | SQLAlchemy 2.0 typed declarative models in `models/` (split by area), `Database` (`session.py`) is sole DB entry point, Alembic migrations in `alembic/versions/` |
 | API | `app/api/` | FastAPI REST API with JWT auth |
-| Search | `app/application/services/`, `app/infrastructure/search/`, `app/infrastructure/embedding/`, `app/infrastructure/cocoindex/` | Search workflows, vector search, embedding services, optional CocoIndex live sync, and vector reconciliation adapters |
+| Search | `app/application/services/`, `app/infrastructure/search/`, `app/infrastructure/embedding/` | Search workflows, vector search, embedding services, and vector reconciliation adapters |
 | MCP | `app/mcp/` | Model Context Protocol server |
 
 ## Critical Files
@@ -47,7 +47,6 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 - `app/application/graphs/summarize/` -- Summarize `StateGraph`: `graph.py` (assembly/invocation), `nodes/` (ingest → extract → ground → build_prompt → summarize → validate → repair → enrich → persist → notify), `deps.py`, `state.py`, `lifecycle.py`
 - `app/core/summary_contract.py` -- Summary descriptor registry and strict contract validation
 - `app/core/url_utils.py` -- URL normalization and deduplication
-- `app/infrastructure/cocoindex/flow.py` -- CocoIndex summary + repository Qdrant flows
 - `app/adapters/git_backup/mirror_service.py` -- `GitMirrorService`: clone, fetch, LFS, maintenance orchestration
 - `app/adapters/git_backup/repository.py` -- `GitMirrorRepository`: DB persistence for mirror state
 - `app/infrastructure/vector/point_ids.py` -- Shared deterministic Qdrant point IDs
@@ -69,7 +68,7 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 | LLM parse / repair | Validation + repair are graph nodes: `app/application/graphs/summarize/nodes/validate.py` and `repair.py`, backed by `app/application/services/summarization/llm_response_workflow_attempts.py` + `llm_response_workflow_repair.py` + `graph_llm.py`, and `app/core/summary_contract.py`; `app/prompts/manager.py` for prompt binding | `docs/reference/troubleshooting.md#json-parsing-failures`, `docs/reference/summary-contract.md` |
 | Extraction providers | `app/adapters/content/scraper/`, `app/adapters/content/platform_extraction/`, `app/adapters/youtube/`, `app/adapters/twitter/`, `app/adapters/academic/` | `docs/explanation/scraper-chain.md`, `docs/reference/troubleshooting.md#content-extraction-failures` |
 | Source ingestion and signals | `app/adapters/ingestors/`, `app/adapters/rss/`, `app/adapters/digest/`, `app/api/routers/social/signals.py` | `docs/guides/configure-source-ingestors.md` |
-| Vector drift / reconciliation | `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, `app/cli/backfill_vector_store.py`, `app/infrastructure/cocoindex/flow.py` | `docs/cocoindex.md`, `docs/reference/troubleshooting.md`; extend via `VectorIndexedEntityAdapter` |
+| Vector drift / reconciliation | `app/infrastructure/vector/reconciliation.py`, `app/cli/reconcile_vector_index.py`, `app/cli/backfill_vector_store.py` | `docs/vector-index-sync.md`, `docs/reference/troubleshooting.md`; extend via `VectorIndexedEntityAdapter` |
 | On-disk git mirroring | `app/adapters/git_backup/mirror_service.py`, `app/adapters/git_backup/repository.py`, `app/config/git_backup.py` (`GitBackupConfig`), `app/db/models/git_backup.py` (`GitMirror`), `app/tasks/git_backup_sync.py`, `app/api/routers/git_mirrors.py`, `app/adapters/telegram/command_handlers/git_mirror_handler.py` | Not the same as GitHub API ingestion (`app/adapters/github/`) — that path fetches metadata only; git backup performs actual `git clone --mirror` to disk and reuses `GITHUB_TOKEN_ENCRYPTION_KEY` for auth. |
 
 Generated API artifacts live in `docs/openapi/mobile_api.yaml` and `docs/openapi/mobile_api.json`; do not edit them manually. Change routers/models first, then run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`.

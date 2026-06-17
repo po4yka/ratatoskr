@@ -104,12 +104,8 @@ print('Model downloaded successfully')
 ### 4. Backfill Existing Content
 
 ```bash
-# Backfill existing summaries with the legacy summary path
+# Backfill existing summaries
 python -m app.cli.backfill_vector_store
-
-# Or export summaries + analyzed GitHub repositories with CocoIndex
-pip install -e ".[cocoindex]"
-python -m app.cli.backfill_vector_store --use-cocoindex
 
 # Expected output:
 # INFO: Found 150 summaries to backfill
@@ -457,9 +453,6 @@ time python -m app.cli.search --query "machine learning"
 ```bash
 # Re-upsert all points (if model changed or collection was recreated)
 python -m app.cli.backfill_vector_store --force
-
-# Or use the CocoIndex one-shot path for summaries + analyzed repositories
-python -m app.cli.backfill_vector_store --use-cocoindex
 
 # Incremental update (only new summaries)
 python -m app.cli.backfill_vector_store

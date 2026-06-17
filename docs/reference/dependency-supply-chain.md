@@ -78,7 +78,7 @@ The extra declares five direct dependencies — `langgraph>=1.2.4,<2`, `langchai
 
 ### Transitive closure of the `graph` extra (19 over the zero-extra base; only 2 net-new to the lock)
 
-The table below is `uv export --extra graph` minus the zero-extra base export, so it lists the extra's full closure. **Only two of these are net-new `uv.lock` nodes** — the rest were already locked transitively before this change (the langchain/langgraph ecosystem via `scrapegraphai`/`scraper_ai`, `psycopg[binary]` via `cocoindex`, `websockets` via `uvicorn`).
+The table below is `uv export --extra graph` minus the zero-extra base export, so it lists the extra's full closure. **Only two of these are net-new `uv.lock` nodes** — the rest were already locked transitively before this change (the langchain/langgraph ecosystem via `scrapegraphai`/`scraper_ai`, `psycopg[binary]` already in the base, `websockets` via `uvicorn`).
 
 | Package | Version | Role |
 |---|---|---|

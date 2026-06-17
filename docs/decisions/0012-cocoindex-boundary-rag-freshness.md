@@ -1,5 +1,7 @@
 # ADR 0012: CocoIndex role boundary & read-your-writes RAG freshness
 
+> **Update (2026-06):** the CocoIndex live updater described here was removed; the read-your-writes fast path + the Taskiq reconciler remain the two vector writers. See [docs/research/cocoindex-integration.md](../research/cocoindex-integration.md) for the rationale.
+
 **Date:** 2026-06-15
 **Status:** Implemented — the `persist` node writes a read-your-writes Qdrant point synchronously (byte-identical via `app/infrastructure/vector/summary_point.py`); CocoIndex + the reconciler are convergence/backfill only. Refines the freshness expectation of [ADR-0005](0005-rag-grounding-policy.md).
 

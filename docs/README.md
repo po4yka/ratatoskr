@@ -7,7 +7,7 @@ Welcome to the Ratatoskr documentation. This guide helps you find the right docu
 ## Documentation freshness
 
 - Last documentation refresh: **2026-05-23**
-- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, LLM provider protocol/factory behavior, social observability/privacy guardrails, and the existing LangGraph / CocoIndex / GitHub ingestion docs.
+- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, LLM provider protocol/factory behavior, social observability/privacy guardrails, and the existing LangGraph / GitHub ingestion docs.
 
 ## Documentation by Audience
 
@@ -63,7 +63,7 @@ You want to deploy, monitor, and maintain Ratatoskr in production.
 
 - [How to setup Redis caching](guides/setup-redis-caching.md)
 - [How to setup Qdrant](guides/setup-qdrant-vector-search.md)
-- [CocoIndex vector sync](cocoindex.md)
+- [Vector index sync](vector-index-sync.md)
 - [How to backup and restore](guides/backup-and-restore.md)
 - [How to optimize performance](guides/optimize-performance.md)
 

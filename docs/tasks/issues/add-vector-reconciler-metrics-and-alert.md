@@ -39,5 +39,5 @@ updated: 2026-05-17
 ## References
 
 - Task: `app/tasks/reconcile_vector_index.py:75-136`
-- Vector sync doc: `docs/cocoindex.md`
+- Vector sync doc: `docs/vector-index-sync.md`
 - Cron config: `VECTOR_RECONCILE_CRON` (see `CLAUDE.md` §"Quick Reference: Environment Variables")

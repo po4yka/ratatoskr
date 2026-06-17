@@ -5,7 +5,7 @@
 
 ## Context
 
-We expand CocoIndex/Qdrant from a write-side vector sync into a read-side **RAG retrieval layer** that grounds new summaries with related prior content (a node in the LangGraph summarize graph). This changes summary outputs and adds retrieval/LLM cost, so the contract must be explicit rather than emergent.
+We expand the Qdrant vector store from a write-side vector sync into a read-side **RAG retrieval layer** that grounds new summaries with related prior content (a node in the LangGraph summarize graph). This changes summary outputs and adds retrieval/LLM cost, so the contract must be explicit rather than emergent.
 
 ## Decision
 

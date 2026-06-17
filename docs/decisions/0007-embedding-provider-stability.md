@@ -17,7 +17,7 @@
 
 - RAG quality is tied to the chosen provider; provider changes are scheduled maintenance, not runtime toggles.
 - Mixed-dimension collections never collide (namespacing), so a migration can be staged and rolled back.
-- Documented in `docs/reference/environment-variables.md` and `docs/cocoindex.md`.
+- Documented in `docs/reference/environment-variables.md` and `docs/vector-index-sync.md`.
 
 ## Alternatives rejected
 

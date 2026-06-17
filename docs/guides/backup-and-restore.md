@@ -371,7 +371,7 @@ Run this on a staging host or disposable VM before a release:
 5. Start the stack with `docker compose -f ops/docker/docker-compose.yml up -d`.
 6. Confirm `ratatoskr`, `mobile-api`, `redis`, `ratatoskr-postgres`, and `qdrant` are healthy or intentionally disabled by profile/config.
 7. Open the web/API and verify existing summaries are visible.
-8. Run a semantic search. If Qdrant was rebuilt instead of restored, run `python -m app.cli.backfill_vector_store --force` first, or `python -m app.cli.backfill_vector_store --use-cocoindex` when the CocoIndex extra is installed.
+8. Run a semantic search. If Qdrant was rebuilt instead of restored, run `python -m app.cli.backfill_vector_store --force` to repopulate vectors from Postgres embeddings.
 9. Open a restored YouTube summary with a `video_file_path` and confirm the file path exists under `data/videos/`, or accept that the media cache was not restored.
 10. Send one known-good URL through the bot or CLI to confirm new writes work.
 

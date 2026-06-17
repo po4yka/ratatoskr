@@ -1618,7 +1618,7 @@ Indexes: `(user_id, is_starred)`, `(user_id, primary_language)`, `(user_id, push
 
 ### repository_embeddings
 
-**Purpose:** Vector embeddings for `repositories` rows, used by `GET /v1/search/repositories`. Qdrant writes use deterministic repository point IDs shared by the fast path and CocoIndex (`app/infrastructure/vector/point_ids.py`).
+**Purpose:** Vector embeddings for `repositories` rows, used by `GET /v1/search/repositories`. Qdrant writes use deterministic repository point IDs shared by the fast path and the Taskiq reconciler (`app/infrastructure/vector/point_ids.py`).
 
 **Key columns:**
 

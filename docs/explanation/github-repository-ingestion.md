@@ -8,7 +8,7 @@ How Ratatoskr indexes GitHub repositories as a first-class content source: manua
 
 ## Overview
 
-The GitHub repository subsystem treats a GitHub repo the same way the rest of Ratatoskr treats an article or video: fetch structured metadata, pass it through an LLM analysis step, generate a vector embedding, and store the result in PostgreSQL and Qdrant for search. Two ingestion paths exist. The first is manual: the user pastes a `https://github.com/<owner>/<repo>` URL into Telegram, the web UI, or the CLI, and the `GitHubPlatformExtractor` fetches metadata and README in the same request, runs `AnalyzeRepositoryUseCase` inline, and embeds the output immediately. The use case depends on `RepositoryAnalysisRepositoryPort`; the SQLAlchemy adapter is `RepositoryAnalysisRepositoryAdapter`, so the analysis workflow can be tested without constructing a `Database` or ORM model. The agent prefers LangChain structured output through `LLMClient.chat_structured(RepoAnalysis)` and falls back to the legacy raw JSON path for adapters that do not support it. The second path is automated: a Taskiq cron job (`ratatoskr.github.sync_stars`, default `0 2 * * *`) paginates the authenticated user's `/user/starred` endpoint, upserts `Repository` rows, and runs analysis on any row whose content-hash has changed, subject to a configurable LLM budget cap. Both paths converge on the same storage schema and the same Qdrant collection. The repository embedding fast path writes search results immediately; the CocoIndex repository flow reconciles analyzed rows with the same deterministic Qdrant point IDs used by the live updater, so search results span manually ingested and auto-synced repos without distinction.
+The GitHub repository subsystem treats a GitHub repo the same way the rest of Ratatoskr treats an article or video: fetch structured metadata, pass it through an LLM analysis step, generate a vector embedding, and store the result in PostgreSQL and Qdrant for search. Two ingestion paths exist. The first is manual: the user pastes a `https://github.com/<owner>/<repo>` URL into Telegram, the web UI, or the CLI, and the `GitHubPlatformExtractor` fetches metadata and README in the same request, runs `AnalyzeRepositoryUseCase` inline, and embeds the output immediately. The use case depends on `RepositoryAnalysisRepositoryPort`; the SQLAlchemy adapter is `RepositoryAnalysisRepositoryAdapter`, so the analysis workflow can be tested without constructing a `Database` or ORM model. The agent prefers LangChain structured output through `LLMClient.chat_structured(RepoAnalysis)` and falls back to the legacy raw JSON path for adapters that do not support it. The second path is automated: a Taskiq cron job (`ratatoskr.github.sync_stars`, default `0 2 * * *`) paginates the authenticated user's `/user/starred` endpoint, upserts `Repository` rows, and runs analysis on any row whose content-hash has changed, subject to a configurable LLM budget cap. Both paths converge on the same storage schema and the same Qdrant collection. The repository embedding fast path writes search results immediately; the Taskiq reconciler backfills stale rows using the same deterministic Qdrant point IDs, so search results span manually ingested and auto-synced repos without distinction.
 
 ---
 
@@ -52,8 +52,8 @@ Qdrant upsert  (entity_type="repository", user_id=<id>)
 RepositoryEmbedding row upserted (app/db/models/repository.py)
   |
   v
-CocoIndex repository flow reconciles analyzed rows with same point IDs
-  (app/infrastructure/cocoindex/flow.py, app/infrastructure/vector/point_ids.py)
+Taskiq reconciler backfills stale repository rows with same point IDs
+  (app/infrastructure/vector/reconciliation.py, app/infrastructure/vector/point_ids.py)
 ```
 
 ### Stars sync path (Taskiq cron)
@@ -327,7 +327,7 @@ Repos deferred by the budget cap have `pending_analysis=true`. The next day's cr
 
 ## Search Semantics
 
-Repository embeddings share the Qdrant collection with summary embeddings, using an `entity_type="repository"` payload discriminator. Immediate writes and CocoIndex reconciliation both use `repository_point_id(environment, user_scope, repository_id)` from `app/infrastructure/vector/point_ids.py`, so repeated exports are idempotent. The `RepositorySearchService` (`app/infrastructure/search/repository_search_service.py`) injects this filter on every query automatically so repository searches never return summary results and vice versa.
+Repository embeddings share the Qdrant collection with summary embeddings, using an `entity_type="repository"` payload discriminator. Immediate writes and reconciler backfills both use `repository_point_id(environment, user_scope, repository_id)` from `app/infrastructure/vector/point_ids.py`, so repeated exports are idempotent. The `RepositorySearchService` (`app/infrastructure/search/repository_search_service.py`) injects this filter on every query automatically so repository searches never return summary results and vice versa.
 
 Every query is also hard-scoped to the authenticated user's `user_id`:
 

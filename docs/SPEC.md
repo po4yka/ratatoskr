@@ -182,7 +182,7 @@ Three tables added by the GitHub repository ingestion subsystem (`app/db/models/
 
 Unique constraint: `(user_id, github_id)`. Indexes: `(user_id, is_starred)`, `(user_id, primary_language)`, `(user_id, pushed_at DESC)`, `(github_id)`.
 
-When CocoIndex is enabled, analyzed repository rows (`analysis_json IS NOT NULL`) are also exported to Qdrant using the deterministic point UUID `uuid5(NAMESPACE_OID, f"{environment}:{user_scope}:repository:{repository_id}")`. Migration `0008_cocoindex_repository_trigger_grant.py` grants the deployment role trigger access required for live repository change tracking.
+Analyzed repository rows (`analysis_json IS NOT NULL`) are exported to Qdrant using the deterministic point UUID `uuid5(NAMESPACE_OID, f"{environment}:{user_scope}:repository:{repository_id}")` by the GitHub analysis fast path and backfilled by the Taskiq reconciler.
 
 ### `repository_embeddings`
 
