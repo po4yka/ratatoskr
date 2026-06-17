@@ -386,6 +386,75 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
     assert out.get("summary_250") == "s"
 
 
+async def test_content_only_summarize_completes_metadata_and_enriches_rag(monkeypatch):
+    """audit #5: facade.summarize() restores LLM metadata-completion (title/author/
+    dates) + RAG-field enrichment the content-only graph path lost.
+
+    The graph returns a summary with blank metadata + no RAG fields; the facade must
+    call the LLM (via the llm_client port) to fill title/author and then attach the
+    pure RAG fields. The metadata-completion call carries request_id=None (no row).
+    """
+    from app.core.call_status import CallStatus
+
+    llm = MagicMock(
+        chat=AsyncMock(
+            return_value=SimpleNamespace(
+                status=CallStatus.OK,
+                model="meta-model",
+                response_text=None,
+                response_json={
+                    "choices": [
+                        {"message": {"parsed": {"title": "Filled Title", "author": "A. Author"}}}
+                    ]
+                },
+                tokens_prompt=5,
+                tokens_completion=2,
+                cost_usd=None,
+                latency_ms=10,
+                error_text=None,
+            )
+        )
+    )
+    deps = MagicMock(llm_client=llm)
+    graph = MagicMock(
+        ainvoke=AsyncMock(
+            return_value={
+                "summary": {
+                    "summary_250": "A summary about distributed consensus protocols.",
+                    "summary_1000": "Longer summary discussing replication and consensus.",
+                    "tldr": "consensus",
+                    "topic_tags": ["#systems"],
+                    "metadata": {},
+                }
+            }
+        )
+    )
+    facade = _facade(graph=graph, deps=deps)
+
+    out = await facade.summarize(
+        PureSummaryRequest(
+            content_text="Distributed consensus coordinates replicas across nodes. " * 30,
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id="cid-enrich",
+            source_coverage="full",
+        )
+    )
+
+    # LLM metadata-completion filled the blank fields (via the port).
+    llm.chat.assert_awaited_once()
+    assert out["metadata"]["title"] == "Filled Title"
+    assert out["metadata"]["author"] == "A. Author"
+    # The metadata-completion call must NOT carry a request_id (content-only, no row).
+    _, chat_kwargs = llm.chat.call_args
+    assert chat_kwargs["request_id"] is None
+    # RAG-field enrichment attached the retrieval fields.
+    assert out.get("semantic_boosters")
+    assert out.get("query_expansion_keywords")
+    assert out.get("semantic_chunks")
+    assert out["language"] == "en"
+
+
 async def test_content_only_summarize_empty_content_raises_value_error():
     """Empty/whitespace content raises ValueError, byte-for-byte with the legacy
     ``PureSummaryService.summarize`` (the 4 callers wrap it in a StageError)."""

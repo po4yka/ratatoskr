@@ -239,6 +239,13 @@ class GraphURLProcessor:
         if not isinstance(summary, dict) or not summary:
             return {}
 
+        # audit #5: restore the two summary-completion steps the legacy
+        # ``ensure_summary_payload`` ran but the content-only graph path lost --
+        # LLM metadata-completion (title/author/dates) + RAG-field enrichment. Both
+        # run via the port-safe app service (llm_client port + pure core helpers);
+        # best-effort so a completion failure never blocks the summary.
+        await self._complete_metadata_and_enrich(summary, content_text, lang, correlation_id)
+
         # Apply the request quality metadata the graph nodes do not set (parity
         # with PureSummaryService._apply_request_quality_metadata).
         merge_summary_quality_metadata(
@@ -248,6 +255,78 @@ class GraphURLProcessor:
             extraction_confidence=request.extraction_confidence,
         )
         return summary
+
+    async def _complete_metadata_and_enrich(
+        self,
+        summary: dict[str, Any],
+        content_text: str,
+        lang: str,
+        correlation_id: str,
+    ) -> None:
+        """LLM metadata-completion + RAG-field enrichment for the content-only path.
+
+        Ports legacy ``ensure_summary_payload``'s two completion steps (audit #5)
+        the content-only graph path lost. Port-safe: the LLM call goes through the
+        ``llm_client`` port; the RAG enrichment is a pure ``app.core`` computation.
+        The content-only path has no request row, so the metadata-completion LLM
+        call is NOT persisted (request_id=None would FK-violate, audit #1) -- the
+        legacy path persisted it against a real request id, the content-only callers
+        (handlers/rss) own their own request row + summary persistence downstream.
+        """
+        from app.application.services.summarization.rag_enrichment import (
+            LLM_METADATA_FIELDS,
+            complete_summary_metadata_via_llm,
+            enrich_summary_rag_fields,
+        )
+
+        # Step 1: LLM metadata-completion for blank title/author/published_at/last_updated.
+        metadata = summary.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            summary["metadata"] = metadata
+        missing = [
+            f
+            for f in LLM_METADATA_FIELDS
+            if not (isinstance(metadata.get(f), str) and metadata[f].strip())
+        ]
+        if missing and content_text.strip():
+            llm_client = getattr(self._deps, "llm_client", None)
+            if llm_client is not None:
+                try:
+                    completed, _record = await complete_summary_metadata_via_llm(
+                        llm_client=llm_client,
+                        content_text=content_text,
+                        fields=missing,
+                        request_id=None,
+                        correlation_id=correlation_id,
+                        structured_output_mode=getattr(
+                            self.cfg.openrouter, "structured_output_mode", None
+                        ),
+                    )
+                    for key, value in completed.items():
+                        if value and key in missing:
+                            metadata[key] = value
+                except Exception as exc:
+                    raise_if_cancelled(exc)
+                    logger.warning(
+                        "content_only_metadata_completion_failed",
+                        extra={"cid": correlation_id, "error": str(exc)},
+                    )
+
+        # Step 2: pure RAG-field enrichment (semantic_boosters/keywords/chunks).
+        try:
+            await enrich_summary_rag_fields(
+                summary,
+                content_text=content_text,
+                chosen_lang=lang,
+                request_id=None,
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "content_only_rag_enrichment_failed",
+                extra={"cid": correlation_id, "error": str(exc)},
+            )
 
     # ------------------------------------------------------------------ #
     # Internal orchestration (mirrors URLProcessor._run_url_flow*)

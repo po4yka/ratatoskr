@@ -104,15 +104,10 @@ class UrlBackgroundRequestHandler:
                 "summarization", ValueError("Summary generation failed - no summary returned")
             )
 
-        await self._publish_update(
-            request_id,
-            "PROCESSING",
-            "VALIDATION",
-            "Validating summary...",
-            0.8,
-            correlation_id=correlation_id,
-        )
-
+        # audit #5: the separate VALIDATION progress update was cosmetic -- validation
+        # (and repair, metadata-completion, RAG enrichment) now all happen inside the
+        # single ``url_processor.summarize`` graph call above, so there is no distinct
+        # validation stage to report. Drop straight to SAVING.
         await self._publish_update(
             request_id,
             "PROCESSING",

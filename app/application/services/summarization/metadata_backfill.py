@@ -13,15 +13,16 @@ fields without importing ``app.adapters`` (``application-no-outward``).
 3. ``canonical_url`` or request URL -> ``domain`` (via ``app.core.url_utils``).
 4. Content heading heuristic -> ``title``.
 
-**Deviation from legacy (documented):** the optional LLM metadata-completion call
+**Scope:** this module covers ONLY the crawl/request/URL-derived heuristic backfill
+(steps 1-4 above), which the ``persist`` node runs against a real ``request_id``.
+The two remaining legacy steps -- the optional LLM metadata-completion call
 (``_generate_metadata_completion``) and ``_semantic_helper.enrich_with_rag_fields``
-are NOT reproduced here.  The LLM completion runs in the adapter tier using the
-raw OpenRouter client (not the port); porting it would require either a new port
-method or an adapter import -- both violate the layer boundary.
-``enrich_with_rag_fields`` is a RAG-optimisation step that enriches already-present
-metadata, not a gap closer.  Both can be added in a follow-up once the port surface
-is expanded.  The most common real-world gap -- ``canonical_url`` / ``domain`` /
-``title`` from the page scrape -- is covered.
+-- were ported separately in
+:mod:`app.application.services.summarization.rag_enrichment` (audit #5): the LLM
+completion now goes through the ``LLMClientProtocol`` port (no adapter import) and
+the RAG enrichment is a pure ``app.core`` computation. Those two run on the
+content-only path in the ``GraphURLProcessor`` facade (which has no request row),
+not here.
 
 Only ``app.core`` and ``app.application.ports.*`` are imported at module scope
 (legal from the application layer).
