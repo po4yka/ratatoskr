@@ -554,6 +554,24 @@ class SummaryRepositoryAdapter:
             "created_at": feedback.created_at,
         }
 
+    async def async_get_summary_id_by_bot_reply(self, user_id: int, message_id: int) -> int | None:
+        """Resolve the summary id for the bot reply the owner reacted to.
+
+        The ``user_id`` predicate is a defence-in-depth IDOR guard (never drop
+        it) -- a reaction must only map to a summary owned by that user.
+        """
+        async with self._database.session() as session:
+            stmt = (
+                select(Summary.id)
+                .join(Request, Summary.request_id == Request.id)
+                .where(
+                    Request.bot_reply_message_id == message_id,
+                    Request.user_id == user_id,
+                )
+                .limit(1)
+            )
+            return (await session.scalars(stmt)).first()
+
     async def async_get_user_summaries_for_insights(
         self,
         user_id: int,

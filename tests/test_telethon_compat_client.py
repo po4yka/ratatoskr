@@ -68,6 +68,24 @@ async def test_send_cover_message_noop_without_url() -> None:
     mock.assert_not_awaited()
 
 
+def test_reaction_adapter_extracts_fields() -> None:
+    from types import SimpleNamespace
+
+    from telethon import types
+
+    from app.adapters.telethon_compat import TelethonReactionAdapter
+
+    update = SimpleNamespace(
+        peer=types.PeerUser(user_id=555),
+        msg_id=42,
+        new_reactions=[types.ReactionEmoji(emoticon="👍")],
+    )
+    adapter = TelethonReactionAdapter(update)
+    assert adapter.message_id == 42
+    assert adapter.emoji == "👍"
+    assert adapter.chat_id == 555
+
+
 def test_filter_send_kwargs_translates_disable_web_page_preview() -> None:
     from app.adapters.telethon_compat import _filter_send_kwargs
 

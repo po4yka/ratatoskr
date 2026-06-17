@@ -18,6 +18,8 @@ from app.di.repositories import build_audit_log_repository as create_bot_audit_r
 from app.di.telegram import build_telegram_runtime as build_bot_runtime
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from app.config import AppConfig
     from app.db.session import Database
     from app.db.write_queue import DbWriteQueue
@@ -126,6 +128,7 @@ class TelegramBot:
             await self.telegram_client.start(
                 self.message_handler.handle_message,
                 self.message_handler.handle_callback_query,
+                self._build_reaction_handler(),
             )
         finally:
             if transcription_queue is not None:
@@ -134,6 +137,24 @@ class TelegramBot:
 
             # Close external clients and drain in-flight tasks
             await self._shutdown()
+
+    def _build_reaction_handler(self) -> Callable[[Any], Awaitable[None]] | None:
+        """Owner thumbs reaction on a summary -> +1/-1 feedback (best-effort).
+
+        Returns None when no owner is configured. Reaction-update delivery to a
+        bot is guaranteed only for reactions on the bot's own messages in 1:1
+        DMs -- exactly this single-tenant owner case.
+        """
+        owner_ids = getattr(self.cfg.telegram, "allowed_user_ids", None) or ()
+        if not owner_ids:
+            return None
+        from app.adapters.telegram.reaction_feedback import ReactionFeedbackHandler
+        from app.infrastructure.persistence.repositories.summary_repository import (
+            SummaryRepositoryAdapter,
+        )
+
+        recorder = ReactionFeedbackHandler(SummaryRepositoryAdapter(self.db), int(owner_ids[0]))
+        return recorder.handle
 
     def _audit(self, level: str, event: str, details: dict) -> None:
         """Audit log helper (background async)."""

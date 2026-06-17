@@ -42,8 +42,9 @@ class TelegramClient:
         self,
         message_handler: Callable[[Any], Awaitable[None]],
         callback_query_handler: Callable[[Any], Awaitable[None]] | None = None,
+        reaction_handler: Callable[[Any], Awaitable[None]] | None = None,
     ) -> None:
-        """Start the Telegram client with message and callback query handlers."""
+        """Start the Telegram client with message, callback and reaction handlers."""
         if not self.client:
             logger.warning("telegram_client_not_available")
             return
@@ -56,6 +57,10 @@ class TelegramClient:
 
         if callback_query_handler:
             self.client.add_callback_query_handler(callback_query_handler)
+            handler_count += 1
+
+        if reaction_handler and hasattr(self.client, "add_reaction_handler"):
+            self.client.add_reaction_handler(reaction_handler)
             handler_count += 1
 
         logger.info(

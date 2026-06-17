@@ -212,6 +212,20 @@ class TelethonBotClient:
         async def _on_callback(event: Any) -> None:
             await handler(TelethonCallbackQueryAdapter(event, self))
 
+    def add_reaction_handler(self, handler: Any) -> None:
+        """Subscribe to reactions on the bot's own messages (1:1 DMs).
+
+        A bot receives UpdateBotMessageReaction for reactions on its own
+        messages in private chats -- exactly the owner-DM case. There is no
+        high-level Telethon event for it, so filter the raw update.
+        """
+        if events is None or types is None:
+            return
+
+        @self._client.on(events.Raw(types=[types.UpdateBotMessageReaction]))  # type: ignore[untyped-decorator, unused-ignore]
+        async def _on_reaction(update: Any) -> None:
+            await handler(TelethonReactionAdapter(update))
+
     async def send_message(
         self,
         *,
@@ -697,6 +711,34 @@ class TelethonCallbackQueryAdapter:
 
     async def answer(self, text: str | None = None, show_alert: bool = False) -> None:
         await self._event.answer(text or "", alert=show_alert)
+
+
+class TelethonReactionAdapter:
+    """Expose the fields of an ``UpdateBotMessageReaction`` used by handlers."""
+
+    def __init__(self, update: Any) -> None:
+        self._update = update
+
+    @property
+    def chat_id(self) -> int | None:
+        return _peer_to_id(getattr(self._update, "peer", None))
+
+    @property
+    def message_id(self) -> int | None:
+        raw = getattr(self._update, "msg_id", None)
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def emoji(self) -> str | None:
+        """First standard-emoji reaction now present, or None (custom/removed)."""
+        for reaction in getattr(self._update, "new_reactions", None) or []:
+            emoticon = getattr(reaction, "emoticon", None)
+            if emoticon:
+                return str(emoticon)
+        return None
 
 
 @dataclass(slots=True)
