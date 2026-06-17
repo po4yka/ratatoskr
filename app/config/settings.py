@@ -29,7 +29,6 @@ from .github import GitHubConfig
 from .import_export import ImportConfig
 from .integrations import (
     BatchAnalysisConfig,
-    CocoIndexConfig,
     EmbeddingConfig,
     McpConfig,
     QdrantConfig,
@@ -201,7 +200,6 @@ class AppConfig:
     otel: OtelConfig = field(default_factory=OtelConfig)
     sentry: SentryConfig = field(default_factory=SentryConfig)
     github: GitHubConfig = field(default_factory=GitHubConfig)
-    cocoindex: CocoIndexConfig = field(default_factory=CocoIndexConfig)
     vector_reconcile: VectorReconcileConfig = field(default_factory=VectorReconcileConfig)
     retention: RetentionConfig = field(default_factory=RetentionConfig)
     backup: BackupConfig = field(default_factory=BackupConfig)
@@ -267,7 +265,6 @@ class Settings(BaseSettings):
     otel: OtelConfig = Field(default_factory=OtelConfig)
     sentry: SentryConfig = Field(default_factory=SentryConfig)
     github: GitHubConfig = Field(default_factory=GitHubConfig)
-    cocoindex: CocoIndexConfig = Field(default_factory=CocoIndexConfig)
     vector_reconcile: VectorReconcileConfig = Field(default_factory=VectorReconcileConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
@@ -533,7 +530,6 @@ class Settings(BaseSettings):
             otel=self.otel,
             sentry=self.sentry,
             github=self.github,
-            cocoindex=self.cocoindex,
             vector_reconcile=self.vector_reconcile,
             retention=self.retention,
             backup=self.backup,

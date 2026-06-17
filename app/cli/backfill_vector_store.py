@@ -350,7 +350,6 @@ def main() -> int:
     force = False
     batch_size = 50
     dry_run = False
-    use_cocoindex = False
 
     args = sys.argv[1:]
     for arg in args:
@@ -385,8 +384,6 @@ def main() -> int:
             except ValueError:
                 logger.error("Invalid batch size: %s", arg)
                 return 1
-        elif arg == "--use-cocoindex":
-            use_cocoindex = True
         elif arg in ("--help", "-h"):
             print("Usage: python -m app.cli.backfill_vector_store [OPTIONS]")
             print()
@@ -401,7 +398,6 @@ def main() -> int:
             print("  --force                 Regenerate embeddings even if they exist")
             print("  --dry-run               Simulate without writing to Qdrant")
             print("  --batch-size=N          Number of vectors per upsert batch (default: 50)")
-            print("  --use-cocoindex         Delegate to CocoIndex flow (requires cocoindex extra)")
             print("  --help, -h              Show this help message")
             return 0
 
@@ -416,52 +412,6 @@ def main() -> int:
     except Exception:
         logger.exception("Failed to load Qdrant configuration")
         return 1
-
-    if use_cocoindex:
-        import os as _os
-
-        if not _os.environ.get("RATATOSKR_COCOINDEX_ENABLED"):
-            _os.environ["RATATOSKR_COCOINDEX_ENABLED"] = "1"
-        try:
-            from app.config import load_config as _load_cfg
-            from app.core.embedding_space import resolve_embedding_space_identifier
-            from app.infrastructure.cocoindex.runtime import CocoIndexRuntime
-            from app.infrastructure.vector.qdrant_store import QdrantVectorStore
-
-            _app_cfg = _load_cfg(allow_stub_telegram=True)
-            _qdrant_cfg = _load_qdrant_config(
-                url=qdrant_url,
-                api_key=qdrant_api_key,
-                environment=qdrant_env,
-                user_scope=qdrant_scope,
-                collection_version=qdrant_version,
-            )
-            _vstore = QdrantVectorStore(
-                url=_qdrant_cfg.url,
-                api_key=_qdrant_cfg.api_key,
-                environment=_qdrant_cfg.environment,
-                user_scope=_qdrant_cfg.user_scope,
-                collection_version=_qdrant_cfg.collection_version,
-                embedding_space=resolve_embedding_space_identifier(_app_cfg.embedding),
-                embedding_dim=_app_cfg.embedding.embedding_dim,
-            )
-            _crt = CocoIndexRuntime(cfg=_app_cfg, collection_name=_vstore.collection_name)
-
-            async def _run_coco() -> None:
-                await _crt.start()
-                await _crt.run_one_shot()
-                await _crt.stop()
-
-            asyncio.run(_run_coco())
-            return 0
-        except ImportError:
-            logger.error(
-                "CocoIndex not installed; install with: pip install 'cocoindex>=1.0.3,<1.1'"
-            )
-            return 1
-        except Exception:
-            logger.exception("CocoIndex one-shot run failed")
-            return 1
 
     try:
         asyncio.run(
