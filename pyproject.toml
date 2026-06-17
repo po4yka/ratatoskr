@@ -439,9 +439,10 @@ parallel = true
 precision = 2
 show_missing = true
 skip_covered = false
-# Enforced floor for the CI unit coverage threshold.
-# Target: 80 %. Raise this value in a dedicated commit whenever a test
-# expansion sprint pushes the real number up — never lower it.
+# Enforced floor for the CI unit coverage threshold: 65 % (the value below).
+# The 80 % figure is an aspirational target, not the gate. Raise this value
+# in a dedicated commit whenever a test expansion sprint pushes the real
+# number up — never lower it.
 fail_under = 65
 exclude_lines = [
     "pragma: no cover",

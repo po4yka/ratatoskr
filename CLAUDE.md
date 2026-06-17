@@ -189,7 +189,7 @@ python -m app.cli.migrate_db          # apply Alembic migrations
 - **Linting:** ruff (see `pyproject.toml`); B006 and B023 enforced (see Operating Rules). `pyproject.toml` ignores `ASYNC240` (added in ruff 0.7+); **the project requires ruff ≥0.15.13** (pinned in `requirements-dev.txt`). Older globally-installed ruff binaries (e.g. `~/.local/bin/ruff` from a stale pipx install) will fail with `Unknown rule selector: ASYNC240`. Upgrade with `pipx upgrade ruff` or always invoke ruff from the project venv.
 - **Types:** mypy, `python_version = "3.13"`.
 - **Testing:** pytest + pytest-asyncio, hypothesis, pytest-benchmark. Use `tests/db_helpers_async.py` (`create_request`, `insert_summary`, ...) instead of writing fresh fixtures or calling ORM models directly. E2E tests gated by `E2E=1`.
-- **CI** (`.github/workflows/ci.yml`): lockfile freshness, lint+format+type, unit tests with 80% coverage, OpenAPI validation, radon complexity, security (Bandit, pip-audit, Safety, Gitleaks), frontend (`web-build`, `web-test`, `web-static-check`), Docker image build. Optional GHCR publish on `PUBLISH_DOCKER=true`.
+- **CI** (`.github/workflows/ci.yml`): lockfile freshness, lint+format+type, unit tests with a 65% coverage floor (80% target; enforced via `fail_under` in `pyproject.toml`), OpenAPI validation, radon complexity, security (Bandit, pip-audit, Safety, Gitleaks), frontend (`web-build`, `web-test`, `web-static-check`), Docker image build. Optional GHCR publish on `PUBLISH_DOCKER=true`.
 
 ## Key File References
 
