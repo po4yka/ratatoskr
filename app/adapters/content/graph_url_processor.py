@@ -458,12 +458,25 @@ class GraphURLProcessor:
                 error_message=terminal_error_message,
             )
 
+    def _streaming_selected(self, request: URLFlowRequest) -> bool:
+        """Whether to drive the graph via the streamed runner for this request.
+
+        Streaming is reserved for interactive requests AND requires the
+        ``SUMMARY_STREAMING_ENABLED`` runtime flag (default on). Silent/batch
+        callers never stream. Honoring the flag here keeps it from being dead
+        for the URL path (audit #19): with the flag off, even interactive URL
+        summaries take the plain ``ainvoke`` runner.
+        """
+        if request.effective_silent:
+            return False
+        return bool(getattr(self.cfg.runtime, "summary_streaming_enabled", True))
+
     async def _run_graph(
         self, *, request: URLFlowRequest, req_id: int, lang: str
     ) -> dict[str, Any]:
-        """Invoke the streamed runner (interactive) or the plain runner (silent)."""
+        """Invoke the streamed runner (interactive + flag on) or the plain runner."""
         user_scope, environment = self._retrieval_scope()
-        if request.effective_silent:
+        if not self._streaming_selected(request):
             from app.application.graphs.summarize.graph import run_summarize_graph
 
             return await run_summarize_graph(

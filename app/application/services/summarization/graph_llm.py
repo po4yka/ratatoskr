@@ -200,12 +200,21 @@ async def summarize_streaming(
 
     Returns ``(summary, call_meta)``. Raises ``ValueError`` only when the call
     fails outright or yields no JSON object (routed to the terminal path).
+
+    The provider ``response_format`` honors ``structured_output_mode``: when it
+    is ``"json_schema"`` the model is constrained to the strict summary schema
+    (audit #19 -- previously this path hardcoded ``json_object`` and silently
+    ignored the configured mode); otherwise it falls back to plain
+    ``json_object`` via the same contract descriptor used by the structured path.
     """
+    from app.core.summary_contract import get_summary_contract_descriptor
+
+    response_format = get_summary_contract_descriptor().response_format(structured_output_mode)
     result = await llm_client.chat(
         messages,
         stream=True,
         on_stream_delta=on_token,
-        response_format={"type": "json_object"},
+        response_format=response_format,
         max_tokens=max_tokens,
         temperature=temperature,
         model_override=model_override,

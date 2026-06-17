@@ -85,6 +85,46 @@ async def test_streaming_parses_response_json_and_builds_call_meta() -> None:
     assert llm.chat_kwargs.get("stream") is True
 
 
+async def test_streaming_honors_json_schema_structured_output_mode() -> None:
+    """audit #19: structured_output_mode='json_schema' constrains the provider.
+
+    Previously the streaming path hardcoded response_format={'type':'json_object'}
+    and silently ignored the configured mode.
+    """
+    llm = _FakeLLM(response_json={"summary_250": "S", "tldr": "T"})
+    await summarize_streaming(
+        llm_client=llm,
+        messages=_MESSAGES,
+        source_content="src",
+        max_tokens=None,
+        model_override=None,
+        temperature=0.2,
+        structured_output_mode="json_schema",
+        on_token=_noop,
+    )
+    response_format = llm.chat_kwargs.get("response_format")
+    assert isinstance(response_format, dict)
+    assert response_format.get("type") == "json_schema"
+    assert "json_schema" in response_format
+    assert response_format["json_schema"].get("strict") is True
+
+
+async def test_streaming_defaults_to_json_object_when_mode_unset() -> None:
+    """With no structured_output_mode the provider gets plain json_object."""
+    llm = _FakeLLM(response_json={"summary_250": "S"})
+    await summarize_streaming(
+        llm_client=llm,
+        messages=_MESSAGES,
+        source_content="src",
+        max_tokens=None,
+        model_override=None,
+        temperature=0.2,
+        structured_output_mode=None,
+        on_token=_noop,
+    )
+    assert llm.chat_kwargs.get("response_format") == {"type": "json_object"}
+
+
 async def test_streaming_falls_back_to_text_when_no_response_json() -> None:
     llm = _FakeLLM(response_text='{"summary_250": "from text"}')
     summary, _ = await summarize_streaming(

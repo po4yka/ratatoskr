@@ -261,6 +261,39 @@ async def test_silent_routes_to_non_streamed_runner(monkeypatch):
     streamed.assert_not_awaited()
 
 
+async def test_interactive_uses_plain_runner_when_streaming_flag_disabled(monkeypatch):
+    """audit #19: SUMMARY_STREAMING_ENABLED=False makes even interactive URL
+    summaries take the plain (non-streamed) runner."""
+    _patch_lease(monkeypatch)
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=streamed, plain=plain)
+
+    cfg = _cfg()
+    cfg.runtime.summary_streaming_enabled = False
+    facade = _facade(cfg=cfg)
+    await facade.handle_url_flow(_url_request(silent=False, batch_mode=False))
+
+    plain.assert_awaited_once()
+    streamed.assert_not_awaited()
+
+
+async def test_interactive_streams_when_flag_enabled(monkeypatch):
+    """The flag defaults on: an interactive request still streams when True."""
+    _patch_lease(monkeypatch)
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=streamed, plain=plain)
+
+    cfg = _cfg()
+    cfg.runtime.summary_streaming_enabled = True
+    facade = _facade(cfg=cfg)
+    await facade.handle_url_flow(_url_request(silent=False, batch_mode=False))
+
+    streamed.assert_awaited_once()
+    plain.assert_not_awaited()
+
+
 # --------------------------------------------------------------------------- #
 # (e) graph {"error": ...} -> failure result + Error ID notification
 # --------------------------------------------------------------------------- #
