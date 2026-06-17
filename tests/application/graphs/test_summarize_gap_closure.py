@@ -84,6 +84,9 @@ def _state(**over: Any) -> dict[str, Any]:
         "repair_attempts": 0,
         "call_count": 0,
         "llm_calls": [],
+        # URL-flow default: the enrich node's two-pass pass is eligible (audit
+        # #20). Content-only callers would leave this False.
+        "two_pass_eligible": True,
     }
     base.update(over)
     return base

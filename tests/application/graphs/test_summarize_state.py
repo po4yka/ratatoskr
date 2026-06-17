@@ -93,6 +93,7 @@ _EXPECTED_NON_BULK_FIELDS = frozenset(
         "lang",
         "input_url",
         "stream",
+        "two_pass_eligible",
         "dedupe_hash",
         "content_source",
         "detected_lang",

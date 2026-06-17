@@ -347,6 +347,9 @@ async def run_summarize_graph_streamed(
         user_scope=user_scope,
         environment=environment,
         stream=True,
+        # URL-flow (interactive streamed) runner: two-pass enrich is eligible
+        # here, still AND-gated by config.two_pass_enabled (audit #20).
+        two_pass_eligible=True,
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=limit)
     bridge = GraphEventBridge(sink=sink, request_id=str(request_id), correlation_id=correlation_id)

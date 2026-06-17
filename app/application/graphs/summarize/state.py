@@ -72,6 +72,14 @@ class SummarizeState(TypedDict, total=False):
     # path leaves it False so T9 parity stays byte-identical. Streamed tokens are
     # NEVER stored in state -- only this bool (ADR-0011/0017).
     stream: bool
+    # Whether the optional two-pass ``enrich`` node may run for this invocation
+    # (audit #20). Set True ONLY by the URL-flow runners (``run_summarize_graph``
+    # / ``run_summarize_graph_streamed``); the content-only ``summarize``
+    # entrypoint leaves it False so the enrichment pass stays restricted to the
+    # URL path, matching the legacy two-pass scoping. Gated AND-wise with
+    # ``config.two_pass_enabled`` (default False), so this is dormant today. A
+    # plain serializable bool, never a buffer.
+    two_pass_eligible: bool
 
     # Extraction handles written by the extract node (id-based; bulk content lives
     # in source_text / the crawl row, not duplicated here). ADR-0015.

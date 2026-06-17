@@ -92,6 +92,7 @@ def build_initial_state(
     user_scope: str | None = None,
     environment: str | None = None,
     stream: bool = False,
+    two_pass_eligible: bool = False,
 ) -> SummarizeState:
     """The per-invocation initial graph state (serializable primitives only).
 
@@ -125,6 +126,7 @@ def build_initial_state(
         "call_count": 0,
         "llm_calls": [],
         "stream": stream,
+        "two_pass_eligible": two_pass_eligible,
     }
     if user_scope is not None:
         initial_state["user_scope"] = user_scope
@@ -215,6 +217,11 @@ async def run_summarize_graph(
         input_url=input_url,
         user_scope=user_scope,
         environment=environment,
+        # URL-flow runner: the optional two-pass enrich node is eligible here
+        # (still AND-gated by config.two_pass_enabled). The content-only
+        # ``summarize`` entrypoint invokes the graph directly and leaves this
+        # False, keeping enrichment off the pre-extracted callers (audit #20).
+        two_pass_eligible=True,
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=recursion_limit)
     try:

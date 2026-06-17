@@ -156,19 +156,22 @@ async def test_repair_node_without_messages_only_advances_budget() -> None:
 
 async def test_enrich_node_disabled_is_noop() -> None:
     out = await enrich(
-        {"summary": dict(_VALID)},
+        {"summary": dict(_VALID), "two_pass_eligible": True},
         deps=_deps(llm_client=MagicMock(), config=_config(two_pass_enabled=False)),
     )
     assert out == {}
 
 
 async def test_enrich_node_noop_without_config() -> None:
-    out = await enrich({"summary": dict(_VALID)}, deps=_deps(llm_client=MagicMock(), config=None))
+    out = await enrich(
+        {"summary": dict(_VALID), "two_pass_eligible": True},
+        deps=_deps(llm_client=MagicMock(), config=None),
+    )
     assert out == {}
 
 
-async def test_enrich_node_enabled_merges_keys() -> None:
-    llm = SimpleNamespace(
+def _enriching_llm() -> Any:
+    return SimpleNamespace(
         chat=AsyncMock(
             return_value=SimpleNamespace(
                 status=CallStatus.OK,
@@ -177,8 +180,47 @@ async def test_enrich_node_enabled_merges_keys() -> None:
             )
         )
     )
+
+
+async def test_enrich_node_enabled_merges_keys() -> None:
+    llm = _enriching_llm()
     out = await enrich(
-        {"summary": {"summary_250": "s"}, "content_for_summary": "c", "lang": "en"},
+        {
+            "summary": {"summary_250": "s"},
+            "content_for_summary": "c",
+            "lang": "en",
+            "two_pass_eligible": True,
+        },
         deps=_deps(llm_client=llm, config=_config(two_pass_enabled=True)),
     )
     assert out["summary"]["seo_keywords"] == ["x", "y"]
+
+
+async def test_enrich_node_noop_when_not_eligible_even_if_enabled() -> None:
+    """audit #20: the content-only path leaves two_pass_eligible False, so the
+    enrich node must no-op even when config.two_pass_enabled is True (no LLM call).
+    """
+    llm = _enriching_llm()
+    out = await enrich(
+        # No ``two_pass_eligible`` key -> the content-only ``summarize`` entrypoint.
+        {"summary": {"summary_250": "s"}, "content_for_summary": "c", "lang": "en"},
+        deps=_deps(llm_client=llm, config=_config(two_pass_enabled=True)),
+    )
+    assert out == {}
+    llm.chat.assert_not_awaited()
+
+
+async def test_enrich_node_noop_when_eligible_false_explicit() -> None:
+    """An explicit two_pass_eligible=False also short-circuits enrichment."""
+    llm = _enriching_llm()
+    out = await enrich(
+        {
+            "summary": {"summary_250": "s"},
+            "content_for_summary": "c",
+            "lang": "en",
+            "two_pass_eligible": False,
+        },
+        deps=_deps(llm_client=llm, config=_config(two_pass_enabled=True)),
+    )
+    assert out == {}
+    llm.chat.assert_not_awaited()

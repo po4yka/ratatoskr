@@ -617,6 +617,7 @@ async def test_tier1b_enrich_merges_exactly_the_8_keys_truthy_only() -> None:
         "lang": "en",
         "summary": dict(base_summary),
         "content_for_summary": "content",
+        "two_pass_eligible": True,
     }
     out = await enrich(state, deps=deps)
     enriched = out["summary"]
@@ -657,6 +658,7 @@ async def test_tier1b_enrich_matches_legacy_enrich_two_pass_helper() -> None:
         "lang": "en",
         "summary": dict(base_summary),
         "content_for_summary": "content",
+        "two_pass_eligible": True,
     }
     node_out = await enrich(state, deps=deps)
 
@@ -693,6 +695,7 @@ async def test_tier1b_enrich_fail_soft_returns_original_summary() -> None:
         "lang": "en",
         "summary": dict(base_summary),
         "content_for_summary": "content",
+        "two_pass_eligible": True,
     }
     out = await enrich(state, deps=deps)
     assert out["summary"] == base_summary  # unchanged (fail-soft)

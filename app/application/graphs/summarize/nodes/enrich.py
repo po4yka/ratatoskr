@@ -17,10 +17,16 @@ if TYPE_CHECKING:
 async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any]:
     """Optional second enrichment pass over the validated summary.
 
-    No-op (byte-identical to the no-enrich path) unless ``two_pass_enabled`` is
-    set in the config snapshot. The two-pass call merges only the 8 enrichment
-    keys (truthy-only) and never raises -- a failure returns the summary
-    unchanged (``enrich_two_pass`` parity).
+    No-op (byte-identical to the no-enrich path) unless BOTH gates are open:
+
+    - ``state['two_pass_eligible']`` is True -- set ONLY by the URL-flow runners
+      (audit #20). The content-only ``summarize`` entrypoint leaves it False, so
+      enrichment never runs for pre-extracted callers, matching the legacy
+      two-pass scoping (interactive/URL only).
+    - ``config.two_pass_enabled`` is set in the config snapshot (default False).
+
+    The two-pass call merges only the 8 enrichment keys (truthy-only) and never
+    raises -- a failure returns the summary unchanged (``enrich_two_pass`` parity).
 
     GAP 3b: records the enrichment LLM call in ``state['llm_calls']`` so the
     persist node writes it (persist-everything rule 3). ``call_meta`` is ``None``
@@ -28,6 +34,8 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     written in that case to avoid double-counting transport-level failures already
     persisted by the llm_client adapter.
     """
+    if not state.get("two_pass_eligible"):
+        return {}
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
     if config is None or not config.two_pass_enabled:
         return {}
