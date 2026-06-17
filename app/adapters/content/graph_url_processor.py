@@ -179,9 +179,7 @@ class GraphURLProcessor:
             return
         chat_id, _user_id, message_id = _message_identity(request.message)
         if chat_id and message_id:
-            await self.response_formatter.react(
-                chat_id=chat_id, message_id=message_id, emoji=emoji
-            )
+            await self.response_formatter.react(chat_id=chat_id, message_id=message_id, emoji=emoji)
 
     async def summarize(self, request: PureSummaryRequest) -> dict[str, Any]:
         """Content-only summarization for pre-extracted callers (handlers/rss).
