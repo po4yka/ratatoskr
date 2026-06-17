@@ -141,8 +141,10 @@ class StructuredSummaryFlow:
                 },
             )
 
-            # If header fits in one Telegram message, finalize with it
-            _telegram_limit = 4096
+            # If header fits in one Telegram message, finalize with it. Use the
+            # configured per-message ceiling (single source of truth) rather than
+            # a separate hard-coded 4096 literal.
+            _telegram_limit = self._context.text_processor.max_message_chars
             if len(header_section) <= _telegram_limit:
                 # Attach keyboard to header only if no remaining sections
                 keyboard = None

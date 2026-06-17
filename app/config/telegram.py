@@ -178,9 +178,13 @@ class TelegramLimitsConfig(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     max_message_chars: int = Field(
-        default=3500,
+        default=3900,
         validation_alias="TELEGRAM_MAX_MESSAGE_CHARS",
-        description="Maximum characters per Telegram message (Telegram limit ~4096, keep safety margin)",
+        description=(
+            "Maximum characters per Telegram message. Telegram's hard limit is 4096 "
+            "UTF-16 code units; the margin below it absorbs entity/tag-repair slack and "
+            "astral chars (emoji/CJK count as 2 UTF-16 units), so keep below ~4000."
+        ),
     )
     max_url_length: int = Field(
         default=2048,

@@ -25,10 +25,15 @@ class TextProcessorImpl:
         self,
         response_sender: ResponseSender,
         *,
-        max_message_chars: int = 3500,
+        max_message_chars: int = 3900,
     ) -> None:
         self._response_sender = response_sender
         self._max_message_chars = max_message_chars
+
+    @property
+    def max_message_chars(self) -> int:
+        """Per-message character ceiling (single source of truth for splitting)."""
+        return self._max_message_chars
 
     def chunk_text(self, text: str, *, max_len: int, html_aware: bool = False) -> list[str]:
         """Split text into chunks respecting Telegram's message length limit.

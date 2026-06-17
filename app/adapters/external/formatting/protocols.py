@@ -147,6 +147,11 @@ class ResponseSender(Protocol):
 class TextProcessor(Protocol):
     """Protocol for text processing and chunking."""
 
+    @property
+    def max_message_chars(self) -> int:
+        """Per-message character ceiling used for splitting."""
+        ...
+
     def chunk_text(self, text: str, *, max_len: int) -> list[str]:
         """Split text into chunks respecting Telegram's message length limit."""
         ...
