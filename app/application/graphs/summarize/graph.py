@@ -88,6 +88,7 @@ def build_initial_state(
     request_id: int,
     lang: str,
     input_url: str = "",
+    source_text: str = "",
     user_scope: str | None = None,
     environment: str | None = None,
     stream: bool = False,
@@ -100,13 +101,19 @@ def build_initial_state(
     mode flag (NOT a buffer): the streaming runner sets it so the summarize node
     takes the token-streaming LLM path; the ainvoke path leaves it False so T9
     parity stays byte-identical.
+
+    ``source_text`` is the content-only entrypoint (T9 facade ``summarize``): the 4
+    pre-extracted callers (api/background/handlers, rss) supply content directly
+    with an empty ``input_url`` so the ``extract`` node no-ops (it returns ``{}``
+    when no URL is settled) and leaves the pre-provided ``source_text`` untouched.
+    Defaults to ``""`` so the URL path stays byte-identical (extract overwrites it).
     """
     initial_state: SummarizeState = {
         "correlation_id": correlation_id,
         "request_id": request_id,
         "lang": lang,
         "input_url": input_url,
-        "source_text": "",
+        "source_text": source_text,
         "grounding_ids": [],
         "grounding_block": "",
         "summary": {},

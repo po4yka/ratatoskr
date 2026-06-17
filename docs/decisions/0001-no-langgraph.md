@@ -2,7 +2,7 @@
 
 **Original date:** 2026-06-10
 **Reversed:** 2026-06-15
-**Status:** Reversed — LangGraph/LangChain is being re-adopted for a specific, scoped use case (see **Reversal** below). This ADR is rewritten in place; git history preserves the original text.
+**Status:** Reversed — implemented. LangGraph/LangChain has been re-adopted for the scoped summarize-graph use case (see **Reversal** below); the graph shipped as the sole summarize path at the T9 cutover (see [ADR-0013](0013-graph-rollout-legacy-migration.md)). This ADR is rewritten in place; git history preserves the original text.
 
 ## Original context (2026-06-10)
 

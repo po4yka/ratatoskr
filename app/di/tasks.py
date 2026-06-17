@@ -163,21 +163,13 @@ def create_rss_bot_client(cfg: AppConfig) -> Any:
 
 
 def create_rss_delivery_service(cfg: AppConfig, db: Database) -> Any:
-    from app.adapters.content.pure_summary_service import PureSummaryService
-    from app.adapters.content.summarization_runtime import SummarizationRuntime
     from app.adapters.openrouter.openrouter_client import OpenRouterClient
     from app.adapters.rss.rss_delivery_service import RSSDeliveryService
-    from app.di.repositories import (
-        build_crawl_result_repository,
-        build_llm_repository,
-        build_request_repository,
-        build_summary_repository,
-        build_user_repository,
-    )
     from app.di.shared import (
         LazySemaphoreFactory,
         build_response_formatter,
         build_scraper_chain,
+        build_url_processor,
     )
     from app.infrastructure.persistence.repositories.rss_feed_repository import (
         RSSFeedRepositoryAdapter,
@@ -191,27 +183,26 @@ def create_rss_delivery_service(cfg: AppConfig, db: Database) -> Any:
     )
     response_formatter = cast("Any", build_response_formatter(cfg))
     sem_factory = LazySemaphoreFactory(cfg.runtime.max_concurrent_calls)
-    runtime = SummarizationRuntime(
+    # T9 cutover: the graph is the only summarize path. RSS uses the content-only
+    # ``facade.summarize`` (byte-identical signature to the legacy
+    # ``PureSummaryService.summarize`` the service consumed). The legacy URLProcessor
+    # inside the facade is a collaborator bag; RSS never drives ``handle_url_flow``.
+    facade = build_url_processor(
         cfg=cfg,
         db=db,
+        firecrawl=cast("Any", build_scraper_chain(cfg, audit=lambda *_a, **_kw: None)),
         openrouter=llm_client,
         response_formatter=response_formatter,
         audit_func=lambda *_a, **_kw: None,
         sem=sem_factory,
-        summary_repo=build_summary_repository(db),
-        request_repo=build_request_repository(db),
-        crawl_result_repo=build_crawl_result_repository(db),
-        llm_repo=build_llm_repository(db),
-        user_repo=build_user_repository(db),
     )
-    pure_service = PureSummaryService(runtime=runtime)
     prompt_mgr = get_prompt_manager()
     scraper_chain = None
     if cfg.rss.scrape_short_content:
         scraper_chain = cast("Any", build_scraper_chain(cfg, audit=lambda *_a, **_kw: None))
     return RSSDeliveryService(
         cfg=cfg.rss,
-        pure_summary_service=pure_service,
+        pure_summary_service=facade,
         system_prompt_loader=lambda lang: prompt_mgr.get_system_prompt(
             lang, include_examples=True, num_examples=2
         ),

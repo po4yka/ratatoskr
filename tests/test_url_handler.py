@@ -8,7 +8,7 @@ import pytest
 from app.adapters.telegram.url_handler import URLHandler
 
 if TYPE_CHECKING:
-    from app.adapters.content.url_processor import URLProcessor
+    from app.adapters.content.graph_url_processor import GraphURLProcessor as URLProcessor
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )

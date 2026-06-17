@@ -1,7 +1,7 @@
 # ADR 0017: Streaming under the graph
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending.
+**Status:** Implemented — streaming is bridged through the `stream_sink` port (`app/application/ports/stream_sink.py`) and `app/adapters/content/streaming/graph_event_bridge.py`, which maps graph node transitions / token deltas to SSE + Telegram drafts without polluting checkpoint state.
 
 ## Context
 

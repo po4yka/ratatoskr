@@ -14,7 +14,7 @@ from app.core.url_utils import extract_all_urls
 from app.db.user_interactions import async_safe_update_user_interaction
 
 if TYPE_CHECKING:
-    from app.adapters.content.url_processor import URLProcessor
+    from app.adapters.content.graph_url_processor import GraphURLProcessor as URLProcessor
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )

@@ -188,7 +188,7 @@ async def test_enrich_two_pass_merges_truthy_keys() -> None:
         )
     )
     summary = {"summary_250": "core", "tldr": "t"}
-    out = await graph_llm.enrich_two_pass(
+    out, _call_meta = await graph_llm.enrich_two_pass(
         llm_client=llm,
         summary=summary,
         content_text="original content",
@@ -208,7 +208,7 @@ async def test_enrich_two_pass_returns_original_on_llm_error() -> None:
         )
     )
     summary = {"summary_250": "core"}
-    out = await graph_llm.enrich_two_pass(
+    out, _call_meta = await graph_llm.enrich_two_pass(
         llm_client=llm,
         summary=summary,
         content_text="c",

@@ -17,13 +17,14 @@ exception.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from app.observability.failure_observability import persist_request_failure
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
     from app.application.graphs.summarize.state import SummarizeState
+    from app.application.ports.requests import LLMCallRecord
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +67,27 @@ async def route_terminal_failure(
     Single sink for all summarize-graph failures (ADR-0011): sets
     ``RequestStatus.ERROR`` via the shared persistence helper and never raises a
     second error path. Returns the message the caller surfaces to the user.
+
+    GAP 3a (persist-everything): when the exception carries ``llm_failure_records``
+    (attached by the summarize node's failure handler), those rows are written to
+    ``deps.llm_repo`` best-effort before the request is marked ERROR, so failure
+    LLM calls are always persisted (rule 3).
     """
     correlation_id = state.get("correlation_id")
     request_id = state.get("request_id")
+
+    # GAP 3a: drain any llm_calls failure records attached to the exception.
+    failure_records = getattr(error, "llm_failure_records", None)
+    if failure_records and deps.llm_repo is not None and request_id is not None:
+        for record in failure_records:
+            try:
+                await deps.llm_repo.async_insert_llm_call(cast("LLMCallRecord", record))
+            except Exception:
+                logger.warning(
+                    "summarize_graph_failure_llm_call_persist_failed",
+                    extra={"correlation_id": correlation_id, "request_id": request_id},
+                    exc_info=True,
+                )
 
     if request_id is not None:
         await persist_request_failure(

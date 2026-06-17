@@ -1,7 +1,7 @@
 # ADR 0012: CocoIndex role boundary & read-your-writes RAG freshness
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending with [ADR-0001](0001-no-langgraph.md). Refines the freshness expectation of [ADR-0005](0005-rag-grounding-policy.md).
+**Status:** Implemented — the `persist` node writes a read-your-writes Qdrant point synchronously (byte-identical via `app/infrastructure/vector/summary_point.py`); CocoIndex + the reconciler are convergence/backfill only. Refines the freshness expectation of [ADR-0005](0005-rag-grounding-policy.md).
 
 ## Context
 

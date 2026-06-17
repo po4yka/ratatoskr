@@ -207,6 +207,8 @@ def build_summary_cli_runtime(
         crawl_result_repo=repositories.crawl_result_repository,
         llm_repo=repositories.llm_repository,
         user_repo=repositories.user_repository,
+        vector_store=search.vector_store,
+        embedding_service=search.embedding_service,
     )
     application_services = build_application_services(
         db,
@@ -333,6 +335,8 @@ def _build_processing_stack(
         llm_repo=repositories.llm_repository,
         user_repo=repositories.user_repository,
         related_reads_service=related_reads_service,
+        vector_store=search.vector_store,
+        embedding_service=search.embedding_service,
     )
     forward_processor = ForwardProcessor(
         cfg=cfg,

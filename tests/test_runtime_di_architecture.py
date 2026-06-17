@@ -133,8 +133,13 @@ def test_formatter_private_modules_are_not_imported_outside_formatting_package()
 
 
 def test_url_processor_keeps_repository_assembly_in_di_layer() -> None:
-    """URLProcessor should receive repositories from DI instead of composing SQLite adapters."""
-    path = APP_ROOT / "adapters" / "content" / "url_processor.py"
+    """The URL-flow facade should receive repositories from DI, not compose adapters.
+
+    Post-T9 the legacy ``url_processor.py`` is deleted; the graph-backed
+    ``GraphURLProcessor`` facade is the sole URL summarize path and the guard now
+    applies to it.
+    """
+    path = APP_ROOT / "adapters" / "content" / "graph_url_processor.py"
     text = path.read_text()
 
     forbidden_fragments = (

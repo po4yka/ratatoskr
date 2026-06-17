@@ -96,6 +96,7 @@ async def summarize_with_instructor(
 
     result: Any = None
     last_error: Exception | None = None
+    last_llm_result: Any = None  # carry the raw LLMCallResult for failure fidelity
     override_dropped = False
 
     for attempt in range(2):
@@ -112,6 +113,10 @@ async def summarize_with_instructor(
             break
         except Exception as exc:
             last_error = exc
+            # Attempt to surface the raw LLMCallResult attached by the adapter.
+            # The instructor adapter attaches ``__llm_result__`` on structured failures
+            # so we can recover model/error_text/latency even from wrapped exceptions.
+            last_llm_result = getattr(exc, "__llm_result__", None)
             sticky_class = classify_sticky_error(exc)
             if (
                 sticky_fallback_enabled
@@ -135,14 +140,20 @@ async def summarize_with_instructor(
                 "summarize_graph_instructor_failed",
                 extra={"cid": correlation_id, "error": str(exc)},
             )
-            raise ValueError(f"Instructor LLM call failed: {exc}") from exc
+            err = ValueError(f"Instructor LLM call failed: {exc}")
+            # Propagate the raw LLMCallResult so _tag_failure can build a
+            # fidelity record (real model / error_text / latency).
+            err.__llm_result__ = last_llm_result  # type: ignore[attr-defined]
+            raise err from exc
 
     if result is None:
         logger.error(
             "summarize_graph_instructor_failed",
             extra={"cid": correlation_id, "error": str(last_error)},
         )
-        raise ValueError(f"Instructor LLM call failed: {last_error}") from last_error
+        err = ValueError(f"Instructor LLM call failed: {last_error}")
+        err.__llm_result__ = last_llm_result  # type: ignore[attr-defined]
+        raise err from last_error
 
     summary = mark_prompt_injection_metadata(result.parsed.model_dump(), source_content)
     quality = summary.get("quality")
@@ -205,7 +216,11 @@ async def summarize_streaming(
             "summarize_graph_streaming_failed",
             extra={"cid": correlation_id, "error": result.error_text},
         )
-        raise ValueError(f"Streaming LLM call failed: {result.error_text}")
+        err = ValueError(f"Streaming LLM call failed: {result.error_text}")
+        # Attach the raw result so _tag_failure can build a fidelity record
+        # (real model / error_text / latency without re-wrapping).
+        err.__llm_result__ = result  # type: ignore[attr-defined]
+        raise err
 
     # Prefer the provider-parsed JSON (json_object mode); fall back to tolerant
     # extraction from the accumulated text the deltas built.
@@ -274,12 +289,16 @@ async def enrich_two_pass(
     top_p: float | None,
     enrichment_max_tokens: int,
     correlation_id: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Optional second enrichment pass (verbatim parity with ``enrich_two_pass``).
 
     Never raises: any failure (LLM error, parse failure, exception) returns the
     input ``summary`` unchanged. Merges only the 8 enrichment keys, and only when
     truthy.
+
+    GAP 3b: returns ``(summary, call_meta | None)`` so the ``enrich`` node can
+    record the enrichment LLM call in ``state['llm_calls']`` for persist-everything
+    (rule 3). ``call_meta`` is ``None`` when no LLM call was made (exception path).
     """
     try:
         lang_suffix = "ru" if chosen_lang == LANG_RU else "en"
@@ -304,16 +323,29 @@ async def enrich_two_pass(
             top_p=top_p,
             request_id=None,
         )
+        llm_status = getattr(llm_result, "status", None)
+        call_meta: dict[str, Any] = {
+            "model": getattr(llm_result, "model", None),
+            "tokens_prompt": getattr(llm_result, "tokens_prompt", None),
+            "tokens_completion": getattr(llm_result, "tokens_completion", None),
+            "cost_usd": getattr(llm_result, "cost_usd", None),
+            "latency_ms": getattr(llm_result, "latency_ms", None),
+            # FIX-5: carry the REAL status so callers record the actual outcome,
+            # not a hardcoded "ok" string.
+            "status": getattr(llm_status, "value", llm_status) if llm_status is not None else None,
+        }
         if llm_result.status != CallStatus.OK:
             logger.warning(
                 "two_pass_enrichment_failed",
                 extra={"cid": correlation_id, "error": getattr(llm_result, "error_text", None)},
             )
-            return summary
+            # FIX-5: return call_meta=None on non-OK so the enrich node does NOT
+            # write a misleading "ok" row for a failed enrichment call.
+            return summary, None
         enrichment = _parse_enrichment(llm_result)
         if not enrichment:
             logger.warning("two_pass_enrichment_parse_failed", extra={"cid": correlation_id})
-            return summary
+            return summary, call_meta
         for key in _ENRICH_KEYS:
             value = enrichment.get(key)
             if value:
@@ -325,12 +357,12 @@ async def enrich_two_pass(
                 "enriched_fields": [k for k in _ENRICH_KEYS if k in enrichment],
             },
         )
-        return summary
+        return summary, call_meta
     except Exception as exc:
         logger.warning(
             "two_pass_enrichment_error", extra={"cid": correlation_id, "error": str(exc)}
         )
-        return summary
+        return summary, None
 
 
 def _parse_enrichment(llm_result: Any) -> dict[str, Any] | None:

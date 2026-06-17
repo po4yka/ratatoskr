@@ -1,6 +1,6 @@
 # Multi-Agent Architecture
 
-Agents wrap extraction, summarization, validation, and repository analysis with structured results, retries, and observability. Classic `BaseAgent` wrappers remain the stable interface for content flows; `instructor`'s `chat_structured(max_retries=N)` owns the summarize/validate retry loop at `app/adapters/content/pure_summary_service.py`; LangChain structured output is preferred for repository analysis when the selected LLM adapter supports it.
+Agents wrap extraction, web search, validation, and repository analysis with structured results, retries, and observability. Classic `BaseAgent` wrappers remain the stable interface for the optional enrichment / repo-analysis flows. The **summarize hot-path is now the LangGraph summarize graph** (`app/application/graphs/summarize/`): since the T9 cutover it is the sole summarize path, and the summarize/validate/repair retry loop is its `summarize → validate → repair ↺ validate` cycle (see the `langgraph-summarize-loop` skill and [ADR-0015](../decisions/0015-summarization-pipeline-target-architecture.md)). `instructor`'s `chat_structured(max_retries=N)` is the structured-output mechanism the graph's `summarize`/`repair` nodes call (`app/application/services/summarization/graph_llm.py::summarize_with_instructor`); LangChain structured output is preferred for repository analysis when the selected LLM adapter supports it.
 
 ## Roles
 
@@ -10,7 +10,7 @@ Agents wrap extraction, summarization, validation, and repository analysis with 
 - **RepoAnalysisAgent** — Produces `RepoAnalysis` through structured LLM output for GitHub repository ingestion, with legacy JSON fallback.
 - All inherit `BaseAgent[TInput, TOutput]` with `success`, `output`, `error`, `metadata`.
 
-The self-correction retry loop (up to `max_retries` attempts) lives in `app/adapters/content/pure_summary_service.py:_summarize_with_instructor` and is backed by `instructor`'s `chat_structured`. This is the production path; there is no agent-layer orchestrator in the summarization hot-path.
+The self-correction retry loop is the summarize graph's `validate → repair ↺ validate` cycle, bounded by `MAX_REPAIR_ATTEMPTS` (`app/application/graphs/summarize/state.py`) and langgraph's per-invocation `recursion_limit`; each pass re-runs the structured call via `summarize_with_instructor` (`instructor`'s `chat_structured`). This is the production path; there is no classic agent-layer orchestrator in the summarization hot-path -- the graph nodes own it.
 
 ## Usage
 
@@ -101,7 +101,8 @@ if result.success and result.output.context:
 - `app/agents/content_extraction_agent.py`
 - `app/agents/validation_agent.py`
 - `app/agents/web_search_agent.py`
-- `app/adapters/content/pure_summary_service.py` (retry loop)
+- `app/application/graphs/summarize/` (summarize graph -- nodes + retry loop)
+- `app/application/services/summarization/graph_llm.py` (`summarize_with_instructor`)
 - `app/adapters/content/search_context_builder.py`
 - `app/prompts/search_analysis_en.txt`
 - `app/prompts/search_analysis_ru.txt`

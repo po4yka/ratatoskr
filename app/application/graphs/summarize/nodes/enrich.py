@@ -21,6 +21,12 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     set in the config snapshot. The two-pass call merges only the 8 enrichment
     keys (truthy-only) and never raises -- a failure returns the summary
     unchanged (``enrich_two_pass`` parity).
+
+    GAP 3b: records the enrichment LLM call in ``state['llm_calls']`` so the
+    persist node writes it (persist-everything rule 3). ``call_meta`` is ``None``
+    when ``enrich_two_pass`` raised internally (exception swallowed) -- no row is
+    written in that case to avoid double-counting transport-level failures already
+    persisted by the llm_client adapter.
     """
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
     if config is None or not config.two_pass_enabled:
@@ -29,7 +35,7 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     if not summary:
         return {}
 
-    enriched = await enrich_two_pass(
+    enriched, call_meta = await enrich_two_pass(
         llm_client=deps.llm_client,
         summary=summary,
         content_text=state.get("content_for_summary") or state.get("source_text") or "",
@@ -39,4 +45,27 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         enrichment_max_tokens=config.enrichment_max_tokens,
         correlation_id=state.get("correlation_id"),
     )
-    return {"summary": enriched}
+
+    result: dict[str, Any] = {"summary": enriched}
+
+    # GAP 3b: append enrichment call record when the LLM was actually called.
+    # FIX-5: call_meta is None on non-OK status (enrich_two_pass contract); use
+    # the real status from call_meta rather than a hardcoded "ok" literal.
+    if call_meta is not None:
+        result["llm_calls"] = [
+            {
+                "request_id": state.get("request_id"),
+                "provider": "openrouter",
+                "model": call_meta.get("model"),
+                "tokens_prompt": call_meta.get("tokens_prompt"),
+                "tokens_completion": call_meta.get("tokens_completion"),
+                "cost_usd": call_meta.get("cost_usd"),
+                "latency_ms": call_meta.get("latency_ms"),
+                "status": call_meta.get("status") or "ok",
+                "structured_output_used": False,
+                "structured_output_mode": config.structured_output_mode,
+                "attempt_trigger": "graph_node",
+            }
+        ]
+
+    return result

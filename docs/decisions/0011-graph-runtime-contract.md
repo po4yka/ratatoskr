@@ -1,7 +1,7 @@
 # ADR 0011: Graph runtime contract — state, serialization, failure→lifecycle, observability
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending with [ADR-0001](0001-no-langgraph.md).
+**Status:** Implemented — `SummarizeState` (`state.py`) holds serializable primitives only, `thread_id == correlation_id` and `recursion_limit` are set per-invocation (`graph.py::run_summarize_graph`), and every terminal failure routes to the single lifecycle sink (`lifecycle.py::route_terminal_failure`).
 
 ## Context
 

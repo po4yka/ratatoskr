@@ -1,7 +1,7 @@
 # ADR 0016: Unified retrieval subsystem
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending.
+**Status:** Implemented — the unified retrieval port (`app/application/ports/retrieval.py`) backs the graph `ground` node's scope-filtered top-k lookup.
 
 ## Context
 

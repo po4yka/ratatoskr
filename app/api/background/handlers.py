@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.content.summarization_models import (
-    EnsureSummaryPayloadRequest,
-    PureSummaryRequest,
-)
+from app.adapters.content.summarization_models import PureSummaryRequest
 from app.adapters.content.url_flow_context_builder import get_url_system_prompt
 from app.core.lang import choose_language, detect_language
 from app.core.summary_contract_impl.quality_metadata import infer_source_coverage
@@ -78,10 +75,15 @@ class UrlBackgroundRequestHandler:
             0.5,
             correlation_id=correlation_id,
         )
+        # T9 cutover: the graph is the only summarize path. ``facade.summarize``
+        # runs extraction-skipping summarize + validate + repair + enrich inside the
+        # graph, so the legacy separate ``ensure_summary_payload`` validation stage
+        # collapses into this single call (the VALIDATION progress update below is
+        # retained for UX, the validation work now lives in the graph).
         summary_json = await self._run_stage(
             "summarization",
             correlation_id,
-            lambda: url_processor.pure_summary_service.summarize(
+            lambda: url_processor.summarize(
                 PureSummaryRequest(
                     content_text=content_text,
                     chosen_lang=lang,
@@ -109,26 +111,6 @@ class UrlBackgroundRequestHandler:
             "Validating summary...",
             0.8,
             correlation_id=correlation_id,
-        )
-        summary_json = await self._run_stage(
-            "validation",
-            correlation_id,
-            lambda: url_processor.pure_summary_service.ensure_summary_payload(
-                EnsureSummaryPayloadRequest(
-                    summary=summary_json,
-                    req_id=request_id,
-                    content_text=content_text,
-                    chosen_lang=lang,
-                    correlation_id=correlation_id,
-                    source_coverage=source_coverage,
-                    extraction_quality=metadata.get("extraction_quality")
-                    if isinstance(metadata, dict)
-                    else None,
-                    extraction_confidence=metadata.get("extraction_confidence")
-                    if isinstance(metadata, dict)
-                    else None,
-                )
-            ),
         )
 
         await self._publish_update(
@@ -206,7 +188,7 @@ class ForwardBackgroundRequestHandler:
         summary_json = await self._run_stage(
             "summarization",
             correlation_id,
-            lambda: url_processor.pure_summary_service.summarize(
+            lambda: url_processor.summarize(
                 PureSummaryRequest(
                     content_text=request.get("content_text") or "",
                     chosen_lang=lang,

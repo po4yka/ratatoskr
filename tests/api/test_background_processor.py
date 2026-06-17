@@ -133,11 +133,38 @@ class StubPureSummaryService:
 
 
 class StubURLProcessor:
+    """Stub of the graph URL-flow facade (T9 cutover).
+
+    Exposes ``content_extractor`` (reach-through, still used for the extraction
+    stage) and the facade's content-only ``summarize`` -- the background handler was
+    re-pointed off ``pure_summary_service.summarize`` /
+    ``pure_summary_service.ensure_summary_payload`` onto this single facade call
+    (the graph validates/repairs internally, so the legacy validation stage
+    collapses here). ``pure_summary_service`` is retained so the stub mirrors the
+    legacy collaborator bag.
+    """
+
     def __init__(self, extractor: StubExtractor, summarizer: StubPureSummaryService) -> None:
         self.content_extractor = extractor
         self.pure_summary_service = summarizer
         self.summarization_runtime = MagicMock(openrouter=summarizer.openrouter)
         self.response_formatter = object()
+
+    async def summarize(self, request: Any) -> Any:
+        """Drive the (stub) summarize + collapse the legacy validation/metadata step.
+
+        Mirrors the real ``GraphURLProcessor.summarize``: run the summarize, then
+        apply the request quality metadata the graph nodes do not set (what the
+        legacy ``ensure_summary_payload`` validation stage produced).
+        """
+        summary = await self.pure_summary_service.summarize(request)
+        if isinstance(summary, dict) and summary:
+            summary = dict(summary)
+            summary["summary_quality"] = {
+                "source_coverage": getattr(request, "source_coverage", None) or "unknown",
+                "extraction_confidence": getattr(request, "extraction_confidence", None),
+            }
+        return summary
 
 
 @pytest.mark.integration

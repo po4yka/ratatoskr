@@ -893,7 +893,7 @@ grep "<correlation_id>" /var/log/ratatoskr/app.log
 python -m app.cli.summary --url <URL> --log-level DEBUG
 ```
 
-**Likely owners**: `app/adapters/content/url_processor.py`, `app/adapters/content/platform_extraction/lifecycle.py`, `app/adapters/content/streaming/`, and `app/db/models/core.py::RequestProcessingJob`.
+**Likely owners**: the `app/adapters/content/graph_url_processor.py` facade and the summarize graph (`app/application/graphs/summarize/` -- especially the `ingest`/`extract`/`persist`/`notify` nodes and `lifecycle.py`), `app/adapters/content/platform_extraction/lifecycle.py`, `app/adapters/content/streaming/`, and `app/db/models/core.py::RequestProcessingJob`.
 
 ### Sync Conflicts
 

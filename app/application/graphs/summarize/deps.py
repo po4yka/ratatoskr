@@ -17,13 +17,21 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from app.application.ports.extraction import ExtractionPort
     from app.application.ports.llm_client import LLMClientProtocol
-    from app.application.ports.requests import LLMRepositoryPort, RequestRepositoryPort
+    from app.application.ports.requests import (
+        CrawlResultRepositoryPort,
+        LLMRepositoryPort,
+        RequestRepositoryPort,
+    )
     from app.application.ports.retrieval import RetrievalPort
     from app.application.ports.stream_sink import StreamSinkPort
     from app.application.ports.summaries import SummaryRepositoryPort
     from app.application.ports.summary_index import SummaryIndexPort
+    from app.application.ports.summary_cache import SummaryCachePort
+    from app.core.content_classifier import ContentTier
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +56,10 @@ class SummarizeConfig:
     sticky_fallback_enabled: bool = True
     two_pass_enabled: bool = False
     enrichment_max_tokens: int = 4096
+    # GAP 1: content-aware tier routing. When True, build_prompt calls
+    # deps.model_router to pick a per-tier model after long-context routing.
+    # Sourced from cfg.model_routing.enabled at the composition root (rule 11).
+    routing_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,3 +86,20 @@ class SummarizeDeps:
     # deps (unit tests) yields the conservative path (dynamic budget, base model,
     # no two-pass); production always supplies it.
     config: SummarizeConfig | None = None
+    # GAP 1: content-aware tier routing. Injected from the composition root as a
+    # lambda that binds has_images=False and keyword args:
+    #   lambda tier, n: resolve_model_for_content(
+    #       tier=tier, content_length=n, has_images=False,
+    #       routing_config=cfg.model_routing, openrouter_config=cfg.openrouter,
+    #   )
+    # resolve_model_for_content is fully keyword-only; a positional partial would
+    # TypeError. Optional -- None means tier routing is disabled (conservative path:
+    # use long-context override or the llm_client's configured base model).
+    # Signature: (tier: ContentTier, content_length: int) -> str | None
+    model_router: Callable[[ContentTier, int], str | None] | None = None
+    # GAP 2: Redis LLM summary cache port. Optional -- None means caching is
+    # disabled (the node skips lookup + write). Wired at the composition root.
+    summary_cache: SummaryCachePort | None = None
+    # GAP 4: crawl-result port for metadata backfill in persist. Optional --
+    # None means metadata backfill is skipped (conservative path).
+    crawl_repo: CrawlResultRepositoryPort | None = None

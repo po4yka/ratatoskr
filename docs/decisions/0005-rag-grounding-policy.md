@@ -1,7 +1,7 @@
 # ADR 0005: RAG grounding policy for summarization
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending with [ADR-0001](0001-no-langgraph.md).
+**Status:** Implemented — the `ground` node ships in `app/application/graphs/summarize/nodes/ground.py` behind `SUMMARIZE_RAG_ENABLED` (default off); the anti-contamination "related prior summaries (reference only)" block is injected via the unified retrieval port.
 
 ## Context
 

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from app.application.dto.vector_search import RetrievalScope
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.services.summarization.metadata_backfill import backfill_summary_metadata
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -34,11 +35,39 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     reconciler; the summary row is the source of truth and completion is never
     blocked. Not gated by ``SUMMARIZE_RAG_ENABLED`` -- every persisted summary
     should be queryable (search/MCP/grounding), independent of RAG grounding.
+
+    GAP 4 (metadata backfill): when ``deps.crawl_repo`` is set, calls
+    :func:`~app.application.services.summarization.metadata_backfill.backfill_summary_metadata`
+    best-effort before writing the summary row, so ``canonical_url`` / ``domain`` /
+    ``title`` / ``author`` / date fields from the crawl result and request URL are
+    populated. The LLM-completion and RAG-enrichment sub-steps are deferred (see
+    metadata_backfill module docstring).
     """
     summary = state.get("summary") or {}
     request_id = state.get("request_id")
     if not summary or request_id is None:
         return {}
+
+    # GAP 4: backfill missing metadata from crawl/request before persisting.
+    if deps.crawl_repo is not None:
+        try:
+            summary = await backfill_summary_metadata(
+                summary,
+                request_id=request_id,
+                content_text=state.get("content_for_summary") or state.get("source_text") or "",
+                correlation_id=state.get("correlation_id"),
+                request_repo=deps.requests,
+                crawl_repo=deps.crawl_repo,
+            )
+        except Exception:
+            logger.warning(
+                "graph_persist_metadata_backfill_failed",
+                extra={
+                    "correlation_id": state.get("correlation_id"),
+                    "request_id": request_id,
+                },
+                exc_info=True,
+            )
 
     lang = state.get("lang") or "en"
     insights = summary.get("insights") if isinstance(summary.get("insights"), dict) else None

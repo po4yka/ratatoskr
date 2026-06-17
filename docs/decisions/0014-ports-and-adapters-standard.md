@@ -1,7 +1,7 @@
 # ADR 0014: Ports-and-adapters as the enforced project standard
 
 **Date:** 2026-06-15
-**Status:** Accepted — refactor pending.
+**Status:** Implemented for the summarize graph — graph nodes reach external systems only through `app/application/ports/` (retrieval, extraction, llm_client, stream_sink, requests, summaries, …). Project-wide port adoption beyond the summarize path remains ongoing.
 
 ## Context
 

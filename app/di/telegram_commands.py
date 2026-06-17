@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
 
-    from app.adapters.content.url_processor import URLProcessor
+    from app.adapters.content.graph_url_processor import GraphURLProcessor as URLProcessor
     from app.adapters.digest.digest_service import DigestService
     from app.adapters.git_backup.repository import GitMirrorRepository
     from app.adapters.telegram.command_handlers.execution_context import CommandExecutionContext

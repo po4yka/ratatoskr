@@ -158,17 +158,6 @@ class RuntimeConfig(BaseModel):
     summary_two_pass_enabled: bool = Field(
         default=False, validation_alias="SUMMARY_TWO_PASS_ENABLED"
     )
-    summarize_graph_enabled: bool = Field(
-        default=False,
-        validation_alias="SUMMARIZE_GRAPH_ENABLED",
-        description=(
-            "Route summarization through the LangGraph StateGraph "
-            "(app.application.graphs.summarize) instead of the legacy "
-            "url_processor path (ADR-0010/0011/0013). TRANSITIONAL: exists only "
-            "to run both paths for parity comparison; removed at the T9 hard "
-            "cutover (no flag outlives its migration, ADR-0018). Default off."
-        ),
-    )
     summarize_rag_enabled: bool = Field(
         default=False,
         validation_alias="SUMMARIZE_RAG_ENABLED",
@@ -178,7 +167,7 @@ class RuntimeConfig(BaseModel):
             "'related prior summaries (reference only)' block into the system prompt "
             "(ADR-0005/0012/0016). TRANSITIONAL/opt-in: default off; REMOVE at the T6 "
             "cutover once grounding is the default (no flag outlives its migration, "
-            "ADR-0018). Independent of SUMMARIZE_GRAPH_ENABLED."
+            "ADR-0018)."
         ),
     )
     rag_top_k: int = Field(

@@ -60,6 +60,10 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
     model selection from ``ratatoskr.yaml`` (no code default, rule 11). Model
     routing's long-context model is preferred when routing is enabled, else the
     openrouter long-context model -- mirroring ``pure_summary_service``.
+
+    GAP 1: ``routing_enabled`` is sourced from ``cfg.model_routing.enabled`` so
+    nodes never import ``app.config``. The actual resolver (``deps.model_router``)
+    is wired in :func:`build_summarize_deps` via ``functools.partial``.
     """
     from app.application.graphs.summarize.deps import SummarizeConfig
 
@@ -81,6 +85,7 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
         summarization_max_retries=int(getattr(runtime, "summarization_max_retries", 3)),
         sticky_fallback_enabled=bool(getattr(runtime, "llm_sticky_failure_force_fallback", True)),
         two_pass_enabled=bool(getattr(runtime, "summary_two_pass_enabled", False)),
+        routing_enabled=bool(routing.enabled),
     )
 
 
@@ -97,12 +102,25 @@ def build_summarize_deps(
     config: SummarizeConfig | None = None,
     rag_enabled: bool = False,
     rag_top_k: int = 5,
+    model_router: Any | None = None,
+    summary_cache: Any | None = None,
+    crawl_repo: Any | None = None,
 ) -> SummarizeDeps:
     """Pack already-constructed ports + config snapshot into the node dependency bundle.
 
     ``config`` / ``rag_enabled`` / ``rag_top_k`` come from ``AppConfig`` at this
     composition root so the nodes never import ``app.config``
     (application-no-outward).
+
+    GAP 1: ``model_router`` is a ``functools.partial`` of
+    ``resolve_model_for_content`` pre-bound with ``routing_config`` and
+    ``openrouter_config``; signature ``(tier, content_length) -> str``.
+
+    GAP 2: ``summary_cache`` is a :class:`SummaryCachePort` adapter wrapping
+    ``LLMSummaryCache``; wired here so nodes never import adapters.
+
+    GAP 4: ``crawl_repo`` is a :class:`~app.application.ports.requests.CrawlResultRepositoryPort`
+    used by the persist node to backfill missing metadata fields from the scrape result.
     """
     return SummarizeDeps(
         llm_client=llm_client,
@@ -116,6 +134,9 @@ def build_summarize_deps(
         config=config,
         rag_enabled=rag_enabled,
         rag_top_k=rag_top_k,
+        model_router=model_router,
+        summary_cache=summary_cache,
+        crawl_repo=crawl_repo,
     )
 
 
@@ -147,6 +168,123 @@ def build_stream_sink(*, hub: Any | None = None) -> StreamSinkPort:
     from app.adapters.content.streaming.stream_sink_hub import StreamHubStreamSink
 
     return StreamHubStreamSink(hub=hub)
+
+
+def build_model_router(cfg: AppConfig) -> Any:
+    """Build the content-aware tier router for ``SummarizeDeps.model_router`` (FIX-1).
+
+    A ``lambda (tier, content_length) -> str`` binding ``has_images=False`` and the
+    routing/openrouter config. NOT ``functools.partial`` --
+    ``resolve_model_for_content`` is keyword-only, so a positional partial would
+    ``TypeError``. Returns ``None`` when routing is disabled so the conservative
+    path (long-context override / base model) is taken.
+    """
+    if not cfg.model_routing.enabled:
+        return None
+    from app.core.model_router import resolve_model_for_content
+
+    def _route(tier: Any, content_length: int) -> str:
+        return resolve_model_for_content(
+            tier=tier,
+            content_length=content_length,
+            has_images=False,
+            routing_config=cfg.model_routing,
+            openrouter_config=cfg.openrouter,
+        )
+
+    return _route
+
+
+def build_summary_cache_adapter(cfg: AppConfig, *, cache: Any | None = None) -> Any:
+    """Build the Redis-backed summary cache port for ``SummarizeDeps`` (FIX-2).
+
+    TTL is sourced from ``cfg.redis.llm_ttl_seconds`` (not hardcoded) and the
+    prompt_version from ``cfg.runtime.summary_prompt_version`` -- the same values
+    the legacy ``LLMSummaryCache`` uses, so cache entries are reusable across paths.
+    """
+    from app.adapters.content.summary_cache_adapter import SummaryCacheAdapter
+
+    if cache is None:
+        from app.infrastructure.cache.redis_cache import RedisCache
+
+        cache = RedisCache(cfg)
+    return SummaryCacheAdapter(
+        cache=cache,
+        prompt_version=cfg.runtime.summary_prompt_version,
+        ttl_seconds=int(getattr(cfg.redis, "llm_ttl_seconds", 7_200)),
+    )
+
+
+def build_graph_url_processor(
+    *,
+    cfg: AppConfig,
+    db: Any,
+    graph: Any,
+    deps: SummarizeDeps,
+    cached_summary_responder: Any,
+    post_summary_tasks: Any,
+    summary_delivery: Any,
+    response_formatter: Any,
+    request_repo: RequestRepositoryPort,
+    message_persistence: Any | None = None,
+    hub_factory: Any | None = None,
+    content_extractor: Any | None = None,
+    summary_repo: Any | None = None,
+    audit_func: Any | None = None,
+    summarization_runtime: Any | None = None,
+) -> Any:
+    """Compose the graph-backed URL-flow facade (T9 cutover seam, ADR-0013).
+
+    The graph + deps must already be built (``deps`` carries the FIX-1/2/4
+    model_router / summary_cache / crawl_repo wired via :func:`build_summarize_deps`).
+    ``hub_factory`` defaults to the process-wide StreamHub so interactive runs get a
+    live stream sink.
+
+    ``message_persistence`` is the persistence facade the facade uses to create the
+    request row AND write the ``telegram_messages`` snapshot + User/Chat upserts
+    (persist-everything; the request row's owner ``user_id`` backs the IDOR filter).
+    It defaults to a fresh ``MessagePersistence(db)`` -- the same collaborator the
+    legacy ``PlatformRequestLifecycle`` used -- so re-pointing callers stays a DI swap.
+
+    ``content_extractor`` / ``summary_repo`` / ``audit_func`` are the reach-through
+    collaborators exposed on the facade so the extraction/persistence consumers
+    (forward, aggregation, MCP, url_handler, api background extract) keep working when
+    DI returns the facade -- they are NOT a summarize path (``handle_url_flow`` /
+    ``summarize`` always drive the graph). ``summarization_runtime`` is retained only
+    so the bot's shutdown drain (``aclose``) reaches the shared follow-up runtime.
+    """
+    from app.adapters.content.graph_url_processor import GraphURLProcessor
+
+    if message_persistence is None:
+        from app.infrastructure.persistence.message_persistence import MessagePersistence
+
+        message_persistence = MessagePersistence(db)
+
+    def _stream_sink_factory() -> StreamSinkPort:
+        if hub_factory is not None:
+            return build_stream_sink(hub=hub_factory())
+        from app.adapters.content.streaming import get_stream_hub
+
+        return build_stream_sink(hub=get_stream_hub())
+
+    return GraphURLProcessor(
+        cfg=cfg,
+        db=db,
+        graph=graph,
+        deps=deps,
+        stream_sink_factory=_stream_sink_factory,
+        streamed_runner=run_summarize_graph_streamed,
+        cached_summary_responder=cached_summary_responder,
+        post_summary_tasks=post_summary_tasks,
+        summary_delivery=summary_delivery,
+        response_formatter=response_formatter,
+        request_repo=request_repo,
+        message_persistence=message_persistence,
+        content_extractor=content_extractor,
+        summary_repo=summary_repo,
+        audit_func=audit_func,
+        summarization_runtime=summarization_runtime,
+    )
 
 
 async def run_summarize_graph_streamed(
@@ -227,3 +365,128 @@ def _final_state_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
         return None
     output = event.get("data", {}).get("output")
     return output if isinstance(output, dict) else None
+
+
+def assemble_graph_url_processor(
+    *,
+    cfg: AppConfig,
+    db: Any,
+    content_extractor: Any,
+    cached_summary_responder: Any,
+    summary_delivery: Any,
+    post_summary_tasks: Any,
+    response_formatter: Any,
+    audit_func: Any,
+    summarization_runtime: Any,
+    llm_client: LLMClientProtocol,
+    request_repo: RequestRepositoryPort,
+    summary_repo: SummaryRepositoryPort,
+    crawl_result_repo: Any,
+    llm_repo: LLMRepositoryPort,
+    vector_store: Any | None = None,
+    embedding_service: Any | None = None,
+    redis_cache: Any | None = None,
+) -> Any:
+    """Assemble the full summarize graph + the graph-backed URL-flow facade (T9 cutover).
+
+    This is the single production seam that makes the graph the ONLY summarize path.
+    The facade's reach-through collaborators (``content_extractor`` -- wrapped by the
+    extraction port -- ``cached_summary_responder``, ``post_summary_tasks``,
+    ``summary_delivery``, ``response_formatter``, ``audit_func``) are constructed by
+    :func:`app.di.shared.build_url_processor` and passed straight through; the
+    returned facade drives the graph for every summarize. ``summarization_runtime`` is
+    retained on the facade only so the bot's shutdown drain (``aclose``) reaches the
+    shared follow-up runtime; it is NOT a summarize path.
+
+    ``vector_store`` / ``embedding_service`` back the unified retrieval port (ground
+    node) and the read-your-writes summary index (persist node, ADR-0012); both
+    tolerate ``None`` (ground is RAG-gated off by default; the index write is
+    best-effort and the reconciler backfills).
+    """
+    from app.di.extraction import build_extraction_port
+
+    extraction = build_extraction_port(
+        content_extractor=content_extractor,
+        request_repo=request_repo,
+    )
+    summary_index = build_summary_index_adapter(
+        vector_store=vector_store,
+        embedding_service=embedding_service,
+    )
+    retrieval = _build_retrieval_port_or_stub(
+        vector_store=vector_store,
+        embedding_service=embedding_service,
+        db=db,
+    )
+    deps = build_summarize_deps(
+        llm_client=llm_client,
+        retrieval=retrieval,
+        extraction=extraction,
+        stream_sink=build_stream_sink(),
+        summaries=summary_repo,
+        requests=request_repo,
+        summary_index=summary_index,
+        llm_repo=llm_repo,
+        config=build_summarize_config(cfg),
+        rag_enabled=bool(getattr(cfg.runtime, "summarize_rag_enabled", False)),
+        rag_top_k=int(getattr(cfg.runtime, "rag_top_k", 5)),
+        model_router=build_model_router(cfg),
+        summary_cache=build_summary_cache_adapter(cfg, cache=redis_cache),
+        crawl_repo=crawl_result_repo,
+    )
+    graph = build_summarize_graph_app(deps=deps)
+    return build_graph_url_processor(
+        cfg=cfg,
+        db=db,
+        graph=graph,
+        deps=deps,
+        cached_summary_responder=cached_summary_responder,
+        post_summary_tasks=post_summary_tasks,
+        summary_delivery=summary_delivery,
+        response_formatter=response_formatter,
+        request_repo=request_repo,
+        content_extractor=content_extractor,
+        summary_repo=summary_repo,
+        audit_func=audit_func,
+        summarization_runtime=summarization_runtime,
+    )
+
+
+def _build_retrieval_port_or_stub(
+    *, vector_store: Any | None, embedding_service: Any | None, db: Any
+) -> RetrievalPort:
+    """Build the unified retrieval port, falling back to a no-op when vectors are absent.
+
+    The ``ground`` node only queries retrieval when RAG is enabled (off by default),
+    so a missing vector store must not abort construction. When the store/embedding
+    pair is present we wire the real Qdrant adapter; otherwise an empty-result stub
+    keeps the port contract satisfied.
+    """
+    if vector_store is not None and embedding_service is not None:
+        from app.di.retrieval import build_retrieval_adapter
+
+        return build_retrieval_adapter(
+            vector_store=vector_store,
+            embedding_service=embedding_service,
+            db=db,
+        )
+    return _NullRetrievalPort()
+
+
+class _NullRetrievalPort:
+    """No-op :class:`RetrievalPort`: returns no hits (used when vectors are unavailable).
+
+    The ``ground`` node only calls ``retrieve`` when RAG is enabled; this stub keeps
+    the port contract satisfiable so graph construction never depends on a live
+    vector store. Signature matches the keyword-only ``RetrievalPort.retrieve``.
+    """
+
+    async def retrieve(self, **_kwargs: Any) -> Any:
+        from app.application.dto.vector_search import RetrievalResult
+
+        return RetrievalResult(hits=[], total=0)
+
+    async def find_similar(self, **_kwargs: Any) -> Any:
+        from app.application.dto.vector_search import RetrievalResult
+
+        return RetrievalResult(hits=[], total=0)

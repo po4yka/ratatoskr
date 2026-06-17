@@ -1,7 +1,7 @@
 # ADR 0018: Refactor strategy & invariants
 
 **Date:** 2026-06-15
-**Status:** Accepted.
+**Status:** Implemented — the strangler-fig refactor completed at the T9 cutover (see [ADR-0013](0013-graph-rollout-legacy-migration.md)); the invariants recorded here remain in force.
 
 ## Context
 

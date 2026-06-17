@@ -128,6 +128,8 @@ async def build_api_runtime(
         audit_func=core.audit_sink,
         sem=core.semaphore_factory,
         topic_search=search.topic_searcher if app_cfg.web_search.enabled else None,
+        vector_store=search.vector_store,
+        embedding_service=search.embedding_service,
     )
 
     def url_processor_factory(runtime_db: Any) -> Any:
@@ -140,6 +142,8 @@ async def build_api_runtime(
             audit_func=core.audit_sink,
             sem=core.semaphore_factory,
             topic_search=search.topic_searcher if app_cfg.web_search.enabled else None,
+            vector_store=search.vector_store,
+            embedding_service=search.embedding_service,
         )
 
     user_repository = build_user_repository(database)

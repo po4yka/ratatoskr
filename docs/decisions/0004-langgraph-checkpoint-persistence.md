@@ -1,7 +1,7 @@
 # ADR 0004: LangGraph checkpoint persistence — psycopg3 pool alongside asyncpg
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending with [ADR-0001](0001-no-langgraph.md).
+**Status:** Implemented — the psycopg3 checkpoint pool ships in `app/infrastructure/checkpointing/` and the summarize graph compiles with the checkpointer (`app/application/graphs/summarize/graph.py`).
 
 ## Context
 

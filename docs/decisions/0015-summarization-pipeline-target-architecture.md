@@ -1,7 +1,7 @@
 # ADR 0015: Summarization pipeline target architecture
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending. Supersedes the scope of [ADR-0001](0001-no-langgraph.md).
+**Status:** Implemented — the end-state node graph (ingest → extract → ground → build_prompt → summarize → validate → repair → enrich → persist → notify) ships in `app/application/graphs/summarize/nodes/`; the extraction port collapses the scraper-chain / YouTube / Twitter / academic / GitHub bypasses behind one seam. Supersedes the scope of [ADR-0001](0001-no-langgraph.md).
 
 ## Context
 

@@ -5,11 +5,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.adapters.content.content_extractor import ContentExtractor, FirecrawlResult
-from app.adapters.content.interactive_summary_service import InteractiveSummaryService
-from app.adapters.content.pure_summary_service import PureSummaryService
-from app.adapters.content.summarization_models import InteractiveSummaryRequest
-from app.adapters.content.summarization_runtime import SummarizationRuntime
-from app.adapters.content.summary_request_factory import SummaryRequestFactory
 from app.infrastructure.cache.redis_cache import RedisCache
 
 
@@ -69,16 +64,6 @@ def _dummy_cfg() -> SimpleNamespace:
         model_routing=model_routing_cfg,
         attachment=attachment_cfg,
     )
-
-
-def _runtime_repo_kwargs() -> dict[str, AsyncMock]:
-    return {
-        "summary_repo": AsyncMock(),
-        "request_repo": AsyncMock(),
-        "crawl_result_repo": AsyncMock(),
-        "llm_repo": AsyncMock(),
-        "user_repo": AsyncMock(),
-    }
 
 
 @pytest.mark.asyncio
@@ -164,76 +149,3 @@ async def test_content_extractor_uses_cached_crawl(monkeypatch):
     assert result == ("cached text", "markdown", "Cached Title", [])
     response_formatter.send_firecrawl_start_notification.assert_not_awaited()
     response_formatter.send_content_reuse_notification.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_interactive_summary_service_uses_cached_summary(monkeypatch):
-    cfg = _dummy_cfg()
-
-    openrouter = SimpleNamespace()
-    db = SimpleNamespace(
-        async_upsert_summary=AsyncMock(),
-        async_update_request_status=AsyncMock(),
-        async_execute_transaction=AsyncMock(),
-    )
-    response_formatter = SimpleNamespace(
-        send_llm_start_notification=AsyncMock(),
-        send_llm_completion_notification=AsyncMock(),
-        send_error_notification=AsyncMock(),
-        send_cached_summary_notification=AsyncMock(),
-    )
-
-    runtime = SummarizationRuntime(
-        cfg=cfg,
-        db=db,
-        openrouter=openrouter,
-        response_formatter=response_formatter,
-        audit_func=lambda *args, **kwargs: None,
-        sem=lambda: asyncio.Semaphore(1),
-        **_runtime_repo_kwargs(),
-    )
-    pure_service = PureSummaryService(runtime=runtime)
-    request_factory = SummaryRequestFactory(
-        runtime=runtime,
-        select_max_tokens=pure_service.select_max_tokens,
-    )
-    service = InteractiveSummaryService(
-        runtime=runtime,
-        request_factory=request_factory,
-        pure_summary_service=pure_service,
-    )
-
-    cached_summary = {
-        "summary_250": "short",
-        "summary_1000": "long form",
-        "tldr": "tl;dr",
-        "topic_tags": [],
-    }
-
-    runtime.cache_helper.get_cached_summary = AsyncMock(return_value=cached_summary)
-    runtime.cache_helper.write_summary_cache = AsyncMock()
-
-    async def _finalize_success(*args, **kwargs):
-        return cached_summary
-
-    runtime.workflow.finalize_success = _finalize_success
-
-    result = await service.summarize(
-        InteractiveSummaryRequest(
-            message=None,
-            content_text="hello world",
-            chosen_lang="en",
-            system_prompt="prompt",
-            req_id=1,
-            max_chars=100,
-            url_hash="hash",
-            correlation_id=None,
-            interaction_id=None,
-            silent=True,
-        )
-    )
-
-    assert result.summary == cached_summary
-    assert result.served_from_cache is True
-    response_formatter.send_llm_start_notification.assert_not_called()
-    response_formatter.send_cached_summary_notification.assert_not_awaited()

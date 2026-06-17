@@ -31,6 +31,12 @@ async def build_prompt(state: SummarizeState, *, deps: SummarizeDeps) -> dict[st
     When there is no extracted content (e.g. extract no-op'd), this preserves the
     T6 grounding-only seam exactly: empty block -> ``{}`` (byte-identical to the
     no-RAG path); a block alone -> concatenated onto any existing system prompt.
+
+    GAP 1 (content-aware tier routing): after long-context routing, when
+    ``config.routing_enabled`` is True and ``deps.model_router`` is set, classifies
+    the content tier via ``classify_content`` (app.core -- legal from this layer) and
+    resolves a tier-specific model override. Mirrors legacy
+    ``PureSummaryService.summarize`` lines 87-98 exactly.
     """
     source_text = (state.get("source_text") or "").strip()
     block = (state.get("grounding_block") or "").strip()
@@ -46,6 +52,19 @@ async def build_prompt(state: SummarizeState, *, deps: SummarizeDeps) -> dict[st
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
 
     content_for_summary, model_override = prepare_content_for_summary(source_text, config=config)
+
+    # GAP 1: content-aware tier routing (lower priority than long-context).
+    # Mirrors pure_summary_service.py:87-98 verbatim.
+    if (
+        model_override is None
+        and config is not None
+        and config.routing_enabled
+        and deps.model_router is not None
+    ):
+        from app.core.content_classifier import classify_content
+
+        tier = classify_content(content_for_summary)
+        model_override = deps.model_router(tier, len(content_for_summary))
 
     system_prompt = load_instructor_system_prompt(lang)
     if block:

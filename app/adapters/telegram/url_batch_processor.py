@@ -281,7 +281,7 @@ class URLBatchProcessor:
         if not summary:
             return False
 
-        from app.adapters.content.url_processor import URLProcessingFlowResult
+        from app.adapters.content.url_flow_models import URLProcessingFlowResult
 
         payload = summary.get("json_payload")
         if isinstance(payload, str):

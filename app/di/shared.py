@@ -195,10 +195,34 @@ def build_url_processor(
     llm_repo: Any | None = None,
     user_repo: Any | None = None,
     related_reads_service: RelatedReadsService | None = None,
+    vector_store: Any | None = None,
+    embedding_service: Any | None = None,
+    redis_cache: Any | None = None,
 ) -> Any:
-    """Build the shared URL processor graph for Telegram, API, and CLI runtimes."""
-    from app.adapters.content.url_processor import URLProcessor
-    from app.adapters.telegram.summary_draft_streaming import SummaryDraftStreamCoordinator
+    """Build the graph-backed URL-flow facade for Telegram, API, and CLI runtimes.
+
+    T9 cutover: the graph is the ONLY summarize path. This constructs the facade's
+    reach-through collaborators directly -- ``content_extractor`` (the extraction
+    port wraps it), ``cached_summary_responder``, ``summary_delivery`` and
+    ``post_summary_tasks`` -- and returns a ``GraphURLProcessor`` whose
+    ``handle_url_flow`` / ``summarize`` drive the summarize graph. No legacy
+    ``URLProcessor`` is built: the summarize-core (pure/interactive summary services)
+    was deleted at the cutover; the graph nodes own extraction->notify.
+
+    ``post_summary_tasks`` needs the article/insights generators, sourced from a
+    ``SummarizationRuntime`` (NOT a summarize path here -- it is shared with the
+    forward-message follow-up path; only its two follow-up generators are used).
+
+    ``vector_store`` / ``embedding_service`` back the graph's retrieval (ground) and
+    read-your-writes index (persist) seams; both tolerate ``None`` (RAG off by
+    default; the index write is best-effort, reconciler backfills).
+    """
+    from app.adapters.content.cached_summary_responder import CachedSummaryResponder
+    from app.adapters.content.content_extractor import ContentExtractor
+    from app.adapters.content.summarization_runtime import SummarizationRuntime
+    from app.adapters.content.url_post_summary_task_service import URLPostSummaryTaskService
+    from app.adapters.content.url_summary_delivery_service import URLSummaryDeliveryService
+    from app.di.graphs import assemble_graph_url_processor
 
     request_repository = request_repo or build_request_repository(db)
     summary_repository = summary_repo or build_summary_repository(db)
@@ -206,23 +230,14 @@ def build_url_processor(
     llm_repository = llm_repo or build_llm_repository(db)
     user_repository = user_repo or build_user_repository(db)
 
-    return URLProcessor(
+    content_extractor = ContentExtractor(
         cfg=cfg,
         db=db,
         firecrawl=firecrawl,
-        openrouter=openrouter,
         response_formatter=response_formatter,
         audit_func=audit_func,
         sem=sem,
-        topic_search=topic_search,
-        db_write_queue=db_write_queue,
-        request_repo=request_repository,
-        summary_repo=summary_repository,
-        crawl_result_repo=crawl_repository,
-        llm_repo=llm_repository,
-        user_repo=user_repository,
-        related_reads_service=related_reads_service,
-        stream_coordinator_factory=SummaryDraftStreamCoordinator,
+        quality_llm_client=openrouter,
         platform_router=build_registered_platform_router(
             cfg=cfg,
             db=db,
@@ -232,6 +247,67 @@ def build_url_processor(
             sem=sem,
             quality_llm_client=openrouter,
         ),
+    )
+    cached_summary_responder = CachedSummaryResponder(
+        cfg=cfg,
+        db=db,
+        response_formatter=response_formatter,
+        request_repo=request_repository,
+        summary_repo=summary_repository,
+    )
+    summary_delivery = URLSummaryDeliveryService(
+        cfg=cfg,
+        db=db,
+        response_formatter=response_formatter,
+        summary_repo=summary_repository,
+        audit_func=audit_func,
+        request_repo=request_repository,
+    )
+    # The follow-up generators (article + insights) are sourced from a
+    # SummarizationRuntime, which is shared with the forward-message follow-up path
+    # (NOT a summarize path: handle_url_flow / summarize always drive the graph).
+    summarization_runtime = SummarizationRuntime(
+        cfg=cfg,
+        db=db,
+        openrouter=openrouter,
+        response_formatter=response_formatter,
+        audit_func=audit_func,
+        sem=sem,
+        topic_search=topic_search,
+        db_write_queue=db_write_queue,
+        summary_repo=summary_repository,
+        request_repo=request_repository,
+        crawl_result_repo=crawl_repository,
+        llm_repo=llm_repository,
+        user_repo=user_repository,
+    )
+    post_summary_tasks = URLPostSummaryTaskService(
+        response_formatter=response_formatter,
+        summary_repo=summary_repository,
+        article_generator=summarization_runtime.article_generator,
+        insights_generator=summarization_runtime.insights_generator,
+        summary_delivery=summary_delivery,
+        related_reads_service=related_reads_service,
+    )
+
+    return assemble_graph_url_processor(
+        cfg=cfg,
+        db=db,
+        content_extractor=content_extractor,
+        cached_summary_responder=cached_summary_responder,
+        summary_delivery=summary_delivery,
+        post_summary_tasks=post_summary_tasks,
+        response_formatter=response_formatter,
+        audit_func=audit_func,
+        summarization_runtime=summarization_runtime,
+        llm_client=openrouter,
+        request_repo=request_repository,
+        summary_repo=summary_repository,
+        crawl_result_repo=crawl_repository,
+        llm_repo=llm_repository,
+        vector_store=vector_store,
+        embedding_service=embedding_service,
+        redis_cache=redis_cache,
     )
 
 

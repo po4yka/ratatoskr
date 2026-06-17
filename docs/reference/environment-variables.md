@@ -892,7 +892,7 @@ Optional retrieval-augmented grounding in the summarize graph's `ground` node (A
 
 | Variable | Type | Default | Purpose |
 |---|---|---|---|
-| `SUMMARIZE_RAG_ENABLED` | bool | `false` | Master switch for RAG grounding in the `ground` node. Default off — when off the node is a no-op and summarize output is byte-identical to the non-RAG path. Independent of `SUMMARIZE_GRAPH_ENABLED`. **REMOVAL TRIGGER:** delete at the T6 cutover once grounding is the default (no flag outlives its migration, ADR-0018). |
+| `SUMMARIZE_RAG_ENABLED` | bool | `false` | Master switch for RAG grounding in the `ground` node. Default off — when off the node is a no-op and summarize output is byte-identical to the non-RAG path. **REMOVAL TRIGGER:** delete at the T6 cutover once grounding is the default (no flag outlives its migration, ADR-0018). |
 | `RAG_TOP_K` | int (≥1) | `5` | Number of prior summaries the `ground` node retrieves when `SUMMARIZE_RAG_ENABLED` is on. **REMOVAL TRIGGER:** retire alongside `SUMMARIZE_RAG_ENABLED` at the T6 cutover. |
 
 ---

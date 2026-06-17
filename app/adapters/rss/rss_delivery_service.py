@@ -14,7 +14,6 @@ from app.core.logging_utils import get_logger
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from app.adapters.content.pure_summary_service import PureSummaryService
     from app.adapters.content.scraper.chain import ContentScraperChain
     from app.config.rss import RSSConfig
     from app.infrastructure.persistence.repositories.rss_feed_repository import (
@@ -69,7 +68,7 @@ class RSSDeliveryService:
         self,
         *,
         cfg: RSSConfig,
-        pure_summary_service: PureSummaryService,
+        pure_summary_service: Any,
         system_prompt_loader: Callable[[str], str],
         rss_repository: RSSFeedRepositoryAdapter,
         scraper_chain: ContentScraperChain | None = None,

@@ -1,7 +1,7 @@
 # ADR 0013: Graph cutover & legacy summarize-path removal
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending with [ADR-0001](0001-no-langgraph.md).
+**Status:** Implemented (T9 cutover) — the graph is the sole summarize path; the legacy `url_processor` / `pure_summary_service` / `interactive_summary_service` files and the transitional `SUMMARIZE_GRAPH_ENABLED` flag are deleted.
 
 ## Context
 

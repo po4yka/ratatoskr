@@ -74,6 +74,15 @@ source_modules =
     app.application
 forbidden_modules =
     app.adapters.content.extraction_adapter
+# T9 cutover (ADR-0013): the graph URL-flow facade is wired through
+# app.di.shared.build_url_processor -> app.di.graphs.assemble_graph_url_processor
+# -> app.di.extraction.build_extraction_port, and api/tasks import app.di.shared
+# for the shared builders. The SANCTIONED composition-root edge
+# (app.di.extraction -> the concrete adapter) is whitelisted here so the
+# transitive api/tasks -> app.di.* chain stays green; the contract still forbids
+# any DIRECT api / tasks / application import of the concrete adapter.
+ignore_imports =
+    app.di.extraction -> app.adapters.content.extraction_adapter
 
 [importlinter:contract:layered-architecture]
 name = layered architecture (combined adapters+infrastructure tier)

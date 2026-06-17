@@ -273,17 +273,25 @@ class SummaryOutput(BaseModel):
 
 ### 4. Self-Correction Loop
 
-**Location:** `app/adapters/content/pure_summary_service.py` (`_summarize_with_instructor`)
+**Location:** the summarize graph's `validate ↺ repair` cycle
+(`app/application/graphs/summarize/nodes/validate.py` + `repair.py`), backed by
+`app/application/services/summarization/graph_llm.py::summarize_with_instructor`.
 
-**Pattern:** Retry with error feedback via `instructor`'s `chat_structured(max_retries=N)`.
+**Pattern:** Two layers of self-correction:
+
+- `instructor`'s `chat_structured(max_retries=N)` reasks within a single LLM call.
+- The graph-level `validate → repair → validate` loop re-runs the structured call
+  with the contract errors fed back, bounded by `MAX_REPAIR_ATTEMPTS`
+  (`app/application/graphs/summarize/state.py`) and langgraph's per-invocation
+  `recursion_limit`.
 
 **Flow:**
 
-1. LLM generates summary JSON
-2. Validation fails: "Field `key_ideas` is missing"
-3. `instructor` retries with error feedback (up to configured max retries)
-4. LLM generates corrected summary
-5. Validation passes → Success
+1. The `summarize` node generates summary JSON.
+2. The `validate` node runs `summary_contract.py`; it fails: "Field `key_ideas` is missing".
+3. Router → `repair` node re-prompts with the error feedback (new `llm_calls` row, `attempt_trigger='graph_node'`).
+4. The `summarize`/`repair` call generates a corrected summary.
+5. `validate` passes → router → `enrich` → Success. Budget exhaustion routes to the single terminal-failure path.
 
 **Success Rate:** 94%+ (vs 85% without self-correction).
 

@@ -23,7 +23,7 @@ from app.core.verbosity import VerbosityLevel
 from app.security.file_validation import FileValidationError, SecureFileValidator
 
 if TYPE_CHECKING:
-    from app.adapters.content.url_processor import URLProcessor
+    from app.adapters.content.graph_url_processor import GraphURLProcessor as URLProcessor
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
@@ -53,12 +53,12 @@ class URLHandler:
     - Security checks (URL validation, rate limits) via ResponseFormatter
     - Wires above into the correct sequence for each Telegram message path
 
-    Boundary with URLProcessor (app/adapters/content/url_processor.py):
+    Boundary with the URL-flow facade (app/adapters/content/graph_url_processor.py):
       URLHandler owns Telegram UX (message replies, user state, batch policy).
-      URLProcessor owns content extraction and summarization (scraper chain,
-      LLM calls, DB persistence). URLHandler calls URLProcessor for the
-      single-URL extraction+summarization step; all Telegram-specific logic
-      (progress messages, awaiting state, translation commands) stays here.
+      GraphURLProcessor owns content extraction and summarization (drives the
+      summarize graph: scraper chain, LLM calls, DB persistence). URLHandler calls
+      it for the single-URL extraction+summarization step; all Telegram-specific
+      logic (progress messages, awaiting state, translation commands) stays here.
     """
 
     def __init__(

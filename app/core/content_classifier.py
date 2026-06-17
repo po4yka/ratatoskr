@@ -14,14 +14,11 @@ from __future__ import annotations
 
 import enum
 import hashlib
-from typing import TYPE_CHECKING
+from typing import Any
 from urllib.parse import urlparse
 
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
-
-if TYPE_CHECKING:
-    from app.adapters.llm.protocol import LLMClientProtocol
 
 logger = get_logger(__name__)
 
@@ -398,7 +395,7 @@ class LLMTierClassifier:
     def __init__(
         self,
         *,
-        client: LLMClientProtocol,
+        client: Any,
         model: str,
         enabled: bool = False,
         max_tokens: int = 8,

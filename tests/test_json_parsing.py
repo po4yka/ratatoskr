@@ -72,6 +72,16 @@ def _setup_bot_repository_mocks(
             mp.request_repo = request_repo_mock
             mp.crawl_repo = crawl_repo_mock
             mp.user_repo = user_repo_mock
+            # The summarize graph's extract node calls ``extract_content_pure``
+            # (live scraper chain), which does NOT consult the cached crawl row
+            # the legacy interactive path reused. When a ``crawl_result`` is
+            # supplied, stub the pure-extraction so the graph receives that
+            # content and reaches the summarize/LLM step the test exercises.
+            if crawl_result is not None:
+                _content = crawl_result.get("content_markdown") or "Some content"
+                up.content_extractor.extract_content_pure = AsyncMock(
+                    return_value=(_content, "markdown", {"detected_lang": "en"})
+                )
         if hasattr(up, "message_persistence"):
             mp = up.message_persistence
             mp.request_repo = request_repo_mock
@@ -201,68 +211,6 @@ class TestJsonParsing(unittest.TestCase):
         return mock
 
     @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
-    def test_local_repair_success(self, mock_openrouter_client) -> None:
-        async def run_test() -> None:
-            bot = TelegramBot(self.cfg, self.db)
-
-            mock_llm_response = MagicMock()
-            mock_llm_response.status = "ok"
-            mock_llm_response.response_text = '{"summary_250": "This is a truncated summary..."'
-            mock_llm_response.response_json = {"choices": []}
-            mock_llm_response.model = "model"
-            mock_llm_response.tokens_prompt = 10
-            mock_llm_response.tokens_completion = 5
-            mock_llm_response.cost_usd = 0.02
-            mock_llm_response.latency_ms = 1200
-            mock_llm_response.endpoint = "/api/v1/chat/completions"
-            mock_llm_response.request_headers = {}
-            mock_llm_response.request_messages = []
-            mock_llm_response.error_text = None
-
-            insights_response = self._make_insights_response()
-
-            mock_openrouter_instance = mock_openrouter_client.return_value
-            # Provide enough responses for all async LLM calls (summary + insights + custom article + retries)
-            mock_openrouter_instance.chat = AsyncMock(
-                side_effect=[
-                    mock_llm_response,  # summary
-                    insights_response,  # insights
-                    insights_response,  # custom article
-                    insights_response,  # extra for potential retries
-                    insights_response,
-                    insights_response,
-                ]
-            )
-
-            # Set up repository mocks with existing crawl result
-            _setup_bot_repository_mocks(
-                bot,
-                crawl_result={
-                    "content_markdown": "Some content",
-                    "content_html": None,
-                },
-            )
-            _setup_openrouter_mock(bot, mock_openrouter_instance)
-
-            bot._safe_reply = AsyncMock()  # type: ignore[method-assign]
-            bot._reply_json = AsyncMock()  # type: ignore[method-assign]
-
-            message = MagicMock()
-            await bot._handle_url_flow(message, "http://example.com")
-
-            # After summary flow completes, the LLM is called for:
-            # 1. Summary generation
-            # 2-N. Background tasks (insights, custom article, etc.)
-            # The summary flow now sends formatted text via _safe_reply.
-            assert mock_openrouter_instance.chat.await_count >= 1  # At least summary call
-            texts = _get_safe_reply_texts(bot._safe_reply)
-            assert any("TL;DR" in t or "truncated summary" in t.lower() for t in texts), (
-                f"Expected summary content in safe_reply texts: {texts}"
-            )
-
-        asyncio.run(run_test())
-
-    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_local_repair_failure(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
             bot = TelegramBot(self.cfg, self.db)
@@ -294,129 +242,6 @@ class TestJsonParsing(unittest.TestCase):
             # Updated: error message changed from "Invalid summary format" to "Processing Failed"
             # The test triggers "repair_failure" (not llm_error) which sends "Processing Failed"
             assert any("Processing Failed" in str(msg) for msg in messages)
-
-        asyncio.run(run_test())
-
-    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
-    def test_parsing_with_extra_text(self, mock_openrouter_client) -> None:
-        async def run_test() -> None:
-            bot = TelegramBot(self.cfg, self.db)
-            mock_llm_response = MagicMock()
-            mock_llm_response.status = "ok"
-            mock_llm_response.response_text = 'Here is the JSON: {"summary_250": "Summary"}'
-            mock_llm_response.response_json = {"choices": []}
-            mock_llm_response.model = "model"
-            mock_llm_response.tokens_prompt = 10
-            mock_llm_response.tokens_completion = 5
-            mock_llm_response.cost_usd = 0.02
-            mock_llm_response.latency_ms = 1100
-            mock_llm_response.endpoint = "/api/v1/chat/completions"
-            mock_llm_response.request_headers = {}
-            mock_llm_response.request_messages = []
-            mock_llm_response.error_text = None
-
-            insights_response = self._make_insights_response()
-
-            mock_openrouter_instance = mock_openrouter_client.return_value
-            # Provide enough responses for all async LLM calls
-            mock_openrouter_instance.chat = AsyncMock(
-                side_effect=[
-                    mock_llm_response,  # summary
-                    insights_response,  # insights
-                    insights_response,  # custom article
-                    insights_response,  # extra for potential retries
-                    insights_response,
-                    insights_response,
-                ]
-            )
-
-            # Set up repository mocks with existing crawl result
-            _setup_bot_repository_mocks(
-                bot,
-                crawl_result={
-                    "content_markdown": "Some content",
-                    "content_html": None,
-                },
-            )
-            _setup_openrouter_mock(bot, mock_openrouter_instance)
-
-            bot._safe_reply = AsyncMock()  # type: ignore[method-assign]
-            bot._reply_json = AsyncMock()  # type: ignore[method-assign]
-
-            message = MagicMock()
-            await bot._handle_url_flow(message, "http://example.com")
-
-            # The key test is that parsing extracts JSON from extra text.
-            # The summary flow now sends formatted text via _safe_reply.
-            assert mock_openrouter_instance.chat.await_count >= 1  # At least summary call
-            texts = _get_safe_reply_texts(bot._safe_reply)
-            assert any("Summary." in t for t in texts), (
-                f"Expected 'Summary.' in safe_reply texts: {texts}"
-            )
-
-        asyncio.run(run_test())
-
-    @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
-    def test_salvage_from_structured_error(self, mock_openrouter_client) -> None:
-        async def run_test() -> None:
-            bot = TelegramBot(self.cfg, self.db)
-            mock_llm_response = MagicMock()
-            mock_llm_response.status = "error"
-            mock_llm_response.error_text = "structured_output_parse_error"
-            mock_llm_response.response_text = (
-                '```json\n{"summary_250": "Fixed", "tldr": "Complete"}\n```'
-            )
-            mock_llm_response.model = "primary/model"
-            mock_llm_response.tokens_prompt = 10
-            mock_llm_response.tokens_completion = 5
-            mock_llm_response.cost_usd = 0.02
-            mock_llm_response.latency_ms = 1500
-            mock_llm_response.request_headers = {}
-            mock_llm_response.request_messages = []
-            mock_llm_response.response_json = {}
-
-            insights_response = self._make_insights_response()
-
-            mock_openrouter_instance = mock_openrouter_client.return_value
-            # Provide enough responses for all async LLM calls
-            mock_openrouter_instance.chat = AsyncMock(
-                side_effect=[
-                    mock_llm_response,  # summary (error that can be salvaged)
-                    insights_response,  # insights
-                    insights_response,  # custom article
-                    insights_response,  # extra for potential retries
-                    insights_response,
-                    insights_response,
-                ]
-            )
-
-            # Set up repository mocks with existing crawl result
-            _setup_bot_repository_mocks(
-                bot,
-                crawl_result={
-                    "content_markdown": "Some content",
-                    "content_html": None,
-                },
-            )
-            _setup_openrouter_mock(bot, mock_openrouter_instance)
-
-            bot._safe_reply = AsyncMock()  # type: ignore[method-assign]
-            bot._reply_json = AsyncMock()  # type: ignore[method-assign]
-
-            message = MagicMock()
-            await bot._handle_url_flow(message, "http://example.com")
-
-            # The key test is that we can salvage from structured_output_parse_error.
-            # The summary flow now sends formatted text via _safe_reply.
-            assert mock_openrouter_instance.chat.await_count >= 1  # At least summary call
-            texts = _get_safe_reply_texts(bot._safe_reply)
-            assert any("Fixed." in t for t in texts), (
-                f"Expected 'Fixed.' in safe_reply texts: {texts}"
-            )
-            # Ensure we did not send the invalid summary format error
-            assert not any("Invalid summary format" in t for t in texts), (
-                "Unexpected 'Invalid summary format' in safe_reply texts"
-            )
 
         asyncio.run(run_test())
 

@@ -1,7 +1,7 @@
 # ADR 0010: Graph orchestration — layer placement, node→port boundary, dependency discipline
 
 **Date:** 2026-06-15
-**Status:** Accepted — implementation pending with [ADR-0001](0001-no-langgraph.md).
+**Status:** Implemented — the summarize graph lives in `app/application/graphs/summarize/`; langgraph is confined to graph-assembly (`graph.py`) plus `app/di/graphs.py`, and nodes reach external systems only through `app/application/ports/`. `application-no-outward` import-linter contract stays green.
 
 ## Context
 
