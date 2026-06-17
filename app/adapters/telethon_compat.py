@@ -767,4 +767,11 @@ def _peer_to_id(peer: Any) -> int | None:
 
 def _filter_send_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     allowed = {"link_preview", "file", "silent"}
-    return {key: value for key, value in kwargs.items() if key in allowed}
+    filtered = {key: value for key, value in kwargs.items() if key in allowed}
+    # Translate aiogram-style disable_web_page_preview -> Telethon link_preview.
+    # This is the shared chokepoint for first-send AND reply; without it the
+    # kwarg was silently dropped and link-preview suppression worked only on
+    # edits. An explicit link_preview wins. (The edit path translates its own.)
+    if "disable_web_page_preview" in kwargs and "link_preview" not in filtered:
+        filtered["link_preview"] = not bool(kwargs["disable_web_page_preview"])
+    return filtered

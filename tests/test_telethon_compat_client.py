@@ -34,3 +34,15 @@ async def test_set_chat_menu_button_noop_without_url() -> None:
     client, mock = _client_with_mock()
     await client.set_chat_menu_button(url=None)
     mock.assert_not_awaited()
+
+
+def test_filter_send_kwargs_translates_disable_web_page_preview() -> None:
+    from app.adapters.telethon_compat import _filter_send_kwargs
+
+    # disable_web_page_preview is honored on the first-send path now, not dropped.
+    assert _filter_send_kwargs({"disable_web_page_preview": True})["link_preview"] is False
+    assert _filter_send_kwargs({"disable_web_page_preview": False})["link_preview"] is True
+    # An explicit link_preview wins; unknown kwargs are still dropped.
+    out = _filter_send_kwargs({"disable_web_page_preview": True, "link_preview": True, "x": 1})
+    assert out == {"link_preview": True}
+    assert _filter_send_kwargs({}) == {}
