@@ -77,3 +77,29 @@ def test_search_latency_histogram_observes() -> None:
     after = registry.get_sample_value("ratatoskr_repository_search_latency_seconds_count") or 0.0
 
     assert after - before >= 1.0
+
+
+@pytest.mark.skipif(not _metrics_mod.PROMETHEUS_AVAILABLE, reason="prometheus_client not installed")
+def test_github_api_rate_limit_and_pending_backlog_metrics() -> None:
+    """Rate-limit Counter increments and the pending-backlog Gauge sets in the registry."""
+    from prometheus_client import Counter, Gauge
+
+    rate_limit = repo_metrics.GITHUB_API_RATE_LIMIT_HITS_TOTAL
+    backlog = repo_metrics.GITHUB_PENDING_ANALYSIS_BACKLOG
+    assert isinstance(rate_limit, Counter)
+    assert rate_limit._name == "ratatoskr_github_api_rate_limit_hits"
+    assert isinstance(backlog, Gauge)
+    assert backlog._name == "ratatoskr_github_pending_analysis_backlog"
+
+    registry = _metrics_mod.REGISTRY
+    assert registry is not None
+
+    before = registry.get_sample_value("ratatoskr_github_api_rate_limit_hits_total") or 0.0
+    rate_limit.inc()
+    after = registry.get_sample_value("ratatoskr_github_api_rate_limit_hits_total") or 0.0
+    assert after - before == pytest.approx(1.0)
+
+    backlog.set(7)
+    assert registry.get_sample_value("ratatoskr_github_pending_analysis_backlog") == pytest.approx(
+        7.0
+    )

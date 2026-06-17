@@ -28,6 +28,7 @@ from app.adapters.github.types import (
 )
 from app.core.backoff import sleep_backoff
 from app.core.logging_utils import get_logger
+from app.observability.metrics_repositories import GITHUB_API_RATE_LIMIT_HITS_TOTAL
 
 _LINK_NEXT_RE = re.compile(r'<([^>]+)>;\s*rel="next"')
 
@@ -198,6 +199,8 @@ class GitHubAPIClient:
                     raise GitHubAuthError(f"GitHub returned 401 Unauthorized for {url}")
 
                 if _is_rate_limited(response):
+                    if GITHUB_API_RATE_LIMIT_HITS_TOTAL is not None:
+                        GITHUB_API_RATE_LIMIT_HITS_TOTAL.inc()
                     raise GitHubRateLimitError(reset_epoch=_rate_limit_reset_epoch(response))
 
                 if status == 403:
@@ -345,6 +348,8 @@ class GitHubAPIClient:
                 if status == 401:
                     raise GitHubAuthError(f"GitHub returned 401 for {url}")
                 if _is_rate_limited(response):
+                    if GITHUB_API_RATE_LIMIT_HITS_TOTAL is not None:
+                        GITHUB_API_RATE_LIMIT_HITS_TOTAL.inc()
                     raise GitHubRateLimitError(reset_epoch=_rate_limit_reset_epoch(response))
                 if status == 403:
                     raise GitHubAuthError(f"GitHub returned 403 for {url}")

@@ -21,7 +21,7 @@ from __future__ import annotations
 from app.observability.metrics import PROMETHEUS_AVAILABLE, REGISTRY
 
 if PROMETHEUS_AVAILABLE:
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Gauge, Histogram
 
     GITHUB_SYNC_RUNS_TOTAL = Counter(
         "ratatoskr_github_sync_runs_total",
@@ -55,6 +55,18 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    GITHUB_API_RATE_LIMIT_HITS_TOTAL = Counter(
+        "ratatoskr_github_api_rate_limit_hits_total",
+        "GitHub REST API responses classified as a rate limit (429 or 403 limit)",
+        registry=REGISTRY,
+    )
+
+    GITHUB_PENDING_ANALYSIS_BACKLOG = Gauge(
+        "ratatoskr_github_pending_analysis_backlog",
+        "Repositories awaiting analysis (pending_analysis=True) after the last sync run",
+        registry=REGISTRY,
+    )
+
     REPOSITORY_SEARCH_LATENCY_SECONDS = Histogram(
         "ratatoskr_repository_search_latency_seconds",
         "Repository semantic search latency",
@@ -68,4 +80,6 @@ else:
     GITHUB_SYNC_REPOS_UPDATED_TOTAL = None
     GITHUB_SYNC_REPOS_UNSTARRED_TOTAL = None
     GITHUB_SYNC_LLM_CALLS_TOTAL = None
+    GITHUB_API_RATE_LIMIT_HITS_TOTAL = None
+    GITHUB_PENDING_ANALYSIS_BACKLOG = None
     REPOSITORY_SEARCH_LATENCY_SECONDS = None

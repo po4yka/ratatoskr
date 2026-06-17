@@ -27,6 +27,7 @@ from app.db.session import Database  # noqa: TC001 — taskiq resolves type hint
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
 from app.observability.metrics_repositories import (
+    GITHUB_PENDING_ANALYSIS_BACKLOG,
     GITHUB_SYNC_LLM_CALLS_TOTAL,
     GITHUB_SYNC_REPOS_IMPORTED_TOTAL,
     GITHUB_SYNC_REPOS_UNSTARRED_TOTAL,
@@ -271,6 +272,21 @@ async def _sync_all(
         else:
             run_status = "failed"
         GITHUB_SYNC_RUNS_TOTAL.labels(status=run_status).inc()
+    if GITHUB_PENDING_ANALYSIS_BACKLOG is not None and not dry_run:
+        # A metrics read must never break the sync run, so swallow any DB error.
+        try:
+            async with db.session() as session:
+                backlog = await session.execute(
+                    select(func.count(Repository.id)).where(
+                        Repository.pending_analysis == True  # noqa: E712
+                    )
+                )
+                GITHUB_PENDING_ANALYSIS_BACKLOG.set(backlog.scalar_one() or 0)
+        except Exception:
+            logger.warning(
+                "github_pending_backlog_gauge_failed",
+                extra={"cid": correlation_id},
+            )
 
     return summary
 
