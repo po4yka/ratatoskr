@@ -25,7 +25,7 @@ Records of consequential, non-obvious architectural and policy decisions. Reach 
 | [0009](0009-hosted-mcp-external-exposure.md) | Hosted MCP external exposure (in principle) | Accepted in principle |
 | [0010](0010-graph-orchestration-layering.md) | Graph orchestration — layering & node→port boundary | Accepted — impl pending |
 | [0011](0011-graph-runtime-contract.md) | Graph runtime contract — state, failure, observability | Accepted — impl pending |
-| [0012](0012-cocoindex-boundary-rag-freshness.md) | CocoIndex boundary & read-your-writes RAG freshness | Accepted — impl pending |
+| [0012](0012-vector-write-boundary-rag-freshness.md) | Vector-write boundary & RAG freshness | Accepted — impl pending |
 | [0013](0013-graph-rollout-legacy-migration.md) | Graph cutover & legacy summarize-path removal | Accepted — impl pending |
 | [0014](0014-ports-and-adapters-standard.md) | Ports-and-adapters as the enforced project standard | Accepted — refactor pending |
 | [0015](0015-summarization-pipeline-target-architecture.md) | Summarization pipeline target architecture | Accepted — impl pending |

@@ -16,7 +16,7 @@ restored afterwards so the working tree is unchanged.
 | target | command | exit_code | numeric_value | notes |
 | --- | --- | --- | --- | --- |
 | `make lint` | `ruff check .` + `tools/scripts/check_file_size.py` | 0 | 0 | ruff: "All checks passed!"; file-size guard also passed. Host system ruff (0.13.x) cannot parse `pyproject.toml` due to unknown `ASYNC240` selector -- venv ruff 0.15.12 is required. |
-| `make type` | `uv run --frozen mypy app tests` | 2 | 33 errors / 5 files | "Found 33 errors in 5 files (checked 1299 source files)". Errors concentrated in `app/infrastructure/cocoindex/{flow,runtime}.py`, `app/infrastructure/embedding/gemini_embedding_service.py`, `app/agents/langgraph/graph.py`, and `tests/test_message_coalescer.py`. |
+| `make type` | `uv run --frozen mypy app tests` | 2 | 33 errors / 5 files | "Found 33 errors in 5 files (checked 1299 source files)". Errors concentrated in `app/infrastructure/vector/`, `app/infrastructure/embedding/gemini_embedding_service.py`, `app/agents/langgraph/graph.py`, and `tests/test_message_coalescer.py`. |
 | `make test-unit` | `pytest tests/ -m "not slow and not integration" -v` | 2 | 3 229 passed / 40 failed / 24 errors / 496 skipped / 24 deselected (47 warnings) in 1 348.57 s | Initial collection on the host's mise Python 3.11 produced 18 import errors; switching to the venv (Python 3.13) cleared those, and the run completed with the failure counts above. Exit 2 is from pytest reporting failures, not infrastructure. |
 | `make test-all` (line coverage % for `app/`) | `pytest tests/ -v --cov=app --cov-report=term-missing` | 2 | 3 246 passed / 47 failed / 24 errors / 496 skipped (60 warnings) in 1 356.27 s; **TOTAL coverage 57.51 %** (61 094 statements, 23 519 missed, 16 324 branches, 2 403 partial) | Required ad-hoc `.venv/bin/pip install pytest-cov` (coverage 7.14.0, pytest-cov 7.1.0); plugin is not in the locked dev set. The configured `Required test coverage of 15.0%` gate was satisfied. Exit 2 comes from the failure count, not the coverage gate. |
 | `make security` (bandit) | `uv run --frozen bandit -r app -ll` | 0 (within make: rolled into target exit 2 below) | High 0 / Medium 0 / Low 55 | bandit reported "No issues identified" at `-ll` (the target threshold). 126 413 LOC scanned. By-confidence: Low 0 / Medium 15 / High 40. |
@@ -44,7 +44,7 @@ EXIT=0
 ```text
 uv run --frozen mypy app tests
 app/infrastructure/embedding/gemini_embedding_service.py:50: error: Module has no attribute "Client"  [attr-defined]
-app/infrastructure/cocoindex/flow.py:245: error: Module has no attribute "flow_def"  [attr-defined]
+app/infrastructure/vector/summary_point.py:245: error: ...  [attr-defined]
 ...
 app/agents/langgraph/graph.py:113: error: No overload variant of "ainvoke" of "Pregel" matches argument types "SummarizationGraphState", "dict[str, Any]"  [call-overload]
 Found 33 errors in 5 files (checked 1299 source files)
