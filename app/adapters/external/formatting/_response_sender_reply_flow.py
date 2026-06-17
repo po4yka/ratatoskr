@@ -222,6 +222,25 @@ class ResponseSenderReplyFlow:
             )
             return False
 
+    async def react(self, chat_id: int, message_id: int, emoji: str) -> bool:
+        """React to a message with an emoji (non-critical status ack)."""
+        if not isinstance(chat_id, int) or chat_id == 0 or not message_id:
+            return False
+
+        client = None
+        if self._state.telegram_client and hasattr(self._state.telegram_client, "client"):
+            client = self._state.telegram_client.client
+        if client is None or not hasattr(client, "react"):
+            return False
+
+        try:
+            await client.react(chat_id=chat_id, message_id=message_id, emoji=emoji)
+            return True
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.debug("react_failed", extra={"chat_id": chat_id, "error": str(exc)})
+            return False
+
     async def _send_via_client_with_id(
         self,
         client: Any,

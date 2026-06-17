@@ -168,7 +168,20 @@ class GraphURLProcessor:
         from app.utils.typing_indicator import typing_indicator
 
         async with typing_indicator(self.response_formatter, request.message):
-            return await self._run_url_flow(request)
+            await self._react(request, "👀")  # accepted / processing
+            result = await self._run_url_flow(request)
+        await self._react(request, "✅" if getattr(result, "success", False) else "❌")
+        return result
+
+    async def _react(self, request: URLFlowRequest, emoji: str) -> None:
+        """Best-effort emoji ack on the user's URL message (zero chat clutter)."""
+        if request.message is None:
+            return
+        chat_id, _user_id, message_id = _message_identity(request.message)
+        if chat_id and message_id:
+            await self.response_formatter.react(
+                chat_id=chat_id, message_id=message_id, emoji=emoji
+            )
 
     async def summarize(self, request: PureSummaryRequest) -> dict[str, Any]:
         """Content-only summarization for pre-extracted callers (handlers/rss).

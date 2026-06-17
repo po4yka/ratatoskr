@@ -261,6 +261,34 @@ class TelethonBotClient:
             return
         await self._client(functions.messages.SetTypingRequest(peer=peer, action=tl_action))
 
+    async def react(self, *, chat_id: int, message_id: int, emoji: str) -> None:
+        """React to a message with a single emoji (a zero-clutter status ack).
+
+        A bot may set only one reaction per message, so this REPLACES any prior
+        reaction (e.g. an 'eyes' processing ack becomes a 'check' on success).
+        Best-effort: a disallowed/invalid reaction is swallowed so it never
+        breaks the summarize flow.
+        """
+        if functions is None or types is None:
+            return
+        try:
+            peer = await self._client.get_input_entity(chat_id)
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.debug("react_entity_not_found", extra={"chat_id": chat_id, "error": str(exc)})
+            return
+        try:
+            await self._client(
+                functions.messages.SendReactionRequest(
+                    peer=peer,
+                    msg_id=message_id,
+                    reaction=[types.ReactionEmoji(emoticon=emoji)],
+                )
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.debug("send_reaction_failed", extra={"chat_id": chat_id, "error": str(exc)})
+
     async def edit_message_text(
         self,
         *,

@@ -257,6 +257,10 @@ class ResponseFormatter:
             chat_id, message_id, text, parse_mode=parse_mode
         )
 
+    async def react(self, chat_id: int, message_id: int, emoji: str) -> bool:
+        """React to a message with an emoji (best-effort status ack)."""
+        return await self._response_sender.react(chat_id, message_id, emoji)
+
     async def send_chat_action(
         self,
         chat_id: int,

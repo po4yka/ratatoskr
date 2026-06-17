@@ -36,6 +36,18 @@ async def test_set_chat_menu_button_noop_without_url() -> None:
     mock.assert_not_awaited()
 
 
+async def test_react_sends_single_emoji_reaction() -> None:
+    from telethon import functions
+
+    client, mock = _client_with_mock()
+    await client.react(chat_id=123, message_id=45, emoji="✅")
+    assert mock.get_input_entity.await_args.args == (123,)
+    req = mock.call_args.args[0]
+    assert isinstance(req, functions.messages.SendReactionRequest)
+    assert req.msg_id == 45
+    assert len(req.reaction) == 1 and req.reaction[0].emoticon == "✅"
+
+
 def test_filter_send_kwargs_translates_disable_web_page_preview() -> None:
     from app.adapters.telethon_compat import _filter_send_kwargs
 

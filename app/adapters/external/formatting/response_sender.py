@@ -147,6 +147,9 @@ class ResponseSenderImpl:
     async def send_chat_action(self, chat_id: int, action: str = "typing") -> bool:
         return await self._reply_flow.send_chat_action(chat_id, action=action)
 
+    async def react(self, chat_id: int, message_id: int, emoji: str) -> bool:
+        return await self._reply_flow.react(chat_id, message_id, emoji)
+
     async def send_message_draft(
         self,
         message: Any,
