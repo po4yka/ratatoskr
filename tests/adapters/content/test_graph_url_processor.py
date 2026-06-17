@@ -397,6 +397,44 @@ async def test_content_only_summarize_empty_content_raises_value_error():
     facade._graph.ainvoke.assert_not_awaited()
 
 
+async def test_content_only_summarize_reraises_graph_failure_for_retry():
+    """audit #4: a raising graph invocation must PROPAGATE (not be swallowed to {}).
+
+    The background retry runner only retries a stage that RAISES; returning {} on
+    failure silently bypassed retry_attempts. The exact exception must surface so
+    the caller wraps it in a StageError and the retry loop fires.
+    """
+    boom = RuntimeError("graph node boom")
+    facade = _facade(graph=MagicMock(ainvoke=AsyncMock(side_effect=boom)))
+
+    with pytest.raises(RuntimeError, match="graph node boom") as exc_info:
+        await facade.summarize(
+            PureSummaryRequest(
+                content_text="pre-extracted body",
+                chosen_lang="en",
+                system_prompt="sys",
+                correlation_id="cid-fail",
+            )
+        )
+    assert exc_info.value is boom
+
+
+async def test_content_only_summarize_no_summary_returns_empty_dict_no_raise():
+    """audit #4: the genuine no-summary case (graph completed, no summary) returns
+    {} WITHOUT raising -- so the caller raises a terminal StageError with no retry."""
+    facade = _facade(graph=MagicMock(ainvoke=AsyncMock(return_value={"summary": {}})))
+
+    out = await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id="cid-empty",
+        )
+    )
+    assert out == {}
+
+
 # --------------------------------------------------------------------------- #
 # (g) request row gets the owner user_id from a from_user-shaped message,
 #     a telegram_messages snapshot is written, content_text + route_version set

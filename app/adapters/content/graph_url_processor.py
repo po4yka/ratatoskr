@@ -186,6 +186,14 @@ class GraphURLProcessor:
         (``api/background/handlers``, rss) see identical error semantics -- they
         wrap this in a ``StageError`` on failure and never branch on an empty-dict
         sentinel.
+
+        A graph invocation FAILURE (a raised exception) is RE-RAISED, not swallowed
+        to ``{}`` (audit #4): the background ``BackgroundRetryRunner.run_with_backoff``
+        only retries a stage that *raises*, so returning ``{}`` on failure silently
+        bypassed the configured ``retry_attempts``. ``{}`` is reserved for the genuine
+        no-summary case (the graph completed but produced no summary) -- the caller's
+        ``if not summary_json`` then raises a terminal ``StageError`` with no retry,
+        which is the correct outcome for "ran fine, nothing to summarize".
         """
         content_text = request.content_text or ""
         if not content_text.strip():
@@ -197,7 +205,7 @@ class GraphURLProcessor:
         # summarization); the graph persist node short-circuits every DB write when
         # request_id is None. ``0`` is NOT a usable sentinel -- it is a real FK value
         # and INSERTing a Summary against requests.id=0 raises ForeignKeyViolationError
-        # the broad except below would swallow to ``{}`` (audit #1).
+        # (audit #1).
         initial_state = build_initial_state(
             correlation_id=correlation_id,
             request_id=None,
@@ -213,12 +221,20 @@ class GraphURLProcessor:
             final_state = await self._graph.ainvoke(initial_state, config=config)
         except Exception as exc:
             raise_if_cancelled(exc)
+            # audit #4: RE-RAISE rather than swallow to ``{}``. The background
+            # retry runner (``run_with_backoff``) only retries a stage that RAISES,
+            # so returning ``{}`` here bypassed the configured retry_attempts. The
+            # caller (run_stage) wraps this in a StageError; the retry loop fires.
             logger.warning(
                 "graph_content_only_summarize_failed",
                 extra={"cid": correlation_id, "error": str(exc)},
             )
-            return {}
+            raise
 
+        # ``{}`` is reserved for the genuine no-summary case: the graph completed
+        # successfully but produced no summary. The caller's ``if not summary_json``
+        # raises a terminal StageError (no retry) -- correct for "ran fine, nothing
+        # to summarize" (audit #4).
         summary = final_state.get("summary") if isinstance(final_state, dict) else None
         if not isinstance(summary, dict) or not summary:
             return {}
