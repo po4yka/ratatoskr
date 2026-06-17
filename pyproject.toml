@@ -164,7 +164,10 @@ requires-python = ">=3.13,<3.15"
 # Core dependencies: Telegram bot, HTTP, database, NLP, logging
 dependencies = [
   "httpx[http2]>=0.28.1",
-  "telethon>=1.42.0,<2",
+  "telethon>=1.44.0,<2",
+  # Markdown -> Telegram-HTML rendering for outgoing messages
+  # (app/adapters/external/formatting/markdown_telegram.py).
+  "markdown-it-py>=4.0.0,<5",
   "pydantic>=2.13.4",
   "pydantic-settings>=2.14.1",
   "pyyaml>=6.0.3",

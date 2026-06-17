@@ -5,6 +5,12 @@ from __future__ import annotations
 import html
 from typing import TYPE_CHECKING, Any
 
+from app.adapters.external.formatting.markdown_telegram import (
+    EXPANDABLE_MAX_CHARS,
+    EXPANDABLE_MIN_CHARS,
+    blockquote,
+    maybe_expandable_blockquote,
+)
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.core.ui_strings import t
@@ -166,7 +172,15 @@ class SummaryBlocksPresenter:
             if key == "tldr"
             else f"🧾 {t('summary_n', _l)} {key.split('_', 1)[1]}"
         )
-        return f"{label}:\n{content}"
+        # Medium detailed bodies collapse behind Telegram's "Show More". Short
+        # ones stay inline (escaped, no quote bar); bodies over one message split
+        # across messages anyway, so they too stay plain rather than collapsing
+        # only their first chunk (the `tldr` field has no length cap).
+        if EXPANDABLE_MIN_CHARS < len(content) <= EXPANDABLE_MAX_CHARS:
+            body = blockquote(content, expandable=True)
+        else:
+            body = html.escape(content)
+        return f"{label}:\n{body}"
 
     def build_key_ideas_text(self, shaped: dict[str, Any]) -> str | None:
         """Return formatted key ideas text, or None."""
@@ -216,7 +230,7 @@ class SummaryBlocksPresenter:
                 continue
             text = str(quote["text"]).strip()
             if text:
-                lines.append(f"<blockquote>{i}. {html.escape(text)}</blockquote>")
+                lines.append(maybe_expandable_blockquote(f"{i}. {text}"))
         return "\n".join(lines) if len(lines) > 1 else None
 
     @staticmethod

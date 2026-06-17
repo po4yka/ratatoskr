@@ -9,6 +9,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from app.adapters.external.formatting.markdown_telegram import render_markdown
 from app.core.logging_utils import get_logger
 from app.core.ui_strings import t
 from app.infrastructure.persistence.repositories.crawl_result_repository import (
@@ -169,9 +170,14 @@ class SummaryFollowupManager:
         if not answer_text:
             answer_text = t("cb_followup_no_answer", self._lang)
 
+        # The LLM answer is Markdown prose; render it to Telegram HTML so bold,
+        # lists, links and quotes display. History keeps the raw answer.
+        rendered_answer = render_markdown(answer_text)
+        continue_hint = html.escape(t("cb_followup_continue", self._lang))
         await self._response_formatter.safe_reply(
             message,
-            f"{answer_text}\n\n{t('cb_followup_continue', self._lang)}",
+            f"{rendered_answer}\n\n{continue_hint}",
+            parse_mode="HTML",
         )
         await self._append_history(
             uid=uid,
