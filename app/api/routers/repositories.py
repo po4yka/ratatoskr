@@ -465,11 +465,19 @@ async def delete_repository(
                 extra={"repository_id": repository_id, "error": str(exc)},
             )
 
-    # Delete DB rows (RepositoryEmbedding cascades via FK, but delete explicitly for safety)
+    # Delete DB rows (RepositoryEmbedding cascades via FK, but delete explicitly for safety).
+    # Ownership was already checked above; the user_id predicate on the Repository delete is a
+    # defense-in-depth IDOR-write guard (project rule #12) so the statement is self-scoping even
+    # if the pre-check is ever refactored away.
     async with db.transaction() as session:
         await session.execute(
             sql_delete(RepositoryEmbedding).where(
                 RepositoryEmbedding.repository_id == repository_id
             )
         )
-        await session.execute(sql_delete(Repository).where(Repository.id == repository_id))
+        await session.execute(
+            sql_delete(Repository).where(
+                Repository.id == repository_id,
+                Repository.user_id == user_id,
+            )
+        )
