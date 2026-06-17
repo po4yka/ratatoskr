@@ -10,9 +10,29 @@ Invariants (ADR-0011 / ADR-0018):
   ``LANGGRAPH_STRICT_MSGPACK`` (which only governs the pickle fallback for unknown
   types) -- so the real guard against a non-primitive leak is the JSON-primitive
   round-trip test, not msgpack-encodability alone (ADR-0011).
-- **Minimal / id-based.** Store ids and handles, not bulk content. Source text and
-  crawl output are re-fetched from Postgres by ``request_id`` inside the node that
-  needs them -- lighter checkpoints and less PII at rest.
+- **Minimal / id-based by default.** Identity and extraction *handles* are ids, not
+  bulk content -- ``request_id`` / ``dedupe_hash`` / ``summary_id`` rather than the
+  crawl row or persisted summary blob, so most checkpoints stay small and PII-light.
+  Five fields are a deliberate exception: ``source_text``, ``grounding_block``,
+  ``system_prompt``, ``messages`` and ``content_for_summary`` carry bulk text. They
+  are NOT redundant -- each is a single-run handoff between adjacent nodes that the
+  downstream node cannot cheaply re-derive:
+
+  - ``source_text`` -- written by ``extract``, read by ``ground`` /
+    ``build_prompt`` / ``enrich`` / ``persist``. The one bulk *seed* (the
+    content-only ``summarize`` entrypoint provides it directly with no request row
+    to re-fetch from), so it must live in state.
+  - ``grounding_block`` -- the ``ground`` -> ``build_prompt`` seam (ADR-0015);
+    empty when RAG is off.
+  - ``system_prompt`` / ``messages`` / ``content_for_summary`` -- the
+    ``build_prompt`` -> ``summarize`` -> ``repair`` handoff; rebuilding them in
+    ``summarize`` from ``source_text`` + ``grounding_block`` would duplicate prompt
+    assembly and risk T9 parity drift, so they are passed through state instead.
+
+  Net effect: these fields can reach a Postgres checkpoint when
+  ``LANGGRAPH_CHECKPOINT_ENABLED`` is set, but only for the duration of one run; the
+  ``test_summarize_state`` allowlist guards against a *new* bulk field slipping in
+  unreviewed.
 - **Live dependencies are never in state.** Ports/repositories are bound to nodes
   via ``functools.partial`` at graph-build time (see :mod:`deps` / :mod:`graph`),
   never serialized here.
