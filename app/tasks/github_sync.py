@@ -604,10 +604,19 @@ async def _analyze_pending(
                     "github_sync_analyze_failed",
                     extra={"cid": correlation_id, "repository_id": repo.id},
                 )
+                # analyze() commits pending_analysis=False inside save_analysis
+                # *before* the embedding refresh runs, so a failure after that
+                # point (e.g. a transient Qdrant/embedding error) would otherwise
+                # leave the row pending_analysis=False with a stored content_hash —
+                # orphaning it from every future sync's re-enqueue check. Re-arm
+                # pending_analysis so the next run retries this repo.
+                if not dry_run:
+                    await _mark_pending(repo.id, db)
 
     # return_exceptions=True so one repo's failure (e.g. a DB error in
-    # _mark_pending, which runs outside _one's inner try) cannot cancel the
-    # sibling analyses. Per-repo analyze errors are already logged inside _one.
+    # _mark_pending, which runs in the budget-cap path or the analyze-failure
+    # except block) cannot cancel the sibling analyses. Per-repo analyze errors
+    # are already logged inside _one.
     await asyncio.gather(*[_one(repo) for repo in repos], return_exceptions=True)
 
 

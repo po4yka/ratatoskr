@@ -450,6 +450,85 @@ async def test_budget_cap_defers_remaining_repos(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_analyze_failure_rearms_pending_analysis(monkeypatch):
+    """analyze() raising (e.g. embedding refresh fails after pending_analysis was
+    committed False) must re-arm pending_analysis=True so the repo is retried."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _analyze_pending
+
+    repos = [_make_repo(github_id=7)]
+    cfg = _build_cfg(llm_concurrency=1, llm_daily_budget=100)
+
+    pending_calls = []
+
+    async def _fake_analyze(repo_id, *, correlation_id, chosen_lang="en"):
+        raise RuntimeError("embedding backend unavailable")
+
+    fake_use_case = MagicMock()
+    fake_use_case.analyze = _fake_analyze
+
+    async def _fake_mark_pending(repo_id, db_):
+        pending_calls.append(repo_id)
+
+    with (
+        patch("app.tasks.github_sync._build_analyze_use_case", return_value=fake_use_case),
+        patch("app.tasks.github_sync._mark_pending", side_effect=_fake_mark_pending),
+    ):
+        llm_made = [0]
+        llm_deferred = [0]
+        await _analyze_pending(
+            repos,
+            settings=cfg,
+            db=MagicMock(),
+            correlation_id="test-cid",
+            llm_calls_made=llm_made,
+            llm_calls_deferred=llm_deferred,
+        )
+
+    # The LLM budget was consumed (the call was attempted) ...
+    assert llm_made[0] == 1
+    assert llm_deferred[0] == 0
+    # ... but the failure re-armed pending_analysis for a future retry.
+    assert pending_calls == [7]
+
+
+@pytest.mark.asyncio
+async def test_dry_run_analyze_failure_does_not_mark_pending(monkeypatch):
+    """dry_run returns before analyze() is ever called, so nothing is re-armed."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _analyze_pending
+
+    repos = [_make_repo(github_id=9)]
+    cfg = _build_cfg(llm_concurrency=1, llm_daily_budget=100)
+
+    pending_calls = []
+
+    async def _fake_mark_pending(repo_id, db_):
+        pending_calls.append(repo_id)
+
+    with patch("app.tasks.github_sync._mark_pending", side_effect=_fake_mark_pending):
+        llm_made = [0]
+        llm_deferred = [0]
+        await _analyze_pending(
+            repos,
+            settings=cfg,
+            db=MagicMock(),
+            correlation_id="test-cid",
+            llm_calls_made=llm_made,
+            llm_calls_deferred=llm_deferred,
+            dry_run=True,
+        )
+
+    assert pending_calls == []
+
+
+@pytest.mark.asyncio
 async def test_concurrency_cap_observed(monkeypatch):
     """llm_concurrency=1 — semaphore constructed with that value; analyses complete."""
     _stub_taskiq(monkeypatch)
