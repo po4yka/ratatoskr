@@ -1121,10 +1121,82 @@ jobs:
           alembic upgrade head
           alembic current 2>&1 | grep -q "(head)"
 
+  postgres-tests:
+    name: Postgres-gated Tests (parity + persistence)
+    needs: prepare-environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ratatoskr_ci
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      # ``conftest.py`` mirrors TEST_DATABASE_URL into DATABASE_URL and the
+      # ``database``/``session`` fixtures migrate the schema via Alembic. Without
+      # this var these suites pytest.skip (they ran as no-ops in CI before — the
+      # gap this job closes).
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ratatoskr_ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download compiled requirements
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled-requirements
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies (all extras for DB-backed tests)
+        run: uv pip sync --system requirements-all.txt requirements-dev.txt
+
+      - name: Install test tools
+        run: uv pip install --system pytest pytest-xdist pytest-rerunfailures pytest-asyncio
+
+      - name: Run Postgres-gated parity + persistence suites
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          pytest \
+            -p xdist \
+            -p pytest_rerunfailures \
+            -p pytest_asyncio.plugin \
+            tests/parity \
+            -m "not integration" \
+            --verbose \
+            --maxfail=10 \
+            --tb=short \
+            --strict-markers \
+            --reruns=2 \
+            --reruns-delay=1
+
   status-check:
     name: CI Status Check
     if: always()
-    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1150,6 +1222,11 @@ jobs:
 
           if [[ "${{ needs.test.result }}" != "success" ]]; then
             echo "::error::test job failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.postgres-tests.result }}" != "success" ]]; then
+            echo "::error::postgres-tests job failed"
             exit 1
           fi
 
