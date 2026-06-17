@@ -621,3 +621,138 @@ async def test_resolve_lang_defaults_to_auto_when_preference_unset():
     cfg.runtime.preferred_lang = None
     facade = _facade(cfg=cfg)
     assert facade._resolve_lang(_url_request()) == "auto"
+
+
+# --------------------------------------------------------------------------- #
+# (h) failure orchestration: no-summary delivery, orchestration exception
+#     handler (mark-error + notify + lease=failed), terminal-failure silent
+#     short-circuit, and the AcademicPaperUnavailableError paywall copy.
+# --------------------------------------------------------------------------- #
+async def test_graph_completes_without_summary_sends_processing_failure(monkeypatch):
+    """Graph ran fine but produced no summary -> failure delivery, no follow-ups.
+
+    Covers the ``not isinstance(summary_json, dict) or not summary_json`` branch
+    that routes to ``summary_delivery.send_processing_failure`` (graph_url_processor
+    :385-394) rather than the terminal-error branch (no ``error`` key present).
+    """
+    lease = _patch_lease(monkeypatch)
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(return_value={"summary": {}, "source_text": "body"}),
+        plain=AsyncMock(return_value={"summary": {}, "source_text": "body"}),
+    )
+
+    facade = _facade()
+    result = await facade.handle_url_flow(_url_request())
+
+    assert result.success is False
+    facade.summary_delivery.send_processing_failure.assert_awaited_once()
+    facade.post_summary_tasks.schedule_tasks.assert_not_awaited()
+    # The flow still recorded a terminal lease outcome (status=failed).
+    lease.record_synchronous_outcome.assert_awaited_once()
+    _, outcome_kwargs = lease.record_synchronous_outcome.call_args
+    assert outcome_kwargs["status"] == "failed"
+
+
+async def test_orchestration_exception_marks_error_notifies_and_leases_failed(monkeypatch):
+    """A RuntimeError mid-flow -> mark request ERROR, send a generic error notice,
+    and record the terminal lease as failed with the exception class as the code.
+
+    Covers graph_url_processor :430-446 (the catch-all orchestration handler) plus
+    the failed-lease outcome path (:798-801 not hit; happy outcome recorder).
+    """
+    lease = _patch_lease(monkeypatch)
+    boom = RuntimeError("delivery exploded")
+    # The runner succeeds; the failure is injected downstream in delivery so the
+    # except-handler (not the terminal-error branch) fires.
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+        plain=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+    )
+
+    facade = _facade()
+    facade._persist_bot_reply = AsyncMock(side_effect=boom)  # type: ignore[method-assign]
+
+    result = await facade.handle_url_flow(_url_request())
+
+    assert result.success is False
+    assert result.request_id == 777
+    # Request marked ERROR via the safety-net repo call.
+    facade.request_repo.async_update_request_status.assert_awaited_once()
+    # Generic (non-paywall) error notification surfaced with the correlation id.
+    facade.response_formatter.send_error_notification.assert_awaited_once()
+    notify_args, notify_kwargs = facade.response_formatter.send_error_notification.call_args
+    assert notify_args[1] == "processing_failed"
+    assert notify_args[2] == "cid-1"
+    assert "details" not in notify_kwargs
+    # The terminal lease records the failure with the exception class as the code.
+    _, outcome_kwargs = lease.record_synchronous_outcome.call_args
+    assert outcome_kwargs["status"] == "failed"
+    assert outcome_kwargs["error_code"] == "RuntimeError"
+    assert outcome_kwargs["error_message"] == "delivery exploded"
+
+
+async def test_orchestration_failure_renders_paywall_copy_for_academic_error(monkeypatch):
+    """An AcademicPaperUnavailableError surfaces the paper-specific paywall details
+    instead of the generic template (graph_url_processor :689-700)."""
+    from app.adapters.academic.platform_extractor import AcademicPaperUnavailableError
+
+    _patch_lease(monkeypatch)
+    paper_exc = AcademicPaperUnavailableError(
+        reason="paywall", host="ssrn", url="https://ssrn.com/abstract=1"
+    )
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(side_effect=paper_exc),
+        plain=AsyncMock(side_effect=paper_exc),
+    )
+
+    facade = _facade()
+    result = await facade.handle_url_flow(_url_request())
+
+    assert result.success is False
+    facade.response_formatter.send_error_notification.assert_awaited_once()
+    notify_args, notify_kwargs = facade.response_formatter.send_error_notification.call_args
+    assert notify_args[1] == "processing_failed"
+    # Paper-specific copy (host upper-cased + reason) was passed as details.
+    details = notify_kwargs["details"]
+    assert "SSRN paper unavailable (paywall)" in details
+    assert "paywall" in details
+
+
+async def test_orchestration_failure_silent_request_suppresses_notification(monkeypatch):
+    """A silent/batch flow must not emit a user-facing error notification
+    (graph_url_processor :685-686 early return)."""
+    _patch_lease(monkeypatch)
+    boom = RuntimeError("boom")
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(side_effect=boom),
+        plain=AsyncMock(side_effect=boom),
+    )
+
+    facade = _facade()
+    result = await facade.handle_url_flow(_url_request(silent=True))
+
+    assert result.success is False
+    facade.response_formatter.send_error_notification.assert_not_awaited()
+
+
+async def test_terminal_failure_silent_request_suppresses_processing_failure():
+    """``_notify_terminal_failure`` short-circuits for an effective-silent request
+    (graph_url_processor :668-669)."""
+    facade = _facade()
+    await facade._notify_terminal_failure(
+        _url_request(silent=True),
+        {"error": "Processing failed (Error ID: cid-1).", "correlation_id": "cid-1"},
+    )
+    facade.summary_delivery.send_processing_failure.assert_not_awaited()
+
+
+async def test_mark_request_error_noop_when_no_request_id():
+    """The safety-net mark-error is a no-op when the request row never materialized
+    (graph_url_processor :710-711)."""
+    facade = _facade()
+    await facade._mark_request_error(_url_request(), None)
+    facade.request_repo.async_update_request_status.assert_not_awaited()
