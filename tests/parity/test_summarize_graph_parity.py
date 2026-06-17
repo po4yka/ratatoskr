@@ -1,20 +1,23 @@
-"""T7 parity net (ADR-0013): graph summarize pipeline vs the legacy contract.
+"""Parity net (ADR-0013): graph summarize pipeline vs the contract normalizer.
 
-PARITY SCOPE (honest, partial -- the full per-source_kind golden-vs-legacy net is
-T9's deliverable, ADR-0013/roadmap M4):
+PARITY SCOPE:
 
 * extract: the single ExtractionPort yields a UNIFORM, serializable, id-based
   state delta for every source kind (web / youtube / x / academic / github /
   meta), exercised node-level with a fake port (legacy dispatch lives inside the
   one adapter, so kind-divergence cannot leak into the graph).
 * summarize -> validate -> enrich: the graph pipeline, given a canned LLM result,
-  produces a CONTRACT-FAITHFUL, DETERMINISTIC summary -- byte-identical to running
-  the contract normalizer (``validate_and_shape_summary``, the legacy oracle) over
-  the same model output. This pins the shaping seam, not model behavior.
+  produces a CONTRACT-FAITHFUL, DETERMINISTIC summary -- a fixed point of the
+  contract normalizer (``validate_and_shape_summary``), i.e. re-normalizing the
+  graph output is a no-op. This pins the shaping seam, not model behavior.
 
-What is NOT covered here (deferred to T9 with the real legacy oracle): a live
-graph-vs-``PureSummaryService`` golden per source_kind, budget/sticky/two-pass/
-chunk/cache behavioral goldens. CI-green here is NOT proof of full parity.
+Post-cutover note: the legacy ``PureSummaryService`` oracle was DELETED at the T9
+cutover, so a live graph-vs-legacy comparison is no longer runnable and is no
+longer promised here. The byte-exact regression lock that the deleted oracle would
+have provided now lives in ``test_summarize_golden_regression.py`` (frozen
+per-source_kind golden JSON). Behavioral goldens (budget / sticky / two-pass /
+chunk / cache) live in ``test_summarize_dual_path_parity.py`` as true dual-path
+assertions against the surviving pure helpers.
 """
 
 from __future__ import annotations

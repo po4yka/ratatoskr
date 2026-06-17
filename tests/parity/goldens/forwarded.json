@@ -1,0 +1,116 @@
+{
+  "answered_questions": [],
+  "article_id": null,
+  "categories": [],
+  "confidence": 0.0,
+  "entities": {
+    "locations": [],
+    "organizations": [],
+    "people": []
+  },
+  "estimated_reading_time_min": 0,
+  "extractive_quotes": [],
+  "forwarded_post_extras": null,
+  "hallucination_risk": "unknown",
+  "highlights": [],
+  "insights": {
+    "caution": null,
+    "critique": [],
+    "expansion_topics": [],
+    "new_facts": [],
+    "next_exploration": [],
+    "open_questions": [],
+    "suggested_sources": [],
+    "topic_overview": ""
+  },
+  "key_ideas": [],
+  "key_points_to_remember": [],
+  "key_stats": [],
+  "metadata": {
+    "author": null,
+    "canonical_url": null,
+    "domain": null,
+    "last_updated": null,
+    "published_at": null,
+    "title": null
+  },
+  "quality": {
+    "author_bias": null,
+    "emotional_tone": null,
+    "evidence_quality": null,
+    "missing_perspectives": [],
+    "prompt_injection_suspected": false
+  },
+  "query_expansion_keywords": [
+    "Forwarded",
+    "content",
+    "forwarded telegram",
+    "forwarded telegram content",
+    "longer",
+    "longer summary",
+    "longer summary forwarded",
+    "summary",
+    "summary forwarded",
+    "summary forwarded telegram",
+    "telegram",
+    "telegram content",
+    "concise",
+    "concise summary",
+    "concise summary forwarded",
+    "content concise",
+    "content concise summary",
+    "forwarded message",
+    "forwarded message longer",
+    "message",
+    "message longer",
+    "message longer summary",
+    "summary forwarded message",
+    "telegram content concise"
+  ],
+  "questions_answered": [],
+  "readability": {
+    "level": "Unknown",
+    "method": "Flesch-Kincaid",
+    "score": 29.515
+  },
+  "semantic_boosters": [
+    "A longer summary of the forwarded Telegram content.",
+    "A concise summary of the forwarded message."
+  ],
+  "semantic_chunks": [],
+  "seo_keywords": [
+    "content",
+    "forwarded",
+    "forwarded telegram",
+    "forwarded telegram content",
+    "longer",
+    "longer summary",
+    "longer summary forwarded",
+    "summary",
+    "summary forwarded",
+    "summary forwarded telegram"
+  ],
+  "source_type": "unknown",
+  "summary_1000": "A longer summary of the forwarded Telegram content.",
+  "summary_250": "A concise summary of the forwarded message.",
+  "summary_quality": {
+    "extraction_confidence": null,
+    "extraction_quality": null,
+    "model_used": "model-x",
+    "prompt_injection_suspected": false,
+    "repair_attempted": false,
+    "repair_succeeded": false,
+    "source_coverage": "unknown",
+    "structured_output_mode": "json_schema",
+    "validation_warnings": [
+      "source_type_invalid"
+    ]
+  },
+  "temporal_freshness": "evergreen",
+  "tldr": "A longer summary of the forwarded Telegram content.",
+  "tldr_ru": "",
+  "topic_tags": [
+    "#Forwarded"
+  ],
+  "topic_taxonomy": []
+}

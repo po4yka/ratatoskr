@@ -1,18 +1,20 @@
-"""T9 parity net (ADR-0013): graph summarize ≡ legacy summarize behavior.
+"""Parity net (ADR-0013): graph summarize ≡ the surviving pure-helper behavior.
 
-THE legacy-deletion gate. Two complementary proof strategies, per ADR-0013:
+The legacy-deletion gate. Two complementary proof strategies, per ADR-0013:
 
 * GOLDEN-EQUIVALENCE (Tier 1): the LLM-shaped summary is compared to
-  ``validate_and_shape_summary(<canned>)`` -- the contract normalizer is *by
-  definition* the legacy oracle's output, so a graph summary that re-normalizes
-  to a no-op is byte-identical to what the legacy ``PureSummaryService`` +
-  ``ensure_summary_payload`` would have emitted for the same model output. Run
-  across 5+ source_kinds at the contract level + a determinism check.
+  ``validate_and_shape_summary(<canned>)`` -- the contract normalizer that the
+  deleted legacy ``PureSummaryService`` + ``ensure_summary_payload`` ALSO ran, so
+  a graph summary that re-normalizes to a no-op shapes the contract fields exactly
+  as that path did for the same model output. Run across 5+ source_kinds at the
+  contract level + a determinism check. (The byte-exact, whole-summary regression
+  lock the now-deleted oracle would have anchored lives in
+  ``test_summarize_golden_regression.py`` as frozen per-kind golden JSON.)
 
 * TRUE DUAL-PATH (Tier 1b): for every value computed by CODE (not the LLM) the
-  graph node's output is asserted equal to the SAME legacy helper called with the
-  same inputs. The legacy helpers are importable + pure, so this is a real
-  side-by-side equivalence, not a golden:
+  graph node's output is asserted equal to the SAME pure helper called with the
+  same inputs. These helpers SURVIVED the cutover (they back both the graph and
+  the deleted facade), so this is a real side-by-side equivalence, not a golden:
     - tier routing: graph build_prompt's model_override ==
       resolve_model_for_content(...) (the legacy model_router helper).
     - select_max_tokens floor / ceiling / configured clamp ==

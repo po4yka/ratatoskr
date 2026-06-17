@@ -1,0 +1,115 @@
+{
+  "answered_questions": [],
+  "article_id": null,
+  "categories": [],
+  "confidence": 0.0,
+  "entities": {
+    "locations": [],
+    "organizations": [],
+    "people": []
+  },
+  "estimated_reading_time_min": 0,
+  "extractive_quotes": [],
+  "forwarded_post_extras": null,
+  "hallucination_risk": "unknown",
+  "highlights": [],
+  "insights": {
+    "caution": null,
+    "critique": [],
+    "expansion_topics": [],
+    "new_facts": [],
+    "next_exploration": [],
+    "open_questions": [],
+    "suggested_sources": [],
+    "topic_overview": ""
+  },
+  "key_ideas": [],
+  "key_points_to_remember": [],
+  "key_stats": [],
+  "metadata": {
+    "author": null,
+    "canonical_url": null,
+    "domain": null,
+    "last_updated": null,
+    "published_at": null,
+    "title": null
+  },
+  "quality": {
+    "author_bias": null,
+    "emotional_tone": null,
+    "evidence_quality": null,
+    "missing_perspectives": [],
+    "prompt_injection_suspected": false
+  },
+  "query_expansion_keywords": [
+    "Social",
+    "longer",
+    "longer summary",
+    "longer summary social",
+    "replies",
+    "social thread",
+    "social thread replies",
+    "summary",
+    "summary social",
+    "summary social thread",
+    "thread",
+    "thread replies",
+    "concise",
+    "concise summary",
+    "concise summary post",
+    "post",
+    "post longer",
+    "post longer summary",
+    "replies concise",
+    "replies concise summary",
+    "summary post",
+    "summary post longer",
+    "thread replies concise"
+  ],
+  "questions_answered": [],
+  "readability": {
+    "level": "Unknown",
+    "method": "Flesch-Kincaid",
+    "score": 66.1
+  },
+  "semantic_boosters": [
+    "A longer summary of the social thread and replies.",
+    "A concise summary of the X post."
+  ],
+  "semantic_chunks": [],
+  "seo_keywords": [
+    "longer",
+    "longer summary",
+    "longer summary social",
+    "replies",
+    "social",
+    "social thread",
+    "social thread replies",
+    "summary",
+    "summary social",
+    "summary social thread"
+  ],
+  "source_type": "unknown",
+  "summary_1000": "A longer summary of the social thread and replies.",
+  "summary_250": "A concise summary of the X post.",
+  "summary_quality": {
+    "extraction_confidence": null,
+    "extraction_quality": null,
+    "model_used": "model-x",
+    "prompt_injection_suspected": false,
+    "repair_attempted": false,
+    "repair_succeeded": false,
+    "source_coverage": "unknown",
+    "structured_output_mode": "json_schema",
+    "validation_warnings": [
+      "source_type_invalid"
+    ]
+  },
+  "temporal_freshness": "evergreen",
+  "tldr": "A longer summary of the social thread and replies.",
+  "tldr_ru": "",
+  "topic_tags": [
+    "#Social"
+  ],
+  "topic_taxonomy": []
+}

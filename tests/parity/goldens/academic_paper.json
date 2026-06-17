@@ -1,0 +1,117 @@
+{
+  "answered_questions": [],
+  "article_id": null,
+  "categories": [],
+  "confidence": 0.0,
+  "entities": {
+    "locations": [],
+    "organizations": [],
+    "people": []
+  },
+  "estimated_reading_time_min": 0,
+  "extractive_quotes": [],
+  "forwarded_post_extras": null,
+  "hallucination_risk": "unknown",
+  "highlights": [],
+  "insights": {
+    "caution": null,
+    "critique": [],
+    "expansion_topics": [],
+    "new_facts": [],
+    "next_exploration": [],
+    "open_questions": [],
+    "suggested_sources": [],
+    "topic_overview": ""
+  },
+  "key_ideas": [],
+  "key_points_to_remember": [],
+  "key_stats": [],
+  "metadata": {
+    "author": null,
+    "canonical_url": null,
+    "domain": null,
+    "last_updated": null,
+    "published_at": null,
+    "title": null
+  },
+  "quality": {
+    "author_bias": null,
+    "emotional_tone": null,
+    "evidence_quality": null,
+    "missing_perspectives": [],
+    "prompt_injection_suspected": false
+  },
+  "query_expansion_keywords": [
+    "Research",
+    "ML",
+    "findings",
+    "longer",
+    "longer summary",
+    "longer summary paper",
+    "methodology",
+    "methodology findings",
+    "paper",
+    "paper methodology",
+    "paper methodology findings",
+    "summary",
+    "summary paper",
+    "summary paper methodology",
+    "concise",
+    "concise paper",
+    "concise paper summary",
+    "findings concise",
+    "findings concise paper",
+    "methodology findings concise",
+    "paper summary",
+    "paper summary longer",
+    "summary longer",
+    "summary longer summary"
+  ],
+  "questions_answered": [],
+  "readability": {
+    "level": "Unknown",
+    "method": "Flesch-Kincaid",
+    "score": 28.5
+  },
+  "semantic_boosters": [
+    "A longer summary of the paper methodology and findings.",
+    "A concise paper summary."
+  ],
+  "semantic_chunks": [],
+  "seo_keywords": [
+    "findings",
+    "longer",
+    "longer summary",
+    "longer summary paper",
+    "methodology",
+    "methodology findings",
+    "paper",
+    "paper methodology",
+    "paper methodology findings",
+    "summary"
+  ],
+  "source_type": "unknown",
+  "summary_1000": "A longer summary of the paper methodology and findings.",
+  "summary_250": "A concise paper summary.",
+  "summary_quality": {
+    "extraction_confidence": null,
+    "extraction_quality": null,
+    "model_used": "model-x",
+    "prompt_injection_suspected": false,
+    "repair_attempted": false,
+    "repair_succeeded": false,
+    "source_coverage": "unknown",
+    "structured_output_mode": "json_schema",
+    "validation_warnings": [
+      "source_type_invalid"
+    ]
+  },
+  "temporal_freshness": "evergreen",
+  "tldr": "A longer summary of the paper methodology and findings.",
+  "tldr_ru": "",
+  "topic_tags": [
+    "#Research",
+    "#ML"
+  ],
+  "topic_taxonomy": []
+}

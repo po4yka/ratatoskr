@@ -1,0 +1,121 @@
+{
+  "answered_questions": [],
+  "article_id": null,
+  "categories": [],
+  "confidence": 0.0,
+  "entities": {
+    "locations": [],
+    "organizations": [],
+    "people": []
+  },
+  "estimated_reading_time_min": 0,
+  "extractive_quotes": [],
+  "forwarded_post_extras": null,
+  "hallucination_risk": "unknown",
+  "highlights": [],
+  "insights": {
+    "caution": null,
+    "critique": [],
+    "expansion_topics": [],
+    "new_facts": [],
+    "next_exploration": [],
+    "open_questions": [],
+    "suggested_sources": [],
+    "topic_overview": ""
+  },
+  "key_ideas": [],
+  "key_points_to_remember": [],
+  "key_stats": [],
+  "metadata": {
+    "author": null,
+    "canonical_url": null,
+    "domain": null,
+    "last_updated": null,
+    "published_at": null,
+    "title": null
+  },
+  "quality": {
+    "author_bias": null,
+    "emotional_tone": null,
+    "evidence_quality": null,
+    "missing_perspectives": [],
+    "prompt_injection_suspected": false
+  },
+  "query_expansion_keywords": [
+    "Meta",
+    "content",
+    "longer",
+    "longer summary",
+    "longer summary meta",
+    "meta platform",
+    "meta platform content",
+    "platform",
+    "platform content",
+    "summary",
+    "summary meta",
+    "summary meta platform",
+    "concise",
+    "concise summary",
+    "concise summary threads",
+    "content concise",
+    "content concise summary",
+    "instagram",
+    "instagram post",
+    "instagram post longer",
+    "platform content concise",
+    "post",
+    "post longer",
+    "post longer summary",
+    "summary threads",
+    "summary threads instagram",
+    "threads",
+    "threads instagram",
+    "threads instagram post"
+  ],
+  "questions_answered": [],
+  "readability": {
+    "level": "Unknown",
+    "method": "Flesch-Kincaid",
+    "score": 50.665
+  },
+  "semantic_boosters": [
+    "A longer summary of the Meta-platform content.",
+    "A concise summary of the Threads/Instagram post."
+  ],
+  "semantic_chunks": [],
+  "seo_keywords": [
+    "content",
+    "longer",
+    "longer summary",
+    "longer summary meta",
+    "meta",
+    "meta platform",
+    "meta platform content",
+    "platform",
+    "platform content",
+    "summary"
+  ],
+  "source_type": "unknown",
+  "summary_1000": "A longer summary of the Meta-platform content.",
+  "summary_250": "A concise summary of the Threads/Instagram post.",
+  "summary_quality": {
+    "extraction_confidence": null,
+    "extraction_quality": null,
+    "model_used": "model-x",
+    "prompt_injection_suspected": false,
+    "repair_attempted": false,
+    "repair_succeeded": false,
+    "source_coverage": "unknown",
+    "structured_output_mode": "json_schema",
+    "validation_warnings": [
+      "source_type_invalid"
+    ]
+  },
+  "temporal_freshness": "evergreen",
+  "tldr": "A longer summary of the Meta-platform content.",
+  "tldr_ru": "",
+  "topic_tags": [
+    "#Meta"
+  ],
+  "topic_taxonomy": []
+}
