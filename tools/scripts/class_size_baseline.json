@@ -2,5 +2,6 @@
     "app/adapters/content/content_extractor.py::ContentExtractor": 1119,
     "app/adapters/external/formatting/summary_presenter.py::SummaryPresenterImpl": 1034,
     "app/adapters/telegram/command_dispatcher.py::TelegramCommandDispatcher": 1115,
+    "app/infrastructure/vector/qdrant_store.py::QdrantVectorStore": 1044,
     "app/infrastructure/persistence/digest_store.py::DigestStore": 1087
 }
