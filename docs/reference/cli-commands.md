@@ -563,8 +563,8 @@ python -m app.cli.check_userbot_session
 ### Basic Usage
 
 ```bash
-# Start MCP server (stdio mode)
-python -m app.cli.mcp_server
+# Start MCP server (stdio mode, scoped to one user)
+MCP_USER_ID=123456789 python -m app.cli.mcp_server
 
 # Start with SSE transport (loopback + user scoped)
 python -m app.cli.mcp_server --transport sse --user-id 123456789
@@ -580,13 +580,14 @@ python -m app.cli.mcp_server --transport sse --user-id 123456789
 | `--user-id` | int | _(none)_ | Scope all MCP reads to one user |
 | `--allow-remote-sse` | flag | false | Allow non-loopback SSE bind host |
 | `--allow-unscoped-sse` | flag | false | Allow SSE without explicit user scope |
+| `--allow-unscoped-stdio` | flag | false | Allow stdio without explicit user scope |
 
 ### Examples
 
 **stdio Mode (Claude Desktop):**
 
 ```bash
-python -m app.cli.mcp_server
+MCP_USER_ID=123456789 python -m app.cli.mcp_server
 
 # Add to Claude Desktop config:
 # ~/.config/claude/claude_desktop_config.json
@@ -597,7 +598,8 @@ python -m app.cli.mcp_server
       "args": ["-m", "app.cli.mcp_server"],
       "cwd": "/path/to/ratatoskr",
       "env": {
-        "DB_PATH": "/path/to/data/ratatoskr.db"
+        "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost:5432/ratatoskr",
+        "MCP_USER_ID": "123456789"
       }
     }
   }

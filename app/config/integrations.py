@@ -164,6 +164,11 @@ class McpConfig(BaseModel):
         validation_alias="MCP_ALLOW_UNSCOPED_SSE",
         description="Allow SSE transport without MCP_USER_ID scoping",
     )
+    allow_unscoped_stdio: bool = Field(
+        default=False,
+        validation_alias="MCP_ALLOW_UNSCOPED_STDIO",
+        description="Allow stdio transport without MCP_USER_ID scoping",
+    )
     auth_mode: str = Field(
         default="disabled",
         validation_alias="MCP_AUTH_MODE",

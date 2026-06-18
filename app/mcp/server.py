@@ -101,6 +101,7 @@ def run_server(
     forwarding_secret: str | None = None,
     allow_remote_sse: bool = False,
     allow_unscoped_sse: bool = False,
+    allow_unscoped_stdio: bool = False,
 ) -> None:
     """Start the MCP server."""
     from app.core.logging_utils import setup_json_logging
@@ -143,6 +144,13 @@ def run_server(
         msg = (
             "Refusing to start unscoped MCP SSE server. Set MCP_USER_ID/--user-id or "
             "explicitly acknowledge risk via allow_unscoped_sse=True / --allow-unscoped-sse."
+        )
+        raise ValueError(msg)
+
+    if transport == "stdio" and user_id is None and not allow_unscoped_stdio:
+        msg = (
+            "Refusing to start unscoped MCP stdio server. Set MCP_USER_ID/--user-id or "
+            "explicitly acknowledge risk via allow_unscoped_stdio=True / --allow-unscoped-stdio."
         )
         raise ValueError(msg)
 

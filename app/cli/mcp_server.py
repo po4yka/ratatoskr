@@ -84,6 +84,11 @@ def main() -> None:
         action="store_true",
         help="Allow SSE without --user-id / MCP_USER_ID (unsafe by default)",
     )
+    parser.add_argument(
+        "--allow-unscoped-stdio",
+        action="store_true",
+        help="Allow stdio without --user-id / MCP_USER_ID (unsafe by default)",
+    )
 
     args = parser.parse_args()
     if args.db_path is not None:
@@ -101,6 +106,7 @@ def main() -> None:
     auth_mode = args.auth_mode or cfg.auth_mode
     allow_remote_sse = args.allow_remote_sse or cfg.allow_remote_sse
     allow_unscoped_sse = args.allow_unscoped_sse or cfg.allow_unscoped_sse
+    allow_unscoped_stdio = args.allow_unscoped_stdio or cfg.allow_unscoped_stdio
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -122,6 +128,7 @@ def main() -> None:
         forwarding_secret=cfg.forwarding_secret,
         allow_remote_sse=allow_remote_sse,
         allow_unscoped_sse=allow_unscoped_sse,
+        allow_unscoped_stdio=allow_unscoped_stdio,
     )
 
 

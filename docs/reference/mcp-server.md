@@ -20,6 +20,7 @@ This phase evolves the existing MCP server rather than adding a separate MCP gat
 | `MCP_USER_ID` | _(none)_ | Startup user scope for local stdio/SSE deployments (recommended for SSE) |
 | `MCP_ALLOW_REMOTE_SSE` | `false` | Allow binding SSE to non-loopback hosts (also disables DNS rebinding protection) |
 | `MCP_ALLOW_UNSCOPED_SSE` | `false` | Allow SSE without `MCP_USER_ID` |
+| `MCP_ALLOW_UNSCOPED_STDIO` | `false` | Allow stdio without `MCP_USER_ID` |
 | `MCP_AUTH_MODE` | `disabled` | Hosted auth mode: `disabled` or `jwt` |
 | `MCP_FORWARDED_ACCESS_TOKEN_HEADER` | `X-Ratatoskr-Forwarded-Access-Token` | Trusted-gateway header for forwarding the original access token |
 | `MCP_FORWARDED_SECRET_HEADER` | `X-Ratatoskr-MCP-Forwarding-Secret` | Trusted-gateway header carrying the shared forwarding secret |
@@ -29,10 +30,10 @@ See `docs/reference/environment-variables.md` for full config reference.
 
 ## Running
 
-**stdio mode** (default -- for OpenClaw / Claude Desktop):
+**stdio mode** (default -- for OpenClaw / Claude Desktop, requires startup user scope):
 
 ```bash
-python -m app.cli.mcp_server
+MCP_USER_ID=123456 python -m app.cli.mcp_server
 ```
 
 **SSE mode** (HTTP-based integrations):
@@ -52,6 +53,11 @@ SSE safety defaults:
 - Binds to loopback (`127.0.0.1`) unless you explicitly enable remote bind.
 - Requires either startup scoping (`MCP_USER_ID` / `--user-id`) or hosted auth (`MCP_AUTH_MODE=jwt`).
 - DNS rebinding protection is enabled by default; when `allow_remote_sse` is set, it is disabled so Docker-internal hostnames (e.g. `ratatoskr-mcp:8200`) are accepted.
+
+stdio safety defaults:
+
+- Requires startup scoping (`MCP_USER_ID` / `--user-id`) by default.
+- For maintenance-only local runs that intentionally need all-user reads, pass `--allow-unscoped-stdio` or set `MCP_ALLOW_UNSCOPED_STDIO=true`.
 
 Hosted auth behavior:
 

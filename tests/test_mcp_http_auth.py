@@ -30,6 +30,23 @@ def test_authenticate_mcp_http_headers_accepts_direct_bearer(monkeypatch) -> Non
     assert result.identity.auth_source == "authorization"
 
 
+def test_authenticate_mcp_http_headers_rejects_empty_allowed_user_ids(monkeypatch) -> None:
+    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "mcp-public-v1")
+    monkeypatch.delenv("ALLOWED_USER_IDS", raising=False)
+
+    token = create_access_token(user_id=123, username="mcp-user", client_id="mcp-public-v1")
+    result = authenticate_mcp_http_headers(
+        {"authorization": f"Bearer {token}"},
+        forwarded_access_token_header="X-Ratatoskr-Forwarded-Access-Token",
+        forwarded_secret_header="X-Ratatoskr-MCP-Forwarding-Secret",
+        forwarding_secret=None,
+    )
+
+    assert result.identity is None
+    assert result.status_code == 403
+    assert result.error == "User not authorized"
+
+
 def test_authenticate_mcp_http_headers_accepts_forwarded_bearer(monkeypatch) -> None:
     monkeypatch.setenv("ALLOWED_CLIENT_IDS", "mcp-public-v1")
     monkeypatch.setenv("ALLOWED_USER_IDS", "456")

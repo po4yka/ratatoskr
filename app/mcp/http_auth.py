@@ -137,7 +137,7 @@ def authenticate_mcp_http_headers(
             error="Invalid access token payload",
         )
 
-    if not Config.is_user_allowed(user_id, fail_open_when_empty=True):
+    if not Config.is_user_allowed(user_id, fail_open_when_empty=False):
         return McpAuthenticationResult(
             identity=None,
             status_code=HTTPStatus.FORBIDDEN,

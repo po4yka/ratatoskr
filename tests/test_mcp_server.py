@@ -92,6 +92,27 @@ def test_run_server_rejects_insecure_sse(monkeypatch: pytest.MonkeyPatch) -> Non
         server.run_server(transport="sse", host="127.0.0.1", user_id=None)
 
 
+def test_run_server_rejects_unscoped_stdio_without_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = load_server_module(monkeypatch)
+    monkeypatch.setattr(server._DEFAULT_CONTEXT, "init_runtime", lambda _db_path=None: None)
+
+    with pytest.raises(ValueError, match="unscoped MCP stdio"):
+        server.run_server(transport="stdio", user_id=None)
+
+
+def test_run_server_allows_unscoped_stdio_with_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = load_server_module(monkeypatch)
+    monkeypatch.setattr(server._DEFAULT_CONTEXT, "init_runtime", lambda _db_path=None: None)
+
+    server.run_server(transport="stdio", user_id=None, allow_unscoped_stdio=True)
+
+    assert server.mcp.run_calls == [{"transport": "stdio"}]
+
+
 def test_cli_uses_mcp_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     server = load_server_module(monkeypatch)
     import app.cli.mcp_server as mcp_cli
@@ -117,6 +138,7 @@ def test_cli_uses_mcp_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["user_id"] == 4242
     assert captured["auth_mode"] == "jwt"
     assert captured["database_dsn"] is None
+    assert captured["allow_unscoped_stdio"] is False
 
 
 def test_cli_accepts_postgres_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
