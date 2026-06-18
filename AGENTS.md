@@ -4,7 +4,13 @@ This document provides project context for AI coding agents (Codex, Copilot, etc
 
 ## Workspace skills
 
-Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. See `../AGENTS.md` for the workspace overview and the cross-repo OpenAPI contract.
+Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. For Codex, use the repo-local `.codex/skills/` mirror and copy any needed cross-repo skill into the parent or repo Codex skill root before relying on it. See `../AGENTS.md` for the workspace overview and the cross-repo OpenAPI contract.
+
+## Codex compatibility
+
+Codex-native skills live in `.codex/skills/` and mirror the project skills from `.claude/skills/`, with Codex-specific trigger wording where needed. When updating a project skill, update both trees unless the difference is host-specific and intentional.
+
+Codex command prompts live in `.codex/commands/`; they adapt the Claude Code slash commands from `.claude/commands/` to Codex `@...` triggers. `.codex/plugins/README.md` documents the current plugin state: there are no repo-local Claude plugin manifests to translate, and Claude Code hooks/plugin marketplace flows do not run in Codex, so encode shared behavior as skills or command prompts instead of assuming `.claude/hooks/` or `/plugin` will be available.
 
 ## Project Overview
 

@@ -48,10 +48,10 @@ python -m app.cli.summary "/summarize https://example.com/article"
 Standalone test scripts are bundled with this skill in `./scripts/`. Run them directly:
 
 ```bash
-python .claude/skills/testing-workflows/scripts/test-url-normalization.py
-python .claude/skills/testing-workflows/scripts/test-summary-validation.py
-python .claude/skills/testing-workflows/scripts/test-language-detection.py
-python .claude/skills/testing-workflows/scripts/test-access-control.py
+python .codex/skills/testing-workflows/scripts/test-url-normalization.py
+python .codex/skills/testing-workflows/scripts/test-summary-validation.py
+python .codex/skills/testing-workflows/scripts/test-language-detection.py
+python .codex/skills/testing-workflows/scripts/test-access-control.py
 ```
 
 ## Simulating Telegram Messages

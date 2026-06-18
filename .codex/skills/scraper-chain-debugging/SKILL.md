@@ -15,10 +15,11 @@ Diagnose failures in the ordered content-scraper fallback chain.
 2. `crawl4ai` -- self-hosted Docker sidecar (`SCRAPER_CRAWL4AI_URL`)
 3. `firecrawl` -- self-hosted (`FIRECRAWL_SELF_HOSTED_URL`); cloud API is used ONLY by `TopicSearchService` web search, not the chain
 4. `defuddle` -- self-hosted (`SCRAPER_DEFUDDLE_API_BASE_URL`)
-5. `playwright` -- in-process headless
-6. `crawlee` -- in-process
-7. `direct_html` -- raw httpx fetch
-8. `scrapegraph_ai` -- last-resort LLM-driven extractor
+5. `cloakbrowser` -- self-hosted stealth-Chromium CDP sidecar (`SCRAPER_CLOAKBROWSER_URL`); for Cloudflare Turnstile, reCAPTCHA v3, FingerprintJS-protected pages
+6. `playwright` -- in-process headless
+7. `crawlee` -- in-process
+8. `direct_html` -- raw httpx fetch
+9. `scrapegraph_ai` -- last-resort LLM-driven extractor
 
 Each provider logs success/failure with a `scraper` context field. The chain stops at the first success.
 
@@ -73,7 +74,9 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
 | `scrapling` | Cloudflare / anti-bot challenge | Falls through to `crawl4ai`; for SSRN/ResearchGate the academic extractor uses patchright stealth |
 | `crawl4ai` | Sidecar unreachable | `docker compose -f ops/docker/docker-compose.yml ps crawl4ai`; check `SCRAPER_CRAWL4AI_TIMEOUT_SEC=60` |
 | `firecrawl` (self-hosted) | API 5xx / timeout | `docker compose ps firecrawl-api`; honors `SCRAPER_FIRECRAWL_TIMEOUT_SEC=90` |
-| `defuddle` | Empty markdown on JS-heavy pages | Expected -- chain falls through to `playwright` |
+| `defuddle` | Empty markdown on JS-heavy pages | Expected -- chain falls through to `cloakbrowser` |
+| `cloakbrowser` | Sidecar unreachable / CDP connect refused | `docker compose --profile with-scrapers logs cloakbrowser`; check `SCRAPER_CLOAKBROWSER_URL=http://cloakbrowser:9222` resolves. Sidecar runs under `with-scrapers` profile only; without it the chain falls through to `playwright`. |
+| `cloakbrowser` | Same domain consistently fails / Cloudflare 1020 / Turnstile loop | Inspect `crawl_results.options_json` for `fingerprint_seed`, `humanize`, `proxy_configured` so the exact stealth config is correlatable. If `humanize` is `skipped`, confirm `SCRAPER_CLOAKBROWSER_HUMANIZE=true` (the in-house bezier fallback runs when the upstream `cloakbrowser.human` helper is not importable). For IP-reputation failures, attach a residential proxy via `SCRAPER_CLOAKBROWSER_PROXY=socks5://...` — it is forwarded per request via the cloakserve `?proxy=` query param. |
 | `playwright` | Browser crash / OOM | Restart container; the academic extractor relies on this for paywalled landings |
 | `crawlee` | Throttled | Lower concurrency; let `direct_html` catch trivial cases |
 | `direct_html` | Returns raw HTML, never structured | Final fallback before scrapegraph; OK for plain pages |
