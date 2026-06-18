@@ -30,6 +30,7 @@ from app.domain.services.webhook_service import (
     sign_payload,
     validate_webhook_url,
 )
+from app.security.ssrf import make_safe_async_client
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -250,7 +251,9 @@ async def send_test_webhook(
     payload_bytes = orjson.dumps(payload)
     signature = sign_payload(sub["secret"], payload_bytes)
 
-    # Pre-delivery SSRF check (guards against DNS rebinding since registration)
+    # Pre-delivery policy check catches stale/unsafe URLs before opening a
+    # socket. The safe transport below re-resolves and pins the connection
+    # target, closing the DNS-rebinding window between check and connect.
     url_safe, ssrf_error = is_webhook_url_safe(sub["url"])
     if not url_safe:
         raise APIException(
@@ -266,7 +269,7 @@ async def send_test_webhook(
     delivery_success = False
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with make_safe_async_client(timeout=10.0, follow_redirects=False) as client:
             resp = await client.post(
                 sub["url"],
                 content=payload_bytes,

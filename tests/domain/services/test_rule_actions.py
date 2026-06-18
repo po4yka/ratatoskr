@@ -8,6 +8,8 @@ test_rule_conditions.py.
 
 from __future__ import annotations
 
+import pytest
+
 from app.domain.services.rule_engine import (
     MAX_ACTIONS_PER_RULE,
     MAX_CONDITIONS_PER_RULE,
@@ -90,9 +92,16 @@ class TestValidateCondition:
 
 
 class TestValidateAction:
-    def test_valid_action_for_each_type(self) -> None:
+    def test_valid_action_for_each_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "app.domain.services.rule_engine.validate_webhook_url",
+            lambda _url: (True, None),
+        )
+
         for action_type in VALID_ACTION_TYPES:
             action = {"type": action_type, "params": {"key": "value"}}
+            if action_type == "send_webhook":
+                action["params"] = {"url": "https://example.com/hook"}
             valid, err = validate_action(action)
             assert valid, f"action type '{action_type}' should be valid"
             assert err is None
@@ -102,10 +111,37 @@ class TestValidateAction:
         valid, err = validate_action(action)
         assert valid
 
-    def test_valid_send_webhook(self) -> None:
+    def test_valid_send_webhook(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "app.domain.services.rule_engine.validate_webhook_url",
+            lambda _url: (True, None),
+        )
+
         action = {"type": "send_webhook", "params": {"url": "https://example.com/hook"}}
         valid, err = validate_action(action)
         assert valid
+
+    def test_send_webhook_requires_url(self) -> None:
+        action = {"type": "send_webhook", "params": {}}
+
+        valid, err = validate_action(action)
+
+        assert not valid
+        assert "params.url" in (err or "")
+
+    def test_send_webhook_rejects_unsafe_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "app.domain.services.rule_engine.validate_webhook_url",
+            lambda _url: (False, "private IP address"),
+        )
+
+        action = {"type": "send_webhook", "params": {"url": "http://127.0.0.1/hook"}}
+
+        valid, err = validate_action(action)
+
+        assert not valid
+        assert "invalid send_webhook URL" in (err or "")
+        assert "private IP address" in (err or "")
 
     def test_invalid_type(self) -> None:
         action = {"type": "invalid_action", "params": {}}
@@ -224,6 +260,22 @@ class TestValidateRule:
             "all",
         )
         assert not valid
+
+    def test_invalid_send_webhook_url_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "app.domain.services.rule_engine.validate_webhook_url",
+            lambda _url: (False, "private IP address"),
+        )
+
+        valid, err = validate_rule(
+            "summary.created",
+            [self._condition()],
+            [{"type": "send_webhook", "params": {"url": "http://127.0.0.1/hook"}}],
+            "all",
+        )
+
+        assert not valid
+        assert "invalid send_webhook URL" in (err or "")
 
     def test_empty_conditions_and_actions(self) -> None:
         valid, err = validate_rule("summary.created", [], [], "all")

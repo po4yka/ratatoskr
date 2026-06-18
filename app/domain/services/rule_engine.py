@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from app.core.logging_utils import get_logger
+from app.domain.services.webhook_service import validate_webhook_url
 
 logger = get_logger(__name__)
 
@@ -97,8 +98,16 @@ def validate_action(action: dict[str, Any]) -> tuple[bool, str | None]:
     action_type = action.get("type")
     if not action_type or action_type not in VALID_ACTION_TYPES:
         return False, f"invalid action type: {action_type}"
-    if not isinstance(action.get("params"), dict):
+    params = action.get("params")
+    if not isinstance(params, dict):
         return False, "action must have a 'params' dict"
+    if action_type == "send_webhook":
+        url = str(params.get("url", "")).strip()
+        if not url:
+            return False, "send_webhook action requires params.url"
+        valid_url, url_error = validate_webhook_url(url)
+        if not valid_url:
+            return False, f"invalid send_webhook URL: {url_error}"
     return True, None
 
 

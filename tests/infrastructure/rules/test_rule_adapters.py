@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from app.infrastructure.rules.context import RuleContextAdapter
@@ -74,3 +75,71 @@ async def test_in_memory_rate_limiter_blocks_after_limit(monkeypatch: pytest.Mon
 async def test_http_webhook_dispatcher_blocks_unsafe_url() -> None:
     with pytest.raises(ValueError, match="SSRF"):
         await HttpWebhookDispatchAdapter().async_dispatch("http://127.0.0.1/hook", {"x": 1})
+
+
+@pytest.mark.asyncio
+async def test_http_webhook_dispatcher_uses_safe_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, object] = {}
+
+    class _Response:
+        status_code = 204
+
+        def raise_for_status(self) -> None:
+            calls["raise_for_status"] = True
+
+    class _Client:
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            calls["closed"] = True
+
+        async def post(self, url: str, *, json: dict) -> _Response:
+            calls["url"] = url
+            calls["json"] = json
+            return _Response()
+
+    def _safe_client_factory(**kwargs: object) -> _Client:
+        calls["client_kwargs"] = kwargs
+        return _Client()
+
+    monkeypatch.setattr(
+        "app.infrastructure.rules.http_webhook_dispatcher.is_webhook_url_safe",
+        lambda _url: (True, None),
+    )
+    monkeypatch.setattr(
+        "app.infrastructure.rules.http_webhook_dispatcher.make_safe_async_client",
+        _safe_client_factory,
+    )
+
+    status_code = await HttpWebhookDispatchAdapter().async_dispatch(
+        "https://example.com/hook", {"x": 1}
+    )
+
+    assert status_code == 204
+    assert calls["url"] == "https://example.com/hook"
+    assert calls["json"] == {"x": 1}
+    assert calls["raise_for_status"] is True
+    assert calls["closed"] is True
+    assert calls["client_kwargs"] == {"timeout": 5.0, "follow_redirects": False}
+
+
+@pytest.mark.asyncio
+async def test_http_webhook_dispatcher_blocks_dns_rebinding_at_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.infrastructure.rules.http_webhook_dispatcher.is_webhook_url_safe",
+        lambda _url: (True, None),
+    )
+    monkeypatch.setattr(
+        "app.security.ssrf.socket.getaddrinfo",
+        lambda host, port, **_kwargs: [
+            (0, 0, 0, "", ("10.0.0.1", port)),
+        ],
+    )
+
+    with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
+        await HttpWebhookDispatchAdapter().async_dispatch("https://rebind.example/hook", {"x": 1})
