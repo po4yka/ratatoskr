@@ -107,6 +107,34 @@ async def test_validate_node_shapes_valid_summary() -> None:
     assert out["summary"]["summary_250"]  # canonical shaped payload present
 
 
+async def test_validate_node_merges_source_coverage_from_extraction_state() -> None:
+    out = await validate(
+        {
+            "summary": dict(_VALID),
+            "content_source": "academic_paper_abstract_only",
+            "content_for_summary": "Only the abstract was available.",
+        },
+        deps=MagicMock(),
+    )
+
+    assert out["validation_errors"] == []
+    assert out["summary"]["summary_quality"]["source_coverage"] == "abstract_only"
+
+
+async def test_validate_node_marks_repaired_summary_quality_after_success() -> None:
+    out = await validate(
+        {
+            "summary": dict(_VALID),
+            "repair_attempts": 1,
+        },
+        deps=MagicMock(),
+    )
+
+    quality = out["summary"]["summary_quality"]
+    assert quality["repair_attempted"] is True
+    assert quality["repair_succeeded"] is True
+
+
 async def test_validate_node_flags_invalid_summary() -> None:
     out = await validate({"summary": {"unrelated": "x"}}, deps=MagicMock())
     assert out["validation_errors"]  # non-empty -> routes to repair
