@@ -15,9 +15,10 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 import zipfile
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,7 +40,7 @@ from app.db.models import (
 )
 from app.db.runtime_database import resolve_runtime_database
 from app.db.types import _utcnow
-from app.infrastructure.persistence.backup_crypto import encrypt_backup
+from app.infrastructure.persistence.backup_crypto import encrypt_backup_stream
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -304,38 +305,63 @@ async def async_create_backup_archive(
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         def _build_and_write_archive() -> tuple[Path, int, dict[str, Any]]:
-            # Zip serialization, Fernet encryption, and the file write are all
+            # Zip serialization, streaming encryption, and the file write are all
             # CPU/IO-bound and must not run on the event loop; offload via to_thread.
             os.makedirs(backup_dir, exist_ok=True)
-            buf = BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
-                archive.writestr("manifest.json", json.dumps(manifest, default=str, indent=2))
-                archive.writestr("requests.json", json.dumps(requests_data, default=str))
-                archive.writestr("summaries.json", json.dumps(summaries_data, default=str))
-                archive.writestr("tags.json", json.dumps(tags_data, default=str))
-                archive.writestr("summary_tags.json", json.dumps(summary_tags_data, default=str))
-                archive.writestr("collections.json", json.dumps(collections_data, default=str))
-                archive.writestr(
-                    "collection_items.json", json.dumps(collection_items_data, default=str)
-                )
-                archive.writestr("highlights.json", json.dumps(highlights_data, default=str))
-                archive.writestr(
-                    "preferences.json",
-                    json.dumps(preferences, default=str) if preferences else "{}",
-                )
 
-            zip_bytes = buf.getvalue()
-            if cfg.is_encryption_enabled:
-                payload = encrypt_backup(zip_bytes, cfg.encryption_key)
-                suffix = ".zip.enc"
-            else:
-                payload = zip_bytes
-                suffix = ".zip"
+            # Build the plaintext ZIP into a temp file to avoid holding the whole
+            # archive in memory.
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip.tmp") as zip_tmp:
+                zip_tmp_path = zip_tmp.name
 
-            archive_verification = verify_backup_archive(payload, cfg=cfg)
-            archive_path = backup_dir / f"ratatoskr-backup-{user_id}-{timestamp}{suffix}"
-            archive_path.write_bytes(payload)
-            return archive_path, len(payload), archive_verification
+            try:
+                with zipfile.ZipFile(zip_tmp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+                    archive.writestr(
+                        "manifest.json", json.dumps(manifest, default=str, indent=2)
+                    )
+                    archive.writestr("requests.json", json.dumps(requests_data, default=str))
+                    archive.writestr("summaries.json", json.dumps(summaries_data, default=str))
+                    archive.writestr("tags.json", json.dumps(tags_data, default=str))
+                    archive.writestr(
+                        "summary_tags.json", json.dumps(summary_tags_data, default=str)
+                    )
+                    archive.writestr(
+                        "collections.json", json.dumps(collections_data, default=str)
+                    )
+                    archive.writestr(
+                        "collection_items.json",
+                        json.dumps(collection_items_data, default=str),
+                    )
+                    archive.writestr("highlights.json", json.dumps(highlights_data, default=str))
+                    archive.writestr(
+                        "preferences.json",
+                        json.dumps(preferences, default=str) if preferences else "{}",
+                    )
+
+                if cfg.is_encryption_enabled:
+                    suffix = ".zip.enc"
+                    archive_path = backup_dir / f"ratatoskr-backup-{user_id}-{timestamp}{suffix}"
+                    with (
+                        open(zip_tmp_path, "rb") as src,
+                        open(archive_path, "wb") as dst,
+                    ):
+                        encrypt_backup_stream(src, dst, cfg.encryption_key)
+                else:
+                    suffix = ".zip"
+                    archive_path = backup_dir / f"ratatoskr-backup-{user_id}-{timestamp}{suffix}"
+                    shutil.copy2(zip_tmp_path, archive_path)
+            finally:
+                try:
+                    os.unlink(zip_tmp_path)
+                except OSError:
+                    pass
+
+            # Compute checksum and verification by streaming over the written file.
+            file_size = os.path.getsize(archive_path)
+            with open(archive_path, "rb") as f:
+                payload_for_verify = f.read()
+            archive_verification = verify_backup_archive(payload_for_verify, cfg=cfg)
+            return archive_path, file_size, archive_verification
 
         zip_path, file_size, verification = await asyncio.to_thread(_build_and_write_archive)
         async with database.transaction() as session:
