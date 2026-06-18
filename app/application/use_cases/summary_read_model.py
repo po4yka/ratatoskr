@@ -170,7 +170,10 @@ class SummaryReadModelUseCase:
         request_id_int = int(request_id)
         llm_calls = await self._llm_repo.async_get_llm_calls_by_request(request_id_int)
         aggregation_source_bundle = (
-            await self._summary_repo.async_get_aggregation_source_bundle_for_summary(summary_id)
+            await self._summary_repo.async_get_aggregation_source_bundle_for_summary_owned_by_user(
+                summary_id,
+                user_id,
+            )
         )
         return {
             "summary": summary,

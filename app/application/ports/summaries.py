@@ -63,10 +63,10 @@ class SummaryRepositoryPort(Protocol):
     async def async_get_summary_context_by_id(self, summary_id: int) -> dict[str, Any] | None:
         """Return summary joined with its request and crawl result."""
 
-    async def async_get_aggregation_source_bundle_for_summary(
-        self, summary_id: int
+    async def async_get_aggregation_source_bundle_for_summary_owned_by_user(
+        self, summary_id: int, user_id: int
     ) -> dict[str, Any] | None:
-        """Return the latest aggregation source bundle that contains a summary."""
+        """Return the latest aggregation source bundle for a summary owned by user_id."""
 
     async def async_get_summary_by_request(self, request_id: int) -> dict[str, Any] | None:
         """Return summary by request ID."""

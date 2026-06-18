@@ -12,7 +12,16 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.config.database import DatabaseConfig
 from app.core.time_utils import UTC
-from app.db.models import CrawlResult, Request, Summary, SummaryFeedback, TopicSearchIndex, User
+from app.db.models import (
+    AggregationSession,
+    AggregationSessionItem,
+    CrawlResult,
+    Request,
+    Summary,
+    SummaryFeedback,
+    TopicSearchIndex,
+    User,
+)
 from app.db.session import Database
 from app.domain.models.request import RequestStatus
 from app.infrastructure.persistence.repositories.summary_repository import (
@@ -45,6 +54,8 @@ async def database() -> AsyncGenerator[Database]:
 
 async def _clear(database: Database) -> None:
     async with database.transaction() as session:
+        await session.execute(delete(AggregationSessionItem))
+        await session.execute(delete(AggregationSession))
         await session.execute(delete(SummaryFeedback))
         await session.execute(delete(TopicSearchIndex))
         await session.execute(delete(CrawlResult))
@@ -282,6 +293,59 @@ async def test_summary_repository_bulk_delete_skips_cross_user_ids(database: Dat
         states = {row[0]: row[1] for row in rows}
     assert states == {owned: True, other: False}
 
+
+@pytest.mark.asyncio
+async def test_aggregation_source_bundle_is_scoped_to_summary_owner(
+    database: Database,
+) -> None:
+    repo = SummaryRepositoryAdapter(database)
+    owned_request_id = await _create_request(
+        database,
+        user_id=7401,
+        url="https://bundle.example/owned",
+        status="completed",
+    )
+    await repo.async_upsert_summary(owned_request_id, "en", {"summary_250": "owned"})
+    owned_summary = await repo.async_get_summary_by_request(owned_request_id)
+    assert owned_summary is not None
+    async with database.transaction() as session:
+        await session.execute(
+            insert(User)
+            .values(telegram_user_id=7402, username="user-7402")
+            .on_conflict_do_nothing(index_elements=[User.telegram_user_id])
+        )
+        other_session = AggregationSession(
+            user_id=7402,
+            correlation_id="cross-user-bundle",
+            total_items=1,
+            status="completed",
+        )
+        session.add(other_session)
+        await session.flush()
+        session.add(
+            AggregationSessionItem(
+                aggregation_session_id=other_session.id,
+                request_id=owned_request_id,
+                position=0,
+                source_kind="url",
+                source_item_id="owned",
+                source_dedupe_key="owned",
+                status="completed",
+            )
+        )
+
+    legacy_unscoped = await repo.async_get_aggregation_source_bundle_for_summary(
+        int(owned_summary["id"])
+    )
+    assert legacy_unscoped is not None
+    assert legacy_unscoped["session"]["user_id"] == 7402
+    assert (
+        await repo.async_get_aggregation_source_bundle_for_summary_owned_by_user(
+            int(owned_summary["id"]),
+            7401,
+        )
+        is None
+    )
 
 @pytest.mark.asyncio
 async def test_summary_repository_user_lists_and_topic_filter(database: Database) -> None:

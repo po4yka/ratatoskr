@@ -220,8 +220,17 @@ class SummaryRepositoryAdapter:
         self, summary_id: int
     ) -> dict[str, Any] | None:
         """Return the newest aggregation session containing this summary's source request."""
+        return await self.async_get_aggregation_source_bundle_for_summary_owned_by_user(
+            summary_id=summary_id,
+            user_id=None,
+        )
+
+    async def async_get_aggregation_source_bundle_for_summary_owned_by_user(
+        self, summary_id: int, user_id: int | None
+    ) -> dict[str, Any] | None:
+        """Return the newest aggregation session for a summary, scoped to a user when supplied."""
         async with self._database.session() as session:
-            session_id = await session.scalar(
+            session_stmt = (
                 select(AggregationSession.id)
                 .join(
                     AggregationSessionItem,
@@ -233,26 +242,35 @@ class SummaryRepositoryAdapter:
                 .order_by(AggregationSession.created_at.desc(), AggregationSession.id.desc())
                 .limit(1)
             )
+            if user_id is not None:
+                session_stmt = session_stmt.where(
+                    AggregationSession.user_id == user_id,
+                    Request.user_id == user_id,
+                )
+            session_id = await session.scalar(session_stmt)
             if session_id is None:
                 return None
 
             aggregation_session = await session.get(AggregationSession, session_id)
-            rows = (
-                await session.execute(
-                    select(
-                        AggregationSessionItem,
-                        CrawlResult.id.label("crawl_result_id"),
-                        Summary.id.label("summary_id"),
-                        Request.is_deleted.label("request_is_deleted"),
-                        Summary.is_deleted.label("summary_is_deleted"),
-                    )
-                    .outerjoin(Request, AggregationSessionItem.request_id == Request.id)
-                    .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
-                    .outerjoin(Summary, Summary.request_id == Request.id)
-                    .where(AggregationSessionItem.aggregation_session_id == session_id)
-                    .order_by(AggregationSessionItem.position)
+            item_stmt = (
+                select(
+                    AggregationSessionItem,
+                    CrawlResult.id.label("crawl_result_id"),
+                    Summary.id.label("summary_id"),
+                    Request.is_deleted.label("request_is_deleted"),
+                    Summary.is_deleted.label("summary_is_deleted"),
                 )
-            ).all()
+                .outerjoin(Request, AggregationSessionItem.request_id == Request.id)
+                .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
+                .outerjoin(Summary, Summary.request_id == Request.id)
+                .where(AggregationSessionItem.aggregation_session_id == session_id)
+                .order_by(AggregationSessionItem.position)
+            )
+            if user_id is not None:
+                item_stmt = item_stmt.where(
+                    or_(AggregationSessionItem.request_id.is_(None), Request.user_id == user_id)
+                )
+            rows = (await session.execute(item_stmt)).all()
             return {
                 "session": model_to_dict(aggregation_session),
                 "items": [

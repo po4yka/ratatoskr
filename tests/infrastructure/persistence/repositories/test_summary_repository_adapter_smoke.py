@@ -100,6 +100,7 @@ async def test_summary_repository_empty_database_paths() -> None:
     assert await repo.async_get_summary_by_id(1) is None
     assert await repo.async_get_summary_context_by_id(1) is None
     assert await repo.async_get_aggregation_source_bundle_for_summary(1) is None
+    assert await repo.async_get_aggregation_source_bundle_for_summary_owned_by_user(1, 1) is None
     assert await repo.async_get_summaries_by_request_ids([]) == {}
     assert await repo.async_get_summaries_by_request_ids([1, 2]) == {}
     assert await repo.async_get_unread_summaries(1, 2, limit=0) == []
