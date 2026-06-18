@@ -3,13 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+PI_DEPLOY_SCRIPT = ROOT / "tools/scripts/build-and-deploy-pi.sh"
 
 
 def _compose() -> dict[str, Any]:
     return yaml.safe_load((ROOT / "ops/docker/docker-compose.yml").read_text(encoding="utf-8"))
+
+
+def _pi_deploy_script() -> str:
+    return PI_DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
 
 def _env_map(service: dict[str, Any]) -> dict[str, str]:
@@ -83,3 +88,25 @@ def test_release_workflow_publishes_stable_but_not_latest() -> None:
 
     assert "type=raw,value=stable" in tags
     assert "latest" not in tags
+
+
+def test_pi_deploy_runs_migrations_before_recreating_services() -> None:
+    script = _pi_deploy_script()
+    restart_branch = script.split("if [[ $RESTART -eq 1 ]]; then", maxsplit=1)[1]
+
+    restart_call = "up -d --no-deps --force-recreate ${svc}"
+    assert restart_call in script
+    assert restart_branch.index("run_remote_migrations") < restart_branch.index(
+        'for svc in "${SERVICES[@]}"; do'
+    )
+    assert "run --rm --no-build ${MIGRATE_SERVICE}" in script
+    assert "up -d --no-build postgres" in script
+
+
+def test_pi_deploy_ships_migrate_image_for_restart_flows() -> None:
+    script = _pi_deploy_script()
+
+    assert "MIGRATE_SERVICE=migrate" in script
+    assert 'SHARED_TO_BUILD+=("$MIGRATE_SERVICE")' in script
+    assert "--skip-migrate" in script
+    assert "WARNING: skipping database migrations" in script

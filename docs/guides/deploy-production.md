@@ -108,7 +108,7 @@ Notes
 |---|---|
 | **Production** (immutable image) | `docker compose -f ops/docker/docker-compose.yml up -d` |
 | **Local dev** (live source reload) | `docker compose -f ops/docker/docker-compose.yml -f ops/docker/docker-compose.dev.yml up -d` |
-| **Pi / remote deploy** | `make pi-deploy` (builds locally, streams image, restarts via Pi overlay) |
+| **Pi / remote deploy** | `make pi-deploy` (builds locally, streams image, runs migrations on the Pi, restarts via Pi overlay) |
 
 The production compose bakes all app code (`app/`, `bot.py`, `alembic.ini`) into the image at build time and mounts only `/data` (persistent storage) and `/etc/localtime` (timezone). No source tree directories are bind-mounted.
 
@@ -378,6 +378,11 @@ make lock-uv
 docker compose -f ops/docker/docker-compose.yml down
 docker compose -f ops/docker/docker-compose.yml up -d --build
 
+# Pi / remote deploy
+make pi-deploy
+make pi-deploy SERVICE=mobile-api
+make pi-deploy-all
+
 # Or manual
 docker stop ratatoskr && docker rm ratatoskr
 docker build -f ops/docker/Dockerfile -t ratatoskr:latest .
@@ -385,7 +390,7 @@ docker run -d --env-file .env -v $(pwd)/data:/data \
   -p 8000:8000 --name ratatoskr --restart unless-stopped ratatoskr:latest
 ```
 
-> The `migrate` service runs automatically before `ratatoskr`, `worker`, `scheduler`, and `mobile-api` start. There is no need to run migrations manually.
+> The `migrate` service runs automatically before `ratatoskr`, `worker`, `scheduler`, and `mobile-api` start in normal Compose flows. `make pi-deploy` uses `--no-deps` for the final service recreate to avoid disturbing Postgres/Redis/Qdrant, so the deploy script runs `migrate` explicitly on the Pi before it recreates any app service. If migration fails, the app restart is not attempted. `--skip-migrate` exists only for emergency rollback/repair when you have already verified the database schema yourself.
 
 ### 5. Verify
 

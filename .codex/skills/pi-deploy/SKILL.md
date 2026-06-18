@@ -7,7 +7,7 @@ allowed-tools: Bash, Read
 
 # Pi Deployment
 
-Deploy Ratatoskr to the Raspberry Pi by building the `linux/arm64` image on the Mac, streaming it over SSH, and restarting via compose. The Pi never runs `docker build`.
+Deploy Ratatoskr to the Raspberry Pi by building the `linux/arm64` image on the Mac, streaming it over SSH, running the one-shot `migrate` service on the Pi, and restarting via compose. The Pi never runs `docker build`.
 
 ## Prerequisites
 
@@ -30,6 +30,9 @@ make pi-deploy-no-cache
 # Ship without restarting on the Pi (manual restart later)
 make pi-build-only
 
+# Emergency only: restart without running migrations first
+bash tools/scripts/build-and-deploy-pi.sh --skip-migrate
+
 # Full flag/env coverage
 bash tools/scripts/build-and-deploy-pi.sh --help
 ```
@@ -46,6 +49,10 @@ CLAUDE.md flags this explicitly: there are two different image names in play.
 `docker compose up` uses `ratatoskr-ratatoskr`. If you build with `docker build -t ratatoskr:latest` and then run `docker compose up`, your code changes do NOT take effect because compose pulls the older `ratatoskr-ratatoskr` image.
 
 **Always deploy via `make pi-deploy` (or `docker compose build`)**, not `docker build` directly.
+
+## The Migration Footgun
+
+The Pi restart path recreates app containers with `--no-deps` so it does not disturb Postgres, Redis, or Qdrant. Because that bypasses Compose dependency execution, `tools/scripts/build-and-deploy-pi.sh` explicitly ships the `migrate` image and runs `docker compose run --rm --no-build migrate` before any service restart. If migration fails, the restart does not run. Use `--skip-migrate` only for emergency rollback or repair after verifying the schema manually.
 
 ## The Bind-Mount Footgun
 
@@ -84,6 +91,7 @@ ssh raspi 'docker logs --tail 50 ratatoskr-mobile-api'
 | Image streams but Pi can't load it | Disk full on Pi | `ssh raspi 'docker system df'` and prune |
 | Restart succeeds but code unchanged | Used `docker build` (image-name footgun) | Re-run with `make pi-deploy` |
 | Pi runs old image after restart | Compose cached the previous image ref | `ssh raspi 'docker compose -f ~/ratatoskr/ops/docker/docker-compose.yml up -d --force-recreate'` |
+| Restart is skipped after image ship | Migration failed before service recreate | Inspect `ratatoskr-migrate` output on the Pi, fix the migration/config issue, then re-run `make pi-deploy` |
 
 ## Key Files
 

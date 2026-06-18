@@ -10,12 +10,14 @@
 #   tools/scripts/build-and-deploy-pi.sh --all                          # all supported services
 #   tools/scripts/build-and-deploy-pi.sh --no-restart                   # just ship the image(s)
 #   tools/scripts/build-and-deploy-pi.sh --no-cache                     # full rebuild
+#   tools/scripts/build-and-deploy-pi.sh --skip-migrate                 # emergency only: restart without running migrations
 #
 # Supported services: ratatoskr, worker, scheduler, mcp, mcp-write,
 # mcp-public, mobile-api. Services sharing ops/docker/Dockerfile (everything
 # except mobile-api) are built once and re-tagged for each requested service.
-# Each Dockerfile group streams as a single tar so `docker load` deduplicates
-# layers on the Pi.
+# When restarting, the script also ships the one-shot `migrate` image and runs
+# it before any app service is recreated. Each Dockerfile group streams as a
+# single tar so `docker load` deduplicates layers on the Pi.
 #
 # Environment overrides:
 #   RASPI_HOST          SSH host alias                   (default: raspi)
@@ -35,8 +37,9 @@
 # project on the Pi with `-p ${COMPOSE_PROJECT}`, so `compose up` reuses the
 # shipped image instead of rebuilding it.
 #
-# The restart uses `--no-deps --force-recreate ${SERVICE}` so we never
-# disturb postgres/redis/qdrant. A post-recreate `docker network connect
+# The migration preflight runs explicitly because the app-service restart uses
+# `--no-deps --force-recreate ${SERVICE}` so we never disturb postgres/redis/
+# qdrant during recreation. A post-recreate `docker network connect
 # docker_default` works around a compose quirk that occasionally drops the
 # default-network attachment for mobile-api under --no-deps.
 
@@ -55,6 +58,7 @@ WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT:-0}
 
 SHARED_DOCKERFILE=ops/docker/Dockerfile
 API_DOCKERFILE=ops/docker/Dockerfile.api
+MIGRATE_SERVICE=migrate
 SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
 ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}")
@@ -62,6 +66,7 @@ ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}")
 SERVICES=()
 RESTART=1
 NO_CACHE=0
+RUN_MIGRATIONS=1
 
 usage() {
   sed -n '2,42p' "$0"
@@ -86,6 +91,8 @@ while [[ $# -gt 0 ]]; do
       SERVICES=("${ALL_SERVICES[@]}"); shift ;;
     --no-restart)
       RESTART=0; shift ;;
+    --skip-migrate)
+      RUN_MIGRATIONS=0; shift ;;
     --no-cache)
       NO_CACHE=1; shift ;;
     -h|--help)
@@ -96,6 +103,10 @@ while [[ $# -gt 0 ]]; do
       exit 2 ;;
   esac
 done
+
+if [[ $RESTART -eq 0 ]]; then
+  RUN_MIGRATIONS=0
+fi
 
 # Default: build the bot only (backward-compat with the old single-service script).
 [[ ${#SERVICES[@]} -eq 0 ]] && SERVICES=(ratatoskr)
@@ -118,6 +129,10 @@ for svc in "${SERVICES[@]}"; do
     exit 2
   fi
 done
+
+if [[ $RUN_MIGRATIONS -eq 1 ]]; then
+  SHARED_TO_BUILD+=("$MIGRATE_SERVICE")
+fi
 
 command -v docker >/dev/null || { echo "docker is not on PATH" >&2; exit 1; }
 docker buildx version >/dev/null 2>&1 || { echo "docker buildx is required" >&2; exit 1; }
@@ -211,7 +226,21 @@ COMPOSE_RUN=(
   -f ops/docker/docker-compose.pi.yml
 )
 
+run_remote_migrations() {
+  echo "==> Running database migrations on ${RASPI_HOST} before restarting services"
+  ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+    ${COMPOSE_RUN[*]} up -d --no-build postgres && \
+    ( ${COMPOSE_RUN[*]} rm -sf ${MIGRATE_SERVICE} >/dev/null 2>&1 || true ) && \
+    ${COMPOSE_RUN[*]} run --rm --no-build ${MIGRATE_SERVICE}"
+}
+
 if [[ $RESTART -eq 1 ]]; then
+  if [[ $RUN_MIGRATIONS -eq 1 ]]; then
+    run_remote_migrations
+  else
+    echo "WARNING: skipping database migrations before restart (--skip-migrate)" >&2
+  fi
+
   for svc in "${SERVICES[@]}"; do
     echo "==> Restarting ${svc} on ${RASPI_HOST} (project: ${COMPOSE_PROJECT})"
     ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}"
@@ -232,6 +261,7 @@ if [[ $RESTART -eq 1 ]]; then
   done
 else
   echo "==> Skipping restart (--no-restart). To start manually on the Pi:"
+  echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} run --rm --no-build ${MIGRATE_SERVICE}'"
   for svc in "${SERVICES[@]}"; do
     echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}'"
   done
