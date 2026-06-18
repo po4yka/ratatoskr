@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -419,6 +419,69 @@ async def test_repository_lease_next_sets_running_lease_fields() -> None:
     assert job.lease_expires_at is not None
     assert job.attempt_count == 1
     assert session.flush_count == 1
+
+
+@pytest.mark.asyncio
+async def test_repository_lease_by_id_accepts_retryable_failed_job() -> None:
+    job = RequestProcessingJob(
+        id=8,
+        request_id=43,
+        status="failed",
+        attempt_count=1,
+        max_attempts=3,
+        retry_after=datetime.now(UTC) - timedelta(seconds=1),
+        correlation_id="cid-retry",
+    )
+    session = FakeSession(scalar_results=[job])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    leased = await repository.lease_next(
+        lease_owner="worker-retry",
+        lease_ttl_seconds=30,
+        by_id=43,
+    )
+
+    assert leased == LeasedRequestJob(8, 43, 2, 3, "cid-retry")
+    assert job.status == "running"
+    assert job.lease_owner == "worker-retry"
+    assert job.lease_expires_at is not None
+    assert job.attempt_count == 2
+    assert session.flush_count == 1
+    sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "failed" in sql
+    assert "retry_after" in sql
+
+
+@pytest.mark.asyncio
+async def test_repository_lease_by_id_accepts_expired_running_job() -> None:
+    job = RequestProcessingJob(
+        id=9,
+        request_id=44,
+        status="running",
+        attempt_count=1,
+        max_attempts=3,
+        lease_owner="dead-worker",
+        lease_expires_at=datetime.now(UTC) - timedelta(seconds=1),
+        correlation_id="cid-expired",
+    )
+    session = FakeSession(scalar_results=[job])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    leased = await repository.lease_next(
+        lease_owner="worker-recovered",
+        lease_ttl_seconds=30,
+        by_id=44,
+    )
+
+    assert leased == LeasedRequestJob(9, 44, 2, 3, "cid-expired")
+    assert job.status == "running"
+    assert job.lease_owner == "worker-recovered"
+    assert job.lease_expires_at is not None
+    assert job.attempt_count == 2
+    assert session.flush_count == 1
+    sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "running" in sql
+    assert "lease_expires_at" in sql
 
 
 @pytest.mark.asyncio
