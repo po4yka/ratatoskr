@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -23,7 +24,7 @@ class _FakeCollectionRepository:
 
 
 @pytest.fixture
-def fake_collection_repo() -> _FakeCollectionRepository:
+def fake_collection_repo() -> Generator[_FakeCollectionRepository]:
     repo = _FakeCollectionRepository()
     previous = collection_service_module._repo_factory_holder[0]
     CollectionService.configure(lambda: repo)

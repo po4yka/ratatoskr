@@ -1,10 +1,13 @@
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from app.adapters.digest import analyzer as analyzer_module
 from app.adapters.digest.analyzer import DigestAnalyzer
+from app.config import AppConfig
+from app.infrastructure.persistence.digest_store import DigestStore
 
 
 class _Parsed:
@@ -20,12 +23,17 @@ class _Result:
         self.parsed = _Parsed(payload)
 
 
-class _FakeStore:
+class _Cfg(AppConfig):
+    def __init__(self) -> None:
+        object.__setattr__(self, "digest", SimpleNamespace(concurrency=2))
+
+
+class _FakeStore(DigestStore):
     def __init__(self, cached: dict[str, object] | None = None) -> None:
         self.cached = cached
         self.persisted: list[tuple[dict[str, object], dict[str, object]]] = []
 
-    async def async_find_cached_analysis(self, post: dict[str, object]) -> dict[str, object] | None:
+    async def async_find_cached_analysis(self, post: dict[str, object]) -> dict[str, Any] | None:
         return self.cached
 
     async def async_persist_analysis(
@@ -49,16 +57,36 @@ class _FakeLLM:
         self.exc = exc
         self.calls = 0
 
-    async def chat_structured(self, *args: object, **kwargs: object) -> _Result:
+    @property
+    def provider_name(self) -> str:
+        return "fake"
+
+    async def chat(self, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    async def chat_structured(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        response_model: type[Any],
+        max_retries: int = 3,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        request_id: int | None = None,
+        model_override: str | None = None,
+        fallback_models_override: tuple[str, ...] | list[str] | None = None,
+    ) -> Any:
         self.calls += 1
         if self.exc is not None:
             raise self.exc
         return _Result(self.payload)
 
+    async def aclose(self) -> None:
+        return None
+
 
 def _analyzer(llm: _FakeLLM, store: _FakeStore | None = None) -> DigestAnalyzer:
-    cfg = SimpleNamespace(digest=SimpleNamespace(concurrency=2))
-    subject = DigestAnalyzer(cfg, llm)  # type: ignore[arg-type]
+    subject = DigestAnalyzer(_Cfg(), llm)
     subject._store = store or _FakeStore()
     return subject
 
@@ -93,7 +121,7 @@ def test_parse_and_validate_llm_response_rejects_missing_required_fields() -> No
 
 @pytest.mark.asyncio
 async def test_analyze_single_uses_cache_without_calling_llm() -> None:
-    cached = {"real_topic": "cached", "tldr": "cached"}
+    cached: dict[str, object] = {"real_topic": "cached", "tldr": "cached"}
     llm = _FakeLLM()
     subject = _analyzer(llm, _FakeStore(cached=cached))
 
@@ -154,7 +182,7 @@ async def test_analyze_single_returns_none_on_llm_error(monkeypatch: pytest.Monk
     assert result is None
 
 
-class _ConcurrencyTrackingStore:
+class _ConcurrencyTrackingStore(DigestStore):
     """Cache store that records the peak number of concurrent cache lookups."""
 
     def __init__(self) -> None:
@@ -185,7 +213,7 @@ class _ConcurrencyTrackingStore:
 async def test_cache_lookup_is_bounded_by_concurrency_semaphore() -> None:
     store = _ConcurrencyTrackingStore()
     subject = _analyzer(_FakeLLM())
-    subject._store = store  # type: ignore[assignment]
+    subject._store = store
 
     posts = [{"message_id": i, "url": str(i), "text": "body"} for i in range(6)]
     results = await subject.analyze_posts(posts, "cid")

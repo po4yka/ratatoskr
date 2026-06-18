@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
+from app.adapters.external.formatting.protocols import DataFormatter, ResponseSender
 from app.adapters.external.formatting.markdown_telegram import (
     EXPANDABLE_MIN_CHARS,
     blockquote,
     maybe_expandable_blockquote,
     render_markdown,
 )
+from app.adapters.external.formatting.summary.presenter_context import SummaryPresenterContext
+from app.adapters.external.formatting.text_processor import TextProcessorImpl
+
+
+class _SummaryTextProcessor(TextProcessorImpl):
+    def __init__(self) -> None:
+        super().__init__(cast("ResponseSender", None))
+
+    def sanitize_summary_text(self, text: str) -> str:
+        return text
 
 
 def test_inline_formatting_maps_to_telegram_tags() -> None:
@@ -88,17 +101,11 @@ def test_output_round_trips_through_telethon_html_parser() -> None:
     assert quotes and any(getattr(e, "collapsed", None) for e in quotes)
 
 
-def _field_context() -> object:
-    from types import SimpleNamespace
-
-    from app.adapters.external.formatting.summary.presenter_context import (
-        SummaryPresenterContext,
-    )
-
+def _field_context() -> SummaryPresenterContext:
     return SummaryPresenterContext(
-        response_sender=None,  # type: ignore[arg-type]
-        text_processor=SimpleNamespace(sanitize_summary_text=lambda s: s),  # type: ignore[arg-type]
-        data_formatter=None,  # type: ignore[arg-type]
+        response_sender=cast("ResponseSender", None),
+        text_processor=_SummaryTextProcessor(),
+        data_formatter=cast("DataFormatter", None),
         verbosity_resolver=None,
         progress_tracker=None,
         topic_manager=None,
@@ -109,7 +116,7 @@ def _field_context() -> object:
 def test_summary_field_collapses_long_body_and_escapes_short() -> None:
     from app.adapters.external.formatting.summary.summary_blocks import SummaryBlocksPresenter
 
-    presenter = SummaryBlocksPresenter(_field_context())  # type: ignore[arg-type]
+    presenter = SummaryBlocksPresenter(_field_context())
 
     long_body = "x " * (EXPANDABLE_MIN_CHARS + 50)
     long_out = presenter.build_summary_field_text({"summary_1500": long_body}, include_tldr=False)
@@ -139,7 +146,7 @@ def test_summary_field_does_not_collapse_oversized_tldr() -> None:
     from app.adapters.external.formatting.markdown_telegram import EXPANDABLE_MAX_CHARS
     from app.adapters.external.formatting.summary.summary_blocks import SummaryBlocksPresenter
 
-    presenter = SummaryBlocksPresenter(_field_context())  # type: ignore[arg-type]
+    presenter = SummaryBlocksPresenter(_field_context())
     oversized = "word " * EXPANDABLE_MAX_CHARS  # well over the per-message limit
     out = presenter.build_summary_field_text({"tldr": oversized}, include_tldr=True)
     assert out is not None

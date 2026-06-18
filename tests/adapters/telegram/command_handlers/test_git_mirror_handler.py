@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -145,12 +145,12 @@ def _handler(
 
 def _unwrap_mirror(handler: GitMirrorHandler) -> Any:
     """Strip both combined_handler wrappers from handle_mirror."""
-    return handler.handle_mirror.__wrapped__.__wrapped__
+    return cast("Any", cast("Any", handler.handle_mirror).__wrapped__).__wrapped__
 
 
 def _unwrap_mirrors(handler: GitMirrorHandler) -> Any:
     """Strip both combined_handler wrappers from handle_mirrors."""
-    return handler.handle_mirrors.__wrapped__.__wrapped__
+    return cast("Any", cast("Any", handler.handle_mirrors).__wrapped__).__wrapped__
 
 
 # ---------------------------------------------------------------------------

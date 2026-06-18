@@ -2,21 +2,25 @@ from __future__ import annotations
 
 import json
 import logging
-from types import SimpleNamespace
 
 from fastapi.exceptions import RequestValidationError
+from starlette.requests import Request
 
 from app.api.error_handlers import validation_exception_handler
-
-
-class _Request:
-    state = SimpleNamespace(correlation_id="cid-redaction")
-    url = SimpleNamespace(path="/v1/auth/github/pat")
 
 
 async def test_validation_handler_does_not_echo_token_input(
     caplog,
 ) -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/auth/github/pat",
+            "headers": [],
+            "state": {"correlation_id": "cid-redaction"},
+        }
+    )
     raw_token = "github_pat_" + ("A" * 240)
     exc = RequestValidationError(
         [
@@ -30,9 +34,9 @@ async def test_validation_handler_does_not_echo_token_input(
     )
 
     with caplog.at_level(logging.WARNING):
-        response = await validation_exception_handler(_Request(), exc)
+        response = await validation_exception_handler(request, exc)
 
-    body = response.body.decode("utf-8")
+    body = bytes(response.body).decode("utf-8")
     payload = json.loads(body)
 
     assert response.status_code == 422

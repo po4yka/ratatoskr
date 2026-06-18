@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.summary_aggregate import (
     _dedupe_list,
     _dedupe_sentences,
@@ -66,7 +68,7 @@ def test_summary_aggregate_dedupes_and_limits_lists() -> None:
 
 
 def test_summary_aggregate_merges_chunk_payloads() -> None:
-    chunks = [
+    chunks: list[dict[str, Any]] = [
         {
             "summary_250": "Short first summary.",
             "summary_1000": "Alpha sentence is unique. Beta sentence is unique.",

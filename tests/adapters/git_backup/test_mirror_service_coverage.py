@@ -1017,7 +1017,7 @@ class TestLargeRepoSemaphore:
             min_value_seen.append(large_sem._value)
             return 0, ""
 
-        service._git_runner = noop_runner_spy  # type: ignore[method-assign]
+        service._git_runner = noop_runner_spy
 
         with (
             patch(

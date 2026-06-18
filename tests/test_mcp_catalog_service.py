@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -141,7 +141,10 @@ async def test_list_collections_bulk_loads_page_counts() -> None:
         ],
     )
 
-    payload = await CatalogReadService(_context(session)).list_collections(limit=20, offset=0)  # type: ignore[arg-type]
+    payload = cast(
+        "dict[str, Any]",
+        await CatalogReadService(_context(session)).list_collections(limit=20, offset=0),  # type: ignore[arg-type]
+    )
 
     assert session.execute_calls == 2
     assert payload["total"] == 2

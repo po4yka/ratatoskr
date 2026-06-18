@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -127,7 +128,7 @@ def test_llm_content_validation_omits_preview_by_default(
     record = next(item for item in caplog.records if item.message == "llm_content_validation")
     assert not hasattr(record, "text_preview")
     assert not hasattr(record, "debug_text_preview")
-    assert record.text_for_summary_len > 0
+    assert cast("Any", record).text_for_summary_len > 0
 
 
 def test_llm_content_validation_debug_flag_adds_bounded_redacted_preview(
@@ -144,10 +145,11 @@ def test_llm_content_validation_debug_flag_adds_bounded_redacted_preview(
 
     record = next(item for item in caplog.records if item.message == "llm_content_validation")
     assert hasattr(record, "debug_text_preview")
-    assert "Secret body" in record.debug_text_preview
-    assert "/private" not in record.debug_text_preview
-    assert "sk-or-secretsecretsecret" not in record.debug_system_prompt_preview
-    assert len(record.debug_text_preview) <= 200
+    debug_text_preview = record.debug_text_preview
+    assert "Secret body" in debug_text_preview
+    assert "/private" not in debug_text_preview
+    assert "sk-or-secretsecretsecret" not in cast("Any", record).debug_system_prompt_preview
+    assert len(debug_text_preview) <= 200
 
 
 def test_redact_url_for_logging_preserves_host_only() -> None:

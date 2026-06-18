@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from collections.abc import Generator
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -10,17 +11,21 @@ from unittest.mock import AsyncMock
 import pytest
 from cryptography.fernet import Fernet
 
+from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
 from app.adapters.content.platform_extraction.models import PlatformExtractionRequest
 from app.adapters.meta.instagram_api_extractor import (
     InstagramApiExtractionResult,
     InstagramApiExtractor,
 )
 from app.adapters.meta.platform_extractor import MetaPlatformExtractor
-from app.adapters.social.meta import InstagramOAuthError
+from app.adapters.social.meta import InstagramClient, InstagramOAuthError
 from app.application.dto.social_auth import OAuthTokenResult
 from app.application.ports.social_connections import (
+    SocialAuthStateCreate,
+    SocialAuthStateRecord,
     SocialConnectionRecord,
     SocialConnectionUpdate,
+    SocialConnectionUpsert,
     SocialFetchAttemptCreate,
 )
 from app.core.time_utils import UTC
@@ -50,6 +55,14 @@ class FakeSocialConnectionRepository:
         ):
             return self.connection
         return None
+
+    async def list_by_user(self, user_id: int) -> list[SocialConnectionRecord]:
+        if self.connection is not None and self.connection.user_id == user_id:
+            return [self.connection]
+        return []
+
+    async def upsert_connection(self, connection: SocialConnectionUpsert) -> SocialConnectionRecord:
+        raise AssertionError("upsert_connection is not used by these tests")
 
     async def update_connection(
         self, user_id: int, provider: str, update: SocialConnectionUpdate
@@ -86,8 +99,23 @@ class FakeSocialConnectionRepository:
     async def record_fetch_attempt(self, attempt: SocialFetchAttemptCreate) -> None:
         self.attempts.append(attempt)
 
+    async def delete_connection(self, user_id: int, provider: str) -> bool:
+        raise AssertionError("delete_connection is not used by these tests")
 
-class FakeInstagramClient:
+    async def create_auth_state(self, state: SocialAuthStateCreate) -> SocialAuthStateRecord:
+        raise AssertionError("create_auth_state is not used by these tests")
+
+    async def get_auth_state(self, provider: str, state_hash: str) -> SocialAuthStateRecord | None:
+        raise AssertionError("get_auth_state is not used by these tests")
+
+    async def mark_auth_state_consumed(self, state_id: int) -> SocialAuthStateRecord | None:
+        raise AssertionError("mark_auth_state_consumed is not used by these tests")
+
+    async def mark_auth_state_expired(self, state_id: int) -> SocialAuthStateRecord | None:
+        raise AssertionError("mark_auth_state_expired is not used by these tests")
+
+
+class FakeInstagramClient(InstagramClient):
     def __init__(
         self,
         *,
@@ -149,8 +177,36 @@ class _DummySemCtx:
         return False
 
 
+class _FakeLifecycle(PlatformRequestLifecycle):
+    def __init__(self) -> None:
+        return None
+
+    async def send_accepted_notification(self, request: Any) -> None:
+        return None
+
+    async def handle_request_dedupe_or_create(
+        self,
+        request: Any,
+        *,
+        dedupe_hash: str,
+        paper_canonical_id: str | None = None,
+    ) -> int:
+        del paper_canonical_id
+        return 1
+
+    async def persist_detected_lang(self, request_id: int, lang: str) -> None:
+        return None
+
+
+class _FakeInstagramApiExtractor(InstagramApiExtractor):
+    extract: AsyncMock
+
+    def __init__(self, result: InstagramApiExtractionResult) -> None:
+        self.extract = AsyncMock(return_value=result)
+
+
 @pytest.fixture(autouse=True)
-def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
     reset_secret_key_cache()
     yield
@@ -386,32 +442,26 @@ async def test_unsupported_public_url_path_falls_back_to_scraper_with_metadata()
             )
         )
     )
-    instagram_api = SimpleNamespace(
-        extract=AsyncMock(
-            return_value=InstagramApiExtractionResult(
-                ok=False,
-                metadata={
-                    "api_status": "unsupported",
-                    "api_supported_for_url": False,
-                    "unsupported_reason": "public_media_lookup_unsupported",
-                    "provider_shortcode": "ABC123",
-                    "auth_strategy": {
-                        "authenticated_supported": True,
-                        "selected_tier": "meta_scraper_fallback",
-                    },
+    instagram_api = _FakeInstagramApiExtractor(
+        InstagramApiExtractionResult(
+            ok=False,
+            metadata={
+                "api_status": "unsupported",
+                "api_supported_for_url": False,
+                "unsupported_reason": "public_media_lookup_unsupported",
+                "provider_shortcode": "ABC123",
+                "auth_strategy": {
+                    "authenticated_supported": True,
+                    "selected_tier": "meta_scraper_fallback",
                 },
-            )
+            },
         )
     )
     extractor = MetaPlatformExtractor(
         cfg=SimpleNamespace(runtime=SimpleNamespace(aggregation_non_youtube_video_enabled=True)),
         scraper=scraper,
         firecrawl_sem=lambda: _DummySemCtx(),
-        lifecycle=SimpleNamespace(
-            send_accepted_notification=AsyncMock(),
-            handle_request_dedupe_or_create=AsyncMock(return_value=1),
-            persist_detected_lang=AsyncMock(),
-        ),
+        lifecycle=_FakeLifecycle(),
         instagram_api_extractor=instagram_api,
     )
 
@@ -442,31 +492,25 @@ async def test_metadata_fallback_selected_when_scraper_has_only_metadata_after_a
             )
         )
     )
-    instagram_api = SimpleNamespace(
-        extract=AsyncMock(
-            return_value=InstagramApiExtractionResult(
-                ok=False,
-                metadata={
-                    "api_status": "unsupported",
-                    "api_supported_for_url": False,
-                    "unsupported_reason": "public_media_lookup_unsupported",
-                    "auth_strategy": {
-                        "authenticated_supported": True,
-                        "selected_tier": "meta_scraper_fallback",
-                    },
+    instagram_api = _FakeInstagramApiExtractor(
+        InstagramApiExtractionResult(
+            ok=False,
+            metadata={
+                "api_status": "unsupported",
+                "api_supported_for_url": False,
+                "unsupported_reason": "public_media_lookup_unsupported",
+                "auth_strategy": {
+                    "authenticated_supported": True,
+                    "selected_tier": "meta_scraper_fallback",
                 },
-            )
+            },
         )
     )
     extractor = MetaPlatformExtractor(
         cfg=SimpleNamespace(runtime=SimpleNamespace(aggregation_non_youtube_video_enabled=True)),
         scraper=scraper,
         firecrawl_sem=lambda: _DummySemCtx(),
-        lifecycle=SimpleNamespace(
-            send_accepted_notification=AsyncMock(),
-            handle_request_dedupe_or_create=AsyncMock(return_value=1),
-            persist_detected_lang=AsyncMock(),
-        ),
+        lifecycle=_FakeLifecycle(),
         instagram_api_extractor=instagram_api,
     )
 

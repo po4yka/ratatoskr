@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import zipfile
 from pathlib import Path
+from typing import Any, cast
 from typing import TYPE_CHECKING
 
 import pytest
@@ -94,8 +95,9 @@ async def test_create_backup_archive_uses_postgres_session(
     assert backup.file_path is not None
     assert backup.items_count == 1
     assert backup.checksum_sha256 == calculate_backup_checksum(Path(backup.file_path).read_bytes())
-    assert backup.item_counts_json["requests"] == 1
-    assert backup.item_counts_json["summaries"] == 1
+    item_counts = cast("dict[str, Any]", backup.item_counts_json)
+    assert item_counts["requests"] == 1
+    assert item_counts["summaries"] == 1
     assert backup.schema_version == "1.0"
     assert backup.verified_at is not None
     assert backup.verification_status == "verified"

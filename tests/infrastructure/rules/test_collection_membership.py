@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from typing import cast
 
 import pytest
 
+from app.db.session import Database
 from app.infrastructure.rules.collection_membership import CollectionMembershipAdapter
 
 
@@ -18,14 +21,14 @@ class _Database:
         self.session = _Session(values)
 
     @asynccontextmanager
-    async def transaction(self) -> object:
+    async def transaction(self) -> AsyncIterator[_Session]:
         yield self.session
 
 
 @pytest.mark.asyncio
 async def test_collection_membership_add_results() -> None:
     assert (
-        await CollectionMembershipAdapter(_Database([None])).async_add_summary(
+        await CollectionMembershipAdapter(cast("Database", _Database([None]))).async_add_summary(
             user_id=1,
             collection_id=2,
             summary_id=3,
@@ -34,7 +37,7 @@ async def test_collection_membership_add_results() -> None:
     )
 
     assert (
-        await CollectionMembershipAdapter(_Database([2, None])).async_add_summary(
+        await CollectionMembershipAdapter(cast("Database", _Database([2, None]))).async_add_summary(
             user_id=1,
             collection_id=2,
             summary_id=3,
@@ -43,7 +46,7 @@ async def test_collection_membership_add_results() -> None:
     )
 
     assert (
-        await CollectionMembershipAdapter(_Database([2, 9])).async_add_summary(
+        await CollectionMembershipAdapter(cast("Database", _Database([2, 9]))).async_add_summary(
             user_id=1,
             collection_id=2,
             summary_id=3,
@@ -55,7 +58,7 @@ async def test_collection_membership_add_results() -> None:
 @pytest.mark.asyncio
 async def test_collection_membership_remove_results() -> None:
     assert (
-        await CollectionMembershipAdapter(_Database([None])).async_remove_summary(
+        await CollectionMembershipAdapter(cast("Database", _Database([None]))).async_remove_summary(
             user_id=1,
             collection_id=2,
             summary_id=3,
@@ -64,7 +67,7 @@ async def test_collection_membership_remove_results() -> None:
     )
 
     assert (
-        await CollectionMembershipAdapter(_Database([2, None])).async_remove_summary(
+        await CollectionMembershipAdapter(cast("Database", _Database([2, None]))).async_remove_summary(
             user_id=1,
             collection_id=2,
             summary_id=3,
@@ -73,7 +76,7 @@ async def test_collection_membership_remove_results() -> None:
     )
 
     assert (
-        await CollectionMembershipAdapter(_Database([2, 9])).async_remove_summary(
+        await CollectionMembershipAdapter(cast("Database", _Database([2, 9]))).async_remove_summary(
             user_id=1,
             collection_id=2,
             summary_id=3,

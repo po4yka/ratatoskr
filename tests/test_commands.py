@@ -111,11 +111,11 @@ async def test_summarize_next_message(database: Database) -> None:
     bot = _make_bot(database)
     uid = 42
     await bot._on_message(FakeMessage("/summarize", uid=uid))
-    assert uid in bot._awaiting_url_users  # type: ignore[attr-defined]
+    assert uid in bot._awaiting_url_users
     url = "https://example.com/b"
     await bot._on_message(FakeMessage(url, uid=uid))
     assert url in bot.seen_urls
-    assert uid not in bot._awaiting_url_users  # type: ignore[attr-defined]
+    assert uid not in bot._awaiting_url_users
 
 
 async def test_cancel_awaiting_request(database: Database) -> None:
@@ -124,12 +124,12 @@ async def test_cancel_awaiting_request(database: Database) -> None:
     uid = 42
 
     await bot._on_message(FakeMessage("/summarize", uid=uid))
-    assert uid in bot._awaiting_url_users  # type: ignore[attr-defined]
+    assert uid in bot._awaiting_url_users
 
     cancel_msg = FakeMessage("/cancel", uid=uid)
     await bot._on_message(cancel_msg)
 
-    assert uid not in bot._awaiting_url_users  # type: ignore[attr-defined]
+    assert uid not in bot._awaiting_url_users
     assert any("Cancelled your pending URL request" in reply for reply in cancel_msg._replies)
 
 

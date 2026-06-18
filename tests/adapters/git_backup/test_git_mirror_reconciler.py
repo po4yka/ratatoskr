@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +20,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.infrastructure.embedding.embedding_protocol import pack_embedding, unpack_embedding
 from app.infrastructure.vector.point_ids import git_mirror_point_id
+from app.infrastructure.vector.qdrant_store import QdrantVectorStore
 
 # ---------------------------------------------------------------------------
 # Shared fakes
@@ -41,18 +44,65 @@ class _FakeEmbedding:
     def __init__(self) -> None:
         self.call_count = 0
 
-    async def generate_embedding(self, text: str, *, language: Any, task_type: str) -> list[float]:
+    async def generate_embedding(
+        self, text: str, *, language: str | None = None, task_type: str | None = None
+    ) -> list[float]:
+        del text, language, task_type
         self.call_count += 1
         return [0.1, 0.2, 0.3]
 
+    async def generate_embeddings_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        language: str | None = None,
+        task_type: str | None = None,
+    ) -> list[list[float]]:
+        return [
+            await self.generate_embedding(text, language=language, task_type=task_type)
+            for text in texts
+        ]
 
-class _FakeIndexQdrant:
+    def serialize_embedding(self, embedding: Any) -> bytes:
+        return pack_embedding(embedding)
+
+    def deserialize_embedding(self, blob: bytes) -> list[float]:
+        return unpack_embedding(blob)
+
+    def get_model_name(self, language: str | None = None) -> str:
+        del language
+        return "fake-model"
+
+    def get_dimensions(self, language: str | None = None) -> int:
+        del language
+        return 3
+
+    def close(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _FakeIndexQdrant(QdrantVectorStore):
     def __init__(self, available: bool = True) -> None:
-        self.available = available
+        self._available = available
         self.upserted: list[Any] = []
 
-    def upsert_notes(self, vectors: list[Any], metadatas: list[Any], ids: list[Any]) -> None:
-        self.upserted.append((vectors, metadatas, ids))
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def upsert_notes(
+        self,
+        vectors: Sequence[Sequence[float]],
+        metadatas: Sequence[dict[str, Any]],
+        ids: Sequence[str] | None = None,
+        *,
+        wait: bool = True,
+    ) -> None:
+        del wait
+        self.upserted.append((list(vectors), list(metadatas), list(ids or [])))
 
 
 def _index_db() -> MagicMock:

@@ -73,9 +73,7 @@ class TestWebSearchAgentSpanAndMetrics:
         class _RecordingTracer:
             def start_as_current_span(self, name: str, **_kw: Any) -> _RecordingSpan:
                 recorded_attrs["_span_name"] = name
-                import contextlib
-
-                return contextlib.nullcontext(_RecordingSpan())
+                return _RecordingSpan()
 
         agent = self._make_agent()
         with patch("app.agents.web_search_agent._tracer", _RecordingTracer()):
@@ -183,9 +181,7 @@ class TestRepoAnalysisAgentSpanAndMetrics:
         class _RecordingTracer:
             def start_as_current_span(self, name: str, **_kw: Any) -> _RecordingSpan:
                 recorded["_span_name"] = name
-                import contextlib
-
-                return contextlib.nullcontext(_RecordingSpan())
+                return _RecordingSpan()
 
         from app.core.repo_analysis_schema import RepoAnalysisInput
 
@@ -251,9 +247,7 @@ class TestCombinedSummaryAgentSpan:
         class _RecordingTracer:
             def start_as_current_span(self, name: str, **_kw: Any) -> _RecordingSpan:
                 recorded["_span_name"] = name
-                import contextlib
-
-                return contextlib.nullcontext(_RecordingSpan())
+                return _RecordingSpan()
 
         llm = MagicMock()
         llm.chat_structured = AsyncMock(side_effect=RuntimeError("no LLM in test"))

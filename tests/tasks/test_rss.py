@@ -1,8 +1,15 @@
 from types import SimpleNamespace
+from typing import Protocol
 
 import pytest
 
+from app.config import AppConfig
+from app.db.session import Database
 from app.tasks import rss
+
+
+class _SendMessage(Protocol):
+    async def __call__(self, user_id: int, text: str) -> None: ...
 
 
 class _FakeBot:
@@ -24,9 +31,9 @@ class _FakeDeliveryService:
         self.messages: list[tuple[int, str]] = []
 
     async def deliver_new_items(
-        self, send_message: object, *, new_item_ids: list[int]
+        self, send_message: _SendMessage, *, new_item_ids: list[int]
     ) -> dict[str, int]:
-        await send_message(10, f"items: {new_item_ids}")  # type: ignore[misc]
+        await send_message(10, f"items: {new_item_ids}")
         return {"delivered": len(new_item_ids)}
 
 
@@ -76,17 +83,28 @@ class _FakeRuntime:
         return self.bot
 
 
-def _cfg(
-    *, rss_enabled: bool = True, auto_summarize: bool = True, signals: bool = True
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        rss=SimpleNamespace(
-            enabled=rss_enabled,
-            auto_summarize=auto_summarize,
-            max_items_per_poll=5,
-        ),
-        signal_ingestion=SimpleNamespace(any_enabled=signals),
-    )
+class _Cfg(AppConfig):
+    def __init__(
+        self, *, rss_enabled: bool = True, auto_summarize: bool = True, signals: bool = True
+    ) -> None:
+        object.__setattr__(
+            self,
+            "rss",
+            SimpleNamespace(
+                enabled=rss_enabled,
+                auto_summarize=auto_summarize,
+                max_items_per_poll=5,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "signal_ingestion",
+            SimpleNamespace(any_enabled=signals),
+        )
+
+
+def _cfg(*, rss_enabled: bool = True, auto_summarize: bool = True, signals: bool = True) -> _Cfg:
+    return _Cfg(rss_enabled=rss_enabled, auto_summarize=auto_summarize, signals=signals)
 
 
 @pytest.mark.asyncio
@@ -128,7 +146,7 @@ async def test_rss_poll_body_delivers_new_items(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr("app.adapters.rss.feed_poller.poll_all_feeds", fake_poll_all_feeds)
     monkeypatch.setattr(rss, "build_rss_poll_task_runtime", lambda cfg, db: runtime)
 
-    await rss._rss_poll_body(_cfg(), object())  # type: ignore[arg-type]
+    await rss._rss_poll_body(_cfg(), Database.__new__(Database))
 
     assert runtime.worker.limits == [5]
     assert runtime.runner.called
@@ -143,4 +161,4 @@ async def test_rss_poll_body_swallows_poll_errors(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("app.adapters.rss.feed_poller.poll_all_feeds", fake_poll_all_feeds)
     monkeypatch.setattr(rss, "build_rss_poll_task_runtime", lambda cfg, db: _FakeRuntime())
 
-    await rss._rss_poll_body(_cfg(), object())  # type: ignore[arg-type]
+    await rss._rss_poll_body(_cfg(), Database.__new__(Database))

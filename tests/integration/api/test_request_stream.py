@@ -17,6 +17,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.application.dto.stream_enums import ProcessingStage
+
 pytest.importorskip("jwt", reason="PyJWT not installed")
 pytest.importorskip("fastapi", reason="FastAPI not installed")
 
@@ -325,7 +327,7 @@ def test_stream_delivers_events_in_order(monkeypatch: pytest.MonkeyPatch) -> Non
     from app.api.routers.auth.tokens import create_access_token
 
     request_id = 22222
-    stage_ev = StreamEvent.now("stage", StagePayload(stage="summarizing"), "cid")
+    stage_ev = StreamEvent.now("stage", StagePayload(stage=ProcessingStage.SUMMARIZING), "cid")
     section_ev = StreamEvent.now(
         "section",
         SectionPayload(section="tldr", content="Quick summary"),
@@ -487,7 +489,7 @@ def test_disconnect_mid_stream_does_not_raise(
     from app.api.routers.auth.tokens import create_access_token
 
     request_id = 33333
-    stage_ev = StreamEvent.now("stage", StagePayload(stage="summarizing"), "c")
+    stage_ev = StreamEvent.now("stage", StagePayload(stage=ProcessingStage.SUMMARIZING), "c")
     done_ev = StreamEvent.now("done", DonePayload(summary_id=None, request_id=str(request_id)), "c")
 
     hub = _make_hub(stage_ev, done_ev, request_id=str(request_id))

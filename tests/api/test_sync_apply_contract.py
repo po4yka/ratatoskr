@@ -375,14 +375,17 @@ async def test_delta_valid_session_with_matching_etag_returns_304_without_db() -
     )
     assert "sync-session-abc" not in etag
 
-    second = await delta_sync(
-        request=cast("Any", SimpleNamespace(headers={"if-none-match": etag})),
-        response=cast("Any", SimpleNamespace(headers={})),
-        session_id="sync-session-abc",
-        since=0,
-        limit=50,
-        user=user,
-        svc=svc,
+    second = cast(
+        "Any",
+        await delta_sync(
+            request=cast("Any", SimpleNamespace(headers={"if-none-match": etag})),
+            response=cast("Any", SimpleNamespace(headers={})),
+            session_id="sync-session-abc",
+            since=0,
+            limit=50,
+            user=user,
+            svc=svc,
+        ),
     )
 
     assert getattr(second, "status_code", None) == 304

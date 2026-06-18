@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import AsyncMock
 
+from app.adapters.external.formatting.protocols import DataFormatter, ResponseSender
+from app.adapters.external.formatting.summary.summary_blocks import SummaryBlocksPresenter
+from app.adapters.external.formatting.text_processor import TextProcessorImpl
 from app.config.telegram import TelegramLimitsConfig
+
+
+class _SummaryTextProcessor(TextProcessorImpl):
+    def __init__(self, *, max_message_chars: int) -> None:
+        super().__init__(cast("ResponseSender", None), max_message_chars=max_message_chars)
+
+    def sanitize_summary_text(self, text: str) -> str:
+        return text
 
 
 def test_default_chunk_ceiling_stays_under_hard_limit() -> None:
@@ -15,30 +27,23 @@ def test_default_chunk_ceiling_stays_under_hard_limit() -> None:
 
 
 def test_text_processor_exposes_max_message_chars() -> None:
-    from app.adapters.external.formatting.text_processor import TextProcessorImpl
-
-    tp = TextProcessorImpl(response_sender=None, max_message_chars=3900)  # type: ignore[arg-type]
+    tp = TextProcessorImpl(response_sender=cast("ResponseSender", None), max_message_chars=3900)
     assert tp.max_message_chars == 3900
 
 
-def _presenter_with_ceiling(ceiling: int) -> object:
-    from types import SimpleNamespace
-
+def _presenter_with_ceiling(ceiling: int) -> SummaryBlocksPresenter:
     from app.adapters.external.formatting.summary.presenter_context import SummaryPresenterContext
-    from app.adapters.external.formatting.summary.summary_blocks import SummaryBlocksPresenter
 
     ctx = SummaryPresenterContext(
-        response_sender=None,  # type: ignore[arg-type]
-        text_processor=SimpleNamespace(  # type: ignore[arg-type]
-            sanitize_summary_text=lambda s: s, max_message_chars=ceiling
-        ),
-        data_formatter=None,  # type: ignore[arg-type]
+        response_sender=cast("ResponseSender", None),
+        text_processor=_SummaryTextProcessor(max_message_chars=ceiling),
+        data_formatter=cast("DataFormatter", None),
         verbosity_resolver=None,
         progress_tracker=None,
         topic_manager=None,
         lang="en",
     )
-    return SummaryBlocksPresenter(ctx)  # type: ignore[arg-type]
+    return SummaryBlocksPresenter(ctx)
 
 
 def test_expandable_band_tracks_configured_ceiling() -> None:

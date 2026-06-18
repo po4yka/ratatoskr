@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,7 +86,7 @@ class TestGeminiEmbeddingServiceBatch:
 
         def _embed(**kw: object) -> SimpleNamespace:
             # Echo each input's integer value so order can be verified.
-            contents = kw["contents"]
+            contents = cast("list[str]", kw["contents"])
             return SimpleNamespace(
                 embeddings=[SimpleNamespace(values=[float(int(c))]) for c in contents]
             )

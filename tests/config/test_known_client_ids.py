@@ -33,8 +33,7 @@ def test_known_client_id_accepted_when_in_allowlist(
     monkeypatch.setenv("ALLOWED_CLIENT_IDS", ",".join(sorted(KNOWN_CLIENT_IDS)))
     settings.clear_config_cache()
 
-    result = tokens.validate_client_id(client_id)
-    assert result is None
+    tokens.validate_client_id(client_id)
 
 
 # ---------------------------------------------------------------------------

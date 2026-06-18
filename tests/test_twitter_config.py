@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from app.config.twitter import TwitterConfig
@@ -42,8 +44,8 @@ def test_twitter_force_tier_requires_matching_enabled_tier() -> None:
 
 
 def test_twitter_config_parses_x_oauth_scopes_without_write_permissions() -> None:
-    cfg = TwitterConfig(x_oauth_scopes="tweet.read, users.read offline.access")
+    cfg = TwitterConfig(x_oauth_scopes=cast("Any", "tweet.read, users.read offline.access"))
     assert cfg.x_oauth_scopes == ["tweet.read", "users.read", "offline.access"]
 
     with pytest.raises(ValueError, match="must not include write scopes"):
-        TwitterConfig(x_oauth_scopes="tweet.read tweet.write")
+        TwitterConfig(x_oauth_scopes=cast("Any", "tweet.read tweet.write"))

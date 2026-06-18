@@ -1,32 +1,39 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from app.adapters.digest import userbot_client as userbot_module
 from app.adapters.digest.userbot_client import UserbotClient, _telethon_media_type
+from app.adapters.telethon_compat import TelethonUserClient
+from app.config import AppConfig
 from app.core.time_utils import UTC
 
 
-class _FakeTelethonUserClient:
+class _FakeTelethonUserClient(TelethonUserClient):
     started: list["_FakeTelethonUserClient"] = []
 
     def __init__(self, *, session_path: str, api_id: int, api_hash: str) -> None:
         self.session_path = session_path
         self.api_id = api_id
         self.api_hash = api_hash
-        self.is_connected = True
+        self._is_connected = True
         self.disconnected = False
+        self.messages: list[Any] = []
         _FakeTelethonUserClient.started.append(self)
 
-    async def start(self) -> None:
+    @property
+    def is_connected(self) -> bool:
+        return self._is_connected
+
+    async def start(self, *, interactive: bool = False) -> None:
         return None
 
     async def disconnect(self) -> None:
         self.disconnected = True
-        self.is_connected = False
+        self._is_connected = False
 
     async def get_chat_history(self, channel_username: str) -> Any:
         for message in self.messages:
@@ -43,11 +50,14 @@ class _FakeTelethonUserClient:
         )
 
 
-def _cfg() -> SimpleNamespace:
-    return SimpleNamespace(
-        digest=SimpleNamespace(session_name="digest_user"),
-        telegram=SimpleNamespace(api_id=123, api_hash="hash"),
-    )
+class _Cfg(AppConfig):
+    def __init__(self) -> None:
+        object.__setattr__(self, "digest", SimpleNamespace(session_name="digest_user"))
+        object.__setattr__(self, "telegram", SimpleNamespace(api_id=123, api_hash="hash"))
+
+
+def _cfg() -> _Cfg:
+    return _Cfg()
 
 
 def test_media_type_mapping() -> None:
@@ -71,7 +81,7 @@ async def test_start_requires_session_file_and_starts_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(userbot_module, "TelethonUserClient", _FakeTelethonUserClient)
-    subject = UserbotClient(_cfg(), tmp_path)  # type: ignore[arg-type]
+    subject = UserbotClient(_cfg(), tmp_path)
 
     with pytest.raises(FileNotFoundError):
         await subject.start()
@@ -84,14 +94,14 @@ async def test_start_requires_session_file_and_starts_client(
 
     client = subject._client
     await subject.stop()
-    assert client is not None
+    assert isinstance(client, _FakeTelethonUserClient)
     assert client.disconnected
     assert not subject.is_connected
 
 
 @pytest.mark.asyncio
 async def test_fetch_channel_posts_filters_by_date_and_length() -> None:
-    subject = UserbotClient(_cfg(), Path("/tmp"))  # type: ignore[arg-type]
+    subject = UserbotClient(_cfg(), Path("/tmp"))
     client = _FakeTelethonUserClient(session_path="s", api_id=1, api_hash="h")
     now = datetime.now(UTC)
     client.messages = [
@@ -108,7 +118,7 @@ async def test_fetch_channel_posts_filters_by_date_and_length() -> None:
             id=3, date=(now - timedelta(hours=30)).replace(tzinfo=None), text="old text", media=None
         ),
     ]
-    subject._client = client
+    subject._client = cast("TelethonUserClient", client)
 
     posts = await subject.fetch_channel_posts("channel", hours_lookback=24, min_length=10)
 
@@ -120,7 +130,7 @@ async def test_fetch_channel_posts_filters_by_date_and_length() -> None:
 
 @pytest.mark.asyncio
 async def test_fetch_and_resolve_require_started_client() -> None:
-    subject = UserbotClient(_cfg(), Path("/tmp"))  # type: ignore[arg-type]
+    subject = UserbotClient(_cfg(), Path("/tmp"))
 
     with pytest.raises(RuntimeError, match="not started"):
         await subject.fetch_channel_posts("channel")
@@ -130,8 +140,11 @@ async def test_fetch_and_resolve_require_started_client() -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_channel_maps_metadata_and_errors() -> None:
-    subject = UserbotClient(_cfg(), Path("/tmp"))  # type: ignore[arg-type]
-    subject._client = _FakeTelethonUserClient(session_path="s", api_id=1, api_hash="h")
+    subject = UserbotClient(_cfg(), Path("/tmp"))
+    subject._client = cast(
+        "TelethonUserClient",
+        _FakeTelethonUserClient(session_path="s", api_id=1, api_hash="h"),
+    )
 
     assert await subject.resolve_channel("channel") == {
         "username": "resolved",

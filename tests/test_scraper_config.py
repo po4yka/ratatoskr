@@ -42,7 +42,7 @@ def test_private_network_url_override_disabled_by_default() -> None:
 
 
 def test_private_network_url_override_accepts_env_alias() -> None:
-    cfg = ScraperConfig(SCRAPER_ALLOW_PRIVATE_NETWORK_URLS=True)
+    cfg = ScraperConfig.model_validate({"SCRAPER_ALLOW_PRIVATE_NETWORK_URLS": True})
     assert cfg.allow_private_network_urls is True
 
 

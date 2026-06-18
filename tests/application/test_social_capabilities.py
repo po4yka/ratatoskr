@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import pytest
 
+from app.application.ports.social_connections import (
+    SocialAuthStateCreate,
+    SocialAuthStateRecord,
+    SocialConnectionRecord,
+    SocialConnectionUpdate,
+    SocialConnectionUpsert,
+    SocialFetchAttemptCreate,
+)
 from app.application.dto.social_capabilities import (
     default_social_scopes,
     get_social_provider_capabilities,
@@ -16,8 +24,40 @@ from app.application.services.social_auth_service import (
 
 
 class _FailingRepository:
-    async def create_auth_state(self, _state):
+    async def get_by_user_and_provider(
+        self, user_id: int, provider: str
+    ) -> SocialConnectionRecord | None:
+        raise AssertionError("connection lookup should not run for unsupported scopes")
+
+    async def list_by_user(self, user_id: int) -> list[SocialConnectionRecord]:
+        raise AssertionError("connection listing should not run for unsupported scopes")
+
+    async def upsert_connection(self, connection: SocialConnectionUpsert) -> SocialConnectionRecord:
+        raise AssertionError("connection upsert should not run for unsupported scopes")
+
+    async def update_connection(
+        self, user_id: int, provider: str, update: SocialConnectionUpdate
+    ) -> SocialConnectionRecord | None:
+        raise AssertionError("connection update should not run for unsupported scopes")
+
+    async def delete_connection(self, user_id: int, provider: str) -> bool:
+        raise AssertionError("connection delete should not run for unsupported scopes")
+
+    async def create_auth_state(self, state: SocialAuthStateCreate) -> SocialAuthStateRecord:
+        del state
         raise AssertionError("unsupported scopes should be rejected before persistence")
+
+    async def get_auth_state(self, provider: str, state_hash: str) -> SocialAuthStateRecord | None:
+        raise AssertionError("auth state lookup should not run for unsupported scopes")
+
+    async def mark_auth_state_consumed(self, state_id: int) -> SocialAuthStateRecord | None:
+        raise AssertionError("auth state consume should not run for unsupported scopes")
+
+    async def mark_auth_state_expired(self, state_id: int) -> SocialAuthStateRecord | None:
+        raise AssertionError("auth state expire should not run for unsupported scopes")
+
+    async def record_fetch_attempt(self, attempt: SocialFetchAttemptCreate) -> None:
+        raise AssertionError("fetch attempt recording should not run for unsupported scopes")
 
 
 def test_social_provider_capability_snapshot() -> None:

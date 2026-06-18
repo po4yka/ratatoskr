@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
 from typing import Any
 
 import httpx
@@ -23,7 +24,7 @@ from tests.adapters.twitter.test_x_api_extractor import (
 
 
 @pytest.fixture(autouse=True)
-def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
     reset_secret_key_cache()
     yield

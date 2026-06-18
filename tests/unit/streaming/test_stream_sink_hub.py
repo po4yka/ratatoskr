@@ -4,6 +4,7 @@ producer for every kind (ADR-0017 consumer-parity gate)."""
 from __future__ import annotations
 
 from app.adapters.content.streaming.events import StreamEvent
+from app.adapters.content.streaming.stream_hub import StreamHub
 from app.adapters.content.streaming.stream_sink_hub import StreamHubStreamSink
 from app.application.dto.stream_enums import ProcessingStage
 from app.application.ports.stream_sink import StreamSinkPort
@@ -12,7 +13,7 @@ _CID = "corr-123"
 _RID = "42"
 
 
-class RecordingHub:
+class RecordingHub(StreamHub):
     """Captures published events, mirroring tests/integration RecordingHub."""
 
     def __init__(self) -> None:

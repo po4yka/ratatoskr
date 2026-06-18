@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from sqlalchemy import delete
@@ -10,6 +10,7 @@ from app.core.time_utils import UTC
 from app.db.models import Request, Summary, User
 from app.db.session import Database
 from app.infrastructure.cache import trending_cache
+from app.infrastructure.cache.redis_cache import RedisCache
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -186,12 +187,12 @@ async def test_clear_redis_uses_prefix_not_full_clear(monkeypatch):
             return 3
 
     manager = _TrendingCacheManager()
-    manager._redis_cache = _FakeRedisCache()  # type: ignore[assignment]
+    manager._redis_cache = cast("RedisCache", _FakeRedisCache())
 
     class _FakeCfg:
         pass
 
-    manager._app_config = _FakeCfg()  # type: ignore[assignment]
+    manager._app_config = cast("trending_cache.AppConfig", _FakeCfg())
 
     await manager._clear_redis()
 

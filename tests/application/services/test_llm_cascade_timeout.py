@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
+from app.config import AppConfig
 from app.application.services.llm_cascade_timeout import compute_llm_cascade_floor
 
 
-def _cfg(per_model_min: float, fallback_models: object) -> SimpleNamespace:
-    return SimpleNamespace(
-        runtime=SimpleNamespace(llm_per_model_timeout_min_sec=per_model_min),
-        openrouter=SimpleNamespace(fallback_models=fallback_models),
+def _cfg(per_model_min: float, fallback_models: object) -> AppConfig:
+    return cast(
+        "AppConfig",
+        SimpleNamespace(
+            runtime=SimpleNamespace(llm_per_model_timeout_min_sec=per_model_min),
+            openrouter=SimpleNamespace(fallback_models=fallback_models),
+        ),
     )
 
 
@@ -25,7 +30,7 @@ def test_floor_scales_with_fallback_models() -> None:
 
 
 def test_floor_uses_default_per_model_min_when_unset() -> None:
-    cfg = SimpleNamespace(runtime=SimpleNamespace(), openrouter=SimpleNamespace())
+    cfg = cast("AppConfig", SimpleNamespace(runtime=SimpleNamespace(), openrouter=SimpleNamespace()))
     # default 120s per model, 1 model, + 60s
     assert compute_llm_cascade_floor(cfg) == 180.0
 

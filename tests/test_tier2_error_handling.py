@@ -170,29 +170,28 @@ class TestSummaryWorkflowLoopCancelledError:
             def error_context(self, _value: dict[str, Any]) -> None:
                 raise asyncio.CancelledError()
 
-        wf.openrouter.chat = AsyncMock(return_value=CancellingLLM())
-
-        with patch.object(wf, "_evaluate_attempt_outcome", side_effect=RuntimeError("boom")):
-            with patch.object(wf, "_persist_llm_call", new_callable=AsyncMock):
-                with pytest.raises(asyncio.CancelledError):
-                    await wf.execute_summary_workflow(
-                        message=MagicMock(),
-                        req_id=1,
-                        correlation_id="test-cid",
-                        interaction_config=LLMInteractionConfig(),
-                        persistence=LLMSummaryPersistenceSettings(lang="en"),
-                        repair_context=LLMRepairContext(
-                            base_messages=[],
-                            repair_response_format={"type": "json_object"},
-                            default_prompt="fix it",
-                        ),
-                        requests=[
-                            LLMRequestConfig(
-                                messages=[{"role": "user", "content": "test"}],
-                                response_format={"type": "json_object"},
+        with patch.object(wf.openrouter, "chat", new=AsyncMock(return_value=CancellingLLM())):
+            with patch.object(wf, "_evaluate_attempt_outcome", side_effect=RuntimeError("boom")):
+                with patch.object(wf, "_persist_llm_call", new_callable=AsyncMock):
+                    with pytest.raises(asyncio.CancelledError):
+                        await wf.execute_summary_workflow(
+                            message=MagicMock(),
+                            req_id=1,
+                            correlation_id="test-cid",
+                            interaction_config=LLMInteractionConfig(),
+                            persistence=LLMSummaryPersistenceSettings(lang="en"),
+                            repair_context=LLMRepairContext(
+                                base_messages=[],
+                                repair_response_format={"type": "json_object"},
+                                default_prompt="fix it",
                             ),
-                        ],
-                    )
+                            requests=[
+                                LLMRequestConfig(
+                                    messages=[{"role": "user", "content": "test"}],
+                                    response_format={"type": "json_object"},
+                                ),
+                            ],
+                        )
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ Scenarios:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -167,7 +167,7 @@ class _NoopCm:
     def __enter__(self) -> None:
         return None
 
-    def __exit__(self, *_a) -> bool:
+    def __exit__(self, *_a) -> Literal[False]:
         return False
 
 
@@ -717,7 +717,7 @@ async def test_orchestration_exception_marks_error_notifies_and_leases_failed(mo
     )
 
     facade = _facade()
-    facade._persist_bot_reply = AsyncMock(side_effect=boom)  # type: ignore[method-assign]
+    facade._persist_bot_reply = AsyncMock(side_effect=boom)
 
     result = await facade.handle_url_flow(_url_request())
 

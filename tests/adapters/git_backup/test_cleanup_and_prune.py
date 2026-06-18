@@ -254,7 +254,7 @@ def _make_fake_mirror_repo_cls(fake_repo: FakeMirrorRepoForPrune) -> Any:
     """Return a class whose constructor ignores its args and returns fake_repo."""
 
     class _FakeCls:
-        def __new__(cls, *args: Any, **kwargs: Any) -> Any:  # type: ignore[misc]
+        def __new__(cls, *args: Any, **kwargs: Any) -> Any:
             return fake_repo
 
     return _FakeCls

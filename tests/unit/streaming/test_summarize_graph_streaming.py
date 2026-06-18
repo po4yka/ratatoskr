@@ -5,16 +5,21 @@ single terminal path, and never lets stream buffers reach checkpoint state
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import app.di.graphs as graphs_mod
 from app.application.graphs.summarize.graph import build_initial_state
+from app.application.graphs.summarize.deps import SummarizeDeps
 from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.state import SummarizeState
 from app.di.graphs import run_summarize_graph_streamed
 
 _CID = "corr-xyz"
 _RID = 7
+
+
+def _deps() -> SummarizeDeps:
+    return cast("SummarizeDeps", object())
 
 
 class RecordingSink:
@@ -93,7 +98,7 @@ async def test_driver_streams_stages_sections_and_captures_final_state() -> None
         ]
     )
     result = await run_summarize_graph_streamed(
-        graph=graph, deps=object(), sink=sink, correlation_id=_CID, request_id=_RID, lang="en"
+        graph=graph, deps=_deps(), sink=sink, correlation_id=_CID, request_id=_RID, lang="en"
     )
     assert result == {"request_id": _RID, "summary": {"x": 1}}
     assert [c[0] for c in sink.calls] == ["stage", "stage", "section"]
@@ -111,7 +116,7 @@ async def test_driver_routes_node_failure_to_terminal_path(monkeypatch) -> None:
     monkeypatch.setattr(graphs_mod, "route_terminal_failure", fake_route)
     result = await run_summarize_graph_streamed(
         graph=RaisingGraph(),
-        deps=object(),
+        deps=_deps(),
         sink=RecordingSink(),
         correlation_id=_CID,
         request_id=_RID,
@@ -132,7 +137,7 @@ async def test_driver_maps_call_budget_exceeded_reason(monkeypatch) -> None:
     monkeypatch.setattr(graphs_mod, "route_terminal_failure", fake_route)
     await run_summarize_graph_streamed(
         graph=BudgetGraph(),
-        deps=object(),
+        deps=_deps(),
         sink=RecordingSink(),
         correlation_id=_CID,
         request_id=_RID,
@@ -159,7 +164,7 @@ async def test_driver_ignores_nested_and_non_dict_chain_end() -> None:
         ]
     )
     result = await run_summarize_graph_streamed(
-        graph=graph, deps=object(), sink=sink, correlation_id=_CID, request_id=_RID, lang="en"
+        graph=graph, deps=_deps(), sink=sink, correlation_id=_CID, request_id=_RID, lang="en"
     )
     # No valid root dict output captured -> the empty-dict fallback (best-effort,
     # not load-bearing; T9 parity asserts output via ainvoke).

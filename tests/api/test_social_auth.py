@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator, Generator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -82,9 +83,29 @@ class FakeSocialOAuthClient:
             metadata_json={"account_type": "test"},
         )
 
+    async def refresh_access_token(
+        self,
+        *,
+        provider: str,
+        refresh_token: str,
+        scopes: list[str],
+        correlation_id: str | None,
+    ) -> OAuthTokenResult:
+        del refresh_token, correlation_id
+        return OAuthTokenResult(
+            access_token=f"{provider}-refreshed-access-token-secret",
+            refresh_token=f"{provider}-refreshed-refresh-token-secret",
+            scopes=scopes,
+            access_token_expires_at="2026-05-24T00:00:00Z",
+            refresh_token_expires_at="2026-06-23T00:00:00Z",
+            provider_user_id=f"{provider}-user-1",
+            provider_username=f"{provider}_tester",
+            metadata_json={"account_type": "test"},
+        )
+
 
 @pytest_asyncio.fixture(autouse=True)
-async def _env(monkeypatch: pytest.MonkeyPatch) -> None:
+async def _env(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[None]:
     monkeypatch.setenv("ALLOWED_USER_IDS", f"{_USER_ID},{_OTHER_USER_ID}")
     monkeypatch.setenv("ALLOWED_CLIENT_IDS", "")
     monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", _FERNET_KEY)
@@ -101,7 +122,10 @@ async def social_users(db: Any, user_factory: Any) -> tuple[Any, Any]:
 
 
 @pytest.fixture
-def fake_oauth_clients(client: Any, db: Any) -> dict[str, FakeSocialOAuthClient]:
+def fake_oauth_clients(
+    client: Any,
+    db: Any,
+) -> Generator[dict[str, FakeSocialOAuthClient]]:
     from app.api.routers import social_auth
 
     clients = {provider: FakeSocialOAuthClient() for provider in ("x", "instagram", "threads")}

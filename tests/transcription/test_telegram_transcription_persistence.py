@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,8 +17,12 @@ from app.application.ports.transcriptions import (
     TranscriptionArtifactRecord,
     TranscriptionJobCreate,
     TranscriptionJobRecord,
+    TranscriptionRepositoryPort,
 )
-from app.application.services.transcription_job_service import EnqueuedTranscription
+from app.application.services.transcription_job_service import (
+    EnqueuedTranscription,
+    TranscriptionJobService,
+)
 from app.config.transcription import TranscriptionConfig
 
 
@@ -132,7 +136,7 @@ class _FakeTranscriptionJobService:
         self.url_jobs.append(
             {"user_id": user_id, "source_url": source_url, "correlation_id": correlation_id}
         )
-        return EnqueuedTranscription(job=SimpleNamespace(id=42), duplicate=False)
+        return EnqueuedTranscription(job=cast("TranscriptionJobRecord", SimpleNamespace(id=42)), duplicate=False)
 
     async def enqueue_telegram_message(
         self,
@@ -152,7 +156,7 @@ class _FakeTranscriptionJobService:
                 "correlation_id": correlation_id,
             }
         )
-        return EnqueuedTranscription(job=SimpleNamespace(id=43), duplicate=False)
+        return EnqueuedTranscription(job=cast("TranscriptionJobRecord", SimpleNamespace(id=43)), duplicate=False)
 
 
 def _cfg() -> MagicMock:
@@ -213,7 +217,7 @@ async def test_transcribe_command_persists_mocked_service_artifact(tmp_path: Pat
         cfg=_cfg(),
         response_formatter=formatter,
         transcription_service=_service(result),
-        transcription_repository=repo,
+        transcription_repository=cast("TranscriptionRepositoryPort", repo),
     )
 
     with patch(
@@ -248,8 +252,8 @@ async def test_transcribe_command_enqueues_without_running_service() -> None:
         cfg=_cfg(),
         response_formatter=formatter,
         transcription_service=service,
-        transcription_repository=repo,
-        transcription_job_service=job_service,
+        transcription_repository=cast("TranscriptionRepositoryPort", repo),
+        transcription_job_service=cast("TranscriptionJobService", job_service),
     )
 
     await handler.handle_transcribe(_ctx())
@@ -275,7 +279,7 @@ async def test_auto_voice_path_persists_mocked_service_artifact(tmp_path: Path) 
         transcription_service=_service(TranscriptionResult(plain_text="voice transcript")),
         diarization_enabled=False,
         transcription_cfg=TranscriptionConfig(enabled=True, model_path=Path("/models/asr")),
-        transcription_repository=repo,
+        transcription_repository=cast("TranscriptionRepositoryPort", repo),
     )
     message = MagicMock(voice=object(), audio=None, video_note=None)
     message.sender_id = 5151
@@ -306,8 +310,8 @@ async def test_auto_voice_enqueues_without_downloading_media() -> None:
         transcription_service=service,
         diarization_enabled=False,
         transcription_cfg=TranscriptionConfig(enabled=True, model_path=Path("/models/asr")),
-        transcription_repository=_FakeTranscriptionRepository(),
-        transcription_job_service=job_service,
+        transcription_repository=cast("TranscriptionRepositoryPort", _FakeTranscriptionRepository()),
+        transcription_job_service=cast("TranscriptionJobService", job_service),
     )
     message = MagicMock(voice=object(), audio=None, video_note=None)
     message.sender_id = 5151

@@ -19,6 +19,7 @@ from app.db.models import (
     Subscription,
     UserDigestPreference,
 )
+from app.db.session import Database
 from app.infrastructure.persistence import digest_store as digest_store_module
 from app.infrastructure.persistence.digest_store import DigestStore
 
@@ -93,7 +94,7 @@ class _DigestSession:
         self.deleted.append(instance)
 
 
-class _DigestDb:
+class _DigestDb(Database):
     def __init__(
         self,
         *,
@@ -503,7 +504,7 @@ async def test_digest_store_fetchable_and_due_helpers(monkeypatch: pytest.Monkey
     async def fake_active_subscriptions(user_id: int) -> list[ChannelSubscription]:
         return [due_subscription, inactive_subscription]
 
-    run_states_by_channel = {
+    run_states_by_channel: dict[int, dict[str, Any]] = {
         10: {
             "is_active": True,
             "active_subscription": True,

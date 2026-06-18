@@ -11,7 +11,9 @@ from app.api.exceptions import AuthorizationError, ResourceNotFoundError, Valida
 from app.api.models.requests import (
     AttachTagsRequest,
     CollectionItemMoveRequest,
+    CollectionItemReorderItem,
     CollectionItemReorderRequest,
+    CollectionReorderItem,
     CollectionReorderRequest,
     MergeTagsRequest,
 )
@@ -35,11 +37,17 @@ def test_bulk_request_models_reject_oversized_batches() -> None:
         CollectionItemMoveRequest(summary_ids=oversized, target_collection_id=1)
     with pytest.raises(PydanticValidationError):
         CollectionItemReorderRequest(
-            items=[{"summary_id": item, "position": item} for item in oversized]
+            items=[
+                CollectionItemReorderItem(summary_id=item, position=item)
+                for item in oversized
+            ]
         )
     with pytest.raises(PydanticValidationError):
         CollectionReorderRequest(
-            items=[{"collection_id": item, "position": item} for item in oversized]
+            items=[
+                CollectionReorderItem(collection_id=item, position=item)
+                for item in oversized
+            ]
         )
     with pytest.raises(PydanticValidationError):
         AttachTagsRequest(tag_ids=oversized)
@@ -163,7 +171,10 @@ async def test_collection_reorder_items_errors_on_ids_not_in_owned_collection(
         await collections.reorder_collection_items(
             collection_id=10,
             body=CollectionItemReorderRequest(
-                items=[{"summary_id": 101, "position": 1}, {"summary_id": 999, "position": 2}]
+                items=[
+                    CollectionItemReorderItem(summary_id=101, position=1),
+                    CollectionItemReorderItem(summary_id=999, position=2),
+                ]
             ),
             user={"user_id": 8101},
         )
@@ -181,7 +192,10 @@ async def test_collection_reorder_items_dedupes_owned_ids(
     await collections.reorder_collection_items(
         collection_id=10,
         body=CollectionItemReorderRequest(
-            items=[{"summary_id": 101, "position": 1}, {"summary_id": 101, "position": 2}]
+            items=[
+                CollectionItemReorderItem(summary_id=101, position=1),
+                CollectionItemReorderItem(summary_id=101, position=2),
+            ]
         ),
         user={"user_id": 8101},
     )
@@ -200,7 +214,10 @@ async def test_collection_reorder_collections_rejects_cross_user_ids(
         await collections.reorder_collections(
             collection_id=10,
             body=CollectionReorderRequest(
-                items=[{"collection_id": 20, "position": 1}, {"collection_id": 30, "position": 2}]
+                items=[
+                    CollectionReorderItem(collection_id=20, position=1),
+                    CollectionReorderItem(collection_id=30, position=2),
+                ]
             ),
             user={"user_id": 8101},
         )
@@ -218,7 +235,10 @@ async def test_collection_reorder_collections_dedupes_owned_ids(
     await collections.reorder_collections(
         collection_id=10,
         body=CollectionReorderRequest(
-            items=[{"collection_id": 20, "position": 1}, {"collection_id": 20, "position": 2}]
+            items=[
+                CollectionReorderItem(collection_id=20, position=1),
+                CollectionReorderItem(collection_id=20, position=2),
+            ]
         ),
         user={"user_id": 8101},
     )

@@ -53,10 +53,13 @@ def test_calculate_delay(strategy: BackoffStrategy, attempt: int, expected: int)
 
 
 @pytest.mark.characterization
-@pytest.mark.parametrize("kwargs", [{"max_attempts": 0}, {"base_delay_ms": -1}])
-def test_constructor_rejects_invalid_args(kwargs: dict) -> None:  # type: ignore[type-arg]
+@pytest.mark.parametrize(("name", "value"), [("max_attempts", 0), ("base_delay_ms", -1)])
+def test_constructor_rejects_invalid_args(name: str, value: int) -> None:
     with pytest.raises(ValueError):
-        RetryPolicy(**kwargs)
+        if name == "max_attempts":
+            RetryPolicy(max_attempts=value)
+        else:
+            RetryPolicy(base_delay_ms=value)
 
 
 # --- execution: success / retry sequencing ---

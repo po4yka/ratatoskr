@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from app.api.models.responses.common import API_CONTRACT_VERSION
 from tools.scripts.generate_openapi import (

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import pathlib
+import struct
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -84,8 +85,23 @@ class _FakeEmbeddingService:
         self.calls.append({"text": text, "language": language, "task_type": task_type})
         return [0.1, 0.2, 0.3]
 
+    async def generate_embeddings_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        language: str | None = None,
+        task_type: str = "document",
+    ) -> list[list[float]]:
+        return [
+            await self.generate_embedding(text, language=language, task_type=task_type)
+            for text in texts
+        ]
+
     def serialize_embedding(self, embedding: list[float]) -> bytes:
-        return bytes(round(v * 255) % 256 for v in embedding)
+        return struct.pack(f"<{len(embedding)}f", *embedding)
+
+    def deserialize_embedding(self, blob: bytes) -> list[float]:
+        return list(struct.unpack(f"<{len(blob) // 4}f", blob))
 
     def get_model_name(self, language: str | None = None) -> str:
         del language

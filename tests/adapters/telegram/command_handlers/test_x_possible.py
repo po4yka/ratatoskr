@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import pathlib
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -31,7 +31,7 @@ def _make_ctx(reply: AsyncMock, correlation_id: str = "cid-test") -> Any:
 
 
 def _wrapped(handler: XPossibleHandler) -> Any:
-    return handler.handle_x_possible.__wrapped__.__wrapped__
+    return cast("Any", cast("Any", handler.handle_x_possible).__wrapped__).__wrapped__
 
 
 @pytest.mark.asyncio

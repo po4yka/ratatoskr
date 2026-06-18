@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+
 import pytest
 from cryptography.fernet import Fernet
 
@@ -14,7 +16,7 @@ from app.security.token_crypto import decrypt_token, encrypt_token
 
 
 @pytest.fixture(autouse=True)
-def _reset_cache() -> None:
+def _reset_cache() -> Generator[None]:
     reset_secret_key_cache()
     yield
     reset_secret_key_cache()

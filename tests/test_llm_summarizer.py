@@ -132,6 +132,9 @@ class _DictRedis:
     async def set_json(self, *, value: Any, ttl_seconds: int, parts: tuple[Any, ...]) -> None:
         self.store[tuple(parts)] = value
 
+    async def clear(self) -> None:
+        self.store.clear()
+
 
 class TestLLMSummaryCacheModelAgnostic(unittest.IsolatedAsyncioTestCase):
     """The summary cache key is model-agnostic (audit M-7)."""

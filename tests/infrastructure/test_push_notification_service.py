@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 import app.infrastructure.push.service as push_module
 from app.infrastructure.push.service import (
+    DeviceRepositoryAdapter,
     PushNotificationService,
+    PushNotificationConfig,
     create_push_notification_service,
 )
 
@@ -82,8 +84,15 @@ class _FirebaseAdmin:
         return object()
 
 
-def _config(*, enabled: bool = True, path: str | None = "/tmp/firebase.json") -> SimpleNamespace:
-    return SimpleNamespace(enabled=enabled, firebase_credentials_path=path)
+def _config(*, enabled: bool = True, path: str | None = "/tmp/firebase.json") -> PushNotificationConfig:
+    return cast(
+        "PushNotificationConfig",
+        SimpleNamespace(enabled=enabled, firebase_credentials_path=path),
+    )
+
+
+def _repo(**methods: Any) -> DeviceRepositoryAdapter:
+    return cast("DeviceRepositoryAdapter", SimpleNamespace(**methods))
 
 
 @pytest.fixture
@@ -102,7 +111,7 @@ def test_push_initialize_is_idempotent_and_uses_configured_credentials(
     firebase: tuple[_Messaging, _Credentials, _FirebaseAdmin],
 ) -> None:
     _messaging, credentials, firebase_admin = firebase
-    service = PushNotificationService(_config(), SimpleNamespace())
+    service = PushNotificationService(_config(), _repo())
 
     service.initialize()
     service.initialize()
@@ -116,8 +125,8 @@ def test_push_initialize_noops_when_disabled_or_misconfigured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(push_module, "_FIREBASE_AVAILABLE", False)
-    disabled = PushNotificationService(_config(enabled=False), SimpleNamespace())
-    missing_sdk = PushNotificationService(_config(), SimpleNamespace())
+    disabled = PushNotificationService(_config(enabled=False), _repo())
+    missing_sdk = PushNotificationService(_config(), _repo())
 
     disabled.initialize()
     missing_sdk.initialize()
@@ -131,21 +140,22 @@ async def test_push_send_to_user_skips_empty_tokens_and_uses_device_platform(
     firebase: tuple[_Messaging, _Credentials, _FirebaseAdmin],
 ) -> None:
     messaging, _credentials, _firebase_admin = firebase
-    repo = SimpleNamespace(
-        async_list_user_devices=AsyncMock(
-            return_value=[
-                {"token": "", "platform": "android"},
-                {"token": "ios-token", "platform": "ios"},
-                {"token": "android-token"},
-            ]
-        )
+    async_list_user_devices = AsyncMock(
+        return_value=[
+            {"token": "", "platform": "android"},
+            {"token": "ios-token", "platform": "ios"},
+            {"token": "android-token"},
+        ]
+    )
+    repo = _repo(
+        async_list_user_devices=async_list_user_devices
     )
     service = PushNotificationService(_config(), repo)
     service.initialize()
 
     await service.send_to_user(5, "Title", "Body", {"summary_id": "1"})
 
-    assert repo.async_list_user_devices.await_args.kwargs == {"active_only": True}
+    assert async_list_user_devices.await_args.kwargs == {"active_only": True}
     assert [message.kwargs["token"] for message in messaging.sent] == [
         "ios-token",
         "android-token",
@@ -171,7 +181,8 @@ async def test_push_send_to_device_deactivates_invalid_token(
         SimpleNamespace(NotFoundError=LookupError, InvalidArgumentError=InvalidArgumentError),
         raising=False,
     )
-    repo = SimpleNamespace(async_deactivate_device=AsyncMock())
+    async_deactivate_device = AsyncMock()
+    repo = _repo(async_deactivate_device=async_deactivate_device)
     service = PushNotificationService(_config(), repo)
     service.initialize()
 
@@ -184,10 +195,10 @@ async def test_push_send_to_device_deactivates_invalid_token(
     )
     await asyncio.sleep(0)
 
-    repo.async_deactivate_device.assert_awaited_once_with("dead-token")
+    async_deactivate_device.assert_awaited_once_with("dead-token")
 
 
 def test_create_push_notification_service_initializes(firebase: tuple[Any, Any, Any]) -> None:
-    service = create_push_notification_service(_config(), SimpleNamespace())
+    service = create_push_notification_service(_config(), _repo())
 
     assert service._initialized is True

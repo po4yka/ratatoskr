@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -26,7 +27,7 @@ _REDIRECT_URI = "https://app.example.com/social/x/callback"
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _env(monkeypatch: pytest.MonkeyPatch) -> None:
+async def _env(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[None]:
     monkeypatch.setenv("ALLOWED_USER_IDS", str(_USER_ID))
     monkeypatch.setenv("ALLOWED_CLIENT_IDS", "")
     monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", _FERNET_KEY)

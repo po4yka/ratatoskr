@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.adapters.digest.formatter import (
     MAX_MESSAGE_LENGTH,
     DigestFormatter,
@@ -75,7 +77,7 @@ def test_digest_formatter_groups_sorts_and_attaches_buttons() -> None:
 
 
 def test_digest_formatter_splits_large_channel_entries() -> None:
-    header = ("header\n", {})
+    header: tuple[str, dict[str, Any]] = ("header\n", {})
     first = ("A" * MAX_MESSAGE_LENGTH, {"text": "first", "callback_data": "dg:1:1"})
     second = ("B", {"text": "second", "callback_data": "dg:1:2"})
 

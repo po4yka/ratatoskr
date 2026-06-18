@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from app.config import AppConfig
 from app.infrastructure.cache.auth_token_cache import AuthTokenCache
+from app.infrastructure.cache.redis_cache import RedisCache
 
 
 class _FakeRedisCache:
@@ -45,16 +47,27 @@ class _FakeRedisClient:
         self.deleted.append(key)
 
 
-def _cfg() -> SimpleNamespace:
-    return SimpleNamespace(
-        redis=SimpleNamespace(prefix="ratatoskr:test", auth_token_cache_ttl_seconds=123)
+def _cache(**kwargs: Any) -> _FakeRedisCache:
+    return _FakeRedisCache(**kwargs)
+
+
+def _redis(cache: _FakeRedisCache) -> RedisCache:
+    return cast("RedisCache", cache)
+
+
+def _cfg() -> AppConfig:
+    return cast(
+        "AppConfig",
+        SimpleNamespace(
+            redis=SimpleNamespace(prefix="ratatoskr:test", auth_token_cache_ttl_seconds=123)
+        ),
     )
 
 
 @pytest.mark.asyncio
 async def test_auth_token_cache_noops_when_disabled() -> None:
-    cache = _FakeRedisCache(enabled=False)
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache(enabled=False)
+    service = AuthTokenCache(_redis(cache), _cfg())
 
     assert service.enabled is False
     assert await service.get_token("abc") is None
@@ -64,8 +77,8 @@ async def test_auth_token_cache_noops_when_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_auth_token_cache_stores_datetime_and_token_id() -> None:
-    cache = _FakeRedisCache()
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache()
+    service = AuthTokenCache(_redis(cache), _cfg())
 
     ok = await service.set_token(
         "abc123456",
@@ -94,8 +107,8 @@ async def test_auth_token_cache_stores_datetime_and_token_id() -> None:
 
 @pytest.mark.asyncio
 async def test_auth_token_cache_get_and_mark_revoked_round_trip() -> None:
-    cache = _FakeRedisCache(cached={"user_id": 7, "is_revoked": False})
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache(cached={"user_id": 7, "is_revoked": False})
+    service = AuthTokenCache(_redis(cache), _cfg())
 
     assert await service.get_token("hash-value") == {"user_id": 7, "is_revoked": False}
     assert await service.mark_revoked("hash-value") is True
@@ -107,8 +120,8 @@ async def test_auth_token_cache_get_and_mark_revoked_round_trip() -> None:
 @pytest.mark.asyncio
 async def test_auth_token_cache_invalidate_uses_configured_redis_key() -> None:
     client = _FakeRedisClient()
-    cache = _FakeRedisCache(client=client)
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache(client=client)
+    service = AuthTokenCache(_redis(cache), _cfg())
 
     assert await service.invalidate_token("token-hash") is True
     assert client.deleted == ["ratatoskr:test:auth:token:token-hash"]
@@ -116,8 +129,8 @@ async def test_auth_token_cache_invalidate_uses_configured_redis_key() -> None:
 
 @pytest.mark.asyncio
 async def test_auth_token_cache_invalidate_reports_redis_failure() -> None:
-    cache = _FakeRedisCache(client=_FakeRedisClient(raises=True))
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache(client=_FakeRedisClient(raises=True))
+    service = AuthTokenCache(_redis(cache), _cfg())
 
     assert await service.invalidate_token("token-hash") is False
 
@@ -131,8 +144,8 @@ async def test_mark_revoked_writes_tombstone_for_never_cached_token() -> None:
     from app.infrastructure.cache.auth_token_cache import _REVOCATION_TOMBSTONE_TTL_SECONDS
 
     # Cache starts empty (no prior set_token call for this hash)
-    cache = _FakeRedisCache(cached=None)
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache(cached=None)
+    service = AuthTokenCache(_redis(cache), _cfg())
 
     result = await service.mark_revoked("never-seen-hash")
 
@@ -155,8 +168,8 @@ async def test_mark_revoked_never_cached_token_cannot_be_served_as_valid() -> No
     back the tombstone — must return is_revoked=True, not None or False.
     """
     # Phase 1: token not in cache, revocation fires
-    cache = _FakeRedisCache(cached=None)
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache(cached=None)
+    service = AuthTokenCache(_redis(cache), _cfg())
     await service.mark_revoked("target-hash")
 
     # Phase 2: simulate the tombstone now sitting in Redis (what set_json stored)
@@ -165,8 +178,8 @@ async def test_mark_revoked_never_cached_token_cannot_be_served_as_valid() -> No
     assert tombstone_value["is_revoked"] is True
 
     # Phase 3: next get_token call reads back the tombstone — must NOT appear valid
-    cache2 = _FakeRedisCache(cached=tombstone_value)
-    service2 = AuthTokenCache(cache2, _cfg())
+    cache2 = _cache(cached=tombstone_value)
+    service2 = AuthTokenCache(_redis(cache2), _cfg())
     token_data = await service2.get_token("target-hash")
 
     assert token_data is not None, "tombstone should be returned (not a cache miss)"
@@ -177,8 +190,8 @@ async def test_mark_revoked_never_cached_token_cannot_be_served_as_valid() -> No
 
 @pytest.mark.asyncio
 async def test_mark_revoked_noops_when_cache_disabled() -> None:
-    cache = _FakeRedisCache(enabled=False)
-    service = AuthTokenCache(cache, _cfg())
+    cache = _cache(enabled=False)
+    service = AuthTokenCache(_redis(cache), _cfg())
 
     result = await service.mark_revoked("any-hash")
 

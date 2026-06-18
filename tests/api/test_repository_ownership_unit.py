@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,6 +12,7 @@ from app.api.routers.repositories import (
     get_repository,
     reanalyze_repository,
 )
+from app.db.session import Database
 
 
 class _Result:
@@ -54,9 +55,10 @@ class _Database:
 async def test_load_owned_repository_filters_by_repository_and_user_id() -> None:
     db = _Database(row=object())
 
-    row = await _load_owned_repository(db, repository_id=123, user_id=456)
+    row = await _load_owned_repository(cast("Database", db), repository_id=123, user_id=456)
 
     assert row is not None
+    assert db.session_ctx.statement is not None
     compiled = str(db.session_ctx.statement.compile(compile_kwargs={"literal_binds": True}))
     assert "repositories.id = 123" in compiled
     assert "repositories.user_id = 456" in compiled
@@ -72,7 +74,7 @@ async def test_reanalyze_denies_cross_user_repository_before_use_case() -> None:
             user={"user_id": 456},
             use_case=use_case,
             correlation_id="cid",
-            db=_Database(row=None),
+            db=cast("Database", _Database(row=None)),
         )
 
     assert exc_info.value.status_code == 404
@@ -84,7 +86,7 @@ async def test_get_repository_denies_cross_user_repository() -> None:
         await get_repository(
             repository_id=123,
             user={"user_id": 456},
-            db=_Database(row=None),
+            db=cast("Database", _Database(row=None)),
         )
 
     assert exc_info.value.status_code == 404
@@ -97,7 +99,7 @@ async def test_delete_repository_denies_cross_user_repository_before_delete() ->
         await delete_repository(
             repository_id=123,
             user={"user_id": 456},
-            db=db,
+            db=cast("Database", db),
             qdrant=None,
         )
 

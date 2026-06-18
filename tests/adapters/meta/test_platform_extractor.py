@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
 from app.adapters.content.platform_extraction.models import PlatformExtractionRequest
 from app.adapters.meta.platform_extractor import MetaPlatformExtractor
-from app.adapters.meta.threads_api_extractor import ThreadsApiExtractionResult
+from app.adapters.meta.threads_api_extractor import ThreadsApiExtractionResult, ThreadsApiExtractor
 
 
 class _DummySemCtx:
@@ -19,6 +20,34 @@ class _DummySemCtx:
         self, exc_type: object | None, exc: BaseException | None, tb: object | None
     ) -> bool:
         return False
+
+
+class _FakeLifecycle(PlatformRequestLifecycle):
+    def __init__(self) -> None:
+        return None
+
+    async def send_accepted_notification(self, request: Any) -> None:
+        return None
+
+    async def handle_request_dedupe_or_create(
+        self,
+        request: Any,
+        *,
+        dedupe_hash: str,
+        paper_canonical_id: str | None = None,
+    ) -> int:
+        del paper_canonical_id
+        return 1
+
+    async def persist_detected_lang(self, request_id: int, lang: str) -> None:
+        return None
+
+
+class _FakeThreadsApiExtractor(ThreadsApiExtractor):
+    extract: AsyncMock
+
+    def __init__(self, result: ThreadsApiExtractionResult) -> None:
+        self.extract = AsyncMock(return_value=result)
 
 
 def _make_request(*, user_id: int | None = 777) -> PlatformExtractionRequest:
@@ -47,21 +76,12 @@ def _make_extractor(
     threads_api_result: ThreadsApiExtractionResult | None,
 ) -> tuple[MetaPlatformExtractor, Any, Any]:
     scraper = SimpleNamespace(scrape_markdown=AsyncMock(return_value=_crawl_result()))
-    lifecycle = SimpleNamespace(
-        send_accepted_notification=AsyncMock(),
-        handle_request_dedupe_or_create=AsyncMock(return_value=1),
-        persist_detected_lang=AsyncMock(),
-    )
-    threads_api = (
-        SimpleNamespace(extract=AsyncMock(return_value=threads_api_result))
-        if threads_api_result is not None
-        else None
-    )
+    threads_api = _FakeThreadsApiExtractor(threads_api_result) if threads_api_result else None
     extractor = MetaPlatformExtractor(
         cfg=SimpleNamespace(runtime=SimpleNamespace(aggregation_non_youtube_video_enabled=True)),
         scraper=scraper,
         firecrawl_sem=lambda: _DummySemCtx(),
-        lifecycle=lifecycle,
+        lifecycle=_FakeLifecycle(),
         threads_api_extractor=threads_api,
     )
     return extractor, threads_api, scraper

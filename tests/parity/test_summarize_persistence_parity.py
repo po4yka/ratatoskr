@@ -25,7 +25,7 @@ the payload + attempt_trigger + status + error_text are.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -33,6 +33,7 @@ from sqlalchemy import func, select
 
 from app.application.graphs.summarize.deps import SummarizeConfig, SummarizeDeps
 from app.application.graphs.summarize.lifecycle import route_terminal_failure
+from app.application.graphs.summarize.state import SummarizeState
 from app.application.graphs.summarize.nodes import persist, summarize
 from app.core.summary_contract import validate_and_shape_summary
 from app.db.models import LLMCall, Summary
@@ -234,7 +235,7 @@ async def test_terminal_failure_persists_failure_llm_call_with_real_model(
     # The node tags the exception with the failure record; route it to the single
     # terminal sink, which drains the record into llm_calls (persist-everything).
     tagged = exc_info.value
-    message = await route_terminal_failure(state, failing_deps, tagged)
+    message = await route_terminal_failure(cast("SummarizeState", state), failing_deps, tagged)
     assert "Error ID" in message and "cid-persist-failure" in message
 
     async with database.session() as read:
@@ -289,7 +290,7 @@ async def test_failure_record_falls_back_to_config_model_when_no_raw_result(
     }
     with pytest.raises(ValueError) as exc_info:
         await summarize(state, deps=failing_deps)
-    await route_terminal_failure(state, failing_deps, exc_info.value)
+    await route_terminal_failure(cast("SummarizeState", state), failing_deps, exc_info.value)
 
     async with database.session() as read:
         row = await read.scalar(select(LLMCall).where(LLMCall.request_id == request_id))

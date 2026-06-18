@@ -274,7 +274,7 @@ async def test_repository_adapters_exercise_empty_database_smoke_paths() -> None
     attempted = 0
     tolerated_failures = 0
     for adapter_type in adapter_types:
-        adapter = adapter_type(database)  # type: ignore[arg-type]
+        adapter = adapter_type(database)
         for name in dir(adapter):
             if not name.startswith("async_"):
                 continue

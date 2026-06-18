@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from app.infrastructure.vector.protocol import VectorStoreError
 from app.infrastructure.vector.qdrant_store import QdrantVectorStore
+from qdrant_client import QdrantClient
 
 
 class _Client:
@@ -89,7 +90,7 @@ def _store(client: _Client | None = None, *, required: bool = False) -> QdrantVe
     store._required = required
     store._connection_timeout = 1.0
     store._available = client is not None
-    store._client = client
+    store._client = cast("QdrantClient | None", client)
     store._collection_name = "notes_dev_user_v1_space"
     return store
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from app.prompts.file_cache import clear_prompt_file_cache, read_prompt_text
 
@@ -39,7 +40,7 @@ def test_prompt_manager_does_not_reread_on_cache_hit(tmp_path: Path, monkeypatch
     read_calls = 0
     real_read_text = Path.read_text
 
-    def _counting_read_text(self: Path, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def _counting_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
         nonlocal read_calls
         if self.name == "summary_system_en.txt":
             read_calls += 1

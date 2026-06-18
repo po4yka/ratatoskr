@@ -109,7 +109,7 @@ def _ensure_qdrant_stubs() -> None:
         # names.  Do not replace them; just return.
         if hasattr(qdrant_mod, "QdrantClient") and not isinstance(
             qdrant_mod.QdrantClient,
-            MagicMock,  # type: ignore[union-attr]
+            MagicMock,
         ):
             return
         # Partial/stub module already in sys.modules — patch missing names in

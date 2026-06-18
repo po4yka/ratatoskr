@@ -3,6 +3,8 @@ from typing import Any
 
 import pytest
 
+from app.adapters.digest.analyzer import DigestAnalyzer
+from app.adapters.digest.channel_reader import ChannelReader
 from app.adapters.digest import digest_service as digest_module
 from app.adapters.digest.digest_service import (
     DigestResult,
@@ -10,27 +12,34 @@ from app.adapters.digest.digest_service import (
     _deduplicate_posts,
     _topic_bucket_keys,
 )
+from app.adapters.digest.formatter import DigestFormatter
+from app.config import AppConfig
+from app.infrastructure.persistence.digest_store import DigestStore
 
 
-class _Reader:
+class _Reader(ChannelReader):
     def __init__(
         self, posts: list[dict[str, Any]] | None = None, exc: Exception | None = None
     ) -> None:
         self.posts = posts or []
         self.exc = exc
 
-    async def fetch_posts_for_user(self, user_id: int) -> list[dict[str, Any]]:
+    async def fetch_posts_for_user(
+        self, user_id: int, max_posts: int | None = None
+    ) -> list[dict[str, Any]]:
         if self.exc:
             raise self.exc
         return self.posts
 
-    async def fetch_posts_for_channel(self, channel: object, user_id: int) -> list[dict[str, Any]]:
+    async def fetch_posts_for_channel(
+        self, channel: object, user_id: int, max_posts: int | None = None
+    ) -> list[dict[str, Any]]:
         if self.exc:
             raise self.exc
         return self.posts
 
 
-class _Analyzer:
+class _Analyzer(DigestAnalyzer):
     def __init__(
         self, analyzed: list[dict[str, Any]] | None = None, exc: Exception | None = None
     ) -> None:
@@ -38,16 +47,17 @@ class _Analyzer:
         self.exc = exc
 
     async def analyze_posts(
-        self, posts: list[dict[str, Any]], correlation_id: str, lang: str
+        self, posts: list[dict[str, Any]], correlation_id: str, lang: str = "en"
     ) -> list[dict[str, Any]]:
         if self.exc:
             raise self.exc
         return self.analyzed
 
 
-class _Formatter:
+class _Formatter(DigestFormatter):
+    @staticmethod
     def format_digest(
-        self, analyzed: list[dict[str, Any]]
+        analyzed: list[dict[str, Any]],
     ) -> list[tuple[str, list[list[dict[str, str]]]]]:
         return [
             (
@@ -57,7 +67,7 @@ class _Formatter:
         ]
 
 
-class _Store:
+class _Store(DigestStore):
     def __init__(self, exc: Exception | None = None) -> None:
         self.exc = exc
         self.deliveries: list[dict[str, Any]] = []
@@ -85,6 +95,11 @@ class _Sender:
         self.messages.append((user_id, text, reply_markup))
 
 
+class _Cfg(AppConfig):
+    def __init__(self) -> None:
+        object.__setattr__(self, "digest", SimpleNamespace(min_relevance_score=0.5))
+
+
 def _service(
     *,
     reader: _Reader | None = None,
@@ -94,14 +109,13 @@ def _service(
 ) -> tuple[DigestService, _Sender, _Store]:
     sender = sender or _Sender()
     store = store or _Store()
-    cfg = SimpleNamespace(digest=SimpleNamespace(min_relevance_score=0.5))
     subject = DigestService(
-        cfg,
+        _Cfg(),
         reader or _Reader(),
         analyzer or _Analyzer(),
         _Formatter(),
         sender,
-    )  # type: ignore[arg-type]
+    )
     subject._store = store
     return subject, sender, store
 

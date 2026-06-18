@@ -403,20 +403,20 @@ async def test_search_command_interaction_tracking(
 async def test_search_services_initialized_on_bot_creation(database: Database) -> None:
     bot = _make_bot(database)
 
-    assert bot.embedding_service is not None  # type: ignore[attr-defined]
-    assert bot.vector_search_service is not None  # type: ignore[attr-defined]
-    assert bot.query_expansion_service is not None  # type: ignore[attr-defined]
-    assert bot.hybrid_search_service is not None  # type: ignore[attr-defined]
+    assert bot.embedding_service is not None
+    assert bot.vector_search_service is not None
+    assert bot.query_expansion_service is not None
+    assert bot.hybrid_search_service is not None
 
     assert bot.message_handler.command_processor.hybrid_search is not None
-    assert bot.message_handler.command_processor.hybrid_search == bot.hybrid_search_service  # type: ignore[attr-defined]
+    assert bot.message_handler.command_processor.hybrid_search == bot.hybrid_search_service
 
 
 async def test_search_service_parameters(database: Database) -> None:
     bot = _make_bot(database)
 
-    assert bot.query_expansion_service._max_expansions == 5  # type: ignore[attr-defined]
-    assert bot.query_expansion_service._use_synonyms is True  # type: ignore[attr-defined]
+    assert bot.query_expansion_service._max_expansions == 5
+    assert bot.query_expansion_service._use_synonyms is True
 
-    assert bot.hybrid_search_service._fts_weight == 0.4  # type: ignore[attr-defined]
-    assert bot.hybrid_search_service._vector_weight == 0.6  # type: ignore[attr-defined]
+    assert bot.hybrid_search_service._fts_weight == 0.4
+    assert bot.hybrid_search_service._vector_weight == 0.6

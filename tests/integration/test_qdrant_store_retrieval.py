@@ -7,7 +7,7 @@ point shape (the high-level upsert_notes path validates summary metadata).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
@@ -79,13 +79,13 @@ def _seed(store: QdrantVectorStore, points: list[PointStruct]) -> None:
 
 
 def _repo_filter(user_id: int, *, exclude: str | None = None) -> Filter:
-    must = [
+    must: list[Any] = [
         FieldCondition(key="entity_type", match=MatchValue(value="repository")),
         FieldCondition(key="user_id", match=MatchValue(value=user_id)),
         FieldCondition(key="environment", match=MatchValue(value="test")),
         FieldCondition(key="user_scope", match=MatchValue(value="unit")),
     ]
-    must_not = [HasIdCondition(has_id=[exclude])] if exclude else None
+    must_not: list[Any] | None = [HasIdCondition(has_id=[exclude])] if exclude else None
     return Filter(must=must, must_not=must_not)
 
 

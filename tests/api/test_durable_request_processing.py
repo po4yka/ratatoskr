@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from starlette.requests import Request
@@ -19,6 +19,7 @@ from app.api.models.requests import SubmitURLRequest
 from app.api.routers.content.requests import submit_request
 from app.api.routers.content.streams import stream_request
 from app.application.dto.request_workflow import RequestCreatedDTO
+from app.application.services.request_service import RequestService
 from app.core.time_utils import UTC
 from app.db.models import RequestProcessingJob
 
@@ -305,7 +306,7 @@ class FakeReplayProgressEventRepository:
 
 def _queue(repo: FakeJobRepository, processor: FakeProcessor) -> DurableRequestProcessingQueue:
     return DurableRequestProcessingQueue(
-        repository=repo,
+        repository=cast("RequestProcessingJobRepository", repo),
         processor=processor,
         max_attempts=3,
         lease_ttl_seconds=30,
@@ -326,9 +327,9 @@ async def test_submit_request_creates_durable_job() -> None:
 
     response = await submit_request(
         request,
-        SubmitURLRequest(input_url="https://example.com/article"),
+        SubmitURLRequest.model_validate({"input_url": "https://example.com/article"}),
         user={"user_id": 7},
-        request_service=FakeRequestService(),  # type: ignore[arg-type]
+        request_service=cast("RequestService", FakeRequestService()),
     )
 
     assert response["success"] is True
@@ -792,14 +793,17 @@ async def test_sse_replay_honors_since_sequence_and_last_event_id(
     )
     repo = FakeReplayProgressEventRepository()
 
-    response = await stream_request(
-        request_id=42,
-        fastapi_request=FakeStreamRequest(),  # type: ignore[arg-type]
-        since_sequence=0,
-        last_event_id="event-1",
-        user={"user_id": 7},
-        request_service=FakeStreamRequestService(),  # type: ignore[arg-type]
-        progress_event_repo=repo,
+    response = cast(
+        "Any",
+        await stream_request(
+            request_id=42,
+            fastapi_request=cast("Request", FakeStreamRequest()),
+            since_sequence=0,
+            last_event_id="event-1",
+            user={"user_id": 7},
+            request_service=cast("RequestService", FakeStreamRequestService()),
+            progress_event_repo=repo,
+        ),
     )
 
     assert response.kind == "captured-sse-response"

@@ -54,7 +54,7 @@ def test_unknown_language_rejected() -> None:
     import pytest
 
     with pytest.raises(ValueError, match="TRANSCRIPTION_LANGUAGE"):
-        TranscriptionConfig(language="xx")
+        TranscriptionConfig.model_validate({"language": "xx"})
 
 
 # ---------------------------------------------------------------------------

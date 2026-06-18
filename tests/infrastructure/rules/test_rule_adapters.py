@@ -1,9 +1,12 @@
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from typing import cast
 
 import httpx
 import pytest
 
+from app.db.session import Database
 from app.infrastructure.rules.context import RuleContextAdapter
 from app.infrastructure.rules.http_webhook_dispatcher import HttpWebhookDispatchAdapter
 from app.infrastructure.rules.in_memory_rate_limiter import InMemoryRuleRateLimiter
@@ -35,13 +38,13 @@ class _Session:
 
 class _Database:
     @asynccontextmanager
-    async def session(self) -> object:
+    async def session(self) -> AsyncIterator[_Session]:
         yield _Session()
 
 
 @pytest.mark.asyncio
 async def test_rule_context_adapter_merges_persisted_and_event_context() -> None:
-    result = await RuleContextAdapter(_Database()).async_build_context(  # type: ignore[arg-type]
+    result = await RuleContextAdapter(cast("Database", _Database())).async_build_context(
         {
             "summary_id": 1,
             "url": "https://override.test",

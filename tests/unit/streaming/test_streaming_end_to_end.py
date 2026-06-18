@@ -6,7 +6,7 @@ no-graph-extra CI invariant)."""
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 import pytest
 
@@ -68,7 +68,7 @@ async def test_dispatched_tokens_reach_the_sink_as_section_events() -> None:
     sink = RecordingSink()
     bridge = GraphEventBridge(sink=sink, request_id="1", correlation_id="c")
     async for event in graph.astream_events({}, version="v2"):
-        await bridge.dispatch(event)
+        await bridge.dispatch(cast("dict[str, Any]", event))
 
     sections = [(c[1]["section"], c[1]["content"]) for c in sink.calls if c[0] == "section"]
     # Live previews arrived (the whole point of ADR-0017), ending in final values.

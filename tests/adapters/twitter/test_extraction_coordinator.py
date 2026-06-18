@@ -6,12 +6,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
 from app.adapters.content.platform_extraction.models import PlatformExtractionRequest
-from app.adapters.twitter.api_extractor import XApiExtractionResult
+from app.adapters.twitter.api_extractor import XApiExtractionResult, XApiPostExtractor
 from app.adapters.twitter.extraction_coordinator import TwitterExtractionCoordinator
+from app.adapters.twitter.firecrawl_extractor import TwitterFirecrawlExtractor
+from app.adapters.twitter.playwright_extractor import TwitterPlaywrightExtractor
+from app.adapters.twitter.tier_policy import TwitterTierPolicy
 
 
-class FakeTierPolicy:
+class FakeTierPolicy(TwitterTierPolicy):
     def __init__(self, *, firecrawl: bool = True, playwright: bool = True) -> None:
         self._firecrawl = firecrawl
         self._playwright = playwright
@@ -30,6 +34,48 @@ class FakeTierPolicy:
 
     def build_extraction_error_message(self) -> str:
         return "Twitter content extraction failed"
+
+
+class _FakeLifecycle(PlatformRequestLifecycle):
+    def __init__(self) -> None:
+        return None
+
+    async def send_accepted_notification(self, request: Any) -> None:
+        return None
+
+    async def handle_request_dedupe_or_create(
+        self,
+        request: Any,
+        *,
+        dedupe_hash: str,
+        paper_canonical_id: str | None = None,
+    ) -> int:
+        del paper_canonical_id
+        return 1
+
+    async def persist_detected_lang(self, request_id: int, lang: str) -> None:
+        return None
+
+
+class _FakeXApiPostExtractor(XApiPostExtractor):
+    extract: AsyncMock
+
+    def __init__(self, result: XApiExtractionResult) -> None:
+        self.extract = AsyncMock(return_value=result)
+
+
+class _FakeTwitterFirecrawlExtractor(TwitterFirecrawlExtractor):
+    extract: AsyncMock
+
+    def __init__(self) -> None:
+        self.extract = AsyncMock(return_value=(True, "firecrawl body", "markdown"))
+
+
+class _FakeTwitterPlaywrightExtractor(TwitterPlaywrightExtractor):
+    extract: AsyncMock
+
+    def __init__(self) -> None:
+        self.extract = AsyncMock(return_value=("playwright body", "twitter_graphql", {}))
 
 
 def _cfg() -> Any:
@@ -62,22 +108,14 @@ def _coordinator(
     firecrawl_enabled: bool = True,
     playwright_enabled: bool = True,
 ) -> tuple[Any, Any, Any, Any]:
-    api = SimpleNamespace(extract=AsyncMock(return_value=api_result)) if api_result else None
-    firecrawl = SimpleNamespace(
-        extract=AsyncMock(return_value=(True, "firecrawl body", "markdown"))
-    )
-    playwright = SimpleNamespace(
-        extract=AsyncMock(return_value=("playwright body", "twitter_graphql", {}))
-    )
+    api = _FakeXApiPostExtractor(api_result) if api_result else None
+    firecrawl = _FakeTwitterFirecrawlExtractor()
+    playwright = _FakeTwitterPlaywrightExtractor()
     coordinator = TwitterExtractionCoordinator(
         cfg=_cfg(),
         response_formatter=SimpleNamespace(send_error_notification=AsyncMock()),
         request_repo=SimpleNamespace(),
-        lifecycle=SimpleNamespace(
-            send_accepted_notification=AsyncMock(),
-            handle_request_dedupe_or_create=AsyncMock(return_value=1),
-            persist_detected_lang=AsyncMock(),
-        ),
+        lifecycle=_FakeLifecycle(),
         tier_policy=FakeTierPolicy(firecrawl=firecrawl_enabled, playwright=playwright_enabled),
         x_api_extractor=api,
         firecrawl_extractor=firecrawl,

@@ -1,7 +1,9 @@
 import asyncio
+from typing import cast
 
 import pytest
 
+from app.core.telegram_progress_message import TelegramProgressMessage
 from app.utils.progress_message_updater import ProgressMessageUpdater
 
 
@@ -21,7 +23,12 @@ class _Tracker:
 async def test_progress_message_updater_updates_formatter_and_finalizes() -> None:
     tracker = _Tracker()
     message = object()
-    updater = ProgressMessageUpdater(tracker, message, update_interval=0.01, parse_mode="Markdown")
+    updater = ProgressMessageUpdater(
+        cast("TelegramProgressMessage", tracker),
+        message,
+        update_interval=0.01,
+        parse_mode="Markdown",
+    )
 
     await updater.start(lambda elapsed: f"first {elapsed >= 0}")
     await asyncio.sleep(0.02)
@@ -38,7 +45,7 @@ async def test_progress_message_updater_updates_formatter_and_finalizes() -> Non
 @pytest.mark.asyncio
 async def test_progress_message_updater_context_exit_cancels_running_task() -> None:
     tracker = _Tracker()
-    updater = ProgressMessageUpdater(tracker, object(), update_interval=10)
+    updater = ProgressMessageUpdater(cast("TelegramProgressMessage", tracker), object(), update_interval=10)
 
     async with updater:
         await updater.start(lambda elapsed: "working")

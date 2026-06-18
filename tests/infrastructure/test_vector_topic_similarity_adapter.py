@@ -1,24 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from types import SimpleNamespace
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, cast
 
 import pytest
 
+from app.application.services.signal_scoring import SignalCandidate
+from app.infrastructure.embedding.embedding_protocol import pack_embedding, unpack_embedding
 from app.infrastructure.search.vector_topic_similarity import VectorTopicSimilarityAdapter
+from app.infrastructure.vector.result_types import VectorQueryHit, VectorQueryResult
 
 
-@dataclass
-class _Candidate:
-    feed_item_id: int = 11
-    title: str | None = "Vector search"
-    canonical_url: str | None = "https://example.com/vector"
-    metadata: dict[str, Any] | None = None
-
-    def __post_init__(self) -> None:
-        if self.metadata is None:
-            self.metadata = {"content_text": "semantic topic matching"}
+def _candidate(
+    *,
+    title: str | None = "Vector search",
+    canonical_url: str | None = "https://example.com/vector",
+    metadata: dict[str, object] | None = None,
+) -> SignalCandidate:
+    return SignalCandidate(
+        feed_item_id=11,
+        source_id=1,
+        source_kind="rss",
+        title=title,
+        canonical_url=canonical_url,
+        metadata=metadata if metadata is not None else {"content_text": "semantic topic matching"},
+    )
 
 
 class _EmbeddingService:
@@ -26,11 +32,46 @@ class _EmbeddingService:
         self.raises = raises
         self.calls: list[dict[str, Any]] = []
 
-    async def generate_embedding(self, text: str, **kwargs: Any) -> list[float]:
+    async def generate_embedding(
+        self, text: str, *, language: str | None = None, task_type: str | None = None
+    ) -> list[float]:
+        kwargs = {"language": language, "task_type": task_type}
         self.calls.append({"text": text, **kwargs})
         if self.raises:
             raise RuntimeError("embedding failed")
         return [0.1, 0.2, 0.3]
+
+    async def generate_embeddings_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        language: str | None = None,
+        task_type: str | None = None,
+    ) -> list[list[float]]:
+        return [
+            await self.generate_embedding(text, language=language, task_type=task_type)
+            for text in texts
+        ]
+
+    def serialize_embedding(self, embedding: Any) -> bytes:
+        return pack_embedding(embedding)
+
+    def deserialize_embedding(self, blob: bytes) -> list[float]:
+        return unpack_embedding(blob)
+
+    def get_model_name(self, language: str | None = None) -> str:
+        del language
+        return "fake-model"
+
+    def get_dimensions(self, language: str | None = None) -> int:
+        del language
+        return 3
+
+    def close(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
 
 
 class _VectorStore:
@@ -44,18 +85,18 @@ class _VectorStore:
 
     def query(
         self,
-        query_vector: list[float],
+        query_vector: Sequence[float],
         filters: dict[str, Any] | None,
         top_k: int,
-    ) -> SimpleNamespace:
-        self.calls.append({"query_vector": query_vector, "filters": filters, "top_k": top_k})
+    ) -> VectorQueryResult:
+        self.calls.append({"query_vector": list(query_vector), "filters": filters, "top_k": top_k})
         if self.raises:
             raise RuntimeError("qdrant down")
-        return SimpleNamespace(
+        return VectorQueryResult(
             hits=[
-                SimpleNamespace(distance=0.75),
-                SimpleNamespace(distance=0.2),
-                SimpleNamespace(distance="bad"),
+                VectorQueryHit(id="1", distance=0.75, metadata={}),
+                VectorQueryHit(id="2", distance=0.2, metadata={}),
+                VectorQueryHit(id="3", distance=cast("float", "bad"), metadata={}),
             ]
         )
 
@@ -89,7 +130,7 @@ async def test_vector_topic_similarity_scores_best_hit_and_filters_by_user() -> 
         top_k=3,
     )
 
-    score = await adapter.score_item(_Candidate())
+    score = await adapter.score_item(_candidate())
 
     assert score == pytest.approx(0.8)
     assert embedding_service.calls[0]["task_type"] == "query"
@@ -108,7 +149,7 @@ async def test_vector_topic_similarity_empty_candidate_returns_zero_without_embe
         embedding_service=embedding_service,
     )
 
-    score = await adapter.score_item(_Candidate(title="", canonical_url="", metadata={}))
+    score = await adapter.score_item(_candidate(title="", canonical_url="", metadata={}))
 
     assert score == 0.0
     assert embedding_service.calls == []
@@ -125,5 +166,5 @@ async def test_vector_topic_similarity_degrades_to_zero_on_embedding_or_store_er
         embedding_service=_EmbeddingService(),
     )
 
-    assert await embedding_fails.score_item(_Candidate()) == 0.0
-    assert await store_fails.score_item(_Candidate()) == 0.0
+    assert await embedding_fails.score_item(_candidate()) == 0.0
+    assert await store_fails.score_item(_candidate()) == 0.0

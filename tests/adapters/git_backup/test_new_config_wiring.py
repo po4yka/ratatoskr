@@ -46,7 +46,7 @@ def _make_mirror(
 
 def _make_config(**overrides: object) -> GitBackupConfig:
     """Return a GitBackupConfig with sensible defaults and selected overrides."""
-    base = {
+    base: dict[str, object] = {
         "GIT_BACKUP_ENABLED": False,
     }
     base.update(overrides)

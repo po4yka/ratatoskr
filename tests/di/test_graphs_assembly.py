@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.application.ports.retrieval import EntityType, RetrievalScope
 from tests._config_env import MODEL_SELECTION_ENV
 
 # Minimum non-model env the AppConfig loader needs beyond MODEL_SELECTION_ENV.
@@ -151,8 +152,18 @@ def test_null_retrieval_port_returns_empty_results() -> None:
 
     port = _build_retrieval_port_or_stub(vector_store=None, embedding_service=None, db=MagicMock())
 
-    retrieve_result = asyncio.run(port.retrieve(query="q", top_k=5))
-    similar_result = asyncio.run(port.find_similar(summary_id=1, top_k=5))
+    scope = RetrievalScope(environment="test", user_scope="user", user_id=1)
+    retrieve_result = asyncio.run(
+        port.retrieve(entity_type=EntityType.SUMMARY, scope=scope, query="q", top_k=5)
+    )
+    similar_result = asyncio.run(
+        port.find_similar(
+            entity_type=EntityType.SUMMARY,
+            entity_id="1",
+            scope=scope,
+            top_k=5,
+        )
+    )
     assert retrieve_result.hits == [] and retrieve_result.total == 0
     assert similar_result.hits == [] and similar_result.total == 0
 

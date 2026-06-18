@@ -16,6 +16,7 @@ Tests verify:
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -57,7 +58,7 @@ class TestEmbeddingServiceSpans:
                 pass
 
         class _Tracer:
-            def start_as_current_span(self, name: str, **_kw: Any) -> _Span:
+            def start_as_current_span(self, name: str, **_kw: Any) -> contextlib.AbstractContextManager[_Span]:
                 recorded["_span_name"] = name
                 import contextlib
 
@@ -107,7 +108,7 @@ class TestEmbeddingServiceSpans:
                 pass
 
         class _Tracer:
-            def start_as_current_span(self, name: str, **_kw: Any) -> _Span:
+            def start_as_current_span(self, name: str, **_kw: Any) -> contextlib.AbstractContextManager[_Span]:
                 recorded["_span_name"] = name
                 import contextlib
 
@@ -179,7 +180,7 @@ class TestGeminiEmbeddingServiceSpans:
                 pass
 
         class _Tracer:
-            def start_as_current_span(self, name: str, **_kw: Any) -> _Span:
+            def start_as_current_span(self, name: str, **_kw: Any) -> contextlib.AbstractContextManager[_Span]:
                 recorded["_span_name"] = name
                 import contextlib
 
@@ -298,7 +299,7 @@ class TestQdrantUpsertSpan:
                 pass
 
         class _Tracer:
-            def start_as_current_span(self, name: str, **_kw: Any) -> _Span:
+            def start_as_current_span(self, name: str, **_kw: Any) -> contextlib.AbstractContextManager[_Span]:
                 recorded["_span_name"] = name
                 import contextlib
 
@@ -375,7 +376,7 @@ class TestQdrantReplaceSpan:
                 pass
 
         class _Tracer:
-            def start_as_current_span(self, name: str, **_kw: Any) -> _Span:
+            def start_as_current_span(self, name: str, **_kw: Any) -> contextlib.AbstractContextManager[_Span]:
                 recorded["_span_name"] = name
                 import contextlib
 
@@ -427,7 +428,7 @@ class TestQdrantQuerySpan:
                 pass
 
         class _Tracer:
-            def start_as_current_span(self, name: str, **_kw: Any) -> _Span:
+            def start_as_current_span(self, name: str, **_kw: Any) -> contextlib.AbstractContextManager[_Span]:
                 recorded["_span_name"] = name
                 import contextlib
 
@@ -471,7 +472,7 @@ class TestQdrantQuerySpan:
                 pass
 
         class _Tracer:
-            def start_as_current_span(self, name: str, **_kw: Any) -> _Span:
+            def start_as_current_span(self, name: str, **_kw: Any) -> contextlib.AbstractContextManager[_Span]:
                 recorded["_span_name"] = name
                 import contextlib
 

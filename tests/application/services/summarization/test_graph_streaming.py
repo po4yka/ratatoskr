@@ -34,9 +34,45 @@ class _FakeLLM:
         self.received_deltas: list[str] = []
         self.chat_kwargs: dict[str, Any] = {}
 
-    async def chat(self, messages: list[dict[str, Any]], **kw: Any) -> Any:
+    @property
+    def provider_name(self) -> str:
+        return "fake"
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        stream: bool = False,
+        request_id: int | None = None,
+        response_format: dict[str, Any] | None = None,
+        model_override: str | None = None,
+        fallback_models_override: tuple[str, ...] | list[str] | None = None,
+        on_stream_delta: Any = None,
+        per_model_timeout_sec: float | None = None,
+        per_model_timeout_overrides: dict[str, float] | None = None,
+        budget_tight_ratio: float = 0.6,
+        truncation_max_count: int = 2,
+    ) -> Any:
+        kw = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p,
+            "stream": stream,
+            "request_id": request_id,
+            "response_format": response_format,
+            "model_override": model_override,
+            "fallback_models_override": fallback_models_override,
+            "on_stream_delta": on_stream_delta,
+            "per_model_timeout_sec": per_model_timeout_sec,
+            "per_model_timeout_overrides": per_model_timeout_overrides,
+            "budget_tight_ratio": budget_tight_ratio,
+            "truncation_max_count": truncation_max_count,
+        }
         self.chat_kwargs = kw
-        cb = kw.get("on_stream_delta")
+        cb = on_stream_delta
         if cb is not None:
             for chunk in self._chunks:
                 self.received_deltas.append(chunk)
@@ -54,6 +90,12 @@ class _FakeLLM:
             cost_usd=0.01,
             latency_ms=123,
         )
+
+    async def chat_structured(self, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    async def aclose(self) -> None:
+        return None
 
 
 async def _noop(_delta: str) -> None:

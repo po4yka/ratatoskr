@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import os
 import unittest.mock
+from typing import Any
 
 import pytest
 from cryptography.fernet import Fernet
 
 from app.config.github import GitHubConfig
 from tests._config_env import MODEL_SELECTION_ENV
+
+
+def _settings_from_env(**overrides: Any) -> Any:
+    from app.config import settings
+
+    return settings.Settings(**overrides)
 
 
 def test_defaults_load_when_no_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,7 +96,7 @@ def test_production_requires_github_token_encryption_key() -> None:
     ):
         settings.clear_config_cache()
         with pytest.raises(RuntimeError, match="GITHUB_TOKEN_ENCRYPTION_KEY"):
-            settings.Settings(allow_stub_telegram=True)
+            _settings_from_env(allow_stub_telegram=True)
 
 
 def test_production_accepts_github_token_encryption_key() -> None:
@@ -120,7 +127,7 @@ def test_production_accepts_github_token_encryption_key() -> None:
         clear=True,
     ):
         settings.clear_config_cache()
-        cfg = settings.Settings(allow_stub_telegram=True)
+        cfg = _settings_from_env(allow_stub_telegram=True)
 
     assert cfg.deployment.is_production_mode is True
     assert cfg.github.token_encryption_key is not None

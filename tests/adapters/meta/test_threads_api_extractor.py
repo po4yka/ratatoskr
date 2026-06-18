@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from collections.abc import Generator
 from dataclasses import replace
 
 import httpx
 import pytest
 from cryptography.fernet import Fernet
 
+from app.adapters.social.meta import ThreadsClient
 from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
 from app.application.dto.social_auth import OAuthTokenResult
 from app.application.ports.social_connections import (
+    SocialAuthStateCreate,
+    SocialAuthStateRecord,
     SocialConnectionRecord,
     SocialConnectionUpdate,
+    SocialConnectionUpsert,
     SocialFetchAttemptCreate,
 )
 from app.core.time_utils import UTC
@@ -42,6 +47,14 @@ class FakeSocialConnectionRepository:
         ):
             return self.connection
         return None
+
+    async def list_by_user(self, user_id: int) -> list[SocialConnectionRecord]:
+        if self.connection is not None and self.connection.user_id == user_id:
+            return [self.connection]
+        return []
+
+    async def upsert_connection(self, connection: SocialConnectionUpsert) -> SocialConnectionRecord:
+        raise AssertionError("upsert_connection is not used by these tests")
 
     async def update_connection(
         self, user_id: int, provider: str, update: SocialConnectionUpdate
@@ -78,8 +91,23 @@ class FakeSocialConnectionRepository:
     async def record_fetch_attempt(self, attempt: SocialFetchAttemptCreate) -> None:
         self.attempts.append(attempt)
 
+    async def delete_connection(self, user_id: int, provider: str) -> bool:
+        raise AssertionError("delete_connection is not used by these tests")
 
-class FakeThreadsClient:
+    async def create_auth_state(self, state: SocialAuthStateCreate) -> SocialAuthStateRecord:
+        raise AssertionError("create_auth_state is not used by these tests")
+
+    async def get_auth_state(self, provider: str, state_hash: str) -> SocialAuthStateRecord | None:
+        raise AssertionError("get_auth_state is not used by these tests")
+
+    async def mark_auth_state_consumed(self, state_id: int) -> SocialAuthStateRecord | None:
+        raise AssertionError("mark_auth_state_consumed is not used by these tests")
+
+    async def mark_auth_state_expired(self, state_id: int) -> SocialAuthStateRecord | None:
+        raise AssertionError("mark_auth_state_expired is not used by these tests")
+
+
+class FakeThreadsClient(ThreadsClient):
     def __init__(self, response: httpx.Response) -> None:
         self.response = response
         self.refreshes: list[str] = []
@@ -109,7 +137,7 @@ class FakeThreadsClient:
 
 
 @pytest.fixture(autouse=True)
-def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def _crypto_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
     reset_secret_key_cache()
     yield

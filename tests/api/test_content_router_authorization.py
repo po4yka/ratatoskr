@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -7,6 +8,8 @@ import pytest
 from app.api.exceptions import ResourceNotFoundError
 from app.api.routers.content import requests, summaries
 from app.application.dto.request_workflow import RequestStatusDTO
+from app.application.services.request_service import RequestService
+from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.domain.exceptions.domain_exceptions import ResourceNotFoundError as DomainNotFound
 
 
@@ -35,7 +38,7 @@ async def test_get_summary_returns_not_found_for_non_owner() -> None:
         await summaries.get_summary(
             summary_id=55,
             user={"user_id": 1001},
-            use_case=use_case,
+            use_case=cast("SummaryReadModelUseCase", use_case),
         )
 
     use_case.get_summary_context_for_user.assert_awaited_once_with(user_id=1001, summary_id=55)
@@ -49,7 +52,7 @@ async def test_delete_summary_returns_not_found_for_non_owner() -> None:
         await summaries.delete_summary(
             summary_id=55,
             user={"user_id": 1001},
-            use_case=use_case,
+            use_case=cast("SummaryReadModelUseCase", use_case),
         )
 
     use_case.soft_delete_summary.assert_awaited_once_with(user_id=1001, summary_id=55)
@@ -63,7 +66,7 @@ async def test_request_status_maps_non_owner_to_not_found() -> None:
         await requests.get_request_status(
             request_id=42,
             user={"user_id": 1001},
-            request_service=request_service,
+            request_service=cast("RequestService", request_service),
         )
 
     request_service.get_request_status.assert_awaited_once_with(1001, 42)
@@ -90,7 +93,7 @@ async def test_request_status_router_returns_public_lifecycle_payload() -> None:
     response = await requests.get_request_status(
         request_id=42,
         user={"user_id": 1001},
-        request_service=request_service,
+        request_service=cast("RequestService", request_service),
     )
 
     assert response["success"] is True

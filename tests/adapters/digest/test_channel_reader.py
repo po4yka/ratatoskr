@@ -9,10 +9,13 @@ from app.adapters.digest.channel_reader import (
     _channel_source_due,
     _max_items_per_run,
 )
+from app.adapters.digest.userbot_client import UserbotClient
+from app.config import AppConfig
 from app.core.time_utils import UTC
+from app.infrastructure.persistence.digest_store import DigestStore
 
 
-class _FakeStore:
+class _FakeStore(DigestStore):
     def __init__(
         self, subscriptions: list[Any] | None = None, delivered: set[int] | None = None
     ) -> None:
@@ -48,17 +51,32 @@ class _FakeStore:
         return True
 
 
-class _FakeUserbot:
-    def __init__(self, posts_by_username: dict[str, list[dict[str, Any]]]) -> None:
+class _FakeUserbot(UserbotClient):
+    def __init__(self, posts_by_username: dict[str, list[dict[str, Any]] | Exception]) -> None:
         self.posts_by_username = posts_by_username
 
     async def fetch_channel_posts(
-        self, username: str, *, hours_lookback: int, min_length: int
+        self, username: str, hours_lookback: int = 24, min_length: int = 100
     ) -> list[dict[str, Any]]:
         value = self.posts_by_username[username]
         if isinstance(value, Exception):
             raise value
         return [dict(post) for post in value]
+
+
+class _Cfg(AppConfig):
+    def __init__(self) -> None:
+        object.__setattr__(
+            self,
+            "digest",
+            SimpleNamespace(
+                max_posts_per_digest=4,
+                hours_lookback=24,
+                min_post_length=20,
+                max_posts_per_channel=2,
+                max_fetch_errors=3,
+            ),
+        )
 
 
 def _channel(channel_id: int, username: str, *, active: bool = True) -> SimpleNamespace:
@@ -72,16 +90,7 @@ def _channel(channel_id: int, username: str, *, active: bool = True) -> SimpleNa
 
 
 def _reader(store: _FakeStore, userbot: _FakeUserbot) -> ChannelReader:
-    cfg = SimpleNamespace(
-        digest=SimpleNamespace(
-            max_posts_per_digest=4,
-            hours_lookback=24,
-            min_post_length=20,
-            max_posts_per_channel=2,
-            max_fetch_errors=3,
-        )
-    )
-    subject = ChannelReader(cfg, userbot)  # type: ignore[arg-type]
+    subject = ChannelReader(_Cfg(), userbot)
     subject._store = store
     return subject
 
@@ -142,7 +151,7 @@ async def test_fetch_posts_for_user_persists_filters_and_distributes() -> None:
 async def test_fetch_posts_for_user_records_channel_errors() -> None:
     channel = _channel(1, "bad")
     store = _FakeStore(subscriptions=[SimpleNamespace(channel=channel)])
-    userbot = _FakeUserbot({"bad": RuntimeError("down")})  # type: ignore[arg-type]
+    userbot = _FakeUserbot({"bad": RuntimeError("down")})
 
     result = await _reader(store, userbot).fetch_posts_for_user(100)
 

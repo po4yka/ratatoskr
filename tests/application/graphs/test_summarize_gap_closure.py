@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +15,7 @@ import pytest
 from app.adapter_models.llm.llm_models import StructuredLLMResult
 from app.application.graphs.summarize.deps import SummarizeConfig, SummarizeDeps
 from app.application.graphs.summarize.lifecycle import route_terminal_failure
+from app.application.graphs.summarize.state import SummarizeState
 from app.application.graphs.summarize.nodes import (
     build_prompt,
     enrich,
@@ -421,7 +422,7 @@ async def test_gap3a_route_terminal_failure_drains_llm_failure_records() -> None
         "app.observability.failure_observability.persist_request_failure",
         new=AsyncMock(),
     ):
-        await route_terminal_failure(_state(), deps, exc)
+        await route_terminal_failure(cast("SummarizeState", _state()), deps, exc)
 
     llm_repo.async_insert_llm_call.assert_awaited_once()
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from app.mcp.semantic_service import SemanticSearchService
+from app.mcp.article_service import ArticleReadService
+from app.mcp.context import McpServerContext
 
 
 class _Context:
@@ -58,7 +60,9 @@ class _SemanticService(SemanticSearchService):
         summary_map: dict[int, tuple[Any, Any]] | None = None,
         article_payload: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(_Context(), _ArticleService(article_payload))
+        article_service = _ArticleService(article_payload)
+        super().__init__(cast("McpServerContext", _Context()), cast("ArticleReadService", article_service))
+        self.fake_article_service = article_service
         self.rows = rows or []
         self.summary_map = summary_map or {}
 
@@ -92,7 +96,10 @@ def test_semantic_helpers_tokenize_tags_seed_text_and_cosine() -> None:
     assert SemanticSearchService._extract_query_tags("#AI topic #AI #ml") == ["#ai", "#ml"]
     assert SemanticSearchService.extract_semantic_seed_text(payload).startswith("Main title Short")
     assert SemanticSearchService._cosine_similarity([1, 0], [1, 0]) == pytest.approx(1.0)
-    assert SemanticSearchService(_Context(), _ArticleService())._lexical_overlap_score(
+    assert SemanticSearchService(
+        cast("McpServerContext", _Context()),
+        cast("ArticleReadService", _ArticleService()),
+    )._lexical_overlap_score(
         "ai search", "search only"
     ) == pytest.approx(0.5)
 
@@ -174,7 +181,7 @@ async def test_semantic_search_uses_local_vector_results_before_keyword_fallback
     assert payload["search_backend"] == "local_vector"
     assert payload["search_type"] == "semantic"
     assert payload["results"][0]["summary_id"] == 3
-    assert service.article_service.calls == []
+    assert service.fake_article_service.calls == []
 
 
 @pytest.mark.asyncio

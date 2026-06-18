@@ -1,6 +1,7 @@
 """Tests for sync service data operations: collect, paginate, get_full, get_delta, apply_changes."""
 
 from datetime import datetime, timedelta
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -175,12 +176,14 @@ class TestCollectRecords:
             ]
 
         def serialize_fake(_serializer, row: dict[str, object]) -> SyncEntityEnvelope:
-            return SyncEntityEnvelope(
-                entity_type="fake",
-                id=str(row["id"]),
-                server_version=int(row["server_version"]),
-                updated_at=str(row["updated_at"]),
-                fake=row["payload"],
+            return SyncEntityEnvelope.model_validate(
+                {
+                    "entity_type": "fake",
+                    "id": str(row["id"]),
+                    "server_version": cast("int", row["server_version"]),
+                    "updated_at": str(row["updated_at"]),
+                    "payload": cast("dict[str, object]", row["payload"]),
+                }
             )
 
         async def max_fake(
@@ -638,7 +641,7 @@ class TestApplyChanges:
             return SyncEntityEnvelope(
                 entity_type="fake",
                 id=str(row["id"]),
-                server_version=int(row["server_version"]),
+                server_version=cast("int", row["server_version"]),
                 updated_at=str(row["updated_at"]),
             )
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import unittest
+from typing import cast
 
+from app.db.session import Database
 from app.domain.services.summary_context import build_summary_context
 
 
@@ -300,7 +302,7 @@ class TestSyncSnapshotPaging(unittest.TestCase):
             def session(self) -> FakeSession:
                 return FakeSession()
 
-        repo = SummaryRepositoryAdapter(FakeDatabase())  # type: ignore[arg-type]
+        repo = SummaryRepositoryAdapter(cast("Database", FakeDatabase()))
 
         # Monkey-patch model_to_dict to just return a dict with the id
         import app.infrastructure.persistence.repositories.summary_repository as mod
@@ -316,7 +318,7 @@ class TestSyncSnapshotPaging(unittest.TestCase):
         try:
             results = asyncio.run(repo.async_get_all_for_user(42))
         finally:
-            mod.model_to_dict = original_mtd  # type: ignore[assignment]
+            mod.model_to_dict = original_mtd
 
         assert len(results) == 1300, f"Expected 1300 rows, got {len(results)}"
         assert len(call_log) == 3, f"Expected 3 pages, got {len(call_log)}"
@@ -370,7 +372,7 @@ class TestSmartCollectionNoCap(unittest.TestCase):
             def session(self) -> FakeSession:
                 return FakeSession()
 
-        repo = CollectionRepositoryAdapter(FakeDatabase())  # type: ignore[arg-type]
+        repo = CollectionRepositoryAdapter(cast("Database", FakeDatabase()))
 
         import app.infrastructure.persistence.repositories.collection_repository as col_mod
 
@@ -385,7 +387,7 @@ class TestSmartCollectionNoCap(unittest.TestCase):
         try:
             results = asyncio.run(repo.async_list_user_summaries_with_request(99))
         finally:
-            col_mod.model_to_dict = original_mtd  # type: ignore[assignment]
+            col_mod.model_to_dict = original_mtd
 
         assert len(results) == total, f"Expected {total} rows, got {len(results)}"
         expected_pages = total // PAGE_SIZE  # 22 full pages + 0 remainder = 22 pages + 1 empty

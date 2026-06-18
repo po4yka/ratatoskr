@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
+from sqlalchemy import Table
 
 from app.db.models import (
     ALL_MODELS,
@@ -52,9 +53,11 @@ def test_social_connection_required_columns() -> None:
 
 
 def test_social_connection_unique_user_provider_constraint() -> None:
+    table = SocialConnection.__table__
+    assert isinstance(table, Table)
     constraints = {
         constraint.name
-        for constraint in SocialConnection.__table__.constraints
+        for constraint in table.constraints
         if isinstance(constraint, sa.UniqueConstraint)
     }
 

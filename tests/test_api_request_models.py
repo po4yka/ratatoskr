@@ -227,7 +227,7 @@ class TestURLSSRFValidation:
     )
     def test_submit_url_request_rejects_private_targets(self, url: str) -> None:
         with pytest.raises(ValidationError):
-            SubmitURLRequest(input_url=url)
+            SubmitURLRequest.model_validate({"input_url": url})
 
     @pytest.mark.parametrize(
         "url",
@@ -239,11 +239,11 @@ class TestURLSSRFValidation:
     )
     def test_submit_url_request_rejects_non_http_schemes(self, url: str) -> None:
         with pytest.raises(ValidationError):
-            SubmitURLRequest(input_url=url)
+            SubmitURLRequest.model_validate({"input_url": url})
 
     def test_aggregation_bundle_item_rejects_private_target(self) -> None:
         with pytest.raises(ValidationError):
-            AggregationBundleItemRequest(url="http://10.0.0.5/admin")
+            AggregationBundleItemRequest.model_validate({"url": "http://10.0.0.5/admin"})
 
     def test_quick_save_rejects_private_target(self) -> None:
         with pytest.raises(ValidationError):
