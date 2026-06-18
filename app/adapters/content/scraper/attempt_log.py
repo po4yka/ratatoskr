@@ -20,6 +20,8 @@ class ScraperAttemptEntry:
     status: str
     latency_ms: int
     error_class: str | None
+    error_message: str | None = None
+    bytes_extracted: int | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _ALLOWED_STATUSES:
@@ -64,6 +66,8 @@ def serialize_attempt_log(
             "status": entry.status,
             "latency_ms": entry.latency_ms,
             "error_class": entry.error_class,
+            "error_message": entry.error_message,
+            "bytes_extracted": entry.bytes_extracted,
         }
         for entry in entries
     ]

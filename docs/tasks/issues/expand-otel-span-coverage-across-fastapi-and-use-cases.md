@@ -25,7 +25,7 @@ updated: 2026-05-17
 ## Scope
 
 - Auto-instrument FastAPI via `opentelemetry-instrumentation-fastapi` in `init_tracing()`.
-- Add manual spans in: - `app/application/use_cases/` for each top-level use case. - `app/db/session.py` session / transaction boundaries. - `app/adapters/openrouter/` per chat completion. - `app/adapters/content/scraper/chain.py` per provider attempt (link this with the attempt log from `wire-scraper-chain-attempt-recorder`).
+- Add manual spans in: - `app/application/use_cases/` for each top-level use case. - `app/db/session.py` session / transaction boundaries. - `app/adapters/openrouter/` per chat completion. - `app/adapters/content/scraper/chain.py` per provider attempt (link this with the persisted scraper attempt log).
 - Document `OTEL_ENABLED=true`, exporter env vars, and a Tempo Grafana dashboard panel in `docs/explanation/observability-strategy.md`.
 
 ## Acceptance criteria
@@ -39,4 +39,3 @@ updated: 2026-05-17
 
 - OTEL init: `app/observability/otel.py:36-86`
 - Tempo: `ops/monitoring/tempo-config.yml`
-- Related: [[wire-scraper-chain-attempt-recorder]]

@@ -242,6 +242,8 @@ async def test_chain_stamps_attempt_log_on_exhaustion() -> None:
     assert providers_recorded == ["a", "b"]
     assert all(e["status"] == "error" for e in attempt_log)
     assert attempt_log[1]["error_class"] == "RuntimeError"
+    assert attempt_log[1]["error_message"] == "boom"
+    assert attempt_log[1]["bytes_extracted"] == 0
     assert options["_chain_winning_provider"] is None
 
 
@@ -259,7 +261,50 @@ async def test_chain_stamps_attempt_log_on_success() -> None:
     attempt_log = options["_chain_attempt_log"]
     assert [e["provider"] for e in attempt_log] == ["a", "b"]
     assert [e["status"] for e in attempt_log] == ["error", "success"]
+    assert attempt_log[0]["error_message"] == "upstream 500"
+    assert attempt_log[1]["bytes_extracted"] == len("recovered")
     assert options["_chain_winning_provider"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_chain_records_two_failures_then_success_with_winning_provider() -> None:
+    """Persisted attempt log shape covers multi-provider recovery."""
+    first = _FakeProvider("scrapling", _error_result("upstream 500"))
+    second = _FakeProvider("firecrawl", TimeoutError("timed out"))
+    third = _FakeProvider("direct_html", _ok_result("recovered article"))
+
+    chain = ContentScraperChain(providers=[first, second, third], race_enabled=False)
+    result = await chain.scrape_markdown("https://example.com/recovered-late")
+
+    assert result.status == CallStatus.OK
+    options = result.options_json or {}
+    assert options["_chain_winning_provider"] == "direct_html"
+    assert options["_chain_attempt_log"] == [
+        {
+            "provider": "scrapling",
+            "status": "error",
+            "latency_ms": options["_chain_attempt_log"][0]["latency_ms"],
+            "error_class": "no_content",
+            "error_message": "upstream 500",
+            "bytes_extracted": 0,
+        },
+        {
+            "provider": "firecrawl",
+            "status": "timeout",
+            "latency_ms": options["_chain_attempt_log"][1]["latency_ms"],
+            "error_class": "TimeoutError",
+            "error_message": "timed out",
+            "bytes_extracted": 0,
+        },
+        {
+            "provider": "direct_html",
+            "status": "success",
+            "latency_ms": options["_chain_attempt_log"][2]["latency_ms"],
+            "error_class": None,
+            "error_message": None,
+            "bytes_extracted": len("recovered article"),
+        },
+    ]
 
 
 @pytest.mark.asyncio
@@ -281,6 +326,7 @@ async def test_chain_blocks_unsafe_url_before_provider_delivery(
 
     assert result.status == CallStatus.ERROR
     assert "SSRF blocked URL" in (result.error_text or "")
+    assert result.options_json == {"_chain_attempt_log": [], "_chain_winning_provider": None}
     assert provider.calls == []
 
 

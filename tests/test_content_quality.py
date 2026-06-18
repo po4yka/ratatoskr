@@ -70,7 +70,14 @@ def _firecrawl_result(markdown: str | None, html: str | None) -> FirecrawlResult
         options_json={
             "formats": ["markdown", "html"],
             "_chain_attempt_log": [
-                {"provider": "direct_html", "status": "success", "latency_ms": 12}
+                {
+                    "provider": "direct_html",
+                    "status": "success",
+                    "latency_ms": 12,
+                    "error_class": None,
+                    "error_message": None,
+                    "bytes_extracted": 5,
+                }
             ],
             "_chain_winning_provider": "direct_html",
         },
@@ -129,7 +136,14 @@ async def test_low_value_content_triggers_failure() -> None:
     # The crawl repo uses 'error' field for error messages
     assert "insufficient_useful_content" in (call_kwargs.get("error") or "")
     assert call_kwargs["attempt_log"] == [
-        {"provider": "direct_html", "status": "success", "latency_ms": 12}
+        {
+            "provider": "direct_html",
+            "status": "success",
+            "latency_ms": 12,
+            "error_class": None,
+            "error_message": None,
+            "bytes_extracted": 5,
+        }
     ]
     assert call_kwargs["winning_provider"] == "direct_html"
     assert call_kwargs["options_json"]["_content_quality"]["reason"] == "overlay_content_detected"

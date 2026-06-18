@@ -247,8 +247,22 @@ def test_serialize_attempt_log_emits_plain_dicts() -> None:
     ]
     out = serialize_attempt_log(entries)
     assert out == [
-        {"provider": "p", "status": "error", "latency_ms": 100, "error_class": "Timeout"},
-        {"provider": "q", "status": "success", "latency_ms": 200, "error_class": None},
+        {
+            "provider": "p",
+            "status": "error",
+            "latency_ms": 100,
+            "error_class": "Timeout",
+            "error_message": None,
+            "bytes_extracted": None,
+        },
+        {
+            "provider": "q",
+            "status": "success",
+            "latency_ms": 200,
+            "error_class": None,
+            "error_message": None,
+            "bytes_extracted": None,
+        },
     ]
 
 

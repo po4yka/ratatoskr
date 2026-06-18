@@ -209,6 +209,7 @@ class ContentScraperChain:
         _tracer = get_tracer(__name__)
         chain_started = time.monotonic()
         mode = "tiered_race" if self._race_enabled else "serial"
+        recorder = ScraperAttemptRecorder()
 
         def _record_outcome(outcome: str) -> None:
             record_scraper_chain_total_latency(
@@ -248,16 +249,16 @@ class ContentScraperChain:
                     },
                 )
             _record_outcome("dns_failed" if dns_failure else "ssrf_blocked")
-            return FirecrawlResult(
+            blocked_result = FirecrawlResult(
                 status=CallStatus.ERROR,
                 error_text=error_text,
                 source_url=url,
                 endpoint="chain",
             )
+            return self._attach_attempt_telemetry(blocked_result, recorder)
 
         effective = self._effective_providers(url)
         errors: list[str] = []
-        recorder = ScraperAttemptRecorder()
 
         with _tracer.start_as_current_span(
             "scraper.chain",
@@ -517,14 +518,32 @@ class ContentScraperChain:
         def _latency_ms() -> int:
             return int(max(0.0, time.monotonic() - started) * 1000)
 
-        def _record(status: str, error_class: str | None) -> None:
+        def _record(
+            status: str,
+            error_class: str | None,
+            *,
+            error_message: str | None = None,
+            bytes_extracted: int | None = None,
+        ) -> None:
             recorder.record(
                 ScraperAttemptEntry(
                     provider=name,
                     status=status,
                     latency_ms=_latency_ms(),
                     error_class=error_class,
+                    error_message=error_message,
+                    bytes_extracted=bytes_extracted,
                 )
+            )
+
+        def _bytes_extracted(result: FirecrawlResult | None, text: str | None = None) -> int:
+            if text is not None:
+                return len(text.encode("utf-8"))
+            if result is None:
+                return 0
+            return max(
+                len((result.content_markdown or "").encode("utf-8")),
+                len((result.content_html or "").encode("utf-8")),
             )
 
         def _finalize(
@@ -576,15 +595,22 @@ class ContentScraperChain:
                 result = await provider.scrape_markdown(url, mobile=mobile, request_id=request_id)
             except asyncio.CancelledError:
                 _finalize(provider_span, outcome="cancelled", attempt_status="skipped")
-                _record("skipped", "CancelledError")
+                _record(
+                    "skipped",
+                    "CancelledError",
+                    error_message="provider attempt cancelled after another provider won",
+                    bytes_extracted=0,
+                )
                 raise
             except Exception as exc:
                 provider_span.set_attribute("error.type", type(exc).__name__)
+                attempt_status = "timeout" if isinstance(exc, TimeoutError) else "error"
+                failure_reason = "timeout" if attempt_status == "timeout" else "error"
                 _finalize(
                     provider_span,
-                    outcome="error",
-                    attempt_status="error",
-                    failure_reason="error",
+                    outcome=failure_reason,
+                    attempt_status=attempt_status,
+                    failure_reason=failure_reason,
                 )
                 logger.warning(
                     "scraper_chain_provider_exception",
@@ -596,7 +622,12 @@ class ContentScraperChain:
                         "request_id": request_id,
                     },
                 )
-                _record("error", type(exc).__name__)
+                _record(
+                    attempt_status,
+                    type(exc).__name__,
+                    error_message=str(exc),
+                    bytes_extracted=0,
+                )
                 return None, f"{name}: {exc}"
 
             has_content = result.status == CallStatus.OK and (
@@ -623,7 +654,12 @@ class ContentScraperChain:
                             "request_id": request_id,
                         },
                     )
-                    _record("error", "error_page")
+                    _record(
+                        "error",
+                        "error_page",
+                        error_message=f"error page detected ({len(text)} chars)",
+                        bytes_extracted=_bytes_extracted(result, text),
+                    )
                     return None, f"{name}: error page detected ({len(text)} chars)"
 
                 if self._min_content_length > 0 and len(text) < self._min_content_length:
@@ -643,7 +679,14 @@ class ContentScraperChain:
                             "request_id": request_id,
                         },
                     )
-                    _record("error", "too_short")
+                    _record(
+                        "error",
+                        "too_short",
+                        error_message=(
+                            f"content too short ({len(text)} < {self._min_content_length} chars)"
+                        ),
+                        bytes_extracted=_bytes_extracted(result, text),
+                    )
                     return None, (
                         f"{name}: content too short"
                         f" ({len(text)} < {self._min_content_length} chars)"
@@ -671,7 +714,15 @@ class ContentScraperChain:
                             "request_id": request_id,
                         },
                     )
-                    _record("error", f"low_value:{reason}")
+                    _record(
+                        "error",
+                        f"low_value:{reason}",
+                        error_message=(
+                            f"low-value content detected ({reason}, "
+                            f"chars={metrics['char_length']}, words={metrics['word_count']})"
+                        ),
+                        bytes_extracted=_bytes_extracted(result, text),
+                    )
                     return None, (
                         f"{name}: low-value content detected"
                         f" ({reason}, chars={metrics['char_length']},"
@@ -685,7 +736,7 @@ class ContentScraperChain:
                     success=True,
                     content_len=len(text),
                 )
-                _record("success", None)
+                _record("success", None, bytes_extracted=_bytes_extracted(result, text))
                 return result, None
 
             _finalize(
@@ -703,7 +754,12 @@ class ContentScraperChain:
                     "request_id": request_id,
                 },
             )
-            _record("error", "no_content")
+            _record(
+                "error",
+                "no_content",
+                error_message=result.error_text or "no content",
+                bytes_extracted=_bytes_extracted(result),
+            )
             return None, f"{name}: {result.error_text or 'no content'}"
 
     def _log_chain_complete(

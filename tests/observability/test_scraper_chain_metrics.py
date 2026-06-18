@@ -98,12 +98,16 @@ class TestAttemptLogSerialization:
                 "status": "error",
                 "latency_ms": 1234,
                 "error_class": "ScrapingTimeout",
+                "error_message": None,
+                "bytes_extracted": None,
             },
             {
                 "provider": "firecrawl",
                 "status": "success",
                 "latency_ms": 987,
                 "error_class": None,
+                "error_message": None,
+                "bytes_extracted": None,
             },
         ]
 
