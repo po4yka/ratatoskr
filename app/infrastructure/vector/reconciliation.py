@@ -414,9 +414,7 @@ class RepositoryVectorIndexedEntityAdapter:
                 ),
             )
         )
-        latest_indexed = await session.scalar(
-            select(func.max(RepositoryEmbedding.last_indexed_at))
-        )
+        latest_indexed = await session.scalar(select(func.max(RepositoryEmbedding.last_indexed_at)))
         indexed_ids: set[int] | None = None
         if vector_store_available and vector_store is not None:
             get_indexed_ids = getattr(vector_store, "get_indexed_repository_ids", None)

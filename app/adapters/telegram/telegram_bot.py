@@ -14,6 +14,7 @@ from app.adapters.telegram.telethon_compat import normalize_parse_mode
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import generate_correlation_id, get_logger, setup_json_logging
 from app.core.time_utils import UTC, format_iso_z
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 

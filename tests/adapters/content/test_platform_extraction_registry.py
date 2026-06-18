@@ -99,6 +99,7 @@ def _fake_descriptors_from_builtins(
         descriptor.name: _FakeExtractor(descriptor.name)
         for descriptor in build_platform_extractor_descriptors(cfg)
     }
+
     def _factory(name: str):
         return lambda _context: extractors[name]
 

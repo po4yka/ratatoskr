@@ -1,7 +1,7 @@
 """Scope request dedupe keys by user.
 
-Revision ID: 0038_scope_request_dedupe_by_user
-Revises: 0037_repository_embedding_index_state
+Revision ID: 0038
+Revises: 0037
 Create Date: 2026-06-18
 """
 
@@ -11,15 +11,20 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "0038_scope_request_dedupe_by_user"
-down_revision = "0037_repository_embedding_index_state"
+revision = "0038"
+down_revision = "0037"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("requests_dedupe_hash_key", "requests", type_="unique")
-    op.drop_constraint("requests_paper_canonical_id_key", "requests", type_="unique")
+    op.execute(sa.text("ALTER TABLE requests DROP CONSTRAINT IF EXISTS requests_dedupe_hash_key"))
+    op.execute(
+        sa.text("ALTER TABLE requests DROP CONSTRAINT IF EXISTS uq_requests_paper_canonical_id")
+    )
+    op.execute(
+        sa.text("ALTER TABLE requests DROP CONSTRAINT IF EXISTS requests_paper_canonical_id_key")
+    )
     op.create_index(
         "ux_requests_user_dedupe_hash",
         "requests",
@@ -40,7 +45,7 @@ def downgrade() -> None:
     op.drop_index("ux_requests_user_paper_canonical_id", table_name="requests")
     op.drop_index("ux_requests_user_dedupe_hash", table_name="requests")
     op.create_unique_constraint(
-        "requests_paper_canonical_id_key",
+        "uq_requests_paper_canonical_id",
         "requests",
         ["paper_canonical_id"],
     )

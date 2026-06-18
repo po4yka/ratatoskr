@@ -112,8 +112,7 @@ async def backfill_repository_embeddings(
                 # WHERE: missing/failed/stale Qdrant indexing OR version mismatch.
                 if model_version_target is not None:
                     stmt = stmt.where(
-                        needs_repair
-                        | (RepositoryEmbedding.model_version != model_version_target)
+                        needs_repair | (RepositoryEmbedding.model_version != model_version_target)
                     )
                 else:
                     stmt = stmt.where(needs_repair)

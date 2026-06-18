@@ -136,7 +136,9 @@ class _FakeTranscriptionJobService:
         self.url_jobs.append(
             {"user_id": user_id, "source_url": source_url, "correlation_id": correlation_id}
         )
-        return EnqueuedTranscription(job=cast("TranscriptionJobRecord", SimpleNamespace(id=42)), duplicate=False)
+        return EnqueuedTranscription(
+            job=cast("TranscriptionJobRecord", SimpleNamespace(id=42)), duplicate=False
+        )
 
     async def enqueue_telegram_message(
         self,
@@ -156,7 +158,9 @@ class _FakeTranscriptionJobService:
                 "correlation_id": correlation_id,
             }
         )
-        return EnqueuedTranscription(job=cast("TranscriptionJobRecord", SimpleNamespace(id=43)), duplicate=False)
+        return EnqueuedTranscription(
+            job=cast("TranscriptionJobRecord", SimpleNamespace(id=43)), duplicate=False
+        )
 
 
 def _cfg() -> MagicMock:
@@ -310,7 +314,9 @@ async def test_auto_voice_enqueues_without_downloading_media() -> None:
         transcription_service=service,
         diarization_enabled=False,
         transcription_cfg=TranscriptionConfig(enabled=True, model_path=Path("/models/asr")),
-        transcription_repository=cast("TranscriptionRepositoryPort", _FakeTranscriptionRepository()),
+        transcription_repository=cast(
+            "TranscriptionRepositoryPort", _FakeTranscriptionRepository()
+        ),
         transcription_job_service=cast("TranscriptionJobService", job_service),
     )
     message = MagicMock(voice=object(), audio=None, video_note=None)

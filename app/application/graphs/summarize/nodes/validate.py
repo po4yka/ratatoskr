@@ -38,9 +38,7 @@ async def validate(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, A
     )
     merge_summary_quality_metadata(
         shaped,
-        source_coverage=inferred_source_coverage
-        if inferred_source_coverage != "unknown"
-        else None,
+        source_coverage=inferred_source_coverage if inferred_source_coverage != "unknown" else None,
         repair_attempted=True if state.get("repair_attempts", 0) > 0 else None,
         repair_succeeded=True if state.get("repair_attempts", 0) > 0 else None,
     )

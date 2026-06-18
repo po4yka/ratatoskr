@@ -67,7 +67,9 @@ async def test_collection_membership_remove_results() -> None:
     )
 
     assert (
-        await CollectionMembershipAdapter(cast("Database", _Database([2, None]))).async_remove_summary(
+        await CollectionMembershipAdapter(
+            cast("Database", _Database([2, None]))
+        ).async_remove_summary(
             user_id=1,
             collection_id=2,
             summary_id=3,

@@ -12,7 +12,7 @@ This migration replaces the existing index with a partial index that:
     defaults to NULLS FIRST; NULLS LAST ensures most-recently-pushed rows
     sort first within the index).
 
-Both operations run CONCURRENTLY (no table lock) inside autocommit blocks.
+The replacement keeps the existing index name so query plans and docs stay stable.
 
 Revision ID: 0011
 Revises: 0010
@@ -33,34 +33,27 @@ _IDX = "ix_repositories_user_pushed_desc"
 
 
 def upgrade() -> None:
-    # CONCURRENTLY requires running outside a transaction block.
-    with op.get_context().autocommit_block():
-        # Drop the old index (covers NULLs; no partial predicate).
-        op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {_IDX}"))
+    op.execute(sa.text(f"DROP INDEX IF EXISTS {_IDX}"))
 
-        # Create the replacement partial index.
-        op.execute(
-            sa.text(
-                f"""
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS {_IDX}
-                    ON repositories (user_id, pushed_at DESC NULLS LAST)
-                    WHERE pushed_at IS NOT NULL
-                """
-            )
+    op.execute(
+        sa.text(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_IDX}
+                ON repositories (user_id, pushed_at DESC NULLS LAST)
+                WHERE pushed_at IS NOT NULL
+            """
         )
+    )
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        # Drop the partial index.
-        op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {_IDX}"))
+    op.execute(sa.text(f"DROP INDEX IF EXISTS {_IDX}"))
 
-        # Restore the original non-partial index.
-        op.execute(
-            sa.text(
-                f"""
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS {_IDX}
-                    ON repositories (user_id, pushed_at DESC)
-                """
-            )
+    op.execute(
+        sa.text(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_IDX}
+                ON repositories (user_id, pushed_at DESC)
+            """
         )
+    )

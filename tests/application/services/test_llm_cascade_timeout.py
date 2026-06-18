@@ -30,7 +30,9 @@ def test_floor_scales_with_fallback_models() -> None:
 
 
 def test_floor_uses_default_per_model_min_when_unset() -> None:
-    cfg = cast("AppConfig", SimpleNamespace(runtime=SimpleNamespace(), openrouter=SimpleNamespace()))
+    cfg = cast(
+        "AppConfig", SimpleNamespace(runtime=SimpleNamespace(), openrouter=SimpleNamespace())
+    )
     # default 120s per model, 1 model, + 60s
     assert compute_llm_cascade_floor(cfg) == 180.0
 

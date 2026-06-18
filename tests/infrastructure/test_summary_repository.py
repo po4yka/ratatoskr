@@ -347,6 +347,7 @@ async def test_aggregation_source_bundle_is_scoped_to_summary_owner(
         is None
     )
 
+
 @pytest.mark.asyncio
 async def test_summary_repository_user_lists_and_topic_filter(database: Database) -> None:
     repo = SummaryRepositoryAdapter(database)

@@ -37,17 +37,11 @@ def test_bulk_request_models_reject_oversized_batches() -> None:
         CollectionItemMoveRequest(summary_ids=oversized, target_collection_id=1)
     with pytest.raises(PydanticValidationError):
         CollectionItemReorderRequest(
-            items=[
-                CollectionItemReorderItem(summary_id=item, position=item)
-                for item in oversized
-            ]
+            items=[CollectionItemReorderItem(summary_id=item, position=item) for item in oversized]
         )
     with pytest.raises(PydanticValidationError):
         CollectionReorderRequest(
-            items=[
-                CollectionReorderItem(collection_id=item, position=item)
-                for item in oversized
-            ]
+            items=[CollectionReorderItem(collection_id=item, position=item) for item in oversized]
         )
     with pytest.raises(PydanticValidationError):
         AttachTagsRequest(tag_ids=oversized)

@@ -5,9 +5,7 @@ from typing import Any, cast
 import pytest
 
 from app.adapters.rss.rss_delivery_service import RSSDeliveryService
-from app.application.services.summarization.pure_summary_service import PureSummaryService
 from app.config.rss import RSSConfig
-from app.infrastructure.persistence.rss_repository import RSSRepository
 
 
 class _FakeRSSRepository:
@@ -59,9 +57,9 @@ async def test_rss_delivery_summarizes_once_per_item_for_multiple_subscribers() 
     pure = _FakePureSummaryService()
     service = RSSDeliveryService(
         cfg=RSSConfig(enabled=True, min_content_length=10),
-        pure_summary_service=cast("PureSummaryService", pure),
+        pure_summary_service=pure,
         system_prompt_loader=lambda lang: f"prompt:{lang}",
-        rss_repository=cast("RSSRepository", repo),
+        rss_repository=cast("Any", repo),
     )
     sent: list[tuple[int, str]] = []
 
@@ -95,9 +93,9 @@ async def test_rss_delivery_marks_short_unscrapable_item_skipped_for_each_subscr
     pure = _FakePureSummaryService()
     service = RSSDeliveryService(
         cfg=RSSConfig(enabled=True, min_content_length=10),
-        pure_summary_service=cast("PureSummaryService", pure),
+        pure_summary_service=pure,
         system_prompt_loader=lambda lang: f"prompt:{lang}",
-        rss_repository=cast("RSSRepository", repo),
+        rss_repository=cast("Any", repo),
     )
     sent: list[tuple[int, str]] = []
 
@@ -129,9 +127,9 @@ async def test_rss_delivery_keeps_partial_send_failures_per_user() -> None:
     pure = _FakePureSummaryService()
     service = RSSDeliveryService(
         cfg=RSSConfig(enabled=True, min_content_length=10, concurrency=2),
-        pure_summary_service=cast("PureSummaryService", pure),
+        pure_summary_service=pure,
         system_prompt_loader=lambda lang: f"prompt:{lang}",
-        rss_repository=cast("RSSRepository", repo),
+        rss_repository=cast("Any", repo),
     )
     sent: list[int] = []
 

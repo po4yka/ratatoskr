@@ -11,19 +11,7 @@ CLAUDE.md documents that ``attempt_index`` is 1-based and monotonic per
 and silently insert duplicate (request_id, attempt_index) pairs, breaking the
 invariant that is assumed by every "all attempts for a request, ordered" query.
 
-Zero-downtime trade-off
------------------------
-The safest Postgres pattern for large tables is:
-
-    CREATE UNIQUE INDEX CONCURRENTLY uq_llm_calls_request_id_attempt_index
-        ON llm_calls (request_id, attempt_index);
-    ALTER TABLE llm_calls
-        ADD CONSTRAINT uq_llm_calls_request_id_attempt_index
-        USING INDEX uq_llm_calls_request_id_attempt_index;
-
-This migration uses that approach via a raw SQL ``CONCURRENTLY`` build inside
-an autocommit block so Postgres can validate the index without a full table
-lock.  The old non-unique index is dropped after the constraint is established.
+The old non-unique index is dropped after the constraint is established.
 
 Revision ID: 0009
 Revises: 0008
@@ -85,30 +73,10 @@ def upgrade() -> None:
             )
             raise RuntimeError(msg)
 
-    # ------------------------------------------------------------------
-    # Build the unique index CONCURRENTLY (requires autocommit — cannot
-    # run inside a transaction block).
-    # ------------------------------------------------------------------
-    with op.get_context().autocommit_block():
-        op.execute(
-            sa.text(
-                f"""
-                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS {_NEW_CONSTRAINT}
-                    ON {_TABLE} (request_id, attempt_index)
-                """
-            )
-        )
-
-    # Promote the index to a named table constraint.  This is
-    # instantaneous in Postgres (no re-scan; the index is already valid).
-    op.execute(
-        sa.text(
-            f"""
-            ALTER TABLE {_TABLE}
-                ADD CONSTRAINT {_NEW_CONSTRAINT}
-                UNIQUE USING INDEX {_NEW_CONSTRAINT}
-            """
-        )
+    op.create_unique_constraint(
+        _NEW_CONSTRAINT,
+        _TABLE,
+        ["request_id", "attempt_index"],
     )
 
     # Drop the old non-unique index (now redundant — the unique constraint

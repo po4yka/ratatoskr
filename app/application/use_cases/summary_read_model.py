@@ -274,9 +274,7 @@ class SummaryReadModelUseCase:
         request_ids: list[int] = []
         seen: set[int] = set()
         for summary_id in summary_ids:
-            summary = await self.get_summary_by_id_for_user(
-                user_id=user_id, summary_id=summary_id
-            )
+            summary = await self.get_summary_by_id_for_user(user_id=user_id, summary_id=summary_id)
             request_id = summary.get("request_id") if summary else None
             if request_id is None:
                 continue

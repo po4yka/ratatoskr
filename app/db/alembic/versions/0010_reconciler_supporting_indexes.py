@@ -26,7 +26,7 @@ Indexes added
    replaces it functionally for the reconciler's access pattern while keeping
    the old index in place for other callers.
 
-Both indexes are built CONCURRENTLY (no table lock) inside autocommit blocks.
+Both indexes are created in the migration transaction so the schema change and revision stamp commit together.
 
 Revision ID: 0010
 Revises: 0009
@@ -48,37 +48,26 @@ _IDX_EMBEDDINGS = "ix_summary_embeddings_summary_id_last_indexed"
 
 
 def upgrade() -> None:
-    # Both CREATE INDEX CONCURRENTLY statements must run outside a
-    # transaction block (Postgres requirement).  Alembic's
-    # ``autocommit_block()`` context manager temporarily disables the
-    # surrounding transaction for the duration of the block.
-
-    with op.get_context().autocommit_block():
-        # 1. Partial index on summaries.updated_at for non-deleted rows.
-        op.execute(
-            sa.text(
-                f"""
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS {_IDX_SUMMARIES}
-                    ON summaries (updated_at)
-                    WHERE is_deleted = false
-                """
-            )
+    op.execute(
+        sa.text(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_IDX_SUMMARIES}
+                ON summaries (updated_at)
+                WHERE is_deleted = false
+            """
         )
+    )
 
-        # 2. Covering composite index on summary_embeddings for the reconciler
-        #    join probe: (summary_id, last_indexed_at).
-        op.execute(
-            sa.text(
-                f"""
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS {_IDX_EMBEDDINGS}
-                    ON summary_embeddings (summary_id, last_indexed_at)
-                """
-            )
+    op.execute(
+        sa.text(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_IDX_EMBEDDINGS}
+                ON summary_embeddings (summary_id, last_indexed_at)
+            """
         )
+    )
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {_IDX_EMBEDDINGS}"))
-
-        op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {_IDX_SUMMARIES}"))
+    op.execute(sa.text(f"DROP INDEX IF EXISTS {_IDX_EMBEDDINGS}"))
+    op.execute(sa.text(f"DROP INDEX IF EXISTS {_IDX_SUMMARIES}"))

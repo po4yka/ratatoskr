@@ -73,20 +73,11 @@ def upgrade() -> None:
         )
     )
 
-    # 3. Add a CONCURRENTLY-safe index on title for future search optimisation.
-    #    Use autocommit block (same pattern as migrations 0010, 0028, 0029).
-    with op.get_context().autocommit_block():
-        op.execute(
-            sa.text(
-                "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_summaries_title ON summaries (title)"
-            )
-        )
+    op.create_index("ix_summaries_title", "summaries", ["title"], unique=False)
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.execute(sa.text("DROP INDEX CONCURRENTLY IF EXISTS ix_summaries_title"))
-
+    op.drop_index("ix_summaries_title", table_name="summaries")
     op.drop_column("summaries", "topic_tags")
     op.drop_column("summaries", "reading_time")
     op.drop_column("summaries", "source_type")

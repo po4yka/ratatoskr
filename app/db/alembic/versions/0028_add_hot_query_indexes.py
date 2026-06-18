@@ -1,8 +1,7 @@
 """Add missing indexes for hot query paths.
 
 Several frequently-filtered columns lacked indexes, forcing sequential scans at
-scale. This migration adds them, all built CONCURRENTLY (no table lock) inside
-autocommit blocks, matching migration 0010's pattern.
+scale. This migration adds them.
 
 Indexes added
 -------------
@@ -41,7 +40,7 @@ down_revision: str = "0027"
 branch_labels: tuple[str, ...] | None = None
 depends_on: tuple[str, ...] | None = None
 
-# (index_name, CREATE statement body). Built CONCURRENTLY + IF NOT EXISTS.
+# (index_name, CREATE statement body).
 _INDEXES: tuple[tuple[str, str], ...] = (
     ("ix_requests_correlation_id", "ON requests (correlation_id)"),
     ("ix_crawl_results_correlation_id", "ON crawl_results (correlation_id)"),
@@ -65,13 +64,10 @@ _INDEXES: tuple[tuple[str, str], ...] = (
 
 
 def upgrade() -> None:
-    # CREATE INDEX CONCURRENTLY must run outside a transaction block.
-    with op.get_context().autocommit_block():
-        for name, body in _INDEXES:
-            op.execute(sa.text(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} {body}"))
+    for name, body in _INDEXES:
+        op.execute(sa.text(f"CREATE INDEX IF NOT EXISTS {name} {body}"))
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        for name, _body in reversed(_INDEXES):
-            op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {name}"))
+    for name, _body in reversed(_INDEXES):
+        op.execute(sa.text(f"DROP INDEX IF EXISTS {name}"))

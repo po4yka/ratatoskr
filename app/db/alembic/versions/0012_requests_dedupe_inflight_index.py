@@ -15,9 +15,7 @@ filters.  A covering composite index on ``(dedupe_hash, status,
 updated_at DESC)`` allows Postgres to answer the full query from the
 index alone without a heap fetch.
 
-The index is built CONCURRENTLY (no table lock) inside an autocommit
-block per the project convention established in migrations 0010 and
-0011.
+The index covers the full in-flight dedupe predicate used by the request repository.
 
 Revision ID: 0012
 Revises: 0011
@@ -38,18 +36,15 @@ _IDX = "ix_requests_dedupe_status_updated"
 
 
 def upgrade() -> None:
-    # CREATE INDEX CONCURRENTLY must run outside a transaction block.
-    with op.get_context().autocommit_block():
-        op.execute(
-            sa.text(
-                f"""
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS {_IDX}
-                    ON requests (dedupe_hash, status, updated_at DESC)
-                """
-            )
+    op.execute(
+        sa.text(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_IDX}
+                ON requests (dedupe_hash, status, updated_at DESC)
+            """
         )
+    )
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {_IDX}"))
+    op.execute(sa.text(f"DROP INDEX IF EXISTS {_IDX}"))

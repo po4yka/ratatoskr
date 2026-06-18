@@ -61,7 +61,9 @@ class _SemanticService(SemanticSearchService):
         article_payload: dict[str, Any] | None = None,
     ) -> None:
         article_service = _ArticleService(article_payload)
-        super().__init__(cast("McpServerContext", _Context()), cast("ArticleReadService", article_service))
+        super().__init__(
+            cast("McpServerContext", _Context()), cast("ArticleReadService", article_service)
+        )
         self.fake_article_service = article_service
         self.rows = rows or []
         self.summary_map = summary_map or {}
@@ -99,9 +101,7 @@ def test_semantic_helpers_tokenize_tags_seed_text_and_cosine() -> None:
     assert SemanticSearchService(
         cast("McpServerContext", _Context()),
         cast("ArticleReadService", _ArticleService()),
-    )._lexical_overlap_score(
-        "ai search", "search only"
-    ) == pytest.approx(0.5)
+    )._lexical_overlap_score("ai search", "search only") == pytest.approx(0.5)
 
 
 @pytest.mark.asyncio

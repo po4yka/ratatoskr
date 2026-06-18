@@ -209,7 +209,7 @@ class TestCollectRecords:
 
         assert len(records) == 1
         assert records[0].entity_type == "fake"
-        assert records[0].model_dump()["fake"] == {"name": "Fake"}
+        assert records[0].payload == {"name": "Fake"}
         assert await service.get_max_server_version(123) == 9
 
 

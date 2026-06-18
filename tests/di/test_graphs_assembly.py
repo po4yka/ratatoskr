@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.application.ports.retrieval import EntityType, RetrievalScope
+from app.application.dto.vector_search import EntityType, RetrievalScope
 from tests._config_env import MODEL_SELECTION_ENV
 
 # Minimum non-model env the AppConfig loader needs beyond MODEL_SELECTION_ENV.

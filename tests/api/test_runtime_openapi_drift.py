@@ -216,9 +216,7 @@ class TestRuntimeOpenApiDrift:
                         "root_path": "",
                     }
                     for previous in seen_routes:
-                        previous_methods = {
-                            m.upper() for m in getattr(previous, "methods", set())
-                        }
+                        previous_methods = {m.upper() for m in getattr(previous, "methods", set())}
                         if method not in previous_methods:
                             continue
                         match, _ = previous.matches(scope)

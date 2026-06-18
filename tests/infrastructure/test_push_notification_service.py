@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 import app.infrastructure.push.service as push_module
+from app.config.push import PushNotificationConfig
+from app.infrastructure.persistence.repositories.device_repository import DeviceRepositoryAdapter
 from app.infrastructure.push.service import (
-    DeviceRepositoryAdapter,
     PushNotificationService,
-    PushNotificationConfig,
     create_push_notification_service,
 )
 
@@ -84,7 +84,9 @@ class _FirebaseAdmin:
         return object()
 
 
-def _config(*, enabled: bool = True, path: str | None = "/tmp/firebase.json") -> PushNotificationConfig:
+def _config(
+    *, enabled: bool = True, path: str | None = "/tmp/firebase.json"
+) -> PushNotificationConfig:
     return cast(
         "PushNotificationConfig",
         SimpleNamespace(enabled=enabled, firebase_credentials_path=path),
@@ -147,9 +149,7 @@ async def test_push_send_to_user_skips_empty_tokens_and_uses_device_platform(
             {"token": "android-token"},
         ]
     )
-    repo = _repo(
-        async_list_user_devices=async_list_user_devices
-    )
+    repo = _repo(async_list_user_devices=async_list_user_devices)
     service = PushNotificationService(_config(), repo)
     service.initialize()
 

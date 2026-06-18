@@ -45,7 +45,9 @@ async def test_progress_message_updater_updates_formatter_and_finalizes() -> Non
 @pytest.mark.asyncio
 async def test_progress_message_updater_context_exit_cancels_running_task() -> None:
     tracker = _Tracker()
-    updater = ProgressMessageUpdater(cast("TelegramProgressMessage", tracker), object(), update_interval=10)
+    updater = ProgressMessageUpdater(
+        cast("TelegramProgressMessage", tracker), object(), update_interval=10
+    )
 
     async with updater:
         await updater.start(lambda elapsed: "working")
