@@ -15,7 +15,6 @@ import pytest
 from app.adapter_models.llm.llm_models import StructuredLLMResult
 from app.application.graphs.summarize.deps import SummarizeConfig, SummarizeDeps
 from app.application.graphs.summarize.lifecycle import route_terminal_failure
-from app.application.graphs.summarize.state import SummarizeState
 from app.application.graphs.summarize.nodes import (
     build_prompt,
     enrich,
@@ -23,6 +22,7 @@ from app.application.graphs.summarize.nodes import (
     persist,
     summarize,
 )
+from app.application.graphs.summarize.state import SummarizeState
 from app.application.services.summarization.metadata_backfill import (
     _extract_heading_title,
     _flatten_crawl_metadata,

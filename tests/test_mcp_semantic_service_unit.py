@@ -5,9 +5,9 @@ from typing import Any, cast
 
 import pytest
 
-from app.mcp.semantic_service import SemanticSearchService
 from app.mcp.article_service import ArticleReadService
 from app.mcp.context import McpServerContext
+from app.mcp.semantic_service import SemanticSearchService
 
 
 class _Context:

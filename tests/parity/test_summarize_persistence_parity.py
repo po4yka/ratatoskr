@@ -33,8 +33,8 @@ from sqlalchemy import func, select
 
 from app.application.graphs.summarize.deps import SummarizeConfig, SummarizeDeps
 from app.application.graphs.summarize.lifecycle import route_terminal_failure
-from app.application.graphs.summarize.state import SummarizeState
 from app.application.graphs.summarize.nodes import persist, summarize
+from app.application.graphs.summarize.state import SummarizeState
 from app.core.summary_contract import validate_and_shape_summary
 from app.db.models import LLMCall, Summary
 from tests import db_helpers_async as dbh

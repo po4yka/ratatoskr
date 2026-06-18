@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from app.application.dto.social_capabilities import (
+    default_social_scopes,
+    get_social_provider_capabilities,
+    list_social_provider_capabilities,
+    unsupported_social_scopes,
+)
 from app.application.ports.social_connections import (
     SocialAuthStateCreate,
     SocialAuthStateRecord,
@@ -9,12 +15,6 @@ from app.application.ports.social_connections import (
     SocialConnectionUpdate,
     SocialConnectionUpsert,
     SocialFetchAttemptCreate,
-)
-from app.application.dto.social_capabilities import (
-    default_social_scopes,
-    get_social_provider_capabilities,
-    list_social_provider_capabilities,
-    unsupported_social_scopes,
 )
 from app.application.services.social_auth_service import (
     SocialAuthConfig,

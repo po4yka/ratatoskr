@@ -8,8 +8,8 @@ from datetime import timedelta
 from typing import Any
 
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
-from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
+from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger

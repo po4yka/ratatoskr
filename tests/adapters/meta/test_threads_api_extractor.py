@@ -9,8 +9,8 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
-from app.adapters.social.meta import ThreadsClient
 from app.adapters.meta.threads_api_extractor import ThreadsApiExtractor
+from app.adapters.social.meta import ThreadsClient
 from app.application.dto.social_auth import OAuthTokenResult
 from app.application.ports.social_connections import (
     SocialAuthStateCreate,

@@ -3,9 +3,9 @@ from typing import Any
 
 import pytest
 
+from app.adapters.digest import digest_service as digest_module
 from app.adapters.digest.analyzer import DigestAnalyzer
 from app.adapters.digest.channel_reader import ChannelReader
-from app.adapters.digest import digest_service as digest_module
 from app.adapters.digest.digest_service import (
     DigestResult,
     DigestService,

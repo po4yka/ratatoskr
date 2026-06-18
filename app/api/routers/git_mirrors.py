@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import delete as sql_delete, func, select
 
+from app.adapters.github.url_patterns import parse_github_repo_url
 from app.api.models.requests import (  # noqa: TC001  # used at runtime by FastAPI body schema
     RegisterMirrorRequest,
 )
@@ -21,7 +22,6 @@ from app.api.models.responses.git_mirrors import (
     RegisterMirrorResponse,
 )
 from app.api.routers.auth import get_current_user
-from app.adapters.github.url_patterns import parse_github_repo_url
 from app.core.git_url_safety import is_github_host
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirror, GitMirrorSource

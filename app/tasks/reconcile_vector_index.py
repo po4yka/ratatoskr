@@ -22,14 +22,14 @@ from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints a
 from app.core.logging_utils import get_logger
 from app.db.models import Request, Summary, SummaryEmbedding
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
+from app.infrastructure.locks.redis_lock import RedisDistributedLock
+from app.infrastructure.redis import get_redis
 from app.infrastructure.vector.point_ids import summary_point_id
 from app.infrastructure.vector.summary_point import (
     build_summary_qdrant_payload,
     coerce_summary_payload,
     extract_indexable_text,
 )
-from app.infrastructure.locks.redis_lock import RedisDistributedLock
-from app.infrastructure.redis import get_redis
 from app.tasks.broker import broker
 from app.tasks.deps import build_vector_reconcile_task_runtime, get_app_config, get_db
 

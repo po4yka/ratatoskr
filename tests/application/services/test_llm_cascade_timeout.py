@@ -5,8 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import cast
 
-from app.config import AppConfig
 from app.application.services.llm_cascade_timeout import compute_llm_cascade_floor
+from app.config import AppConfig
 
 
 def _cfg(per_model_min: float, fallback_models: object) -> AppConfig:

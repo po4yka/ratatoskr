@@ -3,8 +3,7 @@ from __future__ import annotations
 import os
 import zipfile
 from pathlib import Path
-from typing import Any, cast
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from sqlalchemy import delete, select

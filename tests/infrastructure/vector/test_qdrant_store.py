@@ -4,10 +4,10 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from qdrant_client import QdrantClient
 
 from app.infrastructure.vector.protocol import VectorStoreError
 from app.infrastructure.vector.qdrant_store import QdrantVectorStore
-from qdrant_client import QdrantClient
 
 
 class _Client:

@@ -6,13 +6,13 @@ from typing import cast
 
 import pytest
 
-from app.adapters.external.formatting.protocols import DataFormatter, ResponseSender
 from app.adapters.external.formatting.markdown_telegram import (
     EXPANDABLE_MIN_CHARS,
     blockquote,
     maybe_expandable_blockquote,
     render_markdown,
 )
+from app.adapters.external.formatting.protocols import DataFormatter, ResponseSender
 from app.adapters.external.formatting.summary.presenter_context import SummaryPresenterContext
 from app.adapters.external.formatting.text_processor import TextProcessorImpl
 
