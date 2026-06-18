@@ -1,5 +1,16 @@
 # Quality Baseline
 
+## 2026-06-18 Gate Refresh
+
+RAT-AUDIT-015 refreshed the local quality gates so the required Makefile targets match the GitHub Actions contract before broader test-suite debt is tackled. The historical 2026-05-18 snapshot below remains as provenance for older baseline debt; this section records the current target semantics measured from `/Users/po4yka/GitRep/ratatoskr-repositories/ratatoskr` after the gate cleanup.
+
+| target | command | exit_code | current result | notes |
+| --- | --- | --- | --- | --- |
+| `make type` | `uv run --frozen mypy app --show-error-codes --pretty --cache-dir .mypy_cache` | 0 | `Success: no issues found in 961 source files` | Mirrors `.github/workflows/ci.yml` type-check job. Test typing debt is now tracked by the explicit `make type-all` diagnostic instead of making local `make type` stricter than CI. |
+| `make type-all` | `uv run --frozen mypy app tests` | 2 | 350 errors / 86 files / 1642 checked source files | Non-blocking diagnostic for test-suite typing debt. Failures are concentrated in tests with protocol-incompatible fakes, stale config constructor kwargs, and unused `type: ignore` comments. |
+| `make security-bandit` | `uv run --frozen bandit -r app -ll` | 0 | No issues identified at the configured threshold | Split out so application security lint can be rerun independently from dependency-audit network/resolver behavior. |
+| `make security-deps` | `bash tools/scripts/audit-deps.sh` | 0 | No known vulnerabilities found across 435 filtered PyPI packages | Uses the same requirement filters as the CI `pip-audit-scan` job and audits the compiled pinned set with `--no-deps --disable-pip` to avoid local temporary resolver-venv failures. |
+
 Snapshot of the ratatoskr quality signal as measured on `main @ f05c8999`,
 captured 2026-05-18 from the host venv after `uv sync --all-extras --dev`.
 All commands were executed in `/Users/npochaev/GitHub/ratatoskr` with

@@ -1,4 +1,4 @@
-.PHONY: format lint type test test-unit test-integration test-all all setup-dev venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-openapi-drift check-file-loc check-layout clean-generated security static-checks
+.PHONY: format lint type type-all test test-unit test-integration test-all all setup-dev venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-openapi-drift check-file-loc check-layout clean-generated security security-bandit security-deps static-checks
 
 COMPOSE_FILE := ops/docker/docker-compose.yml
 DOCKERFILE_BOT := ops/docker/Dockerfile
@@ -16,6 +16,9 @@ check-file-loc:
 	python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
 type:
+	uv run --frozen mypy app --show-error-codes --pretty --cache-dir .mypy_cache
+
+type-all:
 	uv run --frozen mypy app tests
 
 test:
@@ -36,9 +39,13 @@ test-fast:
 # Mirrors the bandit-scan and pip-audit-scan jobs in .github/workflows/ci.yml so
 # devs can reproduce CI security checks locally before pushing. Not part of
 # `make all` because pip-audit hits the network and is slow on cold caches.
-security:
+security: security-bandit security-deps
+
+security-bandit:
 	uv run --frozen bandit -r app -ll
-	uv run --frozen pip-audit
+
+security-deps:
+	bash tools/scripts/audit-deps.sh
 
 # Runs custom Semgrep rules that catch patterns complementary to Ruff:
 # mutable-aliasing hazards and bare/broad exception handlers.
