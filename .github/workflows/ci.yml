@@ -602,6 +602,10 @@ jobs:
             # set (uv handles the same constraints fine). Skip it — it's a
             # type-check-only dep with no runtime presence.
             grep -v "^ast-serialize==" | \
+            # pip-audit shells out to plain pip, whose resolver cannot combine
+            # websockets 16 with the uv-resolved langgraph-sdk/uvicorn set.
+            # OSV scans uv.lock directly, so websockets remains covered there.
+            grep -v "^websockets==" | \
             sort -u > requirements-audit.txt
 
       - name: Run pip-audit

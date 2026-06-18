@@ -45,7 +45,7 @@ defusedxml==0.7.1
     # via py-serializable
 distlib==0.4.0
     # via virtualenv
-fakeredis==2.36.1
+fakeredis==2.36.2
 filelock==3.29.0
     # via
     #   cachecontrol
@@ -61,7 +61,7 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via respx
-hypothesis==6.155.2
+hypothesis==6.155.3
 identify==2.6.19
     # via pre-commit
 idna==3.15
@@ -72,7 +72,7 @@ idna==3.15
     #   yarl
 iniconfig==2.3.0
     # via pytest
-isort==8.0.1
+isort==7.0.0
 jsonschema==4.26.0
     # via
     #   openapi-schema-validator
@@ -89,7 +89,7 @@ librt==0.11.0 ; platform_python_implementation != 'PyPy'
     # via mypy
 license-expression==30.4.4
     # via cyclonedx-python-lib
-markdown-it-py==4.0.0
+markdown-it-py==4.2.0
     # via rich
 mdurl==0.1.2
     # via markdown-it-py
@@ -123,7 +123,7 @@ pip==26.1.2
     # via pip-api
 pip-api==0.0.34
     # via pip-audit
-pip-audit==2.10.0
+pip-audit==2.10.1
 pip-requirements-parser==32.0.1
     # via pip-audit
 platformdirs==4.9.6
@@ -162,7 +162,7 @@ pygments==2.20.0
     #   rich
 pyparsing==3.3.2
     # via pip-requirements-parser
-pytest==9.0.3
+pytest==9.1.0
     # via
     #   pytest-asyncio
     #   pytest-benchmark
@@ -202,7 +202,7 @@ rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.16
+ruff==0.15.17
 six==1.17.0
     # via rfc3339-validator
 sortedcontainers==2.4.0
