@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.application.ports.requests import (
@@ -25,11 +29,13 @@ class SummaryReadModelUseCase:
         request_repository: RequestRepositoryPort,
         crawl_result_repository: CrawlResultRepositoryPort,
         llm_repository: LLMRepositoryPort,
+        vector_store: Any | None = None,
     ) -> None:
         self._summary_repo = summary_repository
         self._request_repo = request_repository
         self._crawl_repo = crawl_result_repository
         self._llm_repo = llm_repository
+        self._vector_store = vector_store
 
     async def get_user_summaries(
         self,
@@ -119,9 +125,15 @@ class SummaryReadModelUseCase:
             raise ValueError(
                 f"bulk_delete accepts at most {self._BULK_MAX_IDS} ids; got {len(deduped)}"
             )
-        return await self._summary_repo.async_bulk_soft_delete_summaries(
+        request_ids = await self._request_ids_for_owned_summaries(
             user_id=user_id, summary_ids=deduped
         )
+        deleted = await self._summary_repo.async_bulk_soft_delete_summaries(
+            user_id=user_id, summary_ids=deduped
+        )
+        if deleted:
+            await self._delete_vectors_by_request_ids(request_ids)
+        return deleted
 
     async def get_summary_by_id_for_user(
         self, user_id: int, summary_id: int
@@ -225,6 +237,9 @@ class SummaryReadModelUseCase:
             return False
 
         await self._summary_repo.async_soft_delete_summary(summary_id)
+        request_id = summary.get("request_id")
+        if request_id is not None:
+            await self._delete_vectors_by_request_ids([int(request_id)])
         return True
 
     async def toggle_favorite(self, user_id: int, summary_id: int) -> bool | None:
@@ -252,3 +267,35 @@ class SummaryReadModelUseCase:
             issues=issues,
             comment=comment,
         )
+
+    async def _request_ids_for_owned_summaries(
+        self, *, user_id: int, summary_ids: list[int]
+    ) -> list[int]:
+        request_ids: list[int] = []
+        seen: set[int] = set()
+        for summary_id in summary_ids:
+            summary = await self.get_summary_by_id_for_user(
+                user_id=user_id, summary_id=summary_id
+            )
+            request_id = summary.get("request_id") if summary else None
+            if request_id is None:
+                continue
+            request_id_int = int(request_id)
+            if request_id_int not in seen:
+                seen.add(request_id_int)
+                request_ids.append(request_id_int)
+        return request_ids
+
+    async def _delete_vectors_by_request_ids(self, request_ids: list[int]) -> None:
+        vector_store = self._vector_store
+        if vector_store is None:
+            return
+        for request_id in request_ids:
+            try:
+                await asyncio.to_thread(vector_store.delete_by_request_id, request_id)
+            except Exception:
+                logger.warning(
+                    "summary_vector_delete_failed",
+                    extra={"request_id": request_id},
+                    exc_info=True,
+                )

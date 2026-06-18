@@ -193,6 +193,7 @@ async def build_api_runtime(
         request_repository=request_repository,
         crawl_result_repository=crawl_result_repository,
         llm_repository=llm_repository,
+        vector_store=search.vector_store,
     )
     search_read_model_use_case = SearchReadModelUseCase(
         topic_search_repository=build_topic_search_repository(database),
