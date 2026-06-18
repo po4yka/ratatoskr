@@ -20,6 +20,7 @@ This phase evolves the existing MCP server rather than adding a separate MCP gat
 | `MCP_USER_ID` | _(none)_ | Startup user scope for local stdio/SSE deployments (recommended for SSE) |
 | `MCP_ALLOW_REMOTE_SSE` | `false` | Allow binding SSE to non-loopback hosts (also disables DNS rebinding protection) |
 | `MCP_ALLOW_UNSCOPED_SSE` | `false` | Allow SSE without `MCP_USER_ID` |
+| `MCP_ALLOW_UNSCOPED_PRODUCTION` | `false` | Required in addition to `MCP_ALLOW_UNSCOPED_SSE=true` before unscoped SSE can start when `APP_ENV=production`; also allows a non-loopback bind for that intentionally unscoped mode |
 | `MCP_ALLOW_UNSCOPED_STDIO` | `false` | Allow stdio without `MCP_USER_ID` |
 | `MCP_AUTH_MODE` | `disabled` | Hosted auth mode: `disabled` or `jwt` |
 | `MCP_FORWARDED_ACCESS_TOKEN_HEADER` | `X-Ratatoskr-Forwarded-Access-Token` | Trusted-gateway header for forwarding the original access token |
@@ -52,6 +53,8 @@ SSE safety defaults:
 
 - Binds to loopback (`127.0.0.1`) unless you explicitly enable remote bind.
 - Requires either startup scoping (`MCP_USER_ID` / `--user-id`) or hosted auth (`MCP_AUTH_MODE=jwt`).
+- Unscoped SSE requires `MCP_ALLOW_UNSCOPED_SSE=true`; when `APP_ENV=production`, startup also requires `MCP_ALLOW_UNSCOPED_PRODUCTION=true`.
+- Unscoped SSE without `MCP_ALLOW_UNSCOPED_PRODUCTION=true` is forced to `127.0.0.1` even if a non-loopback `MCP_HOST` was configured.
 - DNS rebinding protection is enabled by default; when `allow_remote_sse` is set, it is disabled so Docker-internal hostnames (e.g. `ratatoskr-mcp:8200`) are accepted.
 
 stdio safety defaults:
@@ -199,6 +202,7 @@ Key design decisions:
 - **Opt-in profile** (`profiles: ["mcp"]`) -- keeps MCP disabled during the default compose startup path.
 - **Read-only data mount** (`./data:/data:ro`) -- this Docker profile is for read tools/resources only; aggregation write tools need a writable database path in a trusted deployment.
 - **Explicit user scoping** (`MCP_USER_ID`) -- required for SSE unless you also opt into `MCP_ALLOW_UNSCOPED_SSE=true`.
+- **Production unscoped gate** (`MCP_ALLOW_UNSCOPED_PRODUCTION=true`) -- required in addition to `MCP_ALLOW_UNSCOPED_SSE=true` when `APP_ENV=production`. Without this production gate, startup exits non-zero; outside production, unscoped SSE is forced to `127.0.0.1`.
 - **`MCP_ALLOW_REMOTE_SSE=true`** -- required because `0.0.0.0` is non-loopback inside Docker. This also disables the MCP SDK's DNS rebinding protection so that Docker-internal hostnames (`ratatoskr-mcp`, `ratatoskr-mcp:8200`) are accepted in the `Host` header.
 - **Loopback port binding** (`127.0.0.1:8200`) -- prevents direct external access from the host network.
 
@@ -307,6 +311,7 @@ Example mcporter config:
 - Qdrant is optional. When unavailable, `semantic_search` and `hybrid_search` fall back to keyword-based `search_articles`. The `vector_*` tools report availability status rather than failing.
 - Signal scoring requires Qdrant. The REST signal health endpoint reports readiness before the worker runs, and MCP exposes signal reads/writes without silently changing the scoring pipeline.
 - The MCP server logs to stderr (required by stdio transport) and never writes to stdout outside of MCP protocol messages.
+- Unscoped SSE emits `ratatoskr_mcp_unscoped_enabled{app_env="<env>"}` as `1` and logs an error-level startup record with the resolved scope and bind host. The bundled Prometheus rules alert when that gauge is `1` in production for more than five minutes.
 
 ## Implementation
 

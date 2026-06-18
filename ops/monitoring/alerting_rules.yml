@@ -139,6 +139,17 @@ groups:
           summary: "Automated PostgreSQL backup is stale"
           description: "No successful PostgreSQL backup has been recorded for more than 36 hours. Check the ratatoskr-pg-backup container logs and the configured BACKUP_HOST_DIR."
 
+  - name: ratatoskr_mcp_security
+    rules:
+      - alert: RatatoskrMCPUnscopedEnabledInProduction
+        expr: ratatoskr_mcp_unscoped_enabled{app_env="production"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MCP unscoped SSE is enabled in production"
+          description: "The MCP SSE server is running without request auth or startup user scope in production. Disable MCP_ALLOW_UNSCOPED_SSE or scope the server with MCP_USER_ID / MCP_AUTH_MODE=jwt."
+
   - name: ratatoskr_external_services
     rules:
       # Firecrawl high error rate

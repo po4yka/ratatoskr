@@ -164,6 +164,14 @@ class McpConfig(BaseModel):
         validation_alias="MCP_ALLOW_UNSCOPED_SSE",
         description="Allow SSE transport without MCP_USER_ID scoping",
     )
+    allow_unscoped_production: bool = Field(
+        default=False,
+        validation_alias="MCP_ALLOW_UNSCOPED_PRODUCTION",
+        description=(
+            "Allow intentionally unscoped MCP SSE in production after "
+            "MCP_ALLOW_UNSCOPED_SSE has also been set"
+        ),
+    )
     allow_unscoped_stdio: bool = Field(
         default=False,
         validation_alias="MCP_ALLOW_UNSCOPED_STDIO",

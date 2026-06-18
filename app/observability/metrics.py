@@ -26,6 +26,7 @@ Sub-module layout
 - ``metrics_request``         — request throughput, URL queue
 - ``metrics_scraper``         — Firecrawl + scraper chain
 - ``metrics_llm``             — OpenRouter + LLM retry budget, per-model circuit breaker
+- ``metrics_mcp``             — MCP exposure posture
 - ``metrics_circuit_breaker`` — service-level circuit breaker gauge
 - ``metrics_twitter``         — Twitter/X extraction + generic extraction pipeline
 - ``metrics_aggregation``     — multi-source aggregation
@@ -143,6 +144,14 @@ from app.observability.metrics_llm import (
     record_per_model_circuit_breaker_state,
     record_per_model_latency,
     record_per_model_timeout,
+)
+
+# ---------------------------------------------------------------------------
+# MCP exposure posture
+# ---------------------------------------------------------------------------
+from app.observability.metrics_mcp import (
+    MCP_UNSCOPED_ENABLED,
+    set_mcp_unscoped_enabled,
 )
 
 # ---------------------------------------------------------------------------
@@ -354,6 +363,9 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_per_model_circuit_breaker_state",
     "record_per_model_latency",
     "record_per_model_timeout",
+    # MCP
+    "MCP_UNSCOPED_ENABLED",
+    "set_mcp_unscoped_enabled",
     # Circuit breaker
     "CIRCUIT_BREAKER_STATE",
     "record_circuit_breaker_state",

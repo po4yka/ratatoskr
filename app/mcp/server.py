@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -21,10 +22,19 @@ from app.mcp.x_search_service import XSearchService
 logger = logging.getLogger("ratatoskr.mcp")
 
 _DEFAULT_CONTEXT = McpServerContext(logger=logger)
+_UNSCOPED_SSE_LOOPBACK_HOST = "127.0.0.1"
 
 
 def _is_loopback_host(host: str) -> bool:
     return host.strip().lower() in {"127.0.0.1", "::1", "localhost"}
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _deployment_env() -> str:
+    return os.getenv("APP_ENV", "development").strip().lower() or "development"
 
 
 def _build_sse_app(
@@ -105,6 +115,7 @@ def run_server(
 ) -> None:
     """Start the MCP server."""
     from app.core.logging_utils import setup_json_logging
+    from app.observability.metrics import set_mcp_unscoped_enabled
 
     setup_json_logging()
     try:
@@ -113,37 +124,69 @@ def run_server(
         init_tracing()
     except Exception:
         pass
-    _DEFAULT_CONTEXT.set_user_scope(user_id)
-    if database_dsn is not None:
-        _DEFAULT_CONTEXT.init_runtime(database_dsn=database_dsn)
-    else:
-        _DEFAULT_CONTEXT.init_runtime()
-    logger.info(
-        "Starting Ratatoskr MCP server (transport=%s, startup_user_scope=%s)",
-        transport,
-        user_id if user_id is not None else "all",
-    )
 
     if transport == "stdio" and auth_mode != "disabled":
         msg = "HTTP MCP auth modes are only supported with SSE transport."
         raise ValueError(msg)
 
-    if transport == "sse" and not allow_remote_sse and not _is_loopback_host(host):
-        msg = (
-            "Refusing to bind MCP SSE to non-loopback host without explicit opt-in "
-            "(set allow_remote_sse=True / --allow-remote-sse)."
-        )
-        raise ValueError(msg)
+    app_env = _deployment_env()
+    allow_unscoped_production = _env_flag_enabled("MCP_ALLOW_UNSCOPED_PRODUCTION")
+    unscoped_sse = transport == "sse" and auth_mode == "disabled" and user_id is None
+    unscoped_sse_enabled = unscoped_sse and allow_unscoped_sse
+    resolved_host = host
+    set_mcp_unscoped_enabled(enabled=unscoped_sse_enabled, app_env=app_env)
 
     if (
-        transport == "sse"
-        and auth_mode == "disabled"
-        and user_id is None
+        unscoped_sse
         and not allow_unscoped_sse
     ):
         msg = (
             "Refusing to start unscoped MCP SSE server. Set MCP_USER_ID/--user-id or "
             "explicitly acknowledge risk via allow_unscoped_sse=True / --allow-unscoped-sse."
+        )
+        raise ValueError(msg)
+
+    if unscoped_sse_enabled:
+        if app_env == "production" and not allow_unscoped_production:
+            logger.error(
+                "Refusing unscoped MCP SSE in production "
+                "(app_env=%s, startup_user_scope=all, auth_mode=%s, requested_host=%s, "
+                "mcp_allow_unscoped_production=false)",
+                app_env,
+                auth_mode,
+                host,
+            )
+            msg = (
+                "Refusing to start unscoped MCP SSE server in production without "
+                "MCP_ALLOW_UNSCOPED_PRODUCTION=true."
+            )
+            raise ValueError(msg)
+        if not allow_unscoped_production and not _is_loopback_host(host):
+            logger.error(
+                "Refusing requested non-loopback bind for unscoped MCP SSE; "
+                "binding loopback instead "
+                "(app_env=%s, startup_user_scope=all, auth_mode=%s, requested_host=%s, "
+                "resolved_host=%s)",
+                app_env,
+                auth_mode,
+                host,
+                _UNSCOPED_SSE_LOOPBACK_HOST,
+            )
+            resolved_host = _UNSCOPED_SSE_LOOPBACK_HOST
+        logger.error(
+            "MCP unscoped SSE mode enabled "
+            "(app_env=%s, startup_user_scope=all, auth_mode=%s, host=%s, "
+            "mcp_allow_unscoped_production=%s)",
+            app_env,
+            auth_mode,
+            resolved_host,
+            allow_unscoped_production,
+        )
+
+    if transport == "sse" and not allow_remote_sse and not _is_loopback_host(resolved_host):
+        msg = (
+            "Refusing to bind MCP SSE to non-loopback host without explicit opt-in "
+            "(set allow_remote_sse=True / --allow-remote-sse)."
         )
         raise ValueError(msg)
 
@@ -154,10 +197,22 @@ def run_server(
         )
         raise ValueError(msg)
 
+    _DEFAULT_CONTEXT.set_user_scope(user_id)
+    if database_dsn is not None:
+        _DEFAULT_CONTEXT.init_runtime(database_dsn=database_dsn)
+    else:
+        _DEFAULT_CONTEXT.init_runtime()
+    logger.info(
+        "Starting Ratatoskr MCP server (transport=%s, startup_user_scope=%s, host=%s)",
+        transport,
+        user_id if user_id is not None else "all",
+        resolved_host if transport == "sse" else "stdio",
+    )
+
     if auth_mode == "jwt":
         logger.info("Hosted MCP request auth enabled (mode=jwt)")
     elif user_id is None:
-        logger.warning("MCP startup user scope is disabled; queries can access all users")
+        logger.error("MCP startup user scope is disabled; queries can access all users")
 
     if transport == "sse":
         import uvicorn
@@ -172,6 +227,6 @@ def run_server(
             forwarded_secret_header=forwarded_secret_header,
             forwarding_secret=forwarding_secret,
         )
-        uvicorn.run(app, host=host, port=port, log_level="info")
+        uvicorn.run(app, host=resolved_host, port=port, log_level="info")
     else:
         mcp.run(transport="stdio")

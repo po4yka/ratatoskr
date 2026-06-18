@@ -470,6 +470,7 @@ See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, sum
 | `MCP_USER_ID` | _(none)_ | Scope MCP reads to a single user ID |
 | `MCP_ALLOW_REMOTE_SSE` | `false` | Allow non-loopback SSE bind host; also disables DNS rebinding protection |
 | `MCP_ALLOW_UNSCOPED_SSE` | `false` | Allow SSE without explicit user scope |
+| `MCP_ALLOW_UNSCOPED_PRODUCTION` | `false` | Required in addition to `MCP_ALLOW_UNSCOPED_SSE=true` before unscoped SSE can start when `APP_ENV=production`; also allows a non-loopback bind for that intentionally unscoped mode |
 | `MCP_ALLOW_UNSCOPED_STDIO` | `false` | Allow stdio without explicit user scope |
 | `MCP_AUTH_MODE` | `disabled` | Hosted MCP auth mode: `disabled` or `jwt` |
 | `MCP_FORWARDED_ACCESS_TOKEN_HEADER` | `X-Ratatoskr-Forwarded-Access-Token` | Trusted-gateway header for the forwarded original bearer token |

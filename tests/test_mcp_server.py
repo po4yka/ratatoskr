@@ -92,6 +92,66 @@ def test_run_server_rejects_insecure_sse(monkeypatch: pytest.MonkeyPatch) -> Non
         server.run_server(transport="sse", host="127.0.0.1", user_id=None)
 
 
+def test_run_server_rejects_production_unscoped_sse_without_env_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = load_server_module(monkeypatch)
+    init_called = False
+
+    def fake_init_runtime(*_args: Any, **_kwargs: Any) -> None:
+        nonlocal init_called
+        init_called = True
+
+    monkeypatch.setattr(server._DEFAULT_CONTEXT, "init_runtime", fake_init_runtime)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("MCP_ALLOW_UNSCOPED_PRODUCTION", raising=False)
+
+    with pytest.raises(ValueError, match="MCP_ALLOW_UNSCOPED_PRODUCTION"):
+        server.run_server(
+            transport="sse",
+            host="127.0.0.1",
+            user_id=None,
+            auth_mode="disabled",
+            allow_unscoped_sse=True,
+        )
+
+    assert init_called is False
+
+
+def test_run_server_forces_unscoped_sse_to_loopback_without_env_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = load_server_module(monkeypatch)
+    monkeypatch.setattr(server._DEFAULT_CONTEXT, "init_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("MCP_ALLOW_UNSCOPED_PRODUCTION", raising=False)
+
+    captured: dict[str, Any] = {}
+
+    class FakeUvicorn:
+        @staticmethod
+        def run(app: Any, host: str, port: int, log_level: str) -> None:
+            captured["app"] = app
+            captured["host"] = host
+            captured["port"] = port
+            captured["log_level"] = log_level
+
+    monkeypatch.setitem(sys.modules, "uvicorn", FakeUvicorn)
+
+    server.run_server(
+        transport="sse",
+        host="0.0.0.0",
+        port=8200,
+        user_id=None,
+        auth_mode="disabled",
+        allow_remote_sse=True,
+        allow_unscoped_sse=True,
+    )
+
+    assert captured["host"] == "127.0.0.1"
+    assert captured["port"] == 8200
+
+
 def test_run_server_rejects_unscoped_stdio_without_explicit_opt_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
