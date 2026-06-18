@@ -1,8 +1,9 @@
-"""CocoIndex bootstrap: schema and summary_embeddings index columns.
+"""Add summary_embeddings drift-tracking columns.
 
-Creates the dedicated `cocoindex` schema (for CocoIndex's own bookkeeping
-tables) and adds content_hash, last_indexed_at, and index_status columns
-to summary_embeddings for idempotency tracking.
+Adds ``content_hash``, ``last_indexed_at``, and ``index_status`` to
+``summary_embeddings`` so the vector reconciler can detect drift
+(``last_indexed_at < summaries.updated_at``) and the embedding generator can
+short-circuit unchanged content.
 
 Revision ID: 0007
 Revises: 0006
@@ -21,9 +22,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create dedicated schema for CocoIndex bookkeeping tables
-    op.execute("CREATE SCHEMA IF NOT EXISTS cocoindex")
-
     # Add index tracking columns to summary_embeddings
     op.add_column(
         "summary_embeddings",
@@ -48,26 +46,9 @@ def upgrade() -> None:
         ["last_indexed_at"],
     )
 
-    # Grant privileges so CocoIndex can create its bookkeeping tables
-    # and install LISTEN/NOTIFY triggers on summaries.
-    # Use DO block to handle case where role doesn't exist gracefully.
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ratatoskr') THEN
-                GRANT USAGE, CREATE ON SCHEMA cocoindex TO ratatoskr;
-                GRANT TRIGGER ON summaries TO ratatoskr;
-            END IF;
-        END
-        $$;
-        """
-    )
-
 
 def downgrade() -> None:
     op.drop_index("ix_summary_embeddings_last_indexed_at", table_name="summary_embeddings")
     op.drop_column("summary_embeddings", "index_status")
     op.drop_column("summary_embeddings", "last_indexed_at")
     op.drop_column("summary_embeddings", "content_hash")
-    op.execute("DROP SCHEMA IF EXISTS cocoindex CASCADE")

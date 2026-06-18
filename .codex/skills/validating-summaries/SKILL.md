@@ -37,7 +37,7 @@ Full details with code fix snippets: `references/validation-rules.md`
 Checks required fields, character limits, tag format, and entity structure:
 
 ```bash
-python .claude/skills/validating-summaries/scripts/validate-summary.py summary.json
+python .codex/skills/validating-summaries/scripts/validate-summary.py summary.json
 ```
 
 ### Project-integrated validator
@@ -45,7 +45,7 @@ python .claude/skills/validating-summaries/scripts/validate-summary.py summary.j
 Uses `validate_summary_json()` from the project:
 
 ```bash
-python .claude/skills/validating-summaries/scripts/validate-with-project.py summary.json
+python .codex/skills/validating-summaries/scripts/validate-with-project.py summary.json
 ```
 
 ## Testing with CLI Runner
@@ -68,8 +68,8 @@ The CLI automatically validates summaries using `validate_summary_json()`.
 - **LLM prompts**: `app/prompts/summary_system_en.txt`, `app/prompts/summary_system_ru.txt`
 - **JSON utilities**: `app/core/json_utils.py` (includes repair logic)
 - **Validation rules**: `references/validation-rules.md`
-- **Standalone script**: `.claude/skills/validating-summaries/scripts/validate-summary.py`
-- **Project script**: `.claude/skills/validating-summaries/scripts/validate-with-project.py`
+- **Standalone script**: `.codex/skills/validating-summaries/scripts/validate-summary.py`
+- **Project script**: `.codex/skills/validating-summaries/scripts/validate-with-project.py`
 
 ## Important Notes
 

@@ -32,7 +32,9 @@ from app.db.models import (
 from app.infrastructure.persistence.backup_crypto import (
     InvalidBackupCiphertextError,
     decrypt_backup,
+    decrypt_backup_stream,
     is_fernet_ciphertext,
+    is_streaming_ciphertext,
 )
 from app.infrastructure.persistence.backup_inspector import (
     _decrypt_archive_payload,
@@ -100,7 +102,21 @@ async def async_restore_from_archive(
 
     cfg = cfg or load_backup_config()
 
-    if is_fernet_ciphertext(zip_bytes):
+    if is_streaming_ciphertext(zip_bytes):
+        if cfg.encryption_key is None:
+            errors.append("Encrypted backup but BACKUP_ENCRYPTION_KEY is not configured")
+            return {"restored": restored, "skipped": skipped, "errors": errors}
+        try:
+            import io as _io
+
+            _src = _io.BytesIO(zip_bytes)
+            _dst = _io.BytesIO()
+            decrypt_backup_stream(_src, _dst, cfg.encryption_key)
+            zip_bytes = _dst.getvalue()
+        except InvalidBackupCiphertextError:
+            errors.append("Could not decrypt backup (wrong key or corrupted archive)")
+            return {"restored": restored, "skipped": skipped, "errors": errors}
+    elif is_fernet_ciphertext(zip_bytes):
         if cfg.encryption_key is None:
             errors.append("Encrypted backup but BACKUP_ENCRYPTION_KEY is not configured")
             return {"restored": restored, "skipped": skipped, "errors": errors}
@@ -385,7 +401,9 @@ async def async_dry_run_restore_from_archive(
         "compatible": bool(inspection and inspection.schema_version == BACKUP_SCHEMA_VERSION),
         "schema_version": inspection.schema_version if inspection else None,
         "backup_created_at": inspection.created_at if inspection else None,
-        "encrypted": bool(inspection.encrypted) if inspection else is_fernet_ciphertext(zip_bytes),
+        "encrypted": bool(inspection.encrypted) if inspection else (
+            is_fernet_ciphertext(zip_bytes) or is_streaming_ciphertext(zip_bytes)
+        ),
         "counts": counts,
         "estimated_affected_rows": counts,
         "estimated_skipped_rows": {

@@ -1,10 +1,10 @@
 # CLAUDE.md -- AI Assistant Guide for Ratatoskr
 
-Operating notes for Claude (and other AI assistants) working in this repo. Leads with non-obvious rules and gotchas; defers reference material to `docs/` and `.claude/skills/`.
+Operating notes for Claude (and other AI assistants) working in this repo. Leads with non-obvious rules and gotchas; defers reference material to `docs/`, `.claude/skills/`, and the Codex mirror under `.codex/skills/`.
 
 ## Workspace skills
 
-Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. See `../CLAUDE.md` for the workspace overview and the cross-repo OpenAPI contract.
+Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. For Codex, use `.codex/skills/` in this repo and copy or mirror any cross-repo skill into a Codex skill root before treating it as available. See `../CLAUDE.md` for the workspace overview and the cross-repo OpenAPI contract.
 
 ## Project Overview
 
@@ -88,7 +88,7 @@ app/
 +-- tasks/              # Taskiq tasks (github_sync, reconcile_vector_index, digest, ...)
 ```
 
-Skill, doc, and ops trees: `.claude/skills/` (project skills), `docs/` (explanation + reference), `ops/` (Docker / monitoring / config), `tools/scripts/` (dev utilities).
+Skill, doc, and ops trees: `.claude/skills/` (Claude project skills), `.codex/skills/` (Codex project skills), `.codex/commands/` (Codex command prompts), `docs/` (explanation + reference), `ops/` (Docker / monitoring / config), `tools/scripts/` (dev utilities).
 
 ## Operating Rules
 
@@ -129,7 +129,7 @@ For local hot-reload (Mac only, never on the Pi): add `ops/docker/docker-compose
 
 ## Project Skills
 
-Task-oriented skills under `.claude/skills/`. Each carries its own workflow, trigger keywords, and dynamic context (live DB queries). Reach for these instead of re-deriving the steps.
+Task-oriented skills under `.claude/skills/` and `.codex/skills/`. Each carries its own workflow, trigger keywords, and dynamic context (live DB queries). Reach for these instead of re-deriving the steps.
 
 | Skill | Use when |
 |---|---|
@@ -270,6 +270,6 @@ When implementing a task, also update any CLAUDE.md or skill content that the ch
 
 ---
 
-**Last Updated:** 2026-06-17
+**Last Updated:** 2026-06-18
 
-Reading order for orientation: this file → `docs/SPEC.md` → relevant `docs/explanation/*.md` or `docs/reference/*.md` → matching `.claude/skills/<name>/SKILL.md`.
+Reading order for orientation: this file → `docs/SPEC.md` → relevant `docs/explanation/*.md` or `docs/reference/*.md` → matching `.claude/skills/<name>/SKILL.md` or `.codex/skills/<name>/SKILL.md` for Codex sessions.

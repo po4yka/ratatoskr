@@ -20,7 +20,9 @@ from app.core.time_utils import UTC
 from app.infrastructure.persistence.backup_crypto import (
     InvalidBackupCiphertextError,
     decrypt_backup,
+    decrypt_backup_stream,
     is_fernet_ciphertext,
+    is_streaming_ciphertext,
 )
 from app.infrastructure.persistence.backup_safety import ZipSafetyViolation, validate_zip_safety
 from app.infrastructure.persistence.backup_writer import (
@@ -68,17 +70,30 @@ def _decrypt_archive_payload(
     *,
     errors: list[str],
 ) -> tuple[bytes | None, bool]:
-    encrypted = is_fernet_ciphertext(payload)
-    if encrypted:
+    if is_streaming_ciphertext(payload):
         if cfg.encryption_key is None:
             errors.append("Encrypted backup but BACKUP_ENCRYPTION_KEY is not configured")
-            return None, encrypted
+            return None, True
         try:
-            return decrypt_backup(payload, cfg.encryption_key), encrypted
+            import io
+
+            src = io.BytesIO(payload)
+            dst = io.BytesIO()
+            decrypt_backup_stream(src, dst, cfg.encryption_key)
+            return dst.getvalue(), True
         except InvalidBackupCiphertextError:
             errors.append("Could not decrypt backup (wrong key or corrupted archive)")
-            return None, encrypted
-    return payload, encrypted
+            return None, True
+    if is_fernet_ciphertext(payload):
+        if cfg.encryption_key is None:
+            errors.append("Encrypted backup but BACKUP_ENCRYPTION_KEY is not configured")
+            return None, True
+        try:
+            return decrypt_backup(payload, cfg.encryption_key), True
+        except InvalidBackupCiphertextError:
+            errors.append("Could not decrypt backup (wrong key or corrupted archive)")
+            return None, True
+    return payload, False
 
 
 def _validate_payload_safety(payload: bytes, cfg: BackupConfig, *, errors: list[str]) -> bool:

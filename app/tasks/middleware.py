@@ -68,8 +68,8 @@ class OTelPropagationMiddleware(TaskiqMiddleware):
             from opentelemetry.propagate import inject
 
             inject(message.labels)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("otel_pre_send_failed", exc_info=exc)
         return message
 
     async def pre_execute(self, message: TaskiqMessage) -> TaskiqMessage:
@@ -93,8 +93,8 @@ class OTelPropagationMiddleware(TaskiqMiddleware):
             )
             if cid:
                 span.set_attribute(REQUEST_CORRELATION_ID, cid)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("otel_pre_execute_failed", exc_info=exc)
         return message
 
     async def post_execute(self, message: TaskiqMessage, result: Any) -> Any:
@@ -104,6 +104,6 @@ class OTelPropagationMiddleware(TaskiqMiddleware):
                 if hasattr(result, "is_err"):
                     span.set_attribute(TASK_IS_ERR, result.is_err)
                 span.end()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("otel_post_execute_failed", exc_info=exc)
         return result
