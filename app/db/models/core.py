@@ -20,6 +20,7 @@ from sqlalchemy import (
     LargeBinary,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -294,6 +295,20 @@ class Request(Base):
         Index("ix_requests_user_id_created_at", "user_id", "created_at"),
         # correlation_id is the cross-cutting trace key; index it for lookups.
         Index("ix_requests_correlation_id", "correlation_id"),
+        Index(
+            "ux_requests_user_dedupe_hash",
+            "user_id",
+            "dedupe_hash",
+            unique=True,
+            postgresql_where=text("dedupe_hash IS NOT NULL"),
+        ),
+        Index(
+            "ux_requests_user_paper_canonical_id",
+            "user_id",
+            "paper_canonical_id",
+            unique=True,
+            postgresql_where=text("paper_canonical_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -310,14 +325,13 @@ class Request(Base):
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     input_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     normalized_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    dedupe_hash: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    dedupe_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Canonical paper identifier (e.g. "arxiv:2301.00001", "ssrn:6531478",
     # "doi:10.xxxx/...") for academic-paper requests. Lets two different URLs
     # pointing at the same paper (/abs/X and /pdf/X.pdf, v1 and v2) dedupe to
-    # one request. Nullable for every non-academic request. Postgres treats
-    # NULLs as distinct under a UNIQUE constraint, so multiple NULL rows are
-    # fine without a partial index.
-    paper_canonical_id: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    # one request per user via ux_requests_user_paper_canonical_id. Nullable for
+    # every non-academic request.
+    paper_canonical_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     input_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bot_reply_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fwd_from_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

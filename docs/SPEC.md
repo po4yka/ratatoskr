@@ -69,7 +69,7 @@ Scholarly-paper URLs (arXiv, SSRN, NBER, OSF preprints, ResearchGate, RePEc) are
 5. **LLM input** — composed as `# Title / ## Abstract / ## Body`; abstract is always first so the chunker can preserve the author-authored TL;DR even when the body is truncated. Prompt sections (EN + RU) instruct the model to set `source_type='research'` and structure `key_ideas` around claims, evidence, methods, and limitations.
 6. **Paywall fallback** — paywall / 403 / 404 / network failure on the PDF leg degrades to abstract-only with an explicit `[PDF unavailable: <reason>]` marker in `content_text`. Never a hard `Content Extraction Failed`.
 
-**Dedupe** — `requests.paper_canonical_id` (added in Alembic 0012) stores the canonical id; URL shapes pointing at the same paper (`/abs/X` vs `/pdf/X.pdf`, `v1` vs `v2`, `papers.cfm` vs `Delivery.cfm`) collapse to one `requests` row. `SourceKind.ACADEMIC_PAPER` is the system-level discriminator surfaced to the mobile API.
+**Dedupe** — `requests.paper_canonical_id` (added in Alembic 0012) stores the canonical id; URL shapes pointing at the same paper (`/abs/X` vs `/pdf/X.pdf`, `v1` vs `v2`, `papers.cfm` vs `Delivery.cfm`) collapse to one `requests` row per user via the `(user_id, paper_canonical_id)` partial unique index added in Alembic 0038. `SourceKind.ACADEMIC_PAPER` is the system-level discriminator surfaced to the mobile API.
 
 ---
 

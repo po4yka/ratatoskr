@@ -64,7 +64,8 @@ async def test_dedupe_hash_conflict_does_not_update_existing_request() -> None:
     )
 
     sql = _compiled_sql(database.session.statements[0])
-    assert "ON CONFLICT (dedupe_hash) DO NOTHING" in sql
+    assert "ON CONFLICT (user_id, dedupe_hash)" in sql
+    assert "WHERE dedupe_hash IS NOT NULL" in sql
     assert "DO UPDATE SET" not in sql
 
 
@@ -85,5 +86,6 @@ async def test_paper_canonical_conflict_does_not_update_existing_request() -> No
     )
 
     sql = _compiled_sql(database.session.statements[0])
-    assert "ON CONFLICT (paper_canonical_id) DO NOTHING" in sql
+    assert "ON CONFLICT (user_id, paper_canonical_id)" in sql
+    assert "WHERE paper_canonical_id IS NOT NULL" in sql
     assert "DO UPDATE SET" not in sql

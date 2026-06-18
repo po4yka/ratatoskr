@@ -128,7 +128,7 @@ CREATE TABLE requests (
 - `user_id` (int, FK) - Foreign key to `users`
 - `input_url` (str, nullable) - Original URL as submitted
 - `normalized_url` (str, nullable) - Normalized URL (lowercased, params sorted)
-- `dedupe_hash` (str, nullable) - SHA256 hash of `normalized_url` for deduplication
+- `dedupe_hash` (str, nullable) - SHA256 hash of `normalized_url` for owner-scoped deduplication
 - `input_message_id` (int, nullable) - Telegram message ID
 - `fwd_from_chat_id` (int, nullable) - Forwarded from chat ID
 - `fwd_from_msg_id` (int, nullable) - Forwarded message ID
@@ -142,7 +142,8 @@ CREATE TABLE requests (
 ```sql
 CREATE INDEX idx_requests_user_id ON requests(user_id);
 CREATE INDEX idx_requests_created_at ON requests(created_at);
-CREATE INDEX idx_requests_dedupe_hash ON requests(dedupe_hash);
+CREATE UNIQUE INDEX ux_requests_user_dedupe_hash ON requests(user_id, dedupe_hash) WHERE dedupe_hash IS NOT NULL;
+CREATE UNIQUE INDEX ux_requests_user_paper_canonical_id ON requests(user_id, paper_canonical_id) WHERE paper_canonical_id IS NOT NULL;
 CREATE INDEX idx_requests_status ON requests(status);
 ```
 
@@ -1521,7 +1522,7 @@ Every URL submitted to the pipeline is normalized before storage and deduplicati
 - Remove known tracking parameters (configurable list).
 - Collapse trailing slash.
 
-The normalized URL is hashed: `sha256(normalized_url)` → `requests.dedupe_hash` (unique index). If a repeat is seen, the existing `crawl_results` row is reused unless `--force` is passed. This ensures the same article submitted multiple times produces exactly one crawl and one LLM call.
+The normalized URL is hashed: `sha256(normalized_url)` → `requests.dedupe_hash` (unique together with `user_id`). If the same user repeats a URL, the existing `crawl_results` row is reused unless `--force` is passed. Different users get distinct request rows for the same URL.
 
 Source: `app/core/url_utils.py`.
 

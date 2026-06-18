@@ -336,17 +336,22 @@ class RequestRepositoryAdapter:
         # so the academic path uses paper_canonical_id and the rest use
         # dedupe_hash.
         conflict_target: str | None
+        conflict_column: Any | None
         if paper_canonical_id:
             conflict_target = "paper_canonical_id"
+            conflict_column = Request.paper_canonical_id
         elif dedupe_hash:
             conflict_target = "dedupe_hash"
+            conflict_column = Request.dedupe_hash
         else:
             conflict_target = None
+            conflict_column = None
         async with self._database.transaction() as session:
             stmt = insert(Request).values(**payload)
-            if conflict_target:
+            if conflict_target and conflict_column is not None:
                 stmt = stmt.on_conflict_do_nothing(
-                    index_elements=[getattr(Request, conflict_target)]
+                    index_elements=[Request.user_id, conflict_column],
+                    index_where=conflict_column.is_not(None),
                 )
             returning_stmt = stmt.returning(Request.id)
             inserted_id = await session.scalar(returning_stmt)
@@ -356,7 +361,10 @@ class RequestRepositoryAdapter:
                 msg = "request insert did not return an id"
                 raise RuntimeError(msg)
             existing_id = await session.scalar(
-                select(Request.id).where(getattr(Request, conflict_target) == payload[conflict_target])
+                select(Request.id).where(
+                    Request.user_id == user_id,
+                    getattr(Request, conflict_target) == payload[conflict_target],
+                )
             )
             if existing_id is None:
                 msg = f"request conflict on {conflict_target} did not return an existing id"
@@ -388,13 +396,19 @@ class RequestRepositoryAdapter:
         async with self._database.transaction() as session:
             stmt = insert(Request).values(**payload)
             if dedupe_hash:
-                stmt = stmt.on_conflict_do_nothing(index_elements=[Request.dedupe_hash])
+                stmt = stmt.on_conflict_do_nothing(
+                    index_elements=[Request.user_id, Request.dedupe_hash],
+                    index_where=Request.dedupe_hash.is_not(None),
+                )
             returning_stmt = stmt.returning(Request.id)
             inserted_id = await session.scalar(returning_stmt)
             if inserted_id is not None:
                 return int(inserted_id), True
             existing_id = await session.scalar(
-                select(Request.id).where(Request.dedupe_hash == dedupe_hash)
+                select(Request.id).where(
+                    Request.user_id == user_id,
+                    Request.dedupe_hash == dedupe_hash,
+                )
             )
             if existing_id is None:
                 msg = "request conflict did not return an existing id"
