@@ -79,9 +79,7 @@ def _build_init_data(
     }
 
     # Build data-check-string exactly as the production validator does
-    data_check_string = "\n".join(
-        f"{k}={v}" for k, v in sorted(params.items())
-    )
+    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
 
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     computed = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()

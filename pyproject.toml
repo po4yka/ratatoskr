@@ -377,6 +377,7 @@ dev = [
 # skips the wheels entirely.
 override-dependencies = [
   "protobuf>=7.34.1",
+  "onnxruntime>=1.24.2",
   "cuda-bindings; sys_platform == 'linux' and platform_machine == 'x86_64'",
   "cuda-toolkit; sys_platform == 'linux' and platform_machine == 'x86_64'",
   "nvidia-cublas; sys_platform == 'linux' and platform_machine == 'x86_64'",

@@ -186,7 +186,7 @@ def decrypt_backup_stream(src: BinaryIO, dst: BinaryIO, key: SecretStr) -> None:
     if not header_plaintext.startswith(_HEADER_PREFIX):
         msg = "Streaming backup header has wrong prefix"
         raise InvalidBackupCiphertextError(msg)
-    (total_len,) = struct.unpack(">Q", header_plaintext[len(_HEADER_PREFIX):])
+    (total_len,) = struct.unpack(">Q", header_plaintext[len(_HEADER_PREFIX) :])
 
     # Decrypt data frames sequentially.
     expected_index = 0
@@ -219,7 +219,6 @@ def decrypt_backup_stream(src: BinaryIO, dst: BinaryIO, key: SecretStr) -> None:
 
     if bytes_written != total_len:
         msg = (
-            f"Streaming backup truncated or padded: "
-            f"expected {total_len} bytes, got {bytes_written}"
+            f"Streaming backup truncated or padded: expected {total_len} bytes, got {bytes_written}"
         )
         raise InvalidBackupCiphertextError(msg)

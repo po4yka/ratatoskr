@@ -401,9 +401,9 @@ async def async_dry_run_restore_from_archive(
         "compatible": bool(inspection and inspection.schema_version == BACKUP_SCHEMA_VERSION),
         "schema_version": inspection.schema_version if inspection else None,
         "backup_created_at": inspection.created_at if inspection else None,
-        "encrypted": bool(inspection.encrypted) if inspection else (
-            is_fernet_ciphertext(zip_bytes) or is_streaming_ciphertext(zip_bytes)
-        ),
+        "encrypted": bool(inspection.encrypted)
+        if inspection
+        else (is_fernet_ciphertext(zip_bytes) or is_streaming_ciphertext(zip_bytes)),
         "counts": counts,
         "estimated_affected_rows": counts,
         "estimated_skipped_rows": {

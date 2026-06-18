@@ -316,18 +316,14 @@ async def async_create_backup_archive(
 
             try:
                 with zipfile.ZipFile(zip_tmp_path, "w", zipfile.ZIP_DEFLATED) as archive:
-                    archive.writestr(
-                        "manifest.json", json.dumps(manifest, default=str, indent=2)
-                    )
+                    archive.writestr("manifest.json", json.dumps(manifest, default=str, indent=2))
                     archive.writestr("requests.json", json.dumps(requests_data, default=str))
                     archive.writestr("summaries.json", json.dumps(summaries_data, default=str))
                     archive.writestr("tags.json", json.dumps(tags_data, default=str))
                     archive.writestr(
                         "summary_tags.json", json.dumps(summary_tags_data, default=str)
                     )
-                    archive.writestr(
-                        "collections.json", json.dumps(collections_data, default=str)
-                    )
+                    archive.writestr("collections.json", json.dumps(collections_data, default=str))
                     archive.writestr(
                         "collection_items.json",
                         json.dumps(collection_items_data, default=str),

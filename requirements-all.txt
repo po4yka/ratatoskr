@@ -106,7 +106,7 @@ courlan==1.4.0
     # via trafilatura
 crawlee==1.7.2
     # via ratatoskr
-cryptography==48.0.0
+cryptography==49.0.0
     # via
     #   pyjwt
     #   ratatoskr
@@ -545,7 +545,7 @@ sse-starlette==3.4.4
     # via
     #   mcp
     #   ratatoskr
-starlette==1.2.1
+starlette==1.3.1
     # via
     #   fastapi
     #   mcp
@@ -703,7 +703,7 @@ yarl==1.23.0
     #   crawlee
 youtube-transcript-api==1.2.4
     # via ratatoskr
-yt-dlp==2026.3.17
+yt-dlp==2026.6.9
     # via ratatoskr
 zopfli==0.4.1
     # via fonttools
