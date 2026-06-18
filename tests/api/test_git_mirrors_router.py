@@ -111,6 +111,20 @@ def _make_mirror_row(
     return row
 
 
+def _make_repository_row(
+    *,
+    repository_id: int = 123,
+    user_id: int = 42,
+    full_name: str = "owner/repo",
+) -> MagicMock:
+    row = MagicMock()
+    row.id = repository_id
+    row.user_id = user_id
+    row.full_name = full_name
+    row.url = f"https://github.com/{full_name}"
+    return row
+
+
 # ===========================================================================
 # Dependency provider tests
 # ===========================================================================
@@ -307,6 +321,32 @@ async def test_load_owned_mirror_returns_none_when_not_found() -> None:
 
     result = await _gm._load_owned_mirror(db, mirror_id=999, user_id=1)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_load_owned_repository_filters_by_user() -> None:
+    """_load_owned_repository includes both repository id and authenticated user id."""
+    captured: dict[str, Any] = {}
+    row = _make_repository_row(repository_id=123, user_id=99)
+
+    session = MagicMock()
+
+    async def _execute(stmt: Any) -> MagicMock:
+        captured["stmt"] = stmt
+        result = MagicMock()
+        result.scalar_one_or_none = MagicMock(return_value=row)
+        return result
+
+    session.execute = _execute
+    db = MagicMock()
+    db.session.return_value = _Ctx(session)
+
+    result = await _gm._load_owned_repository(db, repository_id=123, user_id=99)
+
+    assert result is row
+    statement_text = str(captured["stmt"].compile(compile_kwargs={"literal_binds": True}))
+    assert "repositories.id = 123" in statement_text
+    assert "repositories.user_id = 99" in statement_text
 
 
 # ===========================================================================
@@ -550,6 +590,121 @@ async def test_register_mirror_status_plain_string_fallback() -> None:
     )
 
     assert response.status == "cloning"
+
+
+@pytest.mark.asyncio
+async def test_register_mirror_rejects_foreign_repository_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """register_mirror rejects repository_id values not owned by the user."""
+    from fastapi import HTTPException
+
+    async def _missing_repository(*args: Any, **kwargs: Any) -> None:
+        pass
+
+    monkeypatch.setattr(_gm, "_load_owned_repository", _missing_repository)
+
+    from app.api.models.requests import RegisterMirrorRequest
+
+    body = RegisterMirrorRequest(
+        clone_url="https://github.com/owner/repo.git",
+        name="repo",
+        repository_id=123,
+    )
+
+    mirror_repo = MagicMock()
+    mirror_repo.upsert_target = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _gm.register_mirror(
+            body=body,
+            user={"user_id": 10},
+            mirror_repo=mirror_repo,
+            db=MagicMock(),
+            correlation_id="cid-repo",
+        )
+
+    assert exc_info.value.status_code == 404
+    mirror_repo.upsert_target.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_mirror_rejects_repository_clone_url_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """register_mirror only links repository_id to its matching GitHub clone URL."""
+    from fastapi import HTTPException
+
+    async def _owned_repository(*args: Any, **kwargs: Any) -> MagicMock:
+        return _make_repository_row(repository_id=123, user_id=10, full_name="owner/repo")
+
+    monkeypatch.setattr(_gm, "_load_owned_repository", _owned_repository)
+
+    from app.api.models.requests import RegisterMirrorRequest
+
+    body = RegisterMirrorRequest(
+        clone_url="https://github.com/other/repo.git",
+        name="repo",
+        repository_id=123,
+    )
+
+    mirror_repo = MagicMock()
+    mirror_repo.upsert_target = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _gm.register_mirror(
+            body=body,
+            user={"user_id": 10},
+            mirror_repo=mirror_repo,
+            db=MagicMock(),
+            correlation_id="cid-mismatch",
+        )
+
+    assert exc_info.value.status_code == 400
+    mirror_repo.upsert_target.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_register_mirror_accepts_owned_matching_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """register_mirror preserves repository_id when the owned repository matches clone_url."""
+    captured_calls: list[dict[str, Any]] = []
+
+    async def _owned_repository(*args: Any, **kwargs: Any) -> MagicMock:
+        return _make_repository_row(repository_id=123, user_id=10, full_name="owner/repo")
+
+    async def _fake_upsert(**kwargs: Any) -> MagicMock:
+        captured_calls.append(kwargs)
+        row = MagicMock()
+        row.id = 1234
+        row.status.value = "pending"
+        row.clone_url = kwargs["clone_url"]
+        return row
+
+    monkeypatch.setattr(_gm, "_load_owned_repository", _owned_repository)
+
+    from app.api.models.requests import RegisterMirrorRequest
+
+    body = RegisterMirrorRequest(
+        clone_url="https://github.com/owner/repo.git",
+        name="repo",
+        repository_id=123,
+    )
+
+    mirror_repo = MagicMock()
+    mirror_repo.upsert_target = _fake_upsert
+
+    response = await _gm.register_mirror(
+        body=body,
+        user={"user_id": 10},
+        mirror_repo=mirror_repo,
+        db=MagicMock(),
+        correlation_id="cid-owned",
+    )
+
+    assert response.id == 1234
+    assert captured_calls[0]["repository_id"] == 123
 
 
 # ===========================================================================

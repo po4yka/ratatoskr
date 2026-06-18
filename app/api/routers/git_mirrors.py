@@ -21,9 +21,11 @@ from app.api.models.responses.git_mirrors import (
     RegisterMirrorResponse,
 )
 from app.api.routers.auth import get_current_user
+from app.adapters.github.url_patterns import parse_github_repo_url
 from app.core.git_url_safety import is_github_host
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirror, GitMirrorSource
+from app.db.models.repository import Repository
 from app.db.session import (  # noqa: TC001  # used at runtime in FastAPI Depends() signatures
     Database,
 )
@@ -126,6 +128,42 @@ async def _load_owned_mirror(
         return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def _load_owned_repository(
+    db: Database,
+    *,
+    repository_id: int,
+    user_id: int,
+) -> Repository | None:
+    """Load a repository only when it belongs to the authenticated user."""
+    async with db.session() as session:
+        stmt = select(Repository).where(
+            Repository.id == repository_id,
+            Repository.user_id == user_id,
+        )
+        return (await session.execute(stmt)).scalar_one_or_none()
+
+
+def _validate_repository_mirror_target(
+    *,
+    repository: Repository,
+    clone_url: str,
+) -> None:
+    parsed = parse_github_repo_url(clone_url)
+    if parsed is None:
+        raise HTTPException(
+            status_code=400,
+            detail="repository_id can only be attached to a matching GitHub repository URL",
+        )
+
+    owner, name = parsed
+    expected_owner, expected_name = repository.full_name.split("/", 1)
+    if (owner.casefold(), name.casefold()) != (expected_owner.casefold(), expected_name.casefold()):
+        raise HTTPException(
+            status_code=400,
+            detail="clone_url does not match repository_id",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -170,6 +208,7 @@ async def register_mirror(
     body: RegisterMirrorRequest,
     user: dict[str, Any] = Depends(get_current_user),
     mirror_repo: GitMirrorRepository = Depends(_get_mirror_repo),
+    db: Database = Depends(_get_db),
     correlation_id: str = Depends(_get_correlation_id),
 ) -> RegisterMirrorResponse:
     """Register a git URL as a mirror target (upsert) and schedule it for cloning.
@@ -184,6 +223,15 @@ async def register_mirror(
     # treated as GitHub, or _resolve_url would embed the user's token for it.
     clone_url = body.clone_url
     source = GitMirrorSource.GITHUB if is_github_host(clone_url) else GitMirrorSource.MANUAL
+    if body.repository_id is not None:
+        repository = await _load_owned_repository(
+            db,
+            repository_id=body.repository_id,
+            user_id=user_id,
+        )
+        if repository is None:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        _validate_repository_mirror_target(repository=repository, clone_url=clone_url)
 
     try:
         row = await mirror_repo.upsert_target(
