@@ -42,6 +42,7 @@ from app.adapters.git_backup.mirror_service import (
 from app.adapters.git_backup.retry import RetryPolicy
 from app.config.git_backup import GitBackupConfig
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
+from app.db.models.repository import GitHubIntegrationStatus
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -611,6 +612,43 @@ class TestResolveUrl:
 
         result = await service._resolve_url(mirror)
         assert result == mirror.clone_url
+
+    @pytest.mark.asyncio
+    async def test_github_credentials_query_requires_active_integration(self) -> None:
+        mirror = _make_mirror(
+            clone_url="https://github.com/user/repo.git",
+            source=GitMirrorSource.GITHUB,
+        )
+        captured: dict[str, Any] = {}
+
+        async def scalar(statement: Any) -> None:
+            captured["statement"] = statement
+
+        db = MagicMock()
+        session_ctx = MagicMock()
+        session = MagicMock()
+        session.scalar = AsyncMock(side_effect=scalar)
+        session_ctx.__aenter__ = AsyncMock(return_value=session)
+        session_ctx.__aexit__ = AsyncMock(return_value=None)
+        db.session.return_value = session_ctx
+
+        service = GitMirrorService(
+            config=_make_config(),
+            mirror_repo=_FakeMirrorRepo([]),  # type: ignore[arg-type]
+            db=db,
+            retry_policy=RetryPolicy(max_attempts=1, base_delay_ms=0),
+            circuit_breaker=StorageCircuitBreaker(threshold=100),
+            maintenance=None,
+            lfs=None,
+            git_runner=AsyncMock(return_value=(0, "")),
+        )
+
+        result = await service._resolve_url(mirror)
+
+        assert result == mirror.clone_url
+        statement_text = str(captured["statement"].compile(compile_kwargs={"literal_binds": True}))
+        assert "user_github_integrations.status" in statement_text
+        assert GitHubIntegrationStatus.ACTIVE.value in statement_text
 
     @pytest.mark.asyncio
     async def test_decrypt_failed_returns_plain_url(self) -> None:

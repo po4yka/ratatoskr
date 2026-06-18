@@ -638,12 +638,13 @@ class GitMirrorService:
         # Look up UserGitHubIntegration for this user.
         from sqlalchemy import select as sa_select
 
-        from app.db.models.repository import UserGitHubIntegration
+        from app.db.models.repository import GitHubIntegrationStatus, UserGitHubIntegration
 
         async with self._db.session() as session:
             integration = await session.scalar(
                 sa_select(UserGitHubIntegration).where(
-                    UserGitHubIntegration.user_id == mirror.user_id
+                    UserGitHubIntegration.user_id == mirror.user_id,
+                    UserGitHubIntegration.status == GitHubIntegrationStatus.ACTIVE,
                 )
             )
 
