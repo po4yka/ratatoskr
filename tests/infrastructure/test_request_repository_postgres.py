@@ -77,8 +77,8 @@ async def test_request_repository_create_update_and_read(database: Database) -> 
     assert duplicate_id == request_id
     row = await repo.async_get_request_by_id(request_id)
     assert row is not None
-    assert row["status"] == RequestStatus.CRAWLING.value
-    assert row["correlation_id"] == "repo-request-updated"
+    assert row["status"] == RequestStatus.PENDING.value
+    assert row["correlation_id"] == "repo-request"
     assert await repo.async_get_request_by_dedupe_hash("repo-request-hash") == row
 
     await repo.async_update_request_error(

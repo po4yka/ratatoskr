@@ -1,11 +1,4 @@
-"""Regression: dedupe ON CONFLICT must not overwrite create-time ownership.
-
-A repeat of the same URL (same ``dedupe_hash``) or academic paper
-(``paper_canonical_id``) coming from a *different* identity must never
-rewrite ``requests.user_id``. Overwriting it would be a forward-looking IDOR /
-ownership-transfer bug. These tests inspect the SQL that
-``async_create_request`` actually emits, so they run without a live Postgres.
-"""
+"""Regression: dedupe ON CONFLICT must not mutate the winning request row."""
 
 from __future__ import annotations
 
@@ -29,10 +22,12 @@ class _CapturingSession:
 
     def __init__(self) -> None:
         self.statements: list[Any] = []
+        self._calls = 0
 
-    async def scalar(self, statement: Any) -> int:
+    async def scalar(self, statement: Any) -> int | None:
         self.statements.append(statement)
-        return 123
+        self._calls += 1
+        return 123 if self._calls == 1 else None
 
 
 class _CapturingDatabase:
@@ -46,15 +41,15 @@ class _CapturingDatabase:
         yield self.session
 
 
-def _compiled_set_clause(statement: Any) -> str:
+def _compiled_sql(statement: Any) -> str:
     sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert "DO UPDATE SET" in sql, sql
-    return sql.split("DO UPDATE SET", 1)[1]
+    assert "ON CONFLICT" in sql, sql
+    return sql
 
 
 @pytest.mark.asyncio
-async def test_dedupe_hash_conflict_does_not_overwrite_user_id() -> None:
-    """A dedupe_hash conflict must exclude user_id from the ON CONFLICT SET."""
+async def test_dedupe_hash_conflict_does_not_update_existing_request() -> None:
+    """A dedupe_hash conflict must be idempotent instead of overwriting fields."""
     database = _CapturingDatabase()
     repo = RequestRepositoryAdapter(database)  # type: ignore[arg-type]
 
@@ -68,16 +63,14 @@ async def test_dedupe_hash_conflict_does_not_overwrite_user_id() -> None:
         input_url="https://example.com/shared",
     )
 
-    set_clause = _compiled_set_clause(database.session.statements[0])
-    assert "user_id =" not in set_clause
-    # Ownership is the only excluded mutable field; other fields still update.
-    assert "correlation_id =" in set_clause
-    assert "status =" in set_clause
+    sql = _compiled_sql(database.session.statements[0])
+    assert "ON CONFLICT (dedupe_hash) DO NOTHING" in sql
+    assert "DO UPDATE SET" not in sql
 
 
 @pytest.mark.asyncio
-async def test_paper_canonical_conflict_does_not_overwrite_user_id() -> None:
-    """A paper_canonical_id conflict must also exclude user_id from the SET."""
+async def test_paper_canonical_conflict_does_not_update_existing_request() -> None:
+    """A paper_canonical_id conflict must also be idempotent."""
     database = _CapturingDatabase()
     repo = RequestRepositoryAdapter(database)  # type: ignore[arg-type]
 
@@ -91,7 +84,6 @@ async def test_paper_canonical_conflict_does_not_overwrite_user_id() -> None:
         input_url="https://arxiv.org/abs/1234.5678",
     )
 
-    set_clause = _compiled_set_clause(database.session.statements[0])
-    assert "user_id =" not in set_clause
-    assert "paper_canonical_id =" not in set_clause
-    assert "correlation_id =" in set_clause
+    sql = _compiled_sql(database.session.statements[0])
+    assert "ON CONFLICT (paper_canonical_id) DO NOTHING" in sql
+    assert "DO UPDATE SET" not in sql

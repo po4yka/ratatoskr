@@ -84,6 +84,28 @@ async def test_create_url_request_and_duplicate_detection(db, user_factory) -> N
 
 
 @pytest.mark.asyncio
+async def test_create_url_request_detects_atomic_duplicate_race() -> None:
+    request_repo = AsyncMock()
+    request_repo.async_get_request_by_dedupe_hash.return_value = None
+    request_repo.async_create_request_once.return_value = (42, False)
+    request_repo.async_get_request_by_id.return_value = {"id": 42, "user_id": 5001}
+
+    service = RequestService(
+        db=None,
+        request_repository=cast("RequestRepositoryPort", request_repo),
+        summary_repository=AsyncMock(),
+        crawl_result_repository=AsyncMock(),
+        llm_repository=AsyncMock(),
+    )
+
+    with pytest.raises(DuplicateResourceError) as exc_info:
+        await service.create_url_request(5001, "https://example.com/race")
+
+    assert exc_info.value.details == {"existing_id": 42}
+    request_repo.async_create_request_once.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_create_forward_request_and_get_request_by_id_with_related_records(
     db,
     user_factory,

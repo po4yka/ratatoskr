@@ -503,7 +503,7 @@ class URLHandler:
         # 1. Persist the request row.
         request_repo = self.request_repo
         try:
-            request_id = await request_repo.async_create_request(
+            request_id, created_new = await request_repo.async_create_request_once(
                 type_="url",
                 status=RequestStatus.PENDING,
                 correlation_id=cid,
@@ -532,6 +532,14 @@ class URLHandler:
                 batch_mode=False,
             )
             return await self.url_processor.handle_url_flow(flow_request)
+
+        if not created_new:
+            record_url_enqueue(status="duplicate")
+            logger.info(
+                "url_worker_enqueue_duplicate_suppressed",
+                extra={"cid": cid, "request_id": request_id, "chat_id": chat_id},
+            )
+            return URLProcessingFlowResult(success=True, request_id=request_id)
 
         # 2. Insert the pending job row.
         job_repo = RequestProcessingJobRepository(self.db)

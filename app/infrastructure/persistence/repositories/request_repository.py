@@ -271,6 +271,46 @@ class RequestRepositoryAdapter:
         route_version: int = 1,
         initial_attempt_trigger: str | None = None,
     ) -> int:
+        request_id, _created = await self.async_create_request_once(
+            type_=type_,
+            status=status,
+            correlation_id=correlation_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            input_url=input_url,
+            normalized_url=normalized_url,
+            dedupe_hash=dedupe_hash,
+            paper_canonical_id=paper_canonical_id,
+            input_message_id=input_message_id,
+            fwd_from_chat_id=fwd_from_chat_id,
+            fwd_from_msg_id=fwd_from_msg_id,
+            lang_detected=lang_detected,
+            content_text=content_text,
+            route_version=route_version,
+            initial_attempt_trigger=initial_attempt_trigger,
+        )
+        return request_id
+
+    async def async_create_request_once(
+        self,
+        *,
+        type_: str = "url",
+        status: RequestStatus = RequestStatus.PENDING,
+        correlation_id: str | None = None,
+        chat_id: int | None = None,
+        user_id: int | None = None,
+        input_url: str | None = None,
+        normalized_url: str | None = None,
+        dedupe_hash: str | None = None,
+        paper_canonical_id: str | None = None,
+        input_message_id: int | None = None,
+        fwd_from_chat_id: int | None = None,
+        fwd_from_msg_id: int | None = None,
+        lang_detected: str | None = None,
+        content_text: str | None = None,
+        route_version: int = 1,
+        initial_attempt_trigger: str | None = None,
+    ) -> tuple[int, bool]:
         payload = {
             "user_id": user_id,
             "chat_id": chat_id,
@@ -305,26 +345,23 @@ class RequestRepositoryAdapter:
         async with self._database.transaction() as session:
             stmt = insert(Request).values(**payload)
             if conflict_target:
-                # Never overwrite create-time ownership on a dedupe conflict:
-                # a repeat of the same URL/paper from a different identity must
-                # not rewrite ``user_id`` (IDOR / ownership-transfer guard).
-                # ``user_id`` is excluded from the ON CONFLICT set alongside the
-                # conflict target itself.
-                immutable_on_conflict = {conflict_target, "user_id"}
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[getattr(Request, conflict_target)],
-                    set_={
-                        key: value
-                        for key, value in payload.items()
-                        if key not in immutable_on_conflict
-                    },
+                stmt = stmt.on_conflict_do_nothing(
+                    index_elements=[getattr(Request, conflict_target)]
                 )
             returning_stmt = stmt.returning(Request.id)
             inserted_id = await session.scalar(returning_stmt)
-            if inserted_id is None:
+            if inserted_id is not None:
+                return int(inserted_id), True
+            if conflict_target is None:
                 msg = "request insert did not return an id"
                 raise RuntimeError(msg)
-            return int(inserted_id)
+            existing_id = await session.scalar(
+                select(Request.id).where(getattr(Request, conflict_target) == payload[conflict_target])
+            )
+            if existing_id is None:
+                msg = f"request conflict on {conflict_target} did not return an existing id"
+                raise RuntimeError(msg)
+            return int(existing_id), False
 
     async def async_create_minimal_request(
         self,

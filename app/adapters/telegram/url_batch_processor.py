@@ -198,7 +198,7 @@ class URLBatchProcessor:
         for url in state.request.urls:
             try:
                 normalized = normalize_url(url)
-                dedupe_hash = compute_dedupe_hash(url)
+                dedupe_hash = compute_dedupe_hash(normalized)
                 if await self._load_cached_summary(state, url, dedupe_hash):
                     continue
 

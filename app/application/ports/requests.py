@@ -98,6 +98,28 @@ class RequestRepositoryPort(Protocol):
     ) -> int:
         """Create a request."""
 
+    async def async_create_request_once(
+        self,
+        *,
+        type_: str = "url",
+        status: RequestStatus = RequestStatus.PENDING,
+        correlation_id: str | None = None,
+        chat_id: int | None = None,
+        user_id: int | None = None,
+        input_url: str | None = None,
+        normalized_url: str | None = None,
+        dedupe_hash: str | None = None,
+        paper_canonical_id: str | None = None,
+        input_message_id: int | None = None,
+        fwd_from_chat_id: int | None = None,
+        fwd_from_msg_id: int | None = None,
+        lang_detected: str | None = None,
+        content_text: str | None = None,
+        route_version: int = 1,
+        initial_attempt_trigger: str | None = None,
+    ) -> tuple[int, bool]:
+        """Create a request atomically, returning whether the row was inserted."""
+
     async def async_create_minimal_request(
         self,
         *,

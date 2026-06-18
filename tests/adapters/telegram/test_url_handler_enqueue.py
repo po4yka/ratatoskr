@@ -80,6 +80,7 @@ def _make_message(*, chat_id: int = 100, message_id: int = 10):
 def _make_request_repo(*, request_id: int = 1):
     repo = MagicMock()
     repo.async_create_request = AsyncMock(return_value=request_id)
+    repo.async_create_request_once = AsyncMock(return_value=(request_id, True))
     repo.async_update_bot_reply_message_id = AsyncMock()
     return repo
 
@@ -168,8 +169,8 @@ async def test_enqueue_path_taken_when_enabled(monkeypatch):
 
     # Inline URLProcessor should NOT have been called.
     url_processor.handle_url_flow.assert_not_awaited()
-    # Request row must have been created.
-    request_repo.async_create_request.assert_awaited_once()
+    # Request row must have been created atomically.
+    request_repo.async_create_request_once.assert_awaited_once()
     # Job row must have been inserted.
     job_repo.record_pending_enqueue.assert_awaited_once()
     # Placeholder reply must have been sent.
@@ -237,12 +238,12 @@ async def test_inline_path_taken_in_batch_mode(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_enqueue_falls_back_to_inline_on_request_create_failure(monkeypatch):
-    """When async_create_request raises, the handler falls back to inline processing."""
+    """When atomic request creation raises, the handler falls back to inline processing."""
     _stub_taskiq(monkeypatch)
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
 
     request_repo = MagicMock()
-    request_repo.async_create_request = AsyncMock(side_effect=RuntimeError("db down"))
+    request_repo.async_create_request_once = AsyncMock(side_effect=RuntimeError("db down"))
     response_formatter = _make_response_formatter()
     url_processor = _make_url_processor()
     job_repo = _make_job_repo()
@@ -271,6 +272,58 @@ async def test_enqueue_falls_back_to_inline_on_request_create_failure(monkeypatc
 
     # Falls back to inline processing.
     url_processor.handle_url_flow.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_suppresses_duplicate_request_race(monkeypatch):
+    """A dedupe conflict should not send a second placeholder or kick a second task."""
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    request_repo = _make_request_repo(request_id=7)
+    request_repo.async_create_request_once.return_value = (7, False)
+    response_formatter = _make_response_formatter(reply_message_id=55)
+    url_processor = _make_url_processor()
+    job_repo = _make_job_repo()
+    kicker = _make_kicker()
+
+    handler = URLHandler(
+        db=MagicMock(),
+        response_formatter=response_formatter,
+        url_processor=url_processor,
+        request_repo=request_repo,
+        cfg=_make_cfg(enqueue_enabled=True),
+    )
+
+    mock_task = MagicMock()
+    mock_task.kicker = kicker
+
+    import app.tasks.url_processing as _url_proc_mod
+
+    monkeypatch.setattr(_url_proc_mod, "process_url_request", mock_task)
+
+    with (
+        patch(
+            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            new=MagicMock(return_value=job_repo),
+        ),
+        patch("app.observability.metrics.record_url_enqueue"),
+    ):
+        result = await handler.handle_single_url(
+            message=_make_message(),
+            url="https://example.com",
+            correlation_id="cid-race",
+            batch_mode=False,
+        )
+
+    assert result.success is True
+    assert result.request_id == 7
+    request_repo.async_create_request_once.assert_awaited_once()
+    job_repo.record_pending_enqueue.assert_not_awaited()
+    response_formatter.safe_reply_with_id.assert_not_awaited()
+    request_repo.async_update_bot_reply_message_id.assert_not_awaited()
+    kicker.return_value.kiq.assert_not_awaited()
+    url_processor.handle_url_flow.assert_not_awaited()
 
 
 @pytest.mark.asyncio

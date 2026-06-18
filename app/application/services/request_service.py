@@ -93,7 +93,7 @@ class RequestService:
             )
 
         correlation_id = f"api-{user_id}-{int(datetime.now(UTC).timestamp())}"
-        request_id = await self._request_repo.async_create_request(
+        request_id, created_new = await self._request_repo.async_create_request_once(
             type_="url",
             status=RequestStatus.PENDING,
             correlation_id=correlation_id,
@@ -103,6 +103,14 @@ class RequestService:
             dedupe_hash=compute_dedupe_hash(normalized),
             lang_detected=lang_preference,
         )
+        if not created_new:
+            existing = await self._request_repo.async_get_request_by_id(request_id)
+            if existing is not None and existing.get("user_id") == user_id:
+                raise DuplicateResourceError(
+                    "This URL was already submitted",
+                    details={"existing_id": request_id},
+                )
+            raise DuplicateResourceError("This URL is already registered")
         created = await self._request_repo.async_get_request_by_id(request_id)
         if created is None:
             raise ResourceNotFoundError("Request creation failed")

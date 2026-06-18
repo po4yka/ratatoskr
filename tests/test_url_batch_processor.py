@@ -13,6 +13,7 @@ from app.adapters.telegram.url_batch_processor import (
     URLBatchProcessor,
     _BatchRunState,
 )
+from app.core.url_utils import compute_dedupe_hash, normalize_url
 
 
 def _make_processor(
@@ -132,3 +133,43 @@ async def test_batch_completion_updates_interaction_once_processing_finishes() -
     _, kwargs = user_repo.async_update_user_interaction.await_args
     assert kwargs["interaction_id"] == 77
     assert kwargs["response_type"] == "batch_complete"
+
+
+@pytest.mark.asyncio
+async def test_batch_pre_registration_uses_normalized_dedupe_hash() -> None:
+    request_repo = SimpleNamespace(
+        async_get_request_by_dedupe_hash=AsyncMock(return_value=None),
+        async_find_recent_request_by_dedupe=AsyncMock(return_value=None),
+        async_create_minimal_request=AsyncMock(return_value=(12, True)),
+        async_update_request_error=AsyncMock(),
+    )
+    processor = _make_processor(request_repo=request_repo)
+    url = "HTTPS://Example.com/articles/one?utm_source=newsletter"
+    request = BatchProcessRequest(
+        message=SimpleNamespace(chat=SimpleNamespace(id=1)),
+        urls=[url],
+        uid=9,
+        correlation_id="cid",
+        handle_single_url=AsyncMock(),
+    )
+    state = _BatchRunState(
+        request=request,
+        batch_status=URLBatchStatus.from_urls(request.urls),
+        url_to_request_id={},
+        cached_summaries=[],
+        semaphore=AsyncMock(),
+        sender=processor._response_formatter,
+        draft_enabled=False,
+    )
+
+    await processor._pre_register_urls(state)
+
+    normalized = normalize_url(url)
+    expected_hash = compute_dedupe_hash(normalized)
+    request_repo.async_get_request_by_dedupe_hash.assert_awaited_once_with(expected_hash)
+    request_repo.async_find_recent_request_by_dedupe.assert_awaited_once_with(
+        expected_hash, max_age_sec=60
+    )
+    _, kwargs = request_repo.async_create_minimal_request.await_args
+    assert kwargs["normalized_url"] == normalized
+    assert kwargs["dedupe_hash"] == expected_hash
