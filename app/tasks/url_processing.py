@@ -375,8 +375,13 @@ async def _try_edit_placeholder(
             cid=cid,
             runtime=runtime,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        # Best-effort notify; never raises -- but a swallowed failure here means
+        # the user is left with a stale placeholder, so make it observable.
+        logger.warning(
+            "try_edit_placeholder_failed",
+            extra={"request_id": request_id, "cid": cid, "error": str(exc)},
+        )
 
 
 def _make_worker_message(
