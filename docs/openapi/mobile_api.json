@@ -4141,7 +4141,7 @@
           "Articles"
         ],
         "summary": "Get Summaries",
-        "description": "Get paginated list of summaries.\n\nQuery Parameters:\n- limit: Items per page (1-100, default 20)\n- offset: Pagination offset (default 0)\n- is_read: Filter by read status (optional)\n- lang: Filter by language (en/ru/auto)\n- start_date: Filter by creation date (ISO 8601)\n- end_date: Filter by creation date (ISO 8601)\n- sort: Sort order (created_at_desc/created_at_asc)\n- search: Case-insensitive substring match on the article title",
+        "description": "Alias for GET /v1/summaries. Get paginated list of summaries.\n\nQuery Parameters:\n- limit: Items per page (1-100, default 20)\n- offset: Pagination offset (default 0)\n- is_read: Filter by read status (optional)\n- lang: Filter by language (en/ru/auto)\n- start_date: Filter by creation date (ISO 8601)\n- end_date: Filter by creation date (ISO 8601)\n- sort: Sort order (created_at_desc/created_at_asc)\n- search: Case-insensitive substring match on the article title",
         "operationId": "get_summaries_v1_articles_get",
         "security": [
           {
@@ -4320,7 +4320,7 @@
           "Articles"
         ],
         "summary": "Get Summary By Url",
-        "description": "Get a single summary (article) by its original URL.",
+        "description": "Alias for GET /v1/summaries/by-url. Get a single summary (article) by its original URL.",
         "operationId": "get_summary_by_url_v1_articles_by_url_get",
         "security": [
           {
@@ -4376,7 +4376,7 @@
           "Articles"
         ],
         "summary": "Get Recommendations",
-        "description": "Get personalized summary recommendations based on reading history.",
+        "description": "Alias for GET /v1/summaries/recommendations. Get personalized summary recommendations based on reading history.",
         "operationId": "get_recommendations_v1_articles_recommendations_get",
         "security": [
           {
@@ -4433,7 +4433,7 @@
           "Articles"
         ],
         "summary": "Get Summary",
-        "description": "Get a single summary with full details.",
+        "description": "Alias for GET /v1/summaries/{summary_id}. Get a single summary with full details.",
         "operationId": "get_summary_v1_articles__summary_id__get",
         "security": [
           {
@@ -4485,7 +4485,7 @@
           "Articles"
         ],
         "summary": "Update Summary",
-        "description": "Update summary metadata (e.g., mark as read).",
+        "description": "Alias for PATCH /v1/summaries/{summary_id}. Update summary metadata (e.g., mark as read).",
         "operationId": "update_summary_v1_articles__summary_id__patch",
         "security": [
           {
@@ -4547,7 +4547,7 @@
           "Articles"
         ],
         "summary": "Delete Summary",
-        "description": "Delete a summary (soft delete).",
+        "description": "Alias for DELETE /v1/summaries/{summary_id}. Delete a summary (soft delete).",
         "operationId": "delete_summary_v1_articles__summary_id__delete",
         "security": [
           {
@@ -4601,7 +4601,7 @@
           "Articles"
         ],
         "summary": "Get Summary Content",
-        "description": "Get full article content for offline reading.",
+        "description": "Alias for GET /v1/summaries/{summary_id}/content. Get full article content for offline reading.",
         "operationId": "get_summary_content_v1_articles__summary_id__content_get",
         "security": [
           {
@@ -4666,7 +4666,7 @@
           "Articles"
         ],
         "summary": "Export Summary",
-        "description": "Export a summary as PDF, Markdown, or HTML.",
+        "description": "Alias for GET /v1/summaries/{summary_id}/export. Export a summary as PDF, Markdown, or HTML.",
         "operationId": "export_summary_v1_articles__summary_id__export_get",
         "security": [
           {
@@ -4731,7 +4731,7 @@
           "Articles"
         ],
         "summary": "Save Reading Position",
-        "description": "Save the reading position (scroll progress) for a summary.",
+        "description": "Alias for PATCH /v1/summaries/{summary_id}/reading-position. Save the reading position (scroll progress) for a summary.",
         "operationId": "save_reading_position_v1_articles__summary_id__reading_position_patch",
         "security": [
           {
@@ -4795,7 +4795,7 @@
           "Articles"
         ],
         "summary": "Bulk Mark Read",
-        "description": "Mark multiple summaries as read in one round-trip.\n\nAccepts up to 500 summary IDs. Cross-user IDs are silently skipped\n(never raises) so a single malformed batch cannot enumerate\nanother user's summary IDs.",
+        "description": "Alias for POST /v1/summaries/bulk/mark-read. Mark multiple summaries as read in one round-trip.\n\nAccepts up to 500 summary IDs. Cross-user IDs are silently skipped\n(never raises) so a single malformed batch cannot enumerate\nanother user's summary IDs.",
         "operationId": "bulk_mark_read_v1_articles_bulk_mark_read_post",
         "requestBody": {
           "content": {
@@ -4848,7 +4848,7 @@
           "Articles"
         ],
         "summary": "Bulk Favorite",
-        "description": "Set or clear the favorite flag on multiple summaries.\n\nPass ``value=true`` to favorite, ``false`` to unfavorite. Same\nuser-scoping and 500-id cap as ``/bulk/mark-read``.",
+        "description": "Alias for POST /v1/summaries/bulk/favorite. Set or clear the favorite flag on multiple summaries.\n\nPass ``value=true`` to favorite, ``false`` to unfavorite. Same\nuser-scoping and 500-id cap as ``/bulk/mark-read``.",
         "operationId": "bulk_favorite_v1_articles_bulk_favorite_post",
         "requestBody": {
           "content": {
@@ -4901,7 +4901,7 @@
           "Articles"
         ],
         "summary": "Bulk Delete",
-        "description": "Soft-delete multiple summaries in one round-trip.",
+        "description": "Alias for POST /v1/summaries/bulk/delete. Soft-delete multiple summaries in one round-trip.",
         "operationId": "bulk_delete_v1_articles_bulk_delete_post",
         "requestBody": {
           "content": {
@@ -4954,7 +4954,7 @@
           "Articles"
         ],
         "summary": "Toggle Favorite",
-        "description": "Toggle the favorite status of a summary.",
+        "description": "Alias for POST /v1/summaries/{summary_id}/favorite. Toggle the favorite status of a summary.",
         "operationId": "toggle_favorite_v1_articles__summary_id__favorite_post",
         "security": [
           {
@@ -5008,7 +5008,7 @@
           "Articles"
         ],
         "summary": "Submit Feedback",
-        "description": "Submit or update feedback for a summary.",
+        "description": "Alias for POST /v1/summaries/{summary_id}/feedback. Submit or update feedback for a summary.",
         "operationId": "submit_feedback_v1_articles__summary_id__feedback_post",
         "security": [
           {
@@ -9522,6 +9522,137 @@
         }
       }
     },
+    "/v1/articles/{summary_id}/tags": {
+      "post": {
+        "tags": [
+          "Article Tags"
+        ],
+        "summary": "Attach Tags",
+        "description": "Alias for POST /v1/summaries/{summary_id}/tags. Attach tags to a summary by ID or name (auto-create if needed).",
+        "operationId": "attach_tags_v1_articles__summary_id__tags_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachTagsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Attach Tags V1 Articles  Summary Id  Tags Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/articles/{summary_id}/tags/{tag_id}": {
+      "delete": {
+        "tags": [
+          "Article Tags"
+        ],
+        "summary": "Detach Tag",
+        "description": "Alias for DELETE /v1/summaries/{summary_id}/tags/{tag_id}. Detach a tag from a summary.",
+        "operationId": "detach_tag_v1_articles__summary_id__tags__tag_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          },
+          {
+            "name": "tag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Detach Tag V1 Articles  Summary Id  Tags  Tag Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/webhooks/": {
       "get": {
         "tags": [
@@ -12063,6 +12194,264 @@
         }
       }
     },
+    "/v1/articles/{summary_id}/highlights": {
+      "get": {
+        "tags": [
+          "Article Highlights"
+        ],
+        "summary": "List Highlights",
+        "description": "Alias for GET /v1/summaries/{summary_id}/highlights. List all highlights for a summary.",
+        "operationId": "list_highlights_v1_articles__summary_id__highlights_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Highlights V1 Articles  Summary Id  Highlights Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Article Highlights"
+        ],
+        "summary": "Create Highlight",
+        "description": "Alias for POST /v1/summaries/{summary_id}/highlights. Create a highlight on a summary.",
+        "operationId": "create_highlight_v1_articles__summary_id__highlights_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHighlightRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Highlight V1 Articles  Summary Id  Highlights Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/articles/{summary_id}/highlights/{highlight_id}": {
+      "patch": {
+        "tags": [
+          "Article Highlights"
+        ],
+        "summary": "Update Highlight",
+        "description": "Alias for PATCH /v1/summaries/{summary_id}/highlights/{highlight_id}. Update a highlight's color or note.",
+        "operationId": "update_highlight_v1_articles__summary_id__highlights__highlight_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          },
+          {
+            "name": "highlight_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Highlight Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateHighlightRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Highlight V1 Articles  Summary Id  Highlights  Highlight Id  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Article Highlights"
+        ],
+        "summary": "Delete Highlight",
+        "description": "Alias for DELETE /v1/summaries/{summary_id}/highlights/{highlight_id}. Delete a highlight.",
+        "operationId": "delete_highlight_v1_articles__summary_id__highlights__highlight_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          },
+          {
+            "name": "highlight_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Highlight Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Highlight V1 Articles  Summary Id  Highlights  Highlight Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/summaries/{summary_id}/audio": {
       "post": {
         "tags": [
@@ -12136,6 +12525,123 @@
         "summary": "Get Audio",
         "description": "Stream/download the generated audio file for a summary.",
         "operationId": "get_audio_v1_summaries__summary_id__audio_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/articles/{summary_id}/audio": {
+      "post": {
+        "tags": [
+          "Article TTS"
+        ],
+        "summary": "Generate Audio",
+        "description": "Alias for POST /v1/summaries/{summary_id}/audio. Generate audio for a summary, reusing cached output when available.",
+        "operationId": "generate_audio_v1_articles__summary_id__audio_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          },
+          {
+            "name": "source_field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(summary_250|summary_1000|tldr)$",
+              "default": "summary_1000",
+              "title": "Source Field"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Generate Audio V1 Articles  Summary Id  Audio Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Article TTS"
+        ],
+        "summary": "Get Audio",
+        "description": "Alias for GET /v1/summaries/{summary_id}/audio. Stream/download the generated audio file for a summary.",
+        "operationId": "get_audio_v1_articles__summary_id__audio_get",
         "security": [
           {
             "HTTPBearer": []
@@ -12929,7 +13435,7 @@
           "Health"
         ],
         "summary": "Detailed Health Check",
-        "description": "Comprehensive health check with component status.\n\nReturns detailed status of all system components:\n- Database connectivity and size\n- Redis availability\n- Circuit breaker states\n- Overall health score",
+        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nComprehensive health check with component status.\n\nReturns detailed status of all system components:\n- Database connectivity and size\n- Redis availability\n- Circuit breaker states\n- Overall health score",
         "operationId": "detailed_health_check_health_detailed_get",
         "responses": {
           "200": {
@@ -12965,7 +13471,7 @@
           "Health"
         ],
         "summary": "Readiness Check",
-        "description": "Kubernetes readiness probe — intentionally unauthenticated.\n\nReturns 200 if the service is ready to handle requests.\nChecks database connectivity only. No auth required: probes are\ncalled by the orchestrator before user traffic is routed, so\nenforcing auth would prevent startup and break pod scheduling.",
+        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nKubernetes readiness probe — intentionally unauthenticated.\n\nReturns 200 if the service is ready to handle requests.\nChecks database connectivity only. No auth required: probes are\ncalled by the orchestrator before user traffic is routed, so\nenforcing auth would prevent startup and break pod scheduling.",
         "operationId": "readiness_check_health_ready_get",
         "responses": {
           "200": {
@@ -12990,7 +13496,7 @@
           "Health"
         ],
         "summary": "Liveness Check",
-        "description": "Kubernetes liveness probe — intentionally unauthenticated.\n\nReturns 200 if the service is running. No auth required: probes\nare called by the orchestrator to detect hangs/crashes and cannot\ncarry credentials.\nMinimal check - just verifies the process is responsive.",
+        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nKubernetes liveness probe — intentionally unauthenticated.\n\nReturns 200 if the service is running. No auth required: probes\nare called by the orchestrator to detect hangs/crashes and cannot\ncarry credentials.\nMinimal check - just verifies the process is responsive.",
         "operationId": "liveness_check_health_live_get",
         "responses": {
           "200": {
@@ -13012,7 +13518,7 @@
     "/health": {
       "get": {
         "summary": "Health Check",
-        "description": "Health check endpoint.",
+        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nHealth check endpoint.",
         "operationId": "health_check_health_get",
         "responses": {
           "200": {
@@ -22781,6 +23287,10 @@
               "TOKEN_REVOKED",
               "TOKEN_WRONG_TYPE",
               "REFRESH_RATE_LIMITED",
+              "oauth_state_invalid",
+              "github_token_exchange_failed",
+              "github_token_invalid",
+              "github_oauth_rate_limited",
               "SYNC_SESSION_EXPIRED",
               "SYNC_SESSION_NOT_FOUND",
               "SYNC_SESSION_FORBIDDEN",

@@ -32,6 +32,7 @@ Records of consequential, non-obvious architectural and policy decisions. Reach 
 | [0016](0016-unified-retrieval-subsystem.md) | Unified retrieval subsystem | Accepted — impl pending |
 | [0017](0017-streaming-under-the-graph.md) | Streaming under the graph | Accepted — impl pending |
 | [0018](0018-refactor-strategy-and-invariants.md) | Refactor strategy & invariants | Accepted |
+| [0019](0019-health-endpoint-envelope-carveout.md) | Health endpoint envelope carve-out | Accepted |
 | [2026-05-17](2026-05-17-auth-security-second-wave.md) | Auth/security second-wave scope (memo) | **Decided** (2026-06-15) |
 
 > Note: 0003's one load-bearing conclusion (keep `user_id` filters as an IDOR guard) is preserved as CLAUDE.md operating rule 12; the strategic reason it was retired is recorded in ADR-0008.

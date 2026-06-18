@@ -17,9 +17,10 @@ from datetime import datetime  # noqa: TC003
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from app.api.exceptions import APIException, ErrorCode, ErrorType
 from app.api.routers.auth.dependencies import get_current_user
 from app.application.exceptions.github import InsufficientScopeError, InvalidGitHubTokenError
 from app.application.ports.github_integration import GitHubAuthMethod
@@ -33,6 +34,80 @@ _GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _DEVICE_KEY_PREFIX = "gh:device"
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
+
+
+class GitHubAuthAPIException(APIException):
+    def __init__(
+        self,
+        *,
+        code: ErrorCode,
+        message: str,
+        status_code: int,
+        details: dict[str, Any] | None = None,
+        error_type: ErrorType = ErrorType.EXTERNAL_SERVICE,
+        retryable: bool = False,
+        retry_after: int | None = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            error_code=code,
+            status_code=status_code,
+            details=details,
+            error_type=error_type,
+            retryable=retryable,
+            retry_after=retry_after,
+        )
+
+
+def _github_token_invalid(message: str, *, status_code: int = 400) -> GitHubAuthAPIException:
+    return GitHubAuthAPIException(
+        code=ErrorCode.GITHUB_TOKEN_INVALID,
+        message=message,
+        status_code=status_code,
+        error_type=ErrorType.AUTHENTICATION,
+    )
+
+
+def _github_token_exchange_failed(
+    message: str,
+    *,
+    status_code: int = 503,
+    details: dict[str, Any] | None = None,
+    retryable: bool = True,
+) -> GitHubAuthAPIException:
+    return GitHubAuthAPIException(
+        code=ErrorCode.GITHUB_TOKEN_EXCHANGE_FAILED,
+        message=message,
+        status_code=status_code,
+        details=details,
+        retryable=retryable,
+    )
+
+
+def _raise_for_github_response(response: httpx.Response) -> None:
+    if response.status_code == 429:
+        retry_after_header = response.headers.get("Retry-After")
+        retry_after = (
+            int(retry_after_header)
+            if retry_after_header and retry_after_header.isdigit()
+            else None
+        )
+        raise GitHubAuthAPIException(
+            code=ErrorCode.GITHUB_OAUTH_RATE_LIMITED,
+            message="GitHub OAuth request was rate limited",
+            status_code=429,
+            details={"provider_status_code": response.status_code},
+            error_type=ErrorType.RATE_LIMIT,
+            retryable=True,
+            retry_after=retry_after,
+        )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise _github_token_exchange_failed(
+            "GitHub OAuth token exchange failed",
+            details={"provider_status_code": exc.response.status_code},
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -65,9 +140,9 @@ async def _get_redis_or_503(request: Request) -> Any:
     """Return app-wide Redis client or raise HTTP 503 when Redis is not available."""
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
+        raise _github_token_exchange_failed(
+            "GitHub OAuth Device Flow requires Redis",
+            details={
                 "error": "redis_not_configured",
                 "hint": (
                     "OAuth Device Flow requires Redis. "
@@ -151,9 +226,9 @@ async def submit_pat(
             correlation_id=correlation_id,
         )
     except InsufficientScopeError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise _github_token_invalid(str(exc), status_code=422) from exc
     except InvalidGitHubTokenError as exc:
-        raise HTTPException(status_code=400, detail="Invalid or revoked GitHub token") from exc
+        raise _github_token_invalid("Invalid or revoked GitHub token") from exc
     return PATSubmitResponse(
         login=integration.github_login,
         github_user_id=integration.github_user_id,
@@ -189,7 +264,7 @@ async def trigger_sync(
     """Trigger a best-effort sync for the authenticated user's GitHub integration."""
     status = await use_case.get_status(user["user_id"])
     if not status.is_connected:
-        raise HTTPException(status_code=404, detail="GitHub integration not found")
+        raise _github_token_invalid("GitHub integration not found", status_code=404)
     task = asyncio.create_task(_run_user_sync(user["user_id"]))
     _BACKGROUND_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_TASKS.discard)
@@ -226,9 +301,9 @@ async def device_flow_start(
     cfg = load_config(allow_stub_telegram=True)
     client_id = cfg.github.oauth_app_client_id
     if client_id is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
+        raise _github_token_exchange_failed(
+            "GitHub OAuth Device Flow is not configured",
+            details={
                 "error": "oauth_not_configured",
                 "hint": (
                     "Set GITHUB_OAUTH_APP_CLIENT_ID and register an OAuth App at "
@@ -244,7 +319,7 @@ async def device_flow_start(
             headers={"Accept": "application/json"},
             timeout=30.0,
         )
-    gh_resp.raise_for_status()
+    _raise_for_github_response(gh_resp)
     data: dict[str, Any] = gh_resp.json()
 
     device_code: str = data["device_code"]
@@ -321,9 +396,9 @@ async def device_flow_poll(
 
     cfg = load_config(allow_stub_telegram=True)
     if cfg.github.oauth_app_client_id is None or cfg.github.oauth_app_client_secret is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
+        raise _github_token_exchange_failed(
+            "GitHub OAuth Device Flow is not configured",
+            details={
                 "error": "oauth_not_configured",
                 "hint": "Set GITHUB_OAUTH_APP_CLIENT_ID and GITHUB_OAUTH_APP_CLIENT_SECRET",
             },
@@ -364,7 +439,7 @@ async def device_flow_poll(
             headers={"Accept": "application/json"},
             timeout=30.0,
         )
-    gh_resp.raise_for_status()
+    _raise_for_github_response(gh_resp)
     data: dict[str, Any] = gh_resp.json()
 
     error = data.get("error")
@@ -404,9 +479,9 @@ async def device_flow_poll(
             correlation_id=correlation_id,
         )
     except InsufficientScopeError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise _github_token_invalid(str(exc), status_code=422) from exc
     except InvalidGitHubTokenError as exc:
-        raise HTTPException(status_code=400, detail="Invalid or revoked GitHub token") from exc
+        raise _github_token_invalid("Invalid or revoked GitHub token") from exc
 
     return DeviceFlowPollResponse(
         status="ok",

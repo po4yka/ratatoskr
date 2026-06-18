@@ -30,6 +30,10 @@ class ErrorCode(StrEnum):
     AUTH_REVOKED = "TOKEN_REVOKED"
     AUTH_WRONG_TYPE = "TOKEN_WRONG_TYPE"
     REFRESH_RATE_LIMITED = "REFRESH_RATE_LIMITED"
+    GITHUB_OAUTH_STATE_INVALID = "oauth_state_invalid"
+    GITHUB_TOKEN_EXCHANGE_FAILED = "github_token_exchange_failed"
+    GITHUB_TOKEN_INVALID = "github_token_invalid"
+    GITHUB_OAUTH_RATE_LIMITED = "github_oauth_rate_limited"
 
     # Sync-specific errors
     SYNC_SESSION_EXPIRED = "SYNC_SESSION_EXPIRED"
@@ -85,6 +89,10 @@ _ERROR_TYPE_MAP: dict[ErrorCode, ErrorType] = {
     ErrorCode.AUTH_REVOKED: ErrorType.AUTHENTICATION,
     ErrorCode.AUTH_WRONG_TYPE: ErrorType.AUTHENTICATION,
     ErrorCode.REFRESH_RATE_LIMITED: ErrorType.RATE_LIMIT,
+    ErrorCode.GITHUB_OAUTH_STATE_INVALID: ErrorType.AUTHENTICATION,
+    ErrorCode.GITHUB_TOKEN_EXCHANGE_FAILED: ErrorType.EXTERNAL_SERVICE,
+    ErrorCode.GITHUB_TOKEN_INVALID: ErrorType.AUTHENTICATION,
+    ErrorCode.GITHUB_OAUTH_RATE_LIMITED: ErrorType.RATE_LIMIT,
     ErrorCode.AUTH_SERVICE_UNAVAILABLE: ErrorType.INTERNAL,
     ErrorCode.SYNC_SESSION_EXPIRED: ErrorType.SYNC,
     ErrorCode.SYNC_SESSION_NOT_FOUND: ErrorType.SYNC,
@@ -107,6 +115,8 @@ _RETRYABLE_CODES: set[ErrorCode] = {
     ErrorCode.SESSION_EXPIRED,
     ErrorCode.AUTH_EXPIRED,  # Can retry with re-login
     ErrorCode.REFRESH_RATE_LIMITED,  # Can retry after delay
+    ErrorCode.GITHUB_TOKEN_EXCHANGE_FAILED,
+    ErrorCode.GITHUB_OAUTH_RATE_LIMITED,
     ErrorCode.AUTH_SERVICE_UNAVAILABLE,  # Temporary, can retry
     ErrorCode.SYNC_SESSION_EXPIRED,
     ErrorCode.DATABASE_ERROR,

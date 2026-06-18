@@ -144,6 +144,13 @@ Error response shape:
 }
 ```
 
+GitHub auth endpoints use the same error envelope. Stable GitHub-specific `error.code` values:
+
+- `oauth_state_invalid`: OAuth/device state is invalid for the authenticated user.
+- `github_token_exchange_failed`: GitHub OAuth/token exchange or local OAuth dependency failed; retry may be safe depending on `retryable`.
+- `github_token_invalid`: PAT/OAuth token is invalid, revoked, expired, missing required scopes, or the integration is absent.
+- `github_oauth_rate_limited`: GitHub rate-limited the OAuth/device request; clients should honor `error.retry_after` when present.
+
 ## Sync Model (Current)
 
 Current sync uses explicit sessions and chunked/full + delta + apply endpoints:
@@ -206,6 +213,8 @@ Backend toggle: `URL_FLOW_STREAMING_ENABLED` (default `true`).
 - `GET /health/ready`
 - `GET /health/detailed`
 - `GET /metrics`
+
+Health endpoints are a documented probe carve-out from the business-response envelope rule; see `docs/decisions/0019-health-endpoint-envelope-carveout.md`. Successful responses may use the standard success envelope, but infrastructure callers must treat status code and the endpoint-specific probe schema as authoritative. Readiness failure may return a raw object with top-level `ready`, `error`, and `timestamp`.
 
 ### Authentication
 
@@ -313,8 +322,22 @@ Canonical summary endpoints:
 - `GET /v1/summaries/{summary_id}`
 - `PATCH /v1/summaries/{summary_id}`
 - `DELETE /v1/summaries/{summary_id}`
+- `POST /v1/summaries/bulk/mark-read`
+- `POST /v1/summaries/bulk/favorite`
+- `POST /v1/summaries/bulk/delete`
 - `GET /v1/summaries/{summary_id}/content`
+- `GET /v1/summaries/{summary_id}/export`
 - `POST /v1/summaries/{summary_id}/favorite`
+- `POST /v1/summaries/{summary_id}/feedback`
+- `PATCH /v1/summaries/{summary_id}/reading-position`
+- `POST /v1/summaries/{summary_id}/tags`
+- `DELETE /v1/summaries/{summary_id}/tags/{tag_id}`
+- `GET /v1/summaries/{summary_id}/highlights`
+- `POST /v1/summaries/{summary_id}/highlights`
+- `PATCH /v1/summaries/{summary_id}/highlights/{highlight_id}`
+- `DELETE /v1/summaries/{summary_id}/highlights/{highlight_id}`
+- `POST /v1/summaries/{summary_id}/audio`
+- `GET /v1/summaries/{summary_id}/audio`
 
 Alias endpoints for compatibility (`/v1/articles/*`) map to the same handlers:
 
@@ -323,8 +346,61 @@ Alias endpoints for compatibility (`/v1/articles/*`) map to the same handlers:
 - `GET /v1/articles/{summary_id}`
 - `PATCH /v1/articles/{summary_id}`
 - `DELETE /v1/articles/{summary_id}`
+- `POST /v1/articles/bulk/mark-read`
+- `POST /v1/articles/bulk/favorite`
+- `POST /v1/articles/bulk/delete`
 - `GET /v1/articles/{summary_id}/content`
+- `GET /v1/articles/{summary_id}/export`
 - `POST /v1/articles/{summary_id}/favorite`
+- `POST /v1/articles/{summary_id}/feedback`
+- `PATCH /v1/articles/{summary_id}/reading-position`
+- `POST /v1/articles/{summary_id}/tags`
+- `DELETE /v1/articles/{summary_id}/tags/{tag_id}`
+- `GET /v1/articles/{summary_id}/highlights`
+- `POST /v1/articles/{summary_id}/highlights`
+- `PATCH /v1/articles/{summary_id}/highlights/{highlight_id}`
+- `DELETE /v1/articles/{summary_id}/highlights/{highlight_id}`
+- `POST /v1/articles/{summary_id}/audio`
+- `GET /v1/articles/{summary_id}/audio`
+
+Bulk operations require bearer authentication and use the standard success/error envelope. `POST /v1/summaries/bulk/mark-read` and its `/v1/articles/bulk/mark-read` alias accept:
+
+```json
+{
+  "summary_ids": [101, 102]
+}
+```
+
+`POST /v1/summaries/bulk/favorite` and `/v1/articles/bulk/favorite` accept:
+
+```json
+{
+  "summary_ids": [101, 102],
+  "value": true
+}
+```
+
+`POST /v1/summaries/bulk/delete` and `/v1/articles/bulk/delete` accept:
+
+```json
+{
+  "summary_ids": [101, 102]
+}
+```
+
+All three bulk operations accept up to 500 IDs and silently skip IDs outside the authenticated user's scope. The response shape is:
+
+```json
+{
+  "success": true,
+  "data": {
+    "updated": 2
+  },
+  "meta": {
+    "api_version": "1.0"
+  }
+}
+```
 
 ### Requests and Processing
 
@@ -333,6 +409,48 @@ Alias endpoints for compatibility (`/v1/articles/*`) map to the same handlers:
 - `GET /v1/requests/{request_id}/status`
 - `POST /v1/requests/{request_id}/retry`
 - `GET /v1/urls/check-duplicate`
+
+### Import and Export
+
+- `GET /v1/import`
+- `POST /v1/import`
+- `GET /v1/import/{job_id}`
+- `DELETE /v1/import/{job_id}`
+- `GET /v1/export`
+
+Import endpoints require bearer authentication. `GET /v1/import` lists the authenticated user's import jobs so clients can recover job status after restart or reconnect:
+
+```http
+GET /v1/import
+Authorization: Bearer eyJ...
+```
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "jobs": [
+      {
+        "id": 42,
+        "status": "completed",
+        "progress": {
+          "totalItems": 10,
+          "processedItems": 10,
+          "successfulCount": 9,
+          "failedCount": 1,
+          "duplicateCount": 0,
+          "completionPercent": 100
+        }
+      }
+    ]
+  },
+  "meta": {
+    "api_version": "1.0"
+  }
+}
+```
 
 ### Aggregations
 

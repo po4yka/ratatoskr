@@ -83,6 +83,39 @@ def _stream_event_schema(kind: str, payload_ref: str) -> dict[str, Any]:
     }
 
 
+def _mark_article_alias_descriptions(spec: dict[str, Any]) -> None:
+    """Annotate generated /v1/articles/* paths as aliases of /v1/summaries/*."""
+    for path, methods in spec.get("paths", {}).items():
+        if not path.startswith("/v1/articles"):
+            continue
+        canonical_path = path.replace("/v1/articles", "/v1/summaries", 1)
+        if canonical_path not in spec.get("paths", {}):
+            continue
+        for method, operation in methods.items():
+            method_upper = method.upper()
+            if method_upper not in {"GET", "POST", "PATCH", "DELETE", "PUT", "HEAD"}:
+                continue
+            operation["description"] = (
+                f"Alias for {method_upper} {canonical_path}. "
+                f"{operation.get('description') or operation.get('summary') or ''}"
+            ).strip()
+
+
+def _mark_health_probe_descriptions(spec: dict[str, Any]) -> None:
+    """Annotate health routes as the documented probe-envelope carve-out."""
+    health_paths = {"/health", "/health/live", "/health/ready", "/health/detailed"}
+    note = (
+        "Health/probe contract carve-out: status code and endpoint-specific probe schema are "
+        "authoritative; readiness failure may return a raw probe object instead of the "
+        "standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md."
+    )
+    for path in health_paths:
+        for operation in spec.get("paths", {}).get(path, {}).values():
+            existing = operation.get("description") or operation.get("summary") or ""
+            if note not in existing:
+                operation["description"] = f"{note}\n\n{existing}".strip()
+
+
 def _success_envelope_schema(data_ref: str) -> dict[str, Any]:
     return {
         "allOf": [
@@ -132,6 +165,9 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         "HTTPBearer",
         {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"},
     )
+
+    _mark_article_alias_descriptions(spec)
+    _mark_health_probe_descriptions(spec)
 
     for name, model in (
         ("Meta", MetaInfo),

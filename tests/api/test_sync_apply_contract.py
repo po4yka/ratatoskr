@@ -313,6 +313,28 @@ async def test_sync_router_handlers_emit_snake_case_wire_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_sync_session_pagination_does_not_advertise_next_page() -> None:
+    item = SyncEntityEnvelope(
+        entity_type="summary",
+        id=42,
+        server_version=7,
+        updated_at="2026-05-21T00:00:00Z",
+    )
+    svc = _FakeSyncService(item)
+    user = {"user_id": 123, "client_id": "test-client"}
+
+    session = await create_sync_session(body=SyncSessionRequest(limit=50), user=user, svc=svc)
+
+    assert session["success"] is True
+    assert session["meta"]["pagination"] == {
+        "total": 1,
+        "limit": 50,
+        "offset": 0,
+        "hasMore": False,
+    }
+
+
+@pytest.mark.asyncio
 async def test_apply_route_forwards_idempotency_key() -> None:
     item = SyncEntityEnvelope(
         entity_type="summary",

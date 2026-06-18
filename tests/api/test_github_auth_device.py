@@ -243,8 +243,11 @@ async def test_device_start_returns_503_when_oauth_unconfigured(
         _clear_redis(client)
 
     assert resp.status_code == 503
-    detail = resp.json()["detail"]
-    assert detail["error"] == "oauth_not_configured"
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "github_token_exchange_failed"
+    assert body["error"]["details"]["error"] == "oauth_not_configured"
+    assert body["error"]["correlation_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -262,8 +265,34 @@ async def test_device_start_returns_503_when_redis_unavailable(
     # app.state.redis is not set — _get_redis_or_503 returns 503
     resp = client_no_db.post("/v1/auth/github/device/start", headers=_auth_headers())
     assert resp.status_code == 503
-    detail = resp.json()["detail"]
-    assert detail["error"] == "redis_not_configured"
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "github_token_exchange_failed"
+    assert body["error"]["details"]["error"] == "redis_not_configured"
+    assert body["error"]["correlation_id"]
+
+
+async def test_device_start_github_rate_limit_returns_standard_envelope(
+    client_no_db: Any,
+    fake_redis: fakeredis.FakeRedis,
+) -> None:
+    _inject_redis(client_no_db, fake_redis)
+    try:
+        with respx.mock(assert_all_called=False) as mock:
+            mock.post("https://github.com/login/device/code").mock(
+                return_value=Response(429, headers={"Retry-After": "17"})
+            )
+            resp = client_no_db.post("/v1/auth/github/device/start", headers=_auth_headers())
+    finally:
+        _clear_redis(client_no_db)
+
+    assert resp.status_code == 429
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "github_oauth_rate_limited"
+    assert body["error"]["retryable"] is True
+    assert body["error"]["retry_after"] == 17
+    assert body["error"]["correlation_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -529,9 +558,12 @@ async def test_device_poll_insufficient_scope_returns_422(
         _clear_redis(client)
 
     assert resp.status_code == 422
-    detail = resp.json()["detail"]
-    assert "missing required scopes" in detail
-    assert "repo" in detail
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "github_token_invalid"
+    assert "missing required scopes" in body["error"]["message"]
+    assert "repo" in body["error"]["message"]
+    assert body["error"]["correlation_id"]
 
     # Redis key must be consumed (deleted before validate_and_store)
     raw = await fake_redis.get(f"gh:device:{_DEVICE_CODE}")

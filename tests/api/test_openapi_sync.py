@@ -22,6 +22,7 @@ from app.api.exceptions import ErrorCode as ExceptionsErrorCode, ErrorType as Ex
 
 SPEC_PATH = Path(__file__).resolve().parents[2] / "docs" / "openapi" / "mobile_api.yaml"
 JSON_SPEC_PATH = Path(__file__).resolve().parents[2] / "docs" / "openapi" / "mobile_api.json"
+REFERENCE_PATH = Path(__file__).resolve().parents[2] / "docs" / "reference" / "mobile-api.md"
 
 # HTTP methods we care about (skip OPTIONS which FastAPI auto-generates for CORS)
 RELEVANT_METHODS = frozenset({"GET", "POST", "PATCH", "DELETE", "PUT", "HEAD"})
@@ -212,6 +213,112 @@ class TestRouteCoverage:
                 "Remove them from docs/openapi/mobile_api.yaml or add a matching router endpoint."
             )
 
+    def test_articles_aliases_cover_every_summary_route(self, spec: dict[str, Any]) -> None:
+        """Every /v1/summaries route must be reachable through /v1/articles too."""
+        spec_routes = _extract_spec_routes(spec)
+        summary_routes = {
+            (method, path)
+            for method, path in spec_routes
+            if path == "/v1/summaries" or path.startswith("/v1/summaries/")
+        }
+
+        missing_aliases = [
+            (method, path.replace("/v1/summaries", "/v1/articles", 1))
+            for method, path in sorted(summary_routes)
+            if (method, path.replace("/v1/summaries", "/v1/articles", 1)) not in spec_routes
+        ]
+
+        if missing_aliases:
+            formatted = "\n".join(f"  {method} {path}" for method, path in missing_aliases)
+            pytest.fail(
+                "The following /v1/articles aliases are missing from the OpenAPI spec:\n"
+                f"{formatted}"
+            )
+
+    def test_articles_alias_operations_are_marked_as_aliases(self, spec: dict[str, Any]) -> None:
+        """Alias operations should tell generated clients which canonical path they mirror."""
+        missing_descriptions: list[str] = []
+        for path, methods in spec.get("paths", {}).items():
+            if not (path == "/v1/articles" or path.startswith("/v1/articles/")):
+                continue
+            canonical_path = path.replace("/v1/articles", "/v1/summaries", 1)
+            for method, operation in methods.items():
+                method_upper = method.upper()
+                if method_upper not in RELEVANT_METHODS:
+                    continue
+                expected = f"Alias for {method_upper} {canonical_path}."
+                if expected not in str(operation.get("description", "")):
+                    missing_descriptions.append(f"{method_upper} {path}")
+
+        if missing_descriptions:
+            formatted = "\n".join(f"  {item}" for item in missing_descriptions)
+            pytest.fail("Article alias operations lack alias descriptions:\n" + formatted)
+
+    def test_mobile_release_core_surfaces_are_documented(self, spec: dict[str, Any]) -> None:
+        """Release-critical mobile surfaces must stay present in the published spec."""
+        spec_routes = _extract_spec_routes(spec)
+        required_routes = {
+            ("POST", "/v1/auth/credentials-login"),
+            ("POST", "/v1/auth/refresh"),
+            ("POST", "/v1/auth/telegram-login"),
+            ("GET", "/v1/sync/full"),
+            ("POST", "/v1/sync/apply"),
+            ("GET", "/v1/summaries"),
+            ("GET", "/v1/summaries/{summary_id}"),
+            ("POST", "/v1/summaries/bulk/mark-read"),
+            ("POST", "/v1/summaries/bulk/favorite"),
+            ("POST", "/v1/summaries/bulk/delete"),
+            ("GET", "/v1/articles"),
+            ("POST", "/v1/articles/bulk/mark-read"),
+            ("POST", "/v1/articles/bulk/favorite"),
+            ("POST", "/v1/articles/bulk/delete"),
+            ("GET", "/v1/collections"),
+            ("GET", "/v1/search"),
+            ("GET", "/v1/digest/channels"),
+            ("GET", "/v1/signals"),
+            ("GET", "/v1/import"),
+        }
+
+        missing = required_routes - spec_routes
+        if missing:
+            formatted = "\n".join(f"  {method} {path}" for method, path in sorted(missing))
+            pytest.fail("Mobile release-critical OpenAPI routes are missing:\n" + formatted)
+
+    def test_mobile_reference_lists_bulk_and_import_contracts(self) -> None:
+        """Human reference docs should not omit mobile-critical generated routes."""
+        reference = REFERENCE_PATH.read_text(encoding="utf-8")
+        required_fragments = (
+            "POST /v1/summaries/bulk/mark-read",
+            "POST /v1/summaries/bulk/favorite",
+            "POST /v1/summaries/bulk/delete",
+            "POST /v1/articles/bulk/mark-read",
+            "POST /v1/articles/bulk/favorite",
+            "POST /v1/articles/bulk/delete",
+            "GET /v1/import",
+            "summary_ids",
+            "value",
+            "updated",
+            "jobs",
+        )
+        missing = [fragment for fragment in required_fragments if fragment not in reference]
+        if missing:
+            pytest.fail("Mobile API reference is missing contract fragments: " + ", ".join(missing))
+
+    def test_health_routes_document_probe_carveout(self, spec: dict[str, Any]) -> None:
+        """Health routes are an explicit probe carve-out, not silent envelope drift."""
+        missing: list[str] = []
+        for path in ("/health", "/health/live", "/health/ready", "/health/detailed"):
+            for method, operation in spec.get("paths", {}).get(path, {}).items():
+                method_upper = method.upper()
+                if method_upper not in RELEVANT_METHODS:
+                    continue
+                description = str(operation.get("description", ""))
+                if "Health/probe contract carve-out" not in description:
+                    missing.append(f"{method_upper} {path}")
+
+        if missing:
+            pytest.fail("Health routes missing probe carve-out description: " + ", ".join(missing))
+
 
 # ---------------------------------------------------------------------------
 # 2. Schema sync
@@ -343,6 +450,30 @@ class TestErrorEnumSync:
 
         if errors:
             pytest.fail("ErrorCode enum mismatch:\n" + "\n".join(f"  - {e}" for e in errors))
+
+    def test_github_error_codes_are_published_and_documented(
+        self, spec_schemas: dict[str, Any]
+    ) -> None:
+        error_obj = spec_schemas.get("ErrorObject")
+        assert error_obj is not None, "ErrorObject schema missing from YAML spec"
+
+        required = {
+            "oauth_state_invalid",
+            "github_token_exchange_failed",
+            "github_token_invalid",
+            "github_oauth_rate_limited",
+        }
+        spec_codes = set(error_obj["properties"]["code"]["enum"])
+        reference = REFERENCE_PATH.read_text(encoding="utf-8")
+
+        missing_spec = required - spec_codes
+        missing_reference = {code for code in required if code not in reference}
+        if missing_spec or missing_reference:
+            pytest.fail(
+                "GitHub error-code contract drift: "
+                f"missing_spec={sorted(missing_spec)}, "
+                f"missing_reference={sorted(missing_reference)}"
+            )
 
     def test_error_types_match(self, spec_schemas: dict[str, Any]) -> None:
         error_obj = spec_schemas.get("ErrorObject")

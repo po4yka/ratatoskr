@@ -53,10 +53,10 @@ async def create_sync_session(
     )
 
     pagination = {
-        "total": 0,
+        "total": 1,
         "limit": session.default_limit,
         "offset": 0,
-        "has_more": True,
+        "has_more": False,
     }
     return success_response(session, pagination=pagination)
 
