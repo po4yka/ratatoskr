@@ -52,6 +52,7 @@ jobs:
       # index would have blocked (e.g. fastapi 0.136.3 / MAL-2026-4750).
       # See docs/reference/dependency-supply-chain.md for the full threat model.
       - name: Assert Safety index is reachable
+        id: safety_index
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
         run: |
@@ -64,13 +65,20 @@ jobs:
             --max-time 15 \
             --user "${SAFETY_API_KEY}:" \
             "${SAFETY_INDEX_URL}")
-          if [ "${HTTP_STATUS}" != "200" ]; then
-            echo "::error::Safety index returned HTTP ${HTTP_STATUS} (expected 200). The subscription may have lapsed or the key may be invalid. Aborting to prevent PyPI-only fallback resolution."
+          if [ "${HTTP_STATUS}" = "401" ] || [ "${HTTP_STATUS}" = "403" ]; then
+            echo "::error::Safety index returned HTTP ${HTTP_STATUS}. The subscription may have lapsed or the key may be invalid. Aborting to prevent PyPI-only fallback resolution."
             exit 1
           fi
+          if [ "${HTTP_STATUS}" != "200" ]; then
+            echo "::warning::Safety index returned HTTP ${HTTP_STATUS}. Skipping automated lock refresh for this run; ci.yml still validates committed lockfile drift."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
           echo "Safety index reachable (HTTP ${HTTP_STATUS}). Proceeding with uv lock."
 
       - name: Regenerate lockfiles
+        if: steps.safety_index.outputs.available == 'true'
         run: |
           set -euo pipefail
           uv lock
@@ -86,7 +94,7 @@ jobs:
             -o requirements-all.txt
 
       - name: Create Pull Request (using PAT if provided)
-        if: ${{ env.ACTIONS_PR_TOKEN != '' }}
+        if: ${{ steps.safety_index.outputs.available == 'true' && env.ACTIONS_PR_TOKEN != '' }}
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ env.ACTIONS_PR_TOKEN }}
@@ -102,7 +110,7 @@ jobs:
             requirements-all.txt
 
       - name: Create Pull Request (best-effort with GITHUB_TOKEN)
-        if: ${{ env.ACTIONS_PR_TOKEN == '' }}
+        if: ${{ steps.safety_index.outputs.available == 'true' && env.ACTIONS_PR_TOKEN == '' }}
         continue-on-error: true
         uses: peter-evans/create-pull-request@v8
         with:
@@ -118,7 +126,7 @@ jobs:
             requirements-all.txt
 
       - name: Note PR permission restriction
-        if: ${{ env.ACTIONS_PR_TOKEN == '' }}
+        if: ${{ steps.safety_index.outputs.available == 'true' && env.ACTIONS_PR_TOKEN == '' }}
         run: |
           echo "::warning::Repository blocks GitHub Actions from creating PRs."
           echo "Set a repo/org secret 'ACTIONS_PR_TOKEN' with 'contents' and 'pull_requests' write permissions (fine-grained PAT), or enable the setting to allow Actions to create PRs."

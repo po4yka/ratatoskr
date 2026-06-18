@@ -28,6 +28,10 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
+# Route version for the URL graph path -- mirrors the legacy ``URL_ROUTE_VERSION``
+# the lifecycle stamps on ``requests.route_version`` so graph-path rows are
+# indistinguishable from the legacy path (no code model default; a plain int).
+from app.adapters.content.content_extractor import URL_ROUTE_VERSION
 from app.adapters.content.url_flow_models import (
     URLFlowContext,
     URLFlowRequest,
@@ -48,11 +52,6 @@ from app.core.validation import (
     safe_telegram_chat_id,
     safe_telegram_user_id,
 )
-
-# Route version for the URL graph path -- mirrors the legacy ``URL_ROUTE_VERSION``
-# the lifecycle stamps on ``requests.route_version`` so graph-path rows are
-# indistinguishable from the legacy path (no code model default; a plain int).
-from app.adapters.content.content_extractor import URL_ROUTE_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Callable

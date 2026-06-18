@@ -148,7 +148,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -686,7 +686,7 @@ jobs:
       - name: Run Safety
         # torch CVE-2025-3000 (SFTY-20250331-30014): no upstream fix, ml extra
         # only; also accepted for OSV (osv-scanner.toml) and pip-audit.
-        run: safety check --full-report --ignore SFTY-20250331-30014
+        run: safety check -r requirements-safety.txt -r requirements-dev-safety.txt --full-report --ignore SFTY-20250331-30014
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
 
@@ -710,6 +710,7 @@ jobs:
         uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
+            --config=osv-scanner.toml
             --lockfile=uv.lock
 
   docker-build:

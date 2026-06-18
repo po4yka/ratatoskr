@@ -248,9 +248,8 @@ _TECHNICAL_CONTENT = (
 
 def _real_routing_configs(**routing_over: Any) -> tuple[Any, Any]:
     """Build REAL ModelRoutingConfig + OpenRouterConfig (routing enabled)."""
-    from tests._config_env import MODEL_SELECTION_ENV  # noqa: F401 (imported for env parity)
-
     from app.config.llm import ModelRoutingConfig, OpenRouterConfig
+    from tests._config_env import MODEL_SELECTION_ENV  # noqa: F401 (imported for env parity)
 
     routing = ModelRoutingConfig(enabled=True, **routing_over)
     openrouter = OpenRouterConfig(

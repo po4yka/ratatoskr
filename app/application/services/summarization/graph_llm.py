@@ -12,14 +12,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from app.application.services.summarization.graph_prompt import _PROMPTS_DIR
 from app.core.call_status import CallStatus
 from app.core.content_cleaner import detect_prompt_injection_patterns
-from app.core.json_utils import dumps as json_dumps
-from app.core.json_utils import extract_json
+from app.core.json_utils import dumps as json_dumps, extract_json
 from app.core.lang import LANG_RU
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
-
-from app.application.services.summarization.graph_prompt import _PROMPTS_DIR
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
