@@ -96,7 +96,7 @@ Patch is reserved for documentation-only changes (`description`, examples).
 
 ### Migration path for clients
 
-Mobile and CLI clients pin against `meta.api_version` and SHOULD refuse to upgrade across major versions automatically. Backend changes that bump the major version MUST be coordinated with the [`ratatoskr-client`](https://github.com/po4yka/ratatoskr-client) KMP team — see `docs/tasks/issues/map-ratatoskr-mobile-api-contract-to-kmp-readiness.md` for the contract map.
+Mobile and CLI clients pin against `meta.api_version` and SHOULD refuse to upgrade across major versions automatically. Backend changes that bump the major version MUST be coordinated with the `ratatoskr-client` KMP team — see `docs/tasks/issues/map-ratatoskr-mobile-api-contract-to-kmp-readiness.md` for the contract map.
 
 ## Router and Service Boundaries
 
