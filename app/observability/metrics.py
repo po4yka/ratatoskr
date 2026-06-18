@@ -63,10 +63,10 @@ except ImportError:
 # Base: PROMETHEUS_AVAILABLE, REGISTRY, bucketing helpers
 # ---------------------------------------------------------------------------
 from app.observability._metrics_base import (
-    PROMETHEUS_AVAILABLE,
-    REGISTRY,
     _DEFAULT_MODEL_ALLOWLIST,
     _KNOWN_PLATFORMS,
+    PROMETHEUS_AVAILABLE,
+    REGISTRY,
     _bucket_model,
     _bucket_platform,
     _metric_label,
@@ -77,41 +77,38 @@ from app.observability._metrics_base import (
 )
 
 # ---------------------------------------------------------------------------
-# Request / URL queue
+# Aggregation
 # ---------------------------------------------------------------------------
-from app.observability.metrics_request import (
-    REQUEST_LATENCY,
-    REQUESTS_TOTAL,
-    URL_ENQUEUE_TOTAL,
-    URL_PROCESSING_QUEUE_DEPTH,
-    URL_PROCESSOR_IN_FLIGHT,
-    record_request,
-    record_url_enqueue,
-    set_url_processing_queue_depth,
-    set_url_processor_in_flight,
+from app.observability.metrics_aggregation import (
+    AGGREGATION_BUNDLE_LATENCY,
+    AGGREGATION_BUNDLES,
+    AGGREGATION_COST_USD,
+    AGGREGATION_EXTRACTION,
+    AGGREGATION_SYNTHESIS_COVERAGE,
+    AGGREGATION_USED_SOURCES,
+    record_aggregation_bundle,
+    record_aggregation_extraction,
+    record_aggregation_synthesis,
 )
 
 # ---------------------------------------------------------------------------
-# Scraper chain (Firecrawl + multi-provider)
+# Circuit breaker (service-level)
 # ---------------------------------------------------------------------------
-from app.observability.metrics_scraper import (
-    FIRECRAWL_LATENCY,
-    FIRECRAWL_REQUESTS,
-    SCRAPER_ATTEMPT_LATENCY_SECONDS,
-    SCRAPER_ATTEMPTS_TOTAL,
-    SCRAPER_CHAIN_ATTEMPTS_TOTAL,
-    SCRAPER_CHAIN_DURATION_SECONDS,
-    SCRAPER_CHAIN_FAILURES_TOTAL,
-    SCRAPER_CHAIN_SUCCESSES_TOTAL,
-    SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS,
-    record_firecrawl_request,
-    record_scraper_attempt,
-    record_scraper_attempt_latency,
-    record_scraper_chain_attempt,
-    record_scraper_chain_duration,
-    record_scraper_chain_failure,
-    record_scraper_chain_success,
-    record_scraper_chain_total_latency,
+from app.observability.metrics_circuit_breaker import (
+    CIRCUIT_BREAKER_STATE,
+    record_circuit_breaker_state,
+)
+
+# ---------------------------------------------------------------------------
+# Database + admin diagnostics
+# ---------------------------------------------------------------------------
+from app.observability.metrics_db import (
+    ADMIN_DIAGNOSTICS_REQUESTS,
+    DB_CONNECTIONS,
+    DB_QUERY_LATENCY,
+    record_admin_diagnostics_request,
+    record_db_query,
+    set_db_connections,
 )
 
 # ---------------------------------------------------------------------------
@@ -149,11 +146,75 @@ from app.observability.metrics_llm import (
 )
 
 # ---------------------------------------------------------------------------
-# Circuit breaker (service-level)
+# Request / URL queue
 # ---------------------------------------------------------------------------
-from app.observability.metrics_circuit_breaker import (
-    CIRCUIT_BREAKER_STATE,
-    record_circuit_breaker_state,
+from app.observability.metrics_request import (
+    REQUEST_LATENCY,
+    REQUESTS_TOTAL,
+    URL_ENQUEUE_TOTAL,
+    URL_PROCESSING_QUEUE_DEPTH,
+    URL_PROCESSOR_IN_FLIGHT,
+    record_request,
+    record_url_enqueue,
+    set_url_processing_queue_depth,
+    set_url_processor_in_flight,
+)
+
+# ---------------------------------------------------------------------------
+# Scheduler / queue depth
+# ---------------------------------------------------------------------------
+from app.observability.metrics_scheduler import (
+    SCHEDULER_JOB_CHRONIC_FAILURES,
+    SCHEDULER_QUEUE_DEPTH,
+    record_scheduler_chronic_failure,
+    set_scheduler_queue_depth,
+)
+
+# ---------------------------------------------------------------------------
+# Scraper chain (Firecrawl + multi-provider)
+# ---------------------------------------------------------------------------
+from app.observability.metrics_scraper import (
+    FIRECRAWL_LATENCY,
+    FIRECRAWL_REQUESTS,
+    SCRAPER_ATTEMPT_LATENCY_SECONDS,
+    SCRAPER_ATTEMPTS_TOTAL,
+    SCRAPER_CHAIN_ATTEMPTS_TOTAL,
+    SCRAPER_CHAIN_DURATION_SECONDS,
+    SCRAPER_CHAIN_FAILURES_TOTAL,
+    SCRAPER_CHAIN_SUCCESSES_TOTAL,
+    SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS,
+    record_firecrawl_request,
+    record_scraper_attempt,
+    record_scraper_attempt_latency,
+    record_scraper_chain_attempt,
+    record_scraper_chain_duration,
+    record_scraper_chain_failure,
+    record_scraper_chain_success,
+    record_scraper_chain_total_latency,
+)
+
+# ---------------------------------------------------------------------------
+# Social
+# ---------------------------------------------------------------------------
+from app.observability.metrics_social import (
+    SOCIAL_CONNECTION_STATUS_TOTAL,
+    SOCIAL_FETCH_TOTAL,
+    SOCIAL_RATE_LIMIT_TOTAL,
+    SOCIAL_TOKEN_REFRESH_TOTAL,
+    record_social_connection_status,
+    record_social_fetch,
+    record_social_rate_limit,
+    record_social_token_refresh,
+)
+
+# ---------------------------------------------------------------------------
+# Streaming
+# ---------------------------------------------------------------------------
+from app.observability.metrics_streaming import (
+    DRAFT_STREAM_EVENTS,
+    STREAM_LATENCY_MS,
+    record_draft_stream_event,
+    record_stream_latency_ms,
 )
 
 # ---------------------------------------------------------------------------
@@ -173,57 +234,6 @@ from app.observability.metrics_twitter import (
 )
 
 # ---------------------------------------------------------------------------
-# Aggregation
-# ---------------------------------------------------------------------------
-from app.observability.metrics_aggregation import (
-    AGGREGATION_BUNDLE_LATENCY,
-    AGGREGATION_BUNDLES,
-    AGGREGATION_COST_USD,
-    AGGREGATION_EXTRACTION,
-    AGGREGATION_SYNTHESIS_COVERAGE,
-    AGGREGATION_USED_SOURCES,
-    record_aggregation_bundle,
-    record_aggregation_extraction,
-    record_aggregation_synthesis,
-)
-
-# ---------------------------------------------------------------------------
-# Streaming
-# ---------------------------------------------------------------------------
-from app.observability.metrics_streaming import (
-    DRAFT_STREAM_EVENTS,
-    STREAM_LATENCY_MS,
-    record_draft_stream_event,
-    record_stream_latency_ms,
-)
-
-# ---------------------------------------------------------------------------
-# Social
-# ---------------------------------------------------------------------------
-from app.observability.metrics_social import (
-    SOCIAL_CONNECTION_STATUS_TOTAL,
-    SOCIAL_FETCH_TOTAL,
-    SOCIAL_RATE_LIMIT_TOTAL,
-    SOCIAL_TOKEN_REFRESH_TOTAL,
-    record_social_connection_status,
-    record_social_fetch,
-    record_social_rate_limit,
-    record_social_token_refresh,
-)
-
-# ---------------------------------------------------------------------------
-# Database + admin diagnostics
-# ---------------------------------------------------------------------------
-from app.observability.metrics_db import (
-    ADMIN_DIAGNOSTICS_REQUESTS,
-    DB_CONNECTIONS,
-    DB_QUERY_LATENCY,
-    record_admin_diagnostics_request,
-    record_db_query,
-    set_db_connections,
-)
-
-# ---------------------------------------------------------------------------
 # Vector store
 # ---------------------------------------------------------------------------
 from app.observability.metrics_vector import (
@@ -231,16 +241,6 @@ from app.observability.metrics_vector import (
     VECTOR_WRITES_TOTAL,
     record_vector_index_lag,
     record_vector_write,
-)
-
-# ---------------------------------------------------------------------------
-# Scheduler / queue depth
-# ---------------------------------------------------------------------------
-from app.observability.metrics_scheduler import (
-    SCHEDULER_JOB_CHRONIC_FAILURES,
-    SCHEDULER_QUEUE_DEPTH,
-    record_scheduler_chronic_failure,
-    set_scheduler_queue_depth,
 )
 
 # ---------------------------------------------------------------------------
