@@ -107,9 +107,8 @@ class GraphURLProcessor:
         self._graph = graph
         self._deps = deps
         self._stream_sink_factory = stream_sink_factory
-        # The streamed runner (``run_summarize_graph_streamed``) lives in
-        # ``app.di.graphs`` -- injected as a callable so the adapter never imports
-        # the ``app.di`` tier (layered-architecture contract). The plain
+        # The streamed runner (``run_summarize_graph_streamed``) is injected as
+        # a callable so this adapter never imports the composition tier. The plain
         # ``run_summarize_graph`` is in the application layer and imported directly.
         self._streamed_runner = streamed_runner
         self.cached_summary_responder = cached_summary_responder

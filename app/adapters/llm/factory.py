@@ -24,9 +24,8 @@ logger = get_logger(__name__)
 class LLMClientFactory:
     """Factory for creating LLM clients based on provider configuration.
 
-    Usage:
-        client = LLMClientFactory.create_from_config(config)
-        result = await client.chat(messages)
+    Construct instances through DI/bootstrap code, then call the returned
+    client's async chat method.
     """
 
     @staticmethod

@@ -8,6 +8,8 @@ from app.adapters.telegram.telegram_bot import TelegramBot
 from app.config import ConfigHolder, ConfigReloader, load_config
 from app.db.write_queue import DbWriteQueue
 from app.di.database import build_runtime_database
+from app.di.repositories import build_audit_log_repository
+from app.di.telegram import build_telegram_runtime
 
 # Use uvloop for better async performance if available
 try:
@@ -62,6 +64,8 @@ async def main() -> None:
     bot = TelegramBot(
         cfg=cfg_holder,  # type: ignore[arg-type]
         db=db,
+        runtime_builder=build_telegram_runtime,
+        audit_repository_builder=build_audit_log_repository,
         db_write_queue=db_write_queue,
     )
 

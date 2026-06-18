@@ -8,6 +8,7 @@ from app.adapters.telegram.telegram_bot import TelegramBot
 from app.core.json_utils import extract_json
 from app.utils.json_validation import extract_structured_dict
 from tests.conftest import make_test_app_config
+from tests.telegram_bot_builders import AUDIT_REPOSITORY_BUILDER, RUNTIME_BUILDER
 
 
 def _create_mock_db() -> MagicMock:
@@ -213,7 +214,12 @@ class TestJsonParsing(unittest.TestCase):
     @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_local_repair_failure(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
-            bot = TelegramBot(self.cfg, self.db)
+            bot = TelegramBot(
+                cfg=self.cfg,
+                db=self.db,
+                runtime_builder=RUNTIME_BUILDER,
+                audit_repository_builder=AUDIT_REPOSITORY_BUILDER,
+            )
             mock_llm_response = MagicMock()
             mock_llm_response.status = "ok"
             mock_llm_response.response_text = "Still not valid JSON"
@@ -248,7 +254,12 @@ class TestJsonParsing(unittest.TestCase):
     @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_forward_salvage_from_structured_error(self, mock_openrouter_client) -> None:
         async def run_test() -> None:
-            bot = TelegramBot(self.cfg, self.db)
+            bot = TelegramBot(
+                cfg=self.cfg,
+                db=self.db,
+                runtime_builder=RUNTIME_BUILDER,
+                audit_repository_builder=AUDIT_REPOSITORY_BUILDER,
+            )
             mock_llm_response = MagicMock()
             mock_llm_response.status = "error"
             mock_llm_response.error_text = "structured_output_parse_error"

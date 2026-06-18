@@ -1,7 +1,7 @@
 """``SummaryCachePort`` adapter -- wraps ``LLMSummaryCache`` for the summarize graph.
 
 Adapter layer (``app.adapters``): may import concrete infrastructure. Wired at the
-composition root (:mod:`app.di.graphs`) into
+graph composition root into
 :class:`~app.application.graphs.summarize.deps.SummarizeDeps` as
 ``summary_cache``, so graph nodes never import this module
 (``application-no-outward``).

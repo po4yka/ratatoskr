@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.adapters.telegram.telegram_bot import TelegramBot
 from tests.conftest import make_test_app_config
+from tests.telegram_bot_builders import AUDIT_REPOSITORY_BUILDER, RUNTIME_BUILDER
 
 
 def _create_mock_db() -> MagicMock:
@@ -195,7 +196,12 @@ class TestJsonRepair(unittest.TestCase):
     @patch("app.adapters.llm.factory.LLMClientFactory._create_openrouter")
     def test_json_repair_failure(self, mock_openrouter_client):
         async def run_test():
-            bot = TelegramBot(self.cfg, self.db)
+            bot = TelegramBot(
+                cfg=self.cfg,
+                db=self.db,
+                runtime_builder=RUNTIME_BUILDER,
+                audit_repository_builder=AUDIT_REPOSITORY_BUILDER,
+            )
 
             # Mock failed responses
             mock_llm_response_initial = MagicMock()

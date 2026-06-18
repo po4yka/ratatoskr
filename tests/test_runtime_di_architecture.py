@@ -10,24 +10,18 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = PROJECT_ROOT / "app"
-EXCLUDED_GLOBS = [
-    "!app/di/**",
-    "!app/cli/**",
-    "!app/bootstrap/**",
-    "!app/db/migrations/**",
-    # Taskiq tasks are runtime entrypoints (analogous to CLI/bootstrap); each
-    # task constructs its own LLM/embedding clients from the loaded settings.
-    "!app/tasks/**",
-]
-PATTERNS = [
-    "DatabaseSessionManager(",
-    "LLMClientFactory.create_from_config(",
-    "ContentScraperFactory.create_from_config(",
-    "ResponseFormatter(",
-    "LocalTopicSearchService(",
-    "SummaryEmbeddingGenerator(",
-    "QdrantVectorStore(",
-]
+RUNTIME_CONSTRUCTORS = {
+    "DatabaseSessionManager": ("DatabaseSessionManager",),
+    "LLMClientFactory.create_from_config": ("LLMClientFactory", "create_from_config"),
+    "ContentScraperFactory.create_from_config": (
+        "ContentScraperFactory",
+        "create_from_config",
+    ),
+    "ResponseFormatter": ("ResponseFormatter",),
+    "LocalTopicSearchService": ("LocalTopicSearchService",),
+    "SummaryEmbeddingGenerator": ("SummaryEmbeddingGenerator",),
+    "QdrantVectorStore": ("QdrantVectorStore",),
+}
 FORMATTER_PRIVATE_PATTERNS = {
     "response_formatter.sender": re.compile(r"\b[\w.]*response_formatter\.sender\b"),
     "response_formatter.notifications": re.compile(r"\b[\w.]*response_formatter\.notifications\b"),
@@ -84,15 +78,49 @@ def _parse_python(path: Path) -> ast.Module:
     return ast.parse(path.read_text(), filename=str(path))
 
 
+def _is_excluded_runtime_path(path: Path) -> bool:
+    relative = path.relative_to(PROJECT_ROOT).as_posix()
+    return relative.startswith(
+        (
+            "app/di/",
+            "app/cli/",
+            "app/bootstrap/",
+            "app/db/migrations/",
+            "app/tasks/",
+        )
+    )
+
+
+def _call_name(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Name):
+        return (node.id,)
+    if isinstance(node, ast.Attribute):
+        return (*_call_name(node.value), node.attr)
+    return ()
+
+
+def _collect_runtime_construction_calls() -> list[str]:
+    violations: list[str] = []
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        if _is_excluded_runtime_path(path):
+            continue
+        module = _parse_python(path)
+        relative = path.relative_to(PROJECT_ROOT).as_posix()
+        for node in ast.walk(module):
+            if not isinstance(node, ast.Call):
+                continue
+            actual = _call_name(node.func)
+            for label, expected in RUNTIME_CONSTRUCTORS.items():
+                if actual[-len(expected) :] == expected:
+                    violations.append(f"{relative}:{node.lineno} {label}")
+    return violations
+
+
 @pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required for architecture guard")
 def test_runtime_resource_construction_is_centralized_in_app_di() -> None:
     """Production runtime resources should only be assembled in app/di or CLI binaries."""
-    for pattern in PATTERNS:
-        result = _run_rg(pattern=pattern, fixed=True, globs=EXCLUDED_GLOBS)
-        assert result.returncode in (0, 1)
-        assert result.stdout.strip() == "", (
-            f"found forbidden runtime construction for {pattern!r}:\n{result.stdout}"
-        )
+    violations = _collect_runtime_construction_calls()
+    assert violations == [], "found forbidden runtime construction:\n" + "\n".join(violations)
 
 
 def test_formatter_private_surfaces_are_not_used_outside_formatting_package() -> None:

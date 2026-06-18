@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 from app.adapters.telegram.telegram_bot import TelegramBot
 from app.config.runtime import RuntimeConfig
 from tests.conftest import make_test_app_config
+from tests.telegram_bot_builders import AUDIT_REPOSITORY_BUILDER, RUNTIME_BUILDER
 
 if TYPE_CHECKING:
     from app.db.session import Database
@@ -70,7 +71,12 @@ def _make_bot(database: Database) -> SpyBot:
 
     tbmod.Client = object
     tbmod.filters = None
-    return SpyBot(cfg=cfg, db=database)
+    return SpyBot(
+        cfg=cfg,
+        db=database,
+        runtime_builder=RUNTIME_BUILDER,
+        audit_repository_builder=AUDIT_REPOSITORY_BUILDER,
+    )
 
 
 async def test_direct_process_multi_links(database: Database) -> None:

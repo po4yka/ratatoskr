@@ -28,6 +28,7 @@ from tests.db_helpers_async import (
     insert_crawl_result,
     insert_summary,
 )
+from tests.telegram_bot_builders import AUDIT_REPOSITORY_BUILDER, RUNTIME_BUILDER
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,7 +126,12 @@ def _make_bot(database: Database) -> TelegramBot:
 
     with patch("app.adapters.openrouter.openrouter_client.OpenRouterClient") as mock_or:
         mock_or.return_value = AsyncMock()
-        return TelegramBot(cfg=cfg, db=database)
+        return TelegramBot(
+            cfg=cfg,
+            db=database,
+            runtime_builder=RUNTIME_BUILDER,
+            audit_repository_builder=AUDIT_REPOSITORY_BUILDER,
+        )
 
 
 @pytest.mark.asyncio

@@ -14,9 +14,6 @@ from app.adapters.telegram.telethon_compat import normalize_parse_mode
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import generate_correlation_id, get_logger, setup_json_logging
 from app.core.time_utils import UTC, format_iso_z
-from app.di.repositories import build_audit_log_repository as create_bot_audit_repository
-from app.di.telegram import build_telegram_runtime as build_bot_runtime
-
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -34,9 +31,11 @@ class TelegramBot:
 
     cfg: AppConfig
     db: Database
+    runtime_builder: Callable[..., Any]
+    audit_repository_builder: Callable[[Database], Any]
     db_write_queue: DbWriteQueue | None = None
 
-    # Dynamically assigned in __post_init__ after build_bot_runtime()
+    # Dynamically assigned in __post_init__ after runtime_builder()
     telegram_client: Any = field(default=None, init=False, repr=False)
     response_formatter: Any = field(default=None, init=False, repr=False)
     url_processor: Any = field(default=None, init=False, repr=False)
@@ -56,8 +55,8 @@ class TelegramBot:
         )
 
         self._audit_tasks: set[asyncio.Task[Any]] = set()
-        self.audit_repo = create_bot_audit_repository(self.db)
-        components = build_bot_runtime(
+        self.audit_repo = self.audit_repository_builder(self.db)
+        components = self.runtime_builder(
             cfg=self.cfg,
             db=self.db,
             safe_reply_func=self._safe_reply,

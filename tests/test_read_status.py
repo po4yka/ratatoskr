@@ -24,6 +24,7 @@ from tests.db_helpers_async import (
     insert_summary,
     mark_summary_as_read,
 )
+from tests.telegram_bot_builders import AUDIT_REPOSITORY_BUILDER, RUNTIME_BUILDER
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,7 +77,12 @@ def _make_bot(database: Database) -> ReadStatusBot:
 
     tbmod.Client = object
     tbmod.filters = None
-    return ReadStatusBot(cfg=cfg, db=database)
+    return ReadStatusBot(
+        cfg=cfg,
+        db=database,
+        runtime_builder=RUNTIME_BUILDER,
+        audit_repository_builder=AUDIT_REPOSITORY_BUILDER,
+    )
 
 
 # ---------------------------------------------------------------------------

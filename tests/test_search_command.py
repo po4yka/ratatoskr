@@ -16,6 +16,7 @@ from app.adapters.telegram.telegram_bot import TelegramBot
 from app.application.services.topic_search import TopicArticle
 from tests.conftest import make_test_app_config
 from tests.db_helpers_async import get_user_interactions
+from tests.telegram_bot_builders import AUDIT_REPOSITORY_BUILDER, RUNTIME_BUILDER
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,7 +68,12 @@ def _make_bot(database: Database) -> BotSpy:
 
     with patch("app.adapters.openrouter.openrouter_client.OpenRouterClient") as mock_or:
         mock_or.return_value = AsyncMock()
-        return BotSpy(cfg=cfg, db=database)
+        return BotSpy(
+            cfg=cfg,
+            db=database,
+            runtime_builder=RUNTIME_BUILDER,
+            audit_repository_builder=AUDIT_REPOSITORY_BUILDER,
+        )
 
 
 # ---------------------------------------------------------------------------
