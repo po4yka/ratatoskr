@@ -212,6 +212,32 @@ async def test_lease_start_and_outcome_recorded(monkeypatch):
     assert kwargs["request_id"] == 777
 
 
+async def test_existing_request_mode_skips_create_snapshot_and_sync_lease(monkeypatch):
+    lease_repo = _patch_lease(monkeypatch)
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+        plain=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+    )
+    message_persistence = _message_persistence()
+    facade = _facade(message_persistence=message_persistence)
+
+    result = await facade.handle_url_flow(
+        _url_request(
+            silent=True,
+            existing_request_id=123,
+            manage_processing_job=False,
+            persist_message_snapshot=False,
+        )
+    )
+
+    assert result.request_id == 123
+    message_persistence.request_repo.async_create_request.assert_not_awaited()
+    message_persistence.persist_message_snapshot.assert_not_awaited()
+    lease_repo.record_synchronous_start.assert_not_awaited()
+    lease_repo.record_synchronous_outcome.assert_not_awaited()
+
+
 # --------------------------------------------------------------------------- #
 # (c) post_summary_tasks scheduled only when not batch / not silent
 # --------------------------------------------------------------------------- #

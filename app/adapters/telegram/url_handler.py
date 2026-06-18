@@ -541,6 +541,17 @@ class URLHandler:
             )
             return URLProcessingFlowResult(success=True, request_id=request_id)
 
+        message_persistence = getattr(self.url_processor, "message_persistence", None)
+        persist_snapshot = getattr(message_persistence, "persist_message_snapshot", None)
+        if callable(persist_snapshot):
+            try:
+                await persist_snapshot(request_id, message)
+            except Exception as exc:
+                logger.warning(
+                    "url_worker_enqueue_message_snapshot_failed",
+                    extra={"cid": cid, "request_id": request_id, "error": str(exc)},
+                )
+
         # 2. Insert the pending job row.
         job_repo = RequestProcessingJobRepository(self.db)
         try:

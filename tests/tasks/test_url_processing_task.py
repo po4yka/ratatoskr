@@ -214,6 +214,10 @@ async def test_process_url_request_happy_path(monkeypatch):
         )
 
     url_processor.handle_url_flow.assert_awaited_once()
+    flow_request = url_processor.handle_url_flow.await_args.args[0]
+    assert flow_request.existing_request_id == 1
+    assert flow_request.manage_processing_job is False
+    assert flow_request.persist_message_snapshot is False
     telegram_sender.edit_message_text.assert_awaited_once()
     job_repo.mark_succeeded.assert_awaited_once()
 

@@ -94,6 +94,7 @@ def _make_response_formatter(*, reply_message_id: int = 55):
 def _make_url_processor():
     proc = MagicMock()
     proc.handle_url_flow = AsyncMock(return_value=SimpleNamespace(success=True, request_id=1))
+    proc.message_persistence = MagicMock(persist_message_snapshot=AsyncMock())
     proc.summary_repo = MagicMock()
     proc.audit_func = MagicMock()
     return proc
@@ -171,6 +172,12 @@ async def test_enqueue_path_taken_when_enabled(monkeypatch):
     url_processor.handle_url_flow.assert_not_awaited()
     # Request row must have been created atomically.
     request_repo.async_create_request_once.assert_awaited_once()
+    url_processor.message_persistence.persist_message_snapshot.assert_awaited_once()
+    snapshot_request_id, snapshot_message = (
+        url_processor.message_persistence.persist_message_snapshot.await_args.args
+    )
+    assert snapshot_request_id == 7
+    assert snapshot_message.id == 10
     # Job row must have been inserted.
     job_repo.record_pending_enqueue.assert_awaited_once()
     # Placeholder reply must have been sent.

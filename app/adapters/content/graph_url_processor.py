@@ -532,6 +532,9 @@ class GraphURLProcessor:
         """
         from app.core.url_utils import normalize_url
 
+        if request.existing_request_id is not None:
+            return request.existing_request_id
+
         dedupe_hash = compute_dedupe_hash(request.url_text)
         normalized = normalize_url(request.url_text)
         chat_id, user_id, input_message_id = _message_identity(request.message)
@@ -552,7 +555,7 @@ class GraphURLProcessor:
         # the sending User / Chat) so the graph path is row-for-row identical to the
         # legacy lifecycle. Best-effort, mirroring legacy: a snapshot failure must
         # not abort the flow (the request row already exists).
-        if request.message is not None:
+        if request.message is not None and request.persist_message_snapshot:
             try:
                 await self.message_persistence.persist_message_snapshot(req_id, request.message)
             except Exception as exc:
@@ -735,6 +738,8 @@ class GraphURLProcessor:
 
     async def _record_url_flow_start(self, *, request: URLFlowRequest, req_id: int) -> None:
         """Write a ``running`` job row at flow entry for crash-recovery (lease)."""
+        if not request.manage_processing_job:
+            return
         try:
             from app.infrastructure.persistence.request_processing_job_repository import (
                 RequestProcessingJobRepository,
@@ -792,7 +797,7 @@ class GraphURLProcessor:
                 },
             )
 
-        if req_id is None:
+        if req_id is None or not request.manage_processing_job:
             return
         try:
             from app.infrastructure.persistence.request_processing_job_repository import (

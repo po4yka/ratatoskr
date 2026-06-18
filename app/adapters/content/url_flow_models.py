@@ -30,6 +30,9 @@ class URLFlowRequest:
     batch_mode: bool = False
     on_phase_change: PhaseChangeCallback | None = None
     progress_tracker: TelegramProgressMessage | None = None
+    existing_request_id: int | None = None
+    manage_processing_job: bool = True
+    persist_message_snapshot: bool = True
 
     @property
     def effective_silent(self) -> bool:

@@ -218,6 +218,9 @@ async def _run_url_task(
         correlation_id=cid,
         silent=True,  # Suppress Telegram delivery — worker edits the placeholder directly.
         batch_mode=False,
+        existing_request_id=request_id,
+        manage_processing_job=False,
+        persist_message_snapshot=False,
     )
 
     try:
