@@ -101,6 +101,7 @@ def _make_dispatch_outcome(*, handled: bool = True) -> SimpleNamespace:
 # Router factory
 # ---------------------------------------------------------------------------
 
+
 def _make_router(
     *,
     allowed_uid: int = _ALLOWED_UID,
@@ -159,6 +160,7 @@ def _make_router(
 # Test utilities - patch router internals
 # ---------------------------------------------------------------------------
 
+
 def _patch_router_internals(
     router: MessageRouter,
     *,
@@ -187,6 +189,7 @@ def _patch_router_internals(
 
 
 # Silence OTel tracer for all tests in this module ----------------------------
+
 
 @pytest.fixture(autouse=True)
 def _no_otel() -> Any:
