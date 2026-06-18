@@ -313,7 +313,7 @@ async def test_sync_router_handlers_emit_snake_case_wire_keys() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_sync_session_pagination_does_not_advertise_next_page() -> None:
+async def test_create_sync_session_does_not_emit_pagination_meta() -> None:
     item = SyncEntityEnvelope(
         entity_type="summary",
         id=42,
@@ -326,12 +326,7 @@ async def test_create_sync_session_pagination_does_not_advertise_next_page() -> 
     session = await create_sync_session(body=SyncSessionRequest(limit=50), user=user, svc=svc)
 
     assert session["success"] is True
-    assert session["meta"]["pagination"] == {
-        "total": 1,
-        "limit": 50,
-        "offset": 0,
-        "hasMore": False,
-    }
+    assert session["meta"]["pagination"] is None
 
 
 @pytest.mark.asyncio

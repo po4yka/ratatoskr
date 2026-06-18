@@ -6,7 +6,7 @@ Implementation map for the offline sync surface used by mobile clients. This is 
 
 | Step | Endpoint | Backend owner | Notes |
 |---|---|---|---|
-| Create/resume session | `POST /v1/sync/sessions` | `app/api/routers/sync.py`, `app/api/services/sync/service.py`, `app/api/services/sync/session_store.py` | Returns a session payload plus pagination metadata. Session storage uses Redis when available and falls back to in-process memory. |
+| Create/resume session | `POST /v1/sync/sessions` | `app/api/routers/sync.py`, `app/api/services/sync/service.py`, `app/api/services/sync/session_store.py` | Returns a session payload only; pagination metadata belongs to full and delta page responses. Session storage uses Redis when available and falls back to in-process memory. |
 | Full sync | `GET /v1/sync/full?session_id=...&limit=...` | `app/api/services/sync/collector.py`, `app/infrastructure/persistence/sync_aux_read_adapter.py` | Bounded initial chunks. Keep cursor/limit behavior aligned with generated OpenAPI. |
 | Delta sync | `GET /v1/sync/delta?session_id=...&cursor=...&limit=...` | `app/api/routers/sync.py::_build_delta_etag`, `app/api/services/sync/collector.py` | Emits created/updated/deleted records since the cursor and ETag keyed by session plus max server version. |
 | Apply changes | `POST /v1/sync/apply` | `app/api/services/sync/apply.py`, `app/api/services/sync/service.py` | Applies client-side changes with per-item results and idempotency handling where the request model provides it. |

@@ -52,13 +52,7 @@ async def create_sync_session(
         limit=body.limit if body else None,
     )
 
-    pagination = {
-        "total": 1,
-        "limit": session.default_limit,
-        "offset": 0,
-        "has_more": False,
-    }
-    return success_response(session, pagination=pagination)
+    return success_response(session)
 
 
 @router.get("/full")
