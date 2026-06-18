@@ -80,9 +80,14 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "${HTTP_STATUS}" != "200" ]; then
-            echo "::error::Safety index returned HTTP ${HTTP_STATUS} (expected 200). The subscription may have lapsed or the key may be invalid. Aborting to prevent PyPI-only fallback resolution."
+          if [ "${HTTP_STATUS}" = "401" ] || [ "${HTTP_STATUS}" = "403" ]; then
+            echo "::error::Safety index returned HTTP ${HTTP_STATUS}. The subscription may have lapsed or the key may be invalid. Aborting to prevent PyPI-only fallback resolution."
             exit 1
+          fi
+          if [ "${HTTP_STATUS}" != "200" ]; then
+            echo "::warning::Safety index returned HTTP ${HTTP_STATUS} after retries. Skipping automated lock refresh for this push; ci.yml still validates committed lockfile drift."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "available=true" >> "$GITHUB_OUTPUT"
           echo "Safety index reachable (HTTP ${HTTP_STATUS}). Proceeding with uv lock."
