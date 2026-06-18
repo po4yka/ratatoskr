@@ -3967,6 +3967,75 @@
         }
       }
     },
+    "/v1/git-mirrors/search": {
+      "get": {
+        "tags": [
+          "git-mirrors"
+        ],
+        "summary": "Search Mirrors",
+        "description": "Semantic search over non-GitHub git mirror READMEs indexed in Qdrant.\n\nOnly mirrors with repository_id IS NULL (manual/arbitrary targets) are\nindexed and searchable via this endpoint. GitHub-linked mirrors are\nsearchable via the repository search endpoint.",
+        "operationId": "search_mirrors_v1_git_mirrors_search_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Semantic search query",
+              "title": "Q"
+            },
+            "description": "Semantic search query"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitMirrorSearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/git-mirrors/{mirror_id}": {
       "get": {
         "tags": [
@@ -4046,75 +4115,6 @@
         "responses": {
           "204": {
             "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalServerError"
-          }
-        }
-      }
-    },
-    "/v1/git-mirrors/search": {
-      "get": {
-        "tags": [
-          "git-mirrors"
-        ],
-        "summary": "Search Mirrors",
-        "description": "Semantic search over non-GitHub git mirror READMEs indexed in Qdrant.\n\nOnly mirrors with repository_id IS NULL (manual/arbitrary targets) are\nindexed and searchable via this endpoint. GitHub-linked mirrors are\nsearchable via the repository search endpoint.",
-        "operationId": "search_mirrors_v1_git_mirrors_search_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Semantic search query",
-              "title": "Q"
-            },
-            "description": "Semantic search query"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "default": 20,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitMirrorSearchResponse"
-                }
-              }
-            }
           },
           "422": {
             "description": "Validation Error",

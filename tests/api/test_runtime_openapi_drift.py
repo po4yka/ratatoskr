@@ -28,6 +28,7 @@ from typing import Any
 
 import pytest
 import yaml  # type: ignore[import-untyped,unused-ignore]
+from starlette.routing import Match
 
 # Re-use the same constants as the existing sync tests so we stay consistent
 # with the ignore list and the spec-resolution behaviour.
@@ -178,6 +179,61 @@ class TestRuntimeOpenApiDrift:
         if errors:
             pytest.fail(
                 "Route drift between runtime app.openapi() and YAML:\n" + "\n\n".join(errors)
+            )
+
+    def test_static_runtime_routes_are_not_shadowed_by_dynamic_routes(
+        self, runtime_spec: dict[str, Any]
+    ) -> None:
+        """A documented static path must dispatch to its own route at runtime.
+
+        FastAPI's OpenAPI generator lists every route independently, but
+        Starlette dispatches by declaration order. If an earlier dynamic route
+        such as ``/{id}`` can match a later static route like ``/search``, the
+        runtime returns the dynamic route's validation error instead of the
+        static route contract even though OpenAPI advertises the static path.
+        """
+        from app.api.main import app
+
+        documented_static_routes = {
+            (method.upper(), path)
+            for path, methods in runtime_spec.get("paths", {}).items()
+            if "{" not in path
+            for method in methods
+            if method.upper() in RELEVANT_METHODS
+        }
+
+        shadows: list[str] = []
+        seen_routes: list[Any] = []
+        for route in app.routes:
+            route_methods = {m.upper() for m in getattr(route, "methods", set())}
+            route_path = _strip_path_converters(getattr(route, "path", ""))
+            for method in route_methods & RELEVANT_METHODS:
+                if (method, route_path) in documented_static_routes:
+                    scope = {
+                        "type": "http",
+                        "method": method,
+                        "path": route_path,
+                        "root_path": "",
+                    }
+                    for previous in seen_routes:
+                        previous_methods = {
+                            m.upper() for m in getattr(previous, "methods", set())
+                        }
+                        if method not in previous_methods:
+                            continue
+                        match, _ = previous.matches(scope)
+                        if match is Match.FULL:
+                            shadows.append(
+                                f"{method} {route_path} is shadowed by "
+                                f"{getattr(previous, 'path', '<unknown>')}"
+                            )
+                            break
+            seen_routes.append(route)
+
+        if shadows:
+            pytest.fail(
+                "Runtime route dispatch shadows documented static OpenAPI paths:\n"
+                + "\n".join(f"  - {shadow}" for shadow in shadows)
             )
 
     def test_runtime_response_envelopes_align_with_yaml(

@@ -210,23 +210,6 @@ async def register_mirror(
     )
 
 
-@router.get("/{mirror_id}", response_model=GitMirrorDetail)
-async def get_mirror(
-    mirror_id: int,
-    user: dict[str, Any] = Depends(get_current_user),
-    db: Database = Depends(_get_db),
-) -> GitMirrorDetail:
-    """Get full detail for a single git mirror."""
-    user_id: int = user["user_id"]
-
-    row = await _load_owned_mirror(db, mirror_id=mirror_id, user_id=user_id)
-
-    if row is None:
-        raise HTTPException(status_code=404, detail="Git mirror not found")
-
-    return _mirror_to_detail(row)
-
-
 @router.get("/search", response_model=GitMirrorSearchResponse)
 async def search_mirrors(
     request: Request,
@@ -288,6 +271,23 @@ async def search_mirrors(
         for r in results.items
     ]
     return GitMirrorSearchResponse(items=items, total=results.total, limit=results.limit)
+
+
+@router.get("/{mirror_id}", response_model=GitMirrorDetail)
+async def get_mirror(
+    mirror_id: int,
+    user: dict[str, Any] = Depends(get_current_user),
+    db: Database = Depends(_get_db),
+) -> GitMirrorDetail:
+    """Get full detail for a single git mirror."""
+    user_id: int = user["user_id"]
+
+    row = await _load_owned_mirror(db, mirror_id=mirror_id, user_id=user_id)
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Git mirror not found")
+
+    return _mirror_to_detail(row)
 
 
 @router.delete("/{mirror_id}", status_code=204)
