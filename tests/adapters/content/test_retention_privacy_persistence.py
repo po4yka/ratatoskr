@@ -81,3 +81,36 @@ async def test_crawl_persistence_strips_raw_content_in_no_retention_mode() -> No
     assert kwargs["html"] is None
     assert kwargs["metadata_json"] == {"title": "Saved title", "raw_payload_persisted": False}
     assert kwargs["source_url"] == "https://example.test/post"
+
+
+@pytest.mark.asyncio
+async def test_crawl_persistence_extracts_chain_attempt_telemetry() -> None:
+    mixin = ContentExtractorRequestsMixin()
+    mixin.cfg = _cfg(no_retention=False)
+    crawl_repo = AsyncMock()
+    mixin.message_persistence = SimpleNamespace(crawl_repo=crawl_repo)
+    crawl = SimpleNamespace(
+        response_success=False,
+        content_markdown=None,
+        content_html=None,
+        error_text="SSRF blocked URL",
+        metadata_json=None,
+        source_url="http://127.0.0.1/private",
+        http_status=None,
+        status="error",
+        endpoint="chain",
+        latency_ms=5,
+        correlation_id="cid",
+        options_json={
+            "_chain_attempt_log": [],
+            "_chain_winning_provider": None,
+            "safe_option": True,
+        },
+    )
+
+    await mixin._persist_crawl_result(11, crawl, "cid")
+
+    kwargs = crawl_repo.async_insert_crawl_result.await_args.kwargs
+    assert kwargs["attempt_log"] == []
+    assert kwargs["winning_provider"] is None
+    assert kwargs["options_json"] == {"safe_option": True}

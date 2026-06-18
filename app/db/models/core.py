@@ -505,9 +505,8 @@ class CrawlResult(Base):
     raw_response_json: Mapped[JSONValue] = _json_column()
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Scraper-chain telemetry — populated by ScraperAttemptRecorder
-    # when chain wiring lands. Migration 0015 adds the backing DB
-    # columns. See app/adapters/content/scraper/attempt_log.py.
+    # Scraper-chain telemetry populated from ScraperAttemptRecorder output.
+    # See app/adapters/content/scraper/attempt_log.py.
     attempt_log: Mapped[JSONValue] = _json_column()
     winning_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
     server_version: Mapped[int] = mapped_column(
