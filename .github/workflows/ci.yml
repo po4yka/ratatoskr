@@ -602,6 +602,10 @@ jobs:
             # set (uv handles the same constraints fine). Skip it — it's a
             # type-check-only dep with no runtime presence.
             grep -v "^ast-serialize==" | \
+            # pip-audit shells out to plain pip, whose resolver cannot combine
+            # websockets 16 with the uv-resolved langgraph-sdk/uvicorn set.
+            # OSV scans uv.lock directly, so websockets remains covered there.
+            grep -v "^websockets==" | \
             sort -u > requirements-audit.txt
 
       - name: Run pip-audit
@@ -686,7 +690,9 @@ jobs:
       - name: Run Safety
         # torch CVE-2025-3000 (SFTY-20250331-30014): no upstream fix, ml extra
         # only; also accepted for OSV (osv-scanner.toml) and pip-audit.
-        run: safety check --full-report --ignore SFTY-20250331-30014
+        # nltk CVE-2026-54293 (SFTY-20260616-58930): pulled by Safety itself
+        # after the project dependency sync; no fixed nltk release exists yet.
+        run: safety check --full-report --ignore SFTY-20250331-30014 --ignore SFTY-20260616-58930
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
 
