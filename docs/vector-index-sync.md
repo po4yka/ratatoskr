@@ -39,6 +39,18 @@ Repository embeddings use the same cursor: `repository_embeddings.content_hash` 
 
 The reconciler runs in the Taskiq worker process. The fast path ensures freshness for new summaries; the reconciler handles backfill and convergence for any rows the fast path missed.
 
+## Prometheus metrics and alerts
+
+The Taskiq reconciler emits these Prometheus series on every run:
+
+| Metric | Type | Labels | Notes |
+|--------|------|--------|-------|
+| `ratatoskr_vector_reconcile_rows_total` | counter | `outcome` | Row outcomes for `scanned`, `requeued`, `skipped`, and `failed`. |
+| `ratatoskr_vector_reconcile_oldest_lag_seconds` | gauge | none | Oldest lag among stale rows selected for the current run. For rows with no previous index timestamp, the summary `updated_at` timestamp is used as the lag marker. |
+| `ratatoskr_vector_reconcile_runs_total` | counter | `status` | Run terminal status: `success` or `error`. Exceptions increment `status="error"` before being re-raised. |
+
+`ops/monitoring/alerting_rules.yml` defines two reconciler alerts: `RatatoskrVectorReconcilerStalenessLagHigh` warns when stale-row lag exceeds two default `VECTOR_RECONCILE_CRON` periods, and `RatatoskrVectorReconcilerStopped` pages when no reconciler run status is observed for the same default two-period window.
+
 ## Reconciliation adapter seam
 
 `app/infrastructure/vector/reconciliation.py` is the shared diagnostics and repair-inspection layer. The default reconciler is configured with two adapters:

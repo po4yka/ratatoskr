@@ -30,6 +30,12 @@ from app.infrastructure.vector.summary_point import (
     coerce_summary_payload,
     extract_indexable_text,
 )
+from app.observability.metrics import (
+    compute_vector_reconcile_oldest_lag_seconds,
+    record_vector_reconcile_rows,
+    record_vector_reconcile_run,
+    set_vector_reconcile_oldest_lag_seconds,
+)
 from app.tasks.broker import broker
 from app.tasks.deps import build_vector_reconcile_task_runtime, get_app_config, get_db
 
@@ -57,33 +63,48 @@ async def reconcile_vector_index(
     db: Database = TaskiqDepends(get_db),
 ) -> ReconcileSummary:
     """Re-embed summaries whose embedding row is stale relative to the source."""
-    redis_client = await get_redis(cfg)
-    async with RedisDistributedLock(
-        redis_client, _VECTOR_RECONCILE_LOCK_KEY, _VECTOR_RECONCILE_LOCK_TTL
-    ) as acquired:
-        if not acquired:
-            logger.info(
-                "vector_reconcile_skipped_lock_held",
-                extra={"key": _VECTOR_RECONCILE_LOCK_KEY},
-            )
-            return ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
-        return await _reconcile_body(cfg, db)
+    try:
+        redis_client = await get_redis(cfg)
+        async with RedisDistributedLock(
+            redis_client, _VECTOR_RECONCILE_LOCK_KEY, _VECTOR_RECONCILE_LOCK_TTL
+        ) as acquired:
+            if not acquired:
+                logger.info(
+                    "vector_reconcile_skipped_lock_held",
+                    extra={"key": _VECTOR_RECONCILE_LOCK_KEY},
+                )
+                summary = ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
+                _record_reconcile_metrics(summary, oldest_lag_seconds=0.0, run_status="success")
+                return summary
+            return await _reconcile_body(cfg, db)
+    except Exception:
+        record_vector_reconcile_run(status="error")
+        raise
 
 
 async def _reconcile_body(cfg: AppConfig, db: Database) -> ReconcileSummary:
     correlation_id = f"vector-reconcile-{uuid4()}"
     if not cfg.vector_reconcile.enabled:
         logger.info("vector_reconcile_disabled", extra={"cid": correlation_id})
-        return ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
+        summary = ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
+        _record_reconcile_metrics(summary, oldest_lag_seconds=0.0, run_status="success")
+        return summary
 
     batch_size = cfg.vector_reconcile.batch_size
     rows = await _fetch_stale_summaries(db, limit=batch_size)
+    oldest_lag_seconds = compute_vector_reconcile_oldest_lag_seconds(rows)
     if not rows:
         logger.info(
             "vector_reconcile_nothing_to_do",
             extra={"cid": correlation_id, "batch_size": batch_size},
         )
-        return ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
+        summary = ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
+        _record_reconcile_metrics(
+            summary,
+            oldest_lag_seconds=oldest_lag_seconds,
+            run_status="success",
+        )
+        return summary
 
     runtime = _build_runtime(cfg, db)
     generator = runtime.embedding_generator
@@ -112,7 +133,13 @@ async def _reconcile_body(cfg: AppConfig, db: Database) -> ReconcileSummary:
             "skipped": summary.skipped,
             "failed": summary.failed,
             "embedding_rows": batch.indexed,
+            "oldest_lag_seconds": oldest_lag_seconds,
         },
+    )
+    _record_reconcile_metrics(
+        summary,
+        oldest_lag_seconds=oldest_lag_seconds,
+        run_status="success",
     )
     return summary
 
@@ -136,7 +163,9 @@ async def _fetch_stale_summaries(db: Database, *, limit: int) -> list[dict[str, 
                 Summary.request_id,
                 Summary.json_payload,
                 Summary.lang,
+                Summary.updated_at,
                 Request.lang_detected,
+                SummaryEmbedding.last_indexed_at,
             )
             .join(Request, Summary.request_id == Request.id)
             .outerjoin(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
@@ -154,6 +183,22 @@ async def _fetch_stale_summaries(db: Database, *, limit: int) -> list[dict[str, 
         )
         result = await session.execute(stmt)
         return [dict(row._mapping) for row in result]
+
+
+def _record_reconcile_metrics(
+    summary: ReconcileSummary,
+    *,
+    oldest_lag_seconds: float,
+    run_status: str,
+) -> None:
+    record_vector_reconcile_rows(
+        scanned=summary.scanned,
+        requeued=summary.requeued,
+        skipped=summary.skipped,
+        failed=summary.failed,
+    )
+    set_vector_reconcile_oldest_lag_seconds(oldest_lag_seconds)
+    record_vector_reconcile_run(status=run_status)
 
 
 def _build_runtime(cfg: AppConfig, db: Database) -> Any:

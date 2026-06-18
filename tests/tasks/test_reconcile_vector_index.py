@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import sys
 import types
@@ -9,6 +10,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from app.observability import metrics as metrics_module
 
 
 def _stub_taskiq(monkeypatch):
@@ -61,6 +64,19 @@ def _build_cfg(*, enabled: bool = True, batch_size: int = 100) -> SimpleNamespac
         embedding=SimpleNamespace(max_token_length=512),
         vector_store=SimpleNamespace(environment="test", user_scope="owner"),
     )
+
+
+def _counter_value(counter, **labels) -> float:
+    if counter is None:
+        return 0.0
+    sample = counter.labels(**labels)
+    return float(sample._value.get())
+
+
+def _gauge_value(gauge) -> float:
+    if gauge is None:
+        return 0.0
+    return float(gauge._value.get())
 
 
 @pytest.mark.asyncio
@@ -190,6 +206,97 @@ async def test_reconcile_surfaces_batch_failure_counts(monkeypatch):
     assert summary.requeued == 1
     assert summary.failed == 1
     assert summary.skipped == 0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_records_metrics_for_forced_run(monkeypatch):
+    if metrics_module.VECTOR_RECONCILE_ROWS_TOTAL is None:
+        pytest.skip("prometheus_client is not available")
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.application.services.summary_embedding_generator import EmbeddingBatchResult
+    from app.tasks.reconcile_vector_index import _reconcile_body
+
+    now = dt.datetime.now(dt.UTC)
+    rows = [
+        {
+            "summary_id": 1,
+            "json_payload": {"summary_250": "a"},
+            "lang_detected": "en",
+            "updated_at": now - dt.timedelta(minutes=15),
+            "last_indexed_at": now - dt.timedelta(hours=2),
+        },
+        {
+            "summary_id": 2,
+            "json_payload": {"summary_250": "b"},
+            "lang_detected": "ru",
+            "updated_at": now - dt.timedelta(minutes=20),
+            "last_indexed_at": None,
+        },
+        {
+            "summary_id": 3,
+            "json_payload": {"summary_250": "c"},
+            "lang_detected": None,
+            "updated_at": now - dt.timedelta(minutes=10),
+            "last_indexed_at": now - dt.timedelta(minutes=30),
+        },
+    ]
+    monkeypatch.setattr(
+        "app.tasks.reconcile_vector_index._fetch_stale_summaries",
+        AsyncMock(return_value=rows),
+    )
+
+    fake_generator = SimpleNamespace(
+        generate_embeddings_for_summaries=AsyncMock(
+            return_value=EmbeddingBatchResult(indexed=1, skipped=1, failed=1)
+        )
+    )
+    monkeypatch.setattr(
+        "app.tasks.reconcile_vector_index._build_runtime",
+        lambda _cfg, _db: SimpleNamespace(embedding_generator=fake_generator),
+    )
+    monkeypatch.setattr(
+        "app.tasks.reconcile_vector_index._sync_summary_vectors",
+        AsyncMock(return_value=1),
+    )
+
+    before_scanned = _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="scanned")
+    before_requeued = _counter_value(
+        metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="requeued"
+    )
+    before_skipped = _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="skipped")
+    before_failed = _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="failed")
+    before_success = _counter_value(metrics_module.VECTOR_RECONCILE_RUNS_TOTAL, status="success")
+
+    summary = await _reconcile_body(_build_cfg(), MagicMock())
+
+    assert summary.scanned == 3
+    assert summary.requeued == 1
+    assert summary.skipped == 1
+    assert summary.failed == 1
+    assert (
+        _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="scanned")
+        == before_scanned + 3
+    )
+    assert (
+        _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="requeued")
+        == before_requeued + 1
+    )
+    assert (
+        _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="skipped")
+        == before_skipped + 1
+    )
+    assert (
+        _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="failed")
+        == before_failed + 1
+    )
+    assert (
+        _counter_value(metrics_module.VECTOR_RECONCILE_RUNS_TOTAL, status="success")
+        == before_success + 1
+    )
+    assert _gauge_value(metrics_module.VECTOR_RECONCILE_OLDEST_LAG_SECONDS) >= 7200
 
 
 @pytest.mark.asyncio

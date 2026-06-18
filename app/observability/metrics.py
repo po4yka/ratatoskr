@@ -247,9 +247,16 @@ from app.observability.metrics_twitter import (
 # ---------------------------------------------------------------------------
 from app.observability.metrics_vector import (
     VECTOR_INDEXING_LAG,
+    VECTOR_RECONCILE_OLDEST_LAG_SECONDS,
+    VECTOR_RECONCILE_ROWS_TOTAL,
+    VECTOR_RECONCILE_RUNS_TOTAL,
     VECTOR_WRITES_TOTAL,
+    compute_vector_reconcile_oldest_lag_seconds,
     record_vector_index_lag,
+    record_vector_reconcile_rows,
+    record_vector_reconcile_run,
     record_vector_write,
+    set_vector_reconcile_oldest_lag_seconds,
 )
 
 # ---------------------------------------------------------------------------
@@ -413,9 +420,16 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "set_db_connections",
     # Vector store
     "VECTOR_INDEXING_LAG",
+    "VECTOR_RECONCILE_OLDEST_LAG_SECONDS",
+    "VECTOR_RECONCILE_ROWS_TOTAL",
+    "VECTOR_RECONCILE_RUNS_TOTAL",
     "VECTOR_WRITES_TOTAL",
+    "compute_vector_reconcile_oldest_lag_seconds",
     "record_vector_index_lag",
+    "record_vector_reconcile_rows",
+    "record_vector_reconcile_run",
     "record_vector_write",
+    "set_vector_reconcile_oldest_lag_seconds",
     # Scheduler
     "SCHEDULER_JOB_CHRONIC_FAILURES",
     "SCHEDULER_QUEUE_DEPTH",

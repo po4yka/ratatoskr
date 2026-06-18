@@ -225,3 +225,28 @@ groups:
             More than 5% of LLM requests in the last 15 minutes burned
             through the full fallback chain. Check OpenRouter status and
             recent prompt changes. Current rate: {{ $value | humanizePercentage }}.
+
+  - name: ratatoskr_vector_reconciler
+    rules:
+      - alert: RatatoskrVectorReconcilerStalenessLagHigh
+        expr: ratatoskr_vector_reconcile_oldest_lag_seconds > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Vector reconciler stale-row lag exceeds two default cron periods"
+          description: "The oldest stale vector row has lagged for {{ $value | humanizeDuration }}. The default VECTOR_RECONCILE_CRON is every 30 minutes, so this alert fires after lag exceeds two expected runs."
+          runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/vector-index-sync.md"
+
+      - alert: RatatoskrVectorReconcilerStopped
+        expr: |
+          absent(ratatoskr_vector_reconcile_runs_total)
+          or
+          sum(increase(ratatoskr_vector_reconcile_runs_total[1h])) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vector reconciler has not reported a run"
+          description: "No vector reconciler run status has been observed for two default VECTOR_RECONCILE_CRON periods. Check the Taskiq worker, Redis lock state, and ratatoskr.vector.reconcile logs."
+          runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/vector-index-sync.md"
