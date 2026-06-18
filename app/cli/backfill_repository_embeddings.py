@@ -7,7 +7,7 @@ import sys
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.config import DatabaseConfig, load_config
 from app.core.embedding_space import resolve_embedding_space_identifier
@@ -102,14 +102,21 @@ async def backfill_repository_embeddings(
                     .limit(batch_size)
                 )
 
-                # WHERE: missing embedding OR version mismatch
+                needs_repair = or_(
+                    RepositoryEmbedding.id.is_(None),
+                    RepositoryEmbedding.index_status != "indexed",
+                    RepositoryEmbedding.last_indexed_at.is_(None),
+                    RepositoryEmbedding.last_indexed_at < Repository.updated_at,
+                )
+
+                # WHERE: missing/failed/stale Qdrant indexing OR version mismatch.
                 if model_version_target is not None:
                     stmt = stmt.where(
-                        (RepositoryEmbedding.id.is_(None))
+                        needs_repair
                         | (RepositoryEmbedding.model_version != model_version_target)
                     )
                 else:
-                    stmt = stmt.where(RepositoryEmbedding.id.is_(None))
+                    stmt = stmt.where(needs_repair)
 
                 if user_id is not None:
                     stmt = stmt.where(Repository.user_id == user_id)

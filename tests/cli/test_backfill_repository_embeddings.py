@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import types
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,11 +41,18 @@ def _make_repo(
     return repo
 
 
-def _make_embedding(repo_id: int, model_version: str = "1.0") -> MagicMock:
+def _make_embedding(
+    repo_id: int,
+    model_version: str = "1.0",
+    *,
+    index_status: str = "indexed",
+) -> MagicMock:
     emb = MagicMock()
     emb.id = repo_id * 100
     emb.repository_id = repo_id
     emb.model_version = model_version
+    emb.index_status = index_status
+    emb.last_indexed_at = datetime(2024, 1, 1, tzinfo=UTC)
     return emb
 
 
@@ -341,11 +349,11 @@ async def test_backfill_uses_keyset_pagination_when_rows_stop_matching(
 
 
 @pytest.mark.asyncio
-async def test_skips_when_embedding_present_and_no_target(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Repos with existing embeddings and no --model-version-target → 0 writes.
+async def test_skips_when_embedding_indexed_and_no_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repos with indexed embeddings and no --model-version-target → 0 writes.
 
-    When model_version_target is None the WHERE clause filters to IS NULL only,
-    so the DB returns an empty batch and the generator is never called.
+    When model_version_target is None the WHERE clause filters to missing,
+    pending, never-indexed, or stale rows, so already-indexed rows are skipped.
     """
     gen = StubEmbeddingGenerator()
     # All repos already have embeddings → the WHERE (IS NULL) returns nothing
@@ -358,6 +366,29 @@ async def test_skips_when_embedding_present_and_no_target(monkeypatch: pytest.Mo
     assert summary["embeddings_created"] == 0
     assert summary["embeddings_refreshed"] == 0
     assert summary["processed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_repairs_pending_embedding_without_model_version_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default backfill repairs DB embeddings that never made it to Qdrant."""
+    repo = _make_repo(7)
+    embedding = _make_embedding(7, index_status="pending")
+    gen = StubEmbeddingGenerator()
+    db = _make_db_with_rows([[(repo, embedding)], []])
+    _patch_infra(monkeypatch, db, gen)
+
+    summary = await cli_mod.backfill_repository_embeddings(dry_run=False)
+
+    assert gen.batch_calls == [[7]]
+    assert gen.calls == [7]
+    assert summary["embeddings_created"] == 0
+    assert summary["embeddings_refreshed"] == 1
+    compiled = _compile_stmt(db.executed_statements[0])
+    assert "repository_embeddings.index_status != 'indexed'" in compiled
+    assert "repository_embeddings.last_indexed_at IS NULL" in compiled
+    assert "repository_embeddings.last_indexed_at < repositories.updated_at" in compiled
 
 
 @pytest.mark.asyncio
