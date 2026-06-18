@@ -93,7 +93,7 @@ Complete reference for all environment variables grouped by subsystem, plus YAML
 
 Production deployment guide, Docker Compose profiles, volume mounts, and channel-digest subsystem ops.
 
-→ [Production Deployment Guide](guides/deploy-production.md) · [Digest Subsystem Ops](reference/digest-subsystem-ops.md) · [Pi SQLite→Postgres Cutover Runbook](runbooks/pi-postgres-cutover.md)
+→ [Production Deployment Guide](guides/deploy-production.md) · [Digest Subsystem Ops](reference/digest-subsystem-ops.md) · [Secret Rotation Runbook](runbooks/secret-rotation.md) · [Pi SQLite→Postgres Cutover Runbook](runbooks/pi-postgres-cutover.md)
 
 ---
 

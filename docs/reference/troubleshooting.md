@@ -1139,11 +1139,12 @@ python -c "from cryptography.fernet import Fernet; print('ok')"
 
 ### Encryption key changed; existing GitHub tokens are unreadable
 
-Changing `GITHUB_TOKEN_ENCRYPTION_KEY` without rotating breaks all existing integrations. Follow the MultiFernet rotation procedure documented in `app/security/token_crypto.py`:
+Changing `GITHUB_TOKEN_ENCRYPTION_KEY` without rotating breaks all existing integrations. Follow `docs/runbooks/secret-rotation.md`:
 
-1. Add the new key as `MultiFernet([new_key, old_key])` -- this decrypts with the old key and re-encrypts with the new one.
-2. Run a one-off migration pass to re-encrypt all rows.
-3. Switch to `MultiFernet([new_key])` and remove the old key from config.
+1. Set the new key as `GITHUB_TOKEN_ENCRYPTION_KEY`.
+2. Move the old key to `GITHUB_TOKEN_PREVIOUS_KEYS`.
+3. Run `python -m app.cli.rotate_github_tokens --dry-run`, then `python -m app.cli.rotate_github_tokens`.
+4. Remove `GITHUB_TOKEN_PREVIOUS_KEYS` after the backfill reports no failures.
 
 If the old key is already lost, all affected users must reconnect their GitHub integrations.
 

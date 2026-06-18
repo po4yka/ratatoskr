@@ -97,7 +97,7 @@ Notes
 
 - PostgreSQL data and backups live under the configured database volume. Mount the compose data volumes for durability.
 - Set `ALLOWED_USER_IDS`; keep `DEBUG_PAYLOADS=0` in prod.
-- If using web/API/browser-extension JWT auth, ensure `JWT_SECRET_KEY` is set and port 8000 exposed.
+- If using web/API/browser-extension JWT auth, ensure `JWT_SECRET_KEY` is set and port 8000 exposed. For planned rotation, use `JWT_SECRET_PREVIOUS_KEYS` and follow `docs/runbooks/secret-rotation.md`.
 - Web assets are built in **ratatoskr-web** and deployed into `app/static/web/` via CI/CD; they are served by FastAPI under `/static/web/*`.
 
 ## Docker Compose (recommended)

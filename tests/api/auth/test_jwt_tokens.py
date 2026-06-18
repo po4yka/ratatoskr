@@ -44,6 +44,7 @@ from app.core.time_utils import UTC
 # ---------------------------------------------------------------------------
 
 _JWT_SECRET = "test-secret-key-32-characters-long-123456"
+_JWT_PREVIOUS_SECRET = "p" * 40
 _BOT_TOKEN = "123456789:test-token-secret-part-at-least-30-chars"
 _ALLOWED_USER_ID = 123456789
 
@@ -51,7 +52,9 @@ _ALLOWED_USER_ID = 123456789
 def _configure_jwt(monkeypatch: pytest.MonkeyPatch) -> None:
     """Point decode_token at our test secret and reset the lazy cache."""
     monkeypatch.setenv("JWT_SECRET_KEY", _JWT_SECRET)
+    monkeypatch.delenv("JWT_SECRET_PREVIOUS_KEYS", raising=False)
     tokens_module._secret_key_holder[0] = None
+    tokens_module._previous_secret_keys_holder[0] = None
 
 
 def _configure_allowlist(monkeypatch: pytest.MonkeyPatch, client_ids: str) -> None:
@@ -126,6 +129,47 @@ def test_decode_raises_token_invalid_for_tampered_signature(monkeypatch):
     tampered = token[:-4] + ("XXXX" if not token.endswith("XXXX") else "YYYY")
     with pytest.raises(TokenInvalidError):
         decode_token(tampered)
+
+
+def test_decode_accepts_token_signed_with_previous_secret(monkeypatch):
+    _configure_jwt(monkeypatch)
+    monkeypatch.setenv("JWT_SECRET_PREVIOUS_KEYS", _JWT_PREVIOUS_SECRET)
+    tokens_module._previous_secret_keys_holder[0] = None
+    payload = {
+        "user_id": 24,
+        "type": "access",
+        "exp": datetime.now(UTC) + timedelta(minutes=30),
+        "iat": datetime.now(UTC),
+        "jti": "previous-key-token",
+    }
+    token = jwt.encode(payload, _JWT_PREVIOUS_SECRET, algorithm=ALGORITHM)
+
+    decoded = decode_token(token, expected_type="access")
+
+    assert decoded["user_id"] == 24
+
+
+def test_new_tokens_are_signed_with_primary_secret_during_rotation(monkeypatch):
+    _configure_jwt(monkeypatch)
+    monkeypatch.setenv("JWT_SECRET_PREVIOUS_KEYS", _JWT_PREVIOUS_SECRET)
+    tokens_module._previous_secret_keys_holder[0] = None
+
+    token = create_access_token(user_id=31)
+
+    assert jwt.decode(token, _JWT_SECRET, algorithms=[ALGORITHM])["user_id"] == 31
+    with pytest.raises(jwt.InvalidTokenError):
+        jwt.decode(token, _JWT_PREVIOUS_SECRET, algorithms=[ALGORITHM])
+
+
+def test_decode_rejects_malformed_previous_secret(monkeypatch):
+    _configure_jwt(monkeypatch)
+    monkeypatch.setenv("JWT_SECRET_PREVIOUS_KEYS", "too-short")
+    tokens_module._previous_secret_keys_holder[0] = None
+
+    token = create_access_token(user_id=1)
+
+    with pytest.raises(RuntimeError, match="JWT_SECRET_PREVIOUS_KEYS"):
+        decode_token(token)
 
 
 # ===========================================================================

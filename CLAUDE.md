@@ -39,6 +39,10 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Common failure recipes | `docs/reference/troubleshooting.md` |
 | Claude Code safety hooks | `docs/reference/claude-code-hooks.md` |
 
+## Secrets
+
+Secret rotation and drill procedures live in `docs/runbooks/secret-rotation.md`. Use that runbook for `GITHUB_TOKEN_ENCRYPTION_KEY`, `JWT_SECRET_KEY`, `BOT_TOKEN`, `BACKUP_ENCRYPTION_KEY`, MCP forwarding secrets, provider API keys, and login peppers; do not rely on inline code comments as the operational procedure.
+
 ## Agent Implementation Map
 
 | Need | Implementation map |

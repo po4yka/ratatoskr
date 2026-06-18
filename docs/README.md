@@ -198,6 +198,7 @@ Step-by-step lessons and practical recipes, all in `docs/guides/`.
 | [Setup Qdrant](guides/setup-qdrant-vector-search.md) | Enable semantic search | Operators | |
 | [Optimize Performance](guides/optimize-performance.md) | Tune for speed/cost | Operators | |
 | [Backup and Restore](guides/backup-and-restore.md) | Data protection | Operators | |
+| [Secret Rotation Runbook](runbooks/secret-rotation.md) | Secret rotation and quarterly drill checklist | Operators | |
 | [Migrate Versions](guides/migrate-versions.md) | Upgrade between versions | Operators | |
 | [Migrate from bite-size-reader](guides/migrate-from-bite-size-reader.md) | Operator checklist for upgrading across the project rename | Operators | |
 | [Migrate Telegram Sessions to Telethon](guides/migrate-telegram-sessions-to-telethon.md) | Session migration steps | Operators | |

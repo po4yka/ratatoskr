@@ -61,9 +61,31 @@ def _load_secret_key() -> str:
     return secret
 
 
+def _load_previous_secret_keys() -> tuple[str, ...]:
+    """Load previous JWT signing keys accepted only for decode during rotation."""
+    try:
+        raw_previous = Config.get("JWT_SECRET_PREVIOUS_KEYS", "")
+    except ValueError:
+        raw_previous = ""
+
+    previous: list[str] = []
+    for index, part in enumerate(str(raw_previous or "").split(",")):
+        secret = part.strip()
+        if not secret:
+            continue
+        if len(secret) < 32:
+            raise RuntimeError(
+                f"JWT_SECRET_PREVIOUS_KEYS[{index}] must be at least 32 characters long. "
+                f"Current length: {len(secret)}"
+            )
+        previous.append(secret)
+    return tuple(previous)
+
+
 # JWT configuration. Holders wrap mutable lazy-init / one-shot
 # warning state so call sites don't need the `global` keyword.
 _secret_key_holder: list[str | None] = [None]
+_previous_secret_keys_holder: list[tuple[str, ...] | None] = [None]
 ALGORITHM = "HS256"
 _allowlist_empty_warned_holder: list[bool] = [False]
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -76,6 +98,18 @@ def _get_secret_key() -> str:
         _secret_key_holder[0] = _load_secret_key()
         logger.info("JWT authentication initialized")
     return _secret_key_holder[0]
+
+
+def _get_previous_secret_keys() -> tuple[str, ...]:
+    """Return previous JWT keys accepted for decode during a rotation window."""
+    if _previous_secret_keys_holder[0] is None:
+        _previous_secret_keys_holder[0] = _load_previous_secret_keys()
+        if _previous_secret_keys_holder[0]:
+            logger.warning(
+                "jwt_previous_keys_enabled",
+                extra={"previous_key_count": len(_previous_secret_keys_holder[0])},
+            )
+    return _previous_secret_keys_holder[0]
 
 
 def create_token(
@@ -216,13 +250,18 @@ def decode_token(token: str, expected_type: str | None = None) -> dict[str, Any]
     """
     from app.api.exceptions import TokenExpiredError, TokenInvalidError, TokenWrongTypeError
 
-    try:
-        payload = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
-    except jwt.ExpiredSignatureError:
-        token_type = expected_type or "access"
-        raise TokenExpiredError(token_type) from None
-    except jwt.InvalidTokenError as err:
-        raise TokenInvalidError(str(err)) from err
+    last_invalid_error: jwt.InvalidTokenError | None = None
+    for secret in (_get_secret_key(), *_get_previous_secret_keys()):
+        try:
+            payload = jwt.decode(token, secret, algorithms=[ALGORITHM])
+            break
+        except jwt.ExpiredSignatureError:
+            token_type = expected_type or "access"
+            raise TokenExpiredError(token_type) from None
+        except jwt.InvalidTokenError as err:
+            last_invalid_error = err
+    else:
+        raise TokenInvalidError(str(last_invalid_error)) from last_invalid_error
 
     if expected_type and payload.get("type") != expected_type:
         raise TokenWrongTypeError(expected=expected_type, received=payload.get("type", "unknown"))

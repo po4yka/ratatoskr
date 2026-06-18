@@ -480,6 +480,7 @@ See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, sum
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
 | `JWT_SECRET_KEY` | _(required if API used)_ | JWT signing secret (min 32 chars) |
+| `JWT_SECRET_PREVIOUS_KEYS` | _(none)_ | Comma-separated previous JWT signing secrets accepted for decode during a planned rotation window. New tokens are always signed with `JWT_SECRET_KEY`. Remove after the longest refresh-token TTL or after forced reauthentication. |
 | `ALLOWED_CLIENT_IDS` | _(empty = allow all only in development or with `AUTH_ALLOW_ANY_CLIENT_ID=true`)_ | Comma-separated allowed client app IDs |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window |
 | `API_RATE_LIMIT_COOLDOWN_MULTIPLIER` | `2.0` | Cooldown multiplier on limit exceeded |
