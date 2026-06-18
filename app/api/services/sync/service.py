@@ -130,11 +130,14 @@ class SyncFacade:
         session = await self._load_session(session_id, user_id, client_id)
         resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
         records = await self._collector.collect_records(user_id)
+        since = int(session.get("next_since") or 0)
         page, has_more, next_since = self._collector.paginate_records(
             records,
-            since=0,
+            since=since,
             limit=resolved_limit,
         )
+        session["next_since"] = next_since or since
+        await self._store_session(session)
         return self._build_full(session_id, page, has_more, next_since, resolved_limit)
 
     async def get_delta(

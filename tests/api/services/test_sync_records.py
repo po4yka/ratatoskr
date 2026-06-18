@@ -227,6 +227,32 @@ class TestPaginateRecords:
         assert has_more is True
         assert _next_since == 5
 
+    def test_paginate_records_keeps_same_version_group_atomic(self, sync_service):
+        records = [
+            make_sync_envelope(entity_type="request", entity_id=1, server_version=10),
+            make_sync_envelope(entity_type="summary", entity_id=1, server_version=10),
+            make_sync_envelope(entity_type="crawl_result", entity_id=1, server_version=10),
+            make_sync_envelope(entity_type="llm_call", entity_id=1, server_version=11),
+        ]
+
+        page, has_more, _next_since = sync_service._collector.paginate_records(
+            records, since=0, limit=2
+        )
+
+        assert [(item.entity_type, item.id) for item in page] == [
+            ("request", 1),
+            ("summary", 1),
+            ("crawl_result", 1),
+        ]
+        assert has_more is True
+        assert _next_since == 10
+        next_page, next_has_more, next_since = sync_service._collector.paginate_records(
+            records, since=_next_since or 0, limit=2
+        )
+        assert [(item.entity_type, item.id) for item in next_page] == [("llm_call", 1)]
+        assert next_has_more is False
+        assert next_since == 11
+
     def test_paginate_records_last_page(self, sync_service):
         """Test paginating last page."""
         records = [
@@ -337,6 +363,43 @@ class TestGetFull:
                 assert len(result.items) == 50
                 assert result.has_more is True
                 assert result.next_since == 50
+
+    @pytest.mark.asyncio
+    async def test_get_full_advances_session_cursor(self, sync_service):
+        """Repeated full-sync chunks for one session must not replay the first page."""
+        sync_service.cfg.sync.min_limit = 1
+        session = await sync_service.start_session(
+            user_id=123,
+            client_id="test-client",
+            limit=2,
+        )
+        records = [make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 5)]
+
+        with patch.object(
+            sync_service._collector,
+            "collect_records",
+            new_callable=AsyncMock,
+            return_value=records,
+        ):
+            first = await sync_service.get_full(
+                session_id=session.session_id,
+                user_id=123,
+                client_id="test-client",
+                limit=None,
+            )
+            second = await sync_service.get_full(
+                session_id=session.session_id,
+                user_id=123,
+                client_id="test-client",
+                limit=None,
+            )
+
+        assert [item.id for item in first.items] == [1, 2]
+        assert first.has_more is True
+        assert first.next_since == 2
+        assert [item.id for item in second.items] == [3, 4]
+        assert second.has_more is False
+        assert second.next_since == 4
 
 
 class TestGetDelta:

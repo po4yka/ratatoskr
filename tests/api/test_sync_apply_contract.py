@@ -367,7 +367,12 @@ async def test_delta_valid_session_with_matching_etag_returns_304_without_db() -
     )
     assert isinstance(first, dict)
     etag = first_response.headers["ETag"]
-    assert etag == _build_delta_etag("sync-session-abc", 7)
+    assert etag == _build_delta_etag(
+        "sync-session-abc",
+        since=0,
+        limit=50,
+        max_server_version=7,
+    )
     assert "sync-session-abc" not in etag
 
     second = await delta_sync(
@@ -385,9 +390,52 @@ async def test_delta_valid_session_with_matching_etag_returns_304_without_db() -
 
 
 @pytest.mark.asyncio
+async def test_delta_etag_is_scoped_to_cursor_and_limit() -> None:
+    item = SyncEntityEnvelope(
+        entity_type="summary",
+        id=42,
+        server_version=7,
+        updated_at="2026-05-21T00:00:00Z",
+    )
+    svc = _FakeSyncService(item)
+    user = {"user_id": 123, "client_id": "test-client"}
+    stale_cursor_etag = _build_delta_etag(
+        "sync-session-abc",
+        since=0,
+        limit=50,
+        max_server_version=7,
+    )
+
+    response = SimpleNamespace(headers={})
+    result = await delta_sync(
+        request=cast("Any", SimpleNamespace(headers={"if-none-match": stale_cursor_etag})),
+        response=cast("Any", response),
+        session_id="sync-session-abc",
+        since=1,
+        limit=50,
+        user=user,
+        svc=svc,
+    )
+
+    assert isinstance(result, dict)
+    assert result["success"] is True
+    assert response.headers["ETag"] == _build_delta_etag(
+        "sync-session-abc",
+        since=1,
+        limit=50,
+        max_server_version=7,
+    )
+
+
+@pytest.mark.asyncio
 async def test_delta_expired_session_with_matching_etag_does_not_return_304_without_db() -> None:
     svc = _RejectingSyncService(SyncSessionExpiredError("sync-session-abc"))
-    etag = _build_delta_etag("sync-session-abc", 7)
+    etag = _build_delta_etag(
+        "sync-session-abc",
+        since=0,
+        limit=50,
+        max_server_version=7,
+    )
 
     with pytest.raises(SyncSessionExpiredError):
         await delta_sync(
@@ -407,7 +455,12 @@ async def test_delta_expired_session_with_matching_etag_does_not_return_304_with
 @pytest.mark.asyncio
 async def test_delta_forbidden_session_with_matching_etag_does_not_return_304_without_db() -> None:
     svc = _RejectingSyncService(SyncSessionForbiddenError())
-    etag = _build_delta_etag("sync-session-abc", 7)
+    etag = _build_delta_etag(
+        "sync-session-abc",
+        since=0,
+        limit=50,
+        max_server_version=7,
+    )
 
     with pytest.raises(SyncSessionForbiddenError):
         await delta_sync(

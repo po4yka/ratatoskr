@@ -25,8 +25,16 @@ def _get_sync_service(request: Request) -> Any:
     return resolve_api_runtime(request).sync_service
 
 
-def _build_delta_etag(session_id: str, max_server_version: int) -> str:
-    digest = hashlib.sha256(f"{session_id}:{max_server_version}".encode()).hexdigest()[:16]
+def _build_delta_etag(
+    session_id: str,
+    *,
+    since: int,
+    limit: int,
+    max_server_version: int,
+) -> str:
+    digest = hashlib.sha256(
+        f"{session_id}:{since}:{limit}:{max_server_version}".encode()
+    ).hexdigest()[:16]
     return f'W/"sync-{digest}-{max_server_version}"'
 
 
@@ -81,14 +89,26 @@ async def delta_sync(
     svc: Any = Depends(_get_sync_service),
 ) -> dict[str, Any] | Response:
     """Fetch delta sync (created/updated/deleted) since a cursor."""
-    await svc.validate_session(
+    session_payload = await svc.validate_session(
         session_id=session_id,
         user_id=user["user_id"],
         client_id=user.get("client_id"),
     )
 
     max_sv = await svc.get_max_server_version(user["user_id"])
-    etag = _build_delta_etag(session_id, max_sv)
+    requested_limit = limit or session_payload.get("chunk_limit")
+    resolve_limit = getattr(svc, "_resolve_limit", None)
+    effective_limit = int(
+        resolve_limit(requested_limit)
+        if callable(resolve_limit)
+        else requested_limit or svc.cfg.sync.default_limit
+    )
+    etag = _build_delta_etag(
+        session_id,
+        since=since,
+        limit=effective_limit,
+        max_server_version=max_sv,
+    )
 
     if_none_match = request.headers.get("if-none-match")
     if if_none_match and if_none_match == etag:

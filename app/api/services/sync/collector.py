@@ -76,7 +76,12 @@ class SyncRecordCollector:
         records: Iterable[SyncEntityEnvelope], since: int, limit: int
     ) -> tuple[list[SyncEntityEnvelope], bool, int | None]:
         filtered = [rec for rec in records if rec.server_version > since]
-        page = filtered[:limit]
-        has_more = len(filtered) > limit
+        if len(filtered) <= limit:
+            page = filtered
+            has_more = False
+        else:
+            boundary_version = filtered[limit - 1].server_version
+            page = [rec for rec in filtered if rec.server_version <= boundary_version]
+            has_more = len(page) < len(filtered)
         next_since = page[-1].server_version if page else since
         return page, has_more, next_since
