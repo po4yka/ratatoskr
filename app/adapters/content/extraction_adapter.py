@@ -72,7 +72,9 @@ class ContentExtractionAdapter:
                     exc_info=True,
                 )
 
-        dedupe_hash = url_hash_sha256(normalize_url(request.url))
+        canonical_url = _extract_canonical_url(metadata)
+        dedupe_url = canonical_url or request.url
+        dedupe_hash = url_hash_sha256(normalize_url(dedupe_url))
 
         return ExtractionResult(
             request_id=request.request_id,
@@ -81,6 +83,7 @@ class ContentExtractionAdapter:
             detected_lang=detected_lang,
             dedupe_hash=dedupe_hash,
             title=_extract_title(metadata),
+            canonical_url=canonical_url,
             # Article-vision (audit #2): the pure extractor already quality-filtered +
             # role-filtered the article's image candidates into the normalized source
             # document's media list (``extract_firecrawl_image_assets``). Lift those
@@ -93,6 +96,7 @@ class ContentExtractionAdapter:
                 "http_status": metadata.get("http_status"),
                 "content_length": metadata.get("content_length"),
                 "source_format": metadata.get("source_format"),
+                "canonical_url": canonical_url,
             },
         )
 
@@ -121,6 +125,31 @@ def _extract_image_urls(metadata: dict[str, Any]) -> list[str]:
         if isinstance(url, str) and url.strip():
             urls.append(url.strip())
     return urls
+
+
+def _extract_canonical_url(metadata: dict[str, Any]) -> str | None:
+    """Return the best canonical URL surfaced by platform/scraper metadata."""
+    for key in ("canonical_url", "article_canonical_url", "normalized_url", "source_url"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return normalize_url(value)
+
+    source_item = metadata.get("source_item")
+    if isinstance(source_item, dict):
+        for key in ("canonical_url", "normalized_value"):
+            value = source_item.get(key)
+            if isinstance(value, str) and value.strip():
+                return normalize_url(value)
+
+    nsd = metadata.get("normalized_source_document")
+    if isinstance(nsd, dict):
+        provenance = nsd.get("provenance")
+        if isinstance(provenance, dict):
+            for key in ("canonical_url", "normalized_value"):
+                value = provenance.get(key)
+                if isinstance(value, str) and value.strip():
+                    return normalize_url(value)
+    return None
 
 
 def _extract_title(metadata: dict[str, Any]) -> str | None:

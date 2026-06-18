@@ -55,6 +55,7 @@ class ExtractionResult:
     detected_lang: str
     dedupe_hash: str
     title: str | None = None
+    canonical_url: str | None = None
     images: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 

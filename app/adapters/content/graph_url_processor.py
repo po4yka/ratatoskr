@@ -433,7 +433,9 @@ class GraphURLProcessor:
                         request, chosen_lang, detected_lang
                     ),
                     silent=request.silent,
-                    url_hash=compute_dedupe_hash(request.url_text),
+                    url_hash=str(
+                        final_state.get("dedupe_hash") or compute_dedupe_hash(request.url_text)
+                    ),
                 )
 
             return result

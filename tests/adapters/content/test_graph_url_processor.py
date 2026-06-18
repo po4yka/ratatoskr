@@ -223,14 +223,29 @@ async def test_post_summary_tasks_gating(monkeypatch, silent, batch, expected):
     _patch_lease(monkeypatch)
     _patch_runners(
         monkeypatch,
-        streamed=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
-        plain=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+        streamed=AsyncMock(
+            return_value={
+                "summary": _GOOD_SUMMARY,
+                "source_text": "body",
+                "dedupe_hash": "canonical-hash",
+            }
+        ),
+        plain=AsyncMock(
+            return_value={
+                "summary": _GOOD_SUMMARY,
+                "source_text": "body",
+                "dedupe_hash": "canonical-hash",
+            }
+        ),
     )
 
     facade = _facade()
     await facade.handle_url_flow(_url_request(silent=silent, batch_mode=batch))
 
     assert facade.post_summary_tasks.schedule_tasks.await_count == (1 if expected else 0)
+    if expected:
+        _, kwargs = facade.post_summary_tasks.schedule_tasks.await_args
+        assert kwargs["url_hash"] == "canonical-hash"
 
 
 # --------------------------------------------------------------------------- #

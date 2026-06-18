@@ -13,6 +13,7 @@ import pytest
 
 from app.adapters.content.extraction_adapter import ContentExtractionAdapter
 from app.application.ports.extraction import ExtractionPort, ExtractionRequest, ExtractionResult
+from app.core.url_utils import normalize_url, url_hash_sha256
 
 
 class _FakeContentExtractor:
@@ -80,6 +81,27 @@ async def test_extract_maps_pure_result_to_result_and_persists_lang() -> None:
     assert extractor.calls[0]["correlation_id"] == "cid-9"
     # detected language persisted against the request row (interactive-path parity).
     assert repo.lang_updates == [(7, "en")]
+
+
+async def test_extract_uses_canonical_url_for_dedupe_hash() -> None:
+    extractor = _FakeContentExtractor(
+        result=(
+            "body",
+            "markdown",
+            {
+                "detected_lang": "en",
+                "canonical_url": "https://example.com/canonical?utm_source=newsletter",
+            },
+        )
+    )
+    result = await _adapter(extractor, _FakeRequestRepo()).extract(
+        ExtractionRequest(url="https://short.example/r?id=1", request_id=7)
+    )
+
+    expected_canonical = normalize_url("https://example.com/canonical?utm_source=newsletter")
+    assert result.canonical_url == expected_canonical
+    assert result.dedupe_hash == url_hash_sha256(expected_canonical)
+    assert result.metadata["canonical_url"] == expected_canonical
 
 
 async def test_extract_title_falls_back_to_normalized_document() -> None:
