@@ -839,6 +839,14 @@ jobs:
           POSTGRES_PASSWORD: ci-smoke
         run: docker compose -f ops/docker/docker-compose.yml config --quiet
 
+      - name: Reject production rate-limit Redis override
+        run: |
+          python tools/scripts/check_prod_rate_limit_override.py --allow-missing \
+            .env.production \
+            .env.prod \
+            ops/docker/.env.production \
+            ops/docker/.env.prod
+
       - name: Verify core service commands are present
         env:
           POSTGRES_PASSWORD: ci-smoke

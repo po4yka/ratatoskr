@@ -405,7 +405,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _ensure_production_redis_rate_limiting(self) -> Self:
-        """Require Redis-backed rate limiting in production unless explicitly overridden.
+        """Require Redis-backed rate limiting in production.
 
         In-memory rate limiting is process-local: limits are not shared across
         workers or across restarts. This is unacceptable in production.
@@ -413,33 +413,25 @@ class Settings(BaseSettings):
         if not self.deployment.is_production_mode:
             return self
         if self.deployment.rate_limit_redis_override:
-            logger.warning(
-                "rate_limit_redis_override_active",
-                extra={
-                    "app_env": self.deployment.env,
-                    "api_public_exposure": self.deployment.api_public_exposure,
-                    "warning": (
-                        "RATE_LIMIT_REDIS_OVERRIDE=true: using in-memory rate limiting "
-                        "in production. Limits are NOT shared across workers or restarts."
-                    ),
-                },
+            raise RuntimeError(
+                "Production/public deployment refuses RATE_LIMIT_REDIS_OVERRIDE=true. "
+                "Auth rate limiting must use shared Redis state because in-memory limits "
+                "are per-process and reset on restart. Set RATE_LIMIT_REDIS_OVERRIDE=false, "
+                "REDIS_ENABLED=true, and REDIS_REQUIRED=true."
             )
-            return self
         if not self.redis.enabled:
             raise RuntimeError(
                 "Production deployment requires Redis for rate limiting "
                 "(REDIS_ENABLED=true). "
                 "In-memory rate limiting is per-process and unsafe for multi-worker "
-                "deployments. Set REDIS_ENABLED=true and REDIS_REQUIRED=true, "
-                "or set RATE_LIMIT_REDIS_OVERRIDE=true to explicitly accept the risk."
+                "deployments. Set REDIS_ENABLED=true and REDIS_REQUIRED=true."
             )
         if not self.redis.required:
             raise RuntimeError(
                 "Production deployment requires REDIS_REQUIRED=true. "
                 "Without it, rate limiting silently falls back to in-memory state "
                 "when Redis is unavailable, making limits ineffective across workers. "
-                "Set REDIS_REQUIRED=true, or set RATE_LIMIT_REDIS_OVERRIDE=true "
-                "to explicitly accept the risk."
+                "Set REDIS_REQUIRED=true."
             )
         return self
 

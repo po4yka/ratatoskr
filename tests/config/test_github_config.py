@@ -86,10 +86,9 @@ def test_production_requires_github_token_encryption_key() -> None:
             "REDIS_REQUIRED": "true",
             # config/ratatoskr.yaml pins redis.required=false; non-secret YAML
             # wins over env per Settings._build_nested_from_env, so the rate-
-            # limit validator fires before the GitHub validator unless we opt
-            # out explicitly. The override is the documented escape hatch and
-            # keeps this test focused on what it actually asserts.
-            "RATE_LIMIT_REDIS_OVERRIDE": "true",
+            # limit validator fires before the GitHub validator unless we point
+            # the loader at a missing config path.
+            "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
             "GITHUB_SYNC_ENABLED": "true",
         },
         clear=True,
@@ -119,8 +118,8 @@ def test_production_accepts_github_token_encryption_key() -> None:
             "REDIS_ENABLED": "true",
             "REDIS_REQUIRED": "true",
             # See sister test above: ratatoskr.yaml pins redis.required=false,
-            # YAML beats env, so we opt out of the rate-limit validator.
-            "RATE_LIMIT_REDIS_OVERRIDE": "true",
+            # YAML beats env, so use a missing config path for this fixture.
+            "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
             "GITHUB_SYNC_ENABLED": "true",
             "GITHUB_TOKEN_ENCRYPTION_KEY": Fernet.generate_key().decode("ascii"),
         },

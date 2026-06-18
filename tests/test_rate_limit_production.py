@@ -80,6 +80,24 @@ class TestProductionRedisValidation(unittest.TestCase):
             assert settings.deployment.env == "development"
             assert not settings.redis.enabled
 
+    def test_dev_with_rate_limit_redis_override_ok(self):
+        """Development mode may still opt into local in-memory rate limiting."""
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                **_MINIMAL_ENV,
+                "APP_ENV": "development",
+                "REDIS_ENABLED": "false",
+                "RATE_LIMIT_REDIS_OVERRIDE": "true",
+            },
+            clear=True,
+        ):
+            clear_config_cache()
+            settings = Settings(allow_stub_telegram=True)
+            assert settings.deployment.env == "development"
+            assert settings.deployment.rate_limit_redis_override is True
+            assert not settings.redis.enabled
+
     def test_production_without_redis_enabled_raises(self):
         """Production + REDIS_ENABLED=false must raise RuntimeError at config load."""
         with unittest.mock.patch.dict(
@@ -128,8 +146,8 @@ class TestProductionRedisValidation(unittest.TestCase):
             assert settings.deployment.is_production_mode
             assert settings.redis.required
 
-    def test_production_with_override_ok(self):
-        """RATE_LIMIT_REDIS_OVERRIDE=true bypasses the production Redis requirement."""
+    def test_production_with_override_raises(self):
+        """RATE_LIMIT_REDIS_OVERRIDE=true is refused in production/public mode."""
         with unittest.mock.patch.dict(
             os.environ,
             {
@@ -141,10 +159,8 @@ class TestProductionRedisValidation(unittest.TestCase):
             clear=True,
         ):
             clear_config_cache()
-            settings = Settings(allow_stub_telegram=True)
-            assert settings.deployment.is_production_mode
-            assert settings.deployment.rate_limit_redis_override
-            assert not settings.redis.enabled
+            with pytest.raises(RuntimeError, match="RATE_LIMIT_REDIS_OVERRIDE=true"):
+                Settings(allow_stub_telegram=True)
 
     def test_api_public_exposure_without_redis_required_raises(self):
         """API_PUBLIC_EXPOSURE=true is treated as production for Redis requirement."""

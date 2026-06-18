@@ -369,14 +369,14 @@ uv run python tools/scripts/twitter_article_live_smoke.py \
 | ---------- | --------- | ------------- |
 | `APP_ENV` | `development` | Deployment environment: `development`, `staging`, or `production`. Setting `production` enables strict safety checks — see below. |
 | `API_PUBLIC_EXPOSURE` | `false` | Set `true` when the API is reachable from the public internet. Triggers the same safety checks as `APP_ENV=production` regardless of `APP_ENV`. |
-| `RATE_LIMIT_REDIS_OVERRIDE` | `false` | Emergency override: allow in-memory rate limiting even in production. Must be explicitly set to acknowledge that per-process limits are not shared across workers or restarts. |
+| `RATE_LIMIT_REDIS_OVERRIDE` | `false` | Development-only override for local in-memory rate limiting. Production/public startup refuses `true` because auth limits must use shared Redis state. |
 | `AUTH_ALLOW_ANY_CLIENT_ID` | `false` | Emergency/development override: allow every syntactically valid `client_id` when `ALLOWED_CLIENT_IDS` is empty. Required if a production/public deployment intentionally runs without a client allowlist. |
 
 ### Production Redis requirement
 
 When `APP_ENV=production` or `API_PUBLIC_EXPOSURE=true`, the application **refuses to start** unless both `REDIS_ENABLED=true` and `REDIS_REQUIRED=true` are set. This prevents silent fallback to process-local rate limiting, which is ineffective under multiple workers or after restarts.
 
-To override (e.g. single-process deploy, edge cache handles rate limiting externally), set `RATE_LIMIT_REDIS_OVERRIDE=true` and acknowledge the risk in your deployment notes.
+`RATE_LIMIT_REDIS_OVERRIDE=true` is refused in production/public mode. Auth route brute-force mitigation depends on shared Redis state, so edge caches or single-worker assumptions are not accepted as a production substitute.
 
 ### Production client allowlist requirement
 
@@ -929,6 +929,7 @@ Use this checklist to verify your configuration before deploying:
 ### ✅ Performance & Storage
 
 - [ ] **Postgres reachable**: `docker exec ratatoskr-postgres pg_isready -U ratatoskr_app -d ratatoskr` returns ok; `DATABASE_URL` matches the running role/db
+- [ ] **Redis-backed rate limiting required**: `REDIS_ENABLED=true`, `REDIS_REQUIRED=true`, and `RATE_LIMIT_REDIS_OVERRIDE=false`; run `python tools/scripts/check_prod_rate_limit_override.py .env.production` for private production env files
 - [ ] **YouTube storage configured**: `YOUTUBE_STORAGE_PATH` has sufficient space
 - [ ] **Concurrency tuned**: `MAX_CONCURRENT_CALLS` appropriate for your rate limits
 - [ ] **Log level set**: `LOG_LEVEL=INFO` for production (DEBUG for troubleshooting)
