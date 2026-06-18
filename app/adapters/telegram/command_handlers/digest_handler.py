@@ -99,7 +99,9 @@ class DigestHandler(HandlerDependenciesMixin):
             )
         except Exception as exc:
             logger.exception("digest_command_failed", extra={"cid": ctx.correlation_id})
-            await self._formatter.safe_reply(ctx.message, f"Digest failed: {exc}")
+            await self._formatter.safe_reply(
+                ctx.message, f"Digest failed: {exc}\nError ID: {ctx.correlation_id}"
+            )
 
     async def handle_cdigest(self, ctx: CommandExecutionContext) -> None:
         """Handle /cdigest @channel_name -- single-channel unread digest."""
@@ -150,7 +152,9 @@ class DigestHandler(HandlerDependenciesMixin):
             )
         except Exception as exc:
             logger.exception("cdigest_command_failed", extra={"cid": ctx.correlation_id})
-            await self._formatter.safe_reply(ctx.message, f"Channel digest failed: {exc}")
+            await self._formatter.safe_reply(
+                ctx.message, f"Channel digest failed: {exc}\nError ID: {ctx.correlation_id}"
+            )
 
     async def handle_channels(self, ctx: CommandExecutionContext) -> None:
         """Handle /channels command -- list subscribed channels."""
