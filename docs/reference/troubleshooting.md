@@ -2,25 +2,6 @@
 
 This guide helps you diagnose and resolve common issues with Ratatoskr.
 
-## Table of Contents
-
-- [Debugging with Correlation IDs](#debugging-with-correlation-ids)
-- [Installation Issues](#installation-issues)
-- [Configuration Issues](#configuration-issues)
-- [Content Extraction / Scraper Chain Issues](#content-extraction--scraper-chain-issues)
-- [OpenRouter Issues](#openrouter-issues)
-- [YouTube Issues](#youtube-issues)
-- [Database Issues](#database-issues)
-- [Redis Issues](#redis-issues)
-- [Qdrant Issues](#qdrant-issues)
-- [Mobile API Issues](#mobile-api-issues)
-- [External Aggregation and Auth Issues](#external-aggregation-and-auth-issues)
-- [MCP Server Issues](#mcp-server-issues)
-- [Performance Issues](#performance-issues)
-- [Debugging Strategies](#debugging-strategies)
-
----
-
 ## Debugging with Correlation IDs
 
 **Correlation IDs are your best debugging tool.** Every request in Ratatoskr gets a unique `correlation_id` that ties together:

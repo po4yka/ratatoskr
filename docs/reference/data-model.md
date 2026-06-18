@@ -4,7 +4,6 @@ Complete reference for Ratatoskr's PostgreSQL database schema.
 
 **Audience:** Developers, Database Administrators **Type:** Reference **Related:** [SPEC.md § Data Model](../SPEC.md#data-model), [How to Backup and Restore](../guides/backup-and-restore.md)
 
----
 
 ## Overview
 
@@ -14,7 +13,6 @@ Ratatoskr uses **PostgreSQL 16** as its relational persistence layer with SQLAlc
 
 **ORM:** SQLAlchemy 2.0 async ORM **Migrations:** Alembic revisions in `app/db/alembic/versions/`
 
----
 
 ## Core Tables
 
@@ -58,7 +56,6 @@ CREATE TABLE users (
 - One-to-many with `user_interactions`
 - One-to-many with `user_devices`
 
----
 
 ### chats
 
@@ -93,7 +90,6 @@ CREATE TABLE chats (
 - One-to-many with `requests`
 - One-to-many with `telegram_messages`
 
----
 
 ### requests
 
@@ -161,7 +157,6 @@ CREATE INDEX idx_requests_status ON requests(status);
 - One-to-many with `llm_calls`
 - One-to-one with `summaries`
 
----
 
 ### transcription_jobs
 
@@ -186,7 +181,6 @@ CREATE INDEX idx_requests_status ON requests(status);
 - `error_code` / `error_message` (nullable) - Failure details when the run fails
 - `metadata_json` (json, nullable) - Redacted operational metadata
 
----
 
 ### transcription_progress_events
 
@@ -201,7 +195,6 @@ CREATE INDEX idx_requests_status ON requests(status);
 - `status` (str) - Event status such as `queued`, `running`, `done`, or `error`
 - `message`, `progress`, `payload`, `correlation_id`, `created_at` - Redacted UI/diagnostic metadata
 
----
 
 ### transcription_artifacts
 
@@ -219,7 +212,6 @@ CREATE INDEX idx_requests_status ON requests(status);
 - `correlation_id` (str, nullable) - Request correlation ID
 - `metadata_json` (json, nullable) - Redacted result metadata such as whether diarization ran
 
----
 
 ### aggregation_sessions
 
@@ -275,7 +267,6 @@ CREATE INDEX idx_aggregation_sessions_status ON aggregation_sessions(status);
 CREATE INDEX idx_aggregation_sessions_created ON aggregation_sessions(created_at);
 ```
 
----
 
 ### aggregation_session_items
 
@@ -340,7 +331,6 @@ CREATE INDEX idx_aggregation_session_items_status ON aggregation_session_items(s
 - Telegram-native sources dedupe on `(telegram_chat_id, telegram_message_id)` or `(telegram_chat_id, telegram_media_group_id)`.
 - Duplicates are preserved as rows with `status='duplicate'` so callers can surface that input was received but merged.
 
----
 
 ### sources
 
@@ -376,7 +366,6 @@ CREATE TABLE sources (
 - Non-unique `(kind, is_active)` for ingestion scans.
 - `legacy_rss_feed_id` and `legacy_channel_id` cross-reference the source row to the original `rss_feeds` / `channels` table entry, populated by `feed_poller` and `signal_ingester` and propagated as ingestion metadata.
 
----
 
 ### subscriptions
 
@@ -406,7 +395,6 @@ CREATE TABLE subscriptions (
 - Unique `(user_id, source_id)`.
 - Non-unique `(user_id, is_active)` and `next_fetch_at`.
 
----
 
 ### feed_items
 
@@ -441,7 +429,6 @@ CREATE TABLE feed_items (
 - Unique `(source_id, external_id)`.
 - Non-unique `published_at` and `canonical_url`.
 
----
 
 ### topics
 
@@ -469,7 +456,6 @@ CREATE TABLE topics (
 - Unique `(user_id, name)`.
 - Non-unique `(user_id, is_active)`.
 
----
 
 ### user_signals
 
@@ -509,7 +495,6 @@ CREATE TABLE user_signals (
 - Legacy RSS/channel tables are preserved and remain the runtime source for existing API and bot paths until worker/API integration is complete.
 - Downgrade behavior is controlled by Alembic revision history; take a normal PostgreSQL backup before applying migrations on a live host.
 
----
 
 ### telegram_messages
 
@@ -570,7 +555,6 @@ CREATE INDEX idx_telegram_messages_message_id ON telegram_messages(message_id);
 
 - One-to-one with `requests`
 
----
 
 ### crawl_results
 
@@ -640,7 +624,6 @@ CREATE UNIQUE INDEX idx_crawl_results_request_id ON crawl_results(request_id);
 
 - One-to-one with `requests`
 
----
 
 ### video_downloads
 
@@ -723,7 +706,6 @@ CREATE INDEX idx_video_downloads_video_id ON video_downloads(video_id);
 
 - One-to-one with `requests`
 
----
 
 ### llm_calls
 
@@ -803,7 +785,6 @@ CREATE INDEX idx_llm_calls_model ON llm_calls(model);
 
 - Many-to-one with `requests`
 
----
 
 ### summaries
 
@@ -843,7 +824,6 @@ CREATE INDEX idx_summaries_created_at ON summaries(created_at);
 - One-to-one with `requests`
 - One-to-one with `summary_embeddings`
 
----
 
 ## Search and Discovery Tables
 
@@ -886,7 +866,6 @@ CREATE INDEX ix_topic_search_body_tsv ON topic_search_index USING GIN (body_tsv)
 
 - One-to-one with `requests` (via `request_id`)
 
----
 
 ### summary_embeddings
 
@@ -934,7 +913,6 @@ CREATE UNIQUE INDEX idx_summary_embeddings_summary_id ON summary_embeddings(summ
 
 - One-to-one with `summaries`
 
----
 
 ## Mobile API Tables
 
@@ -976,7 +954,6 @@ CREATE INDEX idx_user_devices_user_id ON user_devices(user_id);
 
 - Many-to-one with `users`
 
----
 
 ### refresh_tokens
 
@@ -1019,7 +996,6 @@ CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 
 - Many-to-one with `users`
 
----
 
 ### collections
 
@@ -1065,7 +1041,6 @@ CREATE INDEX idx_collections_user_id ON collections(user_id);
 - One-to-many with `collection_items`
 - One-to-many with `collection_collaborators`
 
----
 
 ### collection_items
 
@@ -1106,7 +1081,6 @@ CREATE UNIQUE INDEX idx_collection_items_unique ON collection_items(collection_i
 - Many-to-one with `collections`
 - Many-to-one with `summaries`
 
----
 
 ### collection_collaborators
 
@@ -1145,7 +1119,6 @@ CREATE UNIQUE INDEX idx_collection_collaborators_unique ON collection_collaborat
 - Many-to-one with `collections`
 - Many-to-one with `users`
 
----
 
 ### collection_invites
 
@@ -1195,7 +1168,6 @@ CREATE INDEX idx_collection_invites_collection_id ON collection_invites(collecti
 - Many-to-one with `collections`
 - Many-to-one with `users` (via `created_by`)
 
----
 
 ## Audit and Analytics Tables
 
@@ -1234,7 +1206,6 @@ CREATE INDEX idx_user_interactions_created_at ON user_interactions(created_at);
 
 - Many-to-one with `users`
 
----
 
 ### audit_logs
 
@@ -1272,7 +1243,6 @@ CREATE INDEX idx_audit_logs_correlation_id ON audit_logs(correlation_id);
 CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
 ```
 
----
 
 ## Webwright Tables
 
@@ -1329,7 +1299,6 @@ CREATE INDEX ix_webwright_runs_correlation_id ON webwright_runs(correlation_id);
 - Many-to-one with `users` (CASCADE on delete).
 - Optional many-to-one with `requests` (SET NULL on delete) — `/browse` writes a request row with `type='webwright'` first, then a `webwright_runs` row referencing it.
 
----
 
 ### user_browser_sessions
 
@@ -1367,7 +1336,6 @@ CREATE UNIQUE INDEX uq_user_browser_sessions_user_domain
 
 - Many-to-one with `users` (CASCADE on delete).
 
----
 
 ## Client Secrets (Mobile API)
 
@@ -1405,7 +1373,6 @@ CREATE TABLE client_secrets (
 CREATE UNIQUE INDEX idx_client_secrets_client_id ON client_secrets(client_id);
 ```
 
----
 
 ## Entity Relationship Diagram
 
@@ -1436,7 +1403,6 @@ erDiagram
     collections | |--o{ collection_invites : "has"
 ```
 
----
 
 ## Common Queries
 
@@ -1488,7 +1454,6 @@ ORDER BY r.total_processing_time_sec DESC
 LIMIT 10;
 ```
 
----
 
 ## Database Maintenance
 
@@ -1510,7 +1475,6 @@ psql "$DATABASE_URL" -c "ANALYZE;"
 python -m app.cli.healthcheck
 ```
 
----
 
 ## Mixed-Source Aggregation: Source Model
 
@@ -1530,7 +1494,6 @@ Failures are stored at two levels: bundle-level on `aggregation_sessions` and it
 - `AGGREGATION_ARTICLE_MEDIA_ENABLED=false` disables multimodal article/X image propagation while leaving text extraction intact.
 - `AGGREGATION_NON_YOUTUBE_VIDEO_ENABLED=false` disables shared Telegram/Meta video normalization.
 
----
 
 ## Database Migrations
 
@@ -1547,7 +1510,6 @@ Alembic revision files live in `app/db/alembic/versions/`. The PostgreSQL baseli
 
 Startup schema changes are not performed by application code; run Alembic before starting services.
 
----
 
 ## URL Normalization and Deduplication
 
@@ -1563,7 +1525,6 @@ The normalized URL is hashed: `sha256(normalized_url)` → `requests.dedupe_hash
 
 Source: `app/core/url_utils.py`.
 
----
 
 ## GitHub Repository Tables
 
@@ -1709,7 +1670,6 @@ Indexes: `(user_id, provider)`, `(expires_at)`.
 
 Indexes: `(connection_id, started_at)`, `(user_id, provider)`.
 
----
 
 ## See Also
 
@@ -1717,6 +1677,5 @@ Indexes: `(connection_id, started_at)`, `(user_id, provider)`.
 - [CLI Commands § Database Migration](cli-commands.md#database-migration) - Migration tool
 - [How to Backup and Restore](../guides/backup-and-restore.md) - Backup procedures
 
----
 
 **Last Updated:** 2026-05-23
