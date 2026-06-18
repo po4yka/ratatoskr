@@ -21,7 +21,7 @@ from app.tasks.deps import (
 logger = get_logger(__name__)
 
 
-@broker.task(task_name="ratatoskr.rss.poll")
+@broker.task(task_name="ratatoskr.rss.poll", retry_on_error=True, max_retries=3)
 async def run_rss_poll(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),

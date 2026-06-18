@@ -175,7 +175,9 @@ from app.observability.metrics_request import (
 from app.observability.metrics_scheduler import (
     SCHEDULER_JOB_CHRONIC_FAILURES,
     SCHEDULER_QUEUE_DEPTH,
+    TASKIQ_RETRIES_TOTAL,
     record_scheduler_chronic_failure,
+    record_taskiq_retry_outcome,
     set_scheduler_queue_depth,
 )
 
@@ -433,7 +435,9 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     # Scheduler
     "SCHEDULER_JOB_CHRONIC_FAILURES",
     "SCHEDULER_QUEUE_DEPTH",
+    "TASKIQ_RETRIES_TOTAL",
     "record_scheduler_chronic_failure",
+    "record_taskiq_retry_outcome",
     "set_scheduler_queue_depth",
     # Exposition helpers
     "get_metrics",

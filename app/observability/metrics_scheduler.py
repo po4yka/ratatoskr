@@ -3,6 +3,7 @@
 Covers:
 - Chronic scheduler job failure counter (SCHEDULER_JOB_CHRONIC_FAILURES)
 - Named background queue depth gauge (SCHEDULER_QUEUE_DEPTH)
+- Taskiq retry/dead-letter outcomes (TASKIQ_RETRIES_TOTAL)
 """
 
 from __future__ import annotations
@@ -29,9 +30,17 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    TASKIQ_RETRIES_TOTAL = Counter(
+        "ratatoskr_taskiq_retries_total",
+        "Taskiq retry and dead-letter outcomes",
+        ["task", "outcome"],
+        registry=REGISTRY,
+    )
+
 else:
     SCHEDULER_JOB_CHRONIC_FAILURES = None
     SCHEDULER_QUEUE_DEPTH = None
+    TASKIQ_RETRIES_TOTAL = None
 
 
 def record_scheduler_chronic_failure(job_id: str) -> None:
@@ -54,3 +63,10 @@ def set_scheduler_queue_depth(queue: str, depth: int) -> None:
     if depth < 0:
         return
     SCHEDULER_QUEUE_DEPTH.labels(queue=_metric_label(queue)).set(depth)
+
+
+def record_taskiq_retry_outcome(*, task: str, outcome: str) -> None:
+    """Increment Taskiq retry/dead-letter outcome metrics."""
+    if not PROMETHEUS_AVAILABLE or TASKIQ_RETRIES_TOTAL is None:
+        return
+    TASKIQ_RETRIES_TOTAL.labels(task=_metric_label(task), outcome=_metric_label(outcome)).inc()

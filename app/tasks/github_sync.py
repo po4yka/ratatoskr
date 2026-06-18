@@ -60,7 +60,7 @@ _GITHUB_SYNC_LOCK_KEY = "task_lock:github_sync_stars"
 _GITHUB_SYNC_LOCK_TTL = 1800
 
 
-@broker.task(task_name="ratatoskr.github.sync_stars")
+@broker.task(task_name="ratatoskr.github.sync_stars", retry_on_error=True, max_retries=3)
 async def sync_all_active_integrations(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),

@@ -44,7 +44,7 @@ _url_processing_runtime_instance: URLProcessingTaskRuntime | None = None
 # ── Task ─────────────────────────────────────────────────────────────────────
 
 
-@broker.task(task_name="ratatoskr.url.process")
+@broker.task(task_name="ratatoskr.url.process", retry_on_error=True, max_retries=3)
 async def process_url_request(
     request_id: int,
     cfg: AppConfig = TaskiqDepends(get_app_config),

@@ -57,7 +57,7 @@ _VECTOR_RECONCILE_LOCK_KEY = "task_lock:vector_reconcile"
 _VECTOR_RECONCILE_LOCK_TTL = 300
 
 
-@broker.task(task_name="ratatoskr.vector.reconcile")
+@broker.task(task_name="ratatoskr.vector.reconcile", retry_on_error=True, max_retries=3)
 async def reconcile_vector_index(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),

@@ -24,7 +24,7 @@ from app.tasks.deps import get_db
 logger = get_logger(__name__)
 
 
-@broker.task(task_name="ratatoskr.import.process_bookmarks")
+@broker.task(task_name="ratatoskr.import.process_bookmarks", retry_on_error=True, max_retries=3)
 async def process_import_job(
     job_id: int,
     user_id: int,

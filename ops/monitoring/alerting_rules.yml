@@ -250,3 +250,15 @@ groups:
           summary: "Vector reconciler has not reported a run"
           description: "No vector reconciler run status has been observed for two default VECTOR_RECONCILE_CRON periods. Check the Taskiq worker, Redis lock state, and ratatoskr.vector.reconcile logs."
           runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/vector-index-sync.md"
+
+  - name: ratatoskr_taskiq_retries
+    rules:
+      - alert: RatatoskrTaskiqDeadLettersHigh
+        expr: sum(increase(ratatoskr_taskiq_retries_total{outcome="dead_letter"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taskiq jobs are reaching the dead-letter queue"
+          description: "At least one Taskiq job exhausted its retry policy and was persisted to taskiq_failed_jobs in the last 15 minutes. Inspect the failed payload and replay only after confirming the upstream cause is fixed."
+          runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/runbooks/taskiq-failures.md"

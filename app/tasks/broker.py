@@ -13,7 +13,19 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from app.tasks.middleware import ChronicFailureMiddleware, OTelPropagationMiddleware
+from app.tasks.middleware import (
+    ChronicFailureMiddleware,
+    OTelPropagationMiddleware,
+    TaskiqDeadLetterMiddleware,
+)
+
+_simple_retry_middleware_cls: Any | None
+try:
+    from taskiq import SimpleRetryMiddleware
+except (ImportError, AttributeError):  # pragma: no cover - compatibility for test stubs
+    _simple_retry_middleware_cls = None
+else:
+    _simple_retry_middleware_cls = SimpleRetryMiddleware
 
 # Initialise OTel tracing before broker/redis clients are constructed.
 try:
@@ -24,11 +36,21 @@ except Exception:  # pragma: no cover
     pass
 
 _broker_type = os.getenv("TASKIQ_BROKER", "redis").lower()
+_middlewares = [
+    *(  # SimpleRetryMiddleware may be absent in lightweight taskiq test stubs.
+        [_simple_retry_middleware_cls(default_retry_count=3, default_retry_label=False)]
+        if _simple_retry_middleware_cls is not None
+        else []
+    ),
+    ChronicFailureMiddleware(),
+    TaskiqDeadLetterMiddleware(),
+    OTelPropagationMiddleware(),
+]
 
 if _broker_type == "memory":
     from taskiq import AsyncBroker, InMemoryBroker
 
-    broker: AsyncBroker = InMemoryBroker()
+    broker: AsyncBroker = InMemoryBroker().with_middlewares(*_middlewares)
 else:
     from taskiq_redis import RedisAsyncResultBackend, RedisStreamBroker
 
@@ -50,5 +72,5 @@ else:
     broker = (
         RedisStreamBroker(url=_url)
         .with_result_backend(_result_backend)
-        .with_middlewares(ChronicFailureMiddleware(), OTelPropagationMiddleware())
+        .with_middlewares(*_middlewares)
     )

@@ -197,6 +197,22 @@ CREATE INDEX idx_requests_status ON requests(status);
 - `message`, `progress`, `payload`, `correlation_id`, `created_at` - Redacted UI/diagnostic metadata
 
 
+### taskiq_failed_jobs
+
+**Purpose:** Append-only dead-letter queue for Taskiq jobs that reached a terminal failed attempt after their retry policy was exhausted, preserving the payload long enough for operator inspection and replay.
+
+**Fields:**
+
+- `task_name` / `task_id` (str, nullable task_id) - Taskiq task identity and original message ID
+- `args_json` / `kwargs_json` / `labels_json` (json) - Original task payload and labels, with `_retries` removed only by the replay CLI at enqueue time
+- `traceback_text` / `error_text` - Terminal failure traceback and short error summary
+- `attempt_count` (int) - Failed attempt count observed by the retry middleware
+- `status` (str) - Dead-letter lifecycle status (`dead_letter`, `requeued`)
+- `last_failed_at`, `requeued_at`, `created_at` - Failure, replay, and insertion timestamps
+
+Use `python -m app.cli.requeue_failed_task <id>` to re-enqueue a row after inspecting the payload and fixing the upstream cause.
+
+
 ### transcription_artifacts
 
 **Purpose:** Durable transcript outputs produced by completed transcription jobs. Artifacts are listable/reprocessable transcript records and do not create `summaries` rows unless a future summarize-transcript path explicitly does so.

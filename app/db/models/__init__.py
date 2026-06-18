@@ -89,6 +89,7 @@ from app.db.models.social import (
     SocialProvider,
 )
 from app.db.models.topic_search import TOPIC_SEARCH_MODELS, TopicSearchIndex
+from app.db.models.taskiq import TASKIQ_MODELS, TaskiqFailedJob
 from app.db.models.transcription import (
     TRANSCRIPTION_MODELS,
     TranscriptionArtifact,
@@ -124,6 +125,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
     *RULE_MODELS,
     *SIGNAL_MODELS,
     *SOCIAL_MODELS,
+    *TASKIQ_MODELS,
     *TOPIC_SEARCH_MODELS,
     *TRANSCRIPTION_MODELS,
     *USER_CONTENT_MODELS,
@@ -143,6 +145,7 @@ __all__ = [
     "RULE_MODELS",
     "SIGNAL_MODELS",
     "SOCIAL_MODELS",
+    "TASKIQ_MODELS",
     "TOPIC_SEARCH_MODELS",
     "TRANSCRIPTION_MODELS",
     "USER_CONTENT_MODELS",
@@ -207,6 +210,7 @@ __all__ = [
     "SummaryHighlight",
     "SummaryTag",
     "Tag",
+    "TaskiqFailedJob",
     "TelegramMessage",
     "Topic",
     "TopicSearchIndex",
