@@ -527,6 +527,34 @@ class ContentScraperChain:
                 )
             )
 
+        def _finalize(
+            span: Any,
+            *,
+            outcome: str,
+            attempt_status: str,
+            failure_reason: str | None = None,
+            success: bool = False,
+            content_len: int | None = None,
+        ) -> None:
+            """Stamp the span outcome + emit the per-attempt metrics for one terminal branch.
+
+            Centralises the span-outcome attribute and the attempt/latency/chain/duration
+            metrics that every terminal branch of this method emits identically. The
+            per-branch ``_record(...)`` recorder entry stays inline (its status/error_class
+            vary and are documented next to each branch's log line).
+            """
+            latency_ms = _latency_ms()
+            span.set_attribute(SCRAPER_OUTCOME, outcome)
+            if content_len is not None:
+                span.set_attribute(SCRAPER_CONTENT_LEN, content_len)
+            record_scraper_attempt(provider=name, status=attempt_status)
+            record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
+            if success:
+                record_scraper_chain_success(provider=name)
+            elif failure_reason is not None:
+                record_scraper_chain_failure(provider=name, reason=failure_reason)
+            record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+
         # Build initial span attributes present on every rung regardless of outcome.
         span_attrs: dict[str, Any] = {
             SCRAPER_PROVIDER: name,
@@ -547,21 +575,17 @@ class ContentScraperChain:
             try:
                 result = await provider.scrape_markdown(url, mobile=mobile, request_id=request_id)
             except asyncio.CancelledError:
-                latency_ms = _latency_ms()
-                provider_span.set_attribute(SCRAPER_OUTCOME, "cancelled")
-                record_scraper_attempt(provider=name, status="skipped")
-                record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
-                record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+                _finalize(provider_span, outcome="cancelled", attempt_status="skipped")
                 _record("skipped", "CancelledError")
                 raise
             except Exception as exc:
-                latency_ms = _latency_ms()
-                provider_span.set_attribute(SCRAPER_OUTCOME, "error")
                 provider_span.set_attribute("error.type", type(exc).__name__)
-                record_scraper_attempt(provider=name, status="error")
-                record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
-                record_scraper_chain_failure(provider=name, reason="error")
-                record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+                _finalize(
+                    provider_span,
+                    outcome="error",
+                    attempt_status="error",
+                    failure_reason="error",
+                )
                 logger.warning(
                     "scraper_chain_provider_exception",
                     extra={
@@ -584,15 +608,11 @@ class ContentScraperChain:
                 text = best_content_text(result)
 
                 if _is_error_page(text):
-                    latency_ms = _latency_ms()
-                    provider_span.set_attribute(SCRAPER_OUTCOME, "error_page")
-                    record_scraper_attempt(provider=name, status="error")
-                    record_scraper_attempt_latency(
-                        provider=name, latency_seconds=latency_ms / 1000.0
-                    )
-                    record_scraper_chain_failure(provider=name, reason="error_page")
-                    record_scraper_chain_duration(
-                        provider=name, latency_seconds=latency_ms / 1000.0
+                    _finalize(
+                        provider_span,
+                        outcome="error_page",
+                        attempt_status="error",
+                        failure_reason="error_page",
                     )
                     logger.info(
                         "scraper_chain_error_page",
@@ -607,15 +627,11 @@ class ContentScraperChain:
                     return None, f"{name}: error page detected ({len(text)} chars)"
 
                 if self._min_content_length > 0 and len(text) < self._min_content_length:
-                    latency_ms = _latency_ms()
-                    provider_span.set_attribute(SCRAPER_OUTCOME, "too_short")
-                    record_scraper_attempt(provider=name, status="error")
-                    record_scraper_attempt_latency(
-                        provider=name, latency_seconds=latency_ms / 1000.0
-                    )
-                    record_scraper_chain_failure(provider=name, reason="too_short")
-                    record_scraper_chain_duration(
-                        provider=name, latency_seconds=latency_ms / 1000.0
+                    _finalize(
+                        provider_span,
+                        outcome="too_short",
+                        attempt_status="error",
+                        failure_reason="too_short",
                     )
                     logger.info(
                         "scraper_chain_thin_content",
@@ -637,17 +653,13 @@ class ContentScraperChain:
                     detect_low_value_content(result) if self._min_content_length > 0 else None
                 )
                 if quality_issue is not None:
-                    latency_ms = _latency_ms()
                     reason = quality_issue["reason"]
                     metrics = quality_issue["metrics"]
-                    provider_span.set_attribute(SCRAPER_OUTCOME, "low_value")
-                    record_scraper_attempt(provider=name, status="error")
-                    record_scraper_attempt_latency(
-                        provider=name, latency_seconds=latency_ms / 1000.0
-                    )
-                    record_scraper_chain_failure(provider=name, reason="low_value")
-                    record_scraper_chain_duration(
-                        provider=name, latency_seconds=latency_ms / 1000.0
+                    _finalize(
+                        provider_span,
+                        outcome="low_value",
+                        attempt_status="error",
+                        failure_reason="low_value",
                     )
                     logger.info(
                         "scraper_chain_low_value_content",
@@ -666,22 +678,22 @@ class ContentScraperChain:
                         f" words={metrics['word_count']})"
                     )
 
-                latency_ms = _latency_ms()
-                provider_span.set_attribute(SCRAPER_OUTCOME, "success")
-                provider_span.set_attribute(SCRAPER_CONTENT_LEN, len(text))
-                record_scraper_attempt(provider=name, status="success")
-                record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
-                record_scraper_chain_success(provider=name)
-                record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+                _finalize(
+                    provider_span,
+                    outcome="success",
+                    attempt_status="success",
+                    success=True,
+                    content_len=len(text),
+                )
                 _record("success", None)
                 return result, None
 
-            latency_ms = _latency_ms()
-            provider_span.set_attribute(SCRAPER_OUTCOME, "no_content")
-            record_scraper_attempt(provider=name, status="error")
-            record_scraper_attempt_latency(provider=name, latency_seconds=latency_ms / 1000.0)
-            record_scraper_chain_failure(provider=name, reason="empty")
-            record_scraper_chain_duration(provider=name, latency_seconds=latency_ms / 1000.0)
+            _finalize(
+                provider_span,
+                outcome="no_content",
+                attempt_status="error",
+                failure_reason="empty",
+            )
             logger.info(
                 "scraper_chain_provider_failed",
                 extra={
