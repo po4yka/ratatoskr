@@ -359,6 +359,9 @@ async def test_authorization_header_redacted_in_logs(caplog: pytest.LogCaptureFi
     # The raw token must not appear in any log record
     all_log_text = "\n".join(r.getMessage() + str(r.__dict__) for r in caplog.records)
     assert token not in all_log_text, "Token found in log output — redaction failed"
+    request_record = next(r for r in caplog.records if r.message == "github_api_request")
+    request_headers = request_record.__dict__["request_headers"]
+    assert request_headers["authorization"] == "[REDACTED]"
 
 
 # ---------------------------------------------------------------------------

@@ -28,12 +28,10 @@ from app.adapters.github.types import (
     StarredItem,
 )
 from app.core.backoff import sleep_backoff
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_headers_for_logging
 from app.observability.metrics_repositories import GITHUB_API_RATE_LIMIT_HITS_TOTAL
 
 _LINK_NEXT_RE = re.compile(r'<([^>]+)>;\s*rel="next"')
-
-_REDACTED_HEADER_KEYS = frozenset({"authorization", "token", "x-github-token"})
 
 logger = get_logger(__name__)
 
@@ -79,14 +77,6 @@ def _is_rate_limited(response: httpx.Response) -> bool:
         if response.headers.get("Retry-After", "").strip():
             return True
     return False
-
-
-def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    """Return a copy of *headers* with sensitive values replaced by '***REDACTED***'."""
-    return {
-        k: ("***REDACTED***" if k.lower() in _REDACTED_HEADER_KEYS else v)
-        for k, v in headers.items()
-    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +187,7 @@ class GitHubAPIClient:
                 )
 
                 duration_ms = int((time.monotonic() - t0) * 1000)
-                safe_hdrs = _redact_headers(dict(response.request.headers))
+                safe_hdrs = redact_headers_for_logging(dict(response.request.headers))
                 logger.debug(
                     "github_api_request",
                     extra={
@@ -369,7 +359,7 @@ class GitHubAPIClient:
             try:
                 response = await self._client.get(url, headers=headers)
                 duration_ms = int((time.monotonic() - t0) * 1000)
-                safe_hdrs = _redact_headers(dict(response.request.headers))
+                safe_hdrs = redact_headers_for_logging(dict(response.request.headers))
                 logger.debug(
                     "github_api_request",
                     extra={

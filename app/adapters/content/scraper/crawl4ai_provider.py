@@ -24,7 +24,7 @@ from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_headers_for_logging
 from app.security.ssrf import is_url_safe
 
 logger = get_logger(__name__)
@@ -123,6 +123,7 @@ class Crawl4AIProvider:
 
         # POST /crawl with stream=False returns results immediately (v0.8.x API).
         crawl_endpoint = f"{self._url}/crawl"
+        request_headers = self._build_headers()
 
         try:
             client = self._get_client()
@@ -136,7 +137,7 @@ class Crawl4AIProvider:
                 resp = await client.post(
                     current_endpoint,
                     json=payload,
-                    headers=self._build_headers(),
+                    headers=request_headers,
                     timeout=effective_timeout,
                 )
                 if resp.status_code in {301, 302, 303, 307, 308}:
@@ -182,6 +183,7 @@ class Crawl4AIProvider:
                     "url": url,
                     "status_code": exc.response.status_code,
                     "request_id": request_id,
+                    "request_headers": redact_headers_for_logging(request_headers),
                 },
             )
             if self._audit:

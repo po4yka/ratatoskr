@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -205,6 +206,36 @@ class TestCrawl4AIProvider:
         call_kwargs = mock_client.post.call_args
         headers = call_kwargs.kwargs.get("headers", {})
         assert headers.get("Authorization") == "Bearer secret-token"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_http_401_logs_redacted_authorization_header(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        """HTTP auth failures log redacted request headers without leaking provider token."""
+        token = "crawl4ai-secret-token-12345"
+        provider = Crawl4AIProvider(
+            url="http://crawl4ai:11235",
+            token=token,
+            timeout_sec=5,
+        )
+
+        mock_client = AsyncMock()
+        req = httpx.Request("POST", "http://crawl4ai:11235/crawl")
+        resp = httpx.Response(401, request=req)
+        mock_client.post.side_effect = httpx.HTTPStatusError(
+            "401 Unauthorized", request=req, response=resp
+        )
+
+        with caplog.at_level(logging.WARNING, logger="app.adapters.content.scraper.crawl4ai_provider"):
+            with patch.object(provider, "_get_client", return_value=mock_client):
+                result = await provider.scrape_markdown("https://example.com")
+
+        rendered = "\n".join(record.getMessage() + str(record.__dict__) for record in caplog.records)
+        assert token not in rendered
+        assert token not in (result.error_text or "")
+        record = next(record for record in caplog.records if record.message == "crawl4ai_http_error")
+        request_headers = record.__dict__["request_headers"]
+        assert request_headers["Authorization"] == "[REDACTED]"
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_no_authorization_header_when_no_token(self):

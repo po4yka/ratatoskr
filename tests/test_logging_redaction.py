@@ -7,7 +7,9 @@ from typing import Any, cast
 import pytest
 
 from app.adapters.content.summary_request_factory import log_llm_content_validation
+from app.adapters.openrouter.payload_logger import PayloadLogger
 from app.core.logging_utils import (
+    SENSITIVE_HTTP_HEADER_KEYS,
     bounded_debug_preview,
     redact_for_logging,
     redact_headers_for_logging,
@@ -84,6 +86,31 @@ def test_redact_headers_for_logging_redacts_auth_cookie_and_api_key() -> None:
     assert headers["Cookie"] == "[REDACTED]"
     assert headers["X-Api-Key"] == "[REDACTED]"
     assert headers["Content-Type"] == "application/json"
+
+
+def test_sensitive_http_header_keys_cover_http_client_tokens() -> None:
+    assert {"authorization", "x-github-token", "x-api-key"} <= SENSITIVE_HTTP_HEADER_KEYS
+
+
+def test_openrouter_payload_logger_redacts_authorization_header(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    token = "sk-or-openrouter-secret-12345"
+    logger = PayloadLogger(debug_payloads=True)
+
+    with caplog.at_level(logging.DEBUG, logger="app.adapters.openrouter.payload_logger"):
+        logger.log_request_payload(
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            body={"model": "test/model", "messages": []},
+            messages=[],
+            rf_mode="json_schema",
+        )
+
+    rendered = "\n".join(record.getMessage() + str(record.__dict__) for record in caplog.records)
+    assert token not in rendered
+    record = next(record for record in caplog.records if record.message == "openrouter_request_payload")
+    headers = record.__dict__["headers"]
+    assert headers["Authorization"] == "[REDACTED]"
 
 
 def test_message_sanitizer_redacts_prompt_content_by_default() -> None:

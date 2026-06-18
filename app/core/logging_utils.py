@@ -13,14 +13,32 @@ import os
 import re
 import sys
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import orjson
 from loguru import logger as loguru_logger
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 _REDACTED = "[REDACTED]"
 _CONTENT_REDACTED = "[REDACTED_CONTENT]"
+SENSITIVE_HTTP_HEADER_KEYS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+        "x-api-key",
+        "x-auth-token",
+        "x-crawl4ai-token",
+        "x-defuddle-token",
+        "x-firecrawl-key",
+        "x-github-token",
+        "x-openrouter-api-key",
+    }
+)
 _SENSITIVE_KEY_RE = re.compile(
     r"(authorization|cookie|set[-_]?cookie|access[-_]?token|refresh[-_]?token|api[-_]?key|"
     r"telegram[-_]?token|github[-_]?token|bot[-_]?token|x[-_]?api[-_]?key|"
@@ -431,11 +449,18 @@ def bounded_debug_preview(
     return text[: max(0, max_chars - 15)] + "... [truncated]"
 
 
-def redact_headers_for_logging(headers: dict[str, Any] | None) -> dict[str, Any]:
+def redact_headers_for_logging(headers: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return a copy of HTTP headers with credential-bearing fields redacted."""
     if not headers:
         return {}
-    return {str(key): redact_for_logging(value, key=str(key)) for key, value in headers.items()}
+    return {
+        str(key): (
+            _REDACTED
+            if str(key).strip().lower() in SENSITIVE_HTTP_HEADER_KEYS
+            else redact_for_logging(value, key=str(key))
+        )
+        for key, value in headers.items()
+    }
 
 
 def redact_url_for_logging(value: Any, *, max_length: int = 220) -> Any:
@@ -511,6 +536,7 @@ def sanitize_messages_for_logging(
 
 # Export commonly used items
 __all__ = [
+    "SENSITIVE_HTTP_HEADER_KEYS",
     "bounded_debug_preview",
     "generate_correlation_id",
     "get_logger",

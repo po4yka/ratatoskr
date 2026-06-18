@@ -134,6 +134,7 @@ async def test_error_handling_400(respx_mock, or_client):
 
 @pytest.mark.asyncio
 async def test_error_handling_401(respx_mock, or_client):
+    token = "sk-or-test-key"
     respx_mock.post(OR_CHAT_URL).mock(
         return_value=httpx.Response(
             401,
@@ -143,6 +144,9 @@ async def test_error_handling_401(respx_mock, or_client):
     result = await or_client.chat([{"role": "user", "content": "Hello"}])
     assert result.status == "error"
     assert "Authentication failed" in result.error_text
+    assert result.request_headers["Authorization"] == "[REDACTED]"
+    assert token not in str(result.request_headers)
+    assert token not in (result.error_text or "")
 
 
 @pytest.mark.asyncio

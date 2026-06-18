@@ -12,7 +12,7 @@ import httpx
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_headers_for_logging
 from app.security.ssrf import is_url_safe, make_safe_async_client
 
 logger = get_logger(__name__)
@@ -73,8 +73,9 @@ class DefuddleProvider:
         if unsafe_result is not None:
             return unsafe_result
 
+        request_headers = self._build_headers()
         try:
-            raw_body = await self._fetch_raw(url)
+            raw_body = await self._fetch_raw(url, headers=request_headers)
         except TimeoutError:
             latency = int((time.perf_counter() - started) * 1000)
             logger.warning(
@@ -96,6 +97,7 @@ class DefuddleProvider:
                     "url": url,
                     "status_code": exc.response.status_code,
                     "request_id": request_id,
+                    "request_headers": redact_headers_for_logging(request_headers),
                 },
             )
             return FirecrawlResult(
@@ -169,11 +171,9 @@ class DefuddleProvider:
             endpoint="defuddle",
         )
 
-    async def _fetch_raw(self, url: str) -> str:
+    async def _fetch_raw(self, url: str, *, headers: dict[str, str] | None = None) -> str:
         defuddle_url = f"{self._api_base_url}/{url}"
-        headers = dict(_HEADERS)
-        if self._api_token:
-            headers["Authorization"] = f"Bearer {self._api_token}"
+        request_headers = headers or self._build_headers()
         overall_timeout = self._timeout_sec + 5
         async with asyncio.timeout(overall_timeout):
             async with make_safe_async_client(
@@ -185,7 +185,7 @@ class DefuddleProvider:
                     safe, reason = is_url_safe(current_url)
                     if not safe:
                         raise ValueError(f"SSRF blocked redirect target: {reason}")
-                    resp = await client.get(current_url, headers=headers)
+                    resp = await client.get(current_url, headers=request_headers)
                     if resp.status_code in {301, 302, 303, 307, 308}:
                         location = resp.headers.get("location")
                         if not location:
@@ -198,6 +198,12 @@ class DefuddleProvider:
 
     async def aclose(self) -> None:
         pass  # No persistent resources
+
+    def _build_headers(self) -> dict[str, str]:
+        headers = dict(_HEADERS)
+        if self._api_token:
+            headers["Authorization"] = f"Bearer {self._api_token}"
+        return headers
 
 
 def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
