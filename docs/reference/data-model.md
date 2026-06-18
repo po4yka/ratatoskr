@@ -709,7 +709,7 @@ CREATE INDEX idx_video_downloads_video_id ON video_downloads(video_id);
 
 ### llm_calls
 
-**Purpose:** LLM provider calls for summarization. OpenRouter is the default provider, while OpenAI, Anthropic, and Ollama-compatible endpoints can also populate the same table through `LLMClientProtocol`.
+**Purpose:** LLM provider calls for summarization. The bot/API runtime currently writes this table through the OpenRouter adapter. Upstream model families such as OpenAI or Anthropic appear as model IDs like `openai/...` or `anthropic/...`, while `provider` remains `openrouter`.
 
 **Schema:**
 
@@ -756,7 +756,7 @@ CREATE TABLE llm_calls (
 - `request_id` (str, FK, nullable) - Foreign key to `requests`; `NULL` on the content-only summarize path (no request row)
 - `attempt_index` (int) - 1-based monotonic counter per `request_id`
 - `attempt_trigger` (enum) - What triggered this LLM call (see table above)
-- `provider` (str) - LLM provider (`openrouter`, `openai`, `anthropic`, or `ollama`)
+- `provider` (str) - LLM backend provider; currently `openrouter`
 - `model` (str) - Model name (e.g., `deepseek/deepseek-v4-flash`)
 - `endpoint` (str) - API endpoint
 - `request_headers_json` (str, nullable) - Request headers (Authorization redacted)

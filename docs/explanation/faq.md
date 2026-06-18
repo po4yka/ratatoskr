@@ -179,34 +179,9 @@ See [environment_variables.md](../reference/environment-variables.md) for full r
 3. Add to `ALLOWED_USER_IDS` environment variable
 4. Restart bot
 
-### Can I use OpenAI instead of OpenRouter?
+### Can I use OpenAI or Anthropic models?
 
-Yes. Set `LLM_PROVIDER=openai`:
-
-```bash
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o
-OPENAI_FALLBACK_MODELS=gpt-4o-mini
-```
-
-Or Anthropic:
-
-```bash
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
-```
-
-Or an OpenAI-compatible Ollama/cloud endpoint:
-
-```bash
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=https://ollama.example.com/v1
-OLLAMA_API_KEY=provider-token
-OLLAMA_MODEL=llama3.3
-OLLAMA_ENABLE_STRUCTURED_OUTPUTS=false
-```
+Yes, through OpenRouter model IDs. Keep `LLM_PROVIDER=openrouter`, set `OPENROUTER_API_KEY`, and choose models such as `openai/gpt-4o-mini` or `anthropic/claude-sonnet-4.5` in `OPENROUTER_MODEL` / `OPENROUTER_FALLBACK_MODELS`.
 
 ### How do I enable multi-user access?
 
@@ -666,29 +641,14 @@ See [Architecture Overview § Layering quick reference](architecture-overview.md
 
 ### Can I run an on-premise LLM?
 
-Yes, but requires setup:
+Not as the main summarization backend today. The bot/API runtime currently supports only the OpenRouter adapter. The `with-cloud-ollama` Compose profile is a reachability/experimentation helper, not a wired summarization provider.
 
-1. **Run local LLM** (Ollama, LM Studio, vLLM):
+You can still run local extraction only by disabling self-hosted Firecrawl:
 
-   ```bash
-   ollama run llama3.2:70b
-   ```
-
-2. **Point bot to local endpoint**:
-
-   ```bash
-   LLM_PROVIDER=openai  # Use OpenAI-compatible API
-   OPENAI_API_KEY=dummy  # Not needed for local
-   OPENAI_BASE_URL=http://localhost:11434/v1
-   OPENAI_MODEL=llama3.2:70b
-   ```
-
-3. **Disable self-hosted Firecrawl provider** (keep local extraction only):
-
-   ```bash
-   FIRECRAWL_SELF_HOSTED_ENABLED=false
-   SCRAPER_PROVIDER_ORDER=["scrapling", "crawl4ai", "defuddle", "playwright", "crawlee", "direct_html"]
-   ```
+```bash
+FIRECRAWL_SELF_HOSTED_ENABLED=false
+SCRAPER_PROVIDER_ORDER=["scrapling", "crawl4ai", "defuddle", "playwright", "crawlee", "direct_html"]
+```
 
 **Breaking rename note**: legacy scraper vars `SCRAPLING_*` and `SCRAPER_DIRECT_HTTP_ENABLED` now fail fast at startup.
 

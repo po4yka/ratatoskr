@@ -2,7 +2,7 @@
 
 > This page is a navigation index. All substantive content lives in the linked canonical pages.
 
-Async Telegram bot: accepts web article URLs, YouTube videos, and forwarded channel posts; summarizes via a multi-provider scraper chain and a configurable LLM provider (`openrouter`, `openai`, `anthropic`, or `ollama`); persists relational artifacts in PostgreSQL. OpenRouter remains the default first-run provider. The project also exposes a FastAPI mobile API, a React web frontend, and an MCP server for external AI agents.
+Async Telegram bot: accepts web article URLs, YouTube videos, and forwarded channel posts; summarizes via a multi-provider scraper chain and the OpenRouter LLM adapter; persists relational artifacts in PostgreSQL. Upstream model families are selected through OpenRouter model IDs such as `openai/...` or `anthropic/...`, not separate runtime providers. The project also exposes a FastAPI mobile API, a React web frontend, and an MCP server for external AI agents.
 
 ---
 

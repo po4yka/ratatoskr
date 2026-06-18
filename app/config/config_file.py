@@ -296,16 +296,6 @@ def load_models_yaml(path: str | Path | None = None) -> dict[str, str]:
             "fallback_models": "MODEL_ROUTING_FALLBACK_MODELS",
             "long_context_threshold_tokens": "MODEL_ROUTING_LONG_CONTEXT_THRESHOLD_TOKENS",
         },
-        "openai": {
-            "model": "OPENAI_MODEL",
-            "fallback_models": "OPENAI_FALLBACK_MODELS",
-            "enable_structured_outputs": "OPENAI_ENABLE_STRUCTURED_OUTPUTS",
-        },
-        "anthropic": {
-            "model": "ANTHROPIC_MODEL",
-            "fallback_models": "ANTHROPIC_FALLBACK_MODELS",
-            "enable_structured_outputs": "ANTHROPIC_ENABLE_STRUCTURED_OUTPUTS",
-        },
         "attachment": {
             "vision_model": "ATTACHMENT_VISION_MODEL",
             "vision_fallback_models": "ATTACHMENT_VISION_FALLBACK_MODELS",

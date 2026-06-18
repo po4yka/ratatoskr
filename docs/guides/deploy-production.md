@@ -162,15 +162,16 @@ FIRECRAWL_SELF_HOSTED_ENABLED=true \
 docker compose -f ops/docker/docker-compose.yml --profile with-scrapers up -d --build
 ```
 
-Run with a remote Ollama-compatible provider:
+Run the remote Ollama reachability check profile for experiments:
 
 ```bash
-LLM_PROVIDER=ollama \
 OLLAMA_BASE_URL=https://ollama.example.com/v1 \
 OLLAMA_API_KEY=replace_with_provider_token \
 OLLAMA_MODEL=llama3.3 \
 docker compose -f ops/docker/docker-compose.yml --profile with-cloud-ollama up -d --build
 ```
+
+This profile does not wire Ollama into the main summarization runtime; production summaries still require `LLM_PROVIDER=openrouter` and `OPENROUTER_API_KEY`.
 
 Run with monitoring:
 

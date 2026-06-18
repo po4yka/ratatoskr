@@ -110,22 +110,9 @@ mcp:
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `LLM_PROVIDER` | `openrouter` | Active LLM backend: `openrouter`, `openai`, `anthropic`, or `ollama` |
-| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key (when using `openai` provider) |
-| `OPENAI_MODEL` | `gpt-4o` | OpenAI model name |
-| `OPENAI_FALLBACK_MODELS` | `gpt-4o-mini` | Comma-separated fallback models |
-| `OPENAI_ORGANIZATION` | _(none)_ | OpenAI organization ID |
-| `OPENAI_ENABLE_STRUCTURED_OUTPUTS` | `true` | Enable structured output mode |
-| `ANTHROPIC_API_KEY` | _(empty)_ | Anthropic API key (when using `anthropic` provider) |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-5-20250929` | Anthropic model name |
-| `ANTHROPIC_FALLBACK_MODELS` | `claude-3-5-haiku-20241022` | Comma-separated fallback models |
-| `ANTHROPIC_ENABLE_STRUCTURED_OUTPUTS` | `true` | Enable structured output mode |
-| `OLLAMA_BASE_URL` | _(empty)_ | OpenAI-compatible Ollama/cloud endpoint base URL (when using `ollama` provider) |
-| `OLLAMA_API_KEY` | _(empty)_ | API key or bearer token for the Ollama-compatible endpoint |
-| `OLLAMA_MODEL` | `llama3.3` | Ollama-compatible model name |
-| `OLLAMA_FALLBACK_MODELS` | _(empty)_ | Comma-separated fallback models |
-| `OLLAMA_ENABLE_STRUCTURED_OUTPUTS` | `false` | Enable structured output mode for compatible hosted models |
-| `OLLAMA_MAX_RESPONSE_SIZE_MB` | `10` | Max response payload size (MB) for the Ollama-compatible client |
+| `LLM_PROVIDER` | `openrouter` | Active LLM backend. Only `openrouter` is currently supported by the bot/API runtime |
+
+Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or `deepseek/...` in the OpenRouter model settings below to route through upstream model families. `OPENAI_*`, `ANTHROPIC_*`, and `OLLAMA_*` variables are not consumed by the summarization runtime.
 
 ## [REQUIRED] OpenRouter (Default LLM Provider)
 
@@ -663,7 +650,7 @@ Configures scheduled nulling of raw artifact columns and cleanup of orphaned loc
 
 ## LLM Call Timeouts
 
-These knobs govern how long the generic LLM response workflow spends per provider call and per model attempt. OpenRouter uses the full fallback ladder and per-model budget enforcement; OpenAI, Anthropic, and Ollama clients accept the same protocol kwargs so the workflow can pass them safely, even when a provider ignores unsupported streaming or timeout details.
+These knobs govern how long the generic LLM response workflow spends per provider call and per model attempt. OpenRouter uses the full fallback ladder and per-model budget enforcement.
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
@@ -968,20 +955,13 @@ ALLOWED_USER_IDS=123456789
 
 **Symptom**: Bot starts but summaries fail with "Model not found"
 
-**Fix**: Ensure provider and API key match:
+**Fix**: Keep `LLM_PROVIDER=openrouter` and put upstream model-family choices in OpenRouter model IDs:
 
 ```bash
-# For OpenRouter
 LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=sk-or-...
-
-# For OpenAI
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-
-# For Anthropic
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_FALLBACK_MODELS=anthropic/claude-sonnet-4.5,deepseek/deepseek-v4-flash
 ```
 
 ### 4. Redis Connection Failures

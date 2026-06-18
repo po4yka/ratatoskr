@@ -37,7 +37,8 @@ runtime:
   llm_call_timeout_sec: 420
   # Maximum concurrent in-flight summarization requests
   max_concurrent_calls: 4
-  # Active LLM provider: openrouter | openai | anthropic | ollama
+  # Active LLM provider. Only openrouter is currently wired into the bot/API runtime.
+  # Use OpenRouter model IDs such as "openai/..." or "anthropic/..." to route to upstream model families.
   llm_provider: openrouter
 
 # ---------------------------------------------------------------------------
@@ -116,8 +117,7 @@ attachment:
   max_document_chars: 45000
 
 # ---------------------------------------------------------------------------
-# Ollama (alternative LLM provider — only used when llm_provider: ollama)
-# api_key is a secret; place it in .env as OLLAMA_API_KEY.
+# Ollama reachability experiments are available through the with-cloud-ollama Compose profile, but the main summarization runtime currently has no Ollama adapter.
 # ---------------------------------------------------------------------------
 # ollama:
 #   base_url: http://localhost:11434/v1

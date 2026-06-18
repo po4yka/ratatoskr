@@ -76,7 +76,7 @@ class TestLoadModelsYaml:
         assert result["MODEL_ROUTING_TECHNICAL"] == "tech/model"
         assert result["MODEL_ROUTING_LONG_CONTEXT_THRESHOLD_TOKENS"] == "75000"
 
-    def test_loads_multiple_sections(self, yaml_dir: Path) -> None:
+    def test_loads_supported_sections_only(self, yaml_dir: Path) -> None:
         cfg = yaml_dir / "models.yaml"
         cfg.write_text(
             dedent("""\
@@ -92,8 +92,8 @@ class TestLoadModelsYaml:
         result = load_models_yaml(cfg)
         assert result["OPENROUTER_MODEL"] == "or/model"
         assert result["OPENROUTER_TEMPERATURE"] == "0.3"
-        assert result["OPENAI_MODEL"] == "gpt-5"
-        assert result["ANTHROPIC_MODEL"] == "claude-4"
+        assert "OPENAI_MODEL" not in result
+        assert "ANTHROPIC_MODEL" not in result
 
     def test_ignores_unknown_sections(self, yaml_dir: Path) -> None:
         cfg = yaml_dir / "models.yaml"

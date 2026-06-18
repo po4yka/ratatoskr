@@ -1,6 +1,6 @@
 # Optional YAML Configuration
 
-`ratatoskr.yaml` is the Phase 1 home for power-user settings. Keep first-run secrets in `.env`; use YAML for scraper tuning, provider model choices, YouTube, Twitter/X, MCP, monitoring-adjacent settings, and other optional behavior.
+`ratatoskr.yaml` is the Phase 1 home for power-user settings. Keep first-run secrets in `.env`; use YAML for scraper tuning, OpenRouter model choices, YouTube, Twitter/X, MCP, monitoring-adjacent settings, and other optional behavior.
 
 ## Search Order
 
@@ -42,6 +42,7 @@ runtime:
   request_timeout_sec: 60
   preferred_lang: auto
   max_concurrent_calls: 4
+  llm_provider: openrouter
 
 openrouter:
   model: deepseek/deepseek-v4-flash
@@ -49,12 +50,6 @@ openrouter:
     - qwen/qwen3.5-plus-02-15
     - moonshotai/kimi-k2-0905
   flash_model: qwen/qwen3.5-flash-02-23
-
-ollama:
-  base_url: https://ollama.example.com/v1
-  api_key: replace_with_cloud_ollama_token
-  model: llama3.3
-  enable_structured_outputs: false
 
 scraper:
   profile: balanced
@@ -114,9 +109,9 @@ mcp:
 
 ## Notes
 
-- OpenRouter is the primary supported provider path for first-run setup.
-- `LLM_PROVIDER` selects the active summarization backend. Valid values are `openrouter`, `openai`, `anthropic`, and `ollama`; every provider must implement `LLMClientProtocol.chat()` with the generic workflow kwargs (`stream`, `on_stream_delta`, `per_model_timeout_sec`, and `per_model_timeout_overrides`) so the summarization workflow can invoke it without adapter-specific branches.
-- Cloud Ollama uses an OpenAI-compatible `/v1` endpoint. Structured output quality varies by hosted model, so `ollama.enable_structured_outputs` defaults to `false`. When using `LLM_PROVIDER=ollama`, failures usually fall into four buckets: `/models` is unreachable, the model name is not installed by the remote provider, the provider times out on long articles, or the model returns weak/invalid JSON. Prefer models that advertise OpenAI-compatible chat completions and test summaries before using them unattended.
+- OpenRouter is the only supported summarization backend in the bot/API runtime today.
+- `LLM_PROVIDER` must be `openrouter`. Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or `deepseek/...` in the `openrouter` section to select upstream model families without changing the backend adapter.
+- The `with-cloud-ollama` Compose profile is only a reachability/experimentation helper. It does not wire an Ollama adapter into the summarization runtime.
 - The default scraper chain order is Scrapling → Crawl4AI → Firecrawl → Defuddle → Playwright → Crawlee → direct HTML → Scrapegraph-AI. Each provider is skipped when its sidecar is unavailable or its enabled flag is false. See [`docs/explanation/scraper-chain.md`](../explanation/scraper-chain.md) for the full chain reference.
 - The `firecrawl` provider slot activates only when `scraper.firecrawl_self_hosted_enabled: true`; cloud Firecrawl is not used for article scraping. `FIRECRAWL_API_KEY` is only consumed by the web-search enrichment path (`TopicSearchService`), not by the scraper chain.
 - SSRF redirect enforcement is strongest for backend-controlled HTTP fetchers that use the centralized safe httpx transport and manual redirect loops: proxy image fetches, direct HTML, Defuddle, and Crawl4AI sidecar requests re-check each redirect target and block private, link-local, localhost, and metadata IP ranges. Third-party/browser-controlled providers have limits: Scrapling, Playwright, Crawlee, Firecrawl sidecars, and ScrapeGraphAI may resolve or follow redirects inside external runtimes where this process cannot pin DNS at connect time, so keep those runtimes isolated from internal networks and treat their URL filters as preflight/best-effort controls.

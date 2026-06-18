@@ -40,7 +40,9 @@ class LLMClientFactory:
         """Create an LLM client for the specified provider.
 
         Args:
-            provider: Provider name. Only ``"openrouter"`` is supported.
+            provider: Provider name. Only ``"openrouter"`` is supported. OpenAI,
+                Anthropic, and similar upstreams are selected through OpenRouter
+                model IDs, not separate provider adapters.
             config: Application configuration.
             circuit_breaker: Optional circuit breaker for fault tolerance.
             audit: Optional audit callback function.
@@ -54,7 +56,11 @@ class LLMClientFactory:
         normalized = provider.lower().strip()
 
         if normalized != "openrouter":
-            msg = f"Invalid LLM provider: {provider!r}. Only 'openrouter' is supported."
+            msg = (
+                f"Invalid LLM provider: {provider!r}. Only 'openrouter' is supported. "
+                "Use OpenRouter model IDs such as 'openai/...' or 'anthropic/...' "
+                "to route to upstream model families."
+            )
             raise ValueError(msg)
 
         logger.info(

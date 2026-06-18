@@ -250,9 +250,12 @@ class RuntimeConfig(BaseModel):
     @classmethod
     def _validate_llm_provider(cls, value: Any) -> str:
         provider = str(value or "openrouter").lower().strip()
-        valid_providers = {"openrouter", "openai", "anthropic", "ollama"}
-        if provider not in valid_providers:
-            msg = f"Invalid LLM provider: {provider}. Must be one of {sorted(valid_providers)}"
+        if provider != "openrouter":
+            msg = (
+                f"Invalid LLM provider: {provider}. Only 'openrouter' is supported. "
+                "Use OpenRouter model IDs such as 'openai/...' or 'anthropic/...' "
+                "to route to upstream model families."
+            )
             raise ValueError(msg)
         return provider
 
