@@ -58,6 +58,10 @@ When `ALLOWED_CLIENT_IDS` is populated, all JWT-issuing and JWT-refresh flows re
 
 Production/public deployments (`APP_ENV=production` or `API_PUBLIC_EXPOSURE=true`) fail startup if `ALLOWED_CLIENT_IDS` is empty unless `AUTH_ALLOW_ANY_CLIENT_ID=true` is explicitly set. Use the override only when broad client access is intentional and documented; it does not change token rotation semantics.
 
+### Auth tokens
+
+JWT access and refresh tokens are issued by Ratatoskr with issuer `ratatoskr` and audience `ratatoskr-api`. Token decode requires `exp`, `iat`, `type`, `user_id`, `iss`, and `aud`; tokens with a wrong issuer or audience are rejected. For one rollout only, each freshly started API worker accepts legacy signed tokens that are missing only `aud` and/or `iss` for five minutes, logging `jwt_legacy_missing_aud_iss_accepted`; remove this compatibility window after one release once old mobile/web tokens have naturally expired or refreshed.
+
 ## API Surface Freeze Policy
 
 The mobile API surface is contract-locked against the generated `docs/openapi/mobile_api.yaml` / `docs/openapi/mobile_api.json` pair. Changes are gated by:

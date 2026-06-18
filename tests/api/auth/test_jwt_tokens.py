@@ -32,6 +32,9 @@ from app.api.exceptions import (
 from app.api.routers.auth import tokens as tokens_module
 from app.api.routers.auth.tokens import (
     ALGORITHM,
+    JWT_AUDIENCE,
+    JWT_ISSUER,
+    JWT_LEGACY_CLAIMS_GRACE_SECONDS,
     create_access_token,
     decode_token,
     validate_client_id,
@@ -55,6 +58,7 @@ def _configure_jwt(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JWT_SECRET_PREVIOUS_KEYS", raising=False)
     tokens_module._secret_key_holder[0] = None
     tokens_module._previous_secret_keys_holder[0] = None
+    tokens_module._jwt_legacy_claim_grace_started_at_holder[0] = datetime.now(UTC)
 
 
 def _configure_allowlist(monkeypatch: pytest.MonkeyPatch, client_ids: str) -> None:
@@ -108,6 +112,8 @@ def test_decode_valid_access_token_returns_payload(monkeypatch):
     assert payload["username"] == "alice"
     assert payload["client_id"] == "mobile-ios"
     assert payload["type"] == "access"
+    assert payload["iss"] == JWT_ISSUER
+    assert payload["aud"] == JWT_AUDIENCE
 
 
 def test_decode_valid_access_token_without_expected_type(monkeypatch):
@@ -140,6 +146,8 @@ def test_decode_accepts_token_signed_with_previous_secret(monkeypatch):
         "type": "access",
         "exp": datetime.now(UTC) + timedelta(minutes=30),
         "iat": datetime.now(UTC),
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
         "jti": "previous-key-token",
     }
     token = jwt.encode(payload, _JWT_PREVIOUS_SECRET, algorithm=ALGORITHM)
@@ -156,7 +164,16 @@ def test_new_tokens_are_signed_with_primary_secret_during_rotation(monkeypatch):
 
     token = create_access_token(user_id=31)
 
-    assert jwt.decode(token, _JWT_SECRET, algorithms=[ALGORITHM])["user_id"] == 31
+    assert (
+        jwt.decode(
+            token,
+            _JWT_SECRET,
+            algorithms=[ALGORITHM],
+            audience=JWT_AUDIENCE,
+            issuer=JWT_ISSUER,
+        )["user_id"]
+        == 31
+    )
     with pytest.raises(jwt.InvalidTokenError):
         jwt.decode(token, _JWT_PREVIOUS_SECRET, algorithms=[ALGORITHM])
 
@@ -222,6 +239,8 @@ def test_decode_raises_token_expired_for_past_exp(monkeypatch):
         "type": "access",
         "exp": datetime.now(UTC) - timedelta(seconds=1),
         "iat": datetime.now(UTC) - timedelta(minutes=31),
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
         "jti": "expired-jti",
     }
     expired_token = jwt.encode(payload, _JWT_SECRET, algorithm=ALGORITHM)
@@ -249,11 +268,92 @@ def test_decode_raises_wrong_type_when_refresh_payload_used_as_access(monkeypatc
         "type": "refresh",
         "exp": datetime.now(UTC) + timedelta(days=30),
         "iat": datetime.now(UTC),
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
         "jti": "test-jti",
     }
     refresh_shaped_token = jwt.encode(payload, _JWT_SECRET, algorithm=ALGORITHM)
     with pytest.raises(TokenWrongTypeError):
         decode_token(refresh_shaped_token, expected_type="access")
+
+
+def _strict_claim_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "user_id": 42,
+        "type": "access",
+        "exp": datetime.now(UTC) + timedelta(minutes=30),
+        "iat": datetime.now(UTC),
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
+        "jti": "strict-claims-token",
+    }
+    payload.update(overrides)
+    return payload
+
+
+@pytest.mark.parametrize("claim", ["exp", "iat", "type", "user_id"])
+def test_decode_rejects_token_missing_required_core_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    claim: str,
+) -> None:
+    _configure_jwt(monkeypatch)
+    payload = _strict_claim_payload()
+    payload.pop(claim)
+    token = jwt.encode(payload, _JWT_SECRET, algorithm=ALGORITHM)
+
+    with pytest.raises(TokenInvalidError):
+        decode_token(token, expected_type="access")
+
+
+@pytest.mark.parametrize(
+    ("claim", "value"),
+    [
+        ("aud", "wrong-audience"),
+        ("iss", "wrong-issuer"),
+    ],
+)
+def test_decode_rejects_wrong_audience_or_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+    claim: str,
+    value: str,
+) -> None:
+    _configure_jwt(monkeypatch)
+    payload = _strict_claim_payload(**{claim: value})
+    token = jwt.encode(payload, _JWT_SECRET, algorithm=ALGORITHM)
+
+    with pytest.raises(TokenInvalidError):
+        decode_token(token, expected_type="access")
+
+
+def test_decode_accepts_legacy_token_missing_audience_and_issuer_during_grace(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _configure_jwt(monkeypatch)
+    payload = _strict_claim_payload()
+    payload.pop("aud")
+    payload.pop("iss")
+    token = jwt.encode(payload, _JWT_SECRET, algorithm=ALGORITHM)
+
+    decoded = decode_token(token, expected_type="access")
+
+    assert decoded["user_id"] == 42
+    assert any(record.message == "jwt_legacy_missing_aud_iss_accepted" for record in caplog.records)
+
+
+def test_decode_rejects_token_with_stripped_audience_after_grace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_jwt(monkeypatch)
+    tokens_module._jwt_legacy_claim_grace_started_at_holder[0] = datetime.now(UTC) - timedelta(
+        seconds=JWT_LEGACY_CLAIMS_GRACE_SECONDS + 1
+    )
+    payload = _strict_claim_payload()
+    payload.pop("aud")
+    token = jwt.encode(payload, _JWT_SECRET, algorithm=ALGORITHM)
+
+    with pytest.raises(TokenInvalidError):
+        decode_token(token, expected_type="access")
 
 
 # ===========================================================================

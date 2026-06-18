@@ -87,6 +87,12 @@ def _load_previous_secret_keys() -> tuple[str, ...]:
 _secret_key_holder: list[str | None] = [None]
 _previous_secret_keys_holder: list[tuple[str, ...] | None] = [None]
 ALGORITHM = "HS256"
+JWT_ISSUER = "ratatoskr"
+JWT_AUDIENCE = "ratatoskr-api"
+JWT_REQUIRED_CLAIMS = ("exp", "iat", "type", "user_id", "aud", "iss")
+JWT_LEGACY_CLAIMS_GRACE_SECONDS = 5 * 60
+_JWT_LEGACY_CLAIMS = frozenset({"aud", "iss"})
+_jwt_legacy_claim_grace_started_at_holder: list[datetime] = [datetime.now(UTC)]
 _allowlist_empty_warned_holder: list[bool] = [False]
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 30
@@ -144,6 +150,8 @@ def create_token(
             "exp": now + timedelta(seconds=ttl_seconds),
             "type": "access",
             "iat": now,
+            "iss": JWT_ISSUER,
+            "aud": JWT_AUDIENCE,
             "jti": secrets.token_urlsafe(16),
         }
     elif token_type == "refresh":
@@ -155,6 +163,8 @@ def create_token(
             "exp": now + timedelta(seconds=ttl_seconds),
             "type": "refresh",
             "iat": now,
+            "iss": JWT_ISSUER,
+            "aud": JWT_AUDIENCE,
             "jti": secrets.token_urlsafe(16),
         }
     else:
@@ -236,6 +246,72 @@ async def create_refresh_token(
     return token, session_id
 
 
+def _legacy_claim_grace_remaining_seconds() -> float:
+    expires_at = _jwt_legacy_claim_grace_started_at_holder[0] + timedelta(
+        seconds=JWT_LEGACY_CLAIMS_GRACE_SECONDS
+    )
+    return (expires_at - datetime.now(UTC)).total_seconds()
+
+
+def _is_legacy_claim_grace_active() -> bool:
+    return _legacy_claim_grace_remaining_seconds() > 0
+
+
+def _payload_audience_matches(value: Any) -> bool:
+    if isinstance(value, str):
+        return value == JWT_AUDIENCE
+    if isinstance(value, list):
+        return JWT_AUDIENCE in value
+    return False
+
+
+def _decode_legacy_missing_aud_iss(token: str, secret: str) -> dict[str, Any]:
+    payload = jwt.decode(
+        token,
+        secret,
+        algorithms=[ALGORITHM],
+        options={
+            "require": ["exp", "iat", "type", "user_id"],
+            "verify_aud": False,
+            "verify_iss": False,
+        },
+    )
+    if "aud" in payload and not _payload_audience_matches(payload["aud"]):
+        raise jwt.InvalidAudienceError("Audience doesn't match")
+    if "iss" in payload and payload["iss"] != JWT_ISSUER:
+        raise jwt.InvalidIssuerError("Invalid issuer")
+
+    missing_claims = sorted(_JWT_LEGACY_CLAIMS.difference(payload))
+    logger.warning(
+        "jwt_legacy_missing_aud_iss_accepted",
+        extra={
+            "missing_claims": missing_claims,
+            "grace_seconds_remaining": max(0, int(_legacy_claim_grace_remaining_seconds())),
+            "removal": (
+                "Remove JWT legacy aud/iss grace after one release once old "
+                "mobile/web tokens have expired."
+            ),
+        },
+    )
+    return payload
+
+
+def _decode_token_with_contract(token: str, secret: str) -> dict[str, Any]:
+    try:
+        return jwt.decode(
+            token,
+            secret,
+            algorithms=[ALGORITHM],
+            audience=JWT_AUDIENCE,
+            issuer=JWT_ISSUER,
+            options={"require": list(JWT_REQUIRED_CLAIMS)},
+        )
+    except jwt.MissingRequiredClaimError as err:
+        if err.claim not in _JWT_LEGACY_CLAIMS or not _is_legacy_claim_grace_active():
+            raise
+        return _decode_legacy_missing_aud_iss(token, secret)
+
+
 def decode_token(token: str, expected_type: str | None = None) -> dict[str, Any]:
     """Decode and validate JWT token.
 
@@ -253,7 +329,7 @@ def decode_token(token: str, expected_type: str | None = None) -> dict[str, Any]
     last_invalid_error: jwt.InvalidTokenError | None = None
     for secret in (_get_secret_key(), *_get_previous_secret_keys()):
         try:
-            payload = jwt.decode(token, secret, algorithms=[ALGORITHM])
+            payload = _decode_token_with_contract(token, secret)
             break
         except jwt.ExpiredSignatureError:
             token_type = expected_type or "access"
