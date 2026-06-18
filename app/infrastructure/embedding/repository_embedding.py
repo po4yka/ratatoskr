@@ -234,6 +234,29 @@ class RepositoryEmbeddingGenerator:
 
         return RepositoryEmbeddingBatchResult(successes=successes, failures=[])
 
+    async def delete_repository_point(self, repository_id: int) -> None:
+        """Delete the Qdrant point for a repository embedding if Qdrant is available."""
+        if self._qdrant is None or not self._qdrant.available:
+            logger.debug(
+                "repository_embedding_qdrant_delete_skipped",
+                extra={"reason": "not_available", "repository_id": repository_id},
+            )
+            return
+
+        from qdrant_client.models import PointIdsList
+
+        point_id = repository_point_id(
+            self._environment,
+            self._user_scope,
+            repository_id,
+        )
+        await asyncio.to_thread(
+            self._qdrant._client.delete,
+            collection_name=self._qdrant._collection_name,
+            points_selector=PointIdsList(points=[point_id]),
+            wait=True,
+        )
+
     @staticmethod
     def compose_embedding_text(
         *,

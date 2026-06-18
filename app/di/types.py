@@ -123,6 +123,9 @@ class ApiRuntime:
     request_service: Any
     sync_service: Any
     social_auth_service: Any
+    repository_service: Any = None
+    analyze_repository_use_case: Any = None
+    github_platform_extractor: Any = None
     tag_repo: Any = None
     rss_feed_repo: Any = None
 

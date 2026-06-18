@@ -19,8 +19,12 @@ from app.api.services.sync import (
     SyncRecordCollector,
 )
 from app.api.services.sync_service import SyncService
+from app.adapters.github.platform_extractor import GitHubPlatformExtractor
+from app.agents.repo_analysis_agent import RepoAnalysisAgent
+from app.application.services.repository_service import RepositoryService
 from app.application.services.request_service import RequestService
 from app.application.services.transcription_job_service import TranscriptionJobService
+from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
 from app.application.use_cases.search_read_model import SearchReadModelUseCase
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.config import load_config
@@ -54,6 +58,13 @@ from app.di.shared import (
 from app.di.social import build_social_auth_service
 from app.di.types import ApiRuntime, DatabaseRuntimeServices, SyncDeps
 from app.infrastructure.persistence.sync_aux_read_adapter import SyncAuxReadAdapter
+from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
+from app.infrastructure.persistence.repositories.repository_analysis_repository import (
+    RepositoryAnalysisRepositoryAdapter,
+)
+from app.infrastructure.persistence.repositories.repository_read_repository import (
+    RepositoryReadRepositoryAdapter,
+)
 from app.infrastructure.redis import get_redis
 
 if TYPE_CHECKING:
@@ -200,6 +211,28 @@ async def build_api_runtime(
         request_repository=request_repository,
         summary_repository=summary_repository,
     )
+    repository_embedding_gen = RepositoryEmbeddingGenerator(
+        embedding_service=search.embedding_service,
+        qdrant_store=search.vector_store,
+        db=database,
+        environment=app_cfg.vector_store.environment,
+        user_scope=app_cfg.vector_store.user_scope,
+    )
+    repository_analysis_repo = RepositoryAnalysisRepositoryAdapter(database)
+    analyze_repository_use_case = AnalyzeRepositoryUseCase(
+        repository_repo=repository_analysis_repo,
+        agent=RepoAnalysisAgent(llm_service=core.llm_client),
+        embedding_gen=repository_embedding_gen,
+    )
+    github_platform_extractor = GitHubPlatformExtractor(
+        db=database,
+        github_config=app_cfg.github,
+        analyze_use_case=analyze_repository_use_case,
+    )
+    repository_service = RepositoryService(
+        repository_repo=RepositoryReadRepositoryAdapter(database),
+        embedding_gen=repository_embedding_gen,
+    )
     request_service = RequestService(
         db=database,
         request_repository=request_repository,
@@ -273,6 +306,9 @@ async def build_api_runtime(
         request_service=request_service,
         sync_service=sync_service,
         social_auth_service=social_auth_service,
+        repository_service=repository_service,
+        analyze_repository_use_case=analyze_repository_use_case,
+        github_platform_extractor=github_platform_extractor,
         tag_repo=tag_repo,
         rss_feed_repo=rss_feed_repo,
     )

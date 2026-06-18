@@ -14,6 +14,7 @@ from app.infrastructure.embedding.repository_embedding import (
     RepositoryEmbeddingBatchItem,
     RepositoryEmbeddingGenerator,
 )
+from app.infrastructure.vector.point_ids import repository_point_id
 
 
 def _make_repo(repo_id: int, *, full_name: str | None = None) -> MagicMock:
@@ -248,3 +249,27 @@ async def test_regenerate_batch_falls_back_to_single_rows_on_batch_failure() -> 
     embedding_service.generate_embeddings_batch.assert_awaited_once()
     assert embedding_service.generate_embedding.await_count == 2
     assert len(executed_statements) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_repository_point_uses_repository_point_id() -> None:
+    qdrant = MagicMock()
+    qdrant.available = True
+    qdrant._client = MagicMock()
+    qdrant._client.delete = MagicMock()
+    qdrant._collection_name = "embeddings"
+    generator = RepositoryEmbeddingGenerator(
+        embedding_service=MagicMock(),
+        qdrant_store=qdrant,
+        db=MagicMock(),
+        environment="test",
+        user_scope="default",
+    )
+
+    await generator.delete_repository_point(123)
+
+    qdrant._client.delete.assert_called_once()
+    kwargs = qdrant._client.delete.call_args.kwargs
+    assert kwargs["collection_name"] == "embeddings"
+    assert kwargs["points_selector"].points == [repository_point_id("test", "default", 123)]
+    assert kwargs["wait"] is True
