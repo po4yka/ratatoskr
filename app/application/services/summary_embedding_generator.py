@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.application.ports.search import EmbeddingDependencyUnavailableError
-from app.core.embedding_text import prepare_text_for_embedding
 from app.core.logging_utils import get_logger
+from app.core.summary_embedding_text import coerce_summary_payload, extract_indexable_text
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -69,6 +69,12 @@ class SummaryEmbeddingGenerator:
         """Expose the embedding provider in use."""
         return self._embedding_service
 
+    def _prepare_text(self, payload: Any) -> str:
+        payload_dict, raw_fallback = coerce_summary_payload(payload)
+        return extract_indexable_text(payload_dict, raw_fallback=raw_fallback)[
+            : self._max_token_length
+        ]
+
     async def generate_embedding_for_summary(
         self,
         summary_id: int,
@@ -79,19 +85,7 @@ class SummaryEmbeddingGenerator:
     ) -> bool:
         """Generate and store an embedding for a specific summary."""
         model_name = self._embedding_service.get_model_name(language)
-        metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
-        text = prepare_text_for_embedding(
-            title=metadata.get("title") or payload.get("title"),
-            summary_1000=payload.get("summary_1000"),
-            summary_250=payload.get("summary_250"),
-            tldr=payload.get("tldr"),
-            key_ideas=payload.get("key_ideas"),
-            topic_tags=payload.get("topic_tags"),
-            semantic_boosters=payload.get("semantic_boosters"),
-            query_expansion_keywords=payload.get("query_expansion_keywords"),
-            semantic_chunks=payload.get("semantic_chunks"),
-            max_length=self._max_token_length,
-        )
+        text = self._prepare_text(payload)
         if not text.strip():
             logger.warning("empty_text_for_embedding", extra={"summary_id": summary_id})
             return False
@@ -174,19 +168,7 @@ class SummaryEmbeddingGenerator:
         if not isinstance(payload, dict):
             return None, True
         model_name = self._embedding_service.get_model_name(language)
-        metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
-        text = prepare_text_for_embedding(
-            title=metadata.get("title") or payload.get("title"),
-            summary_1000=payload.get("summary_1000"),
-            summary_250=payload.get("summary_250"),
-            tldr=payload.get("tldr"),
-            key_ideas=payload.get("key_ideas"),
-            topic_tags=payload.get("topic_tags"),
-            semantic_boosters=payload.get("semantic_boosters"),
-            query_expansion_keywords=payload.get("query_expansion_keywords"),
-            semantic_chunks=payload.get("semantic_chunks"),
-            max_length=self._max_token_length,
-        )
+        text = self._prepare_text(payload)
         if not text.strip():
             logger.warning("empty_text_for_embedding", extra={"summary_id": summary_id})
             return None, True

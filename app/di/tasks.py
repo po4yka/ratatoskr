@@ -65,6 +65,8 @@ class VectorReconcileTaskRuntime:
     cfg: AppConfig
     db: Database
     embedding_generator: Any
+    embedding_repository: Any
+    vector_store: Any
 
 
 @dataclass(frozen=True)
@@ -330,6 +332,7 @@ def build_vector_reconcile_task_runtime(
     db: Database,
 ) -> VectorReconcileTaskRuntime:
     from app.application.services.summary_embedding_generator import SummaryEmbeddingGenerator
+    from app.di.shared import build_qdrant_vector_store
     from app.infrastructure.embedding.embedding_factory import create_embedding_service
     from app.infrastructure.persistence.repositories.embedding_repository import (
         EmbeddingRepositoryAdapter,
@@ -342,11 +345,14 @@ def build_vector_reconcile_task_runtime(
     )
 
     embedding_service = create_embedding_service(cfg.embedding)
+    embedding_repository = EmbeddingRepositoryAdapter(db)
     return VectorReconcileTaskRuntime(
         cfg=cfg,
         db=db,
+        embedding_repository=embedding_repository,
+        vector_store=build_qdrant_vector_store(cfg),
         embedding_generator=SummaryEmbeddingGenerator(
-            embedding_repository=EmbeddingRepositoryAdapter(db),
+            embedding_repository=embedding_repository,
             request_repository=RequestRepositoryAdapter(db),
             summary_repository=SummaryRepositoryAdapter(db),
             embedding_service=embedding_service,

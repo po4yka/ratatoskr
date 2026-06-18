@@ -1592,6 +1592,9 @@ Indexes: `(user_id, is_starred)`, `(user_id, primary_language)`, `(user_id, push
 | `embedding_blob` | binary | Serialized float32 array |
 | `dimensions` | int | Vector dimensions |
 | `language` | text, nullable | Language hint for the embedded text |
+| `content_hash` | text, nullable | SHA256 of repository text fed to the embedding model |
+| `last_indexed_at` | timestamp, nullable | Last successful Qdrant write |
+| `index_status` | text | `"pending"` after DB embedding generation; `"indexed"` after Qdrant accepts the point |
 | `created_at` | timestamp | |
 
 Unique constraint: `(repository_id)`.

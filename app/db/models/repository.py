@@ -129,6 +129,10 @@ class Repository(Base):
 
 class RepositoryEmbedding(Base):
     __tablename__ = "repository_embeddings"
+    __table_args__ = (
+        Index("ix_repository_embeddings_index_status", "index_status"),
+        Index("ix_repository_embeddings_last_indexed_at", "last_indexed_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     repository_id: Mapped[int] = mapped_column(
@@ -143,6 +147,13 @@ class RepositoryEmbedding(Base):
     embedding_blob: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
     language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_indexed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    index_status: Mapped[str] = mapped_column(
+        String(32), default="pending", server_default="pending", nullable=False
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

@@ -185,8 +185,8 @@ async def test_regenerate_batch_uses_single_provider_db_and_qdrant_calls() -> No
     assert result.failures == []
     embedding_service.generate_embeddings_batch.assert_awaited_once()
     embedding_service.generate_embedding.assert_not_awaited()
-    db.transaction.assert_called_once_with()
-    assert len(executed_statements) == 1
+    assert db.transaction.call_count == 2
+    assert len(executed_statements) == 2
     qdrant.upsert_notes.assert_called_once()
 
     vectors, metadatas, point_ids = qdrant.upsert_notes.call_args.args
@@ -206,6 +206,7 @@ async def test_regenerate_batch_uses_single_provider_db_and_qdrant_calls() -> No
     )
     assert "ON CONFLICT" in compiled
     assert "RETURNING repository_embeddings.id" in compiled
+    assert "index_status" in compiled
 
 
 @pytest.mark.asyncio

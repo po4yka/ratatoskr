@@ -17,13 +17,15 @@ All summary writes produce the same Qdrant point UUID (`uuid5(NAMESPACE_OID, f"{
 
 ### Drift detection via `content_hash`
 
-Every successful write to `summary_embeddings` stamps:
+Every generated summary embedding stored in `summary_embeddings` stamps:
 
 - `content_hash` — SHA256 of the text fed to the embedding model (computed by `SummaryEmbeddingGenerator`).
-- `last_indexed_at` — UTC timestamp of the write.
-- `index_status` — set to `"indexed"`.
+- `index_status` — set to `"pending"` until the Qdrant point write succeeds.
+- `last_indexed_at` — UTC timestamp of the most recent successful Qdrant write.
 
-On a subsequent generate call the generator short-circuits when an existing row's `content_hash` matches the freshly-prepared text — no embedding API call, no Qdrant upsert. The reconciler treats `last_indexed_at < summaries.updated_at` (or NULL) as drift and re-runs the generator with `force=True`.
+On a subsequent generate call the generator short-circuits when an existing row's `content_hash` matches the freshly-prepared text — no embedding API call, no Qdrant upsert. The fast path and Taskiq reconciler mark rows `"indexed"` only after the matching Qdrant upsert succeeds. The reconciler treats `last_indexed_at < summaries.updated_at` (or NULL) as drift and re-runs the generator with `force=True`.
+
+Repository embeddings use the same cursor: `repository_embeddings.content_hash` tracks the embedded repository text, `index_status` remains `"pending"` until Qdrant accepts the deterministic repository point, and `last_indexed_at` is updated only after that successful upsert.
 
 ## Environment variables
 
@@ -42,7 +44,7 @@ The reconciler runs in the Taskiq worker process. The fast path ensures freshnes
 `app/infrastructure/vector/reconciliation.py` is the shared diagnostics and repair-inspection layer. The default reconciler is configured with two adapters:
 
 - `SummaryVectorIndexedEntityAdapter` checks non-deleted `summaries`, `summary_embeddings`, model-version staleness, pending embeddings, and missing Qdrant summary points.
-- `RepositoryVectorIndexedEntityAdapter` checks analyzed `repositories`, `repository_embeddings`, model-version staleness, pending analysis, and missing Qdrant repository points.
+- `RepositoryVectorIndexedEntityAdapter` checks analyzed `repositories`, `repository_embeddings`, stale or pending repository embeddings, model-version staleness, and missing Qdrant repository points.
 
 Each adapter returns `VectorIndexedEntityStats`; the reconciler aggregates them into `VectorReconciliationReport` and emits per-entity details under `details.entities`. The legacy top-level diagnostic fields (`expected_summaries`, `missing_summary_vectors`, `expected_repositories`, `missing_repository_vectors`, etc.) are preserved for dashboards, metrics, and existing tests. To add another vectorized entity type, implement `VectorIndexedEntityAdapter` and pass it via the `adapters=` constructor argument; do not fork the reconciler or add entity-specific branching to the report aggregation.
 

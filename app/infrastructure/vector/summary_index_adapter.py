@@ -33,9 +33,16 @@ logger = get_logger(__name__)
 class QdrantSummaryIndexAdapter:
     """Embed + upsert a summary point synchronously (read-your-writes fast-path)."""
 
-    def __init__(self, *, vector_store: Any, embedding_service: Any) -> None:
+    def __init__(
+        self,
+        *,
+        vector_store: Any,
+        embedding_service: Any,
+        embedding_repository: Any | None = None,
+    ) -> None:
         self._vector_store = vector_store
         self._embedding_service = embedding_service
+        self._embedding_repository = embedding_repository
 
     async def index_summary(
         self,
@@ -79,6 +86,8 @@ class QdrantSummaryIndexAdapter:
             vector,
             point_payload,
         )
+        if self._embedding_repository is not None:
+            await self._embedding_repository.async_mark_summary_embeddings_indexed([summary_id])
         logger.info(
             "summary_indexed_fastpath",
             extra={

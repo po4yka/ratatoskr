@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -63,6 +64,7 @@ class _PreparedRepositoryEmbedding:
     analysis: RepoAnalysis | None
     correlation_id: str
     text: str
+    content_hash: str
     topics: list[str]
 
 
@@ -130,14 +132,16 @@ class RepositoryEmbeddingGenerator:
             embedding_blob=embedding_blob,
             dimensions=dimensions,
             language=None,
+            content_hash=prepared.content_hash,
         )
 
-        await self._upsert_qdrant(
+        if await self._upsert_qdrant(
             repository=prepared.repository,
             topics=prepared.topics,
             embedding=embedding,
             correlation_id=correlation_id,
-        )
+        ):
+            await self._mark_db_rows_indexed([repository.id])
 
         logger.info(
             "repository_embedding_regenerated",
@@ -195,7 +199,11 @@ class RepositoryEmbeddingGenerator:
                 language=None,
             )
 
-            await self._upsert_qdrant_batch(prepared=prepared, embeddings=embeddings)
+            indexed_repository_ids = await self._upsert_qdrant_batch(
+                prepared=prepared,
+                embeddings=embeddings,
+            )
+            await self._mark_db_rows_indexed(indexed_repository_ids)
         except Exception:
             logger.exception(
                 "repository_embedding_batch_regenerate_failed",
@@ -331,6 +339,7 @@ class RepositoryEmbeddingGenerator:
             analysis=item.analysis,
             correlation_id=item.correlation_id,
             text=text,
+            content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             topics=topics,
         )
 
@@ -376,6 +385,7 @@ class RepositoryEmbeddingGenerator:
         embedding_blob: bytes,
         dimensions: int,
         language: str | None,
+        content_hash: str | None = None,
     ) -> RepositoryEmbedding:
         """Upsert RepositoryEmbedding row keyed by repository_id."""
         async with self._db.transaction() as session:
@@ -388,6 +398,8 @@ class RepositoryEmbeddingGenerator:
                     embedding_blob=embedding_blob,
                     dimensions=dimensions,
                     language=language,
+                    content_hash=content_hash,
+                    index_status="pending",
                 )
                 .on_conflict_do_update(
                     index_elements=["repository_id"],
@@ -397,6 +409,8 @@ class RepositoryEmbeddingGenerator:
                         "embedding_blob": embedding_blob,
                         "dimensions": dimensions,
                         "language": language,
+                        "content_hash": content_hash,
+                        "index_status": "pending",
                     },
                 )
                 .returning(RepositoryEmbedding)
@@ -427,6 +441,8 @@ class RepositoryEmbeddingGenerator:
                 "embedding_blob": embedding_blob,
                 "dimensions": dimensions,
                 "language": language,
+                "content_hash": item.content_hash,
+                "index_status": "pending",
             }
             for item, embedding_blob in zip(prepared, embedding_blobs, strict=True)
         ]
@@ -440,6 +456,8 @@ class RepositoryEmbeddingGenerator:
                 "embedding_blob": insert_stmt.excluded.embedding_blob,
                 "dimensions": insert_stmt.excluded.dimensions,
                 "language": insert_stmt.excluded.language,
+                "content_hash": insert_stmt.excluded.content_hash,
+                "index_status": "pending",
             },
         ).returning(RepositoryEmbedding)
 
@@ -457,7 +475,7 @@ class RepositoryEmbeddingGenerator:
         topics: list[str],
         embedding: Any,
         correlation_id: str,
-    ) -> None:
+    ) -> bool:
         if self._qdrant is None or not self._qdrant.available:
             logger.debug(
                 "repository_embedding_qdrant_skipped",
@@ -467,7 +485,7 @@ class RepositoryEmbeddingGenerator:
                     "correlation_id": correlation_id,
                 },
             )
-            return
+            return False
 
         point_id = repository_point_id(
             self._environment,
@@ -487,19 +505,20 @@ class RepositoryEmbeddingGenerator:
             [metadata],
             [point_id],
         )
+        return True
 
     async def _upsert_qdrant_batch(
         self,
         *,
         prepared: Sequence[_PreparedRepositoryEmbedding],
         embeddings: Sequence[Any],
-    ) -> None:
+    ) -> list[int]:
         if self._qdrant is None or not self._qdrant.available:
             logger.debug(
                 "repository_embedding_qdrant_skipped",
                 extra={"reason": "not_available", "count": len(prepared)},
             )
-            return
+            return []
 
         vectors: list[list[float]] = []
         metadatas: list[dict[str, Any]] = []
@@ -528,6 +547,21 @@ class RepositoryEmbeddingGenerator:
             metadatas,
             point_ids,
         )
+        return [item.repository.id for item in prepared]
+
+    async def _mark_db_rows_indexed(self, repository_ids: Sequence[int]) -> None:
+        if not repository_ids:
+            return
+        from sqlalchemy import update
+
+        from app.db.types import _utcnow
+
+        async with self._db.transaction() as session:
+            await session.execute(
+                update(RepositoryEmbedding)
+                .where(RepositoryEmbedding.repository_id.in_(list(repository_ids)))
+                .values(last_indexed_at=_utcnow(), index_status="indexed")
+            )
 
     def _build_qdrant_metadata(
         self,

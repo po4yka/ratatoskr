@@ -162,10 +162,10 @@ async def backfill_vector_store(
         processed = 0
         deleted = 0
         skipped = 0
-        pending_requests: list[tuple[int, list[list[float]], list[dict[str, Any]]]] = []
+        pending_requests: list[tuple[int, int, list[list[float]], list[dict[str, Any]]]] = []
         pending_vector_count = 0
 
-        def flush_pending() -> None:
+        async def flush_pending() -> None:
             nonlocal pending_vector_count
             if dry_run:
                 logger.info(
@@ -175,7 +175,13 @@ async def backfill_vector_store(
                 pending_requests.clear()
                 pending_vector_count = 0
                 return
-            for pending_request_id, request_vectors, request_metadata in pending_requests:
+            indexed_summary_ids: list[int] = []
+            for (
+                pending_request_id,
+                pending_summary_id,
+                request_vectors,
+                request_metadata,
+            ) in pending_requests:
                 # Backfill is operator-rerunnable, so skip the per-request disk
                 # flush; a lost write is recovered by re-running the backfill.
                 vector_store.replace_request_notes(
@@ -184,6 +190,8 @@ async def backfill_vector_store(
                     request_metadata,
                     wait=False,
                 )
+                indexed_summary_ids.append(pending_summary_id)
+            await embedding_repo.async_mark_summary_embeddings_indexed(indexed_summary_ids)
             pending_requests.clear()
             pending_vector_count = 0
 
@@ -301,15 +309,15 @@ async def backfill_vector_store(
                 deleted += 1
                 continue
 
-            pending_requests.append((request_id, request_vectors, request_metadata))
+            pending_requests.append((request_id, summary_id, request_vectors, request_metadata))
             pending_vector_count += len(request_vectors)
             processed += len(request_vectors)
 
             if pending_vector_count >= batch_size:
-                flush_pending()
+                await flush_pending()
 
         if pending_requests:
-            flush_pending()
+            await flush_pending()
 
         logger.info(
             "vector_backfill_complete",

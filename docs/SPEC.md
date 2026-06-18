@@ -195,6 +195,9 @@ Analyzed repository rows (`analysis_json IS NOT NULL`) are exported to Qdrant us
 | `embedding_blob` | bytea | no | Serialized float32 embedding |
 | `dimensions` | integer | no | Vector dimensionality |
 | `language` | varchar(10) | yes | Language of embedded text |
+| `content_hash` | varchar(64) | yes | SHA256 of repository text fed to the embedding model |
+| `last_indexed_at` | timestamptz | yes | Last successful Qdrant point write |
+| `index_status` | varchar(32) | no | `"pending"` until Qdrant write succeeds, then `"indexed"` |
 | `created_at` | timestamptz | no | Row insertion time |
 
 ### `user_github_integrations`

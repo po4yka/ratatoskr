@@ -81,6 +81,8 @@ class VectorReconciliationReport:
     missing_repository_vectors: int = 0
     stale_summary_embeddings: int = 0
     pending_summary_embeddings: int = 0
+    stale_repository_embeddings: int = 0
+    pending_repository_embeddings: int = 0
     missing_summary_embeddings: int = 0
     missing_repository_embeddings: int = 0
     stale_embedding_model_count: int = 0
@@ -95,8 +97,9 @@ class VectorReconciliationReport:
             "status": self.status,
             "missing_embeddings": self.missing_summary_embeddings
             + self.missing_repository_embeddings,
-            "stale_embeddings": self.stale_summary_embeddings,
-            "pending_embeddings": self.pending_summary_embeddings,
+            "stale_embeddings": self.stale_summary_embeddings + self.stale_repository_embeddings,
+            "pending_embeddings": self.pending_summary_embeddings
+            + self.pending_repository_embeddings,
             "oldest_unindexed_summary_updated_at": self.oldest_unindexed_summary_updated_at,
             "latest_indexed_at": self.latest_indexed_at,
             "expected_summaries": self.expected_summaries,
@@ -106,6 +109,10 @@ class VectorReconciliationReport:
             "indexed_repositories": self.indexed_repositories,
             "missing_summary_vectors": self.missing_summary_vectors,
             "missing_repository_vectors": self.missing_repository_vectors,
+            "stale_summary_embeddings": self.stale_summary_embeddings,
+            "pending_summary_embeddings": self.pending_summary_embeddings,
+            "stale_repository_embeddings": self.stale_repository_embeddings,
+            "pending_repository_embeddings": self.pending_repository_embeddings,
             "stale_embedding_model_count": self.stale_embedding_model_count,
             "lag_seconds": self.lag_seconds,
             "vector_store_available": self.vector_store_available,
@@ -194,6 +201,8 @@ class VectorIndexReconciler:
             missing_repository_vectors=repository_stats.missing_vectors,
             stale_summary_embeddings=summary_stats.stale_embeddings,
             pending_summary_embeddings=summary_stats.pending_embeddings,
+            stale_repository_embeddings=repository_stats.stale_embeddings,
+            pending_repository_embeddings=repository_stats.pending_embeddings,
             missing_summary_embeddings=summary_stats.missing_embeddings,
             missing_repository_embeddings=repository_stats.missing_embeddings,
             stale_embedding_model_count=sum(item.stale_model_count for item in stats),
@@ -365,6 +374,49 @@ class RepositoryVectorIndexedEntityAdapter:
             )
             or 0
         )
+        stale_embeddings = int(
+            await session.scalar(
+                select(func.count(Repository.id))
+                .join(
+                    RepositoryEmbedding,
+                    RepositoryEmbedding.repository_id == Repository.id,
+                )
+                .where(
+                    Repository.analysis_json.is_not(None),
+                    or_(
+                        RepositoryEmbedding.last_indexed_at.is_(None),
+                        RepositoryEmbedding.last_indexed_at < Repository.updated_at,
+                    ),
+                )
+            )
+            or 0
+        )
+        pending_embeddings = int(
+            await session.scalar(
+                select(func.count(RepositoryEmbedding.id)).where(
+                    RepositoryEmbedding.index_status != "indexed"
+                )
+            )
+            or 0
+        )
+        oldest_unindexed = await session.scalar(
+            select(func.min(Repository.updated_at))
+            .outerjoin(
+                RepositoryEmbedding,
+                RepositoryEmbedding.repository_id == Repository.id,
+            )
+            .where(
+                Repository.analysis_json.is_not(None),
+                or_(
+                    RepositoryEmbedding.id.is_(None),
+                    RepositoryEmbedding.last_indexed_at.is_(None),
+                    RepositoryEmbedding.last_indexed_at < Repository.updated_at,
+                ),
+            )
+        )
+        latest_indexed = await session.scalar(
+            select(func.max(RepositoryEmbedding.last_indexed_at))
+        )
         indexed_ids: set[int] | None = None
         if vector_store_available and vector_store is not None:
             get_indexed_ids = getattr(vector_store, "get_indexed_repository_ids", None)
@@ -378,7 +430,11 @@ class RepositoryVectorIndexedEntityAdapter:
             expected_ids=expected_ids,
             indexed_ids=indexed_ids,
             missing_embeddings=missing_embeddings,
+            stale_embeddings=stale_embeddings,
+            pending_embeddings=pending_embeddings,
             stale_model_count=stale_model_count,
+            oldest_unindexed_at=oldest_unindexed,
+            latest_indexed_at=latest_indexed,
         )
 
 

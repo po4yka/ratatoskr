@@ -7,23 +7,12 @@ import pytest
 
 from app.application.ports.search import EmbeddingDependencyUnavailableError
 from app.application.services.summary_embedding_generator import SummaryEmbeddingGenerator
-from app.core.embedding_text import prepare_text_for_embedding
+from app.core.summary_embedding_text import coerce_summary_payload, extract_indexable_text
 
 
 def _expected_hash(payload: dict, *, max_length: int = 512) -> str:
-    metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
-    text = prepare_text_for_embedding(
-        title=metadata.get("title") or payload.get("title"),
-        summary_1000=payload.get("summary_1000"),
-        summary_250=payload.get("summary_250"),
-        tldr=payload.get("tldr"),
-        key_ideas=payload.get("key_ideas"),
-        topic_tags=payload.get("topic_tags"),
-        semantic_boosters=payload.get("semantic_boosters"),
-        query_expansion_keywords=payload.get("query_expansion_keywords"),
-        semantic_chunks=payload.get("semantic_chunks"),
-        max_length=max_length,
-    )
+    payload_dict, raw_fallback = coerce_summary_payload(payload)
+    text = extract_indexable_text(payload_dict, raw_fallback=raw_fallback)[:max_length]
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -124,7 +113,7 @@ async def test_generate_embedding_for_summary_returns_false_for_empty_prepared_t
     generator, embedding_service, _, _, _ = generator_fixture
 
     with patch(
-        "app.application.services.summary_embedding_generator.prepare_text_for_embedding",
+        "app.application.services.summary_embedding_generator.extract_indexable_text",
         return_value="",
     ):
         created = await generator.generate_embedding_for_summary(10, {"summary_250": "ignored"})

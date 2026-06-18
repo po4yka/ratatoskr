@@ -42,7 +42,12 @@ if TYPE_CHECKING:
     from app.config import AppConfig
 
 
-def build_summary_index_adapter(*, vector_store: Any, embedding_service: Any) -> SummaryIndexPort:
+def build_summary_index_adapter(
+    *,
+    vector_store: Any,
+    embedding_service: Any,
+    embedding_repository: Any | None = None,
+) -> SummaryIndexPort:
     """Construct the read-your-writes summary indexer (ADR-0012).
 
     Imported lazily so this module stays importable without the vector stack in
@@ -50,7 +55,11 @@ def build_summary_index_adapter(*, vector_store: Any, embedding_service: Any) ->
     """
     from app.infrastructure.vector.summary_index_adapter import QdrantSummaryIndexAdapter
 
-    return QdrantSummaryIndexAdapter(vector_store=vector_store, embedding_service=embedding_service)
+    return QdrantSummaryIndexAdapter(
+        vector_store=vector_store,
+        embedding_service=embedding_service,
+        embedding_repository=embedding_repository,
+    )
 
 
 def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
@@ -432,6 +441,9 @@ def assemble_graph_url_processor(
     never compiled without a checkpointer.
     """
     from app.di.extraction import build_extraction_port
+    from app.infrastructure.persistence.repositories.embedding_repository import (
+        EmbeddingRepositoryAdapter,
+    )
 
     extraction = build_extraction_port(
         content_extractor=content_extractor,
@@ -440,6 +452,7 @@ def assemble_graph_url_processor(
     summary_index = build_summary_index_adapter(
         vector_store=vector_store,
         embedding_service=embedding_service,
+        embedding_repository=EmbeddingRepositoryAdapter(db),
     )
     retrieval = _build_retrieval_port_or_stub(
         vector_store=vector_store,

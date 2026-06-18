@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import types
 from types import SimpleNamespace
@@ -58,6 +59,7 @@ def _build_cfg(*, enabled: bool = True, batch_size: int = 100) -> SimpleNamespac
             cron="*/30 * * * *",
         ),
         embedding=SimpleNamespace(max_token_length=512),
+        vector_store=SimpleNamespace(environment="test", user_scope="owner"),
     )
 
 
@@ -126,8 +128,12 @@ async def test_reconcile_batches_stale_rows_with_force_true(monkeypatch):
         )
     )
     monkeypatch.setattr(
-        "app.tasks.reconcile_vector_index._build_generator",
-        lambda _cfg, _db: fake_generator,
+        "app.tasks.reconcile_vector_index._build_runtime",
+        lambda _cfg, _db: SimpleNamespace(embedding_generator=fake_generator),
+    )
+    monkeypatch.setattr(
+        "app.tasks.reconcile_vector_index._sync_summary_vectors",
+        AsyncMock(return_value=1),
     )
 
     summary = await _reconcile_body(_build_cfg(), MagicMock())
@@ -170,8 +176,12 @@ async def test_reconcile_surfaces_batch_failure_counts(monkeypatch):
         )
     )
     monkeypatch.setattr(
-        "app.tasks.reconcile_vector_index._build_generator",
-        lambda _cfg, _db: fake_generator,
+        "app.tasks.reconcile_vector_index._build_runtime",
+        lambda _cfg, _db: SimpleNamespace(embedding_generator=fake_generator),
+    )
+    monkeypatch.setattr(
+        "app.tasks.reconcile_vector_index._sync_summary_vectors",
+        AsyncMock(return_value=1),
     )
 
     summary = await _reconcile_body(_build_cfg(), MagicMock())
@@ -180,3 +190,79 @@ async def test_reconcile_surfaces_batch_failure_counts(monkeypatch):
     assert summary.requeued == 1
     assert summary.failed == 1
     assert summary.skipped == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_summary_vectors_upserts_qdrant_and_marks_indexed(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.tasks.reconcile_vector_index import _sync_summary_vectors
+
+    class FakeVectorStore:
+        available = True
+
+        def __init__(self):
+            self.replaced = []
+
+        def replace_summary_point(self, request_id, raw_id, vector, payload):
+            self.replaced.append((request_id, raw_id, vector, payload))
+
+    vector_store = FakeVectorStore()
+    embedding_repo = SimpleNamespace(
+        async_get_summary_embeddings=AsyncMock(
+            return_value=[
+                {
+                    "summary_id": 11,
+                    "embedding_blob": b"blob",
+                    "content_hash": hashlib.sha256(b"summary ai").hexdigest(),
+                }
+            ]
+        ),
+        async_mark_summary_embeddings_indexed=AsyncMock(),
+    )
+    embedding_service = SimpleNamespace(deserialize_embedding=lambda _blob: [0.5, 0.6])
+    runtime = SimpleNamespace(
+        vector_store=vector_store,
+        embedding_repository=embedding_repo,
+        embedding_generator=SimpleNamespace(embedding_service=embedding_service),
+    )
+
+    indexed = await _sync_summary_vectors(
+        _build_cfg(),
+        runtime,
+        [
+            {
+                "summary_id": 11,
+                "request_id": 22,
+                "json_payload": {"summary_250": "summary", "topic_tags": ["ai"]},
+                "lang": "en",
+                "lang_detected": None,
+            }
+        ],
+    )
+
+    assert indexed == 1
+    assert vector_store.replaced == [
+        (
+            22,
+            "22:11",
+            [0.5, 0.6],
+            {
+                "entity_type": "summary",
+                "summary_id": 11,
+                "request_id": 22,
+                "language": "en",
+                "user_scope": "owner",
+                "environment": "test",
+                "title": "",
+                "url": "",
+                "source_type": "",
+                "tldr": "",
+                "topic_tags": ["ai"],
+                "summary_250": "summary",
+            },
+        )
+    ]
+    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with([11])

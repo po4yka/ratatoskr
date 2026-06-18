@@ -120,10 +120,13 @@ class EmbeddingRepositoryPort(Protocol):
     ) -> None:
         """Upsert a summary embedding.
 
-        When ``content_hash`` is supplied, the adapter is expected to also stamp
-        ``last_indexed_at`` and ``index_status='indexed'`` so the reconciler
-        can detect drift between Postgres summaries and the embeddings table.
+        When ``content_hash`` is supplied, the adapter records the DB embedding
+        content and leaves the row pending until the vector writer confirms a
+        successful Qdrant upsert.
         """
+
+    async def async_mark_summary_embeddings_indexed(self, summary_ids: list[int]) -> None:
+        """Mark summary embeddings as successfully written to the vector store."""
 
     async def async_get_summary_embedding(self, summary_id: int) -> dict[str, Any] | None:
         """Return summary embedding by summary ID."""
@@ -162,6 +165,9 @@ class EmbeddingProviderPort(Protocol):
 
     def serialize_embedding(self, embedding: list[float]) -> bytes:
         """Serialize the embedding for persistence."""
+
+    def deserialize_embedding(self, blob: bytes) -> list[float]:
+        """Deserialize a persisted embedding blob."""
 
     def get_model_name(self, language: str | None = None) -> str:
         """Return the effective model name for the requested language."""

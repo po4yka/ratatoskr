@@ -234,6 +234,39 @@ async def test_reconciliation_detects_missing_and_stale_vectors(database: Databa
 
 
 @pytest.mark.asyncio
+async def test_reconciliation_detects_pending_repository_embeddings(database: Database) -> None:
+    ids = await _seed(database)
+    now = dt.datetime(2026, 5, 22, 12, tzinfo=UTC)
+    async with database.transaction() as session:
+        session.add(
+            RepositoryEmbedding(
+                repository_id=ids["repo_one"],
+                model_name="expected-model",
+                model_version="1.0",
+                embedding_blob=b"repo",
+                dimensions=3,
+                content_hash="hash",
+                last_indexed_at=now - dt.timedelta(hours=1),
+                index_status="pending",
+            )
+        )
+
+    report = await VectorIndexReconciler(
+        database=database,
+        vector_store=FakeVectorStore(summaries={ids["summary_one"]}, repositories=set()),
+        expected_summary_models={"expected-model"},
+        expected_repository_models={"expected-model"},
+    ).inspect(now=dt.datetime(2026, 5, 22, 13, tzinfo=UTC))
+
+    assert report.status == "degraded"
+    assert report.missing_repository_embeddings == 0
+    assert report.stale_repository_embeddings == 1
+    assert report.pending_repository_embeddings == 1
+    assert report.to_diagnostics()["stale_repository_embeddings"] == 1
+    assert report.to_diagnostics()["pending_repository_embeddings"] == 1
+
+
+@pytest.mark.asyncio
 async def test_reconciliation_degrades_cleanly_when_vector_store_disabled(
     database: Database,
 ) -> None:
