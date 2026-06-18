@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from app.adapters.content.quality_filters import best_content_text
 from app.adapters.content.scraper.runtime_tuning import tuned_firecrawl_wait_for_ms
+from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
@@ -45,6 +47,16 @@ class FirecrawlProvider:
         mobile: bool = True,
         request_id: int | None = None,
     ) -> FirecrawlResult:
+        started = time.perf_counter()
+        unsafe_result = await reject_unsafe_target_url(
+            provider=self._name,
+            url=url,
+            started=started,
+            request_id=request_id,
+        )
+        if unsafe_result is not None:
+            return unsafe_result
+
         wait_for_ms = tuned_firecrawl_wait_for_ms(
             base_wait_for_ms=self._wait_for_ms,
             url=url,

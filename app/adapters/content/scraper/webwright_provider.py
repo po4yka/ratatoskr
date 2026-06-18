@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_url_for_logging
@@ -73,6 +74,15 @@ class WebwrightProvider:
     ) -> FirecrawlResult:
         del mobile  # Webwright drives a real desktop Chromium; no mobile toggle.
         started = time.perf_counter()
+
+        unsafe_result = await reject_unsafe_target_url(
+            provider="webwright",
+            url=url,
+            started=started,
+            request_id=request_id,
+        )
+        if unsafe_result is not None:
+            return unsafe_result
 
         if not self._host_in_allowlist(url):
             latency = int((time.perf_counter() - started) * 1000)

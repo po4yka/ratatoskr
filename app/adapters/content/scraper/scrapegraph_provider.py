@@ -7,6 +7,7 @@ import importlib
 import time
 from typing import Any, cast
 
+from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
@@ -57,6 +58,14 @@ class ScrapeGraphAIProvider:
         del mobile  # ScrapeGraph-AI does not expose mobile/desktop distinction
 
         started = time.perf_counter()
+        unsafe_result = await reject_unsafe_target_url(
+            provider="scrapegraph_ai",
+            url=url,
+            started=started,
+            request_id=request_id,
+        )
+        if unsafe_result is not None:
+            return unsafe_result
 
         try:
             scrapegraphai = importlib.import_module("scrapegraphai.graphs")

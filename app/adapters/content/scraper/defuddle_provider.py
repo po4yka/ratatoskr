@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 import httpx
 
+from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
@@ -63,6 +64,14 @@ class DefuddleProvider:
     ) -> FirecrawlResult:
         del mobile  # Defuddle API does not expose mobile/desktop distinction
         started = time.perf_counter()
+        unsafe_result = await reject_unsafe_target_url(
+            provider="defuddle",
+            url=url,
+            started=started,
+            request_id=request_id,
+        )
+        if unsafe_result is not None:
+            return unsafe_result
 
         try:
             raw_body = await self._fetch_raw(url)

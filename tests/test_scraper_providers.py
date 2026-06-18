@@ -127,6 +127,13 @@ class TestScraplingProvider:
 class TestCrawleeProvider:
     """Tests for the Crawlee hybrid fallback provider."""
 
+    @pytest.fixture(autouse=True)
+    def _allow_public_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "app.adapters.content.scraper.target_safety.is_url_safe_async",
+            AsyncMock(return_value=(True, None)),
+        )
+
     @pytest.mark.asyncio(loop_scope="function")
     async def test_beautifulsoup_success_short_circuits_playwright_stage(self):
         """BeautifulSoup stage success should skip Playwright stage."""
@@ -245,6 +252,35 @@ class TestCrawleeProvider:
         assert result.status == "error"
         assert result.endpoint == "crawlee"
         assert "timeout" in (result.error_text or "").lower()
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_unsafe_url_is_blocked_before_crawlee_stages(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        from app.adapters.content.scraper.crawlee_provider import CrawleeProvider
+
+        monkeypatch.setattr(
+            "app.adapters.content.scraper.target_safety.is_url_safe_async",
+            AsyncMock(
+                return_value=(False, "Hostname resolves to blocked address: 169.254.169.254")
+            ),
+        )
+        provider = CrawleeProvider(timeout_sec=5)
+
+        with (
+            patch.object(
+                provider, "_extract_with_beautifulsoup", new_callable=AsyncMock
+            ) as mock_bs,
+            patch.object(provider, "_extract_with_playwright", new_callable=AsyncMock) as mock_pw,
+        ):
+            result = await provider.scrape_markdown("http://169.254.169.254/latest/meta-data/")
+
+        assert result.status == "error"
+        assert result.endpoint == "crawlee"
+        assert "SSRF blocked URL" in (result.error_text or "")
+        mock_bs.assert_not_awaited()
+        mock_pw.assert_not_awaited()
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_custom_min_content_length_is_honored(self):

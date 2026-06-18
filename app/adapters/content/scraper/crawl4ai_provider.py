@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
+from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
@@ -96,6 +97,14 @@ class Crawl4AIProvider:
             url=url,
             js_heavy_hosts=self._js_heavy_hosts,
         )
+        unsafe_result = await reject_unsafe_target_url(
+            provider="crawl4ai",
+            url=url,
+            started=started,
+            request_id=request_id,
+        )
+        if unsafe_result is not None:
+            return unsafe_result
 
         payload: dict[str, Any] = {
             "urls": [url],
