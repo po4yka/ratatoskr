@@ -115,6 +115,33 @@ class TestSummaryContract(unittest.TestCase):
         assert "Key ideas:" in out["tldr"]
         assert len(out["tldr"]) > len(out["summary_1000"])
 
+    def test_key_stats_preserve_nested_camel_case_source_excerpt(self):
+        payload = {
+            "summary_250": "A short backend contract summary.",
+            "summary_1000": "A longer backend contract summary.",
+            "tldr": "Backend summary detail keeps key stats stable.",
+            "key_ideas": ["quality metadata is public-safe"],
+            "key_stats": [
+                {
+                    "label": "Contracts",
+                    "value": "3",
+                    "unit": None,
+                    "sourceExcerpt": "Three contract checks passed.",
+                }
+            ],
+        }
+
+        out = validate_and_shape_summary(payload)
+
+        assert out["key_stats"] == [
+            {
+                "label": "Contracts",
+                "value": 3.0,
+                "unit": None,
+                "source_excerpt": "Three contract checks passed.",
+            }
+        ]
+
     def test_tldr_enriched_when_high_similarity(self):
         payload = {
             "summary_250": "Short hook.",

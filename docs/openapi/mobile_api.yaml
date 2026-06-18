@@ -12704,17 +12704,19 @@ components:
           type: number
           title: Value
         unit:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Unit
         sourceExcerpt:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Sourceexcerpt
       type: object
       required:
       - label
       - value
-      - unit
-      - sourceExcerpt
       title: SummaryDetailKeyStat
     SummaryDetailProcessing:
       properties:
@@ -12746,6 +12748,11 @@ components:
         hallucinationRisk:
           anyOf:
           - type: string
+            enum:
+            - low
+            - medium
+            - high
+            - unknown
           - type: 'null'
           title: Hallucinationrisk
         quality:

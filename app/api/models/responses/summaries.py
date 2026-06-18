@@ -68,8 +68,8 @@ class SummaryDetailReadability(BaseModel):
 class SummaryDetailKeyStat(BaseModel):
     label: str
     value: float
-    unit: str
-    source_excerpt: str = Field(serialization_alias="sourceExcerpt")
+    unit: str | None = None
+    source_excerpt: str | None = Field(default=None, serialization_alias="sourceExcerpt")
 
 
 class SummaryDetailSummary(BaseModel):
@@ -144,7 +144,9 @@ class SummaryDetailProcessing(BaseModel):
     processing_time_ms: int | None = Field(default=None, serialization_alias="processingTimeMs")
     crawl_time_ms: int | None = Field(default=None, serialization_alias="crawlTimeMs")
     confidence: float | None = None
-    hallucination_risk: str | None = Field(default=None, serialization_alias="hallucinationRisk")
+    hallucination_risk: Literal["low", "medium", "high", "unknown"] | None = Field(
+        default=None, serialization_alias="hallucinationRisk"
+    )
     quality: SummaryDetailQuality | None = None
 
 

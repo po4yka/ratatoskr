@@ -20256,20 +20256,32 @@
             "title": "Value"
           },
           "unit": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Unit"
           },
           "sourceExcerpt": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Sourceexcerpt"
           }
         },
         "type": "object",
         "required": [
           "label",
-          "value",
-          "unit",
-          "sourceExcerpt"
+          "value"
         ],
         "title": "SummaryDetailKeyStat"
       },
@@ -20333,7 +20345,13 @@
           "hallucinationRisk": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "unknown"
+                ]
               },
               {
                 "type": "null"

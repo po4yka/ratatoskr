@@ -27,7 +27,7 @@ class FakeSummaryReadModelUseCase:
                 "entities": {"people": ["Alice"], "organizations": ["Acme"], "locations": []},
                 "estimated_reading_time_min": 4,
                 "key_stats": [
-                    {"label": "Contracts", "value": 3, "unit": "checks", "source_excerpt": "source"}
+                    {"label": "Contracts", "value": 3, "unit": None, "source_excerpt": None}
                 ],
                 "metadata": {"title": "Backend Contract", "domain": "example.com"},
                 "confidence": 0.87,
@@ -139,6 +139,9 @@ async def test_summary_detail_contract_includes_processing_quality() -> None:
 
     data = response["data"]
     assert data["summary"]["summary250"] == "A short backend contract summary."
+    assert data["summary"]["keyStats"] == [
+        {"label": "Contracts", "value": 3.0, "unit": None, "sourceExcerpt": None}
+    ]
     assert data["request"]["id"] == "42"
     assert data["processing"]["hallucinationRisk"] == "medium"
     assert data["processing"]["quality"] == {

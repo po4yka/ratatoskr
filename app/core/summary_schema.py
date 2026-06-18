@@ -318,7 +318,7 @@ class SummaryModel(BaseModel):
                 logger.debug("invalid_key_stat_value_skipped", extra={"value": item.get("value")})
                 continue
             unit = item.get("unit")
-            source_excerpt = item.get("source_excerpt")
+            source_excerpt = item.get("source_excerpt", item.get("sourceExcerpt"))
             result.append(
                 {
                     "label": label,
