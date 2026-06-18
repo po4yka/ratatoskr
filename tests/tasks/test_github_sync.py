@@ -402,6 +402,83 @@ async def test_sync_unstars_repos_no_longer_starred(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_incremental_sync_does_not_unstar_repos_not_returned(monkeypatch):
+    """Incremental GitHub starred pages are not a full snapshot and must not unstar misses."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _sync_one_integration
+
+    integration = _make_integration(last_synced_at=datetime(2024, 5, 1, tzinfo=UTC))
+    starred_items = [_make_starred_item(github_id=1001, name="repo1")]
+    update_execute_calls: list[object] = []
+
+    class _TxnSession:
+        async def execute(self, stmt):
+            update_execute_calls.append(stmt)
+            r = MagicMock()
+            r.fetchall.return_value = [(1002,)]
+            return r
+
+        async def flush(self):
+            pass
+
+        def add(self, row):
+            pass
+
+        async def get(self, model, pk):
+            return MagicMock(last_sync_cursor=None)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    class _ReadSession:
+        async def execute(self, stmt):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = None
+            return r
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    db = MagicMock()
+    db.session = MagicMock(side_effect=_ReadSession)
+    db.transaction = MagicMock(side_effect=_TxnSession)
+
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=False)
+    fake_client.list_starred = AsyncMock(return_value=_async_iter(starred_items))
+
+    fake_use_case = MagicMock()
+    fake_use_case.analyze = AsyncMock(return_value=MagicMock(cached=False))
+
+    with (
+        patch("app.tasks.github_sync.decrypt_token", return_value="ghp_fake"),
+        patch("app.tasks.github_sync._build_analyze_use_case", return_value=fake_use_case),
+        patch("app.tasks.github_sync.GitHubAPIClient", return_value=fake_client),
+    ):
+        _imported, _updated, unstarred, _, _ = await _sync_one_integration(
+            integration=integration,
+            cfg=_build_cfg(),
+            db=db,
+            bot=None,
+            correlation_id="test-cid",
+        )
+
+    assert unstarred == 0
+    assert fake_client.list_starred.await_args.kwargs["since"] == integration.last_synced_at
+    assert len(update_execute_calls) == 0
+
+
+@pytest.mark.asyncio
 async def test_budget_cap_defers_remaining_repos(monkeypatch):
     """budget=2, 5 new repos → 2 analyzed, 3 deferred (pending_analysis=True)."""
     _stub_taskiq(monkeypatch)

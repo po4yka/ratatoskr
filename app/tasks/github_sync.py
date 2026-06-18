@@ -336,6 +336,7 @@ async def _sync_one_integration(
     seen_github_ids: set[int] = set()
 
     is_first_sync = integration.last_synced_at is None
+    is_full_star_snapshot = integration.last_synced_at is None
 
     batch_size = cfg.github.sync_batch_size
     # Buffer for the current batch: list of (row, needs_analysis) tuples built
@@ -453,7 +454,7 @@ async def _sync_one_integration(
     # Bulk-flip is_starred=False for repos no longer returned by the API.
     # A single UPDATE avoids N per-row transactions and N connection acquisitions.
     repos_unstarred = 0
-    if seen_github_ids and not dry_run:
+    if is_full_star_snapshot and seen_github_ids and not dry_run:
         async with db.transaction() as session:
             result = await session.execute(
                 update(Repository)
@@ -466,7 +467,7 @@ async def _sync_one_integration(
                 .returning(Repository.id)
             )
             repos_unstarred = len(result.fetchall())
-    elif seen_github_ids and dry_run:
+    elif is_full_star_snapshot and seen_github_ids and dry_run:
         # Count what would be unstarred without writing.
         async with db.session() as session:
             result = await session.execute(
