@@ -29,8 +29,8 @@ if TYPE_CHECKING:
     from app.application.ports.retrieval import RetrievalPort
     from app.application.ports.stream_sink import StreamSinkPort
     from app.application.ports.summaries import SummaryRepositoryPort
-    from app.application.ports.summary_index import SummaryIndexPort
     from app.application.ports.summary_cache import SummaryCachePort
+    from app.application.ports.summary_index import SummaryIndexPort
     from app.core.content_classifier import ContentTier
 
 
