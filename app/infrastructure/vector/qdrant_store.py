@@ -145,16 +145,28 @@ class QdrantVectorStore:
         return f"{base_name}_{safe_es}" if safe_es else base_name
 
     def _connect_with_retry(self, max_attempts: int = 3, base_delay: float = 2.0) -> None:
-        for attempt in range(1, max_attempts + 1):
+        # Blocking time.sleep retries stall the event loop when the store is
+        # constructed during async startup (DI wiring reads `.available`
+        # synchronously right after construction, so the connect must complete
+        # in __init__ -- it cannot be deferred). On a running loop, do a single
+        # bounded attempt and skip the sleeps; off-loop (CLI/worker/sync wiring)
+        # keep the full backoff so a slow-to-start Qdrant is still picked up.
+        try:
+            asyncio.get_running_loop()
+            on_event_loop = True
+        except RuntimeError:
+            on_event_loop = False
+        attempts = 1 if on_event_loop else max_attempts
+        for attempt in range(1, attempts + 1):
             if self._try_connect():
                 return
-            if attempt < max_attempts:
+            if attempt < attempts:
                 delay = base_delay * attempt
                 logger.info(
                     "vector_connect_retry",
                     extra={"attempt": attempt, "next_delay_sec": delay, "url": self._url},
                 )
-                time.sleep(delay)  # safe — not asyncio.run(sleep(...))
+                time.sleep(delay)  # off event loop only -- safe
 
     def _try_connect(self) -> bool:
         try:
