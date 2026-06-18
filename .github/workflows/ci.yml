@@ -1021,7 +1021,7 @@ jobs:
   pr-summary:
     name: PR Summary
     if: github.event_name == 'pull_request'
-    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1039,7 +1039,7 @@ jobs:
             summary += '- ✅ Code linting and formatting\n';
             summary += '- ✅ Type checking (mypy)\n';
             summary += '- ✅ Unit tests with coverage\n';
-            summary += '- ✅ Integration and migration smoke tests\n';
+            summary += '- ✅ Integration, migration, and restore smoke tests\n';
             summary += '- ✅ Security scanning\n';
             summary += '- ✅ Secret scanning\n\n';
             summary += '_See [full workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed results._';
@@ -1126,6 +1126,96 @@ jobs:
           alembic upgrade head
           alembic current 2>&1 | grep -q "(head)"
 
+  restore-smoke-test:
+    name: Restore Smoke Test (pg_dump archive + Alembic)
+    needs: prepare-environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      RESTORE_SMOKE_DB: ratatoskr_restore_smoke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check whether DB restore smoke is required
+        id: db-changes
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="${{ github.event.before }}"
+          fi
+
+          if [[ -z "$base_sha" || "$base_sha" == "0000000000000000000000000000000000000000" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --name-only "$base_sha" "$GITHUB_SHA" | grep -Eq '^(app/db/|alembic.ini|tools/scripts/restore_smoke\.sh|tests/fixtures/restore_smoke\.dump)$'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download compiled requirements
+        if: steps.db-changes.outputs.run == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled-requirements
+          path: .
+
+      - name: Set up Python
+        if: steps.db-changes.outputs.run == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv (fast Python package manager)
+        if: steps.db-changes.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies and PostgreSQL client
+        if: steps.db-changes.outputs.run == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          uv pip sync --system requirements-all.txt requirements-dev.txt
+
+      - name: Restore sample dump and run migrations
+        if: steps.db-changes.outputs.run == 'true'
+        run: tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump
+
+      - name: Skip restore smoke
+        if: steps.db-changes.outputs.run != 'true'
+        run: echo "No app/db or migration-related files changed; restore smoke not required."
+
   postgres-tests:
     name: Postgres-gated Tests (parity + persistence)
     needs: prepare-environment
@@ -1201,7 +1291,7 @@ jobs:
   status-check:
     name: CI Status Check
     if: always()
-    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1296,6 +1386,11 @@ jobs:
 
           if [[ "${{ needs.migration-smoke-test.result }}" != "success" ]]; then
             echo "::error::migration-smoke-test job failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.restore-smoke-test.result }}" != "success" ]]; then
+            echo "::error::restore-smoke-test job failed"
             exit 1
           fi
 

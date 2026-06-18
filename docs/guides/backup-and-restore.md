@@ -113,6 +113,45 @@ docker compose -f ops/docker/docker-compose.yml stop ratatoskr mobile-api mcp mc
 
 ## Backup
 
+### Automated PostgreSQL Sidecar
+
+Production Compose includes a `pg-backup` sidecar that runs `pg_dump --format=custom` against the `postgres` service on `BACKUP_CRON` (`0 3 * * *` UTC by default). It writes artifacts to the host bind mount `BACKUP_HOST_DIR` (`data/postgres-backups` when running the primary Compose file from the repository root) and keeps local files for `BACKUP_RETENTION_DAYS` days (`14` by default).
+
+Start or refresh the sidecar with the rest of the stack:
+
+```bash
+POSTGRES_PASSWORD=... docker compose -f ops/docker/docker-compose.yml up -d postgres pg-backup
+```
+
+Run one backup immediately after configuration changes:
+
+```bash
+POSTGRES_PASSWORD=... docker compose -f ops/docker/docker-compose.yml exec pg-backup ratatoskr-pg-backup-run
+```
+
+Each successful run creates a `ratatoskr-postgres-<timestamp>.dump` file, or `.dump.enc` when `BACKUP_ENCRYPTION_KEY` is set, plus a sibling `.json` metadata file with `timestamp`, `size_bytes`, and `sha256`. Inspect the local backup directory from the host:
+
+```bash
+ls -lh "${BACKUP_HOST_DIR:-data/postgres-backups}"
+cat "${BACKUP_HOST_DIR:-data/postgres-backups}"/ratatoskr-postgres-*.json | tail -1
+```
+
+Verify an unencrypted automated dump:
+
+```bash
+docker run --rm -i --entrypoint pg_restore postgres:16 --list < "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump" | head
+```
+
+Verify an encrypted automated dump with the same passphrase that created it:
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY -in "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump.enc" | docker run --rm -i --entrypoint pg_restore postgres:16 --list | head
+```
+
+Set `BACKUP_S3_BUCKET` to upload each dump and metadata file after local creation. For S3-compatible storage such as Backblaze B2 or MinIO, also set `BACKUP_S3_ENDPOINT_URL`; credentials come from `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` or the corresponding AWS CLI environment variables inside the sidecar.
+
+The sidecar writes node-exporter textfile metrics to the shared `pg_backup_metrics` volume. Prometheus scrapes `ratatoskr_pg_backup_last_success_timestamp_seconds`, and the `RatatoskrPostgresBackupStale` critical alert fires when the metric is missing or older than 36 hours. Restore rehearsals are tracked through `docs/runbooks/disaster-recovery.md`; the restore commands below are the canonical manual path.
+
 ### PostgreSQL
 
 Run `pg_dump` inside the `ratatoskr-postgres` container and stream the dump out to the host:

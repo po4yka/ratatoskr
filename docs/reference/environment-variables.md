@@ -548,10 +548,22 @@ See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, sum
 | ---------- | --------- | ------------- |
 | `DATABASE_URL` | _(required)_ | PostgreSQL DSN, e.g. `postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD}@postgres:5432/ratatoskr` |
 | `POSTGRES_PASSWORD` | _(required)_ | Password for the `ratatoskr_app` role; injected into the compose `postgres` service and used to assemble `DATABASE_URL` |
-| `DB_BACKUP_ENABLED` | `1` | Enable scheduled `pg_dump` backups (0/1) |
-| `DB_BACKUP_INTERVAL_MINUTES` | `360` | Backup interval |
-| `DB_BACKUP_RETENTION` | `14` | Backup retention (days) |
-| `DB_BACKUP_DIR` | `/data/backups` | Backup directory inside the bot container |
+| `BACKUP_HOST_DIR` | `../../data/postgres-backups` | Host bind mount used by the `pg-backup` Compose sidecar for instance-level PostgreSQL dumps |
+| `BACKUP_CRON` | `0 3 * * *` | UTC 5-field cron expression for the `pg-backup` sidecar |
+| `BACKUP_RUN_ON_START` | `false` | When `true`, the sidecar runs one backup immediately before starting cron |
+| `BACKUP_RETENTION_DAYS` | `14` | Number of days to keep local automated PostgreSQL backup artifacts and metadata files |
+| `BACKUP_ENCRYPTION_KEY` | _(unset)_ | Optional passphrase for sidecar PostgreSQL dump encryption; encrypted artifacts use `.dump.enc` |
+| `BACKUP_S3_BUCKET` | _(unset)_ | Optional S3/Backblaze bucket for uploading each automated PostgreSQL dump and metadata file |
+| `BACKUP_S3_PREFIX` | `ratatoskr/postgres` | Object prefix inside `BACKUP_S3_BUCKET` |
+| `BACKUP_S3_REGION` | `us-east-1` | AWS region passed to the sidecar AWS CLI |
+| `BACKUP_S3_ENDPOINT_URL` | _(unset)_ | Optional S3-compatible endpoint URL, for example Backblaze B2 or MinIO |
+| `BACKUP_S3_ACCESS_KEY` | _(unset)_ | Optional upload access key; falls back to `AWS_ACCESS_KEY_ID` inside the sidecar when unset |
+| `BACKUP_S3_SECRET_KEY` | _(unset)_ | Optional upload secret key; falls back to `AWS_SECRET_ACCESS_KEY` inside the sidecar when unset |
+| `BACKUP_CRON_LOG_LEVEL` | `8` | BusyBox `crond` log level for the `pg-backup` sidecar |
+| `DB_BACKUP_ENABLED` | `1` in application config, `0` in production Compose | Legacy bot-local scheduled `pg_dump` loop (0/1). Production Compose disables it because the `pg-backup` sidecar owns operator backups. |
+| `DB_BACKUP_INTERVAL_MINUTES` | `360` | Legacy bot-local backup interval |
+| `DB_BACKUP_RETENTION` | `14` | Legacy bot-local backup retention (days) |
+| `DB_BACKUP_DIR` | `/data/backups` | Legacy bot-local backup directory inside the bot container |
 | `DB_OPERATION_TIMEOUT` | `30.0` | Per-operation timeout (seconds) |
 | `DB_MAX_RETRIES` | `3` | Retries on transient `serialization_failure` / deadlock |
 | `DATABASE_POOL_TIMEOUT_SECONDS` | `30.0` | Seconds to wait for a free pooled connection before `TimeoutError` (SQLAlchemy `QueuePool.pool_timeout`) |

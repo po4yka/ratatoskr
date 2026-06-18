@@ -127,6 +127,18 @@ groups:
           summary: "Slow database queries detected"
           description: "p95 database query latency is {{ $value | humanizeDuration }} for {{ $labels.operation }}"
 
+      # Automated PostgreSQL backup freshness
+      - alert: RatatoskrPostgresBackupStale
+        expr: |
+          (time() - ratatoskr_pg_backup_last_success_timestamp_seconds) > 129600
+          or absent(ratatoskr_pg_backup_last_success_timestamp_seconds)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Automated PostgreSQL backup is stale"
+          description: "No successful PostgreSQL backup has been recorded for more than 36 hours. Check the ratatoskr-pg-backup container logs and the configured BACKUP_HOST_DIR."
+
   - name: ratatoskr_external_services
     rules:
       # Firecrawl high error rate

@@ -82,6 +82,137 @@ def test_monitoring_profile_is_in_primary_compose_file() -> None:
         assert services[name]["profiles"] == ["with-monitoring"]
 
 
+def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
+    services = _compose()["services"]
+    pg_backup = services["pg-backup"]
+    env = _env_map(pg_backup)
+
+    assert "profiles" not in pg_backup
+    assert pg_backup["build"]["dockerfile"] == "ops/docker/pg-backup/Dockerfile"
+    assert pg_backup["depends_on"]["postgres"]["condition"] == "service_healthy"
+    assert "${BACKUP_HOST_DIR:-../../data/postgres-backups}:/backups" in pg_backup["volumes"]
+    assert "pg_backup_data" not in _compose()["volumes"]
+
+    assert env["POSTGRES_HOST"] == "postgres"
+    assert env["POSTGRES_DB"] == "ratatoskr"
+    assert env["POSTGRES_USER"] == "ratatoskr_app"
+    assert env["BACKUP_CRON"] == "${BACKUP_CRON:-0 3 * * *}"
+    assert env["BACKUP_RETENTION_DAYS"] == "${BACKUP_RETENTION_DAYS:-14}"
+    assert env["BACKUP_ENCRYPTION_KEY"] == "${BACKUP_ENCRYPTION_KEY:-}"
+    assert env["BACKUP_S3_BUCKET"] == "${BACKUP_S3_BUCKET:-}"
+    assert env["BACKUP_S3_ENDPOINT_URL"] == "${BACKUP_S3_ENDPOINT_URL:-}"
+
+
+def test_postgres_backup_metrics_are_scraped_by_node_exporter() -> None:
+    services = _compose()["services"]
+    node_exporter = services["node-exporter"]
+    pg_backup = services["pg-backup"]
+
+    assert "--collector.textfile.directory=/textfile" in node_exporter["command"]
+    assert "pg_backup_metrics:/textfile:ro" in node_exporter["volumes"]
+    assert "pg_backup_metrics:/var/lib/node-exporter/textfile_collector" in pg_backup["volumes"]
+    assert "pg_backup_metrics" in _compose()["volumes"]
+
+
+def test_postgres_backup_script_creates_metadata_and_optional_remote_copy() -> None:
+    script = (ROOT / "ops/docker/pg-backup/run-backup.sh").read_text(encoding="utf-8")
+
+    assert "pg_dump \\" in script
+    assert "--format=custom" in script
+    assert "openssl enc -aes-256-cbc -pbkdf2 -salt" in script
+    assert "sha256sum" in script
+    assert '"timestamp":' in script
+    assert '"size_bytes":' in script
+    assert '"sha256":' in script
+    assert "BACKUP_S3_BUCKET" in script
+    assert "aws $endpoint_args s3 cp" in script
+    assert "ratatoskr_pg_backup_last_success_timestamp_seconds" in script
+
+
+def test_postgres_backup_alert_fires_when_stale_or_absent() -> None:
+    rules = yaml.safe_load((ROOT / "ops/monitoring/alerting_rules.yml").read_text(encoding="utf-8"))
+    alerts = [
+        rule
+        for group in rules["groups"]
+        for rule in group["rules"]
+        if rule.get("alert") == "RatatoskrPostgresBackupStale"
+    ]
+
+    assert len(alerts) == 1
+    alert = alerts[0]
+    assert alert["labels"]["severity"] == "critical"
+    assert "ratatoskr_pg_backup_last_success_timestamp_seconds" in alert["expr"]
+    assert "> 129600" in alert["expr"]
+    assert "absent(ratatoskr_pg_backup_last_success_timestamp_seconds)" in alert["expr"]
+
+
+def test_disaster_recovery_runbook_covers_restore_drill_contract() -> None:
+    runbook = (ROOT / "docs/runbooks/disaster-recovery.md").read_text(encoding="utf-8")
+
+    for expected in (
+        "RTO",
+        "RPO",
+        "PostgreSQL Restore",
+        "Qdrant Restore Or Rebuild",
+        "Redis Restore Or Reset",
+        "Verification Checklist",
+        "Communication Templates",
+        "Backup Encryption Key Rotation During Restore",
+        "Quarterly Drill",
+        "Drill Sign-Off",
+    ):
+        assert expected in runbook
+
+    assert ".github/ISSUE_TEMPLATE/disaster-recovery-drill.md" in runbook
+    assert "tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump" in runbook
+
+
+def test_disaster_recovery_drill_template_collects_required_evidence() -> None:
+    template = (ROOT / ".github/ISSUE_TEMPLATE/disaster-recovery-drill.md").read_text(
+        encoding="utf-8"
+    )
+
+    for expected in (
+        "Metadata SHA256",
+        "Measured RTO",
+        "Measured RPO",
+        "Postgres row counts",
+        "Latest summary timestamp",
+        "Qdrant collection counts",
+        "Redis restore/reset result",
+        "Append the completed drill to the runbook sign-off table",
+    ):
+        assert expected in template
+
+
+def test_restore_smoke_ci_job_loads_dump_and_gates_status() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    restore_job = jobs["restore-smoke-test"]
+    status_job = jobs["status-check"]
+
+    assert restore_job["services"]["postgres"]["image"] == "postgres:16"
+    assert restore_job["needs"] == "prepare-environment"
+    restore_steps = "\n".join(str(step) for step in restore_job["steps"])
+    assert "app/db/" in restore_steps
+    assert "postgresql-client" in restore_steps
+    assert "tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump" in restore_steps
+    assert "restore-smoke-test" in status_job["needs"]
+    status_steps = "\n".join(str(step) for step in status_job["steps"])
+    assert "needs.restore-smoke-test.result" in status_steps
+
+
+def test_restore_smoke_script_uses_real_pg_restore_archive() -> None:
+    script = (ROOT / "tools/scripts/restore_smoke.sh").read_text(encoding="utf-8")
+    fixture = ROOT / "tests/fixtures/restore_smoke.dump"
+
+    assert fixture.read_bytes().startswith(b"PGDMP")
+    assert "pg_restore" in script
+    assert "python -m app.cli.migrate_db" in script
+    assert "restore_smoke_seed" in script
+    assert "alembic_version" in script
+
+
 def test_release_workflow_publishes_stable_but_not_latest() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))
     tags = workflow["jobs"]["push-docker-tag"]["steps"][4]["with"]["tags"]

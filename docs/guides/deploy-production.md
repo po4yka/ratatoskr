@@ -315,7 +315,7 @@ Rollback triggers and actions:
 - Health: ensure the bot account stays unbanned and tokens valid.
 - Monitoring: watch logs for latency spikes and error rates; consider dashboarding via structured logs.
 - Aggregation observability: Grafana provisioning includes `ops/monitoring/grafana/provisioning/dashboards/ratatoskr-aggregation.json` for bundle cost, latency, partial-success, and coverage tracking.
-- Backups: automatic snapshots land in `/data/backups`. Copy them off-host or adjust `DB_BACKUP_*` if you need a different cadence.
+- Backups: the `pg-backup` sidecar writes automated PostgreSQL dumps and metadata to `BACKUP_HOST_DIR` (`data/postgres-backups` by default). Copy them off-host or set `BACKUP_S3_*` for S3/Backblaze upload; use `BACKUP_CRON` and `BACKUP_RETENTION_DAYS` for cadence and retention.
 
 ### Scheduler singleton
 
@@ -344,7 +344,7 @@ cd /path/to/ratatoskr
 tar czf ~/ratatoskr-backup-$(date +%Y%m%d%H%M).tgz data .env
 ```
 
-The container also writes automatic snapshots to `data/backups/`.
+The `pg-backup` sidecar also writes automated PostgreSQL snapshots to `data/postgres-backups/` by default.
 
 Application backups created from `/v1/backups` now include integrity metadata: `checksumSha256`, `itemCounts`, `schemaVersion`, `createdAt`, `verifiedAt`, `verificationStatus`, and `verificationError`. Before trusting a downloaded archive, check that `verificationStatus` is `verified`; if you copy backup files between hosts, run `POST /v1/backups/{backup_id}/verify` after the file lands to re-check the checksum and archive structure.
 

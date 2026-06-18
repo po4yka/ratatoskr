@@ -78,6 +78,9 @@ services:
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
+      # Operator-side PostgreSQL backups are owned by the pg-backup sidecar
+      # below. Keep the legacy bot-local loop opt-in to avoid duplicate dumps.
+      - DB_BACKUP_ENABLED=${DB_BACKUP_ENABLED:-0}
       - RATATOSKR_PROCESS_ROLE=bot
     dns:
       - 1.1.1.1
@@ -1006,10 +1009,12 @@ services:
       - "--path.sysfs=/host/sys"
       - "--path.rootfs=/host/root"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run/credentials)($|/)"
+      - "--collector.textfile.directory=/textfile"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro
+      - pg_backup_metrics:/textfile:ro
 
   qdrant:
     image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.13.6}
@@ -1074,6 +1079,55 @@ services:
       - no-new-privileges:true
     stop_grace_period: 30s
 
+  pg-backup:
+    build:
+      context: ../..
+      dockerfile: ops/docker/pg-backup/Dockerfile
+    container_name: ratatoskr-pg-backup
+    init: true
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=ratatoskr
+      - POSTGRES_USER=ratatoskr_app
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - BACKUP_CRON=${BACKUP_CRON:-0 3 * * *}
+      - BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-false}
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-14}
+      - BACKUP_DIR=/backups
+      - BACKUP_METRICS_DIR=/var/lib/node-exporter/textfile_collector
+      - BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY:-}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-ratatoskr/postgres}
+      - BACKUP_S3_REGION=${BACKUP_S3_REGION:-us-east-1}
+      - BACKUP_S3_ENDPOINT_URL=${BACKUP_S3_ENDPOINT_URL:-}
+      - BACKUP_S3_ACCESS_KEY=${BACKUP_S3_ACCESS_KEY:-}
+      - BACKUP_S3_SECRET_KEY=${BACKUP_S3_SECRET_KEY:-}
+    volumes:
+      - ${BACKUP_HOST_DIR:-../../data/postgres-backups}:/backups
+      - pg_backup_metrics:/var/lib/node-exporter/textfile_collector
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+        reservations:
+          memory: 64M
+          cpus: "0.05"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
   redis:
     image: redis:7-alpine
     container_name: ratatoskr-redis
@@ -1119,6 +1173,7 @@ services:
     stop_grace_period: 30s
 volumes:
   ratatoskr_postgres_data:
+  pg_backup_metrics:
   qdrant_data:
   redis_data:
   firecrawl_redis_data:
