@@ -147,6 +147,8 @@ async def test_error_handling_401(respx_mock, or_client):
     assert result.request_headers["Authorization"] == "[REDACTED]"
     assert token not in str(result.request_headers)
     assert token not in (result.error_text or "")
+    assert result.retry_exhausted is True
+    assert result.total_latency_ms is not None
 
 
 @pytest.mark.asyncio
@@ -221,6 +223,43 @@ async def test_success_response_parsing(respx_mock, or_client):
     assert result.tokens_completion == 5
     assert result.model == "deepseek/deepseek-v4-flash"
     assert result.endpoint == "/api/v1/chat/completions"
+    assert result.fallback_model_used is None
+    assert result.retry_exhausted is False
+    assert result.total_latency_ms is not None
+    assert result.total_latency_ms > 0
+
+
+@pytest.mark.asyncio
+async def test_retry_budget_telemetry_records_fallback_success(respx_mock, or_client):
+    route = respx_mock.post(OR_CHAT_URL).mock(
+        side_effect=[
+            httpx.Response(
+                404,
+                json={"error": {"message": "primary model unavailable"}},
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": "Fallback response"}}],
+                    "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+                    "model": "google/gemini-3.1-pro-preview",
+                },
+            ),
+        ]
+    )
+
+    with patch("asyncio.sleep"):
+        result = await or_client.chat([{"role": "user", "content": "Hello"}])
+
+    assert route.call_count == 2
+    assert result.status == "ok"
+    assert result.model == "google/gemini-3.1-pro-preview"
+    assert result.fallback_model_used == "google/gemini-3.1-pro-preview"
+    assert result.retry_exhausted is False
+    assert result.total_latency_ms is not None
+    assert result.total_latency_ms > 0
+    assert result.per_model_attempts[0]["model"] == "qwen/qwen3-max"
+    assert result.per_model_attempts[0]["total_latency_ms"] == result.total_latency_ms
 
 
 @pytest.mark.asyncio

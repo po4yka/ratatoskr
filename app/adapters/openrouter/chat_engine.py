@@ -125,6 +125,8 @@ class OpenRouterChatEngine:
             msg = "Client has been closed"
             raise RuntimeError(msg)
 
+        cascade_started = _time.monotonic()
+
         context = self._context_builder.prepare(
             messages,
             temperature=temperature,
@@ -367,10 +369,31 @@ class OpenRouterChatEngine:
                                     )
                         except Exception:
                             pass
+                        total_latency_ms = max(1, int((_time.monotonic() - cascade_started) * 1000))
+                        terminal_status = getattr(model_state.terminal_result, "status", None)
+                        terminal_status_value = getattr(terminal_status, "value", terminal_status)
+                        terminal_ok = terminal_status_value == CallStatus.OK.value
+                        fallback_model_used = None
+                        if terminal_ok and model_index > 0:
+                            fallback_model_used = (
+                                getattr(model_state.terminal_result, "model", None)
+                                or last_model_reported
+                                or model
+                            )
                         return model_state.terminal_result.model_copy(
                             update={
+                                "fallback_model_used": fallback_model_used,
+                                "retry_exhausted": not terminal_ok,
+                                "total_latency_ms": total_latency_ms,
                                 "models_attempted": list(models_attempted),
-                                "per_model_attempts": list(per_model_attempts),
+                                "per_model_attempts": [
+                                    {
+                                        **attempt,
+                                        "total_latency_ms": attempt.get("total_latency_ms")
+                                        or total_latency_ms,
+                                    }
+                                    for attempt in per_model_attempts
+                                ],
                             }
                         )
 
@@ -454,6 +477,7 @@ class OpenRouterChatEngine:
         )
         if global_cb is not None:
             global_cb.record_failure()
+        total_latency_ms = max(1, int((_time.monotonic() - cascade_started) * 1000))
         return self._attempt_runner.build_exhausted_chat_result(
             last_model_reported=last_model_reported,
             last_response_text=last_response_text,
@@ -464,7 +488,14 @@ class OpenRouterChatEngine:
             sanitized_messages=context.sanitized_messages,
             structured_output_state=structured_output_state,
             models_attempted=models_attempted,
-            per_model_attempts=per_model_attempts,
+            per_model_attempts=[
+                {
+                    **attempt,
+                    "total_latency_ms": attempt.get("total_latency_ms") or total_latency_ms,
+                }
+                for attempt in per_model_attempts
+            ],
+            total_latency_ms=total_latency_ms,
         )
 
     def _circuit_breaker_open_result(self, request_id: int | None) -> LLMCallResult:
@@ -485,6 +516,8 @@ class OpenRouterChatEngine:
             tokens_completion=0,
             cost_usd=0.0,
             latency_ms=0,
+            retry_exhausted=True,
+            total_latency_ms=0,
         )
 
     def _critical_chat_error_payload(self, error: Exception) -> tuple[str, dict[str, Any]]:

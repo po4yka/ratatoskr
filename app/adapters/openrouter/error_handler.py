@@ -157,6 +157,7 @@ class ErrorHandler:
         messages: list[dict[str, Any]],
         *,
         error_context: dict[str, Any] | None = None,
+        retry_exhausted: bool = False,
     ) -> LLMCallResult:
         """Build error result consistently."""
         return LLMCallResult(
@@ -170,6 +171,7 @@ class ErrorHandler:
             tokens_completion=usage.get("completion_tokens"),
             cost_usd=None,
             latency_ms=latency,
+            retry_exhausted=retry_exhausted,
             error_text=error_message,
             request_headers=headers,
             request_messages=messages,

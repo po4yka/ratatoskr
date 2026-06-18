@@ -39,6 +39,18 @@ class LLMCallResult(BaseModel):
         default=None,
         description="Observed latency for the LLM request in milliseconds.",
     )
+    fallback_model_used: str | None = Field(
+        default=None,
+        description="Fallback model that produced the terminal successful response.",
+    )
+    retry_exhausted: bool = Field(
+        default=False,
+        description="Whether the retry/fallback budget ended in a terminal failure.",
+    )
+    total_latency_ms: int | None = Field(
+        default=None,
+        description="Cascade-wide wall-clock latency from the first attempt.",
+    )
     error_text: str | None = Field(default=None, description="Error message when the call fails.")
     request_headers: dict[str, Any] | None = Field(
         default=None, description="HTTP headers sent with the request."

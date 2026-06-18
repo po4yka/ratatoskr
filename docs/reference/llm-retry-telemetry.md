@@ -38,11 +38,14 @@ Trigger: more than 5% of summarization requests in a 15-minute window burn throu
 3. Inspect the per-model latency histogram for the same window. A tail latency spike often precedes retry-exhaustion by a few minutes.
 4. If the spike is correlated with a specific upstream provider name (visible in the `openrouter_provider_rotation` audit events), the provider-rotation tracker should be limiting the fallout — verify `MODEL_ROUTING_MAX_PROVIDER_ROTATIONS` is non-zero.
 
-## Follow-ups not in this change
+## Persisted retry-budget fields
 
-Per the task spec, two additional pieces remain:
+The `llm_calls` table also stores request-level retry-budget telemetry for post-incident analysis:
 
-1. Persist `fallback_model_used`, `retry_exhausted`, and `total_latency_ms` on the `llm_calls` table (Alembic migration + model edit + back-fill-safe defaults).
-2. Surface fallback-model usage in the summary `meta` blob so downstream agents can detect quality drift.
+| Column | Notes |
+| --- | --- |
+| `fallback_model_used` | `NULL` for first-model success. On successful fallback, stores the actual model that produced the terminal response. |
+| `retry_exhausted` | `true` for terminal non-retryable provider errors and fallback-chain exhaustion; `false` for successful responses and non-terminal cascade rows. |
+| `total_latency_ms` | Cascade-wide wall-clock latency from the first attempted model, populated on terminal rows and copied onto non-terminal cascade rows emitted by the persistence backfill. |
 
-Both are tracked under the original task issue and remain to be implemented in a follow-up commit.
+Fallback-model usage in the summary `meta` blob remains separate from this database telemetry and should be implemented only when downstream clients need it as part of the public summary contract.

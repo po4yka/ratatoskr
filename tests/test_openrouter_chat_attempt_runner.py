@@ -196,3 +196,26 @@ def test_chat_attempt_runner_builds_exhausted_parse_error_result() -> None:
 
     assert result.status == "error"
     assert result.error_text == "structured_output_parse_error"
+    assert result.retry_exhausted is True
+
+
+def test_chat_attempt_runner_builds_exhausted_retry_budget_result() -> None:
+    client = _make_client()
+    transport = MagicMock()
+    runner = ChatAttemptRunner(client, transport)
+
+    result = runner.build_exhausted_chat_result(
+        last_model_reported="qwen/qwen3-max",
+        last_response_text=None,
+        last_data={"error": {"message": "busy"}},
+        last_latency=42,
+        last_error_text="All retries failed",
+        last_error_context={"message": "busy"},
+        sanitized_messages=[{"role": "user", "content": "hello"}],
+        structured_output_state=StructuredOutputState(),
+        total_latency_ms=84,
+    )
+
+    assert result.status == "error"
+    assert result.retry_exhausted is True
+    assert result.total_latency_ms == 84

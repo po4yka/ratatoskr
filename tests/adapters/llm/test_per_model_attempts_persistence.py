@@ -46,6 +46,9 @@ def _make_llm(
     llm.error_context = None
     llm.structured_output_used = False
     llm.structured_output_mode = None
+    llm.fallback_model_used = None
+    llm.retry_exhausted = False
+    llm.total_latency_ms = 200
     llm.per_model_attempts = per_model_attempts or []
     return llm
 
@@ -73,6 +76,38 @@ class TestBuildCascadeAttemptPayload:
         assert payload["latency_ms"] == 90000
         assert payload["error_text"] == "Model fallback-model timed out after 90s."
         assert payload["error_context_json"] == {"timeout": True}
+
+    def test_terminal_payload_includes_retry_budget_telemetry(self) -> None:
+        storage = _make_storage_mixin()
+        llm = _make_llm(model="fallback-model")
+        llm.fallback_model_used = "fallback-model"
+        llm.retry_exhausted = False
+        llm.total_latency_ms = 1234
+
+        payload = storage._build_llm_call_payload(llm, req_id=42)
+
+        assert payload["fallback_model_used"] == "fallback-model"
+        assert payload["retry_exhausted"] is False
+        assert payload["total_latency_ms"] == 1234
+
+    def test_cascade_payload_includes_total_latency_without_terminal_fallback(self) -> None:
+        storage = _make_storage_mixin()
+        llm = _make_llm(model="final-model")
+        attempt: dict[str, Any] = {
+            "model": "primary-model",
+            "status": "error",
+            "latency_ms": 300,
+            "error_text": "api error",
+            "error_context": None,
+            "per_model_timeout_sec": 90.0,
+            "total_latency_ms": 1200,
+        }
+
+        payload = storage._build_cascade_attempt_payload(llm, req_id=42, attempt=attempt)
+
+        assert payload["fallback_model_used"] is None
+        assert payload["retry_exhausted"] is False
+        assert payload["total_latency_ms"] == 1200
 
     def test_falls_back_to_llm_model_when_attempt_lacks_model(self) -> None:
         storage = _make_storage_mixin()

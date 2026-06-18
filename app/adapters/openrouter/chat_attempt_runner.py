@@ -279,6 +279,7 @@ class ChatAttemptRunner:
         structured_output_state: StructuredOutputState,
         models_attempted: list[tuple[str, str]] | None = None,
         per_model_attempts: list[dict[str, Any]] | None = None,
+        total_latency_ms: int | None = None,
     ) -> LLMCallResult:
         redacted_headers = self._client.request_builder.get_redacted_headers(
             {"Authorization": "REDACTED", "Content-Type": "application/json"}
@@ -294,6 +295,8 @@ class ChatAttemptRunner:
             tokens_completion=None,
             cost_usd=None,
             latency_ms=last_latency,
+            retry_exhausted=True,
+            total_latency_ms=total_latency_ms,
             error_text=(
                 "structured_output_parse_error"
                 if structured_output_state.parse_error

@@ -235,6 +235,7 @@ class ChatResponseHandler:
                     redacted_headers,
                     sanitized_messages,
                     error_context=error_context,
+                    retry_exhausted=True,
                 ),
                 structured_output_state=payload.structured_output_state,
             )

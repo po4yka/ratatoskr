@@ -76,6 +76,9 @@ async def test_llm_repository_persists_and_reads_batch(database: Database) -> No
                 "status": "ok",
                 "response_text": "first",
                 "response_json": {"ok": True},
+                "fallback_model_used": None,
+                "retry_exhausted": False,
+                "total_latency_ms": 75,
             },
             {
                 "request_id": request.id,
@@ -85,6 +88,8 @@ async def test_llm_repository_persists_and_reads_batch(database: Database) -> No
                 "error_text": "failed",
                 "error_context_json": {"reason": "test"},
                 "response_text": "",
+                "retry_exhausted": True,
+                "total_latency_ms": 125,
             },
         ]
     )
@@ -95,8 +100,13 @@ async def test_llm_repository_persists_and_reads_batch(database: Database) -> No
     latest_error = await repo.async_get_latest_error_by_request(request.id)
     assert latest_error is not None
     assert latest_error["error_context_json"] == {"reason": "test"}
+    assert latest_error["retry_exhausted"] is True
+    assert latest_error["total_latency_ms"] == 125
     rows = await repo.async_get_all_for_user(request.user_id or 0)
     assert [row["id"] for row in rows] == inserted_ids
+    assert rows[0]["fallback_model_used"] is None
+    assert rows[0]["retry_exhausted"] is False
+    assert rows[0]["total_latency_ms"] == 75
 
 
 @pytest.mark.asyncio
