@@ -82,7 +82,7 @@ class TestBackupManifest:
         zip_bytes = _make_zip(_build_manifest(version="99.0"))
         result = restore_from_archive(user_id=1, zip_bytes=zip_bytes)
         assert len(result["errors"]) == 1
-        assert "Unsupported backup version" in result["errors"][0]
+        assert "Unsupported backup schema version" in result["errors"][0]
 
     def test_corrupt_zip_returns_error(self) -> None:
         result = restore_from_archive(user_id=1, zip_bytes=b"not a zip")

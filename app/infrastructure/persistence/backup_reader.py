@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select
 
-from app.core.logging_utils import get_logger
 from app.db.models import (
     Collection,
     CollectionItem,
@@ -30,9 +29,6 @@ from app.db.models import (
     Tag,
 )
 from app.infrastructure.persistence.backup_crypto import (
-    InvalidBackupCiphertextError,
-    decrypt_backup,
-    decrypt_backup_stream,
     is_fernet_ciphertext,
     is_streaming_ciphertext,
 )
@@ -41,7 +37,6 @@ from app.infrastructure.persistence.backup_inspector import (
     _empty_restore_counts,
     inspect_backup_archive,
 )
-from app.infrastructure.persistence.backup_safety import ZipSafetyViolation, validate_zip_safety
 from app.infrastructure.persistence.backup_writer import (
     BACKUP_SCHEMA_VERSION,
     _database,
@@ -51,9 +46,6 @@ from app.infrastructure.persistence.backup_writer import (
 if TYPE_CHECKING:
     from app.config.backup import BackupConfig
     from app.db.session import Database
-
-logger = get_logger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Private helper
@@ -66,6 +58,12 @@ def _old_id(row: dict[str, Any], *keys: str) -> int | None:
         if value is not None:
             return int(value)
     return None
+
+
+class _RestoreAbort(Exception):
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("backup restore aborted")
+        self.errors = errors
 
 
 # ---------------------------------------------------------------------------
@@ -102,42 +100,12 @@ async def async_restore_from_archive(
 
     cfg = cfg or load_backup_config()
 
-    if is_streaming_ciphertext(zip_bytes):
-        if cfg.encryption_key is None:
-            errors.append("Encrypted backup but BACKUP_ENCRYPTION_KEY is not configured")
-            return {"restored": restored, "skipped": skipped, "errors": errors}
-        try:
-            import io as _io
+    inspection, errors = inspect_backup_archive(zip_bytes, cfg=cfg)
+    if errors or inspection is None:
+        return {"restored": restored, "skipped": skipped, "errors": errors}
 
-            _src = _io.BytesIO(zip_bytes)
-            _dst = _io.BytesIO()
-            decrypt_backup_stream(_src, _dst, cfg.encryption_key)
-            zip_bytes = _dst.getvalue()
-        except InvalidBackupCiphertextError:
-            errors.append("Could not decrypt backup (wrong key or corrupted archive)")
-            return {"restored": restored, "skipped": skipped, "errors": errors}
-    elif is_fernet_ciphertext(zip_bytes):
-        if cfg.encryption_key is None:
-            errors.append("Encrypted backup but BACKUP_ENCRYPTION_KEY is not configured")
-            return {"restored": restored, "skipped": skipped, "errors": errors}
-        try:
-            zip_bytes = decrypt_backup(zip_bytes, cfg.encryption_key)
-        except InvalidBackupCiphertextError:
-            errors.append("Could not decrypt backup (wrong key or corrupted archive)")
-            return {"restored": restored, "skipped": skipped, "errors": errors}
-    else:
-        logger.warning("restore_unencrypted_backup", extra={"user_id": user_id})
-
-    try:
-        validate_zip_safety(
-            zip_bytes,
-            max_entries=cfg.max_zip_entries,
-            max_compressed_bytes=cfg.max_compressed_bytes,
-            max_decompressed_bytes=cfg.max_decompressed_bytes,
-            max_ratio=cfg.max_compression_ratio,
-        )
-    except ZipSafetyViolation as exc:
-        errors.append(str(exc))
+    zip_bytes, _encrypted = _decrypt_archive_payload(zip_bytes, cfg, errors=errors)
+    if zip_bytes is None:
         return {"restored": restored, "skipped": skipped, "errors": errors}
 
     try:
@@ -368,12 +336,19 @@ async def async_restore_from_archive(
                     restored["highlights"] += 1
                 except Exception as exc:
                     errors.append(f"highlight {highlight.get('id')}: {exc}")
+
+            if errors:
+                raise _RestoreAbort(errors)
+    except _RestoreAbort as exc:
+        errors = exc.errors
+        restored = dict.fromkeys(restored, 0)
     except KeyError as exc:
         errors.append(f"Missing required file in backup archive: {exc}")
     except zipfile.BadZipFile:
         errors.append("Invalid or corrupt ZIP archive")
     except Exception as exc:
         errors.append(str(exc))
+        restored = dict.fromkeys(restored, 0)
 
     return {"restored": restored, "skipped": skipped, "errors": errors}
 

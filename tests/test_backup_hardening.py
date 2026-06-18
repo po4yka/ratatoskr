@@ -270,6 +270,7 @@ def _minimal_backup_zip() -> bytes:
             "highlights",
         ):
             zf.writestr(f"{name}.json", "[]")
+        zf.writestr("preferences.json", "{}")
     return buf.getvalue()
 
 
@@ -407,6 +408,51 @@ class _ExecuteRows:
 
     def scalars(self) -> _ScalarRows:
         return _ScalarRows(self._rows)
+
+
+class _RollbackTransaction:
+    def __init__(self, db: _RollbackDb) -> None:
+        self._db = db
+        self.session = MagicMock()
+        self.session.scalar = AsyncMock(return_value=None)
+        self.session.execute = AsyncMock(return_value=MagicMock())
+        self.session.flush = AsyncMock()
+        self.session.added = []
+        self._next_ids = {
+            "Request": 100,
+            "Tag": 300,
+            "Collection": 500,
+        }
+
+        def add(instance: Any) -> None:
+            name = type(instance).__name__
+            if name == "Summary":
+                raise ValueError("simulated summary restore failure")
+            if getattr(instance, "id", None) is None and name in self._next_ids:
+                instance.id = self._next_ids[name]
+                self._next_ids[name] += 1
+            self.session.added.append(instance)
+
+        self.session.add.side_effect = add
+
+    async def __aenter__(self) -> MagicMock:
+        self._db.sessions.append(self.session)
+        return self.session
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if exc_type is not None:
+            self.session.added.clear()
+            self._db.rolled_back = True
+        return False
+
+
+class _RollbackDb:
+    def __init__(self) -> None:
+        self.sessions: list[MagicMock] = []
+        self.rolled_back = False
+
+    def transaction(self) -> _RollbackTransaction:
+        return _RollbackTransaction(self)
 
 
 def _make_backup_create_db() -> MagicMock:
@@ -579,6 +625,32 @@ class TestRestoreHardening:
         assert added_by_type["CollectionItem"].collection_id == 500
         assert added_by_type["CollectionItem"].summary_id == 200
         assert added_by_type["SummaryHighlight"].summary_id == 200
+
+    async def test_restore_row_error_rolls_back_partial_import(self) -> None:
+        from app.infrastructure.persistence.backup_archive_service import (
+            async_restore_from_archive,
+        )
+
+        db = _RollbackDb()
+        result = await async_restore_from_archive(
+            1,
+            _populated_backup_zip(),
+            db=db,  # type: ignore[arg-type]
+            cfg=BackupConfig(),
+        )
+
+        assert db.rolled_back is True
+        assert result["restored"] == {
+            "requests": 0,
+            "summaries": 0,
+            "tags": 0,
+            "summary_tags": 0,
+            "collections": 0,
+            "collection_items": 0,
+            "highlights": 0,
+        }
+        assert any("simulated summary restore failure" in error for error in result["errors"])
+        assert db.sessions[0].added == []
 
     async def test_create_backup_archive_exports_user_data_and_updates_metadata(
         self, tmp_path
