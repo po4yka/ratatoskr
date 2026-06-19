@@ -37,6 +37,8 @@ class _FakeTelethonUserClient(TelethonUserClient):
         self._is_connected = False
 
     async def get_chat_history(self, channel_username: str) -> Any:
+        if channel_username == "broken":
+            raise RuntimeError("history unavailable")
         for message in self.messages:
             yield message
 
@@ -145,6 +147,18 @@ async def test_fetch_channel_posts_filters_by_date_and_length() -> None:
     assert posts[0]["message_id"] == 1
     assert posts[0]["url"] == "https://t.me/channel/1"
     assert posts[0]["views"] == 10
+
+
+@pytest.mark.asyncio
+async def test_fetch_channel_posts_propagates_history_errors() -> None:
+    subject = UserbotClient(_cfg(), Path("/tmp"))
+    subject._client = cast(
+        "TelethonUserClient",
+        _FakeTelethonUserClient(session_path="s", api_id=1, api_hash="h"),
+    )
+
+    with pytest.raises(RuntimeError, match="history unavailable"):
+        await subject.fetch_channel_posts("broken")
 
 
 @pytest.mark.asyncio

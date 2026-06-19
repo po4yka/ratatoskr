@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from app.adapters.digest import analyzer as analyzer_module
-from app.adapters.digest.analyzer import DigestAnalyzer
+from app.adapters.digest.analyzer import ANALYSIS_FAILED_STATUS, DigestAnalyzer
 from app.config import AppConfig
 from app.infrastructure.persistence.digest_store import DigestStore
 
@@ -171,15 +171,53 @@ async def test_analyze_posts_skips_failed_items(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
-async def test_analyze_single_returns_none_on_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_analyze_single_returns_fallback_stub_on_llm_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}")
     )
     subject = _analyzer(_FakeLLM(exc=RuntimeError("down")))
+    post = {
+        "message_id": 1,
+        "text": "Important post body that should still be shown when analysis fails.",
+        "title": "Fallback title",
+    }
 
-    result = await subject._analyze_single({"message_id": 1, "text": "body"}, "cid", "en")
+    result = await subject._analyze_single(post, "cid", "en")
 
-    assert result is None
+    assert result is not None
+    assert result["message_id"] == 1
+    assert result["real_topic"] == "Fallback title"
+    assert result["tldr"] == "Important post body that should still be shown when analysis fails."
+    assert result["content_type"] == "other"
+    assert result["relevance_score"] == 0.5
+    assert result["analysis_status"] == ANALYSIS_FAILED_STATUS
+
+
+@pytest.mark.asyncio
+async def test_analyze_single_marks_schema_validation_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}")
+    )
+    store = _FakeStore()
+    subject = _analyzer(
+        _FakeLLM(payload={"real_topic": "", "tldr": "", "key_insights": []}),
+        store,
+    )
+
+    result = await subject._analyze_single(
+        {"message_id": 1, "text": "Body without valid structured output."},
+        "cid",
+        "en",
+    )
+
+    assert result is not None
+    assert result["analysis_status"] == ANALYSIS_FAILED_STATUS
+    assert result["real_topic"] == "Body without valid structured output."
+    assert store.persisted == []
 
 
 class _ConcurrencyTrackingStore(DigestStore):

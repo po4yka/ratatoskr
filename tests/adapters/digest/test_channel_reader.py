@@ -23,6 +23,7 @@ class _FakeStore(DigestStore):
         self.delivered = delivered or set()
         self.persisted: list[tuple[Any, list[dict[str, Any]]]] = []
         self.errors = 0
+        self.last_error: tuple[Any, str, int] | None = None
 
     async def async_list_fetchable_subscriptions(self, user_id: int) -> list[Any]:
         return self.subscriptions
@@ -48,6 +49,7 @@ class _FakeStore(DigestStore):
         self, channel: Any, reason: str, *, max_errors: int
     ) -> bool:
         self.errors += 1
+        self.last_error = (channel, reason, max_errors)
         return True
 
 
@@ -157,6 +159,20 @@ async def test_fetch_posts_for_user_records_channel_errors() -> None:
 
     assert result == []
     assert store.errors == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_posts_for_user_handles_removed_channel_404() -> None:
+    channel = _channel(1, "removed")
+    store = _FakeStore(subscriptions=[SimpleNamespace(channel=channel)])
+    userbot = _FakeUserbot({"removed": ValueError("404 channel not found")})
+
+    result = await _reader(store, userbot).fetch_posts_for_user(100)
+
+    assert result == []
+    assert store.errors == 1
+    assert store.last_error == (channel, "fetch_failed", 3)
+    assert store.persisted == []
 
 
 @pytest.mark.asyncio

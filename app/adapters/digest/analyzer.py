@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
 VALID_CONTENT_TYPES = {"news", "tutorial", "opinion", "announcement", "other"}
+ANALYSIS_FAILED_STATUS = "analysis_failed"
 
 
 class _DigestPostAnalysis(BaseModel):
@@ -176,13 +177,13 @@ class DigestAnalyzer:
                     "digest_llm_error",
                     extra={"cid": correlation_id, "error": str(exc)},
                 )
-                return None
+                return _fallback_analysis(post, reason=ANALYSIS_FAILED_STATUS)
 
             fields = self._parse_and_validate_llm_response(
                 result.parsed.model_dump(), correlation_id
             )
             if fields is None:
-                return None
+                return _fallback_analysis(post, reason=ANALYSIS_FAILED_STATUS)
 
             await self._persist_analysis(post, fields)
 
@@ -199,3 +200,24 @@ class DigestAnalyzer:
             # Fallback to English
             fallback = PROMPT_DIR / "digest_analysis_en.txt"
             return read_prompt_text(fallback, strip=True)
+
+
+def _fallback_analysis(post: dict[str, Any], *, reason: str) -> dict[str, Any]:
+    text = str(post.get("text") or "").strip()
+    title = str(post.get("title") or "").strip()
+    topic = title or (text[:80].strip() if text else "Unanalyzed post")
+    if len(topic) == 80 and len(text) > 80:
+        topic = f"{topic.rstrip()}..."
+    excerpt = text[:240].strip()
+    if len(excerpt) == 240 and len(text) > 240:
+        excerpt = f"{excerpt.rstrip()}..."
+    return {
+        **post,
+        "real_topic": topic,
+        "tldr": excerpt or "Analysis failed; no post text was available.",
+        "key_insights": [],
+        "relevance_score": 0.5,
+        "content_type": "other",
+        "is_ad": False,
+        "analysis_status": reason,
+    }

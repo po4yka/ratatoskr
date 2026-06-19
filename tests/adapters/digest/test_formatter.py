@@ -76,6 +76,47 @@ def test_digest_formatter_groups_sorts_and_attaches_buttons() -> None:
     assert beta_buttons[0][0]["callback_data"] == "dg:20:2"
 
 
+def test_digest_formatter_renders_partial_analysis_gracefully() -> None:
+    messages = DigestFormatter.format_digest(
+        [
+            {
+                "_channel_username": "partial",
+                "_channel_id": 30,
+                "message_id": 7,
+                "relevance_score": 0.5,
+                "analysis_status": "analysis_failed",
+            }
+        ]
+    )
+
+    assert len(messages) == 2
+    text, buttons = messages[1]
+    assert "**@partial**" in text
+    assert "Без темы" in text
+    assert buttons[0][0]["callback_data"] == "dg:30:7"
+
+
+def test_digest_formatter_enforces_telegram_length_limit_for_digest_output() -> None:
+    posts = [
+        {
+            "_channel_username": "long",
+            "_channel_id": 40,
+            "message_id": idx,
+            "relevance_score": 1.0,
+            "content_type": "news",
+            "real_topic": f"Topic {idx}",
+            "tldr": "x" * 1200,
+            "key_insights": ["y" * 800],
+        }
+        for idx in range(1, 8)
+    ]
+
+    messages = DigestFormatter.format_digest(posts)
+
+    assert len(messages) > 2
+    assert all(len(text) <= MAX_MESSAGE_LENGTH for text, _buttons in messages)
+
+
 def test_digest_formatter_splits_large_channel_entries() -> None:
     header: tuple[str, dict[str, Any]] = ("header\n", {})
     first = ("A" * MAX_MESSAGE_LENGTH, {"text": "first", "callback_data": "dg:1:1"})
