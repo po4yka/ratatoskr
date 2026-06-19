@@ -84,6 +84,7 @@ class BrowseHandler:
 
         await self._finalize_run(
             run_id=run_id,
+            user_id=ctx.uid,
             result_status=result.status,
             steps_used=result.steps_used,
             llm_cost_usd=result.llm_cost_usd,
@@ -127,6 +128,7 @@ class BrowseHandler:
         self,
         *,
         run_id: int,
+        user_id: int,
         result_status: str,
         steps_used: int | None,
         llm_cost_usd: float | None,
@@ -144,7 +146,7 @@ class BrowseHandler:
         async with self._db.session() as session:
             await session.execute(
                 sa.update(WebwrightRun)
-                .where(WebwrightRun.id == run_id)
+                .where(WebwrightRun.id == run_id, WebwrightRun.user_id == user_id)
                 .values(
                     status=terminal_status,
                     steps_used=steps_used,
