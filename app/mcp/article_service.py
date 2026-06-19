@@ -7,6 +7,7 @@ from sqlalchemy import cast, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
+from app.core.logging_utils import generate_correlation_id
 from app.mcp.helpers import (
     McpErrorResult,
     ensure_mapping,
@@ -85,9 +86,10 @@ class ArticleReadService:
             )
             results = [by_request_id[request_id] for request_id in ordered_request_ids][:limit]
             return {"results": results, "total": len(results), "query": query}
-        except Exception as exc:
-            logger.exception("search_articles failed")
-            return {"error": str(exc), "query": query}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("search_articles failed", extra={"correlation_id": cid})
+            return {"error": f"Search failed. Error ID: {cid}", "query": query}
 
     async def _fallback_search(self, query: str, limit: int) -> dict[str, Any]:
         from app.db.models import Request, Summary
@@ -137,9 +139,10 @@ class ArticleReadService:
             if summary is None:
                 return {"error": f"Summary {summary_id} not found"}
             return format_summary_detail(summary, summary.request)
-        except Exception as exc:
-            logger.exception("get_article failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("get_article failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to retrieve article. Error ID: {cid}"}
 
     async def list_articles(
         self,
@@ -221,9 +224,10 @@ class ArticleReadService:
             payload["has_more"] = (offset + len(results)) < total
             payload["articles"] = results
             return payload
-        except Exception as exc:
-            logger.exception("list_articles failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("list_articles failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to list articles. Error ID: {cid}"}
 
     async def get_article_content(self, summary_id: int) -> dict[str, Any]:
         from app.db.models import CrawlResult, Request, Summary
@@ -258,9 +262,10 @@ class ArticleReadService:
                     "content_length": len(content),
                     "truncated": len(content) > 50000,
                 }
-        except Exception as exc:
-            logger.exception("get_article_content failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("get_article_content failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to retrieve article content. Error ID: {cid}"}
 
     async def get_stats(self) -> dict[str, Any]:
         from app.db.models import Request, Summary
@@ -311,9 +316,10 @@ class ArticleReadService:
                 "top_tags": [{"tag": tag, "count": count} for tag, count in top_tags],
                 "request_types": {"url": url_count, "forward": forward_count},
             }
-        except Exception as exc:
-            logger.exception("get_stats failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("get_stats failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to retrieve stats. Error ID: {cid}"}
 
     async def find_by_entity(
         self,
@@ -367,9 +373,10 @@ class ArticleReadService:
                 "entity": entity_name,
                 "entity_type": entity_type,
             }
-        except Exception as exc:
-            logger.exception("find_by_entity failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("find_by_entity failed", extra={"correlation_id": cid})
+            return {"error": f"Entity search failed. Error ID: {cid}"}
 
     async def check_url(self, url: str) -> dict[str, Any]:
         from app.core.url_utils import compute_dedupe_hash, normalize_url
@@ -418,9 +425,10 @@ class ArticleReadService:
                 result["summary_id"] = None
                 result["message"] = "URL was processed but no summary is available"
             return result
-        except Exception as exc:
-            logger.exception("check_url failed")
-            return {"error": str(exc), "url": url}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("check_url failed", extra={"correlation_id": cid})
+            return {"error": f"URL check failed. Error ID: {cid}", "url": url}
 
     async def unread_articles(self, limit: int = 20) -> dict[str, Any]:
         from app.db.models import Request, Summary
@@ -438,9 +446,10 @@ class ArticleReadService:
                 ).all()
             results = [format_summary_compact(summary, summary.request) for summary in summaries]
             return {"articles": results, "total": len(results)}
-        except Exception as exc:
-            logger.exception("unread_resource failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("unread_resource failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to retrieve unread articles. Error ID: {cid}"}
 
     async def tag_counts(self) -> dict[str, Any]:
         try:
@@ -450,9 +459,10 @@ class ArticleReadService:
                 "tags": [{"tag": tag, "count": count} for tag, count in sorted_tags],
                 "total_unique_tags": len(sorted_tags),
             }
-        except Exception as exc:
-            logger.exception("tags_resource failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("tags_resource failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to retrieve tag counts. Error ID: {cid}"}
 
     async def entity_counts(self) -> dict[str, Any]:
         try:
@@ -482,9 +492,10 @@ class ArticleReadService:
                 "organizations": _top(organizations),
                 "locations": _top(locations),
             }
-        except Exception as exc:
-            logger.exception("entities_resource failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("entities_resource failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to retrieve entity counts. Error ID: {cid}"}
 
     async def domain_counts(self) -> dict[str, Any]:
         try:
@@ -500,9 +511,10 @@ class ArticleReadService:
                 "domains": [{"domain": domain, "count": count} for domain, count in sorted_domains],
                 "total_unique_domains": len(sorted_domains),
             }
-        except Exception as exc:
-            logger.exception("domains_resource failed")
-            return {"error": str(exc)}
+        except Exception:
+            cid = generate_correlation_id()
+            logger.exception("domains_resource failed", extra={"correlation_id": cid})
+            return {"error": f"Failed to retrieve domain counts. Error ID: {cid}"}
 
     def _summary_stmt(self, request_model: Any, summary_model: Any) -> Any:
         return (
