@@ -215,6 +215,47 @@ class TagRepositoryAdapter:
                 .values(is_deleted=True, deleted_at=_utcnow(), updated_at=_utcnow())
             )
 
+    async def async_find_or_create_tag(
+        self,
+        user_id: int,
+        name: str,
+        normalized_name: str,
+        color: str | None,
+    ) -> dict[str, Any]:
+        """Atomically find or create a tag by normalized name.
+
+        Uses INSERT ... ON CONFLICT DO NOTHING so concurrent requests for the
+        same (user_id, normalized_name) pair are race-safe.  The unique index
+        ``ix_tags_user_id_normalized_name`` is the conflict target.
+        """
+        async with self._database.transaction() as session:
+            stmt = (
+                insert(Tag)
+                .values(
+                    user_id=user_id,
+                    name=name,
+                    normalized_name=normalized_name,
+                    color=color,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=["user_id", "normalized_name"],
+                )
+                .returning(Tag)
+            )
+            tag = await session.scalar(stmt)
+            if tag is None:
+                # Conflict path: the row already existed; re-fetch it.
+                tag = await session.scalar(
+                    select(Tag).where(
+                        Tag.user_id == user_id,
+                        Tag.normalized_name == normalized_name,
+                        Tag.is_deleted.is_(False),
+                    )
+                )
+            data = model_to_dict(tag) or {}
+            data.setdefault("summary_count", 0)
+            return data
+
     async def async_get_tag_by_normalized_name(
         self,
         user_id: int,

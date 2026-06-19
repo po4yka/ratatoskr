@@ -139,16 +139,12 @@ async def quick_save(
                 raise ValidationError(err or f"Invalid tag name: {tag_name}")
 
             normalized_name = normalize_tag_name(tag_name)
-            existing = await tag_repo.async_get_tag_by_normalized_name(
-                user["user_id"], normalized_name
+            await tag_repo.async_find_or_create_tag(
+                user_id=user["user_id"],
+                name=tag_name.strip(),
+                normalized_name=normalized_name,
+                color=None,
             )
-            if existing is None:
-                await tag_repo.async_create_tag(
-                    user_id=user["user_id"],
-                    name=tag_name.strip(),
-                    normalized_name=normalized_name,
-                    color=None,
-                )
             tags_pending.append(tag_name.strip())
 
     # Schedule background summarization if requested
