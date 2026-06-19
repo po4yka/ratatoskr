@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import httpx
 
@@ -172,7 +172,7 @@ class DefuddleProvider:
         )
 
     async def _fetch_raw(self, url: str, *, headers: dict[str, str] | None = None) -> str:
-        defuddle_url = f"{self._api_base_url}/{url}"
+        defuddle_url = f"{self._api_base_url}/{quote(url, safe='')}"
         request_headers = headers or self._build_headers()
         overall_timeout = self._timeout_sec + 5
         async with asyncio.timeout(overall_timeout):
