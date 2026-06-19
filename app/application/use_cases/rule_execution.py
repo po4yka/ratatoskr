@@ -210,12 +210,20 @@ class _ArchiveActionHandler:
         event_data: dict[str, Any],
         context: RuleEvaluationContextDTO,
     ) -> RuleActionResultDTO:
-        del action, user_id, event_type, event_data, context
+        del action, event_type, event_data, context
         if summary_id is None:
             return RuleActionResultDTO(
                 type=self.action_type, success=False, detail="skipped: no summary_id"
             )
-        await self.summary_repository.async_soft_delete_summary(summary_id)
+        found = await self.summary_repository.async_soft_delete_summary_for_user(
+            summary_id, user_id
+        )
+        if not found:
+            return RuleActionResultDTO(
+                type=self.action_type,
+                success=False,
+                detail="skipped: summary not found or not owned by user",
+            )
         return RuleActionResultDTO(type=self.action_type, success=True, detail="archived")
 
 
@@ -234,13 +242,21 @@ class _SetFavoriteActionHandler:
         event_data: dict[str, Any],
         context: RuleEvaluationContextDTO,
     ) -> RuleActionResultDTO:
-        del user_id, event_type, event_data, context
+        del event_type, event_data, context
         if summary_id is None:
             return RuleActionResultDTO(
                 type=self.action_type, success=False, detail="skipped: no summary_id"
             )
         value = bool((action.get("params") or {}).get("value", True))
-        await self.summary_repository.async_set_favorite(summary_id, value)
+        found = await self.summary_repository.async_set_favorite_for_user(
+            summary_id, user_id, value
+        )
+        if not found:
+            return RuleActionResultDTO(
+                type=self.action_type,
+                success=False,
+                detail="skipped: summary not found or not owned by user",
+            )
         return RuleActionResultDTO(
             type=self.action_type, success=True, detail=f"is_favorited set to {value}"
         )

@@ -516,6 +516,26 @@ class SummaryRepositoryAdapter:
         """Soft delete a summary."""
         await self._set_summary_values(summary_id, is_deleted=True, deleted_at=_utcnow())
 
+    async def async_soft_delete_summary_for_user(self, summary_id: int, user_id: int) -> bool:
+        """Soft-delete a summary scoped to *user_id* (IDOR guard).
+
+        The ``user_id`` predicate is a defence-in-depth IDOR guard — a rule
+        action must only mutate a summary owned by the triggering user.
+        Returns True if the row was found and soft-deleted, False otherwise.
+        """
+        now = _utcnow()
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(Summary)
+                .where(
+                    Summary.id == summary_id,
+                    Summary.request_id == Request.id,
+                    Request.user_id == user_id,
+                )
+                .values(is_deleted=True, deleted_at=now, updated_at=now)
+            )
+            return result.rowcount > 0
+
     async def async_toggle_favorite(self, summary_id: int) -> bool:
         """Toggle favorite status of a summary."""
         async with self._database.transaction() as session:
@@ -554,6 +574,25 @@ class SummaryRepositoryAdapter:
     async def async_set_favorite(self, summary_id: int, value: bool) -> None:
         """Persist an explicit favorite status for a summary."""
         await self._set_summary_values(summary_id, is_favorited=value)
+
+    async def async_set_favorite_for_user(self, summary_id: int, user_id: int, value: bool) -> bool:
+        """Persist an explicit favorite status scoped to *user_id* (IDOR guard).
+
+        The ``user_id`` predicate is a defence-in-depth IDOR guard — a rule
+        action must only mutate a summary owned by the triggering user.
+        Returns True if the row was found and updated, False otherwise.
+        """
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(Summary)
+                .where(
+                    Summary.id == summary_id,
+                    Summary.request_id == Request.id,
+                    Request.user_id == user_id,
+                )
+                .values(is_favorited=value, updated_at=_utcnow())
+            )
+            return result.rowcount > 0
 
     async def async_upsert_feedback(
         self,

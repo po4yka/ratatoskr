@@ -184,11 +184,25 @@ class SummaryRepositoryPort(Protocol):
     async def async_soft_delete_summary(self, summary_id: int) -> None:
         """Soft-delete summary."""
 
+    async def async_soft_delete_summary_for_user(self, summary_id: int, user_id: int) -> bool:
+        """Soft-delete a summary scoped to *user_id* (IDOR guard).
+
+        Returns True if the row was found and deleted, False if it does not
+        exist or belongs to a different user.
+        """
+
     async def async_toggle_favorite(self, summary_id: int) -> bool:
         """Toggle favorite status and return the new state."""
 
     async def async_set_favorite(self, summary_id: int, value: bool) -> None:
         """Persist an explicit favorite state for a summary."""
+
+    async def async_set_favorite_for_user(self, summary_id: int, user_id: int, value: bool) -> bool:
+        """Persist an explicit favorite state scoped to *user_id* (IDOR guard).
+
+        Returns True if the row was found and updated, False if it does not
+        exist or belongs to a different user.
+        """
 
     async def async_get_max_server_version(self, user_id: int) -> int | None:
         """Return the maximum server_version for summaries owned by *user_id*."""
