@@ -139,12 +139,25 @@ class XBookmarksIngestor:
                     )
                     continue
 
-                outcome = await self._upsert(
-                    session,
-                    row=row,
-                    normalized_url=normalized,
-                    dedupe_hash=dedupe_hash,
-                )
+                # Use a savepoint so a single-row failure rolls back only
+                # that item without invalidating the whole outer transaction.
+                # Rows that already flushed successfully are preserved.
+                try:
+                    async with session.begin_nested():
+                        outcome = await self._upsert(
+                            session,
+                            row=row,
+                            normalized_url=normalized,
+                            dedupe_hash=dedupe_hash,
+                        )
+                except Exception:
+                    logger.warning(
+                        "x_bookmarks_ingest_row_failed",
+                        exc_info=True,
+                        extra={"bookmark_external_id": row.bookmark_external_id},
+                    )
+                    continue
+
                 requests_created += outcome.request_created
                 metadata_inserted += outcome.metadata_inserted
                 metadata_updated += outcome.metadata_updated
