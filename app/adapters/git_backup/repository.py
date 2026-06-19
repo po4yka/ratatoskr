@@ -247,11 +247,18 @@ class GitMirrorRepository:
             row.last_attempt_at = now
             row.last_error = reason[:4000] if reason else None
 
-    async def list_stale_excluded(self, older_than_days: int) -> list[GitMirror]:
+    async def list_stale_excluded(
+        self, older_than_days: int, user_id: int | None = None
+    ) -> list[GitMirror]:
         """Return EXCLUDED mirrors whose excluded_at is older than ``older_than_days``.
 
         Only rows where excluded_at IS NOT NULL are considered.  Mirrors that
         were excluded before the cutoff are candidates for the prune sweep.
+
+        When ``user_id`` is provided the query is scoped to that user's mirrors
+        only (defense-in-depth IDOR guard).  Pass ``None`` for system-level
+        background sweeps that legitimately span all users (e.g. the Taskiq
+        prune job).
         """
         cutoff = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=older_than_days)
         stmt = select(GitMirror).where(
@@ -261,6 +268,8 @@ class GitMirrorRepository:
                 GitMirror.excluded_at < cutoff,
             )
         )
+        if user_id is not None:
+            stmt = stmt.where(GitMirror.user_id == user_id)
         async with self._db.session() as session:
             rows = (await session.scalars(stmt)).all()
         return list(rows)
