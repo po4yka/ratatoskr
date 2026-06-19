@@ -657,6 +657,13 @@ class CollectionService:
                     retry_after_seconds=max(1, int(PUBLIC_LINK_READ_MIN_INTERVAL_SECONDS - elapsed))
                 )
         _PUBLIC_LINK_READS[key] = now
+        # Prune entries older than the rate-limit window to prevent unbounded growth.
+        # Any entry that is older than the window can never trigger a rate-limit hit,
+        # so it is safe to remove it.
+        cutoff = now - dt.timedelta(seconds=PUBLIC_LINK_READ_MIN_INTERVAL_SECONDS)
+        stale = [k for k, ts in _PUBLIC_LINK_READS.items() if ts < cutoff]
+        for k in stale:
+            _PUBLIC_LINK_READS.pop(k, None)
 
     # ---- smart collections ----
     async def evaluate_smart_collection(self, collection_id: int, user_id: int) -> int:
