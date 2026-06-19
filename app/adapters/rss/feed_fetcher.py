@@ -83,9 +83,9 @@ def fetch_feed(
         pub_date = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             try:
-                import time
+                import calendar
 
-                pub_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=UTC)
+                pub_date = datetime.fromtimestamp(calendar.timegm(entry.published_parsed), tz=UTC)
             except (ValueError, OverflowError, TypeError):
                 logger.debug(
                     "rss_date_parse_failed",
