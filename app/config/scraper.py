@@ -355,6 +355,16 @@ class ScraperConfig(BaseModel):
         validation_alias="SCRAPER_PLAYWRIGHT_FINGERPRINT_SLIM",
         description="Use smaller, lower-overhead fingerprints for the Playwright provider",
     )
+    playwright_max_concurrent_browsers: int = Field(
+        default=2,
+        validation_alias="PLAYWRIGHT_MAX_CONCURRENT_BROWSERS",
+        description=(
+            "Maximum number of Chromium browser processes that PlaywrightProvider "
+            "may run concurrently. Each browser launch is a full OS process; "
+            "unbounded concurrency exhausts file descriptors and RAM under burst "
+            "load. Default 2 matches SCRAPLING_STEALTH_MAX_CONCURRENCY."
+        ),
+    )
 
     scrapegraph_enabled: bool = Field(
         default=False,

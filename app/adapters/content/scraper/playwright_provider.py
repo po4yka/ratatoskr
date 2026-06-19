@@ -10,7 +10,9 @@ default for sites that are not strongly bot-protected.  Set ``slim=False``
 from __future__ import annotations
 
 import asyncio
+import os
 import time
+import weakref
 from typing import cast
 
 from app.adapters.content.scraper.runtime_tuning import is_js_heavy_url, tuned_provider_timeout
@@ -24,6 +26,32 @@ from app.security.ssrf import is_url_safe
 logger = get_logger(__name__)
 
 _DEFAULT_TIMEOUT_SEC = 30
+
+
+def _playwright_max_concurrency() -> int:
+    """Max number of concurrent Chromium browser launches for PlaywrightProvider."""
+    try:
+        return max(1, int(os.getenv("PLAYWRIGHT_MAX_CONCURRENT_BROWSERS", "2")))
+    except ValueError:
+        return 2
+
+
+# A Playwright fetch launches a full browser process; without a cap, a burst of
+# upstream failures could spawn one browser per request and exhaust file
+# descriptors, RAM, and thread-pool workers. The semaphore is keyed per event
+# loop so it binds lazily (and stays correct across test loops).
+_playwright_semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _playwright_launch_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = _playwright_semaphores.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(_playwright_max_concurrency())
+        _playwright_semaphores[loop] = sem
+    return sem
 
 
 class PlaywrightProvider:
@@ -150,12 +178,13 @@ class PlaywrightProvider:
     async def _render_html(
         self, url: str, *, mobile: bool = True, timeout_sec: float | None = None
     ) -> str | None:
-        return await asyncio.to_thread(
-            self._render_html_sync,
-            url,
-            mobile=mobile,
-            timeout_sec=timeout_sec,
-        )
+        async with _playwright_launch_semaphore():
+            return await asyncio.to_thread(
+                self._render_html_sync,
+                url,
+                mobile=mobile,
+                timeout_sec=timeout_sec,
+            )
 
     def _render_html_sync(
         self,
