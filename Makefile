@@ -1,8 +1,16 @@
-.PHONY: format lint type type-all test test-unit test-integration test-all all setup-dev venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-openapi-drift check-file-loc check-layout clean-generated security security-bandit security-deps static-checks
+.PHONY: format lint type type-all test test-unit test-integration test-all all setup-dev bootstrap seed-demo-data teardown-dev venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-openapi-drift check-file-loc check-layout clean-generated security security-bandit security-deps static-checks
 
 COMPOSE_FILE := ops/docker/docker-compose.yml
+DEV_COMPOSE_FILE := ops/docker/docker-compose.dev.yml
+DEV_COMPOSE := docker compose -f $(COMPOSE_FILE) -f $(DEV_COMPOSE_FILE)
 DOCKERFILE_BOT := ops/docker/Dockerfile
 DOCKERFILE_API := ops/docker/Dockerfile.api
+DEV_USER_ID ?= 424242
+DEV_POSTGRES_PASSWORD ?= ratatoskr-dev-password
+DEV_DATABASE_URL ?= postgresql+asyncpg://ratatoskr_app:$(DEV_POSTGRES_PASSWORD)@127.0.0.1:$(POSTGRES_HOST_PORT)/ratatoskr
+POSTGRES_HOST_PORT ?= 5432
+REDIS_HOST_PORT ?= 6379
+QDRANT_HOST_PORT ?= 6333
 
 format:
 	ruff format .
@@ -60,6 +68,26 @@ all: format lint type test
 setup-dev:
 	uv sync --all-extras --dev
 	pre-commit install
+
+bootstrap: setup-dev
+	POSTGRES_PASSWORD="$(DEV_POSTGRES_PASSWORD)" POSTGRES_HOST_PORT="$(POSTGRES_HOST_PORT)" REDIS_HOST_PORT="$(REDIS_HOST_PORT)" QDRANT_HOST_PORT="$(QDRANT_HOST_PORT)" $(DEV_COMPOSE) up -d --wait postgres redis qdrant
+	DATABASE_URL="$(DEV_DATABASE_URL)" uv run python -m app.cli.migrate_db --apply
+	$(MAKE) seed-demo-data DEV_USER_ID="$(DEV_USER_ID)" DEV_POSTGRES_PASSWORD="$(DEV_POSTGRES_PASSWORD)" POSTGRES_HOST_PORT="$(POSTGRES_HOST_PORT)"
+	@echo ""
+	@echo "Ratatoskr dev bootstrap complete."
+	@echo "Demo user: ALLOWED_USER_IDS=$(DEV_USER_ID)"
+	@echo "Postgres:  postgresql+asyncpg://ratatoskr_app:***@127.0.0.1:$(POSTGRES_HOST_PORT)/ratatoskr"
+	@echo "Redis:     redis://127.0.0.1:$(REDIS_HOST_PORT)/0"
+	@echo "Qdrant:    http://127.0.0.1:$(QDRANT_HOST_PORT)"
+	@echo "API:       http://127.0.0.1:18000 after: POSTGRES_PASSWORD=$(DEV_POSTGRES_PASSWORD) ALLOWED_USER_IDS=$(DEV_USER_ID) $(DEV_COMPOSE) up -d mobile-api"
+	@echo "Grafana:   http://127.0.0.1:3001 after: POSTGRES_PASSWORD=$(DEV_POSTGRES_PASSWORD) COMPOSE_PROFILES=with-monitoring $(DEV_COMPOSE) up -d grafana"
+	@echo "CLI smoke: DATABASE_URL='$(DEV_DATABASE_URL)' uv run python -m app.cli.summary --url https://example.com"
+
+seed-demo-data:
+	DATABASE_URL="$(DEV_DATABASE_URL)" uv run python -m app.cli.seed_demo_data --user-id "$(DEV_USER_ID)"
+
+teardown-dev:
+	POSTGRES_PASSWORD="$(DEV_POSTGRES_PASSWORD)" POSTGRES_HOST_PORT="$(POSTGRES_HOST_PORT)" REDIS_HOST_PORT="$(REDIS_HOST_PORT)" QDRANT_HOST_PORT="$(QDRANT_HOST_PORT)" $(DEV_COMPOSE) down -v --remove-orphans
 
 venv:
 	bash tools/scripts/create_venv.sh

@@ -32,6 +32,32 @@ python3 --version
 # Should output: Python 3.13.x or higher
 ```
 
+### Fast Path: Bootstrap Services and Demo Data
+
+For backend/API work that only needs a local database, Redis, Qdrant, and non-empty library data, use the one-command bootstrap:
+
+```bash
+make bootstrap
+```
+
+This runs `uv sync --all-extras --dev`, installs pre-commit hooks, starts Postgres + Redis + Qdrant through `ops/docker/docker-compose.yml` plus `ops/docker/docker-compose.dev.yml`, waits for health checks, applies Alembic migrations, and seeds demo summaries for `ALLOWED_USER_IDS=424242`.
+
+Useful follow-up commands:
+
+```bash
+make seed-demo-data                 # refresh the demo user and sample summaries
+make teardown-dev                   # stop local services and remove dev volumes
+DEV_USER_ID=123456 make bootstrap   # use a different allowlisted demo user
+```
+
+Local endpoints after bootstrap:
+
+- PostgreSQL: `postgresql+asyncpg://ratatoskr_app:ratatoskr-dev-password@127.0.0.1:5432/ratatoskr`
+- Redis: `redis://127.0.0.1:6379/0`
+- Qdrant: `http://127.0.0.1:6333`
+- API after starting it: `POSTGRES_PASSWORD=ratatoskr-dev-password ALLOWED_USER_IDS=424242 docker compose -f ops/docker/docker-compose.yml -f ops/docker/docker-compose.dev.yml up -d mobile-api`, then open `http://127.0.0.1:18000`
+- Grafana after starting monitoring: `POSTGRES_PASSWORD=ratatoskr-dev-password COMPOSE_PROFILES=with-monitoring docker compose -f ops/docker/docker-compose.yml -f ops/docker/docker-compose.dev.yml up -d grafana`, then open `http://127.0.0.1:3001`
+
 **If Python 3.13 not installed**:
 
 ```bash

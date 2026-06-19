@@ -22,6 +22,14 @@ cp .env.example .env                  # set the 7 required values
 docker compose -f ops/docker/docker-compose.yml up -d
 ```
 
+For contributor setup without production secrets, run:
+
+```sh
+make bootstrap
+```
+
+That installs dev dependencies, starts local Postgres + Redis + Qdrant on loopback ports, applies migrations, and seeds demo summaries for `ALLOWED_USER_IDS=424242`. Use `make seed-demo-data` to refresh the sample library and `make teardown-dev` to remove the local compose volumes.
+
 Required env vars (everything else has sensible defaults):
 
 ```env
