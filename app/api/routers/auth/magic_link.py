@@ -48,7 +48,9 @@ async def request_magic_link(payload: MagicLinkRequest) -> Any:
         client_id=payload.client_id,
         ttl=timedelta(minutes=15),
     )
-    link = _magic_link_url(cfg.auth.magic_link_verify_url, token=issued.token, client_id=payload.client_id)
+    link = _magic_link_url(
+        cfg.auth.magic_link_verify_url, token=issued.token, client_id=payload.client_id
+    )
     email_result = await EmailDeliveryService(cfg.email).send_magic_link(
         user_id=user_id,
         recipient=display_email,
@@ -86,10 +88,12 @@ async def verify_magic_link(
         email_canonical=email_canonical,
         email_verified=True,
     )
+    redeemed_client_id = str(record["client_id"])
+    validate_client_id(redeemed_client_id)
     return await issue_auth_tokens(
         user_id=user_id,
         username=None,
-        client_id=str(record["client_id"]),
+        client_id=redeemed_client_id,
         response=response,
     )
 
