@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Ratatoskr Quick Save",
+  "description": "Save the current tab to Ratatoskr with one click.",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Save to Ratatoskr"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "quick-save@ratatoskr.local",
+      "strict_min_version": "109.0"
+    }
+  }
+}

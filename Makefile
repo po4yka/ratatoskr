@@ -1,4 +1,4 @@
-.PHONY: format lint type type-all test test-unit test-integration test-all all setup-dev bootstrap seed-demo-data teardown-dev venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-openapi-drift check-file-loc check-layout clean-generated security security-bandit security-deps static-checks
+.PHONY: format lint type type-all test test-unit test-integration test-all all setup-dev bootstrap seed-demo-data teardown-dev extension-zip venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-openapi-drift check-file-loc check-layout clean-generated security security-bandit security-deps static-checks
 
 COMPOSE_FILE := ops/docker/docker-compose.yml
 DEV_COMPOSE_FILE := ops/docker/docker-compose.dev.yml
@@ -88,6 +88,9 @@ seed-demo-data:
 
 teardown-dev:
 	POSTGRES_PASSWORD="$(DEV_POSTGRES_PASSWORD)" POSTGRES_HOST_PORT="$(POSTGRES_HOST_PORT)" REDIS_HOST_PORT="$(REDIS_HOST_PORT)" QDRANT_HOST_PORT="$(QDRANT_HOST_PORT)" $(DEV_COMPOSE) down -v --remove-orphans
+
+extension-zip:
+	uv run python tools/scripts/build_extension_zip.py
 
 venv:
 	bash tools/scripts/create_venv.sh

@@ -1,0 +1,100 @@
+:root {
+  color-scheme: light dark;
+  font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  color: CanvasText;
+  background: Canvas;
+}
+
+main {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+header,
+.queue,
+.row {
+  display: flex;
+  align-items: center;
+}
+
+header,
+.queue {
+  justify-content: space-between;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 8px;
+}
+
+label {
+  font-weight: 600;
+}
+
+input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 24%, transparent);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.row {
+  gap: 8px;
+  font-weight: 400;
+}
+
+.row input {
+  width: auto;
+  min-height: auto;
+}
+
+button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  background: #2563eb;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+#logoutButton,
+#retryButton {
+  color: CanvasText;
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+}
+
+#status {
+  min-height: 20px;
+}
+
+#status[data-kind="error"] {
+  color: #b91c1c;
+}
+
+#status[data-kind="success"] {
+  color: #047857;
+}

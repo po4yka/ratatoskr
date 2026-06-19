@@ -19,12 +19,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build browser extension zip
+        run: python tools/scripts/build_extension_zip.py
+
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           draft: false
           prerelease: false
+          files: dist/ratatoskr-quick-save-extension.zip
 
   push-docker-tag:
     name: Push Docker Image (Tag)

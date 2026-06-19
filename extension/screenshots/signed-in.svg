@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="500" role="img" aria-label="Signed-in Ratatoskr Quick Save popup">
+  <rect width="360" height="500" fill="#f8fafc"/>
+  <rect x="24" y="24" width="312" height="452" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="48" y="68" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111827">Ratatoskr</text>
+  <rect x="232" y="44" width="80" height="32" rx="6" fill="#e5e7eb"/>
+  <text x="248" y="65" font-family="Arial, sans-serif" font-size="12" fill="#111827">Sign out</text>
+  <rect x="48" y="96" width="264" height="32" rx="6" fill="#dcfce7"/>
+  <text x="64" y="117" font-family="Arial, sans-serif" font-size="13" fill="#166534">Signed in.</text>
+  <text x="48" y="164" font-family="Arial, sans-serif" font-size="13" fill="#374151">Title</text>
+  <rect x="48" y="174" width="264" height="36" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="62" y="197" font-family="Arial, sans-serif" font-size="13" fill="#334155">Article title</text>
+  <text x="48" y="236" font-family="Arial, sans-serif" font-size="13" fill="#374151">Tags</text>
+  <rect x="48" y="246" width="264" height="36" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="62" y="269" font-family="Arial, sans-serif" font-size="13" fill="#64748b">reading, research</text>
+  <rect x="48" y="320" width="264" height="42" rx="6" fill="#111827"/>
+  <text x="121" y="346" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#ffffff">Save Current Tab</text>
+  <rect x="48" y="394" width="264" height="42" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="64" y="421" font-family="Arial, sans-serif" font-size="13" fill="#111827">Offline queue</text>
+  <text x="276" y="421" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#111827">0</text>
+</svg>
