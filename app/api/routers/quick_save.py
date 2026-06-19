@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
@@ -27,25 +26,32 @@ def _get_request_service(request: Request) -> RequestService:
     """Resolve the shared request workflow service from API runtime."""
     from app.di.api import resolve_api_runtime
 
-    with contextlib.suppress(RuntimeError):
+    try:
         return cast("RequestService", resolve_api_runtime(request).request_service)
-    # Fallback for tests
-    from app.api.dependencies.database import (
-        get_crawl_result_repository,
-        get_llm_repository,
-        get_request_repository,
-        get_session_manager,
-        get_summary_repository,
-    )
+    except RuntimeError:
+        # API runtime is not initialized — this should only happen in tests that
+        # do not set up the full runtime.  Log a warning so the condition is
+        # visible in production logs if it ever fires there unexpectedly.
+        logger.warning(
+            "quick_save_runtime_fallback",
+            extra={"detail": "API runtime not initialized; using test-only fallback"},
+        )
+        from app.api.dependencies.database import (
+            get_crawl_result_repository,
+            get_llm_repository,
+            get_request_repository,
+            get_session_manager,
+            get_summary_repository,
+        )
 
-    db = get_session_manager()
-    return RequestService(
-        db=db,
-        request_repository=get_request_repository(),
-        summary_repository=get_summary_repository(),
-        crawl_result_repository=get_crawl_result_repository(),
-        llm_repository=get_llm_repository(),
-    )
+        db = get_session_manager()
+        return RequestService(
+            db=db,
+            request_repository=get_request_repository(),
+            summary_repository=get_summary_repository(),
+            crawl_result_repository=get_crawl_result_repository(),
+            llm_repository=get_llm_repository(),
+        )
 
 
 def _get_tag_repo() -> Any:
