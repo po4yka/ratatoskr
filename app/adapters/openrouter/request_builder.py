@@ -213,14 +213,23 @@ class RequestBuilder:
         )
 
     def sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Sanitize user content to prevent prompt injection before provider submission."""
+        """Best-effort cosmetic filter applied only to user-role messages.
+
+        Strips a small set of literal injection-signal phrases from user message
+        text. This is NOT a security boundary — system and assistant messages are
+        left untouched, and a determined adversary can bypass simple regex
+        replacement. The function is intentionally narrow: it removes phrases that
+        are almost never legitimate in user input and that reliably indicate a
+        role-override attempt. Triple-backtick code fences are NOT stripped because
+        they appear in valid user content (code pastes) and removing them silently
+        corrupts that content without meaningfully blocking injection.
+        """
         patterns = [
             r"(?i)ignore previous instructions",
             r"(?i)forget previous instructions",
             r"(?i)system:",
             r"(?i)assistant:",
             r"(?i)user:",
-            r"```",
         ]
 
         sanitized_messages = []
