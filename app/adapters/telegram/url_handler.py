@@ -513,7 +513,7 @@ class URLHandler:
                 normalized_url=normalized,
                 dedupe_hash=dedupe_hash,
                 input_message_id=input_message_id,
-                initial_attempt_trigger="user_retry",
+                initial_attempt_trigger="initial",
             )
         except Exception as exc:
             logger.error(
