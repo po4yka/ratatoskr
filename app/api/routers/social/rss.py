@@ -27,6 +27,7 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 MAX_FETCH_ERRORS = 10
+MAX_RSS_SUBSCRIPTIONS_PER_USER = 100
 
 
 def _get_rss_repo() -> Any:
@@ -326,6 +327,15 @@ async def import_opml(
         raise ValidationError("No feeds found in OPML file")
 
     repo = _get_rss_repo()
+    existing = await repo.async_list_user_subscriptions(user["user_id"])
+    current_count = len(existing)
+    if current_count >= MAX_RSS_SUBSCRIPTIONS_PER_USER:
+        raise ValidationError(
+            f"Maximum of {MAX_RSS_SUBSCRIPTIONS_PER_USER} RSS subscriptions per user reached"
+        )
+    slots_remaining = MAX_RSS_SUBSCRIPTIONS_PER_USER - current_count
+    bookmarks = bookmarks[:slots_remaining]
+
     imported = 0
     errors = 0
 
