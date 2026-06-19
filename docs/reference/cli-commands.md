@@ -208,22 +208,30 @@ python -m app.cli.summary --url https://example.com --output-format minimal
 
 **Command:** `python -m app.cli.migrate_db`
 
-**Purpose:** Apply database migrations.
+**Purpose:** Inspect and apply database migrations.
 
 ### Basic Usage
 
 ```bash
-# Apply all pending migrations
+# Render pending migrations as SQL without applying them
 python -m app.cli.migrate_db
+
+# Apply all pending migrations
+python -m app.cli.migrate_db --apply
 
 # Show migration status
 python -m app.cli.migrate_db --status
+
+# Fail unless the live database is already at Alembic head
+python -m app.cli.migrate_db --check
 ```
 
 ### Options
 
 | Option | Type | Default | Description |
 | -------- | ------ | --------- | ------------- |
+| `--apply` | flag | false | Apply pending Alembic migrations |
+| `--check` | flag | false | Exit non-zero if the database is not at Alembic head |
 | `--status` | flag | false | Show current Alembic revision and history |
 | `dsn` | string | env | Optional PostgreSQL SQLAlchemy DSN |
 
@@ -242,7 +250,7 @@ python -m app.cli.migrate_db --status
 **Apply All Pending:**
 
 ```bash
-python -m app.cli.migrate_db
+python -m app.cli.migrate_db --apply
 
 # Output:
 # Running database migrations...

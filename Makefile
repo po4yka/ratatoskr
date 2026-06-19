@@ -206,10 +206,11 @@ stage-web:
 # Pi never has to run the heavy build. Override SERVICE=mobile-api to ship
 # the API image instead. See tools/scripts/build-and-deploy-pi.sh for flags
 # and env vars (RASPI_HOST, RASPI_REMOTE_PATH, COMPOSE_PROJECT).
-.PHONY: pi-deploy pi-deploy-no-cache pi-build-only pi-deploy-all pi-smoke
+.PHONY: pi-deploy pi-deploy-no-cache pi-build-only pi-migrate pi-rollback pi-deploy-all pi-smoke
 SERVICE ?= ratatoskr
 RASPI_HOST ?= raspi
 PI_SMOKE_PORT ?= 18000
+APPLY ?= 0
 
 pi-deploy:
 	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE)
@@ -219,6 +220,12 @@ pi-deploy-no-cache:
 
 pi-build-only:
 	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE) --no-restart
+
+pi-migrate:
+	bash tools/scripts/build-and-deploy-pi.sh --migrate-only $(if $(filter 1 true yes,$(APPLY)),--apply,)
+
+pi-rollback:
+	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE) --rollback
 
 # End-to-end: stage the freshly-built SPA into app/static/web/, then
 # build+ship+restart the four ratatoskr services (bot/worker/scheduler/

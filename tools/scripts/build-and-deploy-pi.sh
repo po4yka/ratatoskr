@@ -10,14 +10,17 @@
 #   tools/scripts/build-and-deploy-pi.sh --all                          # all supported services
 #   tools/scripts/build-and-deploy-pi.sh --no-restart                   # just ship the image(s)
 #   tools/scripts/build-and-deploy-pi.sh --no-cache                     # full rebuild
-#   tools/scripts/build-and-deploy-pi.sh --skip-migrate                 # emergency only: restart without running migrations
+#   tools/scripts/build-and-deploy-pi.sh --migrate-only                 # render Alembic SQL dry-run on the Pi
+#   tools/scripts/build-and-deploy-pi.sh --migrate-only --apply         # apply Alembic migrations on the Pi
+#   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --rollback # swap latest/previous and recreate
 #
 # Supported services: ratatoskr, worker, scheduler, mcp, mcp-write,
 # mcp-public, mobile-api. Services sharing ops/docker/Dockerfile (everything
 # except mobile-api) are built once and re-tagged for each requested service.
-# When restarting, the script also ships the one-shot `migrate` image and runs
-# it before any app service is recreated. Each Dockerfile group streams as a
-# single tar so `docker load` deduplicates layers on the Pi.
+# Migration application is intentionally separate from deployment. Use
+# `--migrate-only` for a dry-run and `--migrate-only --apply` to mutate the
+# schema. Each Dockerfile group streams as a single tar so `docker load`
+# deduplicates layers on the Pi.
 #
 # Environment overrides:
 #   RASPI_HOST          SSH host alias                   (default: raspi)
@@ -37,11 +40,11 @@
 # project on the Pi with `-p ${COMPOSE_PROJECT}`, so `compose up` reuses the
 # shipped image instead of rebuilding it.
 #
-# The migration preflight runs explicitly because the app-service restart uses
-# `--no-deps --force-recreate ${SERVICE}` so we never disturb postgres/redis/
-# qdrant during recreation. A post-recreate `docker network connect
-# docker_default` works around a compose quirk that occasionally drops the
-# default-network attachment for mobile-api under --no-deps.
+# The app-service restart uses `--no-deps --force-recreate ${SERVICE}` so we
+# never disturb postgres/redis/qdrant during recreation. A post-recreate
+# `docker network connect docker_default` works around a compose quirk that
+# occasionally drops the default-network attachment for mobile-api under
+# --no-deps.
 
 set -euo pipefail
 
@@ -66,7 +69,11 @@ ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}")
 SERVICES=()
 RESTART=1
 NO_CACHE=0
-RUN_MIGRATIONS=1
+ROLLBACK=0
+MIGRATE_ONLY=0
+APPLY_MIGRATIONS=0
+GIT_SHA=$(git rev-parse --short=12 HEAD 2>/dev/null || echo "unknown")
+DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 usage() {
   sed -n '2,42p' "$0"
@@ -92,7 +99,14 @@ while [[ $# -gt 0 ]]; do
     --no-restart)
       RESTART=0; shift ;;
     --skip-migrate)
-      RUN_MIGRATIONS=0; shift ;;
+      echo "WARNING: --skip-migrate is deprecated; migrations are no longer run during deploy" >&2
+      shift ;;
+    --migrate-only)
+      MIGRATE_ONLY=1; RESTART=0; shift ;;
+    --apply)
+      APPLY_MIGRATIONS=1; shift ;;
+    --rollback)
+      ROLLBACK=1; shift ;;
     --no-cache)
       NO_CACHE=1; shift ;;
     -h|--help)
@@ -104,18 +118,32 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ $RESTART -eq 0 ]]; then
-  RUN_MIGRATIONS=0
+if [[ $ROLLBACK -eq 1 && $MIGRATE_ONLY -eq 1 ]]; then
+  echo "--rollback cannot be combined with --migrate-only" >&2
+  exit 2
+fi
+
+if [[ $APPLY_MIGRATIONS -eq 1 && $MIGRATE_ONLY -eq 0 ]]; then
+  echo "--apply is only valid with --migrate-only" >&2
+  exit 2
 fi
 
 # Default: build the bot only (backward-compat with the old single-service script).
 [[ ${#SERVICES[@]} -eq 0 ]] && SERVICES=(ratatoskr)
+
+if [[ $MIGRATE_ONLY -eq 1 ]]; then
+  SERVICES=("$MIGRATE_SERVICE")
+fi
 
 # Validate and bucket each requested service by its Dockerfile.
 SHARED_TO_BUILD=()
 API_TO_BUILD=()
 for svc in "${SERVICES[@]}"; do
   matched=0
+  if [[ "$svc" == "$MIGRATE_SERVICE" ]]; then
+    SHARED_TO_BUILD+=("$svc")
+    continue
+  fi
   for shared in "${SHARED_SERVICES[@]}"; do
     [[ "$svc" == "$shared" ]] && { SHARED_TO_BUILD+=("$svc"); matched=1; break; }
   done
@@ -130,8 +158,9 @@ for svc in "${SERVICES[@]}"; do
   fi
 done
 
-if [[ $RUN_MIGRATIONS -eq 1 ]]; then
-  SHARED_TO_BUILD+=("$MIGRATE_SERVICE")
+if [[ $ROLLBACK -eq 1 ]]; then
+  SHARED_TO_BUILD=()
+  API_TO_BUILD=()
 fi
 
 command -v docker >/dev/null || { echo "docker is not on PATH" >&2; exit 1; }
@@ -169,6 +198,8 @@ build_and_ship() {
   [[ ${#services[@]} -gt 1 ]] && echo "    will retag for: ${services[*]:1}"
   [[ ${#build_args[@]} -gt 0 ]] && echo "    build args: ${build_args[*]}"
   local -a build_flags=(--platform "$PLATFORM" -f "$dockerfile" -t "$primary_tag" --load)
+  build_flags+=(--label "org.opencontainers.image.revision=${GIT_SHA}")
+  build_flags+=(--label "org.opencontainers.image.created=${DEPLOYED_AT}")
   [[ $NO_CACHE -eq 1 ]] && build_flags+=(--no-cache)
   [[ ${#build_args[@]} -gt 0 ]] && build_flags+=("${build_args[@]}")
   DOCKER_BUILDKIT=1 docker buildx build "${build_flags[@]}" .
@@ -227,21 +258,102 @@ COMPOSE_RUN=(
 )
 
 run_remote_migrations() {
-  echo "==> Running database migrations on ${RASPI_HOST} before restarting services"
+  local -a migrate_args=()
+  if [[ $APPLY_MIGRATIONS -eq 1 ]]; then
+    echo "==> Applying database migrations on ${RASPI_HOST}"
+    migrate_args+=(--apply)
+  else
+    echo "==> Rendering database migration SQL dry-run on ${RASPI_HOST}"
+  fi
   ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
     ${COMPOSE_RUN[*]} up -d --no-build postgres && \
     ( ${COMPOSE_RUN[*]} rm -sf ${MIGRATE_SERVICE} >/dev/null 2>&1 || true ) && \
-    ${COMPOSE_RUN[*]} run --rm --no-build ${MIGRATE_SERVICE}"
+    ${COMPOSE_RUN[*]} run --rm --no-build ${MIGRATE_SERVICE} ${migrate_args[*]}"
 }
 
-if [[ $RESTART -eq 1 ]]; then
-  if [[ $RUN_MIGRATIONS -eq 1 ]]; then
-    run_remote_migrations
-  else
-    echo "WARNING: skipping database migrations before restart (--skip-migrate)" >&2
-  fi
+tag_running_image_as_previous() {
+  local svc=$1
+  local previous_tag="${COMPOSE_PROJECT}-${svc}:previous"
+  echo "==> Tagging currently running ${svc} image as ${previous_tag}"
+  ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+    CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null || true); \
+    if [ -n \"\$CID\" ]; then \
+      IMG=\$(docker inspect --format '{{.Image}}' \"\$CID\"); \
+      docker tag \"\$IMG\" '${previous_tag}'; \
+      echo \"    ${previous_tag} -> \$IMG\"; \
+    else \
+      echo '    no running container; previous tag unchanged'; \
+    fi"
+}
 
+rollback_service_image() {
+  local svc=$1
+  local latest_tag="${COMPOSE_PROJECT}-${svc}:latest"
+  local previous_tag="${COMPOSE_PROJECT}-${svc}:previous"
+  local tmp_tag="${COMPOSE_PROJECT}-${svc}:rollback-tmp"
+  echo "==> Rolling back ${svc}: swapping ${latest_tag} and ${previous_tag}"
+  ssh "$RASPI_HOST" "set -e; \
+    docker image inspect '${previous_tag}' >/dev/null; \
+    docker image inspect '${latest_tag}' >/dev/null; \
+    LATEST_ID=\$(docker image inspect '${latest_tag}' --format '{{.Id}}'); \
+    PREVIOUS_ID=\$(docker image inspect '${previous_tag}' --format '{{.Id}}'); \
+    docker tag \"\$LATEST_ID\" '${tmp_tag}'; \
+    docker tag \"\$PREVIOUS_ID\" '${latest_tag}'; \
+    docker tag '${tmp_tag}' '${previous_tag}'; \
+    docker rmi '${tmp_tag}' >/dev/null 2>&1 || true"
+}
+
+remote_image_label() {
+  local tag=$1
+  local label=$2
+  ssh "$RASPI_HOST" "docker image inspect '${tag}' --format '{{ index .Config.Labels \"${label}\" }}' 2>/dev/null || true"
+}
+
+metric_label_value() {
+  local value=$1
+  value=${value//$'\n'/}
+  value=${value//$'\r'/}
+  if [[ -z "$value" || "$value" == "<no value>" ]]; then
+    value=unknown
+  fi
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf "%s" "$value"
+}
+
+write_deploy_metrics() {
+  local svc=$1
+  local latest_tag="${COMPOSE_PROJECT}-${svc}:latest"
+  local previous_tag="${COMPOSE_PROJECT}-${svc}:previous"
+  local current_sha current_at previous_sha previous_at metrics
+  current_sha=$(remote_image_label "$latest_tag" "org.opencontainers.image.revision")
+  current_at=$(remote_image_label "$latest_tag" "org.opencontainers.image.created")
+  previous_sha=$(remote_image_label "$previous_tag" "org.opencontainers.image.revision")
+  previous_at=$(remote_image_label "$previous_tag" "org.opencontainers.image.created")
+  current_sha=$(metric_label_value "$current_sha")
+  current_at=$(metric_label_value "$current_at")
+  previous_sha=$(metric_label_value "$previous_sha")
+  previous_at=$(metric_label_value "$previous_at")
+  metrics=$(cat <<EOF
+# HELP ratatoskr_deploy_version_info Ratatoskr deployed image version labels.
+# TYPE ratatoskr_deploy_version_info gauge
+ratatoskr_deploy_version_info{service="${svc}",slot="current",git_sha="${current_sha}",deployed_at="${current_at}"} 1
+ratatoskr_deploy_version_info{service="${svc}",slot="previous",git_sha="${previous_sha}",deployed_at="${previous_at}"} 1
+EOF
+)
+  echo "==> Writing deploy version metric for ${svc}"
+  printf "%s\n" "$metrics" | ssh "$RASPI_HOST" "docker run --rm -i --user 0 -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile '${latest_tag}' sh -c 'cat > /textfile/ratatoskr_deploy_${svc}.prom'"
+}
+
+if [[ $MIGRATE_ONLY -eq 1 ]]; then
+  run_remote_migrations
+elif [[ $RESTART -eq 1 ]]; then
   for svc in "${SERVICES[@]}"; do
+    if [[ $ROLLBACK -eq 1 ]]; then
+      rollback_service_image "$svc"
+    else
+      tag_running_image_as_previous "$svc"
+    fi
     echo "==> Restarting ${svc} on ${RASPI_HOST} (project: ${COMPOSE_PROJECT})"
     ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}"
 
@@ -258,10 +370,10 @@ if [[ $RESTART -eq 1 ]]; then
       docker network connect docker_default \"\$CID\" 2>/dev/null \
       && echo '    attached docker_default' \
       || echo '    docker_default already attached or not declared'"
+    write_deploy_metrics "$svc"
   done
 else
   echo "==> Skipping restart (--no-restart). To start manually on the Pi:"
-  echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} run --rm --no-build ${MIGRATE_SERVICE}'"
   for svc in "${SERVICES[@]}"; do
     echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}'"
   done

@@ -221,23 +221,52 @@ def test_release_workflow_publishes_stable_but_not_latest() -> None:
     assert "latest" not in tags
 
 
-def test_pi_deploy_runs_migrations_before_recreating_services() -> None:
+def test_compose_app_services_check_schema_without_auto_migrate_dependency() -> None:
+    services = _compose()["services"]
+
+    for name in ("ratatoskr", "worker", "mobile-api"):
+        service = services[name]
+        command = "\n".join(str(part) for part in service["command"])
+        assert "python -m app.cli.migrate_db --check" in command
+        assert "migrate" not in service.get("depends_on", {})
+
+    assert "migrate" not in services["scheduler"].get("depends_on", {})
+
+
+def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart() -> None:
     script = _pi_deploy_script()
     restart_branch = script.split("if [[ $RESTART -eq 1 ]]; then", maxsplit=1)[1]
 
     restart_call = "up -d --no-deps --force-recreate ${svc}"
     assert restart_call in script
-    assert restart_branch.index("run_remote_migrations") < restart_branch.index(
-        'for svc in "${SERVICES[@]}"; do'
+    assert "tag_running_image_as_previous" in restart_branch
+    assert restart_branch.index("tag_running_image_as_previous") < restart_branch.index(
+        restart_call
     )
-    assert "run --rm --no-build ${MIGRATE_SERVICE}" in script
-    assert "up -d --no-build postgres" in script
+    assert "run_remote_migrations" not in restart_branch
 
 
-def test_pi_deploy_ships_migrate_image_for_restart_flows() -> None:
+def test_pi_deploy_has_explicit_migrate_apply_and_rollback_paths() -> None:
     script = _pi_deploy_script()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "MIGRATE_SERVICE=migrate" in script
-    assert 'SHARED_TO_BUILD+=("$MIGRATE_SERVICE")' in script
-    assert "--skip-migrate" in script
-    assert "WARNING: skipping database migrations" in script
+    assert "--migrate-only" in script
+    assert "--apply" in script
+    assert "run_remote_migrations" in script
+    assert "run --rm --no-build ${MIGRATE_SERVICE} ${migrate_args[*]}" in script
+    assert "--rollback" in script
+    assert "rollback_service_image" in script
+    assert "docker tag \\\"\\$PREVIOUS_ID\\\" '${latest_tag}'" in script
+    assert "pi-migrate:" in makefile
+    assert "APPLY" in makefile
+    assert "pi-rollback:" in makefile
+
+
+def test_pi_deploy_emits_deploy_version_textfile_metric() -> None:
+    script = _pi_deploy_script()
+
+    assert "org.opencontainers.image.revision" in script
+    assert "org.opencontainers.image.created" in script
+    assert "ratatoskr_deploy_version_info" in script
+    assert "${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script

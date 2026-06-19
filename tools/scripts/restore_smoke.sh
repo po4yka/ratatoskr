@@ -33,7 +33,7 @@ if [[ "$seed_count" != "1" ]]; then
 fi
 
 echo "Running Alembic migrations against restored database"
-DATABASE_URL="$restore_database_url" python -m app.cli.migrate_db
+DATABASE_URL="$restore_database_url" python -m app.cli.migrate_db --apply
 
 alembic_rows="$(psql -d "$db_name" -Atc "SELECT COUNT(*) FROM alembic_version;")"
 if [[ "$alembic_rows" != "1" ]]; then

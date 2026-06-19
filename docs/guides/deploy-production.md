@@ -380,6 +380,9 @@ docker compose -f ops/docker/docker-compose.yml down
 docker compose -f ops/docker/docker-compose.yml up -d --build
 
 # Pi / remote deploy
+make pi-build-only
+make pi-migrate              # dry-run: renders Alembic SQL only
+make pi-migrate APPLY=1      # explicit schema apply
 make pi-deploy
 make pi-deploy SERVICE=mobile-api
 make pi-deploy-all
@@ -391,7 +394,9 @@ docker run -d --env-file .env -v $(pwd)/data:/data \
   -p 8000:8000 --name ratatoskr --restart unless-stopped ratatoskr:latest
 ```
 
-> The `migrate` service runs automatically before `ratatoskr`, `worker`, `scheduler`, and `mobile-api` start in normal Compose flows. `make pi-deploy` uses `--no-deps` for the final service recreate to avoid disturbing Postgres/Redis/Qdrant, so the deploy script runs `migrate` explicitly on the Pi before it recreates any app service. If migration fails, the app restart is not attempted. `--skip-migrate` exists only for emergency rollback/repair when you have already verified the database schema yourself.
+> The `migrate` service no longer runs automatically before app containers start. App containers run `python -m app.cli.migrate_db --check` at startup and exit cleanly when the live schema is not at Alembic head. Use `make pi-migrate` to render the SQL dry-run and `make pi-migrate APPLY=1` to consciously apply the migration before restarting app services. This keeps a bad migration from blocking rollback to the previous image.
+
+> `make pi-deploy` tags the currently running service image as `<project>-<service>:previous` before it recreates the container. If the new image fails, run `make pi-rollback SERVICE=ratatoskr` (or `SERVICE=mobile-api`, `worker`, `scheduler`) to swap `:latest` and `:previous` and recreate the service without applying migrations. The deploy script writes `ratatoskr_deploy_version_info{service,slot,git_sha,deployed_at}` into the node-exporter textfile volume so Grafana can show the current and previous image SHAs.
 
 ### 5. Verify
 
@@ -404,7 +409,16 @@ Send a test message from a whitelisted Telegram account.
 
 ### 6. Rollback
 
-Stop the container, restore the backup tarball, and restart the previous image:
+On the Pi deploy path, use the retained previous image tag first:
+
+```bash
+make pi-rollback SERVICE=ratatoskr
+make pi-rollback SERVICE=mobile-api
+```
+
+This swaps `<project>-<service>:latest` and `<project>-<service>:previous`, recreates the service, and updates the deploy-version textfile metric. It does not run migrations.
+
+For non-Pi/manual deployments, stop the container, restore the backup tarball if the schema/data was mutated, and restart the previous image:
 
 ```bash
 git checkout <previous-commit-sha>

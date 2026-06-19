@@ -7,7 +7,7 @@ allowed-tools: Bash, Read
 
 # Pi Deployment
 
-Deploy Ratatoskr to the Raspberry Pi by building the `linux/arm64` image on the Mac, streaming it over SSH, running the one-shot `migrate` service on the Pi, and restarting via compose. The Pi never runs `docker build`.
+Deploy Ratatoskr to the Raspberry Pi by building the `linux/arm64` image on the Mac, streaming it over SSH, and restarting via compose. Migration application is a separate explicit operator step. The Pi never runs `docker build`.
 
 ## Prerequisites
 
@@ -21,6 +21,13 @@ Deploy Ratatoskr to the Raspberry Pi by building the `linux/arm64` image on the 
 # Standard: build + ship + restart `ratatoskr`
 make pi-deploy
 
+# Migration dry-run / explicit apply
+make pi-migrate
+make pi-migrate APPLY=1
+
+# Roll back one service to its retained previous image
+make pi-rollback SERVICE=ratatoskr
+
 # Ship the mobile-api image instead of the bot
 make pi-deploy SERVICE=mobile-api
 
@@ -29,9 +36,6 @@ make pi-deploy-no-cache
 
 # Ship without restarting on the Pi (manual restart later)
 make pi-build-only
-
-# Emergency only: restart without running migrations first
-bash tools/scripts/build-and-deploy-pi.sh --skip-migrate
 
 # Full flag/env coverage
 bash tools/scripts/build-and-deploy-pi.sh --help
@@ -52,7 +56,11 @@ CLAUDE.md flags this explicitly: there are two different image names in play.
 
 ## The Migration Footgun
 
-The Pi restart path recreates app containers with `--no-deps` so it does not disturb Postgres, Redis, or Qdrant. Because that bypasses Compose dependency execution, `tools/scripts/build-and-deploy-pi.sh` explicitly ships the `migrate` image and runs `docker compose run --rm --no-build migrate` before any service restart. If migration fails, the restart does not run. Use `--skip-migrate` only for emergency rollback or repair after verifying the schema manually.
+The Pi restart path recreates app containers with `--no-deps` so it does not disturb Postgres, Redis, or Qdrant. Migrations are not applied as an automatic restart side effect. Run `make pi-migrate` first to render the Alembic SQL dry-run, then `make pi-migrate APPLY=1` when you intentionally want to mutate the schema. App containers run `python -m app.cli.migrate_db --check` at startup and fail cleanly if the database is not at Alembic head.
+
+## Rollback
+
+`make pi-deploy` tags the currently running service image as `<project>-<service>:previous` before recreating the container. Use `make pi-rollback SERVICE=<service>` to swap `:latest` and `:previous`, recreate the service, and update the `ratatoskr_deploy_version_info` node-exporter textfile metric. Rollback does not run migrations.
 
 ## The Bind-Mount Footgun
 
@@ -91,7 +99,7 @@ ssh raspi 'docker logs --tail 50 ratatoskr-mobile-api'
 | Image streams but Pi can't load it | Disk full on Pi | `ssh raspi 'docker system df'` and prune |
 | Restart succeeds but code unchanged | Used `docker build` (image-name footgun) | Re-run with `make pi-deploy` |
 | Pi runs old image after restart | Compose cached the previous image ref | `ssh raspi 'docker compose -f ~/ratatoskr/ops/docker/docker-compose.yml up -d --force-recreate'` |
-| Restart is skipped after image ship | Migration failed before service recreate | Inspect `ratatoskr-migrate` output on the Pi, fix the migration/config issue, then re-run `make pi-deploy` |
+| New container exits immediately after deploy | Database is not at Alembic head | Run `make pi-migrate` to inspect SQL, then `make pi-migrate APPLY=1`, or `make pi-rollback SERVICE=<service>` |
 
 ## Key Files
 

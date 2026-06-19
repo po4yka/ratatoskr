@@ -99,10 +99,7 @@ ENV DB_PATH=/data/ratatoskr.db \
 
 EXPOSE 8000
 
-# Migrations are run by the `migrate` one-shot compose service (see
-# ops/docker/docker-compose.yml); mobile-api depends on it via
-# `condition: service_completed_successfully`, so by the time this CMD
-# fires the schema is already at head. Running migrate_db here too was
-# redundant and made any bug in the alembic boot path (e.g. missing
-# alembic.ini) fatal at startup instead of cosmetic in one-shot logs.
+# Compose overrides the image CMD with a schema-head guard followed by uvicorn.
+# Migration application is an explicit operator step (`make pi-migrate APPLY=1`)
+# instead of an automatic startup side effect.
 CMD ["sh", "-c", "exec uvicorn app.api.main:app --host \"${API_HOST:-0.0.0.0}\" --port \"${API_PORT:-8000}\" --workers \"${API_WORKERS:-1}\""]

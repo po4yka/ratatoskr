@@ -82,6 +82,12 @@ services:
       # below. Keep the legacy bot-local loop opt-in to avoid duplicate dumps.
       - DB_BACKUP_ENABLED=${DB_BACKUP_ENABLED:-0}
       - RATATOSKR_PROCESS_ROLE=bot
+    command:
+      - sh
+      - -c
+      - |
+        python -m app.cli.migrate_db --check
+        exec python -m bot
     dns:
       - 1.1.1.1
       - 8.8.8.8
@@ -106,8 +112,6 @@ services:
       retries: 5
       start_period: 60s
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       qdrant:
@@ -142,20 +146,11 @@ services:
     container_name: ratatoskr-worker
     init: true
     command:
-      - taskiq
-      - worker
-      - "app.tasks.broker:broker"
-      - app.tasks.digest
-      - app.tasks.rss
-      - app.tasks.github_sync
-      - app.tasks.reconcile_vector_index
-      - app.tasks.import_tasks
-      - app.tasks.x_bookmarks_sync
-      - app.tasks.x_wiki_sync
-      - app.tasks.url_processing
-      - app.tasks.langgraph_prune
-      - "--workers"
-      - "${TASKIQ_WORKER_CONCURRENCY:-4}"
+      - sh
+      - -c
+      - |
+        python -m app.cli.migrate_db --check
+        exec taskiq worker app.tasks.broker:broker app.tasks.digest app.tasks.rss app.tasks.github_sync app.tasks.reconcile_vector_index app.tasks.import_tasks app.tasks.x_bookmarks_sync app.tasks.x_wiki_sync app.tasks.url_processing app.tasks.langgraph_prune --workers "$${TASKIQ_WORKER_CONCURRENCY:-4}"
     env_file:
       - path: ../../.env
         required: false
@@ -193,8 +188,6 @@ services:
     tmpfs:
       - /tmp
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -279,8 +272,6 @@ services:
     tmpfs:
       - /tmp
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
     restart: unless-stopped
@@ -345,6 +336,12 @@ services:
       - SCRAPER_DEFUDDLE_TOKEN=${DEFUDDLE_AUTH_TOKEN:-}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+    command:
+      - sh
+      - -c
+      - |
+        python -m app.cli.migrate_db --check
+        exec uvicorn app.api.main:app --host "$${API_HOST:-0.0.0.0}" --port "$${API_PORT:-8000}" --workers "$${API_WORKERS:-1}"
     volumes:
       # App code, alembic.ini, and config/ are baked into the image -- see the
       # note on the ratatoskr service above.
@@ -353,8 +350,6 @@ services:
     ports:
       - "127.0.0.1:18000:8000"
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       qdrant:
