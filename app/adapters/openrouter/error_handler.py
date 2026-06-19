@@ -108,12 +108,27 @@ class ErrorHandler:
             return True
         return False
 
+    _RETRY_AFTER_MAX_SEC: int = 120
+
     async def handle_rate_limit(self, response_headers: Any) -> None:
-        """Handle rate limiting with proper delay."""
+        """Handle rate limiting with proper delay.
+
+        The Retry-After value is capped at _RETRY_AFTER_MAX_SEC to prevent
+        an attacker-controlled header from causing an unbounded sleep.
+        """
         retry_after = response_headers.get("retry-after")
         if retry_after:
             try:
-                retry_seconds = int(retry_after)
+                requested_seconds = int(retry_after)
+                retry_seconds = min(requested_seconds, self._RETRY_AFTER_MAX_SEC)
+                if requested_seconds > self._RETRY_AFTER_MAX_SEC:
+                    self._logger.warning(
+                        "retry_after_header_capped",
+                        extra={
+                            "requested_seconds": requested_seconds,
+                            "capped_seconds": retry_seconds,
+                        },
+                    )
                 await asyncio.sleep(retry_seconds)
             except (ValueError, TypeError) as e:
                 self._logger.warning(
