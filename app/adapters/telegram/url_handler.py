@@ -300,7 +300,7 @@ class URLHandler:
                 return
 
             try:
-                urls = self._parse_txt_file(file_path)
+                urls = await self._parse_txt_file(file_path)
             except FileValidationError as exc:
                 logger.error(
                     "file_validation_failed",
@@ -696,8 +696,8 @@ class URLHandler:
             logger.error("file_download_failed", extra={"error": str(exc)})
             return None
 
-    def _parse_txt_file(self, file_path: str) -> list[str]:
-        lines = self._file_validator.safe_read_text_file(file_path)
+    async def _parse_txt_file(self, file_path: str) -> list[str]:
+        lines = await asyncio.to_thread(self._file_validator.safe_read_text_file, file_path)
 
         urls: list[str] = []
         skipped_count = 0
