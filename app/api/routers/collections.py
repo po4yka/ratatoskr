@@ -97,7 +97,9 @@ def _build_incoming_invite_response(invite: dict[str, Any]) -> CollectionIncomin
     )
 
 
-def _build_public_link_response(link: dict[str, Any], public_url: str) -> CollectionPublicLinkResponse:
+def _build_public_link_response(
+    link: dict[str, Any], public_url: str
+) -> CollectionPublicLinkResponse:
     return CollectionPublicLinkResponse(
         token=link["token"],
         url=public_url,
@@ -218,6 +220,24 @@ async def create_collection(
         raise ValidationError(str(err)) from err
 
     return success_response(_build_collection_response(collection))
+
+
+@router.get("/tree")
+async def get_collection_tree(
+    max_depth: int = Query(3, ge=1, le=10),
+    user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
+) -> Any:
+    tree = await service.get_tree(user_id=user["user_id"], max_depth=max_depth)
+
+    def to_response(col: dict[str, Any]) -> CollectionResponse:
+        children = col.get("_children") or []
+        resp = _build_collection_response(col)
+        resp.children = [to_response(c) for c in children]
+        return resp
+
+    data = [to_response(c) for c in tree]
+    return success_response({"collections": data})
 
 
 @router.get("/{collection_id}")
@@ -395,24 +415,6 @@ async def move_collection(
     )
 
 
-@router.get("/tree")
-async def get_collection_tree(
-    max_depth: int = Query(3, ge=1, le=10),
-    user: dict[str, Any] = Depends(get_current_user),
-    service: CollectionService = Depends(get_collection_service),
-) -> Any:
-    tree = await service.get_tree(user_id=user["user_id"], max_depth=max_depth)
-
-    def to_response(col: dict[str, Any]) -> CollectionResponse:
-        children = col.get("_children") or []
-        resp = _build_collection_response(col)
-        resp.children = [to_response(c) for c in children]
-        return resp
-
-    data = [to_response(c) for c in tree]
-    return success_response({"collections": data})
-
-
 @router.get("/{collection_id}/acl")
 async def get_collection_acl(
     collection_id: int,
@@ -540,7 +542,9 @@ async def revoke_collection_public_link(
     user: dict[str, Any] = Depends(get_current_user),
     service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    await service.revoke_public_link(collection_id=collection_id, token=token, user_id=user["user_id"])
+    await service.revoke_public_link(
+        collection_id=collection_id, token=token, user_id=user["user_id"]
+    )
     return success_response(CollectionPublicLinkRevocationResponse(revoked=True))
 
 
