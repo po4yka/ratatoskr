@@ -7,6 +7,8 @@ import importlib
 import time
 from typing import Any, cast
 
+from pydantic import SecretStr
+
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
@@ -33,13 +35,19 @@ class ScrapeGraphAIProvider:
 
     def __init__(
         self,
-        openrouter_api_key: str,
+        openrouter_api_key: str | SecretStr,
         openrouter_model: str,
         timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
         *,
         min_content_length: int = 400,
     ) -> None:
-        self._openrouter_api_key = openrouter_api_key
+        # Wrap as SecretStr so the key is never accidentally serialised or logged
+        # when the config dict or this object is repr'd/str'd.
+        self._openrouter_api_key = (
+            openrouter_api_key
+            if isinstance(openrouter_api_key, SecretStr)
+            else SecretStr(openrouter_api_key)
+        )
         self._openrouter_model = openrouter_model
         self._timeout_sec = timeout_sec
         self._min_content_length = min_content_length
@@ -95,9 +103,11 @@ class ScrapeGraphAIProvider:
         # model_provider="openai" and passes the remainder (original slash-form string)
         # to OpenRouter, which accepts the full model identifier unchanged.
         # TODO: drop the "openai/" prefix once https://github.com/ScrapeGraphAI/Scrapegraph-ai/issues/560 lands and exposes `override_provider` for OpenAI-compatible base URLs.
+        # get_secret_value() is called here — the sole point of use — so the raw key
+        # is never resident in a logged/repr'd data structure.
         graph_config: dict[str, Any] = {
             "llm": {
-                "api_key": self._openrouter_api_key,
+                "api_key": self._openrouter_api_key.get_secret_value(),
                 "model": f"openai/{self._openrouter_model}",
                 "base_url": "https://openrouter.ai/api/v1",
             },
