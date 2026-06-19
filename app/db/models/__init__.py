@@ -82,6 +82,7 @@ from app.db.models.rules import (
     WebhookDelivery,
     WebhookSubscription,
 )
+from app.db.models.search import SEARCH_MODELS, SavedSearch, SearchHistoryEntry
 from app.db.models.signal import SIGNAL_MODELS, FeedItem, Source, Subscription, Topic, UserSignal
 from app.db.models.social import (
     SOCIAL_MODELS,
@@ -129,6 +130,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
     *REPOSITORY_MODELS,
     *RSS_MODELS,
     *RULE_MODELS,
+    *SEARCH_MODELS,
     *SIGNAL_MODELS,
     *SOCIAL_MODELS,
     *TASKIQ_MODELS,
@@ -149,6 +151,7 @@ __all__ = [
     "REPOSITORY_MODELS",
     "RSS_MODELS",
     "RULE_MODELS",
+    "SEARCH_MODELS",
     "SIGNAL_MODELS",
     "SOCIAL_MODELS",
     "TASKIQ_MODELS",
@@ -203,6 +206,8 @@ __all__ = [
     "Request",
     "RequestProcessingJob",
     "RuleExecutionLog",
+    "SavedSearch",
+    "SearchHistoryEntry",
     "SocialAuthState",
     "SocialAuthStateStatus",
     "SocialAuthType",

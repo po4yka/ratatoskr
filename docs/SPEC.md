@@ -26,6 +26,8 @@ Passwordless and social identity providers are linked to existing users rather t
 
 Typed profile fields live on `users` as of Alembic 0042: `locale`, `theme`, `display_name`, `default_summary_language`, and `onboarding_completed_at`. `/v1/users/me` exposes the typed profile while legacy `/v1/user/preferences` remains available and mirrors compatible values into typed columns.
 
+Saved searches and opt-in search history live in PostgreSQL as of Alembic 0045. `saved_searches` stores one reusable query/filter bundle per user, while `search_history` records the newest 50 user search executions only when `users.preferences_json.search_history_enabled` is explicitly true.
+
 Telethon session files are the only intentional SQLite carve-out. They are client session stores owned by Telethon, validated by `app/adapters/digest/session_validator.py`, and are not part of Ratatoskr's relational store or PostgreSQL migration.
 
 ---

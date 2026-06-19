@@ -211,6 +211,8 @@ Operational stream payloads are intentionally additive. Digest payloads report p
 - Scope: `user_scope`
 - Threshold: `min_similarity`
 
+Saved searches store a reusable query plus the same mode, pagination, threshold, and filter fields as `GET /v1/search`. `POST /v1/searches/saved/{id}/run` executes the stored parameters through the normal summary-search path. Search history is off by default; it records only when the user's `preferences_json.search_history_enabled` is explicitly `true`, keeps the newest 50 entries, and can be cleared with `DELETE /v1/searches/history`.
+
 ## Collections Parameters
 
 `GET /v1/collections` supports:
@@ -795,6 +797,12 @@ Response:
 - `GET /v1/search`
 - `GET /v1/search/semantic`
 - `GET /v1/search/insights`
+- `GET /v1/searches/saved`
+- `POST /v1/searches/saved`
+- `DELETE /v1/searches/saved/{id}`
+- `POST /v1/searches/saved/{id}/run`
+- `GET /v1/searches/history`
+- `DELETE /v1/searches/history`
 - `GET /v1/topics/trending`
 - `GET /v1/topics/related`
 

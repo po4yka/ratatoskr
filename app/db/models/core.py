@@ -187,6 +187,12 @@ class User(Base):
     signal_topics: Mapped[list[Any]] = relationship(
         "Topic", back_populates="user", cascade="all, delete-orphan"
     )
+    saved_searches: Mapped[list[Any]] = relationship(
+        "SavedSearch", back_populates="user", cascade="all, delete-orphan"
+    )
+    search_history_entries: Mapped[list[Any]] = relationship(
+        "SearchHistoryEntry", back_populates="user", cascade="all, delete-orphan"
+    )
     user_signals: Mapped[list[Any]] = relationship(
         "UserSignal", back_populates="user", cascade="all, delete-orphan"
     )
