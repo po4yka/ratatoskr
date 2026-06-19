@@ -29,7 +29,7 @@ async def test_export_response_keeps_file_until_background_cleanup(
 
     monkeypatch.setattr(database_deps, "get_session_manager", lambda: object())
 
-    def fake_export_summary(
+    async def fake_export_summary(
         self: ExportFormatter,
         summary_id: str,
         export_format: str,

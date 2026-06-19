@@ -106,18 +106,24 @@ def test_export_formatter_writes_markdown_and_html_exports() -> None:
             Path(path).unlink(missing_ok=True)
 
 
-def test_export_formatter_routes_summary_export_from_loaded_data(monkeypatch) -> None:
+async def test_export_formatter_routes_summary_export_from_loaded_data(monkeypatch) -> None:
     formatter = _formatter()
 
-    monkeypatch.setattr(formatter, "_load_summary", lambda summary_id: _summary_data())
+    async def _load_ok(summary_id):
+        return _summary_data()
+
+    monkeypatch.setattr(formatter, "_load_summary", _load_ok)
     monkeypatch.setattr(formatter, "_export_pdf", lambda data, cid=None: ("p", "f.pdf"))
     monkeypatch.setattr(formatter, "_export_markdown", lambda data, cid=None: ("p", "f.md"))
     monkeypatch.setattr(formatter, "_export_html", lambda data, cid=None: ("p", "f.html"))
 
-    assert formatter.export_summary("1", "pdf") == ("p", "f.pdf")
-    assert formatter.export_summary("1", "md") == ("p", "f.md")
-    assert formatter.export_summary("1", "html") == ("p", "f.html")
-    assert formatter.export_summary("1", "bad") == (None, None)
+    assert await formatter.export_summary("1", "pdf") == ("p", "f.pdf")
+    assert await formatter.export_summary("1", "md") == ("p", "f.md")
+    assert await formatter.export_summary("1", "html") == ("p", "f.html")
+    assert await formatter.export_summary("1", "bad") == (None, None)
 
-    monkeypatch.setattr(formatter, "_load_summary", lambda summary_id: None)
-    assert formatter.export_summary("missing", "md") == (None, None)
+    async def _load_missing(summary_id):
+        return None
+
+    monkeypatch.setattr(formatter, "_load_summary", _load_missing)
+    assert await formatter.export_summary("missing", "md") == (None, None)
