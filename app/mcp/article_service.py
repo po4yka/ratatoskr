@@ -321,6 +321,10 @@ class ArticleReadService:
             logger.exception("get_stats failed", extra={"correlation_id": cid})
             return {"error": f"Failed to retrieve stats. Error ID: {cid}"}
 
+    # Maximum number of summaries scanned in-process for entity/payload searches.
+    # Prevents unbounded memory growth; a truncation flag is returned when reached.
+    _ENTITY_SCAN_LIMIT = 5000
+
     async def find_by_entity(
         self,
         entity_name: str,
@@ -334,44 +338,75 @@ class ArticleReadService:
 
         try:
             runtime = self.context.ensure_runtime()
+            # Fetch only the columns needed for matching + compact formatting.
+            # Capped at _ENTITY_SCAN_LIMIT to bound memory; truncated flag signals
+            # that results beyond the cap may be missing.
             async with runtime.database.session() as session:
-                all_summaries = (
-                    await session.scalars(
-                        self._summary_stmt(Request, Summary)
+                rows = (
+                    await session.execute(
+                        select(Summary.id, Summary.json_payload, Summary.created_at)
+                        .join(Request, Summary.request_id == Request.id)
+                        .where(
+                            Summary.is_deleted.is_(False),
+                            *self.context.request_scope_filters(Request),
+                        )
                         .order_by(Summary.created_at.desc())
-                        .limit(500)
+                        .limit(self._ENTITY_SCAN_LIMIT)
+                    )
+                ).all()
+                scanned = len(rows)
+                truncated = scanned == self._ENTITY_SCAN_LIMIT
+
+                # Resolve full ORM objects only for matched rows (up to limit).
+                matched_ids: list[int] = []
+                for row in rows:
+                    if len(matched_ids) >= limit:
+                        break
+                    payload = ensure_mapping(row.json_payload)
+                    entities = ensure_mapping(payload.get("entities"))
+                    types_to_check = (
+                        [entity_type]
+                        if entity_type in ("people", "organizations", "locations")
+                        else ["people", "organizations", "locations"]
+                    )
+                    matched = False
+                    for entity_kind in types_to_check:
+                        for item in entities.get(entity_kind, []):
+                            if name_lower in str(item).lower():
+                                matched = True
+                                break
+                        if matched:
+                            break
+                    if matched:
+                        matched_ids.append(int(row.id))
+
+                if not matched_ids:
+                    return {
+                        "results": [],
+                        "total": 0,
+                        "entity": entity_name,
+                        "entity_type": entity_type,
+                        "truncated": truncated,
+                    }
+
+                full_summaries = (
+                    await session.scalars(
+                        self._summary_stmt(Request, Summary).where(Summary.id.in_(matched_ids))
                     )
                 ).all()
 
-            results = []
-            for summary in all_summaries:
-                payload = ensure_mapping(getattr(summary, "json_payload", None))
-                entities = ensure_mapping(payload.get("entities"))
-                types_to_check = (
-                    [entity_type]
-                    if entity_type in ("people", "organizations", "locations")
-                    else ["people", "organizations", "locations"]
-                )
-
-                matched = False
-                for entity_kind in types_to_check:
-                    for item in entities.get(entity_kind, []):
-                        if name_lower in str(item).lower():
-                            matched = True
-                            break
-                    if matched:
-                        break
-
-                if matched:
-                    results.append(format_summary_compact(summary, summary.request))
-                    if len(results) >= limit:
-                        break
-
+            by_id = {int(s.id): s for s in full_summaries}
+            results = [
+                format_summary_compact(by_id[mid], by_id[mid].request)
+                for mid in matched_ids
+                if mid in by_id
+            ]
             return {
                 "results": results,
                 "total": len(results),
                 "entity": entity_name,
                 "entity_type": entity_type,
+                "truncated": truncated,
             }
         except Exception:
             cid = generate_correlation_id()
@@ -574,6 +609,10 @@ class ArticleReadService:
                     *self.context.request_scope_filters(Request),
                 )
                 .order_by(Summary.created_at.desc())
+                # Cap at _ENTITY_SCAN_LIMIT to prevent unbounded memory growth.
+                # Aggregate callers (tag_counts, entity_counts, domain_counts)
+                # operate on a representative recent window, not the full corpus.
+                .limit(self._ENTITY_SCAN_LIMIT)
             )
             return [ensure_mapping(row[0]) for row in rows]
 
