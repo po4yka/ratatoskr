@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 from ._secret_marker import SECRET_MARKER
 
 SCRAPER_PROVIDER_TOKENS = {
+    "reddit",
+    "hn",
     "scrapling",
     "defuddle",
     "firecrawl",
@@ -25,6 +27,8 @@ SCRAPER_PROVIDER_TOKENS = {
 
 SCRAPER_PROFILES = {"fast", "balanced", "robust"}
 DEFAULT_SCRAPER_PROVIDER_ORDER = [
+    "reddit",
+    "hn",
     "scrapling",
     "direct_pdf",
     "crawl4ai",
@@ -131,6 +135,38 @@ class ScraperConfig(BaseModel):
     scrapling_stealth_fallback: bool = Field(
         default=True,
         validation_alias="SCRAPER_SCRAPLING_STEALTH_FALLBACK",
+    )
+
+    reddit_enabled: bool = Field(
+        default=True,
+        validation_alias="SCRAPER_REDDIT_ENABLED",
+        description="Enable Reddit comments JSON extraction for matching Reddit URLs",
+    )
+    reddit_timeout_sec: int = Field(
+        default=20,
+        validation_alias="SCRAPER_REDDIT_TIMEOUT_SEC",
+    )
+    reddit_top_comments: int = Field(
+        default=5,
+        validation_alias="SCRAPER_REDDIT_TOP_COMMENTS",
+    )
+    reddit_user_agent: str = Field(
+        default="Ratatoskr/0.1 self-hosted scraper (local operator)",
+        validation_alias="SCRAPER_REDDIT_USER_AGENT",
+    )
+
+    hn_enabled: bool = Field(
+        default=True,
+        validation_alias="SCRAPER_HN_ENABLED",
+        description="Enable Hacker News Algolia extraction for matching HN story URLs",
+    )
+    hn_timeout_sec: int = Field(
+        default=20,
+        validation_alias="SCRAPER_HN_TIMEOUT_SEC",
+    )
+    hn_top_comments: int = Field(
+        default=20,
+        validation_alias="SCRAPER_HN_TOP_COMMENTS",
     )
 
     defuddle_enabled: bool = Field(
@@ -468,6 +504,10 @@ class ScraperConfig(BaseModel):
 
     @field_validator(
         "min_content_length",
+        "reddit_timeout_sec",
+        "reddit_top_comments",
+        "hn_timeout_sec",
+        "hn_top_comments",
         "scrapling_timeout_sec",
         "defuddle_timeout_sec",
         "firecrawl_timeout_sec",
@@ -502,6 +542,10 @@ class ScraperConfig(BaseModel):
 
         bounds: dict[str, tuple[int, int]] = {
             "min_content_length": (50, 20_000),
+            "reddit_timeout_sec": (1, 120),
+            "reddit_top_comments": (1, 100),
+            "hn_timeout_sec": (1, 120),
+            "hn_top_comments": (1, 100),
             "scrapling_timeout_sec": (1, 300),
             "defuddle_timeout_sec": (1, 300),
             "firecrawl_timeout_sec": (1, 300),

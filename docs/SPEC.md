@@ -58,7 +58,7 @@ External service API shapes (Firecrawl, OpenRouter, Telethon, yt-dlp) with reque
 
 ## Scraper Chain
 
-Ten-provider ordered fallback chain (Scrapling → Crawl4AI → Firecrawl self-hosted → Defuddle → CloakBrowser → Playwright → Crawlee → direct HTML → ScrapeGraphAI → Webwright): provider taxonomy, deployment topology, quality gates, anti-fingerprinting, and configuration recipes. The final rung (`webwright`) is an LLM-driven Playwright browser-agent — ~10-30× the cost of a normal scrape, double-gated by `WEBWRIGHT_ENABLED` and a non-empty `WEBWRIGHT_HOST_ALLOWLIST`.
+Thirteen-provider ordered fallback chain (Reddit API → Hacker News Algolia → Scrapling → direct PDF → Crawl4AI → Firecrawl self-hosted → Defuddle → CloakBrowser → Playwright → Crawlee → direct HTML → ScrapeGraphAI → Webwright): provider taxonomy, deployment topology, quality gates, anti-fingerprinting, and configuration recipes. Reddit and Hacker News providers are URL-scoped and skipped for unrelated hosts. The final rung (`webwright`) is an LLM-driven Playwright browser-agent — ~10-30× the cost of a normal scrape, double-gated by `WEBWRIGHT_ENABLED` and a non-empty `WEBWRIGHT_HOST_ALLOWLIST`.
 
 → [Scraper Chain Explanation](explanation/scraper-chain.md) · [Webwright Integration](explanation/webwright.md)
 

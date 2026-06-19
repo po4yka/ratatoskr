@@ -35,6 +35,24 @@ class ScraperProviderDescriptor:
 
 SCRAPER_PROVIDER_DESCRIPTORS: tuple[ScraperProviderDescriptor, ...] = (
     ScraperProviderDescriptor(
+        name="reddit",
+        enabled=lambda cfg: bool(cfg.scraper.reddit_enabled),
+        build=lambda cfg, _audit: _build_reddit(cfg.scraper),
+        diagnostics_metadata={
+            "dependency_modules": ("httpx",),
+            "kind": "platform_api",
+        },
+    ),
+    ScraperProviderDescriptor(
+        name="hn",
+        enabled=lambda cfg: bool(cfg.scraper.hn_enabled),
+        build=lambda cfg, _audit: _build_hn(cfg.scraper),
+        diagnostics_metadata={
+            "dependency_modules": ("httpx",),
+            "kind": "platform_api",
+        },
+    ),
+    ScraperProviderDescriptor(
         name="scrapling",
         enabled=lambda cfg: bool(cfg.scraper.scrapling_enabled),
         build=lambda cfg, _audit: _build_scrapling(cfg.scraper),
@@ -222,6 +240,35 @@ class ContentScraperFactory:
             js_heavy_hosts=scraper_cfg.js_heavy_hosts,
             race_enabled=scraper_cfg.race_enabled,
         )
+
+
+def _build_reddit(scraper_cfg: ScraperConfig) -> ContentScraperProtocol | None:
+    if not scraper_cfg.reddit_enabled:
+        return None
+
+    from app.adapters.content.scraper.reddit_provider import RedditProvider
+
+    timeout_multiplier = profile_timeout_multiplier(scraper_cfg.profile)
+    timeout_sec = max(1, round(scraper_cfg.reddit_timeout_sec * timeout_multiplier))
+    return RedditProvider(
+        timeout_sec=timeout_sec,
+        top_comments=scraper_cfg.reddit_top_comments,
+        user_agent=scraper_cfg.reddit_user_agent,
+    )
+
+
+def _build_hn(scraper_cfg: ScraperConfig) -> ContentScraperProtocol | None:
+    if not scraper_cfg.hn_enabled:
+        return None
+
+    from app.adapters.content.scraper.hn_provider import HackerNewsProvider
+
+    timeout_multiplier = profile_timeout_multiplier(scraper_cfg.profile)
+    timeout_sec = max(1, round(scraper_cfg.hn_timeout_sec * timeout_multiplier))
+    return HackerNewsProvider(
+        timeout_sec=timeout_sec,
+        top_comments=scraper_cfg.hn_top_comments,
+    )
 
 
 def _build_scrapling(scraper_cfg: ScraperConfig) -> ContentScraperProtocol | None:

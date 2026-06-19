@@ -250,11 +250,18 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | `SCRAPER_ENABLED` | `true` | Global master switch for article scraper chain |
 | `SCRAPER_PROFILE` | `balanced` | Scraper tuning profile: `fast`, `balanced`, `robust` |
 | `SCRAPER_BROWSER_ENABLED` | `true` | Master switch for browser-based providers (`cloakbrowser`, `playwright`, `crawlee`) |
-| `SCRAPER_FORCE_PROVIDER` | _(none)_ | Force single provider token (`scrapling`, `crawl4ai`, `firecrawl`, `defuddle`, `cloakbrowser`, `playwright`, `crawlee`, `direct_html`, `scrapegraph_ai`) |
+| `SCRAPER_FORCE_PROVIDER` | _(none)_ | Force single provider token (`reddit`, `hn`, `scrapling`, `crawl4ai`, `firecrawl`, `defuddle`, `cloakbrowser`, `playwright`, `crawlee`, `direct_html`, `direct_pdf`, `scrapegraph_ai`, `webwright`) |
 | `SCRAPER_JS_HEAVY_HOSTS` | _(none)_ | CSV host list for JS-heavy heuristic overlays |
 | `SCRAPER_MIN_CONTENT_LENGTH` | `400` | Minimum extracted text length to accept content |
 | `SCRAPER_ALLOW_PRIVATE_NETWORK_URLS` | `false` | Local-development override for user-submitted localhost/RFC1918 targets. Leave disabled outside isolated dev; metadata, link-local, reserved, and non-http(s) targets remain blocked. |
-| `SCRAPER_PROVIDER_ORDER` | `["scrapling", "direct_pdf", "crawl4ai", "firecrawl", "defuddle", "cloakbrowser", "playwright", "crawlee", "direct_html", "scrapegraph_ai"]` | Ordered list of scraping providers to try |
+| `SCRAPER_PROVIDER_ORDER` | `["reddit", "hn", "scrapling", "direct_pdf", "crawl4ai", "firecrawl", "defuddle", "cloakbrowser", "playwright", "crawlee", "direct_html", "scrapegraph_ai", "webwright"]` | Ordered list of scraping providers to try |
+| `SCRAPER_REDDIT_ENABLED` | `true` | Enable Reddit comments JSON extraction for matching Reddit URLs |
+| `SCRAPER_REDDIT_TIMEOUT_SEC` | `20` | Reddit API request timeout (seconds) |
+| `SCRAPER_REDDIT_TOP_COMMENTS` | `5` | Maximum Reddit replies included in extracted markdown |
+| `SCRAPER_REDDIT_USER_AGENT` | `Ratatoskr/0.1 self-hosted scraper (local operator)` | User-Agent sent to Reddit public JSON endpoints |
+| `SCRAPER_HN_ENABLED` | `true` | Enable Hacker News Algolia item extraction for matching HN story URLs |
+| `SCRAPER_HN_TIMEOUT_SEC` | `20` | Hacker News Algolia request timeout (seconds) |
+| `SCRAPER_HN_TOP_COMMENTS` | `20` | Maximum Hacker News comments included in extracted markdown |
 | `SCRAPER_SCRAPLING_ENABLED` | `true` | Enable Scrapling in-process provider |
 | `SCRAPER_SCRAPLING_TIMEOUT_SEC` | `30` | Scrapling fetch timeout (seconds) |
 | `SCRAPER_SCRAPLING_STEALTH_FALLBACK` | `true` | Try stealth fetch if basic fetch returns thin content |

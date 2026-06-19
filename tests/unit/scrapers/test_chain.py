@@ -69,6 +69,17 @@ class _FakeProvider:
         self.closed = True
 
 
+class _ScopedFakeProvider(_FakeProvider):
+    def __init__(self, name: str, behaviour: Any, *, supported: bool) -> None:
+        super().__init__(name, behaviour)
+        self._supported = supported
+        self.support_checks: list[str] = []
+
+    def supports_url(self, url: str) -> bool:
+        self.support_checks.append(url)
+        return self._supported
+
+
 def _ok_result(text: str = "Article body that is plenty long.") -> FirecrawlResult:
     return FirecrawlResult(
         status=CallStatus.OK,
@@ -146,6 +157,21 @@ async def test_chain_falls_through_on_error_status() -> None:
 
     assert result.status == CallStatus.OK
     assert len(bad.calls) == 1 and len(good.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_chain_skips_url_scoped_providers_that_do_not_support_url() -> None:
+    scoped = _ScopedFakeProvider("reddit", _ok_result("wrong provider"), supported=False)
+    generic = _FakeProvider("scrapling", _ok_result("generic content"))
+
+    chain = ContentScraperChain(providers=[scoped, generic])
+    result = await chain.scrape_markdown("https://example.com/not-reddit")
+
+    assert result.status == CallStatus.OK
+    assert result.content_markdown == "generic content"
+    assert scoped.support_checks == ["https://example.com/not-reddit"]
+    assert scoped.calls == []
+    assert len(generic.calls) == 1
 
 
 @pytest.mark.asyncio

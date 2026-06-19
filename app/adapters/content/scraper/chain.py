@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -78,7 +79,9 @@ _ERROR_PAGE_MAX_LENGTH = 1500
 # scrapegraph_ai does NOT set requires_browser and runs as a pure HTTP/LLM
 # provider, so it belongs in the browser tier only for tiering/racing but not
 # for the BROWSER_PROVIDERS JS-heavy-reorder set.
-_FREE_TIER_PROVIDERS = frozenset({"scrapling", "defuddle", "direct_html", "crawl4ai"})
+_FREE_TIER_PROVIDERS = frozenset(
+    {"reddit", "hn", "scrapling", "defuddle", "direct_html", "crawl4ai"}
+)
 _PAID_TIER_PROVIDERS = frozenset({"firecrawl"})
 _BROWSER_TIER_PROVIDERS = frozenset({"playwright", "crawlee", "cloakbrowser", "scrapegraph_ai"})
 _PDF_PROVIDERS = frozenset({"direct_pdf"})
@@ -140,6 +143,28 @@ class ContentScraperChain:
                 },
             )
         return browser + non_browser
+
+    @staticmethod
+    def _filter_supported_providers(
+        providers: list[ContentScraperProtocol], url: str
+    ) -> list[ContentScraperProtocol]:
+        """Skip URL-scoped providers for URLs they do not support."""
+        filtered: list[ContentScraperProtocol] = []
+        for provider in providers:
+            supports_url = getattr(provider, "supports_url", None)
+            if supports_url is None:
+                filtered.append(provider)
+                continue
+            supported = supports_url(url)
+            if inspect.isawaitable(supported):
+                close = getattr(supported, "close", None)
+                if close is not None:
+                    close()
+                filtered.append(provider)
+                continue
+            if supported:
+                filtered.append(provider)
+        return filtered
 
     def _grouped_tiers(
         self, providers: list[ContentScraperProtocol]
@@ -257,7 +282,7 @@ class ContentScraperChain:
             )
             return self._attach_attempt_telemetry(blocked_result, recorder)
 
-        effective = self._effective_providers(url)
+        effective = self._filter_supported_providers(self._effective_providers(url), url)
         errors: list[str] = []
 
         with _tracer.start_as_current_span(
