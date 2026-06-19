@@ -34,7 +34,7 @@ from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger
 from app.core.url_utils import extract_domain
-from app.security.ssrf import is_url_safe
+from app.security.ssrf import is_url_safe_async
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -124,7 +124,7 @@ class CloakBrowserProvider:
     ) -> FirecrawlResult:
         started = time.perf_counter()
 
-        safe, reason = is_url_safe(url)
+        safe, reason = await is_url_safe_async(url)
         if not safe:
             latency = int((time.perf_counter() - started) * 1000)
             logger.warning(
@@ -320,7 +320,9 @@ class CloakBrowserProvider:
 
                     async def _block_ssrf_route(route: Any) -> None:
                         req_url: str = route.request.url
-                        ok, why = is_url_safe(req_url)
+                        # Playwright route callbacks are async, so we can await
+                        # is_url_safe_async to keep DNS off the event loop.
+                        ok, why = await is_url_safe_async(req_url)
                         if not ok:
                             logger.warning(
                                 "cloakbrowser_ssrf_blocked_subrequest",
