@@ -9,6 +9,7 @@ All targeted columns are already nullable=True; no migration is needed.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -286,10 +287,20 @@ async def _purge_video_transcript(db: Database, now: dt.datetime, days: int, bat
 
 
 async def _purge_downloaded_media(db: Database, now: dt.datetime, days: int, batch: int) -> int:
-    """Delete downloaded video/media artifact files and NULL their path columns."""
+    """Delete downloaded video/media artifact files and NULL their path columns.
+
+    Three-phase approach to avoid blocking the event loop while holding an open
+    DB transaction:
+      1. Read the candidate rows (read-only query, no transaction held open long).
+      2. Delete files via asyncio.to_thread outside any transaction.
+      3. NULL the path columns in a separate, short transaction for rows whose
+         files were fully removed.
+    """
     if days == 0:
         return 0
     cutoff = _cutoff(now, days)
+
+    # Phase 1: collect candidate rows (no transaction needed for a SELECT).
     async with db.transaction() as session:
         rows = (
             await session.execute(
@@ -314,19 +325,31 @@ async def _purge_downloaded_media(db: Database, now: dt.datetime, days: int, bat
             )
         ).all()
 
-        purge_ids: list[int] = []
-        for row in rows:
-            paths = (
+    if not rows:
+        return 0
+
+    # Phase 2: delete files outside any DB transaction so that blocking I/O
+    # does not hold a connection open.  asyncio.to_thread offloads the
+    # synchronous Path.unlink calls to the default thread-pool executor.
+    row_paths: list[tuple[int, tuple[str | None, ...]]] = [
+        (
+            int(row.id),
+            (
                 row.video_file_path,
                 row.subtitle_file_path,
                 row.metadata_file_path,
                 row.thumbnail_file_path,
-            )
-            if _delete_media_paths(paths):
-                purge_ids.append(int(row.id))
+            ),
+        )
+        for row in rows
+    ]
+    purge_ids: list[int] = await asyncio.to_thread(_delete_media_paths_sync, row_paths)
 
-        if not purge_ids:
-            return 0
+    if not purge_ids:
+        return 0
+
+    # Phase 3: NULL the path columns for successfully-deleted rows.
+    async with db.transaction() as session:
         result = await session.execute(
             update(VideoDownload)
             .where(VideoDownload.id.in_(purge_ids))
@@ -341,7 +364,23 @@ async def _purge_downloaded_media(db: Database, now: dt.datetime, days: int, bat
         return result.rowcount or 0  # type: ignore[attr-defined]
 
 
-def _delete_media_paths(paths: tuple[str | None, ...]) -> bool:
+def _delete_media_paths_sync(
+    row_paths: list[tuple[int, tuple[str | None, ...]]],
+) -> list[int]:
+    """Synchronous helper: delete files for each row and return IDs of fully-deleted rows.
+
+    Intended to be called via asyncio.to_thread so that blocking filesystem
+    operations do not stall the event loop.
+    """
+    purge_ids: list[int] = []
+    for row_id, paths in row_paths:
+        if _delete_paths(paths):
+            purge_ids.append(row_id)
+    return purge_ids
+
+
+def _delete_paths(paths: tuple[str | None, ...]) -> bool:
+    """Attempt to unlink each path; return True when all paths were removed (or absent)."""
     deleted_or_missing = True
     for path_value in paths:
         if not path_value:
