@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING, Any
 from app.api.exceptions import ValidationError
 from app.api.models.digest import TriggerDigestResponse
 from app.api.services._digest_api_shared import logger, require_enabled
+from app.adapters.content.streaming.operation_streams import (
+    digest_run_topic,
+    publish_operation_event,
+)
 from app.core.channel_utils import parse_channel_input
 from app.infrastructure.persistence.digest_store import DigestStore
 
@@ -78,6 +82,12 @@ class DigestTriggerService:
             )
         except Exception:
             logger.exception("digest_api_job_failed", extra={"uid": user_id, "cid": correlation_id})
+            publish_operation_event(
+                topic=digest_run_topic(correlation_id),
+                kind="error",
+                correlation_id=correlation_id,
+                payload={"phase": "failed", "message": "digest job failed"},
+            )
 
     async def execute_channel_digest_trigger(
         self,
@@ -109,6 +119,16 @@ class DigestTriggerService:
             logger.exception(
                 "channel_digest_api_job_failed",
                 extra={"uid": user_id, "channel": channel_username, "cid": correlation_id},
+            )
+            publish_operation_event(
+                topic=digest_run_topic(correlation_id),
+                kind="error",
+                correlation_id=correlation_id,
+                payload={
+                    "phase": "failed",
+                    "channel": channel_username,
+                    "message": "digest job failed",
+                },
             )
 
     async def run_digest_task(

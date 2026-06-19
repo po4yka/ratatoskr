@@ -9,6 +9,7 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, Path, Query
+from sse_starlette.sse import EventSourceResponse
 
 from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     AssignCategoryRequest,
@@ -23,6 +24,11 @@ from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     UpdatePreferenceRequest,
 )
 from app.api.models.responses import success_response
+from app.adapters.content.streaming.operation_streams import digest_run_topic
+from app.api.routers.operation_streams import (
+    DIGEST_RUN_STREAM_RESPONSES,
+    event_source_for_operation_topic,
+)
 from app.api.routers.auth.dependencies import get_webapp_user
 from app.api.services.auth_service import AuthService
 from app.api.services.digest_facade import DigestFacade, get_digest_facade
@@ -219,6 +225,19 @@ async def trigger_digest(
     await AuthService.require_owner(user)  # type: ignore[arg-type]
     data = await asyncio.to_thread(digest_facade.trigger_digest, user["user_id"])
     return success_response(data)
+
+
+@router.get(
+    "/runs/{run_id}/stream",
+    response_class=EventSourceResponse,
+    responses=DIGEST_RUN_STREAM_RESPONSES,
+)
+async def stream_digest_run(
+    run_id: str,
+    _user: dict[str, Any] = Depends(get_webapp_user),
+) -> EventSourceResponse:
+    """Stream progress for an on-demand digest run."""
+    return event_source_for_operation_topic(digest_run_topic(run_id))
 
 
 @router.post("/trigger-channel")

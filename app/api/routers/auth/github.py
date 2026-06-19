@@ -88,9 +88,7 @@ def _raise_for_github_response(response: httpx.Response) -> None:
     if response.status_code == 429:
         retry_after_header = response.headers.get("Retry-After")
         retry_after = (
-            int(retry_after_header)
-            if retry_after_header and retry_after_header.isdigit()
-            else None
+            int(retry_after_header) if retry_after_header and retry_after_header.isdigit() else None
         )
         raise GitHubAuthAPIException(
             code=ErrorCode.GITHUB_OAUTH_RATE_LIMITED,
@@ -182,6 +180,7 @@ class GitHubStatusResponse(BaseModel):
 
 class GitHubSyncResponse(BaseModel):
     status: Literal["queued"]
+    sync_id: str = Field(serialization_alias="syncId")
 
 
 class DeviceFlowStartResponse(BaseModel):
@@ -265,10 +264,11 @@ async def trigger_sync(
     status = await use_case.get_status(user["user_id"])
     if not status.is_connected:
         raise _github_token_invalid("GitHub integration not found", status_code=404)
-    task = asyncio.create_task(_run_user_sync(user["user_id"]))
+    sync_id = f"github-sync-manual-{uuid.uuid4()}"
+    task = asyncio.create_task(_run_user_sync(user["user_id"], sync_id=sync_id))
     _BACKGROUND_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_TASKS.discard)
-    return GitHubSyncResponse(status="queued")
+    return GitHubSyncResponse(status="queued", sync_id=sync_id)
 
 
 @router.delete("", status_code=204)
@@ -344,12 +344,16 @@ async def device_flow_start(
     )
 
 
-async def _run_user_sync(user_id: int) -> None:
+async def _run_user_sync(user_id: int, *, sync_id: str) -> None:
     from sqlalchemy import select
 
     from app.api.dependencies.database import get_session_manager
     from app.config.settings import load_config
     from app.db.models.repository import GitHubIntegrationStatus, UserGitHubIntegration
+    from app.adapters.content.streaming.operation_streams import (
+        github_sync_topic,
+        publish_operation_event,
+    )
     from app.tasks.github_sync import _sync_all
 
     cfg = load_config(allow_stub_telegram=True)
@@ -362,13 +366,19 @@ async def _run_user_sync(user_id: int) -> None:
             )
         )
     if integration is None:
+        publish_operation_event(
+            topic=github_sync_topic(sync_id),
+            kind="error",
+            correlation_id=sync_id,
+            payload={"phase": "loading_integration", "message": "GitHub integration not found"},
+        )
         return
     await _sync_all(
         [integration],
         cfg=cfg,
         db=db,
         bot=None,
-        correlation_id=f"github-sync-manual-{uuid.uuid4()}",
+        correlation_id=sync_id,
     )
 
 

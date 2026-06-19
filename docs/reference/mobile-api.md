@@ -185,6 +185,14 @@ Current sync uses explicit sessions and chunked/full + delta + apply endpoints:
 
 Backend toggle: `URL_FLOW_STREAMING_ENABLED` (default `true`).
 
+Operational streams use the same SSE framing and heartbeat behavior, but publish long-running job progress by operation ID. The `data:` field is always a JSON object with `kind`, `payload`, `timestamp`, and `correlation_id`. Terminal `done` and `error` events close the stream. Reconnects replay at most one retained event for the operation topic.
+
+- `GET /v1/digest/runs/{run_id}/stream` uses Telegram Mini App auth and emits `phase`, `channel_processed`, `posts_analyzed`, `delivered`, `done`, and `error`.
+- `GET /v1/github/syncs/{sync_id}/stream` uses bearer JWT auth and emits `phase`, `repos_fetched`, `repos_analyzed`, `done`, and `error`. `POST /v1/auth/github/sync` returns the `syncId` used by this stream.
+- `GET /v1/vector-reconciler/runs/{run_id}/stream` uses bearer JWT auth and emits `phase`, `rows_scanned`, `rows_requeued`, `done`, and `error`.
+
+Operational stream payloads are intentionally additive. Digest payloads report phases plus channel/post/delivery counters; GitHub sync payloads report fetched repository counts and LLM-analysis counts; vector reconciler payloads report scanned/requeued rows and terminal totals.
+
 ## Search and Discovery Parameters
 
 `GET /v1/search` supports:
@@ -778,6 +786,8 @@ Response:
 - `POST /v1/auth/github/device/start` -- begin Device Flow
 - `POST /v1/auth/github/device/poll` -- poll Device Flow status
 - `GET /v1/auth/github/status` -- connection status + repo_count
+- `POST /v1/auth/github/sync` -- queue manual sync and return `syncId`
+- `GET /v1/github/syncs/{sync_id}/stream` -- SSE progress for the returned `syncId`
 - `DELETE /v1/auth/github` -- revoke integration (204)
 
 ### Search and Topics
@@ -849,6 +859,7 @@ Obsidian usage example: rotate a token from an authenticated API session, then p
 - `GET /v1/digest/history`
 - `POST /v1/digest/trigger`
 - `POST /v1/digest/trigger-channel`
+- `GET /v1/digest/runs/{run_id}/stream`
 
 ### System Maintenance
 

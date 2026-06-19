@@ -30,6 +30,10 @@ from app.db.models.repository import (
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
+from app.adapters.content.streaming.operation_streams import (
+    github_sync_topic,
+    publish_operation_event,
+)
 from app.observability.metrics_repositories import (
     GITHUB_PENDING_ANALYSIS_BACKLOG,
     GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL,
@@ -167,6 +171,12 @@ async def _sync_all(
     if correlation_id is None:
         correlation_id = f"github-sync-{uuid4()}"
 
+    _publish_github_sync_event(
+        correlation_id,
+        "phase",
+        {"phase": "starting", "integrations": len(integrations)},
+    )
+
     total_imported = 0
     total_updated = 0
     total_unstarred = 0
@@ -204,6 +214,26 @@ async def _sync_all(
             total_unstarred += unstarred
             total_llm_made += llm_made
             total_llm_deferred += llm_deferred
+            _publish_github_sync_event(
+                correlation_id,
+                "repos_fetched",
+                {
+                    "user_id": integration.user_id,
+                    "repos_imported": imported,
+                    "repos_updated": updated,
+                    "repos_unstarred": unstarred,
+                    "users_processed": users_processed,
+                },
+            )
+            _publish_github_sync_event(
+                correlation_id,
+                "repos_analyzed",
+                {
+                    "user_id": integration.user_id,
+                    "llm_calls_made": llm_made,
+                    "llm_calls_deferred": llm_deferred,
+                },
+            )
             if GITHUB_SYNC_RATE_LIMIT_STREAK is not None and not dry_run:
                 GITHUB_SYNC_RATE_LIMIT_STREAK.labels(user_id=str(integration.user_id)).set(0)
 
@@ -213,6 +243,11 @@ async def _sync_all(
                 extra={"cid": correlation_id, "user_id": integration.user_id, "error": str(exc)},
             )
             errors_per_user[integration.user_id] = str(exc)
+            _publish_github_sync_event(
+                correlation_id,
+                "phase",
+                {"user_id": integration.user_id, "phase": "auth", "message": str(exc)},
+            )
             async with db.transaction() as session:
                 row = await session.get(UserGitHubIntegration, integration.id)
                 if row is not None:
@@ -240,6 +275,15 @@ async def _sync_all(
                 },
             )
             errors_per_user[integration.user_id] = f"rate_limit reset={exc.reset_epoch}"
+            _publish_github_sync_event(
+                correlation_id,
+                "phase",
+                {
+                    "user_id": integration.user_id,
+                    "phase": "fetching",
+                    "message": f"rate_limit reset={exc.reset_epoch}",
+                },
+            )
             rate_limited_users.add(integration.user_id)
             rate_limit_streak = await _record_github_sync_error(
                 db,
@@ -263,6 +307,11 @@ async def _sync_all(
                 extra={"cid": correlation_id, "user_id": integration.user_id, "error": str(exc)},
             )
             errors_per_user[integration.user_id] = str(exc)
+            _publish_github_sync_event(
+                correlation_id,
+                "phase",
+                {"user_id": integration.user_id, "phase": "syncing", "message": str(exc)},
+            )
             await _record_github_sync_error(
                 db,
                 integration_id=integration.id,
@@ -291,6 +340,19 @@ async def _sync_all(
             "llm_calls_made": total_llm_made,
             "llm_calls_deferred": total_llm_deferred,
             "errors": len(errors_per_user),
+        },
+    )
+    _publish_github_sync_event(
+        correlation_id,
+        "done" if not errors_per_user else "error",
+        {
+            "users_processed": users_processed,
+            "repos_imported": total_imported,
+            "repos_updated": total_updated,
+            "repos_unstarred": total_unstarred,
+            "llm_calls_made": total_llm_made,
+            "llm_calls_deferred": total_llm_deferred,
+            "errors": errors_per_user,
         },
     )
 
@@ -333,6 +395,19 @@ async def _sync_all(
             )
 
     return summary
+
+
+def _publish_github_sync_event(
+    correlation_id: str,
+    kind: str,
+    payload: dict[str, Any],
+) -> None:
+    publish_operation_event(
+        topic=github_sync_topic(correlation_id),
+        kind=kind,
+        correlation_id=correlation_id,
+        payload=payload,
+    )
 
 
 async def _sync_one_integration(
@@ -657,8 +732,7 @@ def _repository_watch_events_for_state(
         watch_readme
         and current_readme_sha256 is not None
         and previous_readme_sha256 is not None
-        and current_readme_sha256
-        not in {previous_readme_sha256, last_notified_readme_sha256}
+        and current_readme_sha256 not in {previous_readme_sha256, last_notified_readme_sha256}
     ):
         events.append(
             RepositoryWatchTriggered(

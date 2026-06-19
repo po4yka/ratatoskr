@@ -8,6 +8,10 @@ from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
+from app.adapters.content.streaming.operation_streams import (
+    digest_run_topic,
+    publish_operation_event,
+)
 from app.infrastructure.persistence.digest_store import DigestStore
 from app.observability.metrics_digest import (
     record_digest_delivery,
@@ -83,11 +87,13 @@ class DigestService:
         started_at = time.monotonic()
 
         # 1. Fetch posts
+        _publish_digest_event(correlation_id, "phase", {"phase": "fetching"})
         try:
             posts = await self._reader.fetch_posts_for_user(user_id)
         except Exception as e:
             logger.exception("digest_fetch_failed", extra={"cid": correlation_id, "uid": user_id})
             result.errors.append(f"Fetch failed: {e}")
+            _publish_digest_event(correlation_id, "error", {"phase": "fetching", "message": str(e)})
             _record_digest_outcome(result, "failed", started_at)
             return result
 
@@ -103,6 +109,16 @@ class DigestService:
                 result.messages_sent = 1
             except Exception as e:
                 result.errors.append(f"Send failed: {e}")
+            _publish_digest_event(
+                correlation_id,
+                "delivered",
+                {"messages_sent": result.messages_sent, "status": "empty"},
+            )
+            _publish_digest_event(
+                correlation_id,
+                "done" if not result.errors else "error",
+                _digest_terminal_payload(result),
+            )
             _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
 
@@ -135,6 +151,11 @@ class DigestService:
         started_at = time.monotonic()
 
         # 1. Fetch unread posts from the single channel
+        _publish_digest_event(
+            correlation_id,
+            "phase",
+            {"phase": "fetching", "channel": getattr(channel, "username", None)},
+        )
         try:
             posts = await self._reader.fetch_posts_for_channel(channel, user_id)
         except Exception as e:
@@ -143,6 +164,7 @@ class DigestService:
                 extra={"cid": correlation_id, "uid": user_id, "channel": channel.username},
             )
             result.errors.append(f"Fetch failed: {e}")
+            _publish_digest_event(correlation_id, "error", {"phase": "fetching", "message": str(e)})
             _record_digest_outcome(result, "failed", started_at)
             return result
 
@@ -161,6 +183,16 @@ class DigestService:
                 result.messages_sent = 1
             except Exception as e:
                 result.errors.append(f"Send failed: {e}")
+            _publish_digest_event(
+                correlation_id,
+                "delivered",
+                {"messages_sent": result.messages_sent, "status": "empty"},
+            )
+            _publish_digest_event(
+                correlation_id,
+                "done" if not result.errors else "error",
+                _digest_terminal_payload(result),
+            )
             _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
 
@@ -180,21 +212,45 @@ class DigestService:
         user_id = result.user_id
 
         # 2. Analyze posts
+        _publish_digest_event(
+            correlation_id,
+            "channel_processed",
+            {"channels": _channel_count(posts), "posts": len(posts)},
+        )
+        _publish_digest_event(correlation_id, "phase", {"phase": "analyzing", "posts": len(posts)})
         try:
             analyzed = await self._analyzer.analyze_posts(posts, correlation_id, lang)
         except Exception as e:
             logger.exception("digest_analysis_failed", extra={"cid": correlation_id})
             result.errors.append(f"Analysis failed: {e}")
             record_digest_posts_analyzed("llm_error", count=len(posts))
+            _publish_digest_event(
+                correlation_id, "error", {"phase": "analyzing", "message": str(e)}
+            )
             _record_digest_outcome(result, "failed", started_at)
             return result
 
         if not analyzed:
             record_digest_posts_analyzed("skipped", count=len(posts))
+            _publish_digest_event(
+                correlation_id,
+                "posts_analyzed",
+                {"input_posts": len(posts), "kept_posts": 0, "status": "empty"},
+            )
             await self._send_info_message_or_record_error(
                 user_id,
                 "\u041f\u043e\u0441\u0442\u044b \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u044b, \u043d\u043e \u0430\u043d\u0430\u043b\u0438\u0437 \u043d\u0435 \u0434\u0430\u043b \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432.",
                 result,
+            )
+            _publish_digest_event(
+                correlation_id,
+                "delivered",
+                {"messages_sent": result.messages_sent, "status": "empty"},
+            )
+            _publish_digest_event(
+                correlation_id,
+                "done" if not result.errors else "error",
+                _digest_terminal_payload(result),
             )
             _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
@@ -219,10 +275,25 @@ class DigestService:
             record_digest_posts_analyzed("skipped", count=filtered_count)
 
         if not analyzed:
+            _publish_digest_event(
+                correlation_id,
+                "posts_analyzed",
+                {"input_posts": len(posts), "kept_posts": 0, "status": "filtered"},
+            )
             await self._send_info_message_or_record_error(
                 user_id,
                 "\u0412\u0441\u0435 \u043f\u043e\u0441\u0442\u044b \u043e\u0442\u0444\u0438\u043b\u044c\u0442\u0440\u043e\u0432\u0430\u043d\u044b (\u0440\u0435\u043a\u043b\u0430\u043c\u0430/\u0430\u043d\u043e\u043d\u0441\u044b). \u041d\u0435\u0447\u0435\u0433\u043e \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c.",
                 result,
+            )
+            _publish_digest_event(
+                correlation_id,
+                "delivered",
+                {"messages_sent": result.messages_sent, "status": "empty"},
+            )
+            _publish_digest_event(
+                correlation_id,
+                "done" if not result.errors else "error",
+                _digest_terminal_payload(result),
             )
             _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
@@ -255,17 +326,38 @@ class DigestService:
             record_digest_posts_analyzed("skipped", count=rel_dropped)
 
         if not analyzed:
+            _publish_digest_event(
+                correlation_id,
+                "posts_analyzed",
+                {"input_posts": len(posts), "kept_posts": 0, "status": "filtered"},
+            )
             await self._send_info_message_or_record_error(
                 user_id,
                 "\u0412\u0441\u0435 \u043f\u043e\u0441\u0442\u044b \u043e\u0442\u0444\u0438\u043b\u044c\u0442\u0440\u043e\u0432\u0430\u043d\u044b (\u0440\u0435\u043a\u043b\u0430\u043c\u0430, \u0434\u0443\u0431\u043b\u0438 \u0438\u043b\u0438 \u043d\u0438\u0437\u043a\u0430\u044f \u0440\u0435\u043b\u0435\u0432\u0430\u043d\u0442\u043d\u043e\u0441\u0442\u044c).",
                 result,
             )
+            _publish_digest_event(
+                correlation_id,
+                "delivered",
+                {"messages_sent": result.messages_sent, "status": "empty"},
+            )
+            _publish_digest_event(
+                correlation_id,
+                "done" if not result.errors else "error",
+                _digest_terminal_payload(result),
+            )
             _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
 
         record_digest_posts_analyzed("ok", count=len(analyzed))
+        _publish_digest_event(
+            correlation_id,
+            "posts_analyzed",
+            {"input_posts": len(posts), "kept_posts": len(analyzed), "status": "ok"},
+        )
 
         # 3. Format digest
+        _publish_digest_event(correlation_id, "phase", {"phase": "formatting"})
         message_chunks = self._formatter.format_digest(analyzed)
 
         # Count unique channels
@@ -274,6 +366,11 @@ class DigestService:
         result.channel_count = len(channels_seen)
 
         # 4. Deliver via preferred sink
+        _publish_digest_event(
+            correlation_id,
+            "phase",
+            {"phase": "delivering", "chunks": len(message_chunks)},
+        )
         try:
             result.messages_sent = await self._deliver_digest_messages(
                 user_id=user_id,
@@ -290,6 +387,16 @@ class DigestService:
                 exc_info=True,
             )
             result.errors.append(f"Send failed: {e}")
+
+        _publish_digest_event(
+            correlation_id,
+            "delivered",
+            {
+                "messages_sent": result.messages_sent,
+                "post_count": result.post_count,
+                "channel_count": result.channel_count,
+            },
+        )
 
         # 5. Persist delivery record
         post_ids = [p.get("message_id") for p in analyzed]
@@ -326,6 +433,11 @@ class DigestService:
             },
         )
         status = "sent" if result.messages_sent > 0 and not result.errors else "failed"
+        _publish_digest_event(
+            correlation_id,
+            "done" if status == "sent" else "error",
+            _digest_terminal_payload(result),
+        )
         _record_digest_outcome(result, status, started_at)
         return result
 
@@ -500,6 +612,28 @@ def _record_digest_outcome(result: DigestResult, status: str, started_at: float)
         status=status,
         duration_seconds=time.monotonic() - started_at,
     )
+
+
+def _publish_digest_event(correlation_id: str, kind: str, payload: dict[str, Any]) -> None:
+    publish_operation_event(
+        topic=digest_run_topic(correlation_id),
+        kind=kind,
+        correlation_id=correlation_id,
+        payload=payload,
+    )
+
+
+def _digest_terminal_payload(result: DigestResult) -> dict[str, Any]:
+    return {
+        "post_count": result.post_count,
+        "channel_count": result.channel_count,
+        "messages_sent": result.messages_sent,
+        "errors": result.errors,
+    }
+
+
+def _channel_count(posts: list[dict[str, Any]]) -> int:
+    return len({post.get("_channel_username") for post in posts if post.get("_channel_username")})
 
 
 def _build_inline_keyboard(

@@ -48,6 +48,7 @@ from app.api.routers import (
     import_export,
     meta,
     notifications,
+    operation_streams,
     proxy,
     quick_save,
     repositories,
@@ -297,6 +298,7 @@ app.include_router(rules.router, prefix="/v1/rules", tags=["Rules"])
 app.include_router(import_export.router, prefix="/v1", tags=["Import/Export"])
 app.include_router(meta.router, prefix="/v1", tags=["Meta"])
 app.include_router(quick_save.router, prefix="/v1", tags=["Quick Save"])
+app.include_router(operation_streams.router, prefix="/v1", tags=["Operation Streams"])
 app.include_router(highlights.router, prefix="/v1/summaries", tags=["Highlights"])
 app.include_router(highlights.router, prefix="/v1/articles", tags=["Article Highlights"])
 app.include_router(tts.router, prefix="/v1/summaries", tags=["TTS"])

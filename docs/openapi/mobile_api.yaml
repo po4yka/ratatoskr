@@ -6396,6 +6396,41 @@ paths:
           $ref: '#/components/responses/ValidationError'
       security:
       - HTTPBearer: []
+  /v1/digest/runs/{run_id}/stream:
+    get:
+      tags:
+      - Digest
+      summary: Stream Digest Run
+      description: Stream progress for an on-demand digest run.
+      operationId: stream_digest_run_v1_digest_runs__run_id__stream_get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: 'Digest run progress stream. Events: phase, channel_processed, posts_analyzed, delivered, done, error.'
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream. Each event data field is JSON with kind, payload, timestamp, and correlation_id
+                  fields.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
   /v1/digest/trigger-channel:
     post:
       tags:
@@ -8514,6 +8549,76 @@ paths:
           $ref: '#/components/responses/InternalServerError'
       security:
       - HTTPBearer: []
+  /v1/github/syncs/{sync_id}/stream:
+    get:
+      tags:
+      - Operation Streams
+      summary: Stream Github Sync
+      description: Stream progress for a manual GitHub sync run.
+      operationId: stream_github_sync_v1_github_syncs__sync_id__stream_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: sync_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sync Id
+      responses:
+        '200':
+          description: 'GitHub sync progress stream. Events: phase, repos_fetched, repos_analyzed, done, error.'
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream. Each event data field is JSON with kind, payload, timestamp, and correlation_id
+                  fields.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/vector-reconciler/runs/{run_id}/stream:
+    get:
+      tags:
+      - Operation Streams
+      summary: Stream Vector Reconcile
+      description: Stream progress for a vector-reconciler run.
+      operationId: stream_vector_reconcile_v1_vector_reconciler_runs__run_id__stream_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: 'Vector reconciler progress stream. Events: phase, rows_scanned, rows_requeued, done, error.'
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream. Each event data field is JSON with kind, payload, timestamp, and correlation_id
+                  fields.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/summaries/{summary_id}/highlights:
     get:
       tags:
@@ -11616,9 +11721,13 @@ components:
           type: string
           const: queued
           title: Status
+        syncId:
+          type: string
+          title: Syncid
       type: object
       required:
       - status
+      - syncId
       title: GitHubSyncResponse
     GitMirrorCompact:
       properties:

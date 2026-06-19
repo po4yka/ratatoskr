@@ -30,6 +30,10 @@ from app.infrastructure.vector.summary_point import (
     coerce_summary_payload,
     extract_indexable_text,
 )
+from app.adapters.content.streaming.operation_streams import (
+    publish_operation_event,
+    vector_reconcile_topic,
+)
 from app.observability.metrics import (
     compute_vector_reconcile_oldest_lag_seconds,
     record_vector_reconcile_rows,
@@ -63,6 +67,7 @@ async def reconcile_vector_index(
     db: Database = TaskiqDepends(get_db),
 ) -> ReconcileSummary:
     """Re-embed summaries whose embedding row is stale relative to the source."""
+    correlation_id = f"vector-reconcile-{uuid4()}"
     try:
         redis_client = await get_redis(cfg)
         async with RedisDistributedLock(
@@ -75,24 +80,51 @@ async def reconcile_vector_index(
                 )
                 summary = ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
                 _record_reconcile_metrics(summary, oldest_lag_seconds=0.0, run_status="success")
+                _publish_vector_reconcile_event(
+                    correlation_id,
+                    "done",
+                    {**_vector_terminal_payload(summary), "status": "lock_held"},
+                )
                 return summary
-            return await _reconcile_body(cfg, db)
-    except Exception:
+            return await _reconcile_body(cfg, db, correlation_id=correlation_id)
+    except Exception as exc:
+        _publish_vector_reconcile_event(
+            correlation_id,
+            "error",
+            {"phase": "failed", "message": str(exc)},
+        )
         record_vector_reconcile_run(status="error")
         raise
 
 
-async def _reconcile_body(cfg: AppConfig, db: Database) -> ReconcileSummary:
-    correlation_id = f"vector-reconcile-{uuid4()}"
+async def _reconcile_body(
+    cfg: AppConfig,
+    db: Database,
+    *,
+    correlation_id: str | None = None,
+) -> ReconcileSummary:
+    correlation_id = correlation_id or f"vector-reconcile-{uuid4()}"
+    _publish_vector_reconcile_event(
+        correlation_id,
+        "phase",
+        {"phase": "starting", "batch_size": cfg.vector_reconcile.batch_size},
+    )
     if not cfg.vector_reconcile.enabled:
         logger.info("vector_reconcile_disabled", extra={"cid": correlation_id})
         summary = ReconcileSummary(scanned=0, requeued=0, skipped=0, failed=0)
         _record_reconcile_metrics(summary, oldest_lag_seconds=0.0, run_status="success")
+        _publish_vector_reconcile_event(correlation_id, "done", _vector_terminal_payload(summary))
         return summary
 
     batch_size = cfg.vector_reconcile.batch_size
+    _publish_vector_reconcile_event(correlation_id, "phase", {"phase": "scanning"})
     rows = await _fetch_stale_summaries(db, limit=batch_size)
     oldest_lag_seconds = compute_vector_reconcile_oldest_lag_seconds(rows)
+    _publish_vector_reconcile_event(
+        correlation_id,
+        "rows_scanned",
+        {"rows_scanned": len(rows), "oldest_lag_seconds": oldest_lag_seconds},
+    )
     if not rows:
         logger.info(
             "vector_reconcile_nothing_to_do",
@@ -104,8 +136,14 @@ async def _reconcile_body(cfg: AppConfig, db: Database) -> ReconcileSummary:
             oldest_lag_seconds=oldest_lag_seconds,
             run_status="success",
         )
+        _publish_vector_reconcile_event(correlation_id, "done", _vector_terminal_payload(summary))
         return summary
 
+    _publish_vector_reconcile_event(
+        correlation_id,
+        "phase",
+        {"phase": "embedding", "rows": len(rows)},
+    )
     runtime = _build_runtime(cfg, db)
     generator = runtime.embedding_generator
 
@@ -117,6 +155,11 @@ async def _reconcile_body(cfg: AppConfig, db: Database) -> ReconcileSummary:
         force=True,
     )
     indexed_vectors = await _sync_summary_vectors(cfg, runtime, rows)
+    _publish_vector_reconcile_event(
+        correlation_id,
+        "rows_requeued",
+        {"rows_requeued": indexed_vectors},
+    )
 
     summary = ReconcileSummary(
         scanned=len(rows),
@@ -141,7 +184,30 @@ async def _reconcile_body(cfg: AppConfig, db: Database) -> ReconcileSummary:
         oldest_lag_seconds=oldest_lag_seconds,
         run_status="success",
     )
+    _publish_vector_reconcile_event(correlation_id, "done", _vector_terminal_payload(summary))
     return summary
+
+
+def _publish_vector_reconcile_event(
+    correlation_id: str,
+    kind: str,
+    payload: dict[str, Any],
+) -> None:
+    publish_operation_event(
+        topic=vector_reconcile_topic(correlation_id),
+        kind=kind,
+        correlation_id=correlation_id,
+        payload=payload,
+    )
+
+
+def _vector_terminal_payload(summary: ReconcileSummary) -> dict[str, int]:
+    return {
+        "scanned": summary.scanned,
+        "requeued": summary.requeued,
+        "skipped": summary.skipped,
+        "failed": summary.failed,
+    }
 
 
 async def _fetch_stale_summaries(db: Database, *, limit: int) -> list[dict[str, Any]]:
