@@ -39,7 +39,7 @@ class McpServerContext:
                 default=_NO_REQUEST_USER_SCOPE,
             )
         )
-        self._api_runtime_lock: asyncio.Lock | None = None
+        self._api_runtime_lock: asyncio.Lock = asyncio.Lock()
         self._vector_retry_interval_sec = (
             vector_retry_interval_sec
             if vector_retry_interval_sec is not None
@@ -201,8 +201,6 @@ class McpServerContext:
             database_dsn is None or database_dsn == self.database_dsn
         ):
             return self._api_runtime
-        if self._api_runtime_lock is None:
-            self._api_runtime_lock = asyncio.Lock()
         async with self._api_runtime_lock:
             if self._api_runtime is not None and (
                 database_dsn is None or database_dsn == self.database_dsn
