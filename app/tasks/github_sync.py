@@ -34,6 +34,8 @@ from app.observability.metrics_repositories import (
     GITHUB_PENDING_ANALYSIS_BACKLOG,
     GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL,
     GITHUB_SYNC_LLM_CALLS_TOTAL,
+    GITHUB_SYNC_RATE_LIMIT_STREAK,
+    GITHUB_SYNC_RATE_LIMITED_TOTAL,
     GITHUB_SYNC_REPOS_IMPORTED_TOTAL,
     GITHUB_SYNC_REPOS_UNSTARRED_TOTAL,
     GITHUB_SYNC_REPOS_UPDATED_TOTAL,
@@ -171,6 +173,7 @@ async def _sync_all(
     total_llm_made = 0
     total_llm_deferred = 0
     errors_per_user: dict[int, str] = {}
+    rate_limited_users: set[int] = set()
     users_processed = 0
 
     for integration in integrations:
@@ -201,6 +204,8 @@ async def _sync_all(
             total_unstarred += unstarred
             total_llm_made += llm_made
             total_llm_deferred += llm_deferred
+            if GITHUB_SYNC_RATE_LIMIT_STREAK is not None and not dry_run:
+                GITHUB_SYNC_RATE_LIMIT_STREAK.labels(user_id=str(integration.user_id)).set(0)
 
         except GitHubAuthError as exc:
             logger.warning(
@@ -216,6 +221,8 @@ async def _sync_all(
                         error=str(exc),
                         failure_count=_github_failure_count(row) + 1,
                     )
+            if GITHUB_SYNC_RATE_LIMIT_STREAK is not None and not dry_run:
+                GITHUB_SYNC_RATE_LIMIT_STREAK.labels(user_id=str(integration.user_id)).set(0)
             await _notify_needs_reauth(
                 integration=integration,
                 bot=bot,
@@ -233,14 +240,22 @@ async def _sync_all(
                 },
             )
             errors_per_user[integration.user_id] = f"rate_limit reset={exc.reset_epoch}"
-            await _record_github_sync_error(
+            rate_limited_users.add(integration.user_id)
+            rate_limit_streak = await _record_github_sync_error(
                 db,
                 integration_id=integration.id,
                 error=f"rate_limit reset={exc.reset_epoch}",
                 backoff_until=datetime.fromtimestamp(exc.reset_epoch, tz=UTC)
                 if exc.reset_epoch is not None
                 else None,
+                rate_limited=True,
             )
+            if GITHUB_SYNC_RATE_LIMITED_TOTAL is not None and not dry_run:
+                GITHUB_SYNC_RATE_LIMITED_TOTAL.labels(user_id=str(integration.user_id)).inc()
+            if GITHUB_SYNC_RATE_LIMIT_STREAK is not None and not dry_run:
+                GITHUB_SYNC_RATE_LIMIT_STREAK.labels(user_id=str(integration.user_id)).set(
+                    rate_limit_streak
+                )
 
         except Exception as exc:
             logger.exception(
@@ -253,6 +268,8 @@ async def _sync_all(
                 integration_id=integration.id,
                 error=str(exc),
             )
+            if GITHUB_SYNC_RATE_LIMIT_STREAK is not None and not dry_run:
+                GITHUB_SYNC_RATE_LIMIT_STREAK.labels(user_id=str(integration.user_id)).set(0)
 
     summary = SyncSummary(
         users_processed=users_processed,
@@ -292,6 +309,8 @@ async def _sync_all(
     if GITHUB_SYNC_RUNS_TOTAL is not None:
         if not errors_per_user:
             run_status = "ok"
+        elif rate_limited_users and rate_limited_users == set(errors_per_user):
+            run_status = "ratelimited"
         elif len(errors_per_user) < users_processed:
             run_status = "partial"
         else:
@@ -754,20 +773,35 @@ async def _record_github_sync_error(
     integration_id: int,
     error: str,
     backoff_until: datetime | None = None,
-) -> None:
+    rate_limited: bool = False,
+) -> int:
     async with db.transaction() as session:
         row = await session.get(UserGitHubIntegration, integration_id)
         if row is None:
-            return
+            return 0
+        failure_count = (
+            _github_rate_limit_streak(row) + 1 if rate_limited else _github_failure_count(row) + 1
+        )
         row.last_sync_cursor = _github_sync_error_payload(
             error=error,
-            failure_count=_github_failure_count(row) + 1,
+            failure_count=failure_count,
             backoff_until=backoff_until,
         )
+        return failure_count
 
 
 def _github_failure_count(integration: UserGitHubIntegration) -> int:
     state = _github_sync_state(integration)
+    try:
+        return int(state.get("failure_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _github_rate_limit_streak(integration: UserGitHubIntegration) -> int:
+    state = _github_sync_state(integration)
+    if not str(state.get("last_error") or "").startswith("rate_limit"):
+        return 0
     try:
         return int(state.get("failure_count") or 0)
     except (TypeError, ValueError):

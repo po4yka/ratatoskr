@@ -170,6 +170,25 @@ async def _async_iter(items):
         yield item
 
 
+class _RecordingMetric:
+    def __init__(self) -> None:
+        self.inc_calls: list[tuple[dict[str, str], float]] = []
+        self.set_calls: list[tuple[dict[str, str], float]] = []
+
+    def labels(self, **labels: str) -> _RecordingMetric:
+        child = _RecordingMetric()
+        child.inc_calls = self.inc_calls
+        child.set_calls = self.set_calls
+        child._labels = labels
+        return child
+
+    def inc(self, amount: float = 1.0) -> None:
+        self.inc_calls.append((getattr(self, "_labels", {}), amount))
+
+    def set(self, value: float) -> None:
+        self.set_calls.append((getattr(self, "_labels", {}), value))
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -217,6 +236,63 @@ async def test_sync_disabled_does_not_query_integrations(monkeypatch):
 
     assert result.users_processed == 0
     assert result.errors_per_user == {}
+
+
+@pytest.mark.asyncio
+async def test_rate_limited_user_increments_sync_metrics(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.adapters.github.exceptions import GitHubRateLimitError
+    from app.tasks.github_sync import _sync_all
+
+    integration = _make_integration()
+    integration.last_sync_cursor = None
+
+    class _TxnSession:
+        async def get(self, model, pk):
+            return integration
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    db = MagicMock()
+    db.transaction = MagicMock(side_effect=_TxnSession)
+
+    rate_limited = _RecordingMetric()
+    streak = _RecordingMetric()
+    runs = _RecordingMetric()
+
+    with (
+        patch(
+            "app.tasks.github_sync._sync_one_integration",
+            side_effect=GitHubRateLimitError(reset_epoch=1_735_689_600),
+        ),
+        patch("app.tasks.github_sync.GITHUB_SYNC_RATE_LIMITED_TOTAL", rate_limited),
+        patch("app.tasks.github_sync.GITHUB_SYNC_RATE_LIMIT_STREAK", streak),
+        patch("app.tasks.github_sync.GITHUB_SYNC_RUNS_TOTAL", runs),
+        patch("app.tasks.github_sync.GITHUB_SYNC_REPOS_IMPORTED_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_SYNC_REPOS_UPDATED_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_SYNC_REPOS_UNSTARRED_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_SYNC_LLM_CALLS_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_PENDING_ANALYSIS_BACKLOG", None),
+    ):
+        result = await _sync_all(
+            [integration],
+            cfg=_build_cfg(),
+            db=db,
+            bot=None,
+            correlation_id="test-cid",
+        )
+
+    assert result.errors_per_user == {42: "rate_limit reset=1735689600"}
+    assert rate_limited.inc_calls == [({"user_id": "42"}, 1.0)]
+    assert streak.set_calls == [({"user_id": "42"}, 1)]
+    assert runs.inc_calls == [({"status": "ratelimited"}, 1.0)]
 
 
 @pytest.mark.asyncio

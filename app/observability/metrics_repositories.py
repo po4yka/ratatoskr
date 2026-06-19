@@ -26,7 +26,21 @@ if PROMETHEUS_AVAILABLE:
     GITHUB_SYNC_RUNS_TOTAL = Counter(
         "ratatoskr_github_sync_runs_total",
         "Number of github_stars_sync runs by status",
-        ["status"],  # "ok" | "partial" | "failed"
+        ["status"],  # "ok" | "partial" | "failed" | "ratelimited"
+        registry=REGISTRY,
+    )
+
+    GITHUB_SYNC_RATE_LIMITED_TOTAL = Counter(
+        "ratatoskr_github_sync_rate_limited_total",
+        "GitHub sync runs that hit a GitHub API rate limit by user",
+        ["user_id"],
+        registry=REGISTRY,
+    )
+
+    GITHUB_SYNC_RATE_LIMIT_STREAK = Gauge(
+        "ratatoskr_github_sync_rate_limit_streak",
+        "Consecutive GitHub sync runs rate-limited for a user",
+        ["user_id"],
         registry=REGISTRY,
     )
 
@@ -83,6 +97,8 @@ if PROMETHEUS_AVAILABLE:
 
 else:
     GITHUB_SYNC_RUNS_TOTAL = None
+    GITHUB_SYNC_RATE_LIMITED_TOTAL = None
+    GITHUB_SYNC_RATE_LIMIT_STREAK = None
     GITHUB_SYNC_REPOS_IMPORTED_TOTAL = None
     GITHUB_SYNC_REPOS_UPDATED_TOTAL = None
     GITHUB_SYNC_REPOS_UNSTARRED_TOTAL = None

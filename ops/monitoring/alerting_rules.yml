@@ -200,6 +200,33 @@ groups:
           summary: "No Firecrawl requests despite URL processing"
           description: "URL requests are being processed but no Firecrawl API calls - check circuit breaker or caching"
 
+  - name: ratatoskr_github_sync
+    rules:
+      - alert: RatatoskrGitHubSyncRateLimitedConsecutively
+        expr: ratatoskr_github_sync_rate_limit_streak > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GitHub sync rate-limited for user {{ $labels.user_id }}"
+          description: "GitHub starred-repository sync has been rate-limited for user {{ $labels.user_id }} for more than 3 consecutive runs. Check the stored PAT/OAuth token, GitHub rate-limit reset time, and sync frequency."
+
+      - alert: RatatoskrGitHubSyncLLMBudgetCapHigh
+        expr: |
+          (
+            sum(increase(ratatoskr_github_sync_llm_calls_total{trigger="deferred"}[24h]))
+            /
+            clamp_min(sum(increase(ratatoskr_github_sync_llm_calls_total{trigger="made"}[24h])), 1)
+          ) > 0.9
+          and
+          sum(increase(ratatoskr_github_sync_llm_calls_total{trigger="deferred"}[24h])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GitHub sync LLM budget cap is deferring most repository analysis"
+          description: "Deferred GitHub repository analysis calls exceeded 90% of completed calls over 24h. Increase GITHUB_LLM_DAILY_BUDGET, reduce imported repository volume, or schedule a backfill window."
+
   - name: ratatoskr_costs
     rules:
       # High OpenRouter spending

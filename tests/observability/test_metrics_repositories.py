@@ -15,6 +15,17 @@ def test_metrics_module_exports() -> None:
     assert isinstance(repo_metrics.GITHUB_SYNC_RUNS_TOTAL, Counter)
     assert repo_metrics.GITHUB_SYNC_RUNS_TOTAL._name == "ratatoskr_github_sync_runs"
 
+    assert isinstance(repo_metrics.GITHUB_SYNC_RATE_LIMITED_TOTAL, Counter)
+    assert repo_metrics.GITHUB_SYNC_RATE_LIMITED_TOTAL._name == "ratatoskr_github_sync_rate_limited"
+
+    from prometheus_client import Gauge
+
+    assert isinstance(repo_metrics.GITHUB_SYNC_RATE_LIMIT_STREAK, Gauge)
+    assert (
+        repo_metrics.GITHUB_SYNC_RATE_LIMIT_STREAK._name
+        == "ratatoskr_github_sync_rate_limit_streak"
+    )
+
     assert isinstance(repo_metrics.GITHUB_SYNC_REPOS_IMPORTED_TOTAL, Counter)
     assert (
         repo_metrics.GITHUB_SYNC_REPOS_IMPORTED_TOTAL._name
