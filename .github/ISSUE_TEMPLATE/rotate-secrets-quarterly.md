@@ -13,7 +13,7 @@ assignees: ""
 - [ ] `BOT_TOKEN`
 - [ ] `BACKUP_ENCRYPTION_KEY`
 - [ ] `MCP_FORWARDING_SECRET`
-- [ ] Provider API keys (`OPENROUTER_API_KEY`, `ELEVENLABS_API_KEY`, and enabled optional providers)
+- [ ] Provider API keys (`OPENROUTER_API_KEY`, direct LLM keys such as `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / optional `OLLAMA_API_KEY`, `ELEVENLABS_API_KEY`, and enabled optional providers)
 - [ ] Login peppers (`SECRET_LOGIN_PEPPER`, `CREDENTIALS_LOGIN_PEPPER`)
 
 ## Preconditions
@@ -26,7 +26,7 @@ assignees: ""
 ## Drill Steps
 
 - [ ] Tabletop each secret class and record the exact rotation command or console path.
-- [ ] For one low-risk secret class, perform a live rotation or dry-run where supported.
+- [ ] For one low-risk secret class, perform a live rotation or dry-run where supported; automated dry-runs do not replace the annual live human rotation.
 - [ ] Verify the service path listed in the runbook.
 - [ ] Confirm logs contain no plaintext secret values.
 - [ ] Confirm rollback decision and whether rollback was needed.

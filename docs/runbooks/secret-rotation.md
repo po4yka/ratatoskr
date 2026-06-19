@@ -4,11 +4,11 @@ Use this runbook for planned rotation, suspected exposure, and quarterly drills.
 
 ## Scope
 
-This runbook covers `GITHUB_TOKEN_ENCRYPTION_KEY`, `JWT_SECRET_KEY`, `BOT_TOKEN`, `BACKUP_ENCRYPTION_KEY`, `MCP_FORWARDING_SECRET`, `OPENROUTER_API_KEY`, `ELEVENLABS_API_KEY`, `SECRET_LOGIN_PEPPER`, and `CREDENTIALS_LOGIN_PEPPER`. Rotate provider keys at the provider first, then update Ratatoskr configuration; rotate local signing/encryption keys by adding an overlap window where the code supports one.
+This runbook covers `GITHUB_TOKEN_ENCRYPTION_KEY`, `JWT_SECRET_KEY`, `BOT_TOKEN`, `BACKUP_ENCRYPTION_KEY`, `MCP_FORWARDING_SECRET`, LLM/provider keys (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, optional `OLLAMA_API_KEY`, `ELEVENLABS_API_KEY`, and enabled scraper/search/provider keys), `SECRET_LOGIN_PEPPER`, and `CREDENTIALS_LOGIN_PEPPER`. Rotate provider keys at the provider first, then update Ratatoskr configuration; rotate local signing/encryption keys by adding an overlap window where the code supports one.
 
 ## Cadence
 
-Run a tabletop drill quarterly and a live rotation drill at least annually. Open `.github/ISSUE_TEMPLATE/rotate-secrets-quarterly.md`, assign one operator and one reviewer, and close the issue only after verification commands and rollback notes are filled in.
+Run a tabletop drill quarterly and a live rotation drill at least annually. Open `.github/ISSUE_TEMPLATE/rotate-secrets-quarterly.md`, assign one operator and one reviewer, and close the issue only after verification commands and rollback notes are filled in. An automated repo drill can validate documentation, parsing, overlap tests, and dry-run tooling, but it does not replace a human live rotation of a real low-risk secret.
 
 ## Common Rules
 
@@ -88,7 +88,7 @@ Rollback: restore the previous gateway and Ratatoskr values together.
 
 ## Provider API Keys
 
-Secrets: `OPENROUTER_API_KEY`, `ELEVENLABS_API_KEY`, optional scraper/provider keys such as `FIRECRAWL_API_KEY`, `WHISPER_API_KEY`, `GEMINI_API_KEY`, and `QDRANT_API_KEY`. Blast radius if mishandled: provider calls fail, but stored local data remains readable.
+Secrets: `OPENROUTER_API_KEY`, direct LLM keys such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, optional `OLLAMA_API_KEY`, `ELEVENLABS_API_KEY`, optional scraper/provider keys such as `FIRECRAWL_API_KEY`, `WHISPER_API_KEY`, `GEMINI_API_KEY`, and `QDRANT_API_KEY`. Blast radius if mishandled: provider calls fail, but stored local data remains readable.
 
 Rotation steps:
 
@@ -121,3 +121,4 @@ Append a row here after every drill or live rotation. Use the GitHub issue for d
 | Date | Scope | Mode | Operator | Reviewer | Result | Evidence |
 |---|---|---|---|---|---|---|
 | 2026-06-18 | Runbook created | Documentation | Codex | Pending human reviewer | Pending first operator drill | `.github/ISSUE_TEMPLATE/rotate-secrets-quarterly.md` |
+| 2026-06-19 | All named secret classes; GitHub token re-encryption and JWT overlap verified by focused tests; provider-key inventory drift patched | Automated tabletop + dry-run validation | Codex | Human reviewer pending | Pass for repo-verifiable drill; live human rotation still due for the annual requirement | `pytest tests/cli/test_rotate_github_tokens.py tests/security/test_secret_crypto.py tests/security/test_token_crypto.py tests/api/auth/test_jwt_tokens.py -q`; `.github/ISSUE_TEMPLATE/rotate-secrets-quarterly.md` |
