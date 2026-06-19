@@ -195,7 +195,8 @@ class URLBatchProcessor:
 
     async def _pre_register_urls(self, state: _BatchRunState) -> None:
         chat_id = getattr(state.request.message.chat, "id", None)
-        for url in state.request.urls:
+        parent_cid = state.request.correlation_id
+        for index, url in enumerate(state.request.urls):
             try:
                 normalized = normalize_url(url)
                 dedupe_hash = compute_dedupe_hash(normalized)
@@ -238,7 +239,7 @@ class URLBatchProcessor:
                     self._request_repo.async_create_minimal_request(
                         type_="url",
                         status="pending",
-                        correlation_id=generate_correlation_id(),
+                        correlation_id=f"{parent_cid}-{index}",
                         chat_id=chat_id,
                         user_id=state.request.uid,
                         input_url=url,
