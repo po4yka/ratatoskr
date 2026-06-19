@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import html
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -32,7 +31,7 @@ class ExportFormatter:
         self._request_repo = RequestRepositoryAdapter(db)
         self._summary_repo = SummaryRepositoryAdapter(db)
 
-    def export_summary(
+    async def export_summary(
         self,
         summary_id: str,
         export_format: str,
@@ -49,7 +48,7 @@ class ExportFormatter:
             Tuple of (file_path, filename) or (None, None) if export failed
         """
         # Load summary from database
-        summary_data = self._load_summary(summary_id)
+        summary_data = await self._load_summary(summary_id)
         if not summary_data:
             logger.warning(
                 "export_summary_not_found",
@@ -71,7 +70,7 @@ class ExportFormatter:
         )
         return None, None
 
-    def _load_summary(self, summary_id: str) -> dict[str, Any] | None:
+    async def _load_summary(self, summary_id: str) -> dict[str, Any] | None:
         """Load summary data from database.
 
         The summary_id can be either:
@@ -81,14 +80,12 @@ class ExportFormatter:
         try:
             if summary_id.startswith("req:"):
                 request_id = int(summary_id[4:])
-                summary = asyncio.run(self._summary_repo.async_get_summary_by_request(request_id))
+                summary = await self._summary_repo.async_get_summary_by_request(request_id)
                 if summary is None:
                     return None
-                request = asyncio.run(self._request_repo.async_get_request_by_id(request_id))
+                request = await self._request_repo.async_get_request_by_id(request_id)
             else:
-                context = asyncio.run(
-                    self._summary_repo.async_get_summary_context_by_id(int(summary_id))
-                )
+                context = await self._summary_repo.async_get_summary_context_by_id(int(summary_id))
                 if context is None:
                     return None
                 summary = context.get("summary") if isinstance(context, dict) else None

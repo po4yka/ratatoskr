@@ -777,7 +777,7 @@ async def export_summary(
 
     db = get_session_manager()
     formatter = ExportFormatter(db)
-    file_path, filename = formatter.export_summary(
+    file_path, filename = await formatter.export_summary(
         summary_id=str(summary_id),
         export_format=format,
     )
