@@ -8480,6 +8480,230 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/export-integrations:
+    get:
+      tags:
+      - Export Integrations
+      summary: List Export Integrations
+      operationId: list_export_integrations_v1_export_integrations_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Export Integrations V1 Export Integrations Get
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - Export Integrations
+      summary: Create Export Integration
+      operationId: create_export_integration_v1_export_integrations_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportIntegrationCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Export Integration V1 Export Integrations Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
+  /v1/export-integrations/{integration_id}:
+    patch:
+      tags:
+      - Export Integrations
+      summary: Update Export Integration
+      operationId: update_export_integration_v1_export_integrations__integration_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: integration_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          title: Integration Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportIntegrationUpdateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Update Export Integration V1 Export Integrations  Integration Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+      - Export Integrations
+      summary: Revoke Export Integration
+      operationId: revoke_export_integration_v1_export_integrations__integration_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: integration_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          title: Integration Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Revoke Export Integration V1 Export Integrations  Integration Id  Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/export-integrations/{integration_id}/deliveries:
+    get:
+      tags:
+      - Export Integrations
+      summary: List Export Deliveries
+      operationId: list_export_deliveries_v1_export_integrations__integration_id__deliveries_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: integration_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          title: Integration Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Export Deliveries V1 Export Integrations  Integration Id  Deliveries Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/export-integrations/{integration_id}/test:
+    post:
+      tags:
+      - Export Integrations
+      summary: Send Test Export Integration
+      operationId: send_test_export_integration_v1_export_integrations__integration_id__test_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: integration_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          title: Integration Id
+      - name: summary_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          title: Summary Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Send Test Export Integration V1 Export Integrations  Integration Id  Test Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/import:
     get:
       tags:
@@ -11761,6 +11985,68 @@ components:
       - isDuplicate
       - message
       title: DuplicateDetectionResponse
+    ExportIntegrationCreateRequest:
+      properties:
+        provider:
+          type: string
+          enum:
+          - notion
+          - readwise
+          - obsidian
+          title: Provider
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Name
+        apiToken:
+          anyOf:
+          - type: string
+            maxLength: 4096
+            minLength: 1
+          - type: 'null'
+          title: Apitoken
+        config:
+          additionalProperties: true
+          type: object
+          title: Config
+        enabled:
+          type: boolean
+          title: Enabled
+          default: false
+      type: object
+      required:
+      - provider
+      title: ExportIntegrationCreateRequest
+    ExportIntegrationUpdateRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Name
+        apiToken:
+          anyOf:
+          - type: string
+            maxLength: 4096
+            minLength: 1
+          - type: 'null'
+          title: Apitoken
+        config:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Config
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+      type: object
+      title: ExportIntegrationUpdateRequest
     FeedbackResponse:
       properties:
         id:

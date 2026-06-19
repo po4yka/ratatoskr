@@ -56,6 +56,7 @@ from app.db.models.digest import (
     UserDigestPreference,
     UserEmailAddress,
 )
+from app.db.models.export import EXPORT_MODELS, ExportDeliveryLog, UserExportIntegration
 from app.db.models.git_backup import (
     GIT_BACKUP_MODELS,
     GitMirror,
@@ -126,6 +127,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
     *BATCH_MODELS,
     *COLLECTION_MODELS,
     *DIGEST_MODELS,
+    *EXPORT_MODELS,
     *GIT_BACKUP_MODELS,
     *REPOSITORY_MODELS,
     *RSS_MODELS,
@@ -147,6 +149,7 @@ __all__ = [
     "COLLECTION_MODELS",
     "CORE_MODELS",
     "DIGEST_MODELS",
+    "EXPORT_MODELS",
     "GIT_BACKUP_MODELS",
     "REPOSITORY_MODELS",
     "RSS_MODELS",
@@ -184,6 +187,7 @@ __all__ = [
     "CustomDigest",
     "DigestDelivery",
     "EmailDelivery",
+    "ExportDeliveryLog",
     "FeedItem",
     "GitHubAuthMethod",
     "GitHubIntegrationStatus",
@@ -238,6 +242,7 @@ __all__ = [
     "UserDevice",
     "UserDigestPreference",
     "UserEmailAddress",
+    "UserExportIntegration",
     "UserGitHubIntegration",
     "UserGoal",
     "UserIdentity",

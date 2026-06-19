@@ -99,6 +99,7 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
 
     await _persist_llm_calls(state, deps)
     await _index_summary_for_freshness(state, deps, summary_id=summary_id)
+    await _publish_summary_created(state, deps, summary_id=summary_id)
 
     return {"summary_id": summary_id} if summary_id is not None else {}
 
@@ -158,5 +159,20 @@ async def _index_summary_for_freshness(
                 "request_id": request_id,
                 "summary_id": summary_id,
             },
+            exc_info=True,
+        )
+
+
+async def _publish_summary_created(
+    state: SummarizeState, deps: SummarizeDeps, *, summary_id: int | None
+) -> None:
+    if deps.export_events is None or summary_id is None:
+        return
+    try:
+        await deps.export_events.publish_summary_created(summary_id)
+    except Exception:
+        logger.warning(
+            "summary_export_event_publish_failed",
+            extra={"correlation_id": state.get("correlation_id"), "summary_id": summary_id},
             exc_info=True,
         )

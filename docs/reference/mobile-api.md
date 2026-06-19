@@ -454,6 +454,12 @@ All three bulk operations accept up to 500 IDs and silently skip IDs outside the
 - `GET /v1/import/{job_id}`
 - `DELETE /v1/import/{job_id}`
 - `GET /v1/export`
+- `GET /v1/export-integrations`
+- `POST /v1/export-integrations`
+- `PATCH /v1/export-integrations/{integration_id}`
+- `DELETE /v1/export-integrations/{integration_id}`
+- `GET /v1/export-integrations/{integration_id}/deliveries`
+- `POST /v1/export-integrations/{integration_id}/test?summary_id=...`
 
 Import endpoints require bearer authentication. `GET /v1/import` lists the authenticated user's import jobs so clients can recover job status after restart or reconnect:
 
@@ -461,6 +467,8 @@ Import endpoints require bearer authentication. `GET /v1/import` lists the authe
 GET /v1/import
 Authorization: Bearer eyJ...
 ```
+
+Export integrations are per-user and disabled by default. Supported providers are `notion`, `readwise`, and `obsidian`; API-token providers store tokens encrypted at rest and expose only `tokenConfigured` in responses. Delivery attempts are written to `export_delivery_logs`; see `docs/guides/configure-export-connectors.md` for setup and revocation flows.
 
 Response shape:
 

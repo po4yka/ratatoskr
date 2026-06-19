@@ -119,6 +119,7 @@ def build_summarize_deps(
     model_router: Any | None = None,
     summary_cache: Any | None = None,
     crawl_repo: Any | None = None,
+    export_events: Any | None = None,
 ) -> SummarizeDeps:
     """Pack already-constructed ports + config snapshot into the node dependency bundle.
 
@@ -151,6 +152,7 @@ def build_summarize_deps(
         model_router=model_router,
         summary_cache=summary_cache,
         crawl_repo=crawl_repo,
+        export_events=export_events,
     )
 
 
@@ -441,6 +443,7 @@ def assemble_graph_url_processor(
     never compiled without a checkpointer.
     """
     from app.di.extraction import build_extraction_port
+    from app.adapters.export.dispatcher import SummaryExportDispatcher
     from app.infrastructure.persistence.repositories.embedding_repository import (
         EmbeddingRepositoryAdapter,
     )
@@ -474,6 +477,7 @@ def assemble_graph_url_processor(
         model_router=build_model_router(cfg),
         summary_cache=build_summary_cache_adapter(cfg, cache=redis_cache),
         crawl_repo=crawl_result_repo,
+        export_events=SummaryExportDispatcher(db),
     )
     graph = build_summarize_graph_app(deps=deps, checkpointer=checkpointer)
     return build_graph_url_processor(

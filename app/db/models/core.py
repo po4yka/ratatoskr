@@ -163,6 +163,9 @@ class User(Base):
     email_deliveries: Mapped[list[Any]] = relationship(
         "EmailDelivery", back_populates="user", cascade="all, delete-orphan"
     )
+    export_integrations: Mapped[list[Any]] = relationship(
+        "UserExportIntegration", back_populates="user", cascade="all, delete-orphan"
+    )
     digest_preferences: Mapped[Any | None] = relationship(
         "UserDigestPreference", back_populates="user", cascade="all, delete-orphan"
     )

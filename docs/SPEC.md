@@ -28,6 +28,8 @@ Typed profile fields live on `users` as of Alembic 0042: `locale`, `theme`, `dis
 
 Saved searches and opt-in search history live in PostgreSQL as of Alembic 0045. `saved_searches` stores one reusable query/filter bundle per user, while `search_history` records the newest 50 user search executions only when `users.preferences_json.search_history_enabled` is explicitly true.
 
+Outbound export connectors live in PostgreSQL as of Alembic 0046. `user_export_integrations` stores per-user Notion, Readwise, and Obsidian connector configuration with encrypted API tokens where needed, and `export_delivery_logs` records success/failure outcomes for `summary.created` export attempts.
+
 Telethon session files are the only intentional SQLite carve-out. They are client session stores owned by Telethon, validated by `app/adapters/digest/session_validator.py`, and are not part of Ratatoskr's relational store or PostgreSQL migration.
 
 ---
@@ -47,6 +49,8 @@ Full endpoint index, envelope/error contract, authentication modes (Telegram log
 → [Mobile API Reference](reference/mobile-api.md)
 
 Machine-readable contract: `docs/openapi/mobile_api.yaml` / `docs/openapi/mobile_api.json`
+
+Export connector setup: [Configure Export Connectors](guides/configure-export-connectors.md)
 
 ---
 

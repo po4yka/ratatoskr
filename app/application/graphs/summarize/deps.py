@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from app.application.ports.extraction import ExtractionPort
+    from app.application.ports.export_events import SummaryExportEventPublisherPort
     from app.application.ports.llm_client import LLMClientProtocol
     from app.application.ports.requests import (
         CrawlResultRepositoryPort,
@@ -118,3 +119,4 @@ class SummarizeDeps:
     # GAP 4: crawl-result port for metadata backfill in persist. Optional --
     # None means metadata backfill is skipped (conservative path).
     crawl_repo: CrawlResultRepositoryPort | None = None
+    export_events: SummaryExportEventPublisherPort | None = None
