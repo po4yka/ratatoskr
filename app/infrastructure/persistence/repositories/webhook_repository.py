@@ -150,23 +150,18 @@ class WebhookRepositoryAdapter:
             return [model_to_dict(row) or {} for row in rows]
 
     async def async_increment_failure_count(self, subscription_id: int) -> int:
-        """Increment consecutive failure count. Returns the new count."""
+        """Increment consecutive failure count atomically. Returns the new count."""
         async with self._database.transaction() as session:
-            current = int(
-                await session.scalar(
-                    select(WebhookSubscription.failure_count).where(
-                        WebhookSubscription.id == subscription_id
-                    )
-                )
-                or 0
-            )
-            new_count = current + 1
-            await session.execute(
+            new_count = await session.scalar(
                 update(WebhookSubscription)
                 .where(WebhookSubscription.id == subscription_id)
-                .values(failure_count=new_count, updated_at=_utcnow())
+                .values(
+                    failure_count=WebhookSubscription.failure_count + 1,
+                    updated_at=_utcnow(),
+                )
+                .returning(WebhookSubscription.failure_count)
             )
-            return new_count
+            return int(new_count or 0)
 
     async def async_reset_failure_count(self, subscription_id: int) -> None:
         """Reset consecutive failure count to zero."""
