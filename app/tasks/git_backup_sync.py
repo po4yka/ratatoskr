@@ -417,15 +417,20 @@ async def _prune_stale_excluded(cfg: AppConfig, db: Database) -> None:
         mirror_id = mirror.id
         mirror_path_str = mirror.mirror_path or ""
 
-        # 1. Delete Qdrant point best-effort.
-        if qdrant_store is not None:
+        # 1. NULL mirror_path in DB first so the row never references a path
+        #    that no longer exists on disk, even if a later step fails.
+        if mirror_path_str:
             try:
-                await asyncio.to_thread(qdrant_store.delete_git_mirror_points, [mirror_id])
+                await mirror_repo.clear_mirror_path(mirror_id)
             except Exception as exc:
                 logger.warning(
-                    "git_backup_prune_excluded_qdrant_failed",
+                    "git_backup_prune_excluded_db_clear_path_failed",
                     extra={"mirror_id": mirror_id, "error": str(exc)},
                 )
+                # If we cannot clear the path in the DB, skip disk removal to
+                # keep DB and disk in sync — the prune sweep will retry on the
+                # next run once the DB write succeeds.
+                continue
 
         # 2. Remove the on-disk bare clone best-effort (path-safety check).
         if mirror_path_str:
@@ -461,7 +466,17 @@ async def _prune_stale_excluded(cfg: AppConfig, db: Database) -> None:
                     },
                 )
 
-        # 3. Delete the DB row best-effort.
+        # 3. Delete Qdrant point best-effort.
+        if qdrant_store is not None:
+            try:
+                await asyncio.to_thread(qdrant_store.delete_git_mirror_points, [mirror_id])
+            except Exception as exc:
+                logger.warning(
+                    "git_backup_prune_excluded_qdrant_failed",
+                    extra={"mirror_id": mirror_id, "error": str(exc)},
+                )
+
+        # 4. Hard-delete the DB row best-effort.
         try:
             await mirror_repo.delete_mirror(mirror_id)
             pruned += 1

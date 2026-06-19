@@ -274,6 +274,19 @@ class GitMirrorRepository:
             rows = (await session.scalars(stmt)).all()
         return list(rows)
 
+    async def clear_mirror_path(self, mirror_id: int) -> None:
+        """NULL out mirror_path for a row without deleting the row.
+
+        Called before on-disk deletion so the DB never holds a path that refers
+        to a directory that no longer exists on disk.  Silently does nothing if
+        the row no longer exists.
+        """
+        async with self._db.transaction() as session:
+            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
+            if row is None:
+                return
+            row.mirror_path = None
+
     async def delete_mirror(self, mirror_id: int) -> None:
         """Hard-delete a ``git_mirrors`` row by primary key.
 
