@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import secrets
@@ -33,6 +34,14 @@ router = APIRouter()
 _APPLE_AUTHORIZE_URL = "https://appleid.apple.com/auth/authorize"
 _APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 _APPLE_ISSUER = "https://appleid.apple.com"
+
+# Module-level JWKS client with key caching to avoid a blocking HTTPS fetch on
+# every request.  cache_keys=True makes PyJWKClient reuse fetched public keys
+# until the JWT kid is absent from the cached set (then it re-fetches once).
+_APPLE_JWKS_CLIENT: jwt.PyJWKClient = jwt.PyJWKClient(
+    _APPLE_JWKS_URL,
+    cache_keys=True,
+)
 
 
 @router.post("/apple/start")
@@ -73,7 +82,7 @@ async def apple_callback(payload: AppleSignInCallbackRequest, response: Response
     validate_client_id(payload.client_id)
     cfg = load_config(allow_stub_telegram=True)
     apple_client_id = _require_apple_client_id(cfg.auth.apple_client_id)
-    claims = _validate_apple_id_token(
+    claims = await _validate_apple_id_token(
         payload.id_token,
         audience=apple_client_id,
         nonce=payload.nonce,
@@ -130,14 +139,20 @@ def _pkce_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
-def _validate_apple_id_token(
+async def _validate_apple_id_token(
     token: str,
     *,
     audience: str,
     nonce: str | None,
 ) -> dict[str, Any]:
+    # get_signing_key_from_jwt may perform a blocking HTTPS fetch when the kid
+    # is not yet cached.  Offload it to a thread so the event loop is not
+    # blocked.  The module-level client caches keys, so the fetch is rare.
     try:
-        signing_key = jwt.PyJWKClient(_APPLE_JWKS_URL).get_signing_key_from_jwt(token)
+        signing_key = await asyncio.to_thread(
+            _APPLE_JWKS_CLIENT.get_signing_key_from_jwt,
+            token,
+        )
         claims = jwt.decode(
             token,
             signing_key.key,
