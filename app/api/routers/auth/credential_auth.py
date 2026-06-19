@@ -81,9 +81,15 @@ def _get_decoy_phc() -> str:
     ALLOWED_USER_IDS), we still want the wall-clock cost of an argon2 verify
     so an attacker can't differentiate "no such user" from "wrong password"
     by timing alone.
+
+    The decoy PHC is hashed from a 64-char hex sentinel that matches the
+    output format of _pre_hash so argon2 receives the same input length and
+    shape as in the real verify path. Hashing a raw variable-length string
+    would break timing parity because argon2 cost varies with input length.
     """
     if _decoy_phc_holder[0] is None:
-        _decoy_phc_holder[0] = _get_hasher().hash("decoy-not-a-real-password")
+        # 64 zero-chars mimic the hex-digest output of _pre_hash exactly.
+        _decoy_phc_holder[0] = _get_hasher().hash("0" * 64)
     return _decoy_phc_holder[0]
 
 
@@ -255,9 +261,15 @@ def run_decoy_verify(password: str) -> None:
     user_id isn't in ALLOWED_USER_IDS. Without this, an attacker can
     distinguish "no such nickname" from "wrong password" purely by latency.
     The exception is swallowed -- this path always "fails" for the caller.
+
+    The password is pre-hashed with the current credentials pepper before
+    being passed to argon2, mirroring the real verify path exactly so that
+    argon2 receives the same 64-char hex input in both cases and timing
+    parity is preserved.
     """
     try:
-        _get_hasher().verify(_get_decoy_phc(), password)
+        digest = _pre_hash(password, _get_credentials_pepper())
+        _get_hasher().verify(_get_decoy_phc(), digest)
     except Exception:
         pass
 
