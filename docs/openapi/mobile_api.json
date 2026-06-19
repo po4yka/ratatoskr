@@ -3200,6 +3200,70 @@
         }
       }
     },
+    "/v1/summaries/{summary_id}/email": {
+      "post": {
+        "tags": [
+          "Summaries"
+        ],
+        "summary": "Email Summary",
+        "description": "Send an individual summary to a verified email address.",
+        "operationId": "email_summary_v1_summaries__summary_id__email_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendEmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Email Summary V1 Summaries  Summary Id  Email Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/summaries/{summary_id}/content": {
       "get": {
         "tags": [
@@ -4824,6 +4888,70 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeleteSummarySuccessResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/articles/{summary_id}/email": {
+      "post": {
+        "tags": [
+          "Articles"
+        ],
+        "summary": "Email Summary",
+        "description": "Alias for POST /v1/summaries/{summary_id}/email. Send an individual summary to a verified email address.",
+        "operationId": "email_summary_v1_articles__summary_id__email_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendEmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Email Summary V1 Articles  Summary Id  Email Post"
                 }
               }
             }
@@ -8736,6 +8864,154 @@
         ]
       }
     },
+    "/v1/digest/email-addresses": {
+      "get": {
+        "tags": [
+          "Digest"
+        ],
+        "summary": "List Email Addresses",
+        "description": "List email addresses available for digest delivery.",
+        "operationId": "list_email_addresses_v1_digest_email_addresses_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Email Addresses V1 Digest Email Addresses Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/digest/email-addresses/request-verification": {
+      "post": {
+        "tags": [
+          "Digest"
+        ],
+        "summary": "Request Email Verification",
+        "description": "Start email address verification.",
+        "operationId": "request_email_verification_v1_digest_email_addresses_request_verification_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestEmailVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Request Email Verification V1 Digest Email Addresses Request Verification Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/digest/email-addresses/verify": {
+      "post": {
+        "tags": [
+          "Digest"
+        ],
+        "summary": "Verify Email Address",
+        "description": "Verify an email address with a one-time token.",
+        "operationId": "verify_email_address_v1_digest_email_addresses_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Verify Email Address V1 Digest Email Addresses Verify Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/digest/history": {
       "get": {
         "tags": [
@@ -9300,6 +9576,72 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Get Custom Digest V1 Digests Custom  Digest Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/digests/custom/{digest_id}/email": {
+      "post": {
+        "tags": [
+          "custom-digests"
+        ],
+        "summary": "Email Custom Digest",
+        "description": "Send a custom digest to a verified email address.",
+        "operationId": "email_custom_digest_v1_digests_custom__digest_id__email_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "digest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Digest Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendEmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Email Custom Digest V1 Digests Custom  Digest Id  Email Post"
                 }
               }
             }
@@ -18146,6 +18488,22 @@
         ],
         "title": "RequestDetailSummary"
       },
+      "RequestEmailVerificationRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 3,
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "RequestEmailVerificationRequest",
+        "description": "Request a verification email for an address."
+      },
       "RequestStatus": {
         "type": "string",
         "enum": [
@@ -19084,6 +19442,25 @@
         ],
         "title": "SecretLoginRequest",
         "description": "Request body for secret-key login."
+      },
+      "SendEmailRequest": {
+        "properties": {
+          "email_address_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Address Id"
+          }
+        },
+        "type": "object",
+        "title": "SendEmailRequest",
+        "description": "Request sending existing content to a verified email address."
       },
       "SignalFeedbackRequest": {
         "properties": {
@@ -22244,6 +22621,33 @@
               }
             ],
             "title": "Min Relevance Score"
+          },
+          "delivery_channel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "telegram",
+                  "email"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Channel"
+          },
+          "email_address_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Address Id"
           }
         },
         "type": "object",
@@ -22588,6 +22992,22 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VerifyEmailRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 16,
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "VerifyEmailRequest",
+        "description": "Verify an email address with a one-time token."
       },
       "_BulkDeleteRequest": {
         "properties": {

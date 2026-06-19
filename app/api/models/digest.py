@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -65,6 +66,10 @@ class DigestPreferenceResponse(BaseModel):
     max_posts_per_digest_source: str
     min_relevance_score: float
     min_relevance_score_source: str
+    delivery_channel: Literal["telegram", "email"]
+    delivery_channel_source: str
+    email_address_id: int | None = None
+    email_address_id_source: str
 
 
 class UpdatePreferenceRequest(BaseModel):
@@ -75,6 +80,36 @@ class UpdatePreferenceRequest(BaseModel):
     hours_lookback: int | None = Field(None, ge=1, le=168)
     max_posts_per_digest: int | None = Field(None, ge=1, le=100)
     min_relevance_score: float | None = Field(None, ge=0.0, le=1.0)
+    delivery_channel: Literal["telegram", "email"] | None = None
+    email_address_id: int | None = Field(None, ge=1)
+
+
+class EmailAddressResponse(BaseModel):
+    """Verified or pending email address."""
+
+    id: int
+    email: str
+    is_verified: bool
+    verified_at: datetime | None = None
+    created_at: datetime
+
+
+class RequestEmailVerificationRequest(BaseModel):
+    """Request a verification email for an address."""
+
+    email: str = Field(..., min_length=3, max_length=256)
+
+
+class VerifyEmailRequest(BaseModel):
+    """Verify an email address with a one-time token."""
+
+    token: str = Field(..., min_length=16, max_length=256)
+
+
+class SendEmailRequest(BaseModel):
+    """Request sending existing content to a verified email address."""
+
+    email_address_id: int | None = Field(None, ge=1)
 
 
 class DigestDeliveryResponse(BaseModel):

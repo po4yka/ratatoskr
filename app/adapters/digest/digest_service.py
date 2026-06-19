@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.adapters.digest.analyzer import DigestAnalyzer
     from app.adapters.digest.channel_reader import ChannelReader
     from app.adapters.digest.formatter import DigestFormatter
+    from app.adapters.email.service import EmailDeliveryService
     from app.config import AppConfig
 
 logger = get_logger(__name__)
@@ -54,6 +55,7 @@ class DigestService:
         self._formatter = formatter
         self._send = send_message_func
         self._store = DigestStore()
+        self._email_service: EmailDeliveryService | None = None
 
     async def generate_digest(
         self,
@@ -92,9 +94,11 @@ class DigestService:
         if not posts:
             logger.info("digest_no_posts", extra={"cid": correlation_id, "uid": user_id})
             try:
-                await self._send(
+                await self._send_user_message(
                     user_id,
                     "\u041d\u0435\u0442 \u043d\u043e\u0432\u044b\u0445 \u043f\u043e\u0441\u0442\u043e\u0432 \u0432 \u043f\u043e\u0434\u043f\u0438\u0441\u0430\u043d\u043d\u044b\u0445 \u043a\u0430\u043d\u0430\u043b\u0430\u0445.",
+                    subject="Ratatoskr digest: no new posts",
+                    correlation_id=correlation_id,
                 )
                 result.messages_sent = 1
             except Exception as e:
@@ -148,9 +152,11 @@ class DigestService:
                 extra={"cid": correlation_id, "uid": user_id, "channel": channel.username},
             )
             try:
-                await self._send(
+                await self._send_user_message(
                     user_id,
                     f"\u041d\u0435\u0442 \u043d\u0435\u043f\u0440\u043e\u0447\u0438\u0442\u0430\u043d\u043d\u044b\u0445 \u043f\u043e\u0441\u0442\u043e\u0432 \u0432 @{channel.username}.",
+                    subject=f"Ratatoskr digest: no unread posts in @{channel.username}",
+                    correlation_id=correlation_id,
                 )
                 result.messages_sent = 1
             except Exception as e:
@@ -267,19 +273,23 @@ class DigestService:
         result.post_count = len(analyzed)
         result.channel_count = len(channels_seen)
 
-        # 4. Deliver via bot
-        for text, buttons in message_chunks:
-            try:
-                reply_markup = _build_inline_keyboard(buttons) if buttons else None
-                await self._send(user_id, text, reply_markup=reply_markup)
-                result.messages_sent += 1
-            except Exception as e:
-                logger.warning(
-                    "digest_send_chunk_failed",
-                    extra={"cid": correlation_id, "error": str(e)},
-                    exc_info=True,
-                )
-                result.errors.append(f"Send failed: {e}")
+        # 4. Deliver via preferred sink
+        try:
+            result.messages_sent = await self._deliver_digest_messages(
+                user_id=user_id,
+                message_chunks=message_chunks,
+                digest_type=result.digest_type,
+                correlation_id=correlation_id,
+                post_count=result.post_count,
+                channel_count=result.channel_count,
+            )
+        except Exception as e:
+            logger.warning(
+                "digest_send_failed",
+                extra={"cid": correlation_id, "error": str(e)},
+                exc_info=True,
+            )
+            result.errors.append(f"Send failed: {e}")
 
         # 5. Persist delivery record
         post_ids = [p.get("message_id") for p in analyzed]
@@ -327,7 +337,12 @@ class DigestService:
     ) -> None:
         """Send a single informational message, recording delivery/send errors."""
         try:
-            await self._send(user_id, text)
+            await self._send_user_message(
+                user_id,
+                text,
+                subject="Ratatoskr digest status",
+                correlation_id=result.correlation_id,
+            )
             result.messages_sent = 1
         except Exception as e:
             logger.warning(
@@ -336,6 +351,64 @@ class DigestService:
                 exc_info=True,
             )
             result.errors.append(f"Send failed: {e}")
+
+    async def _deliver_digest_messages(
+        self,
+        *,
+        user_id: int,
+        message_chunks: list[tuple[str, list[list[dict[str, str]]]]],
+        digest_type: str,
+        correlation_id: str,
+        post_count: int,
+        channel_count: int,
+    ) -> int:
+        preference = await self._store.async_get_user_preference(user_id)
+        if getattr(preference, "delivery_channel", "telegram") == "email":
+            text = "\n\n".join(chunk for chunk, _buttons in message_chunks)
+            await self._email().send_digest(
+                user_id=user_id,
+                address_id=getattr(preference, "email_address_id", None),
+                subject=f"Ratatoskr {digest_type.replace('_', ' ')} digest",
+                text=text,
+                correlation_id=correlation_id,
+                metadata={"post_count": post_count, "channel_count": channel_count},
+            )
+            return 1
+
+        sent = 0
+        for text, buttons in message_chunks:
+            reply_markup = _build_inline_keyboard(buttons) if buttons else None
+            await self._send(user_id, text, reply_markup=reply_markup)
+            sent += 1
+        return sent
+
+    async def _send_user_message(
+        self,
+        user_id: int,
+        text: str,
+        *,
+        subject: str,
+        correlation_id: str,
+    ) -> None:
+        preference = await self._store.async_get_user_preference(user_id)
+        if getattr(preference, "delivery_channel", "telegram") == "email":
+            await self._email().send_digest(
+                user_id=user_id,
+                address_id=getattr(preference, "email_address_id", None),
+                subject=subject,
+                text=text,
+                correlation_id=correlation_id,
+                metadata={"kind": "digest_status"},
+            )
+            return
+        await self._send(user_id, text)
+
+    def _email(self) -> EmailDeliveryService:
+        if self._email_service is None:
+            from app.adapters.email.service import EmailDeliveryService
+
+            self._email_service = EmailDeliveryService(self._cfg.email)
+        return self._email_service
 
     @classmethod
     async def async_get_users_with_subscriptions(cls) -> list[int]:

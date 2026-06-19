@@ -49,7 +49,9 @@ from app.db.models.digest import (
     ChannelPostAnalysis,
     ChannelSubscription,
     DigestDelivery,
+    EmailDelivery,
     UserDigestPreference,
+    UserEmailAddress,
 )
 from app.db.models.git_backup import (
     GIT_BACKUP_MODELS,
@@ -173,6 +175,7 @@ __all__ = [
     "CrawlResult",
     "CustomDigest",
     "DigestDelivery",
+    "EmailDelivery",
     "FeedItem",
     "GitHubAuthMethod",
     "GitHubIntegrationStatus",
@@ -223,6 +226,7 @@ __all__ = [
     "UserCredential",
     "UserDevice",
     "UserDigestPreference",
+    "UserEmailAddress",
     "UserGitHubIntegration",
     "UserGoal",
     "UserInteraction",

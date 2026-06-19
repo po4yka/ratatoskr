@@ -23,6 +23,7 @@ from .content import ContentLimitsConfig
 from .database import DatabaseConfig
 from .deployment import DeploymentConfig
 from .digest import ChannelDigestConfig
+from .email import EmailConfig
 from .firecrawl import FirecrawlConfig
 from .git_backup import GitBackupConfig
 from .github import GitHubConfig
@@ -193,6 +194,7 @@ class AppConfig:
     llm_usage_budget: LLMUsageBudgetConfig = field(default_factory=LLMUsageBudgetConfig)
     twitter: TwitterConfig = field(default_factory=TwitterConfig)
     digest: ChannelDigestConfig = field(default_factory=ChannelDigestConfig)
+    email: EmailConfig = field(default_factory=EmailConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
     scraper: ScraperConfig = field(default_factory=ScraperConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
@@ -262,6 +264,7 @@ class Settings(BaseSettings):
     batch_analysis: BatchAnalysisConfig = Field(default_factory=BatchAnalysisConfig)
     twitter: TwitterConfig = Field(default_factory=TwitterConfig)
     digest: ChannelDigestConfig = Field(default_factory=ChannelDigestConfig)
+    email: EmailConfig = Field(default_factory=EmailConfig)
     scraper: ScraperConfig = Field(default_factory=ScraperConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     tts: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)

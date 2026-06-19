@@ -589,6 +589,25 @@ See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, sum
 | `DIGEST_HOURS_LOOKBACK` | `24` | Hours to look back for new posts |
 | `API_BASE_URL` | `http://localhost:8000` | Base URL for the Mobile API (used by digest for session init) |
 
+## Email Delivery
+
+Email delivery is off by default. Set `EMAIL_PROVIDER=smtp` for a generic SMTP relay or `EMAIL_PROVIDER=resend` for the Resend HTTP API. SMTP is portable and self-host friendly; Resend is simpler operationally but depends on a hosted provider. Both providers require a verified sender in `EMAIL_FROM_ADDRESS`; address verification and delivery failures are persisted in `user_email_addresses` and `email_deliveries`.
+
+| Variable | Default | Description |
+| ---------- | --------- | ------------- |
+| `EMAIL_PROVIDER` | `none` | Outbound email sink: `none`, `smtp`, or `resend` |
+| `EMAIL_FROM_ADDRESS` | _(unset)_ | Sender address used for verification emails, digests, custom digests, and summary sends |
+| `EMAIL_FROM_NAME` | `Ratatoskr` | Display name for outbound email |
+| `EMAIL_VERIFICATION_BASE_URL` | _(unset)_ | Public verification URL; the API appends `?token=...` |
+| `EMAIL_TIMEOUT_SECONDS` | `10` | Timeout for provider calls |
+| `RESEND_API_KEY` | _(unset)_ | Resend API key when `EMAIL_PROVIDER=resend` |
+| `RESEND_API_URL` | `https://api.resend.com/emails` | Resend-compatible email endpoint |
+| `SMTP_HOST` | _(unset)_ | SMTP relay hostname when `EMAIL_PROVIDER=smtp` |
+| `SMTP_PORT` | `587` | SMTP relay port |
+| `SMTP_USERNAME` | _(unset)_ | Optional SMTP username |
+| `SMTP_PASSWORD` | _(unset)_ | Optional SMTP password |
+| `SMTP_USE_TLS` | `true` | Start TLS before SMTP authentication |
+
 ## Database and Backups
 
 | Variable | Default | Description |

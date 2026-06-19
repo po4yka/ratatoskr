@@ -16,7 +16,9 @@ from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     BulkUnsubscribeRequest,
     CategoryRequest,
     ChannelControlRequest,
+    RequestEmailVerificationRequest,
     ResolveChannelRequest,
+    VerifyEmailRequest,
     SubscribeRequest,
     UpdatePreferenceRequest,
 )
@@ -24,6 +26,8 @@ from app.api.models.responses import success_response
 from app.api.routers.auth.dependencies import get_webapp_user
 from app.api.services.auth_service import AuthService
 from app.api.services.digest_facade import DigestFacade, get_digest_facade
+from app.adapters.email.service import EmailDeliveryService
+from app.config import load_config
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -162,6 +166,35 @@ def update_preferences(
     """Update user digest preferences."""
     fields = body.model_dump(exclude_none=True)
     data = digest_facade.update_preferences(user["user_id"], **fields)
+    return success_response(data)
+
+
+@router.get("/email-addresses")
+async def list_email_addresses(
+    user: dict[str, Any] = Depends(get_webapp_user),
+) -> dict[str, Any]:
+    """List email addresses available for digest delivery."""
+    service = EmailDeliveryService(load_config().email)
+    data = await service.list_addresses(user["user_id"])
+    return success_response({"email_addresses": data})
+
+
+@router.post("/email-addresses/request-verification")
+async def request_email_verification(
+    body: RequestEmailVerificationRequest,
+    user: dict[str, Any] = Depends(get_webapp_user),
+) -> dict[str, Any]:
+    """Start email address verification."""
+    service = EmailDeliveryService(load_config().email)
+    data = await service.start_verification(user_id=user["user_id"], email=body.email)
+    return success_response(data)
+
+
+@router.post("/email-addresses/verify")
+async def verify_email_address(body: VerifyEmailRequest) -> dict[str, Any]:
+    """Verify an email address with a one-time token."""
+    service = EmailDeliveryService(load_config().email)
+    data = await service.verify(body.token)
     return success_response(data)
 
 

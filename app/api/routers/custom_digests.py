@@ -6,10 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from app.adapters.email.service import EmailDeliveryService
+from app.api.models.digest import SendEmailRequest  # noqa: TC001
 from app.api.models.requests import CreateCustomDigestRequest  # noqa: TC001
 from app.api.models.responses import success_response
 from app.api.routers.auth import get_current_user
 from app.api.services.custom_digest_service import CustomDigestService
+from app.config import load_config
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -43,3 +46,24 @@ async def get_custom_digest(
     """Get a specific custom digest by ID."""
     digest = await CustomDigestService().get_digest(user_id=user["user_id"], digest_id=digest_id)
     return success_response(digest)
+
+
+@router.post("/{digest_id}/email")
+async def email_custom_digest(
+    digest_id: str,
+    body: SendEmailRequest,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Send a custom digest to a verified email address."""
+    digest = await CustomDigestService().get_digest(user_id=user["user_id"], digest_id=digest_id)
+    subject = str(digest.get("title") or "Ratatoskr custom digest")
+    content = str(digest.get("content") or "")
+    payload = await EmailDeliveryService(load_config().email).send_custom_content(
+        user_id=user["user_id"],
+        address_id=body.email_address_id,
+        subject=subject,
+        content=content,
+        purpose="custom_digest",
+        metadata={"custom_digest_id": digest_id},
+    )
+    return success_response(payload)

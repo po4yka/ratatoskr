@@ -11,10 +11,12 @@ from typing import Any, Literal, cast
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel as _BulkBaseModel, Field
 
+from app.adapters.email.service import EmailDeliveryService
 from app.api.aggregation_provenance import build_source_bundle
 from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.dependencies.search_resources import get_vector_search_service
 from app.api.exceptions import FeatureDisabledError, ResourceNotFoundError, ValidationError
+from app.api.models.digest import SendEmailRequest
 from app.api.models.requests import (
     SaveReadingPositionRequest,
     SubmitFeedbackRequest,
@@ -62,6 +64,7 @@ from app.application.dto.vector_search import VectorSearchHitDTO
 from app.application.services.related_reads_service import RelatedReadsService
 from app.application.services.topic_search_utils import ensure_mapping
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
+from app.config import load_config
 from app.core.html_utils import clean_markdown_article_text, html_to_text
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
@@ -163,6 +166,29 @@ def _safe_compact_summary_quality(json_payload: dict[str, Any]) -> SummaryDetail
         **ensure_mapping(json_payload.get("summary_quality")),
     }
     return _safe_summary_quality(quality)
+
+
+def _format_summary_email_content(
+    json_payload: dict[str, Any], request_data: dict[str, Any]
+) -> str:
+    parts: list[str] = []
+    metadata = ensure_mapping(json_payload.get("metadata"))
+    title = metadata.get("title") or request_data.get("input_url")
+    if title:
+        parts.append(f"# {title}")
+    tldr = json_payload.get("tldr")
+    if tldr:
+        parts.append(str(tldr))
+    summary_250 = json_payload.get("summary_250")
+    if summary_250:
+        parts.append(str(summary_250))
+    key_ideas = json_payload.get("key_ideas")
+    if isinstance(key_ideas, list) and key_ideas:
+        parts.append("Key ideas:\n" + "\n".join(f"- {item}" for item in key_ideas[:10]))
+    source_url = request_data.get("input_url") or request_data.get("normalized_url")
+    if source_url:
+        parts.append(f"Read original: {source_url}")
+    return "\n\n".join(parts)
 
 
 def _build_summary_source_bundle(raw: Any) -> AggregationSourceBundle | None:
@@ -625,6 +651,38 @@ async def get_summary(
             last_read_offset=summary.get("last_read_offset"),
         )
     )
+
+
+@router.post("/{summary_id}/email")
+async def email_summary(
+    summary_id: int,
+    body: SendEmailRequest,
+    user: dict[str, Any] = Depends(get_current_user),
+    use_case: SummaryReadModelUseCase = Depends(_get_summary_use_case),
+) -> Any:
+    """Send an individual summary to a verified email address."""
+    context = await use_case.get_summary_context_for_user(
+        user_id=user["user_id"],
+        summary_id=summary_id,
+    )
+    if not context:
+        raise ResourceNotFoundError("Summary", summary_id)
+
+    summary = context["summary"]
+    request_data = context["request"]
+    json_payload = ensure_mapping(summary.get("json_payload"))
+    metadata = ensure_mapping(json_payload.get("metadata"))
+    title = metadata.get("title") or request_data.get("input_url") or f"Summary {summary_id}"
+    content = _format_summary_email_content(json_payload, request_data)
+    payload = await EmailDeliveryService(load_config().email).send_custom_content(
+        user_id=user["user_id"],
+        address_id=body.email_address_id,
+        subject=f"Ratatoskr summary: {title}",
+        content=content,
+        purpose="summary",
+        metadata={"summary_id": summary_id},
+    )
+    return success_response(payload)
 
 
 @router.get("/{summary_id}/content", response_model=SummaryContentSuccessResponse)

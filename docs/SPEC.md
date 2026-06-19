@@ -20,6 +20,8 @@ Complete PostgreSQL schema reference: all core tables (users, requests, crawl_re
 
 → [Data Model Reference](reference/data-model.md)
 
+Outbound email delivery is optional and off by default. Alembic 0040 adds `user_email_addresses` for one-time verification tokens and `email_deliveries` for provider success/failure logging; `user_digest_preferences.delivery_channel` selects `telegram` or a verified email address for scheduled/on-demand digest delivery.
+
 Telethon session files are the only intentional SQLite carve-out. They are client session stores owned by Telethon, validated by `app/adapters/digest/session_validator.py`, and are not part of Ratatoskr's relational store or PostgreSQL migration.
 
 ---

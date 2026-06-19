@@ -144,6 +144,12 @@ class User(Base):
     digest_deliveries: Mapped[list[Any]] = relationship(
         "DigestDelivery", back_populates="user", cascade="all, delete-orphan"
     )
+    email_addresses: Mapped[list[Any]] = relationship(
+        "UserEmailAddress", back_populates="user", cascade="all, delete-orphan"
+    )
+    email_deliveries: Mapped[list[Any]] = relationship(
+        "EmailDelivery", back_populates="user", cascade="all, delete-orphan"
+    )
     digest_preferences: Mapped[Any | None] = relationship(
         "UserDigestPreference", back_populates="user", cascade="all, delete-orphan"
     )

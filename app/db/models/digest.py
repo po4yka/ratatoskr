@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt  # noqa: TC003
+import uuid
 from typing import Any
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -200,6 +202,10 @@ class UserDigestPreference(Base):
     hours_lookback: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_posts_per_digest: Mapped[int | None] = mapped_column(Integer, nullable=True)
     min_relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delivery_channel: Mapped[str] = mapped_column(Text, default="telegram", nullable=False)
+    email_address_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_email_addresses.id", ondelete="SET NULL"), nullable=True
+    )
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -208,6 +214,75 @@ class UserDigestPreference(Base):
     )
 
     user: Mapped[Any] = relationship("User", back_populates="digest_preferences")
+    email_address: Mapped[Any | None] = relationship("UserEmailAddress")
+
+
+class UserEmailAddress(Base):
+    __tablename__ = "user_email_addresses"
+    __table_args__ = (
+        Index("ix_user_email_addresses_user_id", "user_id"),
+        Index(
+            "ux_user_email_addresses_user_email_canonical",
+            "user_id",
+            "email_canonical",
+            unique=True,
+        ),
+        Index("ix_user_email_addresses_confirmation_token_hash", "confirmation_token_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.telegram_user_id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    email_canonical: Mapped[str] = mapped_column(Text, nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmation_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmation_expires_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    user: Mapped[Any] = relationship("User", back_populates="email_addresses")
+
+
+class EmailDelivery(Base):
+    __tablename__ = "email_deliveries"
+    __table_args__ = (
+        Index("ix_email_deliveries_user_id_created_at", "user_id", "created_at"),
+        Index("ix_email_deliveries_correlation_id", "correlation_id"),
+        Index("ix_email_deliveries_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.telegram_user_id", ondelete="CASCADE"), nullable=False
+    )
+    email_address_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_email_addresses.id", ondelete="SET NULL"), nullable=True
+    )
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    correlation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_message_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[JSONValue] = mapped_column(JSONB, nullable=True)
+    delivered_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    user: Mapped[Any] = relationship("User", back_populates="email_deliveries")
+    email_address: Mapped[UserEmailAddress | None] = relationship("UserEmailAddress")
 
 
 DIGEST_MODELS = (
@@ -218,4 +293,6 @@ DIGEST_MODELS = (
     ChannelPostAnalysis,
     DigestDelivery,
     UserDigestPreference,
+    UserEmailAddress,
+    EmailDelivery,
 )

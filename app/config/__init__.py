@@ -8,6 +8,7 @@ from .circuit_breaker import CircuitBreakerConfig
 from .config_holder import ConfigHolder, ConfigReloader
 from .content import ContentLimitsConfig
 from .database import DatabaseConfig
+from .email import EmailConfig
 from .firecrawl import FirecrawlConfig
 from .integrations import EmbeddingConfig, McpConfig, QdrantConfig, WebSearchConfig
 from .langgraph import LangGraphCheckpointConfig
@@ -52,6 +53,7 @@ __all__ = [
     "DirectOllamaConfig",
     "DirectOpenAIConfig",
     "ElevenLabsConfig",
+    "EmailConfig",
     "EmbeddingConfig",
     "FirecrawlConfig",
     "LLMUsageBudgetConfig",

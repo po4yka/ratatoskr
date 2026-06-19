@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import asyncio
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from app.api.exceptions import ValidationError
 from app.api.models.digest import DigestDeliveryResponse, DigestPreferenceResponse
 from app.api.services._digest_api_shared import require_enabled
 from app.infrastructure.persistence.digest_store import DigestStore
+from app.infrastructure.persistence.email_delivery_store import EmailDeliveryStore
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from app.config.digest import ChannelDigestConfig
+
+T = TypeVar("T")
 
 
 class DigestPreferenceService:
@@ -19,6 +25,7 @@ class DigestPreferenceService:
     def __init__(self, cfg: ChannelDigestConfig) -> None:
         self._cfg = cfg
         self._store = DigestStore()
+        self._email_store = EmailDeliveryStore()
 
     def get_preferences(self, user_id: int) -> DigestPreferenceResponse:
         require_enabled(self._cfg)
@@ -49,6 +56,14 @@ class DigestPreferenceService:
             preference.min_relevance_score if preference else None,
             self._cfg.min_relevance_score,
         )
+        delivery_channel, delivery_channel_source = _value(
+            preference.delivery_channel if preference else None,
+            "telegram",
+        )
+        email_address_id, email_address_id_source = _value(
+            preference.email_address_id if preference else None,
+            None,
+        )
 
         return DigestPreferenceResponse(
             delivery_time=delivery_time,
@@ -61,6 +76,10 @@ class DigestPreferenceService:
             max_posts_per_digest_source=max_posts_source,
             min_relevance_score=min_relevance,
             min_relevance_score_source=min_relevance_source,
+            delivery_channel=delivery_channel,
+            delivery_channel_source=delivery_channel_source,
+            email_address_id=email_address_id,
+            email_address_id_source=email_address_id_source,
         )
 
     def update_preferences(self, user_id: int, **fields: Any) -> DigestPreferenceResponse:
@@ -76,6 +95,19 @@ class DigestPreferenceService:
                 raise ValidationError("delivery_time must contain valid integers") from exc
             if not (0 <= hour <= 23 and 0 <= minute <= 59):
                 raise ValidationError("Invalid hour/minute in delivery_time")
+        delivery_channel = fields.get("delivery_channel")
+        email_address_id = fields.get("email_address_id")
+        if delivery_channel == "email":
+            if email_address_id is None:
+                raise ValidationError("email_address_id is required when delivery_channel is email")
+            verified = _run_async_email_lookup(
+                self._email_store.async_get_verified_address_for_user(
+                    user_id=user_id,
+                    address_id=email_address_id,
+                )
+            )
+            if verified is None:
+                raise ValidationError("Email address must be verified before use")
 
         preference, created = self._store.get_or_create_user_preference(
             user_id,
@@ -85,6 +117,8 @@ class DigestPreferenceService:
                 "hours_lookback": fields.get("hours_lookback"),
                 "max_posts_per_digest": fields.get("max_posts_per_digest"),
                 "min_relevance_score": fields.get("min_relevance_score"),
+                "delivery_channel": fields.get("delivery_channel") or "telegram",
+                "email_address_id": fields.get("email_address_id"),
             },
         )
         if not created:
@@ -95,6 +129,8 @@ class DigestPreferenceService:
                 "hours_lookback",
                 "max_posts_per_digest",
                 "min_relevance_score",
+                "delivery_channel",
+                "email_address_id",
             ):
                 value = fields.get(key)
                 if value is not None and getattr(preference, key) != value:
@@ -125,3 +161,12 @@ class DigestPreferenceService:
             "limit": limit,
             "offset": offset,
         }
+
+
+def _run_async_email_lookup(coro: Coroutine[Any, Any, T]) -> T:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    msg = "DigestPreferenceService sync methods cannot run inside an active event loop"
+    raise RuntimeError(msg)
