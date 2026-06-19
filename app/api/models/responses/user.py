@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .common import SuccessResponse
+
 
 class PreferencesData(BaseModel):
     user_id: int = Field(serialization_alias="userId")
@@ -38,6 +40,23 @@ class UserProfileResponse(BaseModel):
 
 class UserMeResponse(BaseModel):
     profile: UserProfileResponse
+
+
+class UserFeedTokenResponse(BaseModel):
+    token: str
+    feed_url: str = Field(serialization_alias="feedUrl")
+
+
+class UserFeedTokenRevocationResponse(BaseModel):
+    revoked: bool
+
+
+class UserFeedTokenSuccessResponse(SuccessResponse):
+    data: UserFeedTokenResponse
+
+
+class UserFeedTokenRevocationSuccessResponse(SuccessResponse):
+    data: UserFeedTokenRevocationResponse
 
 
 class TopicStat(BaseModel):

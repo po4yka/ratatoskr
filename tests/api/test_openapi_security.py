@@ -37,6 +37,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/v1/auth/refresh"),
         ("POST", "/v1/auth/secret-login"),
         ("POST", "/v1/auth/telegram-login"),
+        ("GET", "/v1/users/me/feed.xml"),
     }
 )
 

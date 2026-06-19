@@ -305,6 +305,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         ("POST", "/v1/auth/refresh"),
         ("POST", "/v1/auth/secret-login"),
         ("POST", "/v1/auth/telegram-login"),
+        ("GET", "/v1/users/me/feed.xml"),
     }
     owner_prefixes = ("/v1/admin/", "/v1/system/")
 

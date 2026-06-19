@@ -5401,6 +5401,120 @@ paths:
           $ref: '#/components/responses/ValidationError'
       security:
       - HTTPBearer: []
+  /v1/users/me/feed-token:
+    post:
+      tags:
+      - User
+      summary: Rotate User Library Feed Token
+      description: Rotate the current user's public-library feed token.
+      operationId: rotate_user_library_feed_token_v1_users_me_feed_token_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserFeedTokenSuccessResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+    delete:
+      tags:
+      - User
+      summary: Revoke User Library Feed Token
+      description: Revoke the current user's active public-library feed token.
+      operationId: revoke_user_library_feed_token_v1_users_me_feed_token_delete
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserFeedTokenRevocationSuccessResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/users/me/feed.xml:
+    get:
+      tags:
+      - User
+      summary: Get Current User Library Feed
+      description: Return the token-scoped user's saved summaries as an Atom feed.
+      operationId: get_current_user_library_feed_v1_users_me_feed_xml_get
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          title: Token
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 64
+          - type: 'null'
+          title: Tag
+      - name: collection
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 200
+          - type: 'null'
+          title: Collection
+      - name: language
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - en
+            - ru
+            type: string
+          - type: 'null'
+          title: Language
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Atom 1.0 feed of saved summaries.
+          content:
+            application/atom+xml: {}
+        '304':
+          description: Feed unchanged for the supplied ETag.
+        '401':
+          description: Missing or invalid feed token.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security: []
   /v1/system/db-dump:
     get:
       tags:
@@ -14952,6 +15066,56 @@ components:
       type: object
       title: UpdateWebhookRequest
       description: Request body for updating a webhook subscription.
+    UserFeedTokenResponse:
+      properties:
+        token:
+          type: string
+          title: Token
+        feedUrl:
+          type: string
+          title: Feedurl
+      type: object
+      required:
+      - token
+      - feedUrl
+      title: UserFeedTokenResponse
+    UserFeedTokenRevocationResponse:
+      properties:
+        revoked:
+          type: boolean
+          title: Revoked
+      type: object
+      required:
+      - revoked
+      title: UserFeedTokenRevocationResponse
+    UserFeedTokenRevocationSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/UserFeedTokenRevocationResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: UserFeedTokenRevocationSuccessResponse
+    UserFeedTokenSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/UserFeedTokenResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: UserFeedTokenSuccessResponse
     ValidationError:
       properties:
         loc:

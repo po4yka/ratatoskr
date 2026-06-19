@@ -1,6 +1,6 @@
-"""User profile route handlers: user account, highlights, tags, and text-to-speech."""
+"""User profile route handlers: user account, highlights, tags, feeds, and text-to-speech."""
 
-from . import highlights, tags, tts, user
+from . import feed, highlights, tags, tts, user
 from .user import (
     complete_onboarding,
     get_current_user_profile,
@@ -10,8 +10,11 @@ from .user import (
     update_current_user_profile,
 )
 
+profile_router.include_router(feed.router)
+
 __all__ = [
     "complete_onboarding",
+    "feed",
     "get_current_user_profile",
     "get_user_preferences",
     "highlights",

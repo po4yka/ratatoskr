@@ -811,11 +811,18 @@ Response:
 - `GET /v1/users/me`
 - `PUT /v1/users/me`
 - `POST /v1/users/me/onboarding/complete`
+- `POST /v1/users/me/feed-token`
+- `DELETE /v1/users/me/feed-token`
+- `GET /v1/users/me/feed.xml?token=...`
 - `GET /v1/user/preferences`
 - `PATCH /v1/user/preferences`
 - `GET /v1/user/stats`
 
 `GET /v1/users/me` returns `{ profile }` with typed fields: `userId`, `telegramUsername`, `displayName`, `locale`, `theme`, `defaultSummaryLanguage`, `onboardingCompletedAt`, `createdAt`, and `updatedAt`. `PUT /v1/users/me` accepts `locale`, `theme` (`dark`, `light`, `system`), `displayName`, and `defaultSummaryLanguage` (`auto`, `en`, `ru`) and returns the same shape. `POST /v1/users/me/onboarding/complete` sets `onboardingCompletedAt` and returns the updated profile. Legacy `/v1/user/preferences` remains supported and mirrors `lang_preference` / `app_settings.theme` into typed profile fields for backwards compatibility.
+
+`POST /v1/users/me/feed-token` rotates the current user's public library feed token and returns `token` plus `feedUrl`. Only the newest active token works; rotation revokes the previous feed URL. `DELETE /v1/users/me/feed-token` revokes the active token. `GET /v1/users/me/feed.xml?token=<rss-token>` is intentionally bearer-auth-free for feed readers and resolves the user from the token. It returns Atom 1.0 XML with `Cache-Control: private, max-age=300` and a strong `ETag`; callers may send `If-None-Match` and receive `304 Not Modified` when the feed is unchanged. Optional filters are `tag=<topic>`, `collection=<collection-id-or-name>`, `language=en|ru`, and `limit=1..100`.
+
+Obsidian usage example: rotate a token from an authenticated API session, then paste the returned `feedUrl` into a feed-reader plugin. To subscribe to one collection only, append `&collection=Reading%20Queue`; to subscribe to Russian summaries only, append `&language=ru`. Treat the URL as a secret because anyone with it can read the token-scoped feed until it is rotated or revoked.
 
 ### Notifications and Proxy
 
