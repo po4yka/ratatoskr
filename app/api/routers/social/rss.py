@@ -158,13 +158,13 @@ async def unsubscribe(
     """Unsubscribe from an RSS feed (verify ownership)."""
     repo = _get_rss_repo()
 
-    # Verify ownership by checking user's subscriptions
-    subs = await repo.async_list_user_subscriptions(user["user_id"])
-    owned = any(s["id"] == subscription_id for s in subs)
-    if not owned:
+    # Atomic user-scoped delete: only deletes when user_id matches, preventing IDOR.
+    deleted = await repo.async_delete_subscription_for_user(
+        user_id=user["user_id"],
+        subscription_id=subscription_id,
+    )
+    if not deleted:
         raise ResourceNotFoundError("Subscription", subscription_id)
-
-    await repo.async_delete_subscription(subscription_id)
     return success_response({"deleted": True, "id": subscription_id})
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import (
@@ -113,6 +113,25 @@ class RSSFeedRepositoryAdapter:
             subscription = await session.get(RSSFeedSubscription, subscription_id)
             if subscription is not None:
                 await session.delete(subscription)
+
+    async def async_delete_subscription_for_user(
+        self, *, user_id: int, subscription_id: int
+    ) -> bool:
+        """Delete a subscription only if it belongs to user_id.
+
+        Returns True when a row was deleted, False when no matching row existed
+        (either the subscription does not exist or it belongs to a different user).
+        """
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                delete(RSSFeedSubscription)
+                .where(
+                    RSSFeedSubscription.id == subscription_id,
+                    RSSFeedSubscription.user_id == user_id,
+                )
+                .returning(RSSFeedSubscription.id)
+            )
+            return result.first() is not None
 
     async def async_list_user_subscriptions(self, user_id: int) -> list[dict[str, Any]]:
         """Return all subscriptions for a user, joined with feed details."""
