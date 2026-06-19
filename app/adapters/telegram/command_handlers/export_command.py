@@ -92,16 +92,19 @@ class ExportHandler(HandlerDependenciesMixin):
         buf = io.BytesIO(file_bytes)
         buf.name = filename
 
+        error_occurred = False
         try:
             await ctx.message.reply_document(
                 document=buf,
                 file_name=filename,
             )
-        except Exception:
+        except Exception as exc:
+            error_occurred = True
             logger.exception(
                 "export_send_failed",
-                extra={"uid": ctx.uid, "format": fmt},
+                extra={"uid": ctx.uid, "format": fmt, "error": str(exc)},
             )
+        if error_occurred:
             await ctx.response_formatter.safe_reply(
                 ctx.message,
                 "Failed to send the export file. Please try again.",
