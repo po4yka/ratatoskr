@@ -309,7 +309,8 @@ class CollectionService:
             updates["position"] = new_pos
 
         if updates:
-            await repo.async_update_collection(collection_id, **updates)
+            owner_user_id = int(collection["user_id"])
+            await repo.async_update_collection(collection_id, owner_user_id, **updates)
 
         # Re-evaluate if conditions changed
         if is_smart and conditions_changed:
@@ -328,9 +329,9 @@ class CollectionService:
     async def delete_collection(self, collection_id: int, user_id: int) -> None:
         """Soft delete a collection."""
         repo = self._repo()
-        await self._get_collection_or_raise(repo, collection_id)
+        collection = await self._get_collection_or_raise(repo, collection_id)
         await self._require_role(repo, collection_id, user_id, "owner")
-        await repo.async_soft_delete_collection(collection_id)
+        await repo.async_soft_delete_collection(collection_id, int(collection["user_id"]))
 
     # ---- items ----
     async def add_item(self, collection_id: int, summary_id: int, user_id: int) -> None:
@@ -721,7 +722,9 @@ class CollectionService:
         count = int(await repo.async_bulk_set_items(collection_id, matching_ids))
 
         # Update last_evaluated_at
-        await repo.async_update_collection(collection_id, last_evaluated_at=dt.datetime.now(UTC))
+        await repo.async_update_collection(
+            collection_id, int(collection["user_id"]), last_evaluated_at=dt.datetime.now(UTC)
+        )
 
         logger.info(
             "smart_collection_evaluated",

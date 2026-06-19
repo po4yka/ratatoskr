@@ -118,6 +118,7 @@ class CollectionRepositoryAdapter:
     async def async_update_collection(
         self,
         collection_id: int,
+        owner_user_id: int,
         **fields: Any,
     ) -> None:
         allowed = set(Collection.__table__.columns.keys()) - {"id", "user_id", "created_at"}
@@ -128,15 +129,23 @@ class CollectionRepositoryAdapter:
         async with self._database.transaction() as session:
             await session.execute(
                 update(Collection)
-                .where(Collection.id == collection_id, Collection.is_deleted.is_(False))
+                .where(
+                    Collection.id == collection_id,
+                    Collection.user_id == owner_user_id,
+                    Collection.is_deleted.is_(False),
+                )
                 .values(**update_fields)
             )
 
-    async def async_soft_delete_collection(self, collection_id: int) -> None:
+    async def async_soft_delete_collection(self, collection_id: int, owner_user_id: int) -> None:
         async with self._database.transaction() as session:
             await session.execute(
                 update(Collection)
-                .where(Collection.id == collection_id, Collection.is_deleted.is_(False))
+                .where(
+                    Collection.id == collection_id,
+                    Collection.user_id == owner_user_id,
+                    Collection.is_deleted.is_(False),
+                )
                 .values(is_deleted=True, deleted_at=_now(), updated_at=_now())
             )
 

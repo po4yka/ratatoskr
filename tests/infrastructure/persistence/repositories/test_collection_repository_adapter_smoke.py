@@ -84,9 +84,9 @@ async def test_collection_repository_empty_database_paths() -> None:
         )
         is None
     )
-    await repo.async_update_collection(1)
-    await repo.async_update_collection(1, name="Renamed", unknown="ignored")
-    await repo.async_soft_delete_collection(1)
+    await repo.async_update_collection(1, 1)
+    await repo.async_update_collection(1, 1, name="Renamed", unknown="ignored")
+    await repo.async_soft_delete_collection(1, 1)
     assert await repo.async_get_next_position(None) == 1
     assert await repo.async_get_next_position(1) == 1
     await repo.async_shift_positions(None, 1)

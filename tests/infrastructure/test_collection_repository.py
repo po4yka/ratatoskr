@@ -124,7 +124,9 @@ async def test_collection_repository_crud_tree_and_move_operations(database: Dat
     ids = {item["id"] for item in tree}
     assert {root_id, second_root_id, child_id}.issubset(ids)
 
-    await repo.async_update_collection(child_id, name="Renamed Child", description="updated")
+    await repo.async_update_collection(
+        child_id, owner.telegram_user_id, name="Renamed Child", description="updated"
+    )
     moved = await repo.async_move_collection(child_id, None, 1)
     assert moved is not None
     assert moved["parent"] is None
@@ -143,7 +145,7 @@ async def test_collection_repository_crud_tree_and_move_operations(database: Dat
     assert renamed["name"] == "Renamed Child"
     assert renamed["item_count"] == 0
 
-    await repo.async_soft_delete_collection(second_root_id)
+    await repo.async_soft_delete_collection(second_root_id, owner.telegram_user_id)
     assert await repo.async_get_collection(second_root_id) is None
     deleted = await repo.async_get_collection(second_root_id, include_deleted=True)
     assert deleted is not None
