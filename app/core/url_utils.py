@@ -27,11 +27,12 @@ from app.core.urls.twitter import (
     is_twitter_article_url,
     is_twitter_url,
 )
-from app.core.urls.validation import dns_cache_scope, validate_url_input
+from app.core.urls.validation import async_validate_url_input, dns_cache_scope, validate_url_input
 from app.core.urls.youtube import extract_youtube_video_id, is_youtube_url
 
 __all__ = [
     "TRACKING_PARAMS",
+    "async_validate_url_input",
     "canonicalize_twitter_url",
     "compute_dedupe_hash",
     "dns_cache_scope",
