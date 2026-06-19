@@ -115,6 +115,13 @@ def get_current_user(
         if not Config.is_user_allowed(user_id, fail_open_when_empty=False):
             raise AuthorizationError("User not authorized")
 
+        try:
+            from app.observability.otel import set_user_id_attr
+
+            set_user_id_attr(user_id)
+        except ImportError:
+            pass
+
         # Validate client_id from token
         client_id = payload.get("client_id")
         validate_client_id(client_id)

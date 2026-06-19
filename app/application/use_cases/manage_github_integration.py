@@ -17,6 +17,7 @@ from app.application.ports.github_integration import (
     GitHubIntegrationStatus,
     GitHubIntegrationUpsert,
 )
+from app.application.use_cases._tracing import use_case_span
 from app.core.logging_utils import get_logger
 from app.security.token_crypto import encrypt_token
 
@@ -97,73 +98,78 @@ class ManageGitHubIntegrationUseCase:
             InsufficientScopeError: token is missing required scopes.
             InvalidGitHubTokenError: GitHub rejected the token (401/403).
         """
-        async with self._gateway_factory(token) as gh:
-            try:
-                gh_user, scopes = await gh.get_user_with_scopes()
-            except GitHubAuthError as exc:
-                raise InvalidGitHubTokenError(f"Token rejected by GitHub: {exc}") from exc
+        with use_case_span(
+            "github_integration.validate_and_store", user_id=user_id, correlation_id=correlation_id
+        ):
+            async with self._gateway_factory(token) as gh:
+                try:
+                    gh_user, scopes = await gh.get_user_with_scopes()
+                except GitHubAuthError as exc:
+                    raise InvalidGitHubTokenError(f"Token rejected by GitHub: {exc}") from exc
 
-            if not scopes:
-                # Fine-grained PAT: scope names are opaque; probe capability instead
-                if not await gh.probe_repository_access():
-                    raise InsufficientScopeError(missing_scopes=["repository access"])
-                token_scopes_value = "fine-grained"
-                scope_warnings: list[str] = []
-            else:
-                scope_warnings = _collect_scope_warnings(scopes)
-                token_scopes_value = ", ".join(scopes)
+                if not scopes:
+                    # Fine-grained PAT: scope names are opaque; probe capability instead
+                    if not await gh.probe_repository_access():
+                        raise InsufficientScopeError(missing_scopes=["repository access"])
+                    token_scopes_value = "fine-grained"
+                    scope_warnings: list[str] = []
+                else:
+                    scope_warnings = _collect_scope_warnings(scopes)
+                    token_scopes_value = ", ".join(scopes)
 
-        encrypted = encrypt_token(token)
+            encrypted = encrypt_token(token)
 
-        record = await self._repo.upsert(
-            GitHubIntegrationUpsert(
-                user_id=user_id,
-                auth_method=auth_method,
-                encrypted_token=encrypted,
-                token_scopes=token_scopes_value,
-                github_login=gh_user.login,
-                github_user_id=gh_user.id,
-                status=GitHubIntegrationStatus.ACTIVE,
+            record = await self._repo.upsert(
+                GitHubIntegrationUpsert(
+                    user_id=user_id,
+                    auth_method=auth_method,
+                    encrypted_token=encrypted,
+                    token_scopes=token_scopes_value,
+                    github_login=gh_user.login,
+                    github_user_id=gh_user.id,
+                    status=GitHubIntegrationStatus.ACTIVE,
+                )
             )
-        )
 
-        logger.info(
-            "github_integration_connected",
-            extra={
-                "correlation_id": correlation_id,
-                "user_id": user_id,
-                "auth_method": auth_method.value,
-                "github_login": gh_user.login,
-            },
-        )
-        return record, scope_warnings
+            logger.info(
+                "github_integration_connected",
+                extra={
+                    "correlation_id": correlation_id,
+                    "user_id": user_id,
+                    "auth_method": auth_method.value,
+                    "github_login": gh_user.login,
+                },
+            )
+            return record, scope_warnings
 
     async def get_status(self, user_id: int) -> GitHubIntegrationStatusDTO:
         """Return current integration status DTO. is_connected=False when no row exists."""
-        record = await self._repo.get_by_user_id(user_id)
-        if record is None:
+        with use_case_span("github_integration.get_status", user_id=user_id):
+            record = await self._repo.get_by_user_id(user_id)
+            if record is None:
+                return GitHubIntegrationStatusDTO(
+                    is_connected=False,
+                    auth_method=None,
+                    github_login=None,
+                    github_user_id=None,
+                    status=None,
+                    last_synced_at=None,
+                    repo_count=0,
+                )
+
+            repo_count = await self._repo.count_repositories(user_id)
+
             return GitHubIntegrationStatusDTO(
-                is_connected=False,
-                auth_method=None,
-                github_login=None,
-                github_user_id=None,
-                status=None,
-                last_synced_at=None,
-                repo_count=0,
+                is_connected=True,
+                auth_method=record.auth_method,
+                github_login=record.github_login,
+                github_user_id=record.github_user_id,
+                status=record.status,
+                last_synced_at=record.last_synced_at,
+                repo_count=repo_count,
             )
-
-        repo_count = await self._repo.count_repositories(user_id)
-
-        return GitHubIntegrationStatusDTO(
-            is_connected=True,
-            auth_method=record.auth_method,
-            github_login=record.github_login,
-            github_user_id=record.github_user_id,
-            status=record.status,
-            last_synced_at=record.last_synced_at,
-            repo_count=repo_count,
-        )
 
     async def revoke(self, user_id: int) -> None:
         """Delete the integration row (user revokes on github.com themselves)."""
-        await self._repo.delete_by_user_id(user_id)
+        with use_case_span("github_integration.revoke", user_id=user_id):
+            await self._repo.delete_by_user_id(user_id)

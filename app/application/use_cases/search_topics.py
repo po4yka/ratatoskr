@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from app.application.use_cases._tracing import use_case_span
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -63,63 +64,64 @@ class SearchTopicsUseCase:
             Exception: If search service fails.
 
         """
-        logger.info(
-            "search_topics_started",
-            extra={
-                "topic": query.topic,
-                "user_id": query.user_id,
-                "max_results": query.max_results,
-                "cid": query.correlation_id,
-            },
-        )
-
-        try:
-            articles = await self._search_service.find_articles(
-                topic=query.topic,
-                correlation_id=query.correlation_id,
-            )
-
-            result = [
-                TopicArticleDTO(
-                    title=article.title,
-                    url=article.url,
-                    snippet=article.snippet,
-                    source=article.source,
-                    published_at=article.published_at,
-                )
-                for article in articles
-            ]
-
+        with use_case_span("search_topics.execute", query):
             logger.info(
-                "search_topics_completed",
+                "search_topics_started",
                 extra={
                     "topic": query.topic,
                     "user_id": query.user_id,
-                    "count": len(result),
+                    "max_results": query.max_results,
                     "cid": query.correlation_id,
                 },
             )
 
-            return result
+            try:
+                articles = await self._search_service.find_articles(
+                    topic=query.topic,
+                    correlation_id=query.correlation_id,
+                )
 
-        except ValueError as e:
-            logger.warning(
-                "search_topics_validation_error",
-                extra={
-                    "topic": query.topic,
-                    "error": str(e),
-                    "cid": query.correlation_id,
-                },
-            )
-            raise
+                result = [
+                    TopicArticleDTO(
+                        title=article.title,
+                        url=article.url,
+                        snippet=article.snippet,
+                        source=article.source,
+                        published_at=article.published_at,
+                    )
+                    for article in articles
+                ]
 
-        except Exception as e:
-            logger.exception(
-                "search_topics_failed",
-                extra={
-                    "topic": query.topic,
-                    "error": str(e),
-                    "cid": query.correlation_id,
-                },
-            )
-            raise
+                logger.info(
+                    "search_topics_completed",
+                    extra={
+                        "topic": query.topic,
+                        "user_id": query.user_id,
+                        "count": len(result),
+                        "cid": query.correlation_id,
+                    },
+                )
+
+                return result
+
+            except ValueError as e:
+                logger.warning(
+                    "search_topics_validation_error",
+                    extra={
+                        "topic": query.topic,
+                        "error": str(e),
+                        "cid": query.correlation_id,
+                    },
+                )
+                raise
+
+            except Exception as e:
+                logger.exception(
+                    "search_topics_failed",
+                    extra={
+                        "topic": query.topic,
+                        "error": str(e),
+                        "cid": query.correlation_id,
+                    },
+                )
+                raise

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 _initialized = False
 _otel_available = False
+_instrumented_fastapi_app_ids: set[int] = set()
 _HTTP_CAPTURE_SANITIZE_ENV = "OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SANITIZE_FIELDS"
 _SENSITIVE_HTTP_HEADER_SANITIZERS = (
     "authorization",
@@ -111,7 +112,7 @@ def _build_exporter(cfg: AppConfig | None) -> Any:
     return OTLPSpanExporter(endpoint=endpoint, insecure=True)
 
 
-def init_tracing(cfg: AppConfig | None = None) -> None:
+def init_tracing(cfg: AppConfig | None = None, *, fastapi_app: Any | None = None) -> None:
     """Initialise the OTel SDK.  No-op when [otel] extra is absent or OTEL_ENABLED=false.
 
     Call once per process, before any httpx/redis client is constructed.
@@ -125,6 +126,8 @@ def init_tracing(cfg: AppConfig | None = None) -> None:
     """
     global _initialized
     if _initialized:
+        if fastapi_app is not None:
+            instrument_fastapi_app(fastapi_app, cfg=cfg)
         return
     if not _otel_available or not _is_enabled(cfg):
         return
@@ -163,8 +166,30 @@ def init_tracing(cfg: AppConfig | None = None) -> None:
     HTTPXClientInstrumentor().instrument()
     RedisInstrumentor().instrument()
     LoggingInstrumentor().instrument(set_logging_format=False)
+    if fastapi_app is not None:
+        instrument_fastapi_app(fastapi_app, cfg=cfg)
 
     _initialized = True
+
+
+def instrument_fastapi_app(app: Any, *, cfg: AppConfig | None = None) -> None:
+    """Auto-instrument a FastAPI app when tracing is enabled.
+
+    Kept in this module so HTTP server instrumentation is configured beside the
+    other OpenTelemetry instrumentors. The helper is idempotent per app object.
+    """
+    if not _otel_available or not _is_enabled(cfg):
+        return
+    app_id = id(app)
+    if app_id in _instrumented_fastapi_app_ids:
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app)
+    except ImportError:
+        return
+    _instrumented_fastapi_app_ids.add(app_id)
 
 
 def shutdown_tracing() -> None:
@@ -192,6 +217,17 @@ def set_correlation_id_attr(cid: str | None) -> None:
     span = _trace.get_current_span()
     if span.is_recording():
         span.set_attribute(REQUEST_CORRELATION_ID, cid)
+
+
+def set_user_id_attr(user_id: int | str | None) -> None:
+    """Attach user_id to the current active span as a span attribute."""
+    if not _otel_available or user_id is None:
+        return
+    from app.observability.attributes import REQUEST_USER_ID
+
+    span = _trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute(REQUEST_USER_ID, user_id)
 
 
 # ---------------------------------------------------------------------------

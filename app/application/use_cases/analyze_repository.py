@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+from app.application.use_cases._tracing import use_case_span
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -94,119 +95,130 @@ class AnalyzeRepositoryUseCase:
             :class:`RepositoryNotFoundError`: When no repository with
                 ``repository_id`` exists.
         """
-        repository = await self._load_repository(repository_id)
-
-        new_content_hash = _compute_content_hash(repository)
-
-        # Cache hit: skip LLM if content unchanged and analysis already exists
-        if (
-            not force
-            and repository.content_hash is not None
-            and repository.content_hash == new_content_hash
-            and repository.analysis_json is not None
+        with use_case_span(
+            "analyze_repository.analyze",
+            correlation_id=correlation_id,
+            attributes={
+                "ratatoskr.repository.id": repository_id,
+                "ratatoskr.repository.force": force,
+                "ratatoskr.repository.lang": chosen_lang,
+            },
         ):
+            repository = await self._load_repository(repository_id)
+
+            new_content_hash = _compute_content_hash(repository)
+
+            # Cache hit: skip LLM if content unchanged and analysis already exists
+            if (
+                not force
+                and repository.content_hash is not None
+                and repository.content_hash == new_content_hash
+                and repository.analysis_json is not None
+            ):
+                logger.info(
+                    "analyze_repository_cache_hit",
+                    extra={
+                        "event": "analyze_repository_cache_hit",
+                        "correlation_id": correlation_id,
+                        "repository_id": repository_id,
+                        "full_name": repository.full_name,
+                    },
+                )
+                existing_analysis = _deserialize_analysis(repository.analysis_json)
+                return RepositoryAnalysisResult(
+                    repository_id=repository_id,
+                    analysis=existing_analysis,
+                    cached=True,
+                    embedding_refreshed=False,
+                )
+
+            # Build agent input from the repository row
+            from app.core.repo_analysis_schema import RepoAnalysisInput
+
+            languages: dict[str, int] = (
+                dict(repository.languages_json)
+                if isinstance(repository.languages_json, dict)
+                else {}
+            )
+            topics: list[str] = (
+                list(repository.topics_json) if isinstance(repository.topics_json, list) else []
+            )
+            agent_input = RepoAnalysisInput(
+                full_name=repository.full_name,
+                description=repository.description,
+                topics=topics,
+                primary_language=repository.primary_language,
+                languages=languages,
+                license_spdx=repository.license_spdx,
+                readme_excerpt=repository.readme_excerpt,
+                default_branch=repository.default_branch,
+            )
+
             logger.info(
-                "analyze_repository_cache_hit",
+                "analyze_repository_llm_start",
                 extra={
-                    "event": "analyze_repository_cache_hit",
+                    "event": "analyze_repository_llm_start",
                     "correlation_id": correlation_id,
                     "repository_id": repository_id,
                     "full_name": repository.full_name,
+                    "force": force,
                 },
             )
-            existing_analysis = _deserialize_analysis(repository.analysis_json)
-            return RepositoryAnalysisResult(
-                repository_id=repository_id,
-                analysis=existing_analysis,
-                cached=True,
-                embedding_refreshed=False,
+
+            analysis = await self._agent.analyze(
+                agent_input,
+                chosen_lang=chosen_lang,
+                correlation_id=correlation_id,
             )
 
-        # Build agent input from the repository row
-        from app.core.repo_analysis_schema import RepoAnalysisInput
+            if analysis is None:
+                logger.warning(
+                    "analyze_repository_llm_failed",
+                    extra={
+                        "event": "analyze_repository_llm_failed",
+                        "correlation_id": correlation_id,
+                        "repository_id": repository_id,
+                        "full_name": repository.full_name,
+                    },
+                )
+                return RepositoryAnalysisResult(
+                    repository_id=repository_id,
+                    analysis=None,
+                    cached=False,
+                    embedding_refreshed=False,
+                )
 
-        languages: dict[str, int] = (
-            dict(repository.languages_json) if isinstance(repository.languages_json, dict) else {}
-        )
-        topics: list[str] = (
-            list(repository.topics_json) if isinstance(repository.topics_json, list) else []
-        )
-        agent_input = RepoAnalysisInput(
-            full_name=repository.full_name,
-            description=repository.description,
-            topics=topics,
-            primary_language=repository.primary_language,
-            languages=languages,
-            license_spdx=repository.license_spdx,
-            readme_excerpt=repository.readme_excerpt,
-            default_branch=repository.default_branch,
-        )
+            # Persist analysis to the repository row
+            repository = await self._persist_analysis(
+                repository,
+                analysis=analysis,
+                content_hash=new_content_hash,
+            )
 
-        logger.info(
-            "analyze_repository_llm_start",
-            extra={
-                "event": "analyze_repository_llm_start",
-                "correlation_id": correlation_id,
-                "repository_id": repository_id,
-                "full_name": repository.full_name,
-                "force": force,
-            },
-        )
+            # Refresh embedding
+            await self._embedding_gen.regenerate(
+                repository,
+                analysis=analysis,
+                correlation_id=correlation_id,
+            )
 
-        analysis = await self._agent.analyze(
-            agent_input,
-            chosen_lang=chosen_lang,
-            correlation_id=correlation_id,
-        )
-
-        if analysis is None:
-            logger.warning(
-                "analyze_repository_llm_failed",
+            logger.info(
+                "analyze_repository_complete",
                 extra={
-                    "event": "analyze_repository_llm_failed",
+                    "event": "analyze_repository_complete",
                     "correlation_id": correlation_id,
                     "repository_id": repository_id,
                     "full_name": repository.full_name,
+                    "confidence": analysis.confidence,
                 },
             )
+
             return RepositoryAnalysisResult(
                 repository_id=repository_id,
-                analysis=None,
+                analysis=analysis,
                 cached=False,
-                embedding_refreshed=False,
+                embedding_refreshed=True,
             )
-
-        # Persist analysis to the repository row
-        repository = await self._persist_analysis(
-            repository,
-            analysis=analysis,
-            content_hash=new_content_hash,
-        )
-
-        # Refresh embedding
-        await self._embedding_gen.regenerate(
-            repository,
-            analysis=analysis,
-            correlation_id=correlation_id,
-        )
-
-        logger.info(
-            "analyze_repository_complete",
-            extra={
-                "event": "analyze_repository_complete",
-                "correlation_id": correlation_id,
-                "repository_id": repository_id,
-                "full_name": repository.full_name,
-                "confidence": analysis.confidence,
-            },
-        )
-
-        return RepositoryAnalysisResult(
-            repository_id=repository_id,
-            analysis=analysis,
-            cached=False,
-            embedding_refreshed=True,
-        )
 
     # ------------------------------------------------------------------
     # Private helpers

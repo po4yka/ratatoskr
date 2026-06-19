@@ -24,6 +24,7 @@ from app.db.runtime.bootstrap import DatabaseBootstrapService
 from app.db.runtime.inspection import DatabaseInspectionService
 from app.db.runtime.maintenance import DatabaseMaintenanceService
 from app.db.runtime.operation_executor import DatabaseOperationExecutor
+from app.observability.attributes import DB_OPERATION
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -37,6 +38,12 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 _RETRYABLE_SQLSTATES = {"40001", "40P01"}
+
+
+def _get_tracer() -> Any:
+    from app.observability.otel import get_tracer
+
+    return get_tracer(__name__)
 
 
 @dataclass(slots=True)
@@ -127,14 +134,22 @@ class Database:
     @asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:
         """Yield a session without starting an implicit transaction block."""
-        async with self._session_maker() as session:
-            yield session
+        with _get_tracer().start_as_current_span(
+            "db.session",
+            attributes={DB_OPERATION: "session"},
+        ):
+            async with self._session_maker() as session:
+                yield session
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[AsyncSession]:
         """Yield a session inside a transaction, committing only on success."""
-        async with self._session_maker() as session, session.begin():
-            yield session
+        with _get_tracer().start_as_current_span(
+            "db.transaction",
+            attributes={DB_OPERATION: "transaction"},
+        ):
+            async with self._session_maker() as session, session.begin():
+                yield session
 
     async def healthcheck(self) -> None:
         async with self.session() as session:

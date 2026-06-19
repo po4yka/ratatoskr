@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.application.ports.summaries import SummaryRepositoryPort
+from app.application.use_cases._tracing import use_case_span
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -52,31 +53,32 @@ class GetUnreadSummariesUseCase:
             List of unread summary dicts as returned by the repository.
 
         """
-        logger.info(
-            "get_unread_summaries_started",
-            extra={
-                "user_id": query.user_id,
-                "chat_id": query.chat_id,
-                "limit": query.limit,
-                "topic": query.topic,
-            },
-        )
+        with use_case_span("get_unread_summaries.execute", query):
+            logger.info(
+                "get_unread_summaries_started",
+                extra={
+                    "user_id": query.user_id,
+                    "chat_id": query.chat_id,
+                    "limit": query.limit,
+                    "topic": query.topic,
+                },
+            )
 
-        summaries = await self._summary_repo.async_get_unread_summaries(
-            user_id=query.user_id,
-            chat_id=query.chat_id,
-            limit=query.limit,
-            topic=query.topic,
-        )
+            summaries = await self._summary_repo.async_get_unread_summaries(
+                user_id=query.user_id,
+                chat_id=query.chat_id,
+                limit=query.limit,
+                topic=query.topic,
+            )
 
-        logger.info(
-            "get_unread_summaries_completed",
-            extra={
-                "user_id": query.user_id,
-                "chat_id": query.chat_id,
-                "topic": query.topic,
-                "count": len(summaries),
-            },
-        )
+            logger.info(
+                "get_unread_summaries_completed",
+                extra={
+                    "user_id": query.user_id,
+                    "chat_id": query.chat_id,
+                    "topic": query.topic,
+                    "count": len(summaries),
+                },
+            )
 
-        return summaries
+            return summaries

@@ -16,6 +16,42 @@ External API failures (Firecrawl rate limits, OpenRouter model outages, Telegram
 
 ## The Observability Stack
 
+### 0. OpenTelemetry Traces (Tempo)
+
+OpenTelemetry is opt-in with `OTEL_ENABLED=true`. The default exporter is OTLP/gRPC to `OTEL_EXPORTER_OTLP_ENDPOINT` and production compose points this at Tempo (`http://tempo:4317`); local debugging can use `OTEL_TRACES_EXPORTER=console` or `OTEL_TRACES_EXPORTER=file OTEL_FILE_EXPORTER_PATH=/data/traces/spans.jsonl`.
+
+FastAPI, httpx, Redis, Taskiq trace-context propagation, Telethon helper spans, summarize graph nodes, scraper-chain providers, OpenRouter calls, database session/transaction boundaries, and application use cases are all part of the same trace tree. Application spans use `ratatoskr.use_case.name`, `ratatoskr.user_id`, and `ratatoskr.correlation_id` when those values are available. Database spans use `ratatoskr.db.operation`; scraper spans use `ratatoskr.scraper.*`; LLM spans use `ratatoskr.llm.*`.
+
+Example API repository-analysis trace in Tempo:
+
+```text
+POST /v1/repositories/{repository_id}/analyze
+  use_case.analyze_repository.analyze {ratatoskr.correlation_id=req_abc123, ratatoskr.repository.id=456}
+    db.session {ratatoskr.db.operation=session}
+    agent.repo_analysis {ratatoskr.correlation_id=req_abc123}
+      llm.chat_structured {ratatoskr.llm.provider=openrouter, ratatoskr.correlation_id=req_abc123}
+    db.transaction {ratatoskr.db.operation=transaction}
+    embedding.encode {ratatoskr.embedding.batch_size=1}
+    vector.replace {ratatoskr.vector.operation=replace}
+```
+
+Example Telegram summary trace:
+
+```text
+telegram.update {ratatoskr.correlation_id=req_abc123}
+  url_flow.process {ratatoskr.correlation_id=req_abc123}
+    graph.summarize.extract {ratatoskr.graph.node=extract}
+      scraper.chain {ratatoskr.scraper.mode=tiered_race}
+        scraper.scrapling {ratatoskr.scraper.provider=scrapling, ratatoskr.scraper.outcome=no_content}
+        scraper.defuddle {ratatoskr.scraper.provider=defuddle, ratatoskr.scraper.outcome=success}
+    graph.summarize.summarize {ratatoskr.graph.node=summarize}
+      llm.chat {ratatoskr.llm.provider=openrouter, ratatoskr.llm.tokens_total=1894}
+    graph.summarize.persist {ratatoskr.graph.node=persist}
+      db.transaction {ratatoskr.db.operation=transaction}
+```
+
+In Grafana, add a Tempo panel that filters by `resource.service.name="ratatoskr"` and exposes `ratatoskr.correlation_id` and `ratatoskr.user_id` as searchable span attributes. The fastest incident workflow is: copy the user-visible Error ID, search Tempo by `ratatoskr.correlation_id`, then pivot from the slowest scraper/LLM/database span into Loki using the same correlation ID.
+
 ### 1. Correlation IDs (Request Tracing)
 
 **Problem:** When a user reports "my summary failed", how do you trace the request across Telegram → Database → Firecrawl → OpenRouter → Logs?

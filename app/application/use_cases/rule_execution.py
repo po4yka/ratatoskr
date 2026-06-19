@@ -11,6 +11,7 @@ from app.application.dto.rule_execution import (
     RuleEvaluationContextDTO,
     RuleExecutionResultDTO,
 )
+from app.application.use_cases._tracing import use_case_span
 from app.core.logging_utils import get_logger
 from app.domain.services.rule_engine import MAX_EXECUTIONS_PER_MINUTE, RuleConditionEvaluator
 from app.domain.services.tag_service import normalize_tag_name
@@ -314,90 +315,95 @@ class RuleExecutionUseCase:
         processing_rule_ids: set[int] | None = None,
     ) -> list[RuleExecutionResultDTO]:
         """Evaluate enabled rules for an event and execute the matched actions."""
-        if processing_rule_ids is None:
-            processing_rule_ids = set()
+        with use_case_span(
+            "rule_execution.evaluate_and_execute",
+            user_id=user_id,
+            attributes={"ratatoskr.rule.event_type": event_type},
+        ):
+            if processing_rule_ids is None:
+                processing_rule_ids = set()
 
-        allowed = await self._rate_limiter.async_allow_execution(
-            user_id,
-            limit=MAX_EXECUTIONS_PER_MINUTE,
-            window_seconds=RULE_WINDOW_SECONDS,
-        )
-        if not allowed:
-            logger.warning(
-                "rule_execution_rate_limited",
-                extra={"user_id": user_id, "event_type": event_type},
+            allowed = await self._rate_limiter.async_allow_execution(
+                user_id,
+                limit=MAX_EXECUTIONS_PER_MINUTE,
+                window_seconds=RULE_WINDOW_SECONDS,
             )
-            return []
-
-        rules = await self._rule_repository.async_get_rules_by_event_type(user_id, event_type)
-        if not rules:
-            return []
-
-        context_dto = await self._rule_context.async_build_context(event_data)
-        context = context_dto.as_dict()
-        summary_id = event_data.get("summary_id")
-        results: list[RuleExecutionResultDTO] = []
-
-        for rule in rules:
-            rule_id = int(rule["id"])
-            if rule_id in processing_rule_ids:
+            if not allowed:
                 logger.warning(
-                    "rule_execution_loop_detected",
-                    extra={"rule_id": rule_id, "user_id": user_id},
+                    "rule_execution_rate_limited",
+                    extra={"user_id": user_id, "event_type": event_type},
                 )
-                continue
+                return []
 
-            started_at = time.monotonic()
-            error: str | None = None
-            matched, conditions_result = RuleConditionEvaluator.evaluate_conditions(
-                rule.get("conditions_json") or [],
-                context,
-                rule.get("match_mode") or "all",
-            )
-            actions_taken: list[RuleActionResultDTO] = []
+            rules = await self._rule_repository.async_get_rules_by_event_type(user_id, event_type)
+            if not rules:
+                return []
 
-            try:
-                if matched:
-                    for action in rule.get("actions_json") or []:
-                        actions_taken.append(
-                            await self._execute_action(
-                                action=action,
-                                user_id=user_id,
-                                summary_id=summary_id,
-                                event_type=event_type,
-                                event_data=event_data,
-                                context=context_dto,
+            context_dto = await self._rule_context.async_build_context(event_data)
+            context = context_dto.as_dict()
+            summary_id = event_data.get("summary_id")
+            results: list[RuleExecutionResultDTO] = []
+
+            for rule in rules:
+                rule_id = int(rule["id"])
+                if rule_id in processing_rule_ids:
+                    logger.warning(
+                        "rule_execution_loop_detected",
+                        extra={"rule_id": rule_id, "user_id": user_id},
+                    )
+                    continue
+
+                started_at = time.monotonic()
+                error: str | None = None
+                matched, conditions_result = RuleConditionEvaluator.evaluate_conditions(
+                    rule.get("conditions_json") or [],
+                    context,
+                    rule.get("match_mode") or "all",
+                )
+                actions_taken: list[RuleActionResultDTO] = []
+
+                try:
+                    if matched:
+                        for action in rule.get("actions_json") or []:
+                            actions_taken.append(
+                                await self._execute_action(
+                                    action=action,
+                                    user_id=user_id,
+                                    summary_id=summary_id,
+                                    event_type=event_type,
+                                    event_data=event_data,
+                                    context=context_dto,
+                                )
                             )
-                        )
-                    await self._rule_repository.async_increment_run_count(rule_id)
-            except Exception as exc:
-                error = str(exc)
-                logger.exception(
-                    "rule_execution_failed",
-                    extra={"rule_id": rule_id, "user_id": user_id, "event_type": event_type},
-                )
+                        await self._rule_repository.async_increment_run_count(rule_id)
+                except Exception as exc:
+                    error = str(exc)
+                    logger.exception(
+                        "rule_execution_failed",
+                        extra={"rule_id": rule_id, "user_id": user_id, "event_type": event_type},
+                    )
 
-            duration_ms = int((time.monotonic() - started_at) * 1000)
-            await self._rule_repository.async_create_execution_log(
-                rule_id=rule_id,
-                summary_id=summary_id,
-                event_type=event_type,
-                matched=matched,
-                conditions_result=conditions_result,
-                actions_taken=[asdict(action) for action in actions_taken],
-                error=error,
-                duration_ms=duration_ms,
-            )
-            results.append(
-                RuleExecutionResultDTO(
+                duration_ms = int((time.monotonic() - started_at) * 1000)
+                await self._rule_repository.async_create_execution_log(
                     rule_id=rule_id,
+                    summary_id=summary_id,
+                    event_type=event_type,
                     matched=matched,
-                    actions_taken=actions_taken,
+                    conditions_result=conditions_result,
+                    actions_taken=[asdict(action) for action in actions_taken],
                     error=error,
+                    duration_ms=duration_ms,
                 )
-            )
+                results.append(
+                    RuleExecutionResultDTO(
+                        rule_id=rule_id,
+                        matched=matched,
+                        actions_taken=actions_taken,
+                        error=error,
+                    )
+                )
 
-        return results
+            return results
 
     async def _execute_action(
         self,

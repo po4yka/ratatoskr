@@ -68,8 +68,7 @@ from app.api.routers import (
     user,
     webhooks,
 )
-from app.api.routers.auth import apple as apple_auth
-from app.api.routers.auth import get_current_user, github as github_auth
+from app.api.routers.auth import apple as apple_auth, get_current_user, github as github_auth
 from app.config import Config
 from app.core.logging_utils import get_logger, setup_json_logging
 from app.core.time_utils import UTC
@@ -96,7 +95,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         from app.observability.otel import init_tracing
 
         _cfg = _load_config(allow_stub_telegram=True)
-        init_tracing(_cfg)
+        init_tracing(_cfg, fastapi_app=app)
 
         # Initialize Sentry when DSN is configured; no-op otherwise.
         if _cfg.sentry.sentry_dsn:
@@ -123,15 +122,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         log_auth_posture_summary(runtime.cfg, cors_origins_count=len(_ALLOWED_ORIGINS))
 
-        # FastAPI auto-instrumentation: guarded by both package presence and
-        # OTEL_ENABLED so the import is never attempted when tracing is off.
-        if _cfg.otel.enabled:
-            try:
-                from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-                FastAPIInstrumentor.instrument_app(app)
-            except ImportError:
-                pass
         app.state.runtime = runtime
         set_current_api_runtime(runtime)
 

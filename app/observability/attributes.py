@@ -23,6 +23,10 @@ from __future__ import annotations
 # Reuses the existing ID; do NOT introduce a parallel trace ID.
 REQUEST_CORRELATION_ID = "ratatoskr.correlation_id"
 
+# Authenticated application user ID. Use integers when available; string IDs
+# are acceptable for external identity providers.
+REQUEST_USER_ID = "ratatoskr.user_id"
+
 # SHA-256 of the normalised URL (computed by app.core.url_utils.compute_dedupe_hash).
 # Used for cache-hit span events on the url_flow.cache_hit child span.
 REQUEST_DEDUPE_HASH = "ratatoskr.request.dedupe_hash"
@@ -30,6 +34,20 @@ REQUEST_DEDUPE_HASH = "ratatoskr.request.dedupe_hash"
 # Coarse source classification for the root url_flow.process span.
 # Values: "url" | "youtube" | "twitter" | "academic" | "forward" | "rss" | "unknown"
 REQUEST_SOURCE_TYPE = "ratatoskr.request.source_type"
+
+# ---------------------------------------------------------------------------
+# Application use-case spans
+# ---------------------------------------------------------------------------
+
+# Top-level application use-case name, e.g. "summary_read_model.get_user_summaries".
+USE_CASE_NAME = "ratatoskr.use_case.name"
+
+# ---------------------------------------------------------------------------
+# Database facade spans
+# ---------------------------------------------------------------------------
+
+# Database facade operation name: "session", "transaction", "healthcheck", etc.
+DB_OPERATION = "ratatoskr.db.operation"
 
 # ---------------------------------------------------------------------------
 # Phase 3 -- Telegram intake root span  (telegram.update)

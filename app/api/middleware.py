@@ -69,6 +69,12 @@ async def webapp_auth_middleware(request: Request, call_next: Callable[..., Any]
             user = verify_telegram_webapp_init_data(init_data)
             request.state.webapp_user = user
             request.state.user_id = str(user["user_id"])
+            try:
+                from app.observability.otel import set_user_id_attr
+
+                set_user_id_attr(user["user_id"])
+            except ImportError:
+                pass
         except Exception as exc:
             request.state.webapp_auth_error = str(exc)
             logger.debug("webapp_auth_header_parse_failed", extra={"error": str(exc)})
