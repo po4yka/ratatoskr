@@ -478,6 +478,142 @@ async def test_incremental_sync_does_not_unstar_repos_not_returned(monkeypatch):
     assert len(update_execute_calls) == 0
 
 
+def test_repository_watch_first_observation_records_baseline_without_event(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _repository_watch_events_for_state
+
+    events = _repository_watch_events_for_state(
+        user_id=42,
+        repository_id=1,
+        repository_full_name="owner/repo",
+        repository_url="https://github.com/owner/repo",
+        release_url=None,
+        watch_readme=True,
+        watch_releases=True,
+        previous_readme_sha256=None,
+        last_notified_readme_sha256=None,
+        current_readme_sha256="hash-a",
+        previous_release_tag=None,
+        last_notified_release_tag=None,
+        current_release_tag="v1.0.0",
+    )
+
+    assert events == []
+
+
+def test_repository_watch_readme_change_triggers_once_per_hash(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _repository_watch_events_for_state
+
+    events = _repository_watch_events_for_state(
+        user_id=42,
+        repository_id=1,
+        repository_full_name="owner/repo",
+        repository_url="https://github.com/owner/repo",
+        release_url=None,
+        watch_readme=True,
+        watch_releases=False,
+        previous_readme_sha256="hash-a",
+        last_notified_readme_sha256=None,
+        current_readme_sha256="hash-b",
+        previous_release_tag=None,
+        last_notified_release_tag=None,
+        current_release_tag=None,
+    )
+    duplicate = _repository_watch_events_for_state(
+        user_id=42,
+        repository_id=1,
+        repository_full_name="owner/repo",
+        repository_url="https://github.com/owner/repo",
+        release_url=None,
+        watch_readme=True,
+        watch_releases=False,
+        previous_readme_sha256="hash-a",
+        last_notified_readme_sha256="hash-b",
+        current_readme_sha256="hash-b",
+        previous_release_tag=None,
+        last_notified_release_tag=None,
+        current_release_tag=None,
+    )
+
+    assert [event.trigger for event in events] == ["readme"]
+    assert duplicate == []
+
+
+def test_repository_watch_release_change_triggers_once_per_tag(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _repository_watch_events_for_state
+
+    events = _repository_watch_events_for_state(
+        user_id=42,
+        repository_id=1,
+        repository_full_name="owner/repo",
+        repository_url="https://github.com/owner/repo",
+        release_url="https://github.com/owner/repo/releases/tag/v2.0.0",
+        watch_readme=False,
+        watch_releases=True,
+        previous_readme_sha256=None,
+        last_notified_readme_sha256=None,
+        current_readme_sha256=None,
+        previous_release_tag="v1.0.0",
+        last_notified_release_tag=None,
+        current_release_tag="v2.0.0",
+    )
+    duplicate = _repository_watch_events_for_state(
+        user_id=42,
+        repository_id=1,
+        repository_full_name="owner/repo",
+        repository_url="https://github.com/owner/repo",
+        release_url="https://github.com/owner/repo/releases/tag/v2.0.0",
+        watch_readme=False,
+        watch_releases=True,
+        previous_readme_sha256=None,
+        last_notified_readme_sha256=None,
+        current_readme_sha256=None,
+        previous_release_tag="v1.0.0",
+        last_notified_release_tag="v2.0.0",
+        current_release_tag="v2.0.0",
+    )
+
+    assert [event.trigger for event in events] == ["release"]
+    assert duplicate == []
+
+
+def test_repository_watch_first_release_after_empty_baseline_triggers(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _repository_watch_events_for_state
+
+    events = _repository_watch_events_for_state(
+        user_id=42,
+        repository_id=1,
+        repository_full_name="owner/repo",
+        repository_url="https://github.com/owner/repo",
+        release_url="https://github.com/owner/repo/releases/tag/v1.0.0",
+        watch_readme=False,
+        watch_releases=True,
+        previous_readme_sha256=None,
+        last_notified_readme_sha256=None,
+        current_readme_sha256=None,
+        previous_release_tag="",
+        last_notified_release_tag=None,
+        current_release_tag="v1.0.0",
+    )
+
+    assert [event.trigger for event in events] == ["release"]
+
+
 @pytest.mark.asyncio
 async def test_budget_cap_defers_remaining_repos(monkeypatch):
     """budget=2, 5 new repos → 2 analyzed, 3 deferred (pending_analysis=True)."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from taskiq import TaskiqDepends
 
 from app.adapters.github.exceptions import GitHubAuthError, GitHubRateLimitError
 from app.adapters.github.github_api_client import GitHubAPIClient
+from app.application.events.repository_watch import RepositoryWatchTriggered
 from app.application.use_cases.analyze_repository import _compute_content_hash
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
@@ -23,12 +25,14 @@ from app.db.models.repository import (
     Repository,
     RepoSource,
     UserGitHubIntegration,
+    UserRepositoryWatch,
 )
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
 from app.observability.metrics_repositories import (
     GITHUB_PENDING_ANALYSIS_BACKLOG,
+    GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL,
     GITHUB_SYNC_LLM_CALLS_TOTAL,
     GITHUB_SYNC_REPOS_IMPORTED_TOTAL,
     GITHUB_SYNC_REPOS_UNSTARRED_TOTAL,
@@ -444,7 +448,25 @@ async def _sync_one_integration(
                         repos_to_analyze.append(row)
                 pending_batch.clear()
 
-    # Flush any remaining items that didn't fill a full batch.
+        # Flush any remaining items that didn't fill a full batch before
+        # running watch checks; a watch-side error must not discard star sync
+        # rows already fetched from GitHub.
+        await _flush_batch(pending_batch)
+        for row, needs in pending_batch:
+            if needs:
+                repos_to_analyze.append(row)
+        pending_batch.clear()
+
+        if not dry_run:
+            await _sync_repository_watches(
+                client=client,
+                db=db,
+                user_id=integration.user_id,
+                bot=bot,
+                correlation_id=correlation_id,
+            )
+
+    # Safety net for future edits that append to pending_batch outside the client block.
     await _flush_batch(pending_batch)
     for row, needs in pending_batch:
         if needs:
@@ -512,6 +534,218 @@ async def _sync_one_integration(
         llm_calls_made[0],
         llm_calls_deferred[0],
     )
+
+
+async def _sync_repository_watches(
+    *,
+    client: GitHubAPIClient,
+    db: Database,
+    user_id: int,
+    bot: Any,
+    correlation_id: str,
+) -> None:
+    """Check watched repositories and emit idempotent README/release events."""
+    async with db.session() as session:
+        result = await session.execute(
+            select(UserRepositoryWatch, Repository)
+            .join(Repository, Repository.id == UserRepositoryWatch.repository_id)
+            .where(
+                UserRepositoryWatch.user_id == user_id,
+                Repository.user_id == user_id,
+            )
+            .order_by(UserRepositoryWatch.id)
+        )
+        rows = list(result.all())
+
+    for watch, repository in rows:
+        if not watch.watch_readme and not watch.watch_releases:
+            await _mark_repository_watch_checked(db, watch_id=watch.id)
+            continue
+
+        readme_sha256: str | None = None
+        release_tag: str | None = None
+        release_url: str | None = None
+        if watch.watch_readme:
+            readme = await client.get_readme(
+                repository.owner,
+                repository.name,
+                ref=repository.default_branch,
+            )
+            readme_body = readme.content or ""
+            readme_sha256 = hashlib.sha256(readme_body.encode()).hexdigest()
+        if watch.watch_releases:
+            latest_release = await client.get_latest_release(repository.owner, repository.name)
+            if latest_release is not None:
+                release_tag = latest_release.tag_name
+                release_url = latest_release.html_url
+            else:
+                release_tag = ""
+
+        events = _repository_watch_events_for_state(
+            user_id=user_id,
+            repository_id=repository.id,
+            repository_full_name=repository.full_name,
+            repository_url=repository.url,
+            release_url=release_url,
+            watch_readme=watch.watch_readme,
+            watch_releases=watch.watch_releases,
+            previous_readme_sha256=watch.last_readme_sha256,
+            last_notified_readme_sha256=watch.last_notified_readme_sha256,
+            current_readme_sha256=readme_sha256,
+            previous_release_tag=watch.last_release_tag,
+            last_notified_release_tag=watch.last_notified_release_tag,
+            current_release_tag=release_tag,
+        )
+        for event in events:
+            await _emit_repository_watch_triggered(
+                event,
+                bot=bot,
+                correlation_id=correlation_id,
+            )
+
+        await _update_repository_watch_state(
+            db,
+            watch_id=watch.id,
+            readme_sha256=readme_sha256 if watch.watch_readme else None,
+            notified_readme_sha256=readme_sha256
+            if any(event.trigger == "readme" for event in events)
+            else None,
+            release_tag=release_tag if watch.watch_releases else None,
+            notified_release_tag=release_tag
+            if any(event.trigger == "release" for event in events)
+            else None,
+        )
+
+
+def _repository_watch_events_for_state(
+    *,
+    user_id: int,
+    repository_id: int,
+    repository_full_name: str,
+    repository_url: str | None,
+    release_url: str | None,
+    watch_readme: bool,
+    watch_releases: bool,
+    previous_readme_sha256: str | None,
+    last_notified_readme_sha256: str | None,
+    current_readme_sha256: str | None,
+    previous_release_tag: str | None,
+    last_notified_release_tag: str | None,
+    current_release_tag: str | None,
+) -> list[RepositoryWatchTriggered]:
+    events: list[RepositoryWatchTriggered] = []
+    if (
+        watch_readme
+        and current_readme_sha256 is not None
+        and previous_readme_sha256 is not None
+        and current_readme_sha256
+        not in {previous_readme_sha256, last_notified_readme_sha256}
+    ):
+        events.append(
+            RepositoryWatchTriggered(
+                user_id=user_id,
+                repository_id=repository_id,
+                repository_full_name=repository_full_name,
+                trigger="readme",
+                previous_value=previous_readme_sha256,
+                current_value=current_readme_sha256,
+                url=repository_url,
+            )
+        )
+    if (
+        watch_releases
+        and current_release_tag is not None
+        and current_release_tag != ""
+        and previous_release_tag is not None
+        and current_release_tag not in {previous_release_tag, last_notified_release_tag}
+    ):
+        events.append(
+            RepositoryWatchTriggered(
+                user_id=user_id,
+                repository_id=repository_id,
+                repository_full_name=repository_full_name,
+                trigger="release",
+                previous_value=previous_release_tag,
+                current_value=current_release_tag,
+                url=release_url,
+            )
+        )
+    return events
+
+
+async def _emit_repository_watch_triggered(
+    event: RepositoryWatchTriggered,
+    *,
+    bot: Any,
+    correlation_id: str,
+) -> None:
+    logger.info(
+        "repository_watch_triggered",
+        extra={
+            "cid": correlation_id,
+            "user_id": event.user_id,
+            "repository_id": event.repository_id,
+            "repository_full_name": event.repository_full_name,
+            "trigger": event.trigger,
+        },
+    )
+    if GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL is not None:
+        GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL.labels(trigger=event.trigger).inc()
+    if bot is None:
+        return
+    try:
+        if event.trigger == "readme":
+            text = (
+                f"README changed for {event.repository_full_name}.\n"
+                f"Previous: {event.previous_value}\n"
+                f"Current: {event.current_value}"
+            )
+        else:
+            text = f"New release for {event.repository_full_name}: {event.current_value}."
+        if event.url:
+            text = f"{text}\n{event.url}"
+        await bot.send_message(chat_id=event.user_id, text=text)
+    except Exception:
+        logger.exception(
+            "repository_watch_telegram_notify_failed",
+            extra={
+                "cid": correlation_id,
+                "user_id": event.user_id,
+                "repository_id": event.repository_id,
+                "trigger": event.trigger,
+            },
+        )
+
+
+async def _mark_repository_watch_checked(db: Database, *, watch_id: int) -> None:
+    async with db.transaction() as session:
+        watch = await session.get(UserRepositoryWatch, watch_id)
+        if watch is not None:
+            watch.last_checked_at = datetime.now(UTC)
+
+
+async def _update_repository_watch_state(
+    db: Database,
+    *,
+    watch_id: int,
+    readme_sha256: str | None,
+    notified_readme_sha256: str | None,
+    release_tag: str | None,
+    notified_release_tag: str | None,
+) -> None:
+    async with db.transaction() as session:
+        watch = await session.get(UserRepositoryWatch, watch_id)
+        if watch is None:
+            return
+        if readme_sha256 is not None:
+            watch.last_readme_sha256 = readme_sha256
+        if notified_readme_sha256 is not None:
+            watch.last_notified_readme_sha256 = notified_readme_sha256
+        if release_tag is not None:
+            watch.last_release_tag = release_tag
+        if notified_release_tag is not None:
+            watch.last_notified_release_tag = notified_release_tag
+        watch.last_checked_at = datetime.now(UTC)
 
 
 async def _record_github_sync_error(

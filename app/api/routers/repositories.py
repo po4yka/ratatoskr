@@ -8,11 +8,17 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.adapters.github.url_patterns import is_github_repo_url
-from app.api.models.requests import IngestRepositoryRequest, RepositoryListSort
+from app.api.models.requests import (
+    IngestRepositoryRequest,
+    RepositoryListSort,
+    RepositoryWatchRequest,
+)
 from app.api.models.responses.repositories import (
     IngestRepositoryResponse,
     RepositoryDetail,
     RepositoryListResponse,
+    RepositoryWatch,
+    RepositoryWatchListResponse,
 )
 from app.api.routers.auth import get_current_user
 from app.application.services.repository_service import (
@@ -53,7 +59,9 @@ def _get_github_extractor(request: Request) -> GitHubPlatformExtractor:
 def _get_analyze_use_case(request: Request) -> AnalyzeRepositoryUseCase:
     from app.di.api import resolve_api_runtime
 
-    return cast("AnalyzeRepositoryUseCase", resolve_api_runtime(request).analyze_repository_use_case)
+    return cast(
+        "AnalyzeRepositoryUseCase", resolve_api_runtime(request).analyze_repository_use_case
+    )
 
 
 def _get_repository_service(request: Request) -> RepositoryService:
@@ -110,6 +118,22 @@ async def list_repositories(
         offset=offset,
     )
     return RepositoryListResponse.model_validate(result.model_dump())
+
+
+@router.get("/watched", response_model=RepositoryWatchListResponse)
+async def list_watched_repositories(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: dict[str, Any] = Depends(get_current_user),
+    svc: RepositoryService = Depends(_get_repository_service),
+) -> RepositoryWatchListResponse:
+    """List repositories watched by the authenticated user."""
+    result = await svc.list_repository_watches(
+        user_id=user["user_id"],
+        limit=limit,
+        offset=offset,
+    )
+    return RepositoryWatchListResponse.model_validate(result.model_dump())
 
 
 @router.get("/{repository_id}", response_model=RepositoryDetail)
@@ -185,6 +209,40 @@ async def ingest_repository(
         status="ready" if repository_id else "pending",
         full_name=full_name,
     )
+
+
+@router.post("/{repository_id}/watch", response_model=RepositoryWatch)
+async def watch_repository(
+    repository_id: int,
+    body: RepositoryWatchRequest | None = None,
+    user: dict[str, Any] = Depends(get_current_user),
+    svc: RepositoryService = Depends(_get_repository_service),
+) -> RepositoryWatch:
+    """Watch an owned repository for README and release deltas."""
+    request_body = body or RepositoryWatchRequest()
+    try:
+        result = await svc.watch_repository(
+            repository_id=repository_id,
+            user_id=user["user_id"],
+            watch_readme=request_body.watch_readme,
+            watch_releases=request_body.watch_releases,
+        )
+        return RepositoryWatch.model_validate(result.model_dump())
+    except RepositoryServiceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Repository not found") from exc
+
+
+@router.delete("/{repository_id}/watch", status_code=204)
+async def unwatch_repository(
+    repository_id: int,
+    user: dict[str, Any] = Depends(get_current_user),
+    svc: RepositoryService = Depends(_get_repository_service),
+) -> None:
+    """Remove a repository watch owned by the authenticated user."""
+    try:
+        await svc.unwatch_repository(repository_id=repository_id, user_id=user["user_id"])
+    except RepositoryServiceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Repository watch not found") from exc
 
 
 @router.post("/{repository_id}/reanalyze", response_model=RepositoryDetail)

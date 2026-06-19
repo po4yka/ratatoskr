@@ -71,6 +71,26 @@ class RepositoryListResponse(BaseModel):
     pagination: PaginationInfo
 
 
+class RepositoryWatch(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    repository: RepositoryCompact
+    watch_readme: bool
+    watch_releases: bool
+    last_readme_sha256: str | None
+    last_notified_readme_sha256: str | None
+    last_release_tag: str | None
+    last_notified_release_tag: str | None
+    last_checked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RepositoryWatchListResponse(BaseModel):
+    watches: list[RepositoryWatch]
+    pagination: PaginationInfo
+
+
 class IngestRepositoryResponse(BaseModel):
     repository_id: int
     status: Literal["pending", "ready"]

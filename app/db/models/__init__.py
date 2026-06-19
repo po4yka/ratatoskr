@@ -69,6 +69,7 @@ from app.db.models.repository import (
     RepositoryEmbedding,
     RepoSource,
     UserGitHubIntegration,
+    UserRepositoryWatch,
 )
 from app.db.models.rss import RSS_MODELS, RSSFeed, RSSFeedItem, RSSFeedSubscription, RSSItemDelivery
 from app.db.models.rules import (
@@ -92,8 +93,8 @@ from app.db.models.social import (
     SocialFetchAttemptStatus,
     SocialProvider,
 )
-from app.db.models.topic_search import TOPIC_SEARCH_MODELS, TopicSearchIndex
 from app.db.models.taskiq import TASKIQ_MODELS, TaskiqFailedJob
+from app.db.models.topic_search import TOPIC_SEARCH_MODELS, TopicSearchIndex
 from app.db.models.transcription import (
     TRANSCRIPTION_MODELS,
     TranscriptionArtifact,
@@ -234,6 +235,7 @@ __all__ = [
     "UserGoal",
     "UserIdentity",
     "UserInteraction",
+    "UserRepositoryWatch",
     "UserSignal",
     "VideoDownload",
     "WebhookDelivery",

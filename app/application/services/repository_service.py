@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any, Literal
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
-    from app.application.dto.repository import RepositoryDetailDTO, RepositoryListResult
+    from app.application.dto.repository import (
+        RepositoryDetailDTO,
+        RepositoryListResult,
+        RepositoryWatchDTO,
+        RepositoryWatchListResult,
+    )
     from app.application.ports.repositories import RepositoryReadRepositoryPort
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
 
@@ -114,6 +119,57 @@ class RepositoryService:
         await self._repository_repo.delete_owned_repository(
             repository_id=repository_id,
             user_id=user_id,
+        )
+
+    async def watch_repository(
+        self,
+        *,
+        repository_id: int,
+        user_id: int,
+        watch_readme: bool,
+        watch_releases: bool,
+    ) -> RepositoryWatchDTO:
+        """Create or update a watch for an owned repository."""
+        repository = await self._repository_repo.get_owned_repository(
+            repository_id=repository_id,
+            user_id=user_id,
+        )
+        if repository is None:
+            raise RepositoryServiceNotFoundError("Repository not found")
+        return await self._repository_repo.upsert_repository_watch(
+            repository_id=repository_id,
+            user_id=user_id,
+            watch_readme=watch_readme,
+            watch_releases=watch_releases,
+        )
+
+    async def unwatch_repository(self, *, repository_id: int, user_id: int) -> None:
+        """Delete a watch for an owned repository."""
+        repository = await self._repository_repo.get_owned_repository(
+            repository_id=repository_id,
+            user_id=user_id,
+        )
+        if repository is None:
+            raise RepositoryServiceNotFoundError("Repository not found")
+        deleted = await self._repository_repo.delete_repository_watch(
+            repository_id=repository_id,
+            user_id=user_id,
+        )
+        if not deleted:
+            raise RepositoryServiceNotFoundError("Repository watch not found")
+
+    async def list_repository_watches(
+        self,
+        *,
+        user_id: int,
+        limit: int,
+        offset: int,
+    ) -> RepositoryWatchListResult:
+        """List watched repositories for a user."""
+        return await self._repository_repo.list_repository_watches(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
         )
 
     async def _delete_repository_embedding_point(self, repository_id: int) -> None:

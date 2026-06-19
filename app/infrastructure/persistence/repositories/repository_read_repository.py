@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import asc, desc, func, nulls_last, select
-from sqlalchemy import delete as sql_delete
+from sqlalchemy import asc, delete as sql_delete, desc, func, nulls_last, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import cast
 
@@ -15,8 +14,10 @@ from app.application.dto.repository import (
     RepositoryDetailDTO,
     RepositoryListResult,
     RepositoryPaginationInfo,
+    RepositoryWatchDTO,
+    RepositoryWatchListResult,
 )
-from app.db.models.repository import Repository, RepositoryEmbedding
+from app.db.models.repository import Repository, RepositoryEmbedding, UserRepositoryWatch
 
 if TYPE_CHECKING:
     from app.db.session import Database
@@ -106,6 +107,109 @@ class RepositoryReadRepositoryAdapter:
                     Repository.user_id == user_id,
                 )
             )
+
+    async def upsert_repository_watch(
+        self,
+        *,
+        repository_id: int,
+        user_id: int,
+        watch_readme: bool,
+        watch_releases: bool,
+    ) -> RepositoryWatchDTO:
+        async with self._db.transaction() as session:
+            result = await session.execute(
+                select(UserRepositoryWatch, Repository)
+                .join(Repository, Repository.id == UserRepositoryWatch.repository_id)
+                .where(
+                    UserRepositoryWatch.repository_id == repository_id,
+                    UserRepositoryWatch.user_id == user_id,
+                    Repository.user_id == user_id,
+                )
+            )
+            existing = result.first()
+            if existing is None:
+                repo = await session.scalar(
+                    select(Repository).where(
+                        Repository.id == repository_id,
+                        Repository.user_id == user_id,
+                    )
+                )
+                if repo is None:
+                    raise LookupError("Repository not found")
+                watch = UserRepositoryWatch(
+                    user_id=user_id,
+                    repository_id=repository_id,
+                    watch_readme=watch_readme,
+                    watch_releases=watch_releases,
+                )
+                session.add(watch)
+                await session.flush()
+                await session.refresh(watch)
+            else:
+                watch, repo = existing
+                watch.watch_readme = watch_readme
+                watch.watch_releases = watch_releases
+                await session.flush()
+                await session.refresh(watch)
+            return self._watch_to_dto(watch, repo)
+
+    async def delete_repository_watch(
+        self,
+        *,
+        repository_id: int,
+        user_id: int,
+    ) -> bool:
+        async with self._db.transaction() as session:
+            result = await session.execute(
+                sql_delete(UserRepositoryWatch)
+                .where(
+                    UserRepositoryWatch.repository_id == repository_id,
+                    UserRepositoryWatch.user_id == user_id,
+                )
+                .returning(UserRepositoryWatch.id)
+            )
+            return bool(result.fetchall())
+
+    async def list_repository_watches(
+        self,
+        *,
+        user_id: int,
+        limit: int,
+        offset: int,
+    ) -> RepositoryWatchListResult:
+        async with self._db.session() as session:
+            conditions = [
+                UserRepositoryWatch.user_id == user_id,
+                Repository.user_id == user_id,
+            ]
+            total = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(UserRepositoryWatch)
+                    .join(Repository, Repository.id == UserRepositoryWatch.repository_id)
+                    .where(*conditions)
+                )
+                or 0
+            )
+            result = await session.execute(
+                select(UserRepositoryWatch, Repository)
+                .join(Repository, Repository.id == UserRepositoryWatch.repository_id)
+                .where(*conditions)
+                .order_by(desc(UserRepositoryWatch.created_at), desc(UserRepositoryWatch.id))
+                .limit(limit)
+                .offset(offset)
+            )
+            rows = list(result.all())
+
+        return RepositoryWatchListResult(
+            watches=[self._watch_to_dto(watch, repo) for watch, repo in rows],
+            pagination=RepositoryPaginationInfo(
+                total=total,
+                limit=limit,
+                offset=offset,
+                has_more=(offset + len(rows)) < total,
+            ),
+        )
 
     async def load_owned_repository(
         self,
@@ -217,4 +321,19 @@ class RepositoryReadRepositoryAdapter:
             content_hash=row.content_hash,
             created_at_github=row.created_at_github,
             watchers=row.watchers,
+        )
+
+    @classmethod
+    def _watch_to_dto(cls, watch: UserRepositoryWatch, repo: Repository) -> RepositoryWatchDTO:
+        return RepositoryWatchDTO(
+            repository=cls._repo_to_compact(repo),
+            watch_readme=watch.watch_readme,
+            watch_releases=watch.watch_releases,
+            last_readme_sha256=watch.last_readme_sha256,
+            last_notified_readme_sha256=watch.last_notified_readme_sha256,
+            last_release_tag=watch.last_release_tag,
+            last_notified_release_tag=watch.last_notified_release_tag,
+            last_checked_at=watch.last_checked_at,
+            created_at=watch.created_at,
+            updated_at=watch.updated_at,
         )

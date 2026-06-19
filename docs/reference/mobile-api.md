@@ -727,8 +727,11 @@ Execution failures:
 See `docs/reference/api-contracts.md` for full request/response schemas.
 
 - `GET /v1/repositories` -- list with filters (`is_starred`, `language`, `topic`, `source`, `pending_analysis`, `sort`, `limit`, `offset`)
+- `GET /v1/repositories/watched` -- list repositories watched for README/release deltas
 - `GET /v1/repositories/{id}` -- full detail including `analysis`
 - `POST /v1/repositories` -- ingest by URL (202, non-blocking)
+- `POST /v1/repositories/{id}/watch` -- create or update a watch; body defaults to `{"watch_readme": true, "watch_releases": true}`
+- `DELETE /v1/repositories/{id}/watch` -- remove a watch
 - `POST /v1/repositories/{id}/reanalyze` -- force LLM reanalysis
 - `DELETE /v1/repositories/{id}` -- 204
 - `GET /v1/search/repositories` -- semantic search with `q`, filters, `min_similarity`

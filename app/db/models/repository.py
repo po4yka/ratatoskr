@@ -159,6 +159,42 @@ class RepositoryEmbedding(Base):
     )
 
 
+class UserRepositoryWatch(Base):
+    __tablename__ = "user_repository_watches"
+    __table_args__ = (
+        UniqueConstraint("user_id", "repository_id", name="uq_user_repository_watches_user_repo"),
+        Index("ix_user_repository_watches_user_created", "user_id", "created_at"),
+        Index("ix_user_repository_watches_repository_id", "repository_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.telegram_user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    repository_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("repositories.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    watch_readme: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    watch_releases: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_readme_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_notified_readme_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_release_tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_notified_release_tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_checked_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class UserGitHubIntegration(Base):
     __tablename__ = "user_github_integrations"
 
@@ -211,7 +247,7 @@ class UserGitHubIntegration(Base):
     )
 
 
-REPOSITORY_MODELS = (Repository, RepositoryEmbedding, UserGitHubIntegration)
+REPOSITORY_MODELS = (Repository, RepositoryEmbedding, UserRepositoryWatch, UserGitHubIntegration)
 
 __all__ = [
     "REPOSITORY_MODELS",
@@ -221,4 +257,5 @@ __all__ = [
     "Repository",
     "RepositoryEmbedding",
     "UserGitHubIntegration",
+    "UserRepositoryWatch",
 ]

@@ -145,7 +145,7 @@ Full bare-clone backup of repository history, refs, objects, and packs via `git 
 
 ## GitHub Repository Schema
 
-Three tables added by the GitHub repository ingestion subsystem (`app/db/models/repository.py`). They have no foreign key to `summaries`; repos use the `RepoAnalysis` contract, not the 35-field `Summary` contract.
+Four tables are owned by the GitHub repository ingestion subsystem (`app/db/models/repository.py`). They have no foreign key to `summaries`; repos use the `RepoAnalysis` contract, not the 35-field `Summary` contract.
 
 ### `repositories`
 
@@ -189,6 +189,25 @@ Three tables added by the GitHub repository ingestion subsystem (`app/db/models/
 Unique constraint: `(user_id, github_id)`. Indexes: `(user_id, is_starred)`, `(user_id, primary_language)`, `(user_id, pushed_at DESC)`, `(github_id)`.
 
 Analyzed repository rows (`analysis_json IS NOT NULL`) are exported to Qdrant using the deterministic point UUID `uuid5(NAMESPACE_OID, f"{environment}:{user_scope}:repository:{repository_id}")` by the GitHub analysis fast path and backfilled by the Taskiq reconciler.
+
+### `user_repository_watches`
+
+| Column | Type | Null | Purpose |
+|--------|------|------|---------|
+| `id` | integer PK | no | Surrogate key |
+| `user_id` | bigint FK | no | References `users.telegram_user_id` ON DELETE CASCADE |
+| `repository_id` | integer FK | no | References `repositories.id` ON DELETE CASCADE |
+| `watch_readme` | boolean | no | Enable README SHA256 delta alerts |
+| `watch_releases` | boolean | no | Enable latest-release tag delta alerts |
+| `last_readme_sha256` | varchar(64) | yes | Last observed README body hash |
+| `last_notified_readme_sha256` | varchar(64) | yes | Last README hash that emitted `RepositoryWatchTriggered` |
+| `last_release_tag` | varchar(255) | yes | Last observed latest-release tag |
+| `last_notified_release_tag` | varchar(255) | yes | Last release tag that emitted `RepositoryWatchTriggered` |
+| `last_checked_at` | timestamptz | yes | Last watch sync check |
+| `created_at` | timestamptz | no | Row insertion time |
+| `updated_at` | timestamptz | no | Last modification time |
+
+Unique constraint: `(user_id, repository_id)`. Daily GitHub sync records a baseline on first observation and emits one `RepositoryWatchTriggered` event per later README hash or release-tag change.
 
 ### `repository_embeddings`
 

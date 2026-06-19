@@ -438,6 +438,13 @@ class IngestRepositoryRequest(BaseModel):
     url: str = Field(..., min_length=10, max_length=500)
 
 
+class RepositoryWatchRequest(BaseModel):
+    """Request body for watching repository README and release changes."""
+
+    watch_readme: bool = True
+    watch_releases: bool = True
+
+
 class RepositoryListSort(StrEnum):
     """Sort order for repository list."""
 

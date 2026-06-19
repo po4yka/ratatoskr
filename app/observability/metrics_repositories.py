@@ -67,6 +67,13 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL = Counter(
+        "ratatoskr_github_repository_watch_triggers_total",
+        "Repository watch events emitted by trigger type",
+        ["trigger"],  # "readme" | "release"
+        registry=REGISTRY,
+    )
+
     REPOSITORY_SEARCH_LATENCY_SECONDS = Histogram(
         "ratatoskr_repository_search_latency_seconds",
         "Repository semantic search latency",
@@ -82,4 +89,5 @@ else:
     GITHUB_SYNC_LLM_CALLS_TOTAL = None
     GITHUB_API_RATE_LIMIT_HITS_TOTAL = None
     GITHUB_PENDING_ANALYSIS_BACKLOG = None
+    GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL = None
     REPOSITORY_SEARCH_LATENCY_SECONDS = None

@@ -142,6 +142,10 @@ Three new tables live in `app/db/models/repository.py`. They have no foreign key
 - `ix_repositories_user_pushed_desc` on `(user_id, pushed_at DESC)` — sort by activity
 - `ix_repositories_github_id` on `(github_id)` — lookup by GitHub ID during sync upsert
 
+### `user_repository_watches`
+
+Stores per-user repository watch subscriptions created through `POST /v1/repositories/{id}/watch`. The first daily GitHub sync after creation records `last_readme_sha256` and `last_release_tag` as baselines without alerting; later README SHA256 or latest-release tag changes emit one `RepositoryWatchTriggered` event and persist `last_notified_readme_sha256` or `last_notified_release_tag` to prevent duplicate alerts on retry.
+
 ### `repository_embeddings`
 
 Mirrors `SummaryEmbedding` (see `app/db/models/core.py`). One row per repository, enforced by the unique constraint on `repository_id`.
@@ -227,6 +231,12 @@ async def sync_body(cfg, db, bot):
                           github_id NOT IN seen_github_ids)
             for repo in stale:
                 repo.is_starred = False
+
+            # Watch subscriptions: first sync records README/release baselines; later deltas emit RepositoryWatchTriggered once per new README SHA256 or release tag.
+            for watch in query(UserRepositoryWatch, user_id=integration.user_id):
+                readme_sha = sha256(client.get_readme(watch.repository.owner, watch.repository.name).content or "")
+                latest_release_tag = client.get_latest_release(watch.repository.owner, watch.repository.name).tag_name
+                compare_with_watch_baseline_and_emit_once(watch, readme_sha, latest_release_tag)
 
             integration.last_synced_at = utcnow()
             if was_full_pagination:

@@ -1594,6 +1594,31 @@ Unique constraint: `(user_id, github_id)`.
 
 Indexes: `(user_id, is_starred)`, `(user_id, primary_language)`, `(user_id, pushed_at DESC)`, `(github_id)`.
 
+### user_repository_watches
+
+**Purpose:** One row per user-owned repository watch subscription. Daily GitHub sync baselines the first observed README SHA256 and latest-release tag, then emits one `RepositoryWatchTriggered` event per later README hash or release-tag change.
+
+**Key columns:**
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | integer PK | Surrogate key |
+| `user_id` | bigint FK -> users | Owner of the watch |
+| `repository_id` | integer FK -> repositories | Watched repository; cascades on repository delete |
+| `watch_readme` | bool | Whether README SHA256 deltas should trigger |
+| `watch_releases` | bool | Whether latest-release tag deltas should trigger |
+| `last_readme_sha256` | text, nullable | Last observed README body hash |
+| `last_notified_readme_sha256` | text, nullable | Last README hash for which an event was emitted |
+| `last_release_tag` | text, nullable | Last observed latest-release tag |
+| `last_notified_release_tag` | text, nullable | Last release tag for which an event was emitted |
+| `last_checked_at` | timestamp, nullable | Last watch sync check |
+| `created_at` | timestamp | Row creation |
+| `updated_at` | timestamp | Last row modification time |
+
+Unique constraint: `(user_id, repository_id)`.
+
+Indexes: `(user_id, created_at)`, `(repository_id)`.
+
 ### repository_embeddings
 
 **Purpose:** Vector embeddings for `repositories` rows, used by `GET /v1/search/repositories`. Qdrant writes use deterministic repository point IDs shared by the fast path and the Taskiq reconciler (`app/infrastructure/vector/point_ids.py`).

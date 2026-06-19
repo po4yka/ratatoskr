@@ -2614,6 +2614,50 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/repositories/watched:
+    get:
+      tags:
+      - repositories
+      summary: List Watched Repositories
+      description: List repositories watched by the authenticated user.
+      operationId: list_watched_repositories_v1_repositories_watched_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryWatchListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/repositories/{repository_id}:
     get:
       tags:
@@ -2653,6 +2697,75 @@ paths:
       summary: Delete Repository
       description: Delete a repository and its Qdrant embedding point.
       operationId: delete_repository_v1_repositories__repository_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: repository_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Repository Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/repositories/{repository_id}/watch:
+    post:
+      tags:
+      - repositories
+      summary: Watch Repository
+      description: Watch an owned repository for README and release deltas.
+      operationId: watch_repository_v1_repositories__repository_id__watch_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: repository_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Repository Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/RepositoryWatchRequest'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryWatch'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+      - repositories
+      summary: Unwatch Repository
+      description: Remove a repository watch owned by the authenticated user.
+      operationId: unwatch_repository_v1_repositories__repository_id__watch_delete
       security:
       - HTTPBearer: []
       parameters:
@@ -11838,6 +11951,90 @@ components:
       - full_name_asc
       title: RepositoryListSort
       description: Sort order for repository list.
+    RepositoryWatch:
+      properties:
+        repository:
+          $ref: '#/components/schemas/RepositoryCompact'
+        watch_readme:
+          type: boolean
+          title: Watch Readme
+        watch_releases:
+          type: boolean
+          title: Watch Releases
+        last_readme_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Readme Sha256
+        last_notified_readme_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Notified Readme Sha256
+        last_release_tag:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Release Tag
+        last_notified_release_tag:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Notified Release Tag
+        last_checked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Checked At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - repository
+      - watch_readme
+      - watch_releases
+      - last_readme_sha256
+      - last_notified_readme_sha256
+      - last_release_tag
+      - last_notified_release_tag
+      - last_checked_at
+      - created_at
+      - updated_at
+      title: RepositoryWatch
+    RepositoryWatchListResponse:
+      properties:
+        watches:
+          items:
+            $ref: '#/components/schemas/RepositoryWatch'
+          type: array
+          title: Watches
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+      type: object
+      required:
+      - watches
+      - pagination
+      title: RepositoryWatchListResponse
+    RepositoryWatchRequest:
+      properties:
+        watch_readme:
+          type: boolean
+          title: Watch Readme
+          default: true
+        watch_releases:
+          type: boolean
+          title: Watch Releases
+          default: true
+      type: object
+      title: RepositoryWatchRequest
+      description: Request body for watching repository README and release changes.
     RequestDetailCrawlResult:
       properties:
         status:

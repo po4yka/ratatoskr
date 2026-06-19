@@ -12,6 +12,7 @@ __all__ = [
     "GitHubLicenseDTO",
     "GitHubOwnerDTO",
     "LanguagesDTO",
+    "ReleaseDTO",
     "RepositoryDTO",
     "StarredItem",
 ]
@@ -88,6 +89,18 @@ class GistDTO(BaseModel):
     description: str | None = None
     html_url: str
     updated_at: datetime
+
+
+class ReleaseDTO(BaseModel):
+    """Latest release returned by GET /repos/{owner}/{name}/releases/latest."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: int
+    tag_name: str
+    name: str | None = None
+    html_url: str
+    published_at: datetime | None = None
 
 
 class AuthenticatedUserDTO(BaseModel):

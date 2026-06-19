@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 
 from app.api.routers.auth.tokens import create_access_token
-from app.db.models.repository import Repository, RepoSource
+from app.db.models.repository import Repository, RepoSource, UserRepositoryWatch
 from app.db.session import Database
 
 # ---------------------------------------------------------------------------
@@ -409,4 +409,60 @@ async def test_delete_404_for_other_users_repo(client: Any, db: Database) -> Non
         resp = client.delete(f"/v1/repositories/{repo.id}", headers=_auth(_USER_A_ID))
     finally:
         app.dependency_overrides.pop(_get_qdrant, None)
+    assert resp.status_code == 404
+
+
+async def test_watch_repository_creates_updates_lists_and_unwatches(
+    client: Any,
+    db: Database,
+) -> None:
+    from sqlalchemy import select
+
+    await _create_user(db, _USER_A_ID)
+    repo = await _create_repo(db, user_id=_USER_A_ID, full_name="owner/watch-me")
+
+    create_resp = client.post(
+        f"/v1/repositories/{repo.id}/watch",
+        json={"watch_readme": True, "watch_releases": False},
+        headers=_auth(_USER_A_ID),
+    )
+    assert create_resp.status_code == 200
+    created = create_resp.json()
+    assert created["repository"]["id"] == repo.id
+    assert created["watch_readme"] is True
+    assert created["watch_releases"] is False
+
+    update_resp = client.post(
+        f"/v1/repositories/{repo.id}/watch",
+        json={"watch_readme": False, "watch_releases": True},
+        headers=_auth(_USER_A_ID),
+    )
+    assert update_resp.status_code == 200
+    updated = update_resp.json()
+    assert updated["watch_readme"] is False
+    assert updated["watch_releases"] is True
+
+    list_resp = client.get("/v1/repositories/watched", headers=_auth(_USER_A_ID))
+    assert list_resp.status_code == 200
+    watched = list_resp.json()
+    assert watched["pagination"]["total"] == 1
+    assert watched["watches"][0]["repository"]["id"] == repo.id
+
+    delete_resp = client.delete(f"/v1/repositories/{repo.id}/watch", headers=_auth(_USER_A_ID))
+    assert delete_resp.status_code == 204
+
+    async with db.session() as session:
+        row = await session.scalar(
+            select(UserRepositoryWatch).where(UserRepositoryWatch.repository_id == repo.id)
+        )
+    assert row is None
+
+
+async def test_watch_repository_404_for_other_users_repo(client: Any, db: Database) -> None:
+    await _create_user(db, _USER_A_ID)
+    await _create_user(db, _USER_B_ID)
+    repo = await _create_repo(db, user_id=_USER_B_ID)
+
+    resp = client.post(f"/v1/repositories/{repo.id}/watch", headers=_auth(_USER_A_ID))
+
     assert resp.status_code == 404

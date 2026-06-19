@@ -24,6 +24,7 @@ from app.adapters.github.types import (
     AuthenticatedUserDTO,
     GistDTO,
     LanguagesDTO,
+    ReleaseDTO,
     RepositoryDTO,
     StarredItem,
 )
@@ -300,6 +301,14 @@ class GitHubAPIClient:
         response = await self._request("GET", f"/repos/{owner}/{name}/languages")
         dto = LanguagesDTO.model_validate(response.json())
         return dto.as_dict()
+
+    async def get_latest_release(self, owner: str, name: str) -> ReleaseDTO | None:
+        """GET /repos/{owner}/{name}/releases/latest, returning None when no release exists."""
+        try:
+            response = await self._request("GET", f"/repos/{owner}/{name}/releases/latest")
+        except GitHubNotFoundError:
+            return None
+        return ReleaseDTO.model_validate(response.json())
 
     async def list_starred(
         self,

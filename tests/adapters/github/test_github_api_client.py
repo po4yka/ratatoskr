@@ -24,6 +24,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 REPO_URL = "https://api.github.com/repos/tiangolo/fastapi"
 README_URL = "https://api.github.com/repos/tiangolo/fastapi/readme"
+LATEST_RELEASE_URL = "https://api.github.com/repos/tiangolo/fastapi/releases/latest"
 STARRED_URL = "https://api.github.com/user/starred"
 GISTS_URL = "https://api.github.com/gists"
 USER_URL = "https://api.github.com/user"
@@ -135,6 +136,42 @@ async def test_get_readme_404_returns_empty_result() -> None:
     assert result.content is None
     assert result.etag is None
     assert result.not_modified is False
+
+
+@pytest.mark.asyncio
+async def test_get_latest_release_returns_release_or_none() -> None:
+    async with respx.mock:
+        respx.get(LATEST_RELEASE_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": 123,
+                    "tag_name": "v1.2.3",
+                    "name": "Release 1.2.3",
+                    "html_url": "https://github.com/tiangolo/fastapi/releases/tag/v1.2.3",
+                    "published_at": "2024-01-02T03:04:05Z",
+                },
+            )
+        )
+
+        async with _make_client() as gh:
+            result = await gh.get_latest_release("tiangolo", "fastapi")
+
+    assert result is not None
+    assert result.tag_name == "v1.2.3"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_release_404_returns_none() -> None:
+    async with respx.mock:
+        respx.get(LATEST_RELEASE_URL).mock(
+            return_value=httpx.Response(404, json={"message": "Not Found"})
+        )
+
+        async with _make_client() as gh:
+            result = await gh.get_latest_release("tiangolo", "fastapi")
+
+    assert result is None
 
 
 # ---------------------------------------------------------------------------
