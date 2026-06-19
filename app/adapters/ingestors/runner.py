@@ -130,19 +130,39 @@ class SourceIngestionRunner:
                         )
                         items += len(item_payloads)
                     except Exception:
+                        logger.warning(
+                            "source_ingester_bulk_upsert_failed",
+                            extra={
+                                "source_id": source_id,
+                                "item_count": len(item_payloads),
+                                "ingester": getattr(ingester, "name", "unknown"),
+                            },
+                            exc_info=True,
+                        )
                         for item in item_payloads:
-                            await self._repository.async_upsert_feed_item(
-                                source_id=source_id,
-                                external_id=item["external_id"],
-                                canonical_url=item["canonical_url"],
-                                title=item["title"],
-                                content_text=item["content_text"],
-                                author=item["author"],
-                                published_at=item["published_at"],
-                                engagement=item["engagement"],
-                                metadata=item["metadata"],
-                            )
-                            items += 1
+                            try:
+                                await self._repository.async_upsert_feed_item(
+                                    source_id=source_id,
+                                    external_id=item["external_id"],
+                                    canonical_url=item["canonical_url"],
+                                    title=item["title"],
+                                    content_text=item["content_text"],
+                                    author=item["author"],
+                                    published_at=item["published_at"],
+                                    engagement=item["engagement"],
+                                    metadata=item["metadata"],
+                                )
+                                items += 1
+                            except Exception:
+                                logger.warning(
+                                    "source_ingester_item_upsert_failed",
+                                    extra={
+                                        "source_id": source_id,
+                                        "external_id": item["external_id"],
+                                        "ingester": getattr(ingester, "name", "unknown"),
+                                    },
+                                    exc_info=True,
+                                )
                 await self._repository.async_record_source_fetch_success(source_id)
             except Exception as exc:
                 errors += 1
