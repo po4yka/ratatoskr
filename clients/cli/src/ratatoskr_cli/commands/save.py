@@ -39,5 +39,6 @@ def save(
             echo_success(f"Already saved (id={result.get('request_id')})")
         else:
             echo_success(f"Saved! Request ID: {result.get('request_id')}")
-            if result.get("tags_attached"):
-                click.echo(f"Tags: {', '.join(result['tags_attached'])}")
+            tags = result.get("tags_pending") or result.get("tags_attached") or []
+            if tags:
+                click.echo(f"Tags (pending attachment): {', '.join(tags)}")

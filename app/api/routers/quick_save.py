@@ -121,8 +121,16 @@ async def quick_save(
             content_text=body.selected_text,
         )
 
-    # Find-or-create tags
-    tags_attached: list[str] = []
+    # Find-or-create tags and collect their IDs.
+    #
+    # NOTE: tag-to-summary attachment (SummaryTag) requires a summary_id, which
+    # does not exist yet at quick-save time — the summary is created later by the
+    # background summarization job.  We therefore only ensure the Tag rows exist
+    # here; the actual async_attach_tag call must happen once a summary is
+    # available (e.g. in the summarize graph's persist node or a post-save hook).
+    # The response field is intentionally named "tags_pending" to make this
+    # deferred-attachment contract explicit to callers.
+    tags_pending: list[str] = []
     if body.tag_names:
         tag_repo = _get_tag_repo()
         for tag_name in body.tag_names:
@@ -141,7 +149,7 @@ async def quick_save(
                     normalized_name=normalized_name,
                     color=None,
                 )
-            tags_attached.append(tag_name.strip())
+            tags_pending.append(tag_name.strip())
 
     # Schedule background summarization if requested
     if body.summarize:
@@ -159,7 +167,9 @@ async def quick_save(
             "status": "pending",
             "title": body.title,
             "url": normalized_url,
-            "tags_attached": tags_attached,
+            # Tags are ensured to exist in the Tag table; attachment to the
+            # summary (SummaryTag) is deferred until summarization completes.
+            "tags_pending": tags_pending,
             "duplicate": False,
         }
     )
