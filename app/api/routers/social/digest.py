@@ -112,7 +112,7 @@ async def retry_channel(
 ) -> dict[str, Any]:
     """Reactivate a subscribed channel and clear its source backoff."""
     await AuthService.require_owner(user)  # type: ignore[arg-type]
-    data = digest_facade.retry_channel(user["user_id"], username)
+    data = await asyncio.to_thread(digest_facade.retry_channel, user["user_id"], username)
     return success_response(data)
 
 
