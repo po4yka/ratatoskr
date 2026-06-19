@@ -496,7 +496,7 @@ See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, sum
 | `API_RATE_LIMIT_REQUESTS` | `10` | Requests endpoint limit |
 | `API_RATE_LIMIT_SEARCH` | `50` | Search endpoint limit |
 | `API_RATE_LIMIT_SECRET_LOGIN` | `10` | Dedicated `POST /v1/auth/secret-login` limit |
-| `API_RATE_LIMIT_CREDENTIALS_LOGIN` | `10` | Dedicated `POST /v1/auth/credentials-login` limit (separate counter from secret-login so brute-forcing one channel cannot lock out the other) |
+| `API_RATE_LIMIT_CREDENTIALS_LOGIN` | `5` | Dedicated `POST /v1/auth/credentials-login` limit (separate counter from secret-login so brute-forcing one channel cannot lock out the other) |
 | `API_RATE_LIMIT_AGGREGATION_CREATE_USER` | `5` | Aggregation create limit per authenticated user |
 | `API_RATE_LIMIT_AGGREGATION_CREATE_CLIENT` | `20` | Aggregation create limit per client ID across users |
 | `SYNC_EXPIRY_HOURS` | `1` | Sync session expiry |

@@ -161,6 +161,15 @@ groups:
           summary: "Possible credential theft — family revocation detected"
           description: "A refresh-token family was revoked after retired-token replay in the last 5 minutes. Inspect refresh_family_revoked audit logs, source IP, client_id, and the affected user before restoring access."
 
+      - alert: RatatoskrCredentialsLoginRateLimitedHigh
+        expr: increase(ratatoskr_rate_limit_hits_total{bucket="credentials_login"}[15m]) > 20
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Credentials-login rate limits are firing"
+          description: "More than 20 credentials-login requests were rate-limited in 15 minutes. Treat this as possible credential stuffing; inspect source IPs, client IDs, and credentials_login_failed logs."
+
   - name: ratatoskr_external_services
     rules:
       # Firecrawl high error rate

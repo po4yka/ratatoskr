@@ -32,7 +32,7 @@ class ApiLimitsConfig(BaseModel):
         validation_alias="API_RATE_LIMIT_SECRET_LOGIN",
     )
     credentials_login_limit: int = Field(
-        default=10,
+        default=5,
         validation_alias="API_RATE_LIMIT_CREDENTIALS_LOGIN",
     )
     aggregation_create_user_limit: int = Field(

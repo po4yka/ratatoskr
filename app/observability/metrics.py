@@ -170,7 +170,9 @@ from app.observability.metrics_llm import (
 # Auth / sessions
 # ---------------------------------------------------------------------------
 from app.observability.metrics_auth import (
+    RATE_LIMIT_HITS_TOTAL,
     TOKEN_FAMILY_DECISIONS_TOTAL,
+    record_rate_limit_hit,
     record_token_family_decision,
 )
 
@@ -411,7 +413,9 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_per_model_latency",
     "record_per_model_timeout",
     # Auth / sessions
+    "RATE_LIMIT_HITS_TOTAL",
     "TOKEN_FAMILY_DECISIONS_TOTAL",
+    "record_rate_limit_hit",
     "record_token_family_decision",
     # MCP
     "MCP_UNSCOPED_ENABLED",

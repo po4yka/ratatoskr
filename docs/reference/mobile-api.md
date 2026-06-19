@@ -62,6 +62,12 @@ Production/public deployments (`APP_ENV=production` or `API_PUBLIC_EXPOSURE=true
 
 JWT access and refresh tokens are issued by Ratatoskr with issuer `ratatoskr` and audience `ratatoskr-api`. Token decode requires `exp`, `iat`, `type`, `user_id`, `iss`, and `aud`; tokens with a wrong issuer or audience are rejected. For one rollout only, each freshly started API worker accepts legacy signed tokens that are missing only `aud` and/or `iss` for five minutes, logging `jwt_legacy_missing_aud_iss_accepted`; remove this compatibility window after one release once old mobile/web tokens have naturally expired or refreshed.
 
+### Rate limits
+
+API rate limits run before auth handlers. Auth endpoints use separated buckets so a spray against one login surface does not consume the refresh/session budget for another surface. `POST /v1/auth/credentials-login` uses `credentials_login` (`API_RATE_LIMIT_CREDENTIALS_LOGIN`, default 5/window), `POST /v1/auth/secret-login` uses `secret_login` (`API_RATE_LIMIT_SECRET_LOGIN`, default 10/window), `POST /v1/auth/telegram-login` uses `telegram_login`, `POST /v1/auth/refresh` uses `auth_refresh`, and the remaining auth/session/secret-key/GitHub-auth endpoints have route-specific `auth_*` buckets. For unauthenticated credentials, secret, Telegram, and refresh requests, the rate-limit key is `(client_id, client_ip)` when a valid client ID can be extracted from the JSON body or refresh JWT; otherwise it falls back to `client_ip`.
+
+`request.client.host` is the source IP used by the middleware. This is only as accurate as the ASGI server/proxy chain: behind CGNAT or a reverse proxy, many legitimate clients can share one IP unless the deployment terminates and forwards client identity correctly. Keep Redis-backed rate limiting enabled in production/public deployments so every worker shares counters, and treat `ratatoskr_rate_limit_hits_total{bucket="credentials_login"}` spikes as possible credential stuffing.
+
 ## API Surface Freeze Policy
 
 The mobile API surface is contract-locked against the generated `docs/openapi/mobile_api.yaml` / `docs/openapi/mobile_api.json` pair. Changes are gated by:

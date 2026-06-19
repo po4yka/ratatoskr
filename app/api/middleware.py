@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING, Any, cast
 
@@ -136,13 +137,15 @@ def _resolve_limit_from_bucket(cfg: AppConfig, bucket: str | None) -> int:
         return limits.aggregation_create_user_limit
     if bucket == "secret_login":
         return limits.secret_login_limit
+    if bucket == "credentials_login":
+        return limits.credentials_login_limit
     if bucket == "summaries":
         return limits.summaries_limit
     if bucket == "requests":
         return limits.requests_limit
     if bucket == "search":
         return limits.search_limit
-    if bucket == "auth":
+    if bucket and bucket.startswith("auth_"):
         return limits.auth_limit
     return limits.default_limit
 
@@ -171,13 +174,75 @@ def _get_auth_context_from_auth_header(request: Request) -> tuple[str | None, st
     return None, normalized_client_id or None
 
 
-def _resolve_rate_limit_context(request: Request) -> dict[str, str | None]:
+def _get_client_ip(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+async def _extract_json_body(request: Request) -> dict[str, Any]:
+    content_type = request.headers.get("content-type", "")
+    if content_type and "application/json" not in content_type.lower():
+        return {}
+    try:
+        raw = await request.body()
+    except Exception:
+        return {}
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+async def _resolve_auth_body_client_id(request: Request, bucket: str | None) -> str | None:
+    if bucket not in {"credentials_login", "secret_login", "telegram_login"}:
+        return None
+    body = await _extract_json_body(request)
+    client_id = body.get("client_id")
+    return client_id.strip() if isinstance(client_id, str) and client_id.strip() else None
+
+
+async def _resolve_refresh_client_id(request: Request, bucket: str | None) -> str | None:
+    if bucket != "auth_refresh":
+        return None
+    body = await _extract_json_body(request)
+    token = body.get("refresh_token")
+    if not isinstance(token, str) or not token.strip():
+        try:
+            from app.api.routers.auth.cookies import REFRESH_COOKIE_NAME
+
+            token = request.cookies.get(REFRESH_COOKIE_NAME)
+        except Exception:
+            token = None
+    if not isinstance(token, str) or not token.strip():
+        return None
+    try:
+        from app.api.routers.auth import decode_token
+
+        payload = decode_token(token.strip(), expected_type="refresh")
+    except Exception:
+        logger.warning("refresh_jwt_decode_failed_for_rate_limit")
+        return None
+    client_id = payload.get("client_id")
+    return client_id.strip() if isinstance(client_id, str) and client_id.strip() else None
+
+
+async def _resolve_rate_limit_context(
+    request: Request, bucket: str | None
+) -> dict[str, str | None]:
     auth_user_id, auth_client_id = _get_auth_context_from_auth_header(request)
     user_id = getattr(request.state, "user_id", None)
     client_id = getattr(request.state, "client_id", None)
 
     resolved_user_id = str(user_id) if user_id else auth_user_id
     resolved_client_id = str(client_id) if client_id else auth_client_id
+    if not resolved_client_id:
+        resolved_client_id = await _resolve_auth_body_client_id(request, bucket)
+    if not resolved_client_id:
+        resolved_client_id = await _resolve_refresh_client_id(request, bucket)
 
     if not resolved_user_id or not resolved_client_id:
         webapp_user = getattr(request.state, "webapp_user", None)
@@ -191,26 +256,72 @@ def _resolve_rate_limit_context(request: Request) -> dict[str, str | None]:
             if not resolved_client_id:
                 resolved_client_id = "webapp"
 
-    actor = (
-        resolved_user_id
-        if resolved_user_id
-        else request.client.host
-        if request.client and request.client.host
-        else "unknown"
-    )
+    client_ip = _get_client_ip(request)
+    actor = resolved_user_id if resolved_user_id else client_ip
     return {
         "actor": actor,
         "user_id": resolved_user_id,
         "client_id": resolved_client_id,
+        "client_ip": client_ip,
     }
 
 
 def _resolve_bucket(method: str, path: str) -> str | None:
     normalized_path = path.rstrip("/") or "/"
-    if method.upper() == "POST" and normalized_path == "/v1/aggregations":
+    method_upper = method.upper()
+    if method_upper == "POST" and normalized_path == "/v1/aggregations":
         return "aggregation_create"
-    if method.upper() == "POST" and normalized_path == "/v1/auth/secret-login":
+    if method_upper == "POST" and normalized_path == "/v1/auth/secret-login":
         return "secret_login"
+    if method_upper == "POST" and normalized_path == "/v1/auth/credentials-login":
+        return "credentials_login"
+    if method_upper == "POST" and normalized_path == "/v1/auth/telegram-login":
+        return "telegram_login"
+    if method_upper == "POST" and normalized_path == "/v1/auth/refresh":
+        return "auth_refresh"
+    if method_upper == "POST" and normalized_path == "/v1/auth/logout":
+        return "auth_logout"
+    if method_upper == "POST" and normalized_path == "/v1/auth/logout-all":
+        return "auth_logout_all"
+    if method_upper == "GET" and normalized_path == "/v1/auth/sessions":
+        return "auth_sessions_list"
+    if method_upper == "DELETE" and normalized_path.startswith("/v1/auth/sessions/"):
+        return "auth_session_delete"
+    if method_upper == "GET" and normalized_path == "/v1/auth/me":
+        return "auth_me"
+    if method_upper == "DELETE" and normalized_path == "/v1/auth/me":
+        return "auth_delete_account"
+    if method_upper == "POST" and normalized_path == "/v1/auth/credentials/change-password":
+        return "auth_credentials_change_password"
+    if method_upper == "GET" and normalized_path == "/v1/auth/me/telegram":
+        return "auth_telegram_status"
+    if method_upper == "POST" and normalized_path == "/v1/auth/me/telegram/link":
+        return "auth_telegram_link"
+    if method_upper == "POST" and normalized_path == "/v1/auth/me/telegram/complete":
+        return "auth_telegram_complete"
+    if method_upper == "DELETE" and normalized_path == "/v1/auth/me/telegram":
+        return "auth_telegram_unlink"
+    if method_upper == "POST" and normalized_path == "/v1/auth/secret-keys":
+        return "auth_secret_key_create"
+    if method_upper == "GET" and normalized_path == "/v1/auth/secret-keys":
+        return "auth_secret_key_list"
+    if method_upper == "POST" and normalized_path.startswith("/v1/auth/secret-keys/"):
+        if normalized_path.endswith("/rotate"):
+            return "auth_secret_key_rotate"
+        if normalized_path.endswith("/revoke"):
+            return "auth_secret_key_revoke"
+    if method_upper == "POST" and normalized_path == "/v1/auth/github/pat":
+        return "auth_github_pat"
+    if method_upper == "GET" and normalized_path == "/v1/auth/github/status":
+        return "auth_github_status"
+    if method_upper == "POST" and normalized_path == "/v1/auth/github/sync":
+        return "auth_github_sync"
+    if method_upper == "DELETE" and normalized_path == "/v1/auth/github":
+        return "auth_github_disconnect"
+    if method_upper == "POST" and normalized_path == "/v1/auth/github/device/start":
+        return "auth_github_device_start"
+    if method_upper == "POST" and normalized_path == "/v1/auth/github/device/poll":
+        return "auth_github_device_poll"
     if "/summaries" in normalized_path:
         return "summaries"
     if "/search" in normalized_path:
@@ -218,13 +329,33 @@ def _resolve_bucket(method: str, path: str) -> str | None:
     if "/requests" in normalized_path:
         return "requests"
     if "/auth" in normalized_path:
-        return "auth"
+        return "auth_other"
     return None
 
 
 def _bucket_rate_key(bucket: str | None, actor: str) -> str:
     bucket_name = bucket or "default"
     return f"{bucket_name}:{actor}"
+
+
+def _auth_client_ip_actor(bucket: str | None, client_id: str | None, client_ip: str) -> str | None:
+    if bucket not in {"credentials_login", "secret_login", "telegram_login", "auth_refresh"}:
+        return None
+    if not client_id:
+        return None
+    return f"client_id={client_id}|ip={client_ip}"
+
+
+def _record_rate_limit_hit(bucket: str | None) -> None:
+    try:
+        from app.observability.metrics import record_rate_limit_hit
+
+        record_rate_limit_hit(bucket or "default")
+    except Exception as exc:
+        logger.debug(
+            "rate_limit_metric_failed",
+            extra={"bucket": bucket or "default", "error": str(exc)},
+        )
 
 
 def _build_rate_limit_response(
@@ -314,6 +445,7 @@ async def _handle_local_rate_limit(
     correlation_id: str | None,
     rate_key: str,
     log_actor: str,
+    bucket: str | None,
     bucket_limit: int,
     window: int,
     window_start: int,
@@ -321,6 +453,7 @@ async def _handle_local_rate_limit(
 ) -> JSONResponse | Any:
     allowed, remaining = _check_local_rate_limit(rate_key, bucket_limit, window)
     if not allowed:
+        _record_rate_limit_hit(bucket)
         retry_after = _compute_retry_after(now, window_start, window, cfg)
         logger.info(
             "rate_limit_exceeded_local",
@@ -328,6 +461,7 @@ async def _handle_local_rate_limit(
                 "user_id": log_actor,
                 "path": request.url.path,
                 "limit": bucket_limit,
+                "bucket": bucket or "default",
                 "retry_after": retry_after,
                 "correlation_id": correlation_id,
                 "backend": "in-memory",
@@ -364,6 +498,7 @@ async def _handle_redis_rate_limit(
     redis_client: Any,
     rate_key: str,
     log_actor: str,
+    bucket: str | None,
     bucket_limit: int,
     window: int,
     window_start: int,
@@ -377,6 +512,7 @@ async def _handle_redis_rate_limit(
     count, _ = await pipe.execute()
 
     if count > bucket_limit:
+        _record_rate_limit_hit(bucket)
         retry_after = _compute_retry_after(now, window_start, window, cfg)
         logger.info(
             "rate_limit_exceeded",
@@ -384,6 +520,7 @@ async def _handle_redis_rate_limit(
                 "user_id": log_actor,
                 "path": request.url.path,
                 "limit": bucket_limit,
+                "bucket": bucket or "default",
                 "count": count,
                 "retry_after": retry_after,
                 "correlation_id": correlation_id,
@@ -436,6 +573,7 @@ async def _enforce_client_limit_local(
     if allowed:
         return None
 
+    _record_rate_limit_hit("aggregation_create_client")
     retry_after = _compute_retry_after(now, window_start, window, cfg)
     logger.info(
         "aggregation_create_client_rate_limit_exceeded_local",
@@ -488,6 +626,7 @@ async def _enforce_client_limit_redis(
     if count <= limit:
         return None
 
+    _record_rate_limit_hit("aggregation_create_client")
     retry_after = _compute_retry_after(now, window_start, window, cfg)
     logger.info(
         "aggregation_create_client_rate_limit_exceeded",
@@ -517,20 +656,21 @@ async def rate_limit_middleware(request: Request, call_next: Callable[..., Any])
     """Redis-backed rate limiting middleware with graceful fallback."""
     cfg = _get_cfg()
     correlation_id = getattr(request.state, "correlation_id", None)
-    rate_limit_context = _resolve_rate_limit_context(request)
-    actor = rate_limit_context["actor"] or "unknown"
-    log_actor = rate_limit_context["user_id"] or actor
-    client_id = rate_limit_context["client_id"]
-
-    # Simple path-based rate limit bucket resolution
     path = request.url.path
     bucket = _resolve_bucket(request.method, path)
+    rate_limit_context = await _resolve_rate_limit_context(request, bucket)
+    actor = rate_limit_context["actor"] or "unknown"
+    client_id = rate_limit_context["client_id"]
+    client_ip = rate_limit_context["client_ip"] or "unknown"
+    auth_actor = _auth_client_ip_actor(bucket, client_id, client_ip)
+    rate_actor = auth_actor or actor
+    log_actor = rate_limit_context["user_id"] or rate_actor
 
     request.state.interface_route_key = path
     request.state.interface_route_requires_auth = True
 
     bucket_limit = _resolve_limit_from_bucket(cfg=cfg, bucket=bucket)
-    rate_key = _bucket_rate_key(bucket, actor)
+    rate_key = _bucket_rate_key(bucket, rate_actor)
     client_limit = _aggregation_client_limit(cfg, bucket)
     window = cfg.api_limits.window_seconds
     now = int(time.time())
@@ -568,6 +708,7 @@ async def rate_limit_middleware(request: Request, call_next: Callable[..., Any])
             correlation_id=correlation_id,
             rate_key=rate_key,
             log_actor=log_actor,
+            bucket=bucket,
             bucket_limit=bucket_limit,
             window=window,
             window_start=window_start,
@@ -597,6 +738,7 @@ async def rate_limit_middleware(request: Request, call_next: Callable[..., Any])
         redis_client=redis_client,
         rate_key=rate_key,
         log_actor=log_actor,
+        bucket=bucket,
         bucket_limit=bucket_limit,
         window=window,
         window_start=window_start,
