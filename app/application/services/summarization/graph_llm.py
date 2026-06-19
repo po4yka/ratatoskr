@@ -295,6 +295,7 @@ async def enrich_two_pass(
     temperature: float,
     top_p: float | None,
     enrichment_max_tokens: int,
+    enrichment_content_max_chars: int = 30000,
     correlation_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Optional second enrichment pass (verbatim parity with ``enrich_two_pass``).
@@ -316,7 +317,7 @@ async def enrich_two_pass(
         user_content = (
             f"Respond in {'Russian' if chosen_lang == LANG_RU else 'English'}.\n\n"
             f"CORE SUMMARY (already generated, do not modify):\n{core_summary_text}\n\n"
-            f"ORIGINAL CONTENT START\n{content_text[:30000]}\nORIGINAL CONTENT END"
+            f"ORIGINAL CONTENT START\n{content_text[:enrichment_content_max_chars]}\nORIGINAL CONTENT END"
         )
         messages = [
             {"role": "system", "content": enrichment_prompt},

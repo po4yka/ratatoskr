@@ -77,6 +77,11 @@ class SummarizeConfig:
     article_vision_enabled: bool = False
     article_vision_min_images: int = 1
     vision_model: str | None = None
+    # Maximum characters of source content forwarded to the enrichment LLM pass.
+    # Sourced from cfg.runtime.enrichment_content_max_chars at the composition
+    # root; default matches the previous hardcoded value (30 000) so existing
+    # deployments without the env var are unaffected.
+    enrichment_content_max_chars: int = 30000
 
 
 @dataclass(frozen=True, slots=True)

@@ -101,6 +101,7 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
         article_vision_enabled=bool(getattr(attachment, "article_vision_enabled", False)),
         article_vision_min_images=int(getattr(attachment, "article_vision_min_images", 1)),
         vision_model=getattr(attachment, "vision_model", None),
+        enrichment_content_max_chars=int(getattr(runtime, "enrichment_content_max_chars", 30000)),
     )
 
 

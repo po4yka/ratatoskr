@@ -51,6 +51,7 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         temperature=config.temperature,
         top_p=config.top_p,
         enrichment_max_tokens=config.enrichment_max_tokens,
+        enrichment_content_max_chars=config.enrichment_content_max_chars,
         correlation_id=state.get("correlation_id"),
     )
 
