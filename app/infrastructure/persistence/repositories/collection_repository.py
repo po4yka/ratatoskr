@@ -659,10 +659,27 @@ class CollectionRepositoryAdapter:
             if collection is None:
                 return None
             owner = await session.get(User, collection.user_id)
+            owner_display: dict[str, Any] | None = None
+            if owner is not None:
+                # Return only non-sensitive display fields.  Excluded: preferences_json,
+                # link_nonce, link_nonce_expires_at, is_owner, server_version,
+                # onboarding_completed_at, linked_at — none of which are needed by any
+                # ACL consumer and must not be visible to viewer-role collaborators.
+                owner_display = {
+                    "telegram_user_id": owner.telegram_user_id,
+                    "username": owner.username,
+                    "display_name": owner.display_name,
+                    "locale": owner.locale,
+                    "theme": owner.theme,
+                    "linked_telegram_username": owner.linked_telegram_username,
+                    "linked_telegram_first_name": owner.linked_telegram_first_name,
+                    "linked_telegram_last_name": owner.linked_telegram_last_name,
+                    "linked_telegram_photo_url": owner.linked_telegram_photo_url,
+                }
             return {
                 "collection_id": collection.id,
                 "user_id": collection.user_id,
-                "owner_user": model_to_dict(owner) if owner else None,
+                "owner_user": owner_display,
                 "role": "owner",
                 "status": "active",
             }
@@ -720,7 +737,9 @@ class CollectionRepositoryAdapter:
                     .offset(offset)
                 )
             ).all()
-            collection_counts = await _item_counts(session, [collection.id for _, collection in rows])
+            collection_counts = await _item_counts(
+                session, [collection.id for _, collection in rows]
+            )
             invites: list[dict[str, Any]] = []
             now = _now()
             for invite, collection in rows:
@@ -839,7 +858,9 @@ class CollectionRepositoryAdapter:
                             CollectionPublicLink.expires_at > _now(),
                         ),
                     )
-                    .order_by(CollectionPublicLink.created_at.desc(), CollectionPublicLink.id.desc())
+                    .order_by(
+                        CollectionPublicLink.created_at.desc(), CollectionPublicLink.id.desc()
+                    )
                 )
             ).scalars()
             return [_public_link_dict(link) for link in rows]
@@ -865,7 +886,11 @@ class CollectionRepositoryAdapter:
             link = await session.scalar(
                 select(CollectionPublicLink).where(CollectionPublicLink.token == token)
             )
-            return _public_link_dict(link, include_password_hash=include_password_hash) if link else None
+            return (
+                _public_link_dict(link, include_password_hash=include_password_hash)
+                if link
+                else None
+            )
 
     async def async_get_public_collection_payload(
         self,
