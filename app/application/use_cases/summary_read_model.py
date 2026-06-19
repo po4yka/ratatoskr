@@ -192,6 +192,7 @@ class SummaryReadModelUseCase:
             "request": request_data,
             "request_id": request_id_int,
             "crawl_result": context.get("crawl_result"),
+            "transcription_artifact": context.get("transcription_artifact"),
             "llm_calls": llm_calls,
             "aggregation_source_bundle": aggregation_source_bundle,
         }

@@ -36,6 +36,7 @@ from app.adapters.content.url_flow_models import (
     URLFlowContext,
     URLFlowRequest,
     URLProcessingFlowResult,
+    create_chunk_llm_stub,
 )
 from app.application.graphs.summarize.graph import (
     DEFAULT_RECURSION_LIMIT,
@@ -43,7 +44,7 @@ from app.application.graphs.summarize.graph import (
     invocation_config,
 )
 from app.core.async_utils import raise_if_cancelled
-from app.core.lang import LANG_RU, choose_language
+from app.core.lang import LANG_RU, choose_language, detect_language
 from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.core.url_utils import compute_dedupe_hash
@@ -265,6 +266,166 @@ class GraphURLProcessor:
             extraction_confidence=request.extraction_confidence,
         )
         return summary
+
+    async def create_text_request(
+        self,
+        *,
+        message: Any,
+        request_type: str,
+        correlation_id: str | None,
+        content_text: str | None = None,
+    ) -> int:
+        """Create a persisted request row for non-URL text sources such as voice transcripts."""
+        chat_id, user_id, input_message_id = _message_identity_flexible(message)
+        req_id = await self.message_persistence.request_repo.async_create_request(
+            type_=request_type,
+            correlation_id=correlation_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            input_message_id=input_message_id,
+            content_text=content_text,
+            route_version=URL_ROUTE_VERSION,
+            initial_attempt_trigger="initial",
+        )
+        if message is not None:
+            try:
+                await self.message_persistence.persist_message_snapshot(req_id, message)
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                logger.error(
+                    "graph_text_flow_snapshot_error",
+                    extra={"cid": correlation_id, "req_id": req_id, "error": str(exc)},
+                )
+        return req_id
+
+    async def summarize_text_request(
+        self,
+        *,
+        message: Any,
+        request_id: int,
+        content_text: str,
+        correlation_id: str | None,
+        interaction_id: int | None = None,
+        request_type: str = "text",
+        silent: bool = False,
+    ) -> URLProcessingFlowResult:
+        """Summarize already-extracted text and persist it under ``request_id``."""
+        if not content_text.strip():
+            raise ValueError("Content text is empty or contains only whitespace")
+        await self.request_repo.async_update_request_content_text(request_id, content_text)
+        detected_lang = detect_language(content_text)
+        try:
+            await self.request_repo.async_update_request_lang_detected(request_id, detected_lang)
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "graph_text_flow_lang_persist_failed",
+                extra={"cid": correlation_id, "req_id": request_id, "error": str(exc)},
+            )
+        lang = choose_language(getattr(self.cfg.runtime, "preferred_lang", None), detected_lang)
+        user_scope, environment = self._retrieval_scope()
+        initial_state = build_initial_state(
+            correlation_id=correlation_id or "",
+            request_id=request_id,
+            lang=lang,
+            input_url="",
+            source_text=content_text,
+            user_scope=user_scope,
+            environment=environment,
+        )
+        config = invocation_config(
+            correlation_id=correlation_id or f"{request_type}-{request_id}",
+            recursion_limit=DEFAULT_RECURSION_LIMIT,
+        )
+        try:
+            final_state = await self._graph.ainvoke(initial_state, config=config)
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            await self.request_repo.async_update_request_error(
+                request_id,
+                "error",
+                error_type=type(exc).__name__,
+                error_message=str(exc) or "<empty>",
+            )
+            raise
+
+        if isinstance(final_state, dict) and "error" in final_state:
+            return URLProcessingFlowResult(success=False, request_id=request_id)
+        summary_json = final_state.get("summary") if isinstance(final_state, dict) else None
+        if not isinstance(summary_json, dict) or not summary_json:
+            await self.request_repo.async_update_request_error(
+                request_id,
+                "error",
+                error_type="empty_summary",
+                error_message="No summary was produced",
+            )
+            return URLProcessingFlowResult(success=False, request_id=request_id)
+
+        result = URLProcessingFlowResult.from_summary(
+            summary_json,
+            cached=False,
+            request_id=request_id,
+        )
+        if not silent:
+            await self._deliver_text_summary(
+                message=message,
+                request_id=request_id,
+                result=result,
+                correlation_id=correlation_id,
+                interaction_id=interaction_id,
+                request_type=request_type,
+            )
+        await self.post_summary_tasks.schedule_tasks(
+            message,
+            content_text,
+            lang,
+            request_id,
+            correlation_id,
+            summary_json,
+            needs_ru_translation=False,
+            silent=silent,
+            url_hash=f"{request_type}:{request_id}",
+        )
+        return result
+
+    async def _deliver_text_summary(
+        self,
+        *,
+        message: Any,
+        request_id: int,
+        result: URLProcessingFlowResult,
+        correlation_id: str | None,
+        interaction_id: int | None,
+        request_type: str,
+    ) -> None:
+        context = URLFlowContext(
+            dedupe_hash=f"{request_type}:{request_id}",
+            req_id=request_id,
+            content_text="",
+            title=result.title,
+            images=None,
+            chosen_lang=getattr(self.cfg.runtime, "preferred_lang", None) or "auto",
+            needs_ru_translation=False,
+            system_prompt="",
+            should_chunk=False,
+            max_chars=0,
+            chunks=None,
+        )
+        summary_result = _SummaryResultStub(
+            summary=result.summary_json,
+            llm_result=create_chunk_llm_stub(self.cfg),
+            served_from_cache=False,
+            model_used=getattr(self.cfg.openrouter, "model", None),
+        )
+        await self.summary_delivery.deliver_summary(
+            message=message,
+            summary_result=summary_result,
+            context=context,
+            correlation_id=correlation_id,
+            interaction_id=interaction_id,
+            silent=False,
+            batch_mode=False,
+        )
 
     async def _complete_metadata_and_enrich(
         self,
@@ -864,4 +1025,28 @@ def _message_identity(message: Any) -> tuple[int | None, int | None, int | None]
     )
     msg_id_raw = getattr(message, "id", getattr(message, "message_id", None))
     input_message_id = safe_message_id(msg_id_raw, field_name="message_id")
+    return chat_id, user_id, input_message_id
+
+
+def _message_identity_flexible(message: Any) -> tuple[int | None, int | None, int | None]:
+    """Extract Telegram identity from production messages and lightweight test wrappers."""
+    chat_id, user_id, input_message_id = _message_identity(message)
+    if message is None:
+        return chat_id, user_id, input_message_id
+    if chat_id is None:
+        chat_obj = getattr(message, "chat", None)
+        chat_id = safe_telegram_chat_id(
+            getattr(message, "chat_id", None)
+            or getattr(message, "peer_id", None)
+            or (getattr(chat_obj, "id", None) if chat_obj is not None else None),
+            field_name="chat_id",
+        )
+    if user_id is None:
+        sender = getattr(message, "sender", None) or getattr(message, "from_user", None)
+        user_id = safe_telegram_user_id(
+            getattr(message, "sender_id", None)
+            or getattr(message, "from_id", None)
+            or (getattr(sender, "id", None) if sender is not None else None),
+            field_name="user_id",
+        )
     return chat_id, user_id, input_message_id

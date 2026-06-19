@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -47,6 +48,23 @@ def test_has_transcribable_voice_media_discriminates_correctly() -> None:
     assert has_transcribable_voice_media(MagicMock(voice=object(), audio=None, video_note=None))
     assert has_transcribable_voice_media(MagicMock(voice=None, audio=object(), video_note=None))
     assert has_transcribable_voice_media(MagicMock(voice=None, audio=None, video_note=object()))
+    assert has_transcribable_voice_media(
+        MagicMock(
+            voice=None,
+            audio=None,
+            video_note=None,
+            document=MagicMock(mime_type="audio/mpeg"),
+        )
+    )
+    assert has_transcribable_voice_media(
+        MagicMock(
+            voice=None,
+            audio=None,
+            video_note=None,
+            document=None,
+            file=SimpleNamespace(name="meeting.m4a"),
+        )
+    )
     assert not has_transcribable_voice_media(MagicMock(voice=None, audio=None, video_note=None))
 
 
@@ -119,3 +137,32 @@ async def test_all_three_media_kinds_trigger_processing(attr_name: str) -> None:
 
     assert handled is True
     service.transcribe_media_path.assert_awaited_once()
+
+
+async def test_voice_summary_processor_receives_persisted_request() -> None:
+    processor, _formatter, service = _make_processor()
+    summary_processor = MagicMock()
+    summary_processor.create_text_request = AsyncMock(return_value=123)
+    summary_processor.summarize_text_request = AsyncMock()
+    processor._summary_processor = summary_processor
+    service.transcribe_media_path.return_value = TranscriptionResult(plain_text="capture this idea")
+
+    msg = _voice_message()
+    msg.sender_id = 5151
+    msg.chat_id = 6161
+    msg.id = 7171
+
+    handled = await processor.handle(msg, correlation_id="cid")
+
+    assert handled is True
+    summary_processor.create_text_request.assert_awaited_once_with(
+        message=msg,
+        request_type="telegram_voice",
+        correlation_id="cid",
+    )
+    summary_processor.summarize_text_request.assert_awaited_once()
+    assert summary_processor.summarize_text_request.await_args.kwargs["request_id"] == 123
+    assert (
+        "capture this idea"
+        in summary_processor.summarize_text_request.await_args.kwargs["content_text"]
+    )

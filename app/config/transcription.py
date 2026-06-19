@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.core.logging_utils import get_logger
 
@@ -18,6 +18,7 @@ LOGGER = get_logger(__name__)
 Language = Literal["en", "ru"]
 Backend = Literal["streaming", "offline_transducer"]
 TokensMode = Literal["bpe", "char"]
+Provider = Literal["local", "openai"]
 
 _DEFAULT_MODEL_PATH = "/data/models/transcription"
 _DEFAULT_DIARIZATION_PATH = "/data/models/diarization"
@@ -46,8 +47,32 @@ class TranscriptionConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        validation_alias="TRANSCRIPTION_ENABLED",
+        validation_alias=AliasChoices("TRANSCRIPTION_ENABLED", "STT_ENABLED"),
         description="Master switch for the transcription adapter",
+    )
+
+    provider: Provider = Field(
+        default="local",
+        validation_alias=AliasChoices("TRANSCRIPTION_PROVIDER", "STT_PROVIDER"),
+        description="'local' uses sherpa-onnx; 'openai' sends media to OpenAI Whisper",
+    )
+
+    api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("TRANSCRIPTION_API_KEY", "STT_API_KEY"),
+        description="API key for remote STT providers such as OpenAI Whisper",
+    )
+
+    openai_model: str = Field(
+        default="whisper-1",
+        validation_alias=AliasChoices("TRANSCRIPTION_OPENAI_MODEL", "STT_OPENAI_MODEL"),
+        description="OpenAI audio transcription model name when provider=openai",
+    )
+
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        validation_alias=AliasChoices("TRANSCRIPTION_OPENAI_BASE_URL", "STT_OPENAI_BASE_URL"),
+        description="Base URL for OpenAI-compatible audio transcription APIs",
     )
 
     language: Language = Field(
@@ -110,10 +135,10 @@ class TranscriptionConfig(BaseModel):
     )
 
     max_duration_sec: int = Field(
-        default=1800,
-        validation_alias="TRANSCRIPTION_MAX_DURATION_SEC",
+        default=600,
+        validation_alias=AliasChoices("TRANSCRIPTION_MAX_DURATION_SEC", "STT_MAX_DURATION_SEC"),
         description=(
-            "Refuse any media longer than this many seconds (default 30 min). "
+            "Refuse any media longer than this many seconds (default 10 min). "
             "Protects the bot from a runaway multi-hour transcribe job."
         ),
     )
@@ -259,6 +284,19 @@ class TranscriptionConfig(BaseModel):
             msg = (
                 f"TRANSCRIPTION_LANGUAGE must be one of {sorted(_LANGUAGE_PRESETS)}; got {value!r}"
             )
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _parse_provider(cls, value: Any) -> str:
+        if value in (None, ""):
+            return "local"
+        normalized = str(value).strip().lower()
+        if normalized in {"whisper", "openai_whisper"}:
+            return "openai"
+        if normalized not in {"local", "openai"}:
+            msg = "STT_PROVIDER must be 'local' or 'openai'"
             raise ValueError(msg)
         return normalized
 

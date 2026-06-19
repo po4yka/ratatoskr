@@ -20,6 +20,7 @@ from app.db.models import (
     Request,
     Summary,
     SummaryFeedback,
+    TranscriptionArtifact,
     model_to_dict,
 )
 from app.db.types import _next_server_version, _utcnow
@@ -199,21 +200,26 @@ class SummaryRepositoryAdapter:
         async with self._database.session() as session:
             row = (
                 await session.execute(
-                    select(Summary, Request, CrawlResult)
+                    select(Summary, Request, CrawlResult, TranscriptionArtifact)
                     .join(Request, Summary.request_id == Request.id)
                     .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
+                    .outerjoin(
+                        TranscriptionArtifact, TranscriptionArtifact.request_id == Request.id
+                    )
                     .where(Summary.id == summary_id)
+                    .order_by(TranscriptionArtifact.created_at.desc().nullslast())
                 )
             ).first()
             if row is None:
                 return None
-            summary, request, crawl_result = row
+            summary, request, crawl_result, transcription_artifact = row
             summary_data = model_to_dict(summary) or {}
             summary_data["user_id"] = request.user_id
             return {
                 "summary": summary_data,
                 "request": model_to_dict(request),
                 "crawl_result": model_to_dict(crawl_result),
+                "transcription_artifact": model_to_dict(transcription_artifact),
             }
 
     async def async_get_aggregation_source_bundle_for_summary(

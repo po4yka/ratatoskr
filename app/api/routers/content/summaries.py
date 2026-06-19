@@ -398,6 +398,7 @@ async def get_summary(
     summary = context["summary"]
     request_data = context["request"]
     crawl_result = context["crawl_result"]
+    transcription_artifact = context.get("transcription_artifact")
     llm_calls = context["llm_calls"]
 
     # Build source metadata
@@ -479,6 +480,11 @@ async def get_summary(
         "published_at": source.get("published_at"),
         "word_count": source.get("word_count"),
         "content_type": source.get("content_type"),
+        "transcript": (
+            transcription_artifact.get("plain_text")
+            if isinstance(transcription_artifact, dict)
+            else None
+        ),
     }
 
     processing_detail = {

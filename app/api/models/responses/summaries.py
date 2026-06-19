@@ -110,6 +110,7 @@ class SummaryDetailSource(BaseModel):
     published_at: str | None = Field(default=None, serialization_alias="publishedAt")
     word_count: int | None = Field(default=None, serialization_alias="wordCount")
     content_type: str | None = Field(default=None, serialization_alias="contentType")
+    transcript: str | None = None
 
 
 class SummaryDetailQuality(BaseModel):

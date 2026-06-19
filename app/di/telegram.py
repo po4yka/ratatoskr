@@ -464,7 +464,7 @@ def _build_telegram_interface_stack(
                 diarization_enabled=cfg.transcription.diarization_enabled,
                 transcription_cfg=cfg.transcription,
                 transcription_repository=transcription_repository,
-                transcription_job_service=transcription_job_service,
+                summary_processor=processing.url_processor,
             )
     dispatcher_deps = _build_command_dispatcher_deps(
         cfg=cfg,

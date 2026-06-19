@@ -2,8 +2,7 @@
 
 Triggered from ``MessageContentRouter`` when no other handler claims the
 message and ``cfg.transcription.enabled and cfg.transcription.auto_on_voice_message``
-is set. The user gets a transcript in reply; nothing is persisted as a Summary
-in v1 (durable archiving for voice messages is a follow-up).
+is set. The user gets a transcript plus the normal structured summary response.
 """
 
 from __future__ import annotations
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
         ResponseFormatterFacade as ResponseFormatter,
     )
     from app.adapters.transcription import TranscriptionService
+    from app.adapters.content.graph_url_processor import GraphURLProcessor
     from app.application.ports.transcriptions import TranscriptionRepositoryPort
     from app.application.services.transcription_job_service import TranscriptionJobService
     from app.config.transcription import TranscriptionConfig
@@ -50,15 +50,39 @@ logger = get_logger(__name__)
 
 _TELEGRAM_TEXT_LIMIT = 4000
 _TRANSCRIPT_FILENAME = "transcript.txt"
+_AUDIO_DOCUMENT_MIME_TYPES = frozenset(
+    {
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/mp4",
+        "audio/m4a",
+        "audio/x-m4a",
+        "audio/ogg",
+        "audio/opus",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/webm",
+    }
+)
+_AUDIO_DOCUMENT_SUFFIXES = (".mp3", ".m4a", ".mp4", ".ogg", ".oga", ".opus", ".wav", ".webm")
 
 
 def has_transcribable_voice_media(message: Any) -> bool:
     """Return True when ``message`` carries voice / audio / video_note media."""
-    return (
+    if (
         getattr(message, "voice", None) is not None
         or getattr(message, "audio", None) is not None
         or getattr(message, "video_note", None) is not None
-    )
+    ):
+        return True
+    document = getattr(message, "document", None)
+    if document is not None:
+        mime = str(getattr(document, "mime_type", "") or "").lower()
+        if mime in _AUDIO_DOCUMENT_MIME_TYPES or mime.startswith("audio/"):
+            return True
+    file_obj = getattr(message, "file", None)
+    name = str(getattr(file_obj, "name", "") or getattr(message, "file_name", "") or "").lower()
+    return name.endswith(_AUDIO_DOCUMENT_SUFFIXES)
 
 
 class VoiceMessageProcessor:
@@ -73,6 +97,7 @@ class VoiceMessageProcessor:
         transcription_cfg: TranscriptionConfig | None = None,
         transcription_repository: TranscriptionRepositoryPort | None = None,
         transcription_job_service: TranscriptionJobService | None = None,
+        summary_processor: GraphURLProcessor | None = None,
     ) -> None:
         self._formatter = response_formatter
         self._service = transcription_service
@@ -80,6 +105,7 @@ class VoiceMessageProcessor:
         self._transcription_cfg = transcription_cfg
         self._transcription_repository = transcription_repository
         self._transcription_job_service = transcription_job_service
+        self._summary_processor = summary_processor
 
     async def handle(
         self,
@@ -130,6 +156,20 @@ class VoiceMessageProcessor:
 
             options = TranscribeOptions(with_diarization=self._diarization_enabled or None)
             source = self._source_context(message, correlation_id)
+            if source is not None and self._summary_processor is not None:
+                req_id = await self._summary_processor.create_text_request(
+                    message=message,
+                    request_type="telegram_voice",
+                    correlation_id=correlation_id,
+                )
+                source = TranscriptionSourceContext(
+                    user_id=source.user_id,
+                    source_type=source.source_type,
+                    request_id=req_id,
+                    telegram_chat_id=source.telegram_chat_id,
+                    telegram_message_id=source.telegram_message_id,
+                    correlation_id=source.correlation_id,
+                )
             job = None
             if source is not None and self._transcription_cfg is not None:
                 job = await create_transcription_job(
@@ -231,6 +271,19 @@ class VoiceMessageProcessor:
                     result=result,
                 )
             await self._send_transcript(message, result, correlation_id)
+            if (
+                source is not None
+                and source.request_id is not None
+                and self._summary_processor is not None
+                and (result.plain_text or "").strip()
+            ):
+                await self._summary_processor.summarize_text_request(
+                    message=message,
+                    request_id=source.request_id,
+                    content_text=_format_transcript(result),
+                    correlation_id=correlation_id,
+                    request_type="telegram_voice",
+                )
             return True
         finally:
             shutil.rmtree(workdir, ignore_errors=True)

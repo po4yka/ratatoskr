@@ -187,3 +187,35 @@ async def test_empty_recognizer_output_returns_empty_text() -> None:
     assert result.plain_text == ""
     assert result.sentences == ()
     assert result.used_diarization is False
+
+
+async def test_openai_provider_uses_remote_stt_client() -> None:
+    cfg = _enabled_cfg(provider="openai", api_key="sk-test", max_duration_sec=60)
+    svc = TranscriptionService(cfg)
+    remote = AsyncMock(return_value=TranscriptionResult(plain_text="remote transcript"))
+
+    with (
+        patch("app.adapters.transcription.service.probe_duration_sec", return_value=12.0),
+        patch.object(TranscriptionService, "_transcribe_openai", remote),
+    ):
+        result = await svc.transcribe_media_path(Path("/tmp/audio.ogg"), correlation_id="cid")
+
+    assert result.plain_text == "remote transcript"
+    assert result.duration_sec == 12.0
+    remote.assert_awaited_once()
+
+
+def test_stt_env_aliases_configure_transcription() -> None:
+    cfg = TranscriptionConfig.model_validate(
+        {
+            "STT_ENABLED": "true",
+            "STT_PROVIDER": "whisper",
+            "STT_API_KEY": "sk-test",
+            "STT_MAX_DURATION_SEC": "42",
+        }
+    )
+
+    assert cfg.enabled is True
+    assert cfg.provider == "openai"
+    assert cfg.api_key == "sk-test"
+    assert cfg.max_duration_sec == 42

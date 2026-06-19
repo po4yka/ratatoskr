@@ -100,6 +100,35 @@ class TranscriptionService:
         correlation_id: str | None = None,
         progress_callback: Callable[[str, str, float, str], Awaitable[None] | None] | None = None,
     ) -> TranscriptionResult:
+        """Transcribe a local media file end-to-end and record STT metrics."""
+        try:
+            result = await self._transcribe_media_path_impl(
+                media_path,
+                options=options,
+                correlation_id=correlation_id,
+                progress_callback=progress_callback,
+            )
+        except TranscriptionDisabledError:
+            _record_stt_request("disabled")
+            raise
+        except TranscriptionDurationExceededError:
+            _record_stt_request("duration_exceeded")
+            raise
+        except Exception:
+            _record_stt_request("error")
+            raise
+        _record_stt_request("success" if result.plain_text.strip() else "empty")
+        _record_stt_audio_seconds(result.duration_sec)
+        return result
+
+    async def _transcribe_media_path_impl(
+        self,
+        media_path: Path,
+        *,
+        options: TranscribeOptions | None = None,
+        correlation_id: str | None = None,
+        progress_callback: Callable[[str, str, float, str], Awaitable[None] | None] | None = None,
+    ) -> TranscriptionResult:
         """Transcribe a local media file end-to-end.
 
         Raises ``TranscriptionDisabledError`` when the feature is gated off,
@@ -127,6 +156,23 @@ class TranscriptionService:
         duration = probe_duration_sec(media_path)
         if duration is not None and duration > self._cfg.max_duration_sec:
             raise TranscriptionDurationExceededError(duration, self._cfg.max_duration_sec)
+
+        if getattr(self._cfg, "provider", "local") == "openai":
+            await _emit_progress(
+                progress_callback, "transcribing", "running", 0.65, "Transcribing audio"
+            )
+            result = await self._transcribe_openai(
+                media_path,
+                correlation_id=correlation_id,
+            )
+            return TranscriptionResult(
+                plain_text=result.plain_text,
+                sentences=result.sentences,
+                speaker_turns=result.speaker_turns,
+                detected_language=result.detected_language,
+                duration_sec=duration,
+                used_diarization=result.used_diarization,
+            )
 
         await _emit_progress(progress_callback, "decoding_audio", "running", 0.35, "Decoding audio")
         sped_pcm = await asyncio.to_thread(decode_to_pcm, media_path, speed)
@@ -201,6 +247,26 @@ class TranscriptionService:
             speaker_turns=turns,
             duration_sec=duration,
             used_diarization=True,
+        )
+
+    async def _transcribe_openai(
+        self,
+        media_path: Path,
+        *,
+        correlation_id: str | None,
+    ) -> TranscriptionResult:
+        from app.adapters.stt import OpenAIWhisperSTTClient
+
+        api_key = getattr(self._cfg, "api_key", None) or ""
+        client = OpenAIWhisperSTTClient(
+            api_key=api_key,
+            model=getattr(self._cfg, "openai_model", "whisper-1"),
+            base_url=getattr(self._cfg, "openai_base_url", "https://api.openai.com/v1"),
+        )
+        return await client.transcribe_file(
+            media_path,
+            language=getattr(self._cfg, "language", None),
+            correlation_id=correlation_id,
         )
 
     async def warmup(self) -> None:
@@ -280,3 +346,21 @@ async def _emit_progress(
     result = callback(stage, status, progress, message)
     if hasattr(result, "__await__"):
         await result
+
+
+def _record_stt_request(outcome: str) -> None:
+    try:
+        from app.observability.metrics import record_stt_request
+
+        record_stt_request(outcome)
+    except Exception:
+        logger.debug("stt_request_metric_failed", exc_info=True)
+
+
+def _record_stt_audio_seconds(duration_sec: float | None) -> None:
+    try:
+        from app.observability.metrics import record_stt_audio_seconds
+
+        record_stt_audio_seconds(duration_sec)
+    except Exception:
+        logger.debug("stt_audio_seconds_metric_failed", exc_info=True)

@@ -13310,6 +13310,11 @@ components:
           - type: string
           - type: 'null'
           title: Contenttype
+        transcript:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Transcript
       type: object
       title: SummaryDetailSource
     SummaryDetailSuccessResponse:

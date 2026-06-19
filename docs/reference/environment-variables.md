@@ -297,9 +297,9 @@ Content extraction uses an ordered chain of providers. Each provider is tried in
 | `YOUTUBE_AUTO_CLEANUP_ENABLED` | `true` | Auto-delete old videos |
 | `YOUTUBE_CLEANUP_AFTER_DAYS` | `30` | Retention period (days) |
 
-## Transcription (CPU-only ASR)
+## Transcription / STT
 
-Off by default. When enabled, ratatoskr can transcribe URLs, voice/audio/video_note messages, and (optionally) fill the audio-transcript slot in the YouTube pipeline when no native captions are available. Fully CPU-side, no GPU, no cloud API. Requires `ffmpeg` on `PATH` and the `transcription` optional extra (`pip install 'ratatoskr[transcription]'`).
+Off by default. When enabled, ratatoskr can transcribe URLs, voice/audio/video_note messages, and (optionally) fill the audio-transcript slot in the YouTube pipeline when no native captions are available. The default provider is local CPU-side sherpa-onnx; `STT_PROVIDER=openai` sends audio to an OpenAI-compatible Whisper transcription endpoint. Local transcription requires `ffmpeg` on `PATH` and the `transcription` optional extra (`pip install 'ratatoskr[transcription]'`).
 
 Two language presets are wired in. Set `TRANSCRIPTION_LANGUAGE` and the right engine + tokenization mode are picked automatically:
 
@@ -308,14 +308,18 @@ Two language presets are wired in. Set `TRANSCRIPTION_LANGUAGE` and the right en
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `TRANSCRIPTION_ENABLED` | `false` | Master switch. When `false`, the `/transcribe` command, voice auto-handler, and URL-pipeline fallback are all inactive and the transcription package is never loaded |
+| `TRANSCRIPTION_ENABLED` / `STT_ENABLED` | `false` | Master switch. When `false`, the `/transcribe` command, voice auto-handler, and URL-pipeline fallback are all inactive and the transcription package is never loaded |
+| `TRANSCRIPTION_PROVIDER` / `STT_PROVIDER` | `local` | STT provider. `local` uses sherpa-onnx; `openai` or `whisper` uses the OpenAI-compatible audio transcription API |
+| `TRANSCRIPTION_API_KEY` / `STT_API_KEY` | unset | API key for `STT_PROVIDER=openai` |
+| `TRANSCRIPTION_OPENAI_MODEL` / `STT_OPENAI_MODEL` | `whisper-1` | OpenAI-compatible transcription model |
+| `TRANSCRIPTION_OPENAI_BASE_URL` / `STT_OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL for OpenAI-compatible transcription APIs |
 | `TRANSCRIPTION_LANGUAGE` | `en` | Primary language preset. `en` picks the streaming Kroko Zipformer; `ru` picks the offline GigaAM-v3 RNN-T |
 | `TRANSCRIPTION_MODEL_PATH` | `/data/models/transcription` | Directory holding the chosen model. If empty on first use, the bundle for the configured language is auto-downloaded and upstream filenames are normalized to `encoder.onnx` / `decoder.onnx` / `joiner.onnx` / `tokens.txt`. If `tokens.txt` already exists, the directory is treated as a custom model and no download happens |
 | `TRANSCRIPTION_BACKEND` | (auto) | Override the backend selected by `TRANSCRIPTION_LANGUAGE`. `streaming` uses `sherpa_onnx.OnlineRecognizer`; `offline_transducer` uses `OfflineRecognizer.from_transducer`. Leave unset unless you are loading a custom model that disagrees with its language preset |
 | `TRANSCRIPTION_TOKENS_MODE` | (auto) | Override the tokens-mode selected by `TRANSCRIPTION_LANGUAGE`. `bpe` honours the U+2581 word-start marker; `char` joins tokens verbatim |
 | `TRANSCRIPTION_SPEED` | `1.5` | Pre-transcription speedup (pitch preserved via ffmpeg `atempo`). 1.5x cuts CPU time by ~30% with minimal accuracy loss; use 1.0 for noisy / fast-speech sources |
 | `TRANSCRIPTION_NUM_THREADS` | `2` | Threads sherpa-onnx may use for inference |
-| `TRANSCRIPTION_MAX_DURATION_SEC` | `1800` | Refuse any media longer than this. Protects against runaway multi-hour transcribe jobs |
+| `TRANSCRIPTION_MAX_DURATION_SEC` / `STT_MAX_DURATION_SEC` | `600` | Refuse any media longer than this. Protects against runaway multi-hour transcribe jobs |
 | `TRANSCRIPTION_AUTO_VOICE` | `true` | When `TRANSCRIPTION_ENABLED`, auto-transcribe forwarded voice / audio / video_note messages without requiring `/transcribe` |
 | `TRANSCRIPTION_AUTO_URL_PIPELINE` | `false` | When `TRANSCRIPTION_ENABLED`, fill `VideoSourceRequest.audio_transcript_text` in the YouTube pipeline when both `youtube-transcript-api` and VTT subtitles return empty. Opt-in because it adds CPU cost to every captionless video |
 | `TRANSCRIPTION_DIARIZATION_ENABLED` | `false` | Add speaker labels (`SPEAKER_00`, `SPEAKER_01`, ...). Downloads two additional ONNX models on first use. Note: diarization needs per-sentence timestamps, which the offline RU backend does not always emit — diarization on Russian audio may degrade to plain text without speaker labels |

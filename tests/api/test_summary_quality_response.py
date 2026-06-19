@@ -72,6 +72,7 @@ class FakeSummaryReadModelUseCase:
             }
         ]
         self.aggregation_source_bundle: dict[str, Any] | None = None
+        self.transcription_artifact: dict[str, Any] | None = None
 
     async def get_summary_context_for_user(
         self,
@@ -84,6 +85,7 @@ class FakeSummaryReadModelUseCase:
             "request": self.request,
             "request_id": self.request["id"],
             "crawl_result": self.crawl_result,
+            "transcription_artifact": self.transcription_artifact,
             "llm_calls": self.llm_calls,
             "aggregation_source_bundle": self.aggregation_source_bundle,
         }
@@ -156,6 +158,20 @@ async def test_summary_detail_contract_includes_processing_quality() -> None:
         "promptInjectionSuspected": False,
     }
     assert "rawPrompt" not in data["processing"]["quality"]
+
+
+@pytest.mark.asyncio
+async def test_summary_detail_exposes_voice_transcript_source() -> None:
+    use_case = FakeSummaryReadModelUseCase()
+    use_case.transcription_artifact = {"plain_text": "captured voice idea"}
+
+    response = await get_summary(
+        summary_id=99,
+        user={"user_id": 7},
+        use_case=use_case,  # type: ignore[arg-type]
+    )
+
+    assert response["data"]["source"]["transcript"] == "captured voice idea"
 
 
 @pytest.mark.asyncio

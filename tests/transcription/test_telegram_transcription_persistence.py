@@ -305,6 +305,37 @@ async def test_auto_voice_path_persists_mocked_service_artifact(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_auto_voice_path_links_artifact_to_summary_request(tmp_path: Path) -> None:
+    media_path = _media(tmp_path)
+    repo = _FakeTranscriptionRepository()
+    formatter = _formatter()
+    summary_processor = MagicMock()
+    summary_processor.create_text_request = AsyncMock(return_value=321)
+    summary_processor.summarize_text_request = AsyncMock()
+    processor = VoiceMessageProcessor(
+        response_formatter=formatter,
+        transcription_service=_service(TranscriptionResult(plain_text="voice transcript")),
+        diarization_enabled=False,
+        transcription_cfg=TranscriptionConfig(enabled=True, model_path=Path("/models/asr")),
+        transcription_repository=cast("TranscriptionRepositoryPort", repo),
+        summary_processor=summary_processor,
+    )
+    message = MagicMock(voice=object(), audio=None, video_note=None)
+    message.sender_id = 5151
+    message.chat_id = 6161
+    message.id = 7171
+    message.download_media = AsyncMock(return_value=str(media_path))
+
+    handled = await processor.handle(message, correlation_id="cid-voice")
+
+    assert handled is True
+    assert repo.jobs[0].request_id == 321
+    assert repo.artifacts[0].request_id == 321
+    summary_processor.summarize_text_request.assert_awaited_once()
+    assert summary_processor.summarize_text_request.await_args.kwargs["request_id"] == 321
+
+
+@pytest.mark.asyncio
 async def test_auto_voice_enqueues_without_downloading_media() -> None:
     formatter = _formatter()
     service = _service(TranscriptionResult(plain_text="should not run"))

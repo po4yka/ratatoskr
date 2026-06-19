@@ -201,6 +201,16 @@ from app.observability.metrics_scheduler import (
 )
 
 # ---------------------------------------------------------------------------
+# Speech-to-text
+# ---------------------------------------------------------------------------
+from app.observability.metrics_stt import (
+    STT_AUDIO_SECONDS_TOTAL,
+    STT_REQUESTS_TOTAL,
+    record_stt_audio_seconds,
+    record_stt_request,
+)
+
+# ---------------------------------------------------------------------------
 # Scraper chain (Firecrawl + multi-provider)
 # ---------------------------------------------------------------------------
 from app.observability.metrics_scraper import (
@@ -452,6 +462,11 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_digest_posts_analyzed",
     "record_digest_userbot_reconnect",
     "set_digest_active_subscription_users",
+    # Speech-to-text
+    "STT_AUDIO_SECONDS_TOTAL",
+    "STT_REQUESTS_TOTAL",
+    "record_stt_audio_seconds",
+    "record_stt_request",
     # Vector store
     "VECTOR_INDEXING_LAG",
     "VECTOR_RECONCILE_OLDEST_LAG_SECONDS",
