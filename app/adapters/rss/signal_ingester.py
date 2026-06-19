@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.adapters.rss.feed_fetcher import FeedResult, fetch_feed
@@ -42,10 +43,14 @@ class RssSignalIngester:
         )
 
     async def fetch(self) -> SourceFetchResult:
-        result = self.fetcher(
-            str(self.feed.get("url") or ""),
-            etag=self.feed.get("etag"),
-            last_modified=self.feed.get("last_modified"),
+        url = str(self.feed.get("url") or "")
+        etag = self.feed.get("etag")
+        last_modified = self.feed.get("last_modified")
+        result = await asyncio.to_thread(
+            self.fetcher,
+            url,
+            etag=etag,
+            last_modified=last_modified,
         )
         return self.normalize_result(result)
 
