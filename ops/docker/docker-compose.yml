@@ -927,10 +927,39 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     depends_on:
+      alertmanager:
+        condition: service_healthy
       mobile-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  alertmanager:
+    profiles:
+      - with-monitoring
+    image: prom/alertmanager:v0.27.0
+    container_name: ratatoskr-alertmanager
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - /etc/alertmanager/render-alertmanager-config.sh
+    environment:
+      - RATATOSKR_ENV=${RATATOSKR_ENV:-development}
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-http://127.0.0.1:9/alertmanager-unconfigured}
+      - ALERT_SLACK_API_URL=${ALERT_SLACK_API_URL:-}
+      - ALERT_TELEGRAM_WEBHOOK_URL=${ALERT_TELEGRAM_WEBHOOK_URL:-}
+      - ALERT_PAGERDUTY_ROUTING_KEY=${ALERT_PAGERDUTY_ROUTING_KEY:-}
+    volumes:
+      - ../monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../monitoring/render-alertmanager-config.sh:/etc/alertmanager/render-alertmanager-config.sh:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -972,6 +1001,9 @@ services:
       - loki_data:/loki
     ports:
       - "127.0.0.1:3100:3100"
+    depends_on:
+      alertmanager:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
       interval: 30s
@@ -1174,6 +1206,7 @@ volumes:
   firecrawl_redis_data:
   firecrawl_rabbitmq_data:
   firecrawl_postgres_data:
+  alertmanager_data:
   prometheus_data:
   grafana_data:
   loki_data:

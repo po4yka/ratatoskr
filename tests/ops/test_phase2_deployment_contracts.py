@@ -77,9 +77,46 @@ def test_cloud_ollama_profile_does_not_start_local_ollama() -> None:
 def test_monitoring_profile_is_in_primary_compose_file() -> None:
     services = _compose()["services"]
 
-    for name in ("prometheus", "grafana", "loki", "promtail", "node-exporter"):
+    for name in ("alertmanager", "prometheus", "grafana", "loki", "promtail", "node-exporter"):
         assert name in services
         assert services[name]["profiles"] == ["with-monitoring"]
+
+
+def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
+    services = _compose()["services"]
+    prometheus = services["prometheus"]
+    loki = services["loki"]
+    alertmanager = services["alertmanager"]
+
+    assert alertmanager["image"] == "prom/alertmanager:v0.27.0"
+    assert "../monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" in alertmanager[
+        "volumes"
+    ]
+    assert (
+        "../monitoring/render-alertmanager-config.sh:/etc/alertmanager/render-alertmanager-config.sh:ro"
+        in alertmanager["volumes"]
+    )
+    assert alertmanager["entrypoint"] == [
+        "/bin/sh",
+        "/etc/alertmanager/render-alertmanager-config.sh",
+    ]
+    assert "alertmanager_data:/alertmanager" in alertmanager["volumes"]
+    assert prometheus["depends_on"]["alertmanager"]["condition"] == "service_healthy"
+    assert loki["depends_on"]["alertmanager"]["condition"] == "service_healthy"
+
+    prometheus_config = yaml.safe_load(
+        (ROOT / "ops/monitoring/prometheus.yml").read_text(encoding="utf-8")
+    )
+    loki_config = yaml.safe_load((ROOT / "ops/monitoring/loki-config.yml").read_text(encoding="utf-8"))
+    alertmanager_config = yaml.safe_load(
+        (ROOT / "ops/monitoring/alertmanager.yml").read_text(encoding="utf-8")
+    )
+
+    targets = prometheus_config["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"]
+    assert targets == ["alertmanager:9093"]
+    assert loki_config["ruler"]["alertmanager_url"] == "http://alertmanager:9093"
+    assert alertmanager_config["route"]["receiver"] == "webhook"
+    assert alertmanager_config["receivers"][0]["webhook_configs"][0]["url"] == "${ALERT_WEBHOOK_URL}"
 
 
 def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:

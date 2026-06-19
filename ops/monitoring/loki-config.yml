@@ -64,7 +64,7 @@ table_manager:
   retention_period: 168h  # 7 days
 
 ruler:
-  alertmanager_url: ""
+  alertmanager_url: "http://alertmanager:9093"
   ring:
     kvstore:
       store: inmemory

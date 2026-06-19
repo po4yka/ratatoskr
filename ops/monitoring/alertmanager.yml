@@ -1,0 +1,46 @@
+# Alertmanager configuration for Ratatoskr.
+#
+# The webhook receiver is active by default and expands ALERT_WEBHOOK_URL at
+# container startup. Compose supplies a local discard URL when unset so dev
+# stacks still boot; production startup logs an error until a real receiver is
+# configured.
+#
+# Example Slack receiver:
+# - name: slack
+#   slack_configs:
+#     - api_url: ${ALERT_SLACK_API_URL}
+#       channel: '#ratatoskr-alerts'
+#       title: '{{ template "slack.default.title" . }}'
+#       text: '{{ template "slack.default.text" . }}'
+#       send_resolved: true
+#
+# Example Telegram bot webhook receiver:
+# - name: telegram-webhook
+#   webhook_configs:
+#     - url: ${ALERT_TELEGRAM_WEBHOOK_URL}
+#       send_resolved: true
+#
+# Example PagerDuty receiver:
+# - name: pagerduty
+#   pagerduty_configs:
+#     - routing_key: ${ALERT_PAGERDUTY_ROUTING_KEY}
+#       severity: '{{ if eq .CommonLabels.severity "critical" }}critical{{ else }}warning{{ end }}'
+#       send_resolved: true
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: webhook
+  group_by:
+    - alertname
+    - severity
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: webhook
+    webhook_configs:
+      - url: ${ALERT_WEBHOOK_URL}
+        send_resolved: true

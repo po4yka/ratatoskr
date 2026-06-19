@@ -756,32 +756,32 @@ services:
 
 ---
 
-### Alert Implementation
+### Alert Routing
 
-**Simple Script (cron-based):**
+Prometheus and Loki both route alerts to Alertmanager at `http://alertmanager:9093`. Prometheus loads `ops/monitoring/alerting_rules.yml`; Loki's ruler uses the same Alertmanager URL from `ops/monitoring/loki-config.yml`.
+
+Run the monitoring stack with a real receiver URL:
 
 ```bash
-#!/bin/bash
-# /usr/local/bin/check-ratatoskr-health.sh
-
-ERROR_RATE=$(docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c "
-  SELECT round(
-           100.0 * count(*) FILTER (WHERE status = 'error') / nullif(count(*), 0),
-           2
-         )
-    FROM requests
-   WHERE created_at > now() - interval '1 hour';
-")
-
-if (( $(echo "$ERROR_RATE > 10" | bc -l) )); then
-    echo "ALERT: Ratatoskr error rate is ${ERROR_RATE}%" | mail -s "Ratatoskr Alert" admin@example.com
-fi
+export GRAFANA_ADMIN_PASSWORD='<strong-password>'
+export ALERT_WEBHOOK_URL='https://example.internal/ratatoskr/alerts'
+docker compose -f ops/docker/docker-compose.monitoring.yml up -d
 ```
 
-**Cron:**
+The primary compose stack also includes Alertmanager behind the `with-monitoring` profile:
 
 ```bash
-*/5 * * * * /usr/local/bin/check-ratatoskr-health.sh
+ALERT_WEBHOOK_URL='https://example.internal/ratatoskr/alerts' docker compose -f ops/docker/docker-compose.yml --profile with-monitoring up -d alertmanager prometheus loki
+```
+
+`ops/monitoring/alertmanager.yml` defines the default webhook receiver and includes commented examples for Slack, a Telegram bot webhook, and PagerDuty. Compose supplies a local discard URL when `ALERT_WEBHOOK_URL` is unset so development stacks still boot. In production (`RATATOSKR_ENV=production`), the Alertmanager container logs an error on startup unless at least one receiver variable is configured.
+
+Manual smoke test:
+
+```bash
+curl -sS http://127.0.0.1:9090/-/healthy
+curl -sS http://127.0.0.1:9093/-/ready
+curl -sS -H 'Content-Type: application/json' -d '[{"labels":{"alertname":"RatatoskrManualSmoke","severity":"warning"},"annotations":{"summary":"manual Alertmanager smoke test"}}]' http://127.0.0.1:9093/api/v2/alerts
 ```
 
 ---

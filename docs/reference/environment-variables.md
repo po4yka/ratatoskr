@@ -855,6 +855,19 @@ Sampling is intentionally not configurable. httpx and Redis are auto-instrumente
 
 To swap to file-based traces for offline analysis: `OTEL_ENABLED=true OTEL_TRACES_EXPORTER=file OTEL_FILE_EXPORTER_PATH=/data/traces/spans.jsonl`. To run the deployed Tempo backend, use `ops/docker/docker-compose.monitoring.yml` (the bare `with-monitoring` profile of the main compose file does not start Tempo).
 
+## Observability / Alertmanager Receivers
+
+Alertmanager is part of both `ops/docker/docker-compose.monitoring.yml` and the main compose `with-monitoring` profile. Prometheus sends metric alerts to `alertmanager:9093`; Loki's ruler sends log alerts to the same URL. Receiver configuration lives in `ops/monitoring/alertmanager.yml`; `ops/monitoring/render-alertmanager-config.sh` renders the environment placeholders into `/tmp/alertmanager.yml` before Alertmanager starts.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ALERT_WEBHOOK_URL` | `http://127.0.0.1:9/alertmanager-unconfigured` | Default webhook receiver for all Prometheus and Loki alerts. Set this to a real internal webhook endpoint in production. |
+| `ALERT_SLACK_API_URL` | empty | Optional Slack incoming webhook URL for the commented Slack receiver snippet in `ops/monitoring/alertmanager.yml`. Uncomment the receiver and route before use. |
+| `ALERT_TELEGRAM_WEBHOOK_URL` | empty | Optional Telegram bot webhook bridge URL for the commented Telegram receiver snippet in `ops/monitoring/alertmanager.yml`. |
+| `ALERT_PAGERDUTY_ROUTING_KEY` | empty | Optional PagerDuty routing key for the commented PagerDuty receiver snippet in `ops/monitoring/alertmanager.yml`. |
+
+When `RATATOSKR_ENV=production`, the Alertmanager container logs an error during startup if all receiver variables are unset and the default discard webhook is still in use. Development stacks keep the discard URL so monitoring can boot without sending alerts externally.
+
 ---
 
 ## LangGraph Postgres Checkpointer
