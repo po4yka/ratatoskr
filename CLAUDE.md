@@ -37,6 +37,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Summary JSON contract spec | `docs/reference/summary-contract.md` |
 | Channel digest ops | `docs/reference/digest-subsystem-ops.md` |
 | Common failure recipes | `docs/reference/troubleshooting.md` |
+| On-call incident runbooks | `docs/runbooks/` |
 | Claude Code safety hooks | `docs/reference/claude-code-hooks.md` |
 
 ## Secrets
