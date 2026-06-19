@@ -145,6 +145,8 @@ from .user import (
     TagListResponse,
     TagResponse,
     TopicStat,
+    UserMeResponse,
+    UserProfileResponse,
     UserStatsData,
 )
 from .webhooks import WebhookDeliveryResponse, WebhookSubscriptionResponse
@@ -280,6 +282,8 @@ __all__ = [
     "UpdateSummaryResponse",
     "UpdateSummarySuccessResponse",
     "UserInfo",
+    "UserMeResponse",
+    "UserProfileResponse",
     "UserStatsData",
     "WebhookDeliveryResponse",
     "WebhookSubscriptionResponse",

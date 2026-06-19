@@ -6,13 +6,19 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies.database import get_summary_repository, get_user_repository
-from app.api.models.requests import CreateGoalRequest, UpdatePreferencesRequest
+from app.api.models.requests import (
+    CreateGoalRequest,
+    UpdatePreferencesRequest,
+    UpdateUserProfileRequest,
+)
 from app.api.models.responses import (
     DomainStat,
     PreferencesData,
     PreferencesUpdateResult,
     StreakResponse,
     TopicStat,
+    UserMeResponse,
+    UserProfileResponse,
     UserStatsData,
     success_response,
 )
@@ -25,6 +31,7 @@ from app.core.time_utils import UTC
 
 logger = get_logger(__name__)
 router = APIRouter()
+profile_router = APIRouter()
 
 
 def safe_isoformat(dt_value: Any) -> str | None:
@@ -46,6 +53,128 @@ def safe_isoformat(dt_value: Any) -> str | None:
         except (ValueError, AttributeError):
             return dt_value if dt_value else None
     return None
+
+
+def _profile_from_user_record(
+    *,
+    user_id: int,
+    telegram_username: str | None,
+    user_record: dict[str, Any] | None,
+) -> UserProfileResponse:
+    prefs = ensure_mapping(user_record.get("preferences_json") if user_record else None)
+    app_settings = ensure_mapping(prefs.get("app_settings"))
+    lang_preference = prefs.get("lang_preference")
+    return UserProfileResponse(
+        user_id=user_id,
+        telegram_username=telegram_username,
+        display_name=_profile_str(user_record, "display_name"),
+        locale=_profile_str(user_record, "locale") or _valid_lang(lang_preference, default="en"),
+        theme=_profile_str(user_record, "theme") or _profile_theme(app_settings.get("theme")),
+        default_summary_language=_profile_str(user_record, "default_summary_language")
+        or _valid_lang(lang_preference, default="auto"),
+        onboarding_completed_at=safe_isoformat(
+            user_record.get("onboarding_completed_at") if user_record else None
+        ),
+        created_at=safe_isoformat(user_record.get("created_at") if user_record else None),
+        updated_at=safe_isoformat(user_record.get("updated_at") if user_record else None),
+    )
+
+
+def _profile_str(user_record: dict[str, Any] | None, key: str) -> str | None:
+    value = user_record.get(key) if user_record else None
+    return value if isinstance(value, str) and value else None
+
+
+def _valid_lang(value: Any, *, default: str) -> str:
+    return value if value in {"auto", "en", "ru"} else default
+
+
+def _profile_theme(value: Any) -> str:
+    return value if value in {"dark", "light", "system"} else "dark"
+
+
+def _profile_updates_from_preferences(preferences: UpdatePreferencesRequest) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    if preferences.lang_preference in {"auto", "en", "ru"}:
+        updates["default_summary_language"] = preferences.lang_preference
+        if preferences.lang_preference != "auto":
+            updates["locale"] = preferences.lang_preference
+    app_settings = preferences.app_settings or {}
+    theme = app_settings.get("theme")
+    if theme in {"dark", "light", "system"}:
+        updates["theme"] = theme
+    return updates
+
+
+async def _get_or_create_current_user_record(user: dict[str, Any]) -> dict[str, Any]:
+    user_repo = get_user_repository()
+    user_record, _created = await user_repo.async_get_or_create_user(
+        user["user_id"],
+        username=user.get("username"),
+        is_owner=False,
+    )
+    return user_record
+
+
+@profile_router.get("/me")
+@router.get("/me")
+async def get_current_user_profile(user: dict[str, Any] = Depends(get_current_user)) -> Any:
+    """Get typed current-user profile."""
+    user_record = await _get_or_create_current_user_record(user)
+    return success_response(
+        UserMeResponse(
+            profile=_profile_from_user_record(
+                user_id=user["user_id"],
+                telegram_username=user.get("username"),
+                user_record=user_record,
+            )
+        )
+    )
+
+
+@profile_router.put("/me")
+@router.put("/me")
+async def update_current_user_profile(
+    profile: UpdateUserProfileRequest,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> Any:
+    """Update typed current-user profile."""
+    user_repo = get_user_repository()
+    await _get_or_create_current_user_record(user)
+    updates = profile.model_dump(exclude_none=True)
+    await user_repo.async_update_user_profile(user["user_id"], **updates)
+    user_record = await user_repo.async_get_user_by_telegram_id(user["user_id"])
+    return success_response(
+        UserMeResponse(
+            profile=_profile_from_user_record(
+                user_id=user["user_id"],
+                telegram_username=user.get("username"),
+                user_record=user_record,
+            )
+        )
+    )
+
+
+@profile_router.post("/me/onboarding/complete")
+@router.post("/me/onboarding/complete")
+async def complete_onboarding(user: dict[str, Any] = Depends(get_current_user)) -> Any:
+    """Mark first-time onboarding as complete."""
+    user_repo = get_user_repository()
+    await _get_or_create_current_user_record(user)
+    await user_repo.async_update_user_profile(
+        user["user_id"],
+        onboarding_completed_at=datetime.now(UTC),
+    )
+    user_record = await user_repo.async_get_user_by_telegram_id(user["user_id"])
+    return success_response(
+        UserMeResponse(
+            profile=_profile_from_user_record(
+                user_id=user["user_id"],
+                telegram_username=user.get("username"),
+                user_record=user_record,
+            )
+        )
+    )
 
 
 @router.get("/preferences")
@@ -132,6 +261,9 @@ async def update_user_preferences(
 
     # Save to database
     await user_repo.async_update_user_preferences(user["user_id"], current_prefs)
+    profile_updates = _profile_updates_from_preferences(preferences)
+    if profile_updates:
+        await user_repo.async_update_user_profile(user["user_id"], **profile_updates)
 
     return success_response(
         PreferencesUpdateResult(

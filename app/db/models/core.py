@@ -83,6 +83,13 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_owner: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     preferences_json: Mapped[JSONValue] = _json_column()
+    onboarding_completed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locale: Mapped[str] = mapped_column(Text, default="en", nullable=False)
+    theme: Mapped[str] = mapped_column(Text, default="dark", nullable=False)
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_summary_language: Mapped[str] = mapped_column(Text, default="auto", nullable=False)
     linked_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     linked_telegram_username: Mapped[str | None] = mapped_column(Text, nullable=True)
     linked_telegram_photo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -302,7 +309,9 @@ class UserIdentity(Base):
     email_canonical: Mapped[str | None] = mapped_column(Text, nullable=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

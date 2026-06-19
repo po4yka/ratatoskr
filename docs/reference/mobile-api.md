@@ -805,9 +805,14 @@ Response:
 
 ### User Profile
 
+- `GET /v1/users/me`
+- `PUT /v1/users/me`
+- `POST /v1/users/me/onboarding/complete`
 - `GET /v1/user/preferences`
 - `PATCH /v1/user/preferences`
 - `GET /v1/user/stats`
+
+`GET /v1/users/me` returns `{ profile }` with typed fields: `userId`, `telegramUsername`, `displayName`, `locale`, `theme`, `defaultSummaryLanguage`, `onboardingCompletedAt`, `createdAt`, and `updatedAt`. `PUT /v1/users/me` accepts `locale`, `theme` (`dark`, `light`, `system`), `displayName`, and `defaultSummaryLanguage` (`auto`, `en`, `ru`) and returns the same shape. `POST /v1/users/me/onboarding/complete` sets `onboardingCompletedAt` and returns the updated profile. Legacy `/v1/user/preferences` remains supported and mirrors `lang_preference` / `app_settings.theme` into typed profile fields for backwards compatibility.
 
 ### Notifications and Proxy
 

@@ -114,5 +114,8 @@ class UserRepositoryPort(Protocol):
     ) -> None:
         """Update user preferences."""
 
+    async def async_update_user_profile(self, telegram_user_id: int, **values: Any) -> None:
+        """Update typed user profile fields."""
+
     async def async_get_max_server_version(self, user_id: int) -> int | None:
         """Return the maximum server_version for the user identified by *user_id* (telegram_user_id)."""

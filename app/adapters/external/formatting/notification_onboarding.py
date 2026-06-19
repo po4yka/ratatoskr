@@ -65,6 +65,8 @@ class NotificationOnboardingPresenter:
             "- Produce a 35+ field structured JSON document validated against a "
             "strict schema, with self-correction retries on validation failures.\n\n"
             "How to use:\n"
+            "- First-time setup in the web app: open /web/onboarding, choose language, theme, "
+            "display name, and default summary language, then mark onboarding complete.\n"
             "- Send a URL (article, YouTube, Twitter/X) directly, or use /summarize <URL>. "
             "You can also send /summarize and the URL in the next message.\n"
             "- Forward any Telegram channel post to me to summarize it — no command needed.\n"

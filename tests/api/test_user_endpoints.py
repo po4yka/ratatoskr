@@ -28,7 +28,7 @@ enum.StrEnum = StrEnum  # type: ignore[misc,assignment]
 
 from sqlalchemy import select
 
-from app.api.routers.user import get_user_preferences, safe_isoformat
+from app.api.routers.user import get_current_user_profile, get_user_preferences, safe_isoformat
 from app.db.models import Request, Summary, User
 
 if TYPE_CHECKING:
@@ -196,6 +196,68 @@ async def _read_user(db: Database, telegram_user_id: int) -> User:
         return user
 
 
+async def test_get_current_user_profile_uses_typed_defaults(
+    db: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure_env(monkeypatch)
+    await _create_user(db, telegram_user_id=123456789, username="testuser")
+
+    response = await get_current_user_profile(user={"user_id": 123456789, "username": "testuser"})
+
+    assert response["success"] is True
+    profile = response["data"]["profile"]
+    assert profile["userId"] == 123456789
+    assert profile["locale"] == "en"
+    assert profile["theme"] == "dark"
+    assert profile["defaultSummaryLanguage"] == "auto"
+    assert profile["onboardingCompletedAt"] is None
+
+
+async def test_update_current_user_profile_round_trips_typed_fields(
+    db: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure_env(monkeypatch)
+
+    from app.api.models.requests import UpdateUserProfileRequest
+    from app.api.routers.user import update_current_user_profile
+
+    response = await update_current_user_profile(
+        profile=UpdateUserProfileRequest(
+            locale="ru",
+            theme="light",
+            display_name="Reader",
+            default_summary_language="ru",
+        ),
+        user={"user_id": 123456789, "username": "testuser"},
+    )
+
+    profile = response["data"]["profile"]
+    assert profile["locale"] == "ru"
+    assert profile["theme"] == "light"
+    assert profile["displayName"] == "Reader"
+    assert profile["defaultSummaryLanguage"] == "ru"
+
+    user = await _read_user(db, 123456789)
+    assert user.locale == "ru"
+    assert user.theme == "light"
+    assert user.display_name == "Reader"
+    assert user.default_summary_language == "ru"
+
+
+async def test_complete_onboarding_sets_timestamp(
+    db: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure_env(monkeypatch)
+
+    from app.api.routers.user import complete_onboarding
+
+    response = await complete_onboarding(user={"user_id": 123456789, "username": "testuser"})
+
+    assert response["data"]["profile"]["onboardingCompletedAt"] is not None
+    user = await _read_user(db, 123456789)
+    assert user.onboarding_completed_at is not None
+
+
 async def test_update_preferences_lang_preference(
     db: Database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -213,6 +275,8 @@ async def test_update_preferences_lang_preference(
 
     user = await _read_user(db, 123456789)
     assert user.preferences_json["lang_preference"] == "ru"  # type: ignore[index, call-overload]
+    assert user.locale == "ru"
+    assert user.default_summary_language == "ru"
 
 
 async def test_update_preferences_notification_settings(

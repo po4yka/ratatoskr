@@ -133,6 +133,19 @@ class UserRepositoryAdapter:
         """Update user preferences."""
         await self._update_user(telegram_user_id, preferences_json=preferences)
 
+    async def async_update_user_profile(self, telegram_user_id: int, **values: Any) -> None:
+        """Update typed user profile fields."""
+        allowed = {
+            "onboarding_completed_at",
+            "locale",
+            "theme",
+            "display_name",
+            "default_summary_language",
+        }
+        filtered = {key: value for key, value in values.items() if key in allowed}
+        if filtered:
+            await self._update_user(telegram_user_id, **filtered)
+
     async def async_upsert_user(
         self, *, telegram_user_id: int, username: str | None = None, is_owner: bool = False
     ) -> None:

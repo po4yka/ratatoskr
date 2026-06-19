@@ -150,6 +150,8 @@ The chosen bucket is encoded in the persisted JSON (`persistent: boolean`) so `c
 
 Auth provider implementation: `src/auth/AuthProvider.tsx`. Credentials form: `src/features/auth/CredentialsLoginForm.tsx` — Frost primitives only (`MonoInput`, `Checkbox`, `BracketButton`, `StatusBadge`); the form renders a single canonical "Invalid credentials." string for every 401 path so timing/wording cannot leak which dimension was wrong.
 
+First-time onboarding belongs at `/web/onboarding`. The web app should call `GET /v1/users/me` after auth, redirect users with `profile.onboardingCompletedAt === null` to onboarding, persist language/theme/display-name/default-summary-language with `PUT /v1/users/me`, then call `POST /v1/users/me/onboarding/complete`. The Telegram `/start` copy uses the same setup sequence: choose language, theme, display name, and default summary language, then start sending links.
+
 ---
 
 ## API Layer Conventions

@@ -24,6 +24,8 @@ Outbound email delivery is optional and off by default. Alembic 0040 adds `user_
 
 Passwordless and social identity providers are linked to existing users rather than creating public accounts. Alembic 0041 adds `user_identities` for provider/subject/email mappings and `magic_link_tokens` for hashed one-time email login tokens; Apple Sign-In and magic-link login reuse the existing JWT access/refresh envelope.
 
+Typed profile fields live on `users` as of Alembic 0042: `locale`, `theme`, `display_name`, `default_summary_language`, and `onboarding_completed_at`. `/v1/users/me` exposes the typed profile while legacy `/v1/user/preferences` remains available and mirrors compatible values into typed columns.
+
 Telethon session files are the only intentional SQLite carve-out. They are client session stores owned by Telethon, validated by `app/adapters/digest/session_validator.py`, and are not part of Ratatoskr's relational store or PostgreSQL migration.
 
 ---

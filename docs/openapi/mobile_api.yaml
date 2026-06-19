@@ -4900,6 +4900,81 @@ paths:
           $ref: '#/components/responses/InternalServerError'
       security:
       - HTTPBearer: []
+  /v1/user/me:
+    get:
+      tags:
+      - User
+      summary: Get Current User Profile
+      description: Get typed current-user profile.
+      operationId: get_current_user_profile_v1_user_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                title: Response Get Current User Profile V1 User Me Get
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - User
+      summary: Update Current User Profile
+      description: Update typed current-user profile.
+      operationId: update_current_user_profile_v1_user_me_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                title: Response Update Current User Profile V1 User Me Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
+  /v1/user/me/onboarding/complete:
+    post:
+      tags:
+      - User
+      summary: Complete Onboarding
+      description: Mark first-time onboarding as complete.
+      operationId: complete_onboarding_v1_user_me_onboarding_complete_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                title: Response Complete Onboarding V1 User Me Onboarding Complete Post
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
   /v1/user/preferences:
     get:
       tags:
@@ -5130,6 +5205,81 @@ paths:
             application/json:
               schema:
                 title: Response Get Goal Progress V1 User Goals Progress Get
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/users/me:
+    get:
+      tags:
+      - User
+      summary: Get Current User Profile
+      description: Get typed current-user profile.
+      operationId: get_current_user_profile_v1_users_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                title: Response Get Current User Profile V1 Users Me Get
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - User
+      summary: Update Current User Profile
+      description: Update typed current-user profile.
+      operationId: update_current_user_profile_v1_users_me_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                title: Response Update Current User Profile V1 Users Me Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
+  /v1/users/me/onboarding/complete:
+    post:
+      tags:
+      - User
+      summary: Complete Onboarding
+      description: Mark first-time onboarding as complete.
+      operationId: complete_onboarding_v1_users_me_onboarding_complete_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                title: Response Complete Onboarding V1 Users Me Onboarding Complete Post
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -14542,6 +14692,42 @@ components:
       type: object
       title: UpdateTagRequest
       description: Request body for updating a tag.
+    UpdateUserProfileRequest:
+      properties:
+        locale:
+          anyOf:
+          - type: string
+            maxLength: 20
+            minLength: 2
+          - type: 'null'
+          title: Locale
+        theme:
+          anyOf:
+          - type: string
+            enum:
+            - dark
+            - light
+            - system
+          - type: 'null'
+          title: Theme
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Display Name
+        default_summary_language:
+          anyOf:
+          - type: string
+            enum:
+            - auto
+            - en
+            - ru
+          - type: 'null'
+          title: Default Summary Language
+      type: object
+      title: UpdateUserProfileRequest
+      description: Request body for typed profile updates.
     UpdateWebhookRequest:
       properties:
         name:

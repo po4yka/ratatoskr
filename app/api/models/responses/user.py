@@ -22,6 +22,24 @@ class PreferencesUpdateResult(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
+class UserProfileResponse(BaseModel):
+    user_id: int = Field(serialization_alias="userId")
+    telegram_username: str | None = Field(default=None, serialization_alias="telegramUsername")
+    display_name: str | None = Field(default=None, serialization_alias="displayName")
+    locale: str
+    theme: str
+    default_summary_language: str = Field(serialization_alias="defaultSummaryLanguage")
+    onboarding_completed_at: str | None = Field(
+        default=None, serialization_alias="onboardingCompletedAt"
+    )
+    created_at: str | None = Field(default=None, serialization_alias="createdAt")
+    updated_at: str | None = Field(default=None, serialization_alias="updatedAt")
+
+
+class UserMeResponse(BaseModel):
+    profile: UserProfileResponse
+
+
 class TopicStat(BaseModel):
     topic: str
     count: int

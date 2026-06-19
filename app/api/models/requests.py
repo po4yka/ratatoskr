@@ -75,6 +75,15 @@ class UpdatePreferencesRequest(BaseModel):
     app_settings: dict[str, Any] | None = None
 
 
+class UpdateUserProfileRequest(BaseModel):
+    """Request body for typed profile updates."""
+
+    locale: str | None = Field(default=None, min_length=2, max_length=20)
+    theme: Literal["dark", "light", "system"] | None = None
+    display_name: str | None = Field(default=None, max_length=100)
+    default_summary_language: Literal["auto", "en", "ru"] | None = None
+
+
 class SyncSessionRequest(BaseModel):
     """Session creation options."""
 
