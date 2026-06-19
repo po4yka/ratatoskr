@@ -36,6 +36,19 @@ class SummaryRepositoryPort(Protocol):
         ``Request.title`` matches the term case-insensitively.
         """
 
+    async def async_get_summary_stubs_for_recommendations(
+        self,
+        user_id: int,
+        *,
+        is_read: bool,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Return lightweight stubs (id + topic_tags) for recommendation scoring.
+
+        Uses the denormalized ``topic_tags`` column; never loads ``json_payload``.
+        The ``user_id`` predicate is a defense-in-depth IDOR guard.
+        """
+
     async def async_get_user_summaries_for_insights(
         self,
         user_id: int,

@@ -620,6 +620,35 @@ class SummaryRepositoryAdapter:
             )
             return (await session.scalars(stmt)).first()
 
+    async def async_get_summary_stubs_for_recommendations(
+        self,
+        user_id: int,
+        *,
+        is_read: bool,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Return lightweight summary stubs (id + topic_tags) for recommendation scoring.
+
+        Uses the denormalized ``topic_tags`` column to avoid loading the full
+        ``json_payload`` JSONB blob for each row.  The ``user_id`` predicate is
+        a defense-in-depth IDOR guard and must never be removed.
+        """
+        if limit <= 0:
+            return []
+        async with self._database.session() as session:
+            rows = await session.execute(
+                select(Summary.id, Summary.topic_tags)
+                .join(Request, Summary.request_id == Request.id)
+                .where(
+                    Request.user_id == user_id,
+                    Summary.is_deleted.is_(False),
+                    Summary.is_read.is_(is_read),
+                )
+                .order_by(Summary.created_at.desc())
+                .limit(limit)
+            )
+            return [{"id": row.id, "topic_tags": row.topic_tags} for row in rows]
+
     async def async_get_user_summaries_for_insights(
         self,
         user_id: int,

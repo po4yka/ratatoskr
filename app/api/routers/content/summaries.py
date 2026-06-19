@@ -436,41 +436,63 @@ async def get_recommendations(
     """Get personalized summary recommendations based on reading history."""
     user_id = user["user_id"]
 
-    # Get recently-read summaries to determine interest tags
-    read_summaries, _, _ = await use_case.get_user_summaries(
-        user_id=user_id,
-        limit=10,
-        offset=0,
+    # Fetch only (id, topic_tags) for recently-read summaries to build interest profile.
+    # The denormalized topic_tags column avoids loading json_payload blobs.
+    read_stubs = await use_case.get_summary_stubs_for_recommendations(
+        user_id,
         is_read=True,
-        sort="created_at_desc",
+        limit=10,
     )
 
     interest_tags: set[str] = set()
-    for s in read_summaries:
-        payload = ensure_mapping(s.get("json_payload"))
-        for tag in payload.get("topic_tags", []):
+    for stub in read_stubs:
+        for tag in stub.get("topic_tags") or []:
             if isinstance(tag, str):
                 interest_tags.add(tag.lower())
 
-    # Get unread summaries to recommend from
-    unread_summaries, _, _ = await use_case.get_user_summaries(
-        user_id=user_id,
+    # Fetch only (id, topic_tags) for unread candidates; score by tag overlap.
+    unread_stubs = await use_case.get_summary_stubs_for_recommendations(
+        user_id,
+        is_read=False,
         limit=100,
+    )
+
+    def _score(stub: dict[str, Any]) -> int:
+        tags = {t.lower() for t in (stub.get("topic_tags") or []) if isinstance(t, str)}
+        return len(tags & interest_tags)
+
+    scored_ids = [stub["id"] for stub in sorted(unread_stubs, key=_score, reverse=True)[:limit]]
+
+    # Fetch full compact rows only for the top-scored IDs so the heavy
+    # json_payload load is bounded to at most `limit` rows.
+    if not scored_ids:
+        return success_response(
+            SummaryRecommendationsResponse(
+                recommendations=[],
+                reason="based_on_reading_history" if interest_tags else "most_recent_unread",
+                count=0,
+            )
+        )
+
+    top_summaries, _, _ = await use_case.get_user_summaries(
+        user_id=user_id,
+        limit=limit,
         offset=0,
         is_read=False,
         sort="created_at_desc",
     )
+    # Re-order to match scored order; fall back to recency order for any misses.
+    id_to_summary = {s["id"]: s for s in top_summaries if s.get("id") is not None}
+    ordered = [id_to_summary[sid] for sid in scored_ids if sid in id_to_summary]
+    # Append any recency-order items not already included (e.g. paging edge cases).
+    seen = {s["id"] for s in ordered}
+    for s in top_summaries:
+        if s.get("id") not in seen:
+            ordered.append(s)
+            if len(ordered) >= limit:
+                break
 
-    # Score by tag overlap
-    def _score(s: dict[str, Any]) -> int:
-        payload = ensure_mapping(s.get("json_payload"))
-        tags = {t.lower() for t in payload.get("topic_tags", []) if isinstance(t, str)}
-        return len(tags & interest_tags)
-
-    scored = sorted(unread_summaries, key=_score, reverse=True)
-    top = scored[:limit]
-
-    summary_list = [_build_summary_compact(s) for s in top]
+    summary_list = [_build_summary_compact(s) for s in ordered[:limit]]
 
     return success_response(
         SummaryRecommendationsResponse(

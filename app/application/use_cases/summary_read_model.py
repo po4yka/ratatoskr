@@ -75,6 +75,25 @@ class SummaryReadModelUseCase:
                 search=cleaned_search,
             )
 
+    async def get_summary_stubs_for_recommendations(
+        self,
+        user_id: int,
+        *,
+        is_read: bool,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Return lightweight stubs (id + topic_tags) for recommendation scoring."""
+        with use_case_span(
+            "summary_read_model.get_summary_stubs_for_recommendations",
+            user_id=user_id,
+            attributes={"ratatoskr.search.limit": limit},
+        ):
+            return await self._summary_repo.async_get_summary_stubs_for_recommendations(
+                user_id,
+                is_read=is_read,
+                limit=limit,
+            )
+
     _BULK_MAX_IDS = 500
 
     async def bulk_mark_as_read(self, *, user_id: int, summary_ids: list[int]) -> int:
