@@ -114,6 +114,8 @@ Web search adds:
 
 **Optimization:** Only ~30-40% of articles trigger web search (self-contained content is skipped).
 
+Monitor actual trigger rate with `ratatoskr_web_search_decisions_total{decision="executed"}` and separate enrichment LLM spend with `ratatoskr_openrouter_cost_usd_total{purpose="web_search"}`. Query breadth is visible through `ratatoskr_web_search_query_results`, a histogram of articles returned per web-search query.
+
 ---
 
 ## Troubleshooting

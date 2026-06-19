@@ -39,6 +39,7 @@ Sub-module layout
 - ``metrics_digest``          — Telegram channel digest delivery + userbot health
 - ``metrics_scheduler``       — APScheduler / queue depth
 - ``metrics_repositories``    — GitHub repo sync (pre-existing sibling module)
+- ``metrics_web_search``      — optional web-search enrichment decisions
 """
 
 from __future__ import annotations
@@ -298,6 +299,16 @@ from app.observability.metrics_twitter import (
 )
 
 # ---------------------------------------------------------------------------
+# Web-search enrichment
+# ---------------------------------------------------------------------------
+from app.observability.metrics_web_search import (
+    WEB_SEARCH_DECISIONS_TOTAL,
+    WEB_SEARCH_QUERY_RESULTS,
+    record_web_search_decision,
+    record_web_search_query_results,
+)
+
+# ---------------------------------------------------------------------------
 # Vector store
 # ---------------------------------------------------------------------------
 from app.observability.metrics_vector import (
@@ -447,6 +458,11 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_extraction_failure",
     "record_twitter_article_extraction",
     "record_twitter_article_resolution",
+    # Web-search enrichment
+    "WEB_SEARCH_DECISIONS_TOTAL",
+    "WEB_SEARCH_QUERY_RESULTS",
+    "record_web_search_decision",
+    "record_web_search_query_results",
     # Aggregation
     "AGGREGATION_BUNDLE_LATENCY",
     "AGGREGATION_BUNDLES",

@@ -458,7 +458,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "increase(ratatoskr_openrouter_cost_usd_total[24h])",
+          "expr": "sum(increase(ratatoskr_openrouter_cost_usd_total[24h]))",
           "legendFormat": "Cost",
           "refId": "A"
         }
@@ -1326,7 +1326,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "increase(ratatoskr_openrouter_cost_usd_total[1h])",
+          "expr": "sum(increase(ratatoskr_openrouter_cost_usd_total[1h]))",
           "legendFormat": "Cost",
           "refId": "A"
         }

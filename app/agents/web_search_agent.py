@@ -13,7 +13,13 @@ from app.adapters.content.search_context_builder import SearchContextBuilder
 from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.core.logging_utils import get_logger
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
-from app.observability.metrics import record_llm_call_attempt, record_llm_call_latency
+from app.observability.metrics import (
+    record_llm_call_attempt,
+    record_llm_call_latency,
+    record_openrouter_call,
+    record_web_search_decision,
+    record_web_search_query_results,
+)
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
@@ -100,6 +106,7 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
 
             # Skip if content too short
             if len(input_data.content) < self._cfg.min_content_length:
+                record_web_search_decision("skipped_low_value")
                 self.log_info(
                     "content_too_short_for_search",
                     content_len=len(input_data.content),
@@ -119,6 +126,7 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
             try:
                 analysis = await self._analyze_content(input_data.content, input_data.language, cid)
             except Exception as e:
+                record_web_search_decision("failed")
                 self.log_error("search_analysis_failed", error=str(e))
                 return AgentResult.success_result(
                     WebSearchAgentOutput(
@@ -132,6 +140,7 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
 
             # Skip if no search needed
             if not analysis.needs_search or not analysis.queries:
+                record_web_search_decision("skipped_low_value")
                 self.log_info("search_not_needed", reason=analysis.reason)
                 return AgentResult.success_result(
                     WebSearchAgentOutput(
@@ -146,10 +155,12 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
             # Phase 2: Execute searches
             queries_to_run = analysis.queries[: self._cfg.max_queries]
             all_articles: list[TopicArticle] = []
+            failed_queries = 0
 
             for query in queries_to_run:
                 try:
                     articles = await self._search.find_articles(query, correlation_id=cid)
+                    record_web_search_query_results(len(articles))
                     all_articles.extend(articles)
                     self.log_info(
                         "search_query_completed",
@@ -157,8 +168,14 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
                         results=len(articles),
                     )
                 except Exception as e:
+                    failed_queries += 1
                     self.log_warning("search_query_failed", query=query, error=str(e))
                     continue
+
+            if failed_queries == len(queries_to_run):
+                record_web_search_decision("failed")
+            else:
+                record_web_search_decision("executed")
 
             # Build context from results
             context = self._context_builder.build_context(all_articles)
@@ -223,6 +240,14 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
             )
             record_llm_call_attempt(provider="openrouter", model=model, status="success")
             record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)
+            record_openrouter_call(
+                model=str(getattr(result, "model_used", None) or model),
+                prompt_tokens=int(getattr(result, "tokens_prompt", None) or 0),
+                completion_tokens=int(getattr(result, "tokens_completion", None) or 0),
+                cost_usd=float(getattr(result, "cost_usd", None) or 0.0),
+                latency_seconds=(float(getattr(result, "latency_ms", 0) or 0) / 1000.0) or None,
+                purpose="web_search",
+            )
         except Exception:
             record_llm_call_attempt(provider="openrouter", model=model, status="error")
             record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)

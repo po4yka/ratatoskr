@@ -21,6 +21,10 @@ from app.observability._metrics_base import (
     _parse_failure_stage,
 )
 
+_KNOWN_OPENROUTER_PURPOSES = frozenset(
+    {"summary", "web_search", "repository_analysis", "aggregation", "signal_judge"}
+)
+
 if PROMETHEUS_AVAILABLE:
     from prometheus_client import Counter, Gauge, Histogram
 
@@ -35,6 +39,7 @@ if PROMETHEUS_AVAILABLE:
     OPENROUTER_COST_USD = Counter(
         "ratatoskr_openrouter_cost_usd_total",
         "Total cost in USD for OpenRouter API calls",
+        ["purpose"],
         registry=REGISTRY,
     )
 
@@ -184,6 +189,7 @@ def record_openrouter_call(
     completion_tokens: int = 0,
     cost_usd: float = 0.0,
     latency_seconds: float | None = None,
+    purpose: str = "summary",
 ) -> None:
     """Record an OpenRouter API call metric.
 
@@ -193,6 +199,7 @@ def record_openrouter_call(
         completion_tokens: Number of completion tokens used
         cost_usd: Cost of the call in USD
         latency_seconds: Optional latency in seconds
+        purpose: Coarse call purpose for cost attribution
     """
     if not PROMETHEUS_AVAILABLE:
         return
@@ -205,10 +212,15 @@ def record_openrouter_call(
         OPENROUTER_TOKENS.labels(model=bucketed, type="completion").inc(completion_tokens)
 
     if cost_usd > 0:
-        OPENROUTER_COST_USD.inc(cost_usd)
+        OPENROUTER_COST_USD.labels(purpose=_openrouter_purpose_label(purpose)).inc(cost_usd)
 
     if latency_seconds is not None:
         OPENROUTER_LATENCY.labels(model=bucketed).observe(latency_seconds)
+
+
+def _openrouter_purpose_label(purpose: str) -> str:
+    label = _metric_label(purpose)
+    return label if label in _KNOWN_OPENROUTER_PURPOSES else "other"
 
 
 def record_llm_call_attempt(*, provider: str, model: str, status: str) -> None:

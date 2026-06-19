@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
+from app.observability.metrics import record_web_search_decision
 
 if TYPE_CHECKING:
     from app.application.services.topic_search import TopicSearchService
@@ -37,9 +38,11 @@ class SearchContextEnricher:
     ) -> str:
         """Return formatted search context or an empty string."""
         if not self._cfg.web_search.enabled:
+            record_web_search_decision("skipped_disabled")
             return ""
 
         if self._topic_search is None:
+            record_web_search_decision("skipped_low_value")
             logger.debug(
                 "web_search_skipped_no_service",
                 extra={"cid": correlation_id},
@@ -47,6 +50,7 @@ class SearchContextEnricher:
             return ""
 
         if len(content_text) < self._cfg.web_search.min_content_length:
+            record_web_search_decision("skipped_low_value")
             logger.debug(
                 "web_search_skipped_short_content",
                 extra={
@@ -97,4 +101,5 @@ class SearchContextEnricher:
                 "web_search_enrichment_failed",
                 extra={"cid": correlation_id, "error": str(exc)},
             )
+            record_web_search_decision("failed")
             return ""
