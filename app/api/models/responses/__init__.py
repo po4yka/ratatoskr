@@ -16,6 +16,8 @@ from .backups import BackupResponse, ImportJobResponse, RestoreDryRunResponse
 from .collections import (
     CollectionAclEntry,
     CollectionAclResponse,
+    CollectionIncomingInvite,
+    CollectionIncomingInvitesResponse,
     CollectionInviteResponse,
     CollectionItem,
     CollectionItemsMoveResponse,
@@ -160,6 +162,8 @@ __all__ = [
     "BulkSummaryUpdateSuccessResponse",
     "CollectionAclEntry",
     "CollectionAclResponse",
+    "CollectionIncomingInvite",
+    "CollectionIncomingInvitesResponse",
     "CollectionInviteResponse",
     "CollectionItem",
     "CollectionItemsMoveResponse",

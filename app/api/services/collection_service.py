@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 Role = Literal["owner", "editor", "viewer"]
+CollectionMembership = Literal["any", "owned", "shared"]
 ROLE_RANK = {"owner": 3, "editor": 2, "viewer": 1}
 BULK_COLLECTION_MAX_IDS = 500
 
@@ -132,13 +133,18 @@ class CollectionService:
     # ---- queries ----
     @classmethod
     async def list_collections(
-        cls, user_id: int, parent_id: int | None, limit: int, offset: int
+        cls,
+        user_id: int,
+        parent_id: int | None,
+        limit: int,
+        offset: int,
+        membership: CollectionMembership = "any",
     ) -> list[dict[str, Any]]:
         """List collections for a user with optional parent filter."""
         repo = cls._repo()
         return cast(
             "list[dict[str, Any]]",
-            await repo.async_list_collections(user_id, parent_id, limit, offset),
+            await repo.async_list_collections(user_id, parent_id, limit, offset, membership),
         )
 
     @classmethod
@@ -554,16 +560,43 @@ class CollectionService:
 
     @classmethod
     async def create_invite(
-        cls, collection_id: int, user_id: int, role: Role, expires_at: datetime | None
+        cls,
+        collection_id: int,
+        user_id: int,
+        role: Role,
+        expires_at: datetime | None,
+        recipient_user_id: int | None = None,
     ) -> dict[str, Any]:
         """Create an invite for a collection."""
         repo = cls._repo()
 
-        await cls._get_collection_or_raise(repo, collection_id)
+        collection = await cls._get_collection_or_raise(repo, collection_id)
         await cls._require_role(repo, collection_id, user_id, "owner")
+        if recipient_user_id == collection.get("user_id"):
+            raise ValidationError("Cannot invite the collection owner")
 
         return cast(
-            "dict[str, Any]", await repo.async_create_invite(collection_id, role, expires_at)
+            "dict[str, Any]",
+            await repo.async_create_invite(
+                collection_id,
+                role,
+                expires_at,
+                invited_user_id=recipient_user_id,
+            ),
+        )
+
+    @classmethod
+    async def list_incoming_invites(
+        cls,
+        user_id: int,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        """List pending collection invites addressed to a user."""
+        repo = cls._repo()
+        return cast(
+            "list[dict[str, Any]]",
+            await repo.async_list_incoming_invites(user_id, limit, offset),
         )
 
     @classmethod

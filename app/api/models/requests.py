@@ -193,6 +193,7 @@ class CollectionInviteRequest(BaseModel):
 
     role: Literal["editor", "viewer"]
     expires_at: str | None = None
+    recipient_user_id: int | None = Field(default=None, ge=1)
 
 
 class SubmitFeedbackRequest(BaseModel):

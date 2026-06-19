@@ -348,7 +348,18 @@ async def test_collection_service_collaborators_acl_and_invites(
         owner.telegram_user_id,
         "viewer",
         expires_at=None,
+        recipient_user_id=invitee.telegram_user_id,
     )
+    incoming = await CollectionService.list_incoming_invites(
+        invitee.telegram_user_id,
+        limit=10,
+        offset=0,
+    )
+    assert [item["token"] for item in incoming] == [invite["token"]]
+
+    with pytest.raises(ResourceNotFoundError):
+        await CollectionService.accept_invite(invite["token"], collaborator.telegram_user_id)
+
     await CollectionService.accept_invite(invite["token"], invitee.telegram_user_id)
 
     invited_access = await CollectionService.get_collection_with_auth(

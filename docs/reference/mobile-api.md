@@ -202,8 +202,11 @@ Backend toggle: `URL_FLOW_STREAMING_ENABLED` (default `true`).
 `GET /v1/collections` supports:
 
 - `parent_id` (for subtree listing)
+- `membership=any|owned|shared` (`any` is the backwards-compatible default; `shared` returns only collections where the caller is an active collaborator and not the owner)
 - `limit`
 - `offset`
+
+`GET /v1/collections/invites/incoming` lists pending collection invites addressed to the caller. It supports `limit` and `offset` and returns the invited collection metadata, granted role, invite token, inviter user ID, creation time, and optional expiration time. `POST /v1/collections/{collection_id}/invite` accepts optional `recipient_user_id` for user-targeted invites; targeted invites can only be accepted by that recipient.
 
 ## Endpoint Index
 
@@ -779,6 +782,7 @@ Response:
 - `DELETE /v1/collections/{collection_id}/share/{target_user_id}`
 - `GET /v1/collections/{collection_id}/acl`
 - `POST /v1/collections/{collection_id}/invite`
+- `GET /v1/collections/invites/incoming`
 - `POST /v1/collections/invites/{token}/accept`
 
 ### User Profile

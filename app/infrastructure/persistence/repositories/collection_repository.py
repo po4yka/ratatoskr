@@ -51,15 +51,29 @@ class CollectionRepositoryAdapter:
         parent_id: int | None,
         limit: int,
         offset: int,
+        membership: str = "any",
     ) -> list[dict[str, Any]]:
         async with self._database.session() as session:
+            collab_ids = select(CollectionCollaborator.collection_id).where(
+                CollectionCollaborator.user_id == user_id,
+                CollectionCollaborator.status == "active",
+            )
             stmt = (
                 select(Collection)
-                .where(Collection.is_deleted.is_(False), Collection.user_id == user_id)
+                .where(Collection.is_deleted.is_(False))
                 .order_by(Collection.position.asc(), Collection.created_at.asc())
                 .limit(limit)
                 .offset(offset)
             )
+            if membership == "owned":
+                stmt = stmt.where(Collection.user_id == user_id)
+            elif membership == "shared":
+                stmt = stmt.where(
+                    Collection.id.in_(collab_ids),
+                    Collection.user_id != user_id,
+                )
+            else:
+                stmt = stmt.where(or_(Collection.user_id == user_id, Collection.id.in_(collab_ids)))
             if parent_id is None:
                 stmt = stmt.where(Collection.parent_id.is_(None))
             else:
@@ -656,6 +670,7 @@ class CollectionRepositoryAdapter:
         collection_id: int,
         role: str,
         expires_at: dt.datetime | None,
+        invited_user_id: int | None = None,
     ) -> dict[str, Any]:
         async with self._database.transaction() as session:
             if await _active_collection(session, collection_id) is None:
@@ -665,6 +680,7 @@ class CollectionRepositoryAdapter:
                 token=uuid.uuid4().hex,
                 role=role,
                 expires_at=expires_at,
+                invited_user_id=invited_user_id,
                 status="active",
                 created_at=_now(),
                 updated_at=_now(),
@@ -679,6 +695,42 @@ class CollectionRepositoryAdapter:
                 select(CollectionInvite).where(CollectionInvite.token == token)
             )
             return _invite_dict(invite) if invite else None
+
+    async def async_list_incoming_invites(
+        self,
+        user_id: int,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        async with self._database.session() as session:
+            rows = (
+                await session.execute(
+                    select(CollectionInvite, Collection)
+                    .join(Collection, CollectionInvite.collection_id == Collection.id)
+                    .where(
+                        CollectionInvite.invited_user_id == user_id,
+                        CollectionInvite.status == "active",
+                        CollectionInvite.used_at.is_(None),
+                        Collection.is_deleted.is_(False),
+                    )
+                    .order_by(CollectionInvite.created_at.desc(), CollectionInvite.id.desc())
+                    .limit(limit)
+                    .offset(offset)
+                )
+            ).all()
+            collection_counts = await _item_counts(session, [collection.id for _, collection in rows])
+            invites: list[dict[str, Any]] = []
+            now = _now()
+            for invite, collection in rows:
+                invite_data = _invite_dict(invite)
+                collection_data = _collection_dict(collection)
+                collection_data["item_count"] = collection_counts.get(collection.id, 0)
+                invite_data["collection"] = collection_data
+                invite_data["invited_by"] = collection.user_id
+                expires_at = coerce_datetime(invite.expires_at) if invite.expires_at else None
+                invite_data["status"] = "expired" if expires_at and expires_at < now else "pending"
+                invites.append(invite_data)
+            return invites
 
     async def async_update_invite(self, invite_id: int, **fields: Any) -> None:
         allowed = set(CollectionInvite.__table__.columns.keys()) - {
@@ -707,6 +759,8 @@ class CollectionRepositoryAdapter:
                 select(CollectionInvite).where(CollectionInvite.token == token)
             )
             if invite is None or invite.status in {"used", "revoked"}:
+                return None
+            if invite.invited_user_id is not None and invite.invited_user_id != user_id:
                 return None
             expires_at = coerce_datetime(invite.expires_at) if invite.expires_at else None
             if expires_at and expires_at < _now():

@@ -907,6 +907,17 @@ paths:
             minimum: 1
           - type: 'null'
           title: Parent Id
+      - name: membership
+        in: query
+        required: false
+        schema:
+          enum:
+          - any
+          - owned
+          - shared
+          type: string
+          default: any
+          title: Membership
       - name: limit
         in: query
         required: false
@@ -962,6 +973,50 @@ paths:
             application/json:
               schema:
                 title: Response Create Collection V1 Collections Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/collections/invites/incoming:
+    get:
+      tags:
+      - Collections
+      summary: List Incoming Collection Invites
+      description: List pending collection invites addressed to the current user.
+      operationId: list_incoming_collection_invites_v1_collections_invites_incoming_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                title: Response List Incoming Collection Invites V1 Collections Invites Incoming Get
         '422':
           description: Validation Error
           content:
@@ -9092,6 +9147,12 @@ components:
           - type: string
           - type: 'null'
           title: Expires At
+        recipient_user_id:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Recipient User Id
       type: object
       required:
       - role

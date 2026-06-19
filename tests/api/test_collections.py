@@ -6,10 +6,12 @@ import pytest
 
 from app.api.models.requests import (
     CollectionCreateRequest,
+    CollectionInviteRequest,
     CollectionItemCreateRequest,
     CollectionUpdateRequest,
 )
 from app.api.routers import collections
+from app.api.services.collection_service import CollectionService
 from app.db.models import Collection, CollectionItem
 
 
@@ -42,6 +44,88 @@ async def test_get_collections(db, user_factory):
     names = [c["name"] for c in data]
     assert "C1" in names
     assert "C2" in names
+
+
+@pytest.mark.asyncio
+async def test_get_collections_membership_filters(db, user_factory):
+    owner = user_factory(username="col_filter_owner", telegram_user_id=7101)
+    collaborator = user_factory(username="col_filter_collab", telegram_user_id=7102)
+    collaborator_context = {"user_id": collaborator.telegram_user_id}
+
+    owned = await CollectionService.create_collection(
+        user_id=collaborator.telegram_user_id,
+        name="Collaborator Owned",
+        description=None,
+        parent_id=None,
+        position=None,
+    )
+    shared = await CollectionService.create_collection(
+        user_id=owner.telegram_user_id,
+        name="Owner Shared",
+        description=None,
+        parent_id=None,
+        position=None,
+    )
+    await CollectionService.add_collaborator(
+        shared["id"],
+        owner.telegram_user_id,
+        collaborator.telegram_user_id,
+        "viewer",
+    )
+
+    owned_response = await collections.get_collections(
+        user=collaborator_context,
+        membership="owned",
+    )
+    shared_response = await collections.get_collections(
+        user=collaborator_context,
+        membership="shared",
+    )
+    any_response = await collections.get_collections(
+        user=collaborator_context,
+        membership="any",
+    )
+
+    assert {item["id"] for item in owned_response["data"]["collections"]} == {owned["id"]}
+    assert {item["id"] for item in shared_response["data"]["collections"]} == {shared["id"]}
+    assert {item["id"] for item in any_response["data"]["collections"]} == {
+        owned["id"],
+        shared["id"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_incoming_collection_invites(db, user_factory):
+    owner = user_factory(username="col_invite_owner", telegram_user_id=7111)
+    invitee = user_factory(username="col_invite_invitee", telegram_user_id=7112)
+    other = user_factory(username="col_invite_other", telegram_user_id=7113)
+    collection = await CollectionService.create_collection(
+        user_id=owner.telegram_user_id,
+        name="Invite Target",
+        description=None,
+        parent_id=None,
+        position=None,
+    )
+    await collections.create_collection_invite(
+        collection_id=collection["id"],
+        body=CollectionInviteRequest(role="viewer", recipient_user_id=invitee.telegram_user_id),
+        user={"user_id": owner.telegram_user_id},
+    )
+    await collections.create_collection_invite(
+        collection_id=collection["id"],
+        body=CollectionInviteRequest(role="viewer", recipient_user_id=other.telegram_user_id),
+        user={"user_id": owner.telegram_user_id},
+    )
+
+    response = await collections.list_incoming_collection_invites(
+        user={"user_id": invitee.telegram_user_id},
+    )
+
+    invites = response["data"]["invites"]
+    assert len(invites) == 1
+    assert invites[0]["collection"]["id"] == collection["id"]
+    assert invites[0]["status"] == "pending"
+    assert invites[0]["invitedBy"] == owner.telegram_user_id
 
 
 @pytest.mark.asyncio

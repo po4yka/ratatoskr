@@ -67,6 +67,22 @@ class CollectionInviteResponse(BaseModel):
     expires_at: str | None = Field(default=None, serialization_alias="expiresAt")
 
 
+class CollectionIncomingInvite(BaseModel):
+    id: int
+    token: str
+    role: Literal["editor", "viewer"]
+    status: Literal["pending", "expired"]
+    collection: CollectionResponse
+    invited_by: int = Field(serialization_alias="invitedBy")
+    created_at: str = Field(serialization_alias="createdAt")
+    expires_at: str | None = Field(default=None, serialization_alias="expiresAt")
+
+
+class CollectionIncomingInvitesResponse(BaseModel):
+    invites: list[CollectionIncomingInvite]
+    pagination: PaginationInfo | None = None
+
+
 class CollectionMoveResponse(BaseModel):
     id: int
     parent_id: int | None = Field(serialization_alias="parentId")

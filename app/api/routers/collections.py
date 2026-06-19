@@ -3,7 +3,7 @@ Collections management endpoints.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 
@@ -22,6 +22,8 @@ from app.api.models.requests import (
 from app.api.models.responses import (
     CollectionAclEntry,
     CollectionAclResponse,
+    CollectionIncomingInvite,
+    CollectionIncomingInvitesResponse,
     CollectionItem,
     CollectionItemsMoveResponse,
     CollectionItemsResponse,
@@ -38,6 +40,7 @@ from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+CollectionMembership = Literal["any", "owned", "shared"]
 
 
 def _build_collection_response(c: dict[str, Any]) -> CollectionResponse:
@@ -63,9 +66,24 @@ def _build_collection_response(c: dict[str, Any]) -> CollectionResponse:
     )
 
 
+def _build_incoming_invite_response(invite: dict[str, Any]) -> CollectionIncomingInvite:
+    """Build a CollectionIncomingInvite from a repository invite dict."""
+    return CollectionIncomingInvite(
+        id=invite["id"],
+        token=invite["token"],
+        role=invite.get("role", "viewer"),
+        status=invite.get("status", "pending"),
+        collection=_build_collection_response(invite["collection"]),
+        invited_by=invite["invited_by"],
+        created_at=isotime(invite.get("created_at")),
+        expires_at=isotime(invite.get("expires_at")) if invite.get("expires_at") else None,
+    )
+
+
 @router.get("")
 async def get_collections(
     parent_id: int | None = Query(default=None, ge=1),
+    membership: CollectionMembership = Query(default="any"),
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict[str, Any] = Depends(get_current_user),
@@ -78,7 +96,11 @@ async def get_collections(
     if not isinstance(offset, int):
         offset = 0
     collections = await CollectionService.list_collections(
-        user_id=user["user_id"], parent_id=parent_id, limit=limit, offset=offset
+        user_id=user["user_id"],
+        parent_id=parent_id,
+        limit=limit,
+        offset=offset,
+        membership=membership,
     )
     data = [_build_collection_response(c) for c in collections]
     pagination = PaginationInfo(
@@ -89,6 +111,31 @@ async def get_collections(
     )
     return success_response(
         CollectionListResponse(collections=data, pagination=pagination),
+        pagination=pagination,
+    )
+
+
+@router.get("/invites/incoming")
+async def list_incoming_collection_invites(
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: dict[str, Any] = Depends(get_current_user),
+) -> Any:
+    """List pending collection invites addressed to the current user."""
+    invites = await CollectionService.list_incoming_invites(
+        user_id=user["user_id"],
+        limit=limit,
+        offset=offset,
+    )
+    data = [_build_incoming_invite_response(invite) for invite in invites]
+    pagination = PaginationInfo(
+        total=len(data),
+        limit=limit,
+        offset=offset,
+        has_more=len(data) == limit,
+    )
+    return success_response(
+        CollectionIncomingInvitesResponse(invites=data, pagination=pagination),
         pagination=pagination,
     )
 
@@ -382,6 +429,7 @@ async def create_collection_invite(
         user_id=user["user_id"],
         role=body.role,
         expires_at=expires,
+        recipient_user_id=body.recipient_user_id,
     )
     return success_response(
         {"token": invite.get("token"), "role": invite.get("role"), "expires_at": body.expires_at}
