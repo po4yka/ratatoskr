@@ -242,6 +242,16 @@ class GraphURLProcessor:
             )
             raise
 
+        # Terminal graph failure: the graph's route_terminal_failure node populated
+        # ``state['error']`` and exited without a summary. Re-raise as ValueError so
+        # the background retry runner (run_with_backoff) sees a raised exception and
+        # fires the configured retry_attempts -- returning {} here would have silently
+        # bypassed retries (audit finding [1]: graph terminal failure returned as empty
+        # dict, not re-raised).
+        if isinstance(final_state, dict) and "error" in final_state:
+            error_val = final_state["error"]
+            raise ValueError(str(error_val))
+
         # ``{}`` is reserved for the genuine no-summary case: the graph completed
         # successfully but produced no summary. The caller's ``if not summary_json``
         # raises a terminal StageError (no retry) -- correct for "ran fine, nothing
