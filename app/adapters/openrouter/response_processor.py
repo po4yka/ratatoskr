@@ -209,27 +209,27 @@ class ResponseProcessor:
         except Exception:
             text = None
 
-        # Calculate cost if enabled
-        if self._enable_stats:
-            try:
-                # Usage cost may be directly in usage or inside choices
-                raw = data.get("usage", {})
-                if isinstance(raw, dict):
-                    # Direct check for OpenRouter's total_cost
-                    cost_val = raw.get("total_cost")
-                    if cost_val is not None:
-                        cost_usd = float(cost_val)
-                    # Support other providers standard field names
-                    elif raw.get("cost") is not None:
-                        cost_usd = float(raw["cost"])
+        # Extract cost unconditionally — enable_stats only gates extra metrics logging,
+        # not the basic cost capture that callers need for DB persistence and billing.
+        try:
+            # Usage cost may be directly in usage or inside choices
+            raw = data.get("usage", {})
+            if isinstance(raw, dict):
+                # Direct check for OpenRouter's total_cost
+                cost_val = raw.get("total_cost")
+                if cost_val is not None:
+                    cost_usd = float(cost_val)
+                # Support other providers standard field names
+                elif raw.get("cost") is not None:
+                    cost_usd = float(raw["cost"])
 
-                # Check for cost in choices (some local model gateways do this)
-                if cost_usd is None and choices:
-                    cost_val = choices[0].get("cost")
-                    if cost_val is not None:
-                        cost_usd = float(cost_val)
-            except (TypeError, ValueError):
-                cost_usd = None
+            # Check for cost in choices (some local model gateways do this)
+            if cost_usd is None and choices:
+                cost_val = choices[0].get("cost")
+                if cost_val is not None:
+                    cost_usd = float(cost_val)
+        except (TypeError, ValueError):
+            cost_usd = None
 
         return text, usage, cost_usd
 
