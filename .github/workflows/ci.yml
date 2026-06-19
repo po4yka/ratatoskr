@@ -1052,7 +1052,7 @@ jobs:
   pr-summary:
     name: PR Summary
     if: github.event_name == 'pull_request'
-    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test, restore-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, browser-extension, lint-and-format, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1067,6 +1067,7 @@ jobs:
             summary += '✅ Lockfiles are up to date\n\n';
             summary += '### Checks Completed\n';
             summary += '- ✅ Markdown lint and link checks\n';
+            summary += '- ✅ Browser extension package\n';
             summary += '- ✅ Code linting and formatting\n';
             summary += '- ✅ Type checking (mypy)\n';
             summary += '- ✅ Unit tests with coverage\n';
@@ -1322,7 +1323,7 @@ jobs:
   status-check:
     name: CI Status Check
     if: always()
-    needs: [prepare-environment, markdown-lint, link-check, lint-and-format, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test, restore-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, browser-extension, lint-and-format, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1363,6 +1364,11 @@ jobs:
 
           if [[ "${{ needs.link-check.result }}" != "success" ]]; then
             echo "::error::link-check job failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.browser-extension.result }}" != "success" ]]; then
+            echo "::error::browser-extension job failed"
             exit 1
           fi
 

@@ -5,7 +5,7 @@ Manifest V3 browser extension for saving the current tab to Ratatoskr through `P
 ## Supported Browsers
 
 - Chrome / Chromium / Edge: load `extension/` as an unpacked extension.
-- Firefox: load `extension/manifest.json` from `about:debugging#/runtime/this-firefox`.
+- Firefox support is tracked separately because the current package ships a Chrome-compatible Manifest V3 service worker.
 
 ## Local Install
 
@@ -17,9 +17,10 @@ Manifest V3 browser extension for saving the current tab to Ratatoskr through `P
 
 ## Runtime Behavior
 
-- Access tokens are stored in `chrome.storage.session` when available. Browsers without that API fall back to extension local storage.
+- Access and refresh tokens are stored in `chrome.storage.session` by default. When **Remember refresh session** is checked, both tokens are stored in `chrome.storage.local` so refresh survives browser restart. Browsers without session storage fall back to local storage.
 - API URL, last identifier, and the offline queue are stored in `chrome.storage.local`.
-- The popup captures the current tab URL/title and selected page text, then posts:
+- Remote API URLs must use HTTPS. Plain HTTP is accepted only for loopback development origins such as `http://127.0.0.1:18000`.
+- The popup captures the current tab URL/title, optional selected page text, and tags, then posts:
 
 ```json
 {
@@ -31,7 +32,7 @@ Manifest V3 browser extension for saving the current tab to Ratatoskr through `P
 }
 ```
 
-- Failed saves are queued locally and retried from the popup and from a background alarm every five minutes.
+- Network failures, rate limits, and server errors are queued locally and retried from the popup and from a background alarm every five minutes. Client validation and auth failures are shown immediately and are not retried forever.
 
 ## Packaging
 
@@ -45,7 +46,7 @@ The artifact is written to `dist/ratatoskr-quick-save-extension.zip`.
 
 ## Screenshots
 
-The extension is intentionally plain. These screenshots show the three states worth checking before store submission.
+The extension is intentionally plain. These documentation mockups show the three states worth checking before creating store-listing screenshots.
 
 ![Signed-out popup](screenshots/signed-out.svg)
 

@@ -45,7 +45,8 @@ label {
   font-weight: 600;
 }
 
-input {
+input,
+textarea {
   box-sizing: border-box;
   width: 100%;
   min-height: 34px;
@@ -53,6 +54,11 @@ input {
   border: 1px solid color-mix(in srgb, CanvasText 24%, transparent);
   border-radius: 6px;
   font: inherit;
+}
+
+textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 .row {

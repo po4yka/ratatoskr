@@ -17,6 +17,10 @@ REQUIRED_FILES = (
     "popup.js",
     "background.js",
     "icon.svg",
+    "icons/icon-16.png",
+    "icons/icon-32.png",
+    "icons/icon-48.png",
+    "icons/icon-128.png",
     "README.md",
 )
 
@@ -31,6 +35,14 @@ def validate_extension() -> None:
         raise SystemExit("extension/manifest.json must use Manifest V3")
     if "storage" not in manifest.get("permissions", []):
         raise SystemExit("extension/manifest.json must request storage permission")
+    icons = manifest.get("icons", {})
+    if icons.get("128") != "icons/icon-128.png":
+        raise SystemExit("extension/manifest.json must declare a 128px PNG icon")
+    action_icons = manifest.get("action", {}).get("default_icon", {})
+    if action_icons.get("128") != "icons/icon-128.png":
+        raise SystemExit("extension/manifest.json action must declare a 128px PNG icon")
+    if "<all_urls>" in manifest.get("host_permissions", []):
+        raise SystemExit("extension/manifest.json must not request persistent <all_urls>")
 
 
 def build_zip(output: Path) -> Path:

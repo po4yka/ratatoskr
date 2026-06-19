@@ -17,5 +17,6 @@ KNOWN_CLIENT_IDS: frozenset[str] = frozenset(
         "ratatoskr-android-v1.0",  # Android app (ratatoskr-client)
         "ratatoskr-ios-v1.0",  # iOS app (ratatoskr-client)
         "web-v1",  # Web SPA (ratatoskr-web)
+        "browser-extension",  # Manifest V3 quick-save browser extension
     }
 )
