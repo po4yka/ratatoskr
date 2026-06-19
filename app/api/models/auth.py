@@ -176,6 +176,46 @@ class CredentialsLoginRequest(BaseModel):
     client_id: str = Field(..., min_length=1, max_length=100)
 
 
+class AppleSignInStartRequest(BaseModel):
+    """Request body for Apple Sign-In authorization URL creation."""
+
+    client_id: str = Field(..., min_length=1, max_length=100)
+    redirect_uri: str = Field(..., min_length=1, max_length=500)
+    scope: str = Field(default="name email", max_length=100)
+
+
+class AppleSignInStartResponse(BaseModel):
+    """Apple Sign-In authorization parameters."""
+
+    authorization_url: str = Field(serialization_alias="authorizationUrl")
+    state: str
+    nonce: str
+    code_verifier: str = Field(serialization_alias="codeVerifier")
+    code_challenge: str = Field(serialization_alias="codeChallenge")
+    code_challenge_method: str = Field(default="S256", serialization_alias="codeChallengeMethod")
+
+
+class AppleSignInCallbackRequest(BaseModel):
+    """Request body for Apple Sign-In callback token validation."""
+
+    id_token: str = Field(..., min_length=1)
+    client_id: str = Field(..., min_length=1, max_length=100)
+    nonce: str | None = Field(default=None, max_length=256)
+
+
+class MagicLinkRequest(BaseModel):
+    """Request body for magic-link email login."""
+
+    email: str = Field(..., min_length=3, max_length=256)
+    client_id: str = Field(..., min_length=1, max_length=100)
+
+
+class MagicLinkVerifyRequest(BaseModel):
+    """Query model for magic-link verification."""
+
+    token: str = Field(..., min_length=16, max_length=256)
+
+
 class ChangePasswordRequest(BaseModel):
     """Request body for owner-only password change."""
 

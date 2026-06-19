@@ -15,6 +15,7 @@ from . import (
     endpoints_secret_keys,
     endpoints_sessions,
     endpoints_telegram,
+    magic_link,
 )
 
 router = APIRouter()
@@ -23,6 +24,7 @@ router = APIRouter()
 router.include_router(endpoints_telegram.router)
 router.include_router(endpoints_secret_keys.router)
 router.include_router(endpoints_credentials.router)
+router.include_router(magic_link.router)
 router.include_router(endpoints_me.router)
 router.include_router(endpoints_sessions.router)
 
@@ -44,6 +46,9 @@ delete_account = endpoints_me.delete_account
 
 credentials_login = endpoints_credentials.credentials_login
 change_password = endpoints_credentials.change_password
+
+request_magic_link = magic_link.request_magic_link
+verify_magic_link = magic_link.verify_magic_link
 
 refresh_access_token = endpoints_sessions.refresh_access_token
 logout = endpoints_sessions.logout

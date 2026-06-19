@@ -637,6 +637,115 @@
         ]
       }
     },
+    "/v1/auth/magic-link/request": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Request Magic Link",
+        "description": "Send a one-time login link to an existing user's email address.",
+        "operationId": "request_magic_link_v1_auth_magic_link_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagicLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Request Magic Link V1 Auth Magic Link Request Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/magic-link/verify": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Verify Magic Link",
+        "description": "Consume a magic-link token and issue standard JWTs.",
+        "operationId": "verify_magic_link_v1_auth_magic_link_verify_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 256,
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Verify Magic Link V1 Auth Magic Link Verify Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/auth/me": {
       "get": {
         "tags": [
@@ -948,6 +1057,112 @@
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/apple/start": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Start Apple Sign In",
+        "description": "Build Apple Sign-In authorization parameters for the client.",
+        "operationId": "start_apple_sign_in_v1_auth_apple_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleSignInStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Start Apple Sign In V1 Auth Apple Start Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/apple/callback": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Apple Callback",
+        "description": "Validate an Apple id_token and issue Ratatoskr JWTs.",
+        "operationId": "apple_callback_v1_auth_apple_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleSignInCallbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Apple Callback V1 Auth Apple Callback Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
           }
         },
         "security": [
@@ -14617,6 +14832,69 @@
         ],
         "title": "AggregationSourceItem"
       },
+      "AppleSignInCallbackRequest": {
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id Token"
+          },
+          "client_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Client Id"
+          },
+          "nonce": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nonce"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_token",
+          "client_id"
+        ],
+        "title": "AppleSignInCallbackRequest",
+        "description": "Request body for Apple Sign-In callback token validation."
+      },
+      "AppleSignInStartRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Client Id"
+          },
+          "redirect_uri": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Redirect Uri"
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Scope",
+            "default": "name email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "redirect_uri"
+        ],
+        "title": "AppleSignInStartRequest",
+        "description": "Request body for Apple Sign-In authorization URL creation."
+      },
       "AssignCategoryRequest": {
         "properties": {
           "category_id": {
@@ -17372,6 +17650,29 @@
           "full_name"
         ],
         "title": "IngestRepositoryResponse"
+      },
+      "MagicLinkRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "client_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Client Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "client_id"
+        ],
+        "title": "MagicLinkRequest",
+        "description": "Request body for magic-link email login."
       },
       "MergeTagsRequest": {
         "properties": {

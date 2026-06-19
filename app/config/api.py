@@ -195,6 +195,21 @@ class AuthConfig(BaseModel):
         validation_alias="CREDENTIALS_LOGIN_ARGON2_PARALLELISM",
         description="argon2id parallelism (lanes)",
     )
+    apple_client_id: str | None = Field(
+        default=None,
+        validation_alias="APPLE_SIGNIN_CLIENT_ID",
+        description="Apple Services ID or bundle ID accepted as id_token audience",
+    )
+    apple_team_id: str | None = Field(
+        default=None,
+        validation_alias="APPLE_SIGNIN_TEAM_ID",
+        description="Apple developer Team ID used for documentation and client setup checks",
+    )
+    magic_link_verify_url: str | None = Field(
+        default=None,
+        validation_alias="MAGIC_LINK_VERIFY_URL",
+        description="Public URL used in magic-link emails; API appends token and client_id",
+    )
 
     allowed_client_ids: tuple[str, ...] = Field(
         default_factory=tuple,

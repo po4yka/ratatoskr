@@ -109,6 +109,12 @@ class User(Base):
     credentials: Mapped[UserCredential | None] = relationship(
         back_populates="user", cascade="all, delete-orphan", uselist=False
     )
+    identities: Mapped[list[Any]] = relationship(
+        "UserIdentity", back_populates="user", cascade="all, delete-orphan"
+    )
+    magic_link_tokens: Mapped[list[Any]] = relationship(
+        "MagicLinkToken", back_populates="user", cascade="all, delete-orphan"
+    )
     devices: Mapped[list[UserDevice]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -272,6 +278,67 @@ class UserCredential(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="credentials")
+
+
+class UserIdentity(Base):
+    """External identity linked to an existing Ratatoskr user."""
+
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        Index("ux_user_identities_provider_subject", "provider", "subject", unique=True),
+        Index("ix_user_identities_user_id", "user_id"),
+        Index("ix_user_identities_email_canonical", "email_canonical"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.telegram_user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_canonical: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    user: Mapped[User] = relationship(back_populates="identities")
+
+
+class MagicLinkToken(Base):
+    """Hashed one-time passwordless login token."""
+
+    __tablename__ = "magic_link_tokens"
+    __table_args__ = (
+        Index("ix_magic_link_tokens_token_hash", "token_hash", unique=True),
+        Index("ix_magic_link_tokens_user_id_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.telegram_user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    email_canonical: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    client_id: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    user: Mapped[User] = relationship(back_populates="magic_link_tokens")
 
 
 class Chat(Base):
@@ -1018,6 +1085,8 @@ CORE_MODELS: tuple[type[Base], ...] = (
     User,
     ClientSecret,
     UserCredential,
+    UserIdentity,
+    MagicLinkToken,
     Chat,
     Request,
     RequestProcessingJob,
@@ -1047,6 +1116,7 @@ __all__ = [
     "CrawlResult",
     "LLMAttemptTrigger",
     "LLMCall",
+    "MagicLinkToken",
     "ProgressEvent",
     "RefreshToken",
     "Request",
@@ -1057,6 +1127,7 @@ __all__ = [
     "User",
     "UserCredential",
     "UserDevice",
+    "UserIdentity",
     "UserInteraction",
     "VideoDownload",
     "XBookmarkMetadata",

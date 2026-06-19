@@ -66,6 +66,7 @@ from app.api.routers import (
     user,
     webhooks,
 )
+from app.api.routers.auth import apple as apple_auth
 from app.api.routers.auth import get_current_user, github as github_auth
 from app.config import Config
 from app.core.logging_utils import get_logger, setup_json_logging
@@ -262,6 +263,7 @@ app.middleware("http")(correlation_id_middleware)
 
 # Include routers
 app.include_router(auth.router, prefix="/v1/auth", tags=["Authentication"])
+app.include_router(apple_auth.router, prefix="/v1/auth", tags=["Authentication"])
 
 app.include_router(github_auth.router)
 app.include_router(aggregation.router, prefix="/v1/aggregations", tags=["Aggregations"])

@@ -562,6 +562,9 @@ See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, sum
 | `CREDENTIALS_LOGIN_ARGON2_TIME_COST` | `3` | argon2id iterations |
 | `CREDENTIALS_LOGIN_ARGON2_MEMORY_KIB` | `65536` | argon2id memory cost in KiB (default 64 MiB) |
 | `CREDENTIALS_LOGIN_ARGON2_PARALLELISM` | `1` | argon2id parallelism (lanes) |
+| `APPLE_SIGNIN_CLIENT_ID` | _(unset)_ | Apple Services ID or bundle ID accepted as the Apple `id_token` audience |
+| `APPLE_SIGNIN_TEAM_ID` | _(unset)_ | Apple developer Team ID used for operator/client setup documentation |
+| `MAGIC_LINK_VERIFY_URL` | `/v1/auth/magic-link/verify` | Public URL placed in magic-link emails; backend appends `token` and `client_id` query params |
 | `IMPORT_MAX_UPLOAD_BYTES` | `10485760` | Max import upload size in bytes (default 10 MB) |
 | `IMPORT_MAX_ITEMS` | `10000` | Max parsed bookmarks per import (default 10 000) |
 | `BACKUP_RESTORE_MAX_UPLOAD_BYTES` | `104857600` | Max backup restore upload size in bytes (default 100 MB) |

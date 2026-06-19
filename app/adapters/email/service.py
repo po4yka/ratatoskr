@@ -156,6 +156,31 @@ class EmailDeliveryService:
         )
         return {"delivery_id": str(delivery.id), "status": delivery.status}
 
+    async def send_magic_link(
+        self,
+        *,
+        user_id: int,
+        recipient: str,
+        link: str,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        subject = "Your Ratatoskr sign-in link"
+        text = f"Open this link to sign in to Ratatoskr:\n\n{link}\n\nThis link expires soon and can only be used once."
+        if self._cfg.provider == "none":
+            record_email_delivery("disabled")
+            return {"email_sent": False, "magic_link": link}
+        delivery = await self._send_and_record(
+            user_id=user_id,
+            address_id=None,
+            recipient=recipient,
+            subject=subject,
+            text=text,
+            html=_markdownish_to_html(text),
+            purpose="magic_link",
+            correlation_id=correlation_id,
+        )
+        return {"email_sent": True, "delivery_id": str(delivery.id)}
+
     async def _send_and_record(
         self,
         *,

@@ -245,6 +245,10 @@ Health endpoints are a documented probe carve-out from the business-response env
 - `POST /v1/auth/secret-keys/{key_id}/revoke`
 - `POST /v1/auth/credentials-login`
 - `POST /v1/auth/credentials/change-password`
+- `POST /v1/auth/apple/start`
+- `POST /v1/auth/apple/callback`
+- `POST /v1/auth/magic-link/request`
+- `GET /v1/auth/magic-link/verify`
 - `GET /v1/auth/me/telegram`
 - `POST /v1/auth/me/telegram/link`
 - `POST /v1/auth/me/telegram/complete`
@@ -288,6 +292,8 @@ Refresh-token family rotation (since `0016_add_refresh_token_family_columns`):
 - Every refresh token belongs to a family identified by `family_id`. The first token of a session is the root (no `parent_token_hash`); each rotation issues a child carrying the predecessor's `family_id` and `parent_token_hash = sha256(presented_token)`.
 - Presenting a retired (already-rotated) token is replay evidence: the `/refresh` endpoint revokes the entire matching family — not every active session — so a stolen mobile token does not log the user out on their desktop. One `AuditLog` row (`event = refresh_family_revoked`, `reason = retired_token_replay`) is written per cascade.
 - Presenting an expired token (but not revoked) returns `401` without cascading — benign client mistake.
+
+Apple Sign-In and magic-link email are optional identity providers that reuse the same JWT access/refresh token envelope as credentials, Telegram, and secret-key login. They do not create public accounts: the provider identity must resolve to an existing allowed Ratatoskr user by a linked `user_identities` row or by a known email on `user_credentials`; successful first login upserts the provider identity so later logins do not duplicate the account. Apple requires `APPLE_SIGNIN_CLIENT_ID` and validates `id_token` against Apple's JWKS with issuer/audience/nonce checks. Magic-link requires a known email and sends a one-time 15-minute token through the configured email sink; `EMAIL_PROVIDER=none` returns the generated link in the response for local development only.
 
 Example `secret-login` request:
 
