@@ -2925,6 +2925,68 @@
         }
       }
     },
+    "/v1/summaries/{summary_id}/related": {
+      "get": {
+        "tags": [
+          "Summaries"
+        ],
+        "summary": "Get Related Reads",
+        "description": "Get vector-similar summaries related to a user's summary.",
+        "operationId": "get_related_reads_v1_summaries__summary_id__related_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          },
+          {
+            "name": "request",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "title": "Request"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryRelatedReadsSuccessResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/summaries/{summary_id}": {
       "get": {
         "tags": [
@@ -4487,6 +4549,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SummaryRecommendationsSuccessResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/articles/{summary_id}/related": {
+      "get": {
+        "tags": [
+          "Articles"
+        ],
+        "summary": "Get Related Reads",
+        "description": "Alias for GET /v1/summaries/{summary_id}/related. Get vector-similar summaries related to a user's summary.",
+        "operationId": "get_related_reads_v1_articles__summary_id__related_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          },
+          {
+            "name": "request",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "title": "Request"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryRelatedReadsSuccessResponse"
                 }
               }
             }
@@ -17174,6 +17298,39 @@
         ],
         "title": "RegisterMirrorResponse"
       },
+      "RelatedRead": {
+        "properties": {
+          "summaryId": {
+            "type": "integer",
+            "title": "Summaryid"
+          },
+          "requestId": {
+            "type": "integer",
+            "title": "Requestid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "ageLabel": {
+            "type": "string",
+            "title": "Agelabel"
+          },
+          "similarityScore": {
+            "type": "number",
+            "title": "Similarityscore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summaryId",
+          "requestId",
+          "title",
+          "ageLabel",
+          "similarityScore"
+        ],
+        "title": "RelatedRead"
+      },
       "RepositoryAnalysis": {
         "properties": {
           "purpose": {
@@ -21456,6 +21613,52 @@
           "data"
         ],
         "title": "SummaryRecommendationsSuccessResponse"
+      },
+      "SummaryRelatedReadsResponse": {
+        "properties": {
+          "summaryId": {
+            "type": "integer",
+            "title": "Summaryid"
+          },
+          "related": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedRead"
+            },
+            "type": "array",
+            "title": "Related"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summaryId",
+          "related",
+          "count"
+        ],
+        "title": "SummaryRelatedReadsResponse"
+      },
+      "SummaryRelatedReadsSuccessResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/SummaryRelatedReadsResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "SummaryRelatedReadsSuccessResponse"
       },
       "SyncApplyItem": {
         "properties": {

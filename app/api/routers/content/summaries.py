@@ -8,12 +8,13 @@ from datetime import datetime
 from hashlib import sha256
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel as _BulkBaseModel, Field
 
 from app.api.aggregation_provenance import build_source_bundle
 from app.api.dependencies.database import get_summary_read_model_use_case
-from app.api.exceptions import ResourceNotFoundError, ValidationError
+from app.api.dependencies.search_resources import get_vector_search_service
+from app.api.exceptions import FeatureDisabledError, ResourceNotFoundError, ValidationError
 from app.api.models.requests import (
     SaveReadingPositionRequest,
     SubmitFeedbackRequest,
@@ -44,8 +45,11 @@ from app.api.models.responses import (
     SummaryListResponse,
     SummaryListStats,
     SummaryListSuccessResponse,
+    RelatedRead,
     SummaryRecommendationsResponse,
     SummaryRecommendationsSuccessResponse,
+    SummaryRelatedReadsResponse,
+    SummaryRelatedReadsSuccessResponse,
     ToggleFavoriteResponse,
     ToggleFavoriteSuccessResponse,
     UpdateSummaryResponse,
@@ -54,6 +58,8 @@ from app.api.models.responses import (
 )
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
+from app.application.dto.vector_search import VectorSearchHitDTO
+from app.application.services.related_reads_service import RelatedReadsService
 from app.application.services.topic_search_utils import ensure_mapping
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.core.html_utils import clean_markdown_article_text, html_to_text
@@ -67,6 +73,48 @@ BULK_SUMMARY_MAX_IDS = 500
 # Internal schema stores "med"; API contract exposes "medium".
 _HR_NORMALIZE: dict[str, str] = {"med": "medium"}
 _SAFE_SOURCE_COVERAGE = {"full", "partial", "abstract_only", "transcript_missing", "unknown"}
+
+
+class _RelatedReadsVectorAdapter:
+    def __init__(
+        self,
+        vector_search: Any,
+        *,
+        user_id: int,
+        user_scope: str | None,
+        max_results: int,
+    ) -> None:
+        self._vector_search = vector_search
+        self._user_id = user_id
+        self._user_scope = user_scope
+        self._max_results = max_results
+
+    async def search(
+        self,
+        query: str,
+        *,
+        correlation_id: str | None = None,
+    ) -> list[VectorSearchHitDTO]:
+        result = await self._vector_search.search(
+            query,
+            user_scope=self._user_scope,
+            user_id=self._user_id,
+            limit=self._max_results,
+            correlation_id=correlation_id,
+        )
+        return [
+            VectorSearchHitDTO(
+                request_id=item.request_id,
+                summary_id=item.summary_id,
+                similarity_score=item.similarity_score,
+                url=item.url,
+                title=item.title,
+                snippet=item.snippet,
+                source=item.source,
+                published_at=item.published_at,
+            )
+            for item in result.results
+        ]
 
 
 def _normalize_hallucination_risk(raw: str) -> Literal["low", "medium", "high", "unknown"]:
@@ -143,6 +191,32 @@ def _build_summary_source_bundle(raw: Any) -> AggregationSourceBundle | None:
 def _get_summary_use_case() -> SummaryReadModelUseCase:
     """Build the summary read-model use case for API handlers."""
     return get_summary_read_model_use_case()
+
+
+async def _get_related_reads_service(
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+    vector_search: Any = Depends(get_vector_search_service),
+) -> RelatedReadsService:
+    """Build a request-scoped related-reads service for API handlers."""
+    from app.di.api import resolve_api_runtime
+
+    runtime = resolve_api_runtime(request)
+    cfg = runtime.cfg
+    if not cfg.runtime.related_reads_enabled:
+        raise FeatureDisabledError("related-reads")
+
+    max_results = 10
+    return RelatedReadsService(
+        _RelatedReadsVectorAdapter(
+            vector_search,
+            user_id=user["user_id"],
+            user_scope=cfg.vector_store.user_scope,
+            max_results=max_results,
+        ),
+        min_similarity=cfg.runtime.related_reads_min_similarity,
+        max_results=max_results,
+    )
 
 
 def _extract_request_fields(
@@ -377,6 +451,47 @@ async def get_recommendations(
             recommendations=summary_list,
             reason="based_on_reading_history" if interest_tags else "most_recent_unread",
             count=len(summary_list),
+        )
+    )
+
+
+@router.get("/{summary_id}/related", response_model=SummaryRelatedReadsSuccessResponse)
+async def get_related_reads(
+    summary_id: int,
+    user: dict[str, Any] = Depends(get_current_user),
+    use_case: SummaryReadModelUseCase = Depends(_get_summary_use_case),
+    related_reads_service: RelatedReadsService = Depends(_get_related_reads_service),
+) -> Any:
+    """Get vector-similar summaries related to a user's summary."""
+    context = await use_case.get_summary_context_for_user(
+        user_id=user["user_id"],
+        summary_id=summary_id,
+    )
+    if not context:
+        raise ResourceNotFoundError("Summary", summary_id)
+
+    summary = ensure_mapping(context.get("summary"))
+    summary_payload = ensure_mapping(summary.get("json_payload"))
+    request_id = context.get("request_id")
+    related = await related_reads_service.find_related(
+        summary_payload,
+        exclude_request_id=int(request_id) if request_id is not None else None,
+        language=summary.get("lang"),
+    )
+    return success_response(
+        SummaryRelatedReadsResponse(
+            summary_id=summary_id,
+            related=[
+                RelatedRead(
+                    summary_id=item.summary_id,
+                    request_id=item.request_id,
+                    title=item.title,
+                    age_label=item.age_label,
+                    similarity_score=item.similarity_score,
+                )
+                for item in related
+            ],
+            count=len(related),
         )
     )
 

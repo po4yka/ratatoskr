@@ -333,6 +333,7 @@ Canonical summary endpoints:
 - `GET /v1/summaries`
 - `GET /v1/summaries/by-url`
 - `GET /v1/summaries/{summary_id}`
+- `GET /v1/summaries/{summary_id}/related`
 - `PATCH /v1/summaries/{summary_id}`
 - `DELETE /v1/summaries/{summary_id}`
 - `POST /v1/summaries/bulk/mark-read`
@@ -357,6 +358,7 @@ Alias endpoints for compatibility (`/v1/articles/*`) map to the same handlers:
 - `GET /v1/articles`
 - `GET /v1/articles/by-url`
 - `GET /v1/articles/{summary_id}`
+- `GET /v1/articles/{summary_id}/related`
 - `PATCH /v1/articles/{summary_id}`
 - `DELETE /v1/articles/{summary_id}`
 - `POST /v1/articles/bulk/mark-read`
@@ -375,6 +377,8 @@ Alias endpoints for compatibility (`/v1/articles/*`) map to the same handlers:
 - `DELETE /v1/articles/{summary_id}/highlights/{highlight_id}`
 - `POST /v1/articles/{summary_id}/audio`
 - `GET /v1/articles/{summary_id}/audio`
+
+`GET /v1/summaries/{summary_id}/related` and its `/v1/articles/{summary_id}/related` alias return vector-similar summaries for the authenticated user's summary. The endpoint uses the same related-reads application service as Telegram follow-up messages, excludes the source request from results, and returns `404` when the summary does not belong to the caller.
 
 Bulk operations require bearer authentication and use the standard success/error envelope. `POST /v1/summaries/bulk/mark-read` and its `/v1/articles/bulk/mark-read` alias accept:
 

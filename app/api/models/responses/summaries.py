@@ -201,6 +201,20 @@ class SummaryRecommendationsResponse(BaseModel):
     count: int
 
 
+class RelatedRead(BaseModel):
+    summary_id: int = Field(serialization_alias="summaryId")
+    request_id: int = Field(serialization_alias="requestId")
+    title: str
+    age_label: str = Field(serialization_alias="ageLabel")
+    similarity_score: float = Field(serialization_alias="similarityScore")
+
+
+class SummaryRelatedReadsResponse(BaseModel):
+    summary_id: int = Field(serialization_alias="summaryId")
+    related: list[RelatedRead]
+    count: int
+
+
 class SearchResult(BaseModel):
     request_id: int = Field(serialization_alias="requestId")
     summary_id: int = Field(serialization_alias="summaryId")
@@ -270,6 +284,10 @@ class SummaryListSuccessResponse(SuccessResponse):
 
 class SummaryRecommendationsSuccessResponse(SuccessResponse):
     data: SummaryRecommendationsResponse
+
+
+class SummaryRelatedReadsSuccessResponse(SuccessResponse):
+    data: SummaryRelatedReadsResponse
 
 
 class SummaryDetailSuccessResponse(SuccessResponse):
