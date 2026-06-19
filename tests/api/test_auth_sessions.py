@@ -14,6 +14,7 @@ from app.api.routers.auth.endpoints_sessions import refresh_access_token
 from app.api.routers.auth.tokens import create_refresh_token
 from app.core.time_utils import UTC
 from app.db.models import RefreshToken as RefreshTokenModel
+from app.observability import metrics
 
 
 @pytest_asyncio.fixture
@@ -154,6 +155,20 @@ def _mock_request_response() -> tuple[MagicMock, MagicMock]:
 
 def _refresh_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _token_family_decision_metric_value(decision: str) -> float:
+    if not metrics.PROMETHEUS_AVAILABLE:
+        return 0.0
+    import re
+
+    exported = metrics.get_metrics().decode("utf-8")
+    match = re.search(
+        rf'^ratatoskr_token_family_decisions_total{{decision="{decision}"}} ([0-9.]+)$',
+        exported,
+        re.MULTILINE,
+    )
+    return float(match.group(1)) if match else 0.0
 
 
 async def _refresh_once(token: str):
@@ -450,8 +465,15 @@ async def test_retired_root_replay_revokes_entire_token_family_and_audits(db, us
 
     family_id = (await _token_row(db, root_token)).family_id
 
+    revocation_decisions_before = _token_family_decision_metric_value("revoke_family")
+
     with pytest.raises(TokenRevokedError):
         await _refresh_once(root_token)
+
+    if metrics.PROMETHEUS_AVAILABLE:
+        assert (
+            _token_family_decision_metric_value("revoke_family") == revocation_decisions_before + 1
+        )
 
     rows = await _family_rows(db, family_id)
     assert len(rows) == 4

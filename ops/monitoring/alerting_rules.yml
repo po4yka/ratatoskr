@@ -150,6 +150,17 @@ groups:
           summary: "MCP unscoped SSE is enabled in production"
           description: "The MCP SSE server is running without request auth or startup user scope in production. Disable MCP_ALLOW_UNSCOPED_SSE or scope the server with MCP_USER_ID / MCP_AUTH_MODE=jwt."
 
+  - name: ratatoskr_auth_security
+    rules:
+      - alert: RatatoskrTokenFamilyRevocationDetected
+        expr: increase(ratatoskr_token_family_decisions_total{decision="revoke_family"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Possible credential theft — family revocation detected"
+          description: "A refresh-token family was revoked after retired-token replay in the last 5 minutes. Inspect refresh_family_revoked audit logs, source IP, client_id, and the affected user before restoring access."
+
   - name: ratatoskr_external_services
     rules:
       # Firecrawl high error rate

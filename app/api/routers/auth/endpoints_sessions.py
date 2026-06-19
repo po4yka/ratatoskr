@@ -72,6 +72,15 @@ def _to_family_record(row: dict[str, Any]) -> FamilyTokenRecord:
     )
 
 
+def _record_token_family_decision_metric(kind: FamilyDecisionKind) -> None:
+    try:
+        from app.observability.metrics import record_token_family_decision
+
+        record_token_family_decision(kind.value)
+    except Exception as exc:
+        log_exception(logger, "token_family_decision_metric_failed", exc, level="debug")
+
+
 def _format_dt_z(dt_value: Any) -> str:
     if dt_value is None:
         return ""
@@ -137,6 +146,7 @@ async def refresh_access_token(
         family_records=[_to_family_record(r) for r in family_rows],
         now=now,
     )
+    _record_token_family_decision_metric(decision.kind)
 
     if decision.kind is FamilyDecisionKind.REVOKE_FAMILY:
         revoked_hashes = await auth_repo.async_revoke_family(family_id)
