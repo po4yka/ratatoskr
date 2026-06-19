@@ -246,7 +246,7 @@ class CallbackActionSummaryHandlers:
         summary_id = ":".join(parts[1:]).strip()
 
         try:
-            new_state = await self._store.toggle_save(summary_id)
+            new_state = await self._store.toggle_save(summary_id, uid)
 
             if new_state is not None:
                 status_msg = t("cb_saved", self._lang) if new_state else t("cb_removed", self._lang)

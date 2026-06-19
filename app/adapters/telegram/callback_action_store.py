@@ -44,16 +44,27 @@ class CallbackActionStore:
             message_id=message_id,
         )
 
-    async def toggle_save(self, summary_id: str) -> bool | None:
+    async def toggle_save(self, summary_id: str, user_id: int) -> bool | None:
+        """Toggle favorite status for *summary_id*, verifying ownership by *user_id*.
+
+        Returns the new ``is_favorited`` value, or ``None`` when the summary
+        does not exist or belongs to a different user.  The ``user_id``
+        predicate is a defence-in-depth IDOR guard — never call this without a
+        verified user identity.
+        """
         if summary_id.startswith("req:"):
-            summary = await self._summary_repo.async_get_summary_by_request(int(summary_id[4:]))
-            if summary is None:
+            summary_id_int = await self._summary_repo.async_get_summary_id_by_request(
+                int(summary_id[4:])
+            )
+            if summary_id_int is None:
                 return None
-            summary_id_int = int(summary["id"])
         else:
             summary_id_int = int(summary_id)
-        new_state = await self._summary_repo.async_toggle_favorite(summary_id_int)
-        self._summary_cache.pop(summary_id, None)
+        # async_toggle_favorite_for_user enforces the user_id ownership check
+        # atomically inside the DB transaction — no separate lookup needed.
+        new_state = await self._summary_repo.async_toggle_favorite_for_user(summary_id_int, user_id)
+        if new_state is not None:
+            self._summary_cache.pop(summary_id, None)
         return new_state
 
     async def lookup_retry_url(self, correlation_id: str) -> str | None:

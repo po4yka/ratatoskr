@@ -527,6 +527,30 @@ class SummaryRepositoryAdapter:
             await session.flush()
             return summary.is_favorited
 
+    async def async_toggle_favorite_for_user(self, summary_id: int, user_id: int) -> bool | None:
+        """Toggle favorite status of a summary scoped to *user_id*.
+
+        The ``user_id`` predicate is a defence-in-depth IDOR guard — a
+        callback action must only mutate a summary owned by the requesting
+        user.  Returns the new ``is_favorited`` value, or ``None`` if the
+        summary does not exist or belongs to a different user.
+        """
+        async with self._database.transaction() as session:
+            row = (
+                await session.execute(
+                    select(Summary)
+                    .join(Request, Summary.request_id == Request.id)
+                    .where(Summary.id == summary_id, Request.user_id == user_id)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            row.is_favorited = not row.is_favorited
+            row.updated_at = _utcnow()
+            await session.flush()
+            return row.is_favorited
+
     async def async_set_favorite(self, summary_id: int, value: bool) -> None:
         """Persist an explicit favorite status for a summary."""
         await self._set_summary_values(summary_id, is_favorited=value)
