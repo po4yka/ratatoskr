@@ -227,19 +227,24 @@ class CollectionService:
         result = await repo.async_get_collection(collection_id)
 
         # Trigger initial evaluation for smart collections
+        evaluation_error: str | None = None
         if collection_type == "smart" and result:
             try:
                 await self.evaluate_smart_collection(collection_id, user_id)
                 # Re-fetch to get updated item_count
                 result = await repo.async_get_collection(collection_id)
-            except Exception:
+            except Exception as exc:
+                evaluation_error = str(exc) or type(exc).__name__
                 logger.warning(
                     "smart_collection_initial_eval_failed",
-                    extra={"collection_id": collection_id},
+                    extra={"collection_id": collection_id, "error": evaluation_error},
                     exc_info=True,
                 )
 
-        return result or {}
+        response = result or {}
+        if evaluation_error is not None:
+            response = {**response, "evaluation_error": evaluation_error}
+        return response
 
     async def update_collection(
         self,
