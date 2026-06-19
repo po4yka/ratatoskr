@@ -372,18 +372,20 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         return records
 
     def _fetch_request_point_ids(self, request_id: int | str) -> set[str]:
-        """Return all Qdrant point UUID strings stored for a request."""
-        try:
-            req_filter = Filter(
-                must=[FieldCondition(key="request_id", match=MatchValue(value=int(request_id)))]
-            )
-            records = self._scroll_all(
-                scroll_filter=req_filter, with_payload=False, page_size=10_000
-            )
-            return {str(r.id) for r in records}
-        except Exception:
-            logger.warning("vector_fetch_request_ids_failed", extra={"request_id": request_id})
-            return set()
+        """Return all Qdrant point UUID strings stored for a request.
+
+        Raises the underlying Qdrant exception on failure so that callers
+        (replace_request_notes, replace_summary_point) can run their own error
+        path — logging, marking the store unavailable, and raising
+        VectorStoreError when required=True.  Silently returning an empty set
+        would cause the caller to skip the stale-point delete, leaving orphan
+        points in the collection.
+        """
+        req_filter = Filter(
+            must=[FieldCondition(key="request_id", match=MatchValue(value=int(request_id)))]
+        )
+        records = self._scroll_all(scroll_filter=req_filter, with_payload=False, page_size=10_000)
+        return {str(r.id) for r in records}
 
     # ------------------------------------------------------------------
     # Write operations
