@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
 from app.mcp.helpers import (
@@ -165,19 +166,34 @@ class ArticleReadService:
                 base_stmt = self._summary_stmt(Request, Summary).where(*filters)
 
                 if tag:
-                    summaries = (
-                        await session.scalars(base_stmt.order_by(Summary.created_at.desc()))
-                    ).all()
+                    # Normalise tag to "#foo" form (all tags are stored hash-prefixed and
+                    # lower-cased by summary_shaper._hash_tagify).
                     tag_lower = (tag if tag.startswith("#") else f"#{tag}").lower()
-                    matched_articles: list[dict[str, Any]] = []
-                    for summary in summaries:
-                        compact = format_summary_compact(summary, summary.request)
-                        tags = compact.get("topic_tags", [])
-                        if tag_lower in [str(item).lower() for item in tags]:
-                            matched_articles.append(compact)
+                    # Push the containment check into Postgres via the denormalised
+                    # Summary.topic_tags JSONB column (mirrors json_payload.topic_tags).
+                    # JSONB @> operator: column must contain the single-element array.
+                    tag_filter = Summary.topic_tags.op("@>")(cast([tag_lower], JSONB))
+                    tag_stmt = base_stmt.where(tag_filter)
 
-                    total = len(matched_articles)
-                    results = matched_articles[offset : offset + limit]
+                    total = await session.scalar(
+                        select(func.count())
+                        .select_from(Summary)
+                        .join(Request, Summary.request_id == Request.id)
+                        .where(
+                            Summary.is_deleted.is_(False),
+                            *self.context.request_scope_filters(Request),
+                            *filters,
+                            tag_filter,
+                        )
+                    )
+                    articles = (
+                        await session.scalars(
+                            tag_stmt.order_by(Summary.created_at.desc()).offset(offset).limit(limit)
+                        )
+                    ).all()
+                    results = [
+                        format_summary_compact(summary, summary.request) for summary in articles
+                    ]
                 else:
                     total = await session.scalar(
                         select(func.count())
