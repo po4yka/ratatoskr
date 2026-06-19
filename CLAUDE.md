@@ -69,15 +69,24 @@ app/
 |   +-- digest/         # Channel digest userbot, channel reader, analyzer
 |   +-- elevenlabs/     # ElevenLabs TTS
 |   +-- external/       # Firecrawl parser, response formatter facade
-|   +-- llm/            # LLM abstraction (OpenRouter-only)
-|   +-- openrouter/     # OpenRouter client and helpers
-|   +-- telegram/       # Bot logic, command_handlers/, access controller
-|   +-- twitter/        # Twitter/X two-tier extractor (Firecrawl + Playwright)
 |   +-- git_backup/     # On-disk git mirror engine (GitMirrorService, GitMirrorRepository, LFS, maintenance, circuit breaker)
+|   +-- github/         # GitHub API integration and repository ingestion
+|   +-- ingestors/      # Source-ingestor framework
+|   +-- llm/            # LLM abstraction (OpenRouter-only)
+|   +-- meta/           # Meta adapter helpers
+|   +-- openrouter/     # OpenRouter client and helpers
+|   +-- rss/            # RSS polling and feed helpers
+|   +-- social/         # Social connection adapters
+|   +-- stt/            # Speech-to-text adapter boundary
+|   +-- telegram/       # Bot logic, command_handlers/, access controller
+|   +-- transcription/  # Transcription service adapters
+|   +-- twitter/        # Twitter/X two-tier extractor (Firecrawl + Playwright)
+|   +-- video/          # Video pipeline adapters
 |   +-- webwright/      # Microsoft Webwright sidecar adapter (client) — used by scraper chain + /browse
 |   +-- youtube/        # yt-dlp + transcript extraction
 +-- agents/             # Classic agents (web search, repo analysis, multi-source aggregation)
 +-- api/                # Mobile API (FastAPI, JWT, sync, collections, streams, digest, ...)
+|   +-- routers/auth/   # Auth router package: endpoints_sessions.py, endpoints_credentials.py, endpoints_secret_keys.py, endpoints_telegram.py, github.py, tokens.py, cookies.py
 +-- application/        # DDD application layer (DTOs, use cases)
 +-- config/             # Settings, scraper config, runtime tuning
 +-- core/               # URL utils, JSON utils, summary contract descriptors/schema, lang detection

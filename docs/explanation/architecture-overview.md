@@ -239,7 +239,7 @@ This doc keeps our layering consistent across Telegram, CLI, and the mobile API.
 - Application: `app/application/use_cases/*`, DTOs in `app/application/dto/*`
 - Domain: `app/domain/*` (models, events, services, exceptions)
 - Infrastructure: `app/infrastructure/*`, `app/db/*`, external clients in `app/adapters/*`
-- DI: `app/di/` (split by concern: `api.py`, `application.py`, `telegram.py`, `repositories.py`, `shared.py`)
+- DI: `app/di/` (split by concern: `api.py`, `application.py`, `database.py`, `extraction.py`, `graphs.py`, `mcp.py`, `platform_extractors.py`, `repositories.py`, `retrieval.py`, `search.py`, `shared.py`, `social.py`, `tasks.py`, `telegram.py`, `telegram_commands.py`, `types.py`)
 
 ## DB Layer
 
