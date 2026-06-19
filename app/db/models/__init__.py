@@ -15,6 +15,7 @@ from app.db.models.collections import (
     CollectionCollaborator,
     CollectionInvite,
     CollectionItem,
+    CollectionPublicLink,
 )
 from app.db.models.core import (
     CORE_MODELS,
@@ -175,6 +176,7 @@ __all__ = [
     "CollectionCollaborator",
     "CollectionInvite",
     "CollectionItem",
+    "CollectionPublicLink",
     "CrawlResult",
     "CustomDigest",
     "DigestDelivery",

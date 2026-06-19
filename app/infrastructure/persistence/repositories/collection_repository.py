@@ -11,10 +11,12 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.core.time_utils import UTC, coerce_datetime
 from app.db.models import (
+    AuditLog,
     Collection,
     CollectionCollaborator,
     CollectionInvite,
     CollectionItem,
+    CollectionPublicLink,
     Request,
     Summary,
     User,
@@ -801,6 +803,125 @@ class CollectionRepositoryAdapter:
             invite.updated_at = _now()
             return {"collection_id": collection.id, "role": invite.role, "status": "accepted"}
 
+    async def async_create_public_link(
+        self,
+        *,
+        collection_id: int,
+        token: str,
+        expires_at: dt.datetime | None,
+        password_hash: str | None,
+    ) -> dict[str, Any]:
+        async with self._database.transaction() as session:
+            if await _active_collection(session, collection_id) is None:
+                return {}
+            link = CollectionPublicLink(
+                collection_id=collection_id,
+                token=token,
+                expires_at=expires_at,
+                password_hash=password_hash,
+                created_at=_now(),
+                view_count=0,
+            )
+            session.add(link)
+            await session.flush()
+            return _public_link_dict(link)
+
+    async def async_list_public_links(self, collection_id: int) -> list[dict[str, Any]]:
+        async with self._database.session() as session:
+            rows = (
+                await session.execute(
+                    select(CollectionPublicLink)
+                    .where(
+                        CollectionPublicLink.collection_id == collection_id,
+                        CollectionPublicLink.revoked_at.is_(None),
+                        or_(
+                            CollectionPublicLink.expires_at.is_(None),
+                            CollectionPublicLink.expires_at > _now(),
+                        ),
+                    )
+                    .order_by(CollectionPublicLink.created_at.desc(), CollectionPublicLink.id.desc())
+                )
+            ).scalars()
+            return [_public_link_dict(link) for link in rows]
+
+    async def async_revoke_public_link(self, collection_id: int, token: str) -> bool:
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(CollectionPublicLink)
+                .where(
+                    CollectionPublicLink.collection_id == collection_id,
+                    CollectionPublicLink.token == token,
+                    CollectionPublicLink.revoked_at.is_(None),
+                )
+                .values(revoked_at=_now())
+                .returning(CollectionPublicLink.id)
+            )
+            return result.scalar_one_or_none() is not None
+
+    async def async_get_public_link_by_token(
+        self, token: str, *, include_password_hash: bool = False
+    ) -> dict[str, Any] | None:
+        async with self._database.session() as session:
+            link = await session.scalar(
+                select(CollectionPublicLink).where(CollectionPublicLink.token == token)
+            )
+            return _public_link_dict(link, include_password_hash=include_password_hash) if link else None
+
+    async def async_get_public_collection_payload(
+        self,
+        token: str,
+        *,
+        viewer_ip: str | None,
+    ) -> dict[str, Any] | None:
+        async with self._database.transaction() as session:
+            link = await session.scalar(
+                select(CollectionPublicLink).where(CollectionPublicLink.token == token)
+            )
+            if link is None or link.revoked_at is not None:
+                return None
+            expires_at = coerce_datetime(link.expires_at) if link.expires_at else None
+            if expires_at is not None and expires_at <= _now():
+                return None
+            collection = await _active_collection(session, link.collection_id)
+            if collection is None:
+                return None
+            owner = await session.get(User, collection.user_id)
+            rows = (
+                await session.execute(
+                    select(CollectionItem, Summary, Request)
+                    .join(Summary, CollectionItem.summary_id == Summary.id)
+                    .join(Request, Summary.request_id == Request.id)
+                    .where(
+                        CollectionItem.collection_id == collection.id,
+                        Summary.is_deleted.is_(False),
+                        Request.is_deleted.is_(False),
+                    )
+                    .order_by(CollectionItem.position.asc(), CollectionItem.created_at.asc())
+                )
+            ).all()
+            link.view_count = int(link.view_count or 0) + 1
+            session.add(
+                AuditLog(
+                    level="info",
+                    event="collection_public_link_read",
+                    details_json={
+                        "collection_id": collection.id,
+                        "public_link_id": link.id,
+                        "viewer_ip": viewer_ip,
+                    },
+                )
+            )
+            await session.flush()
+            return {
+                "link": _public_link_dict(link),
+                "collection": _collection_dict(collection),
+                "owner": model_to_dict(owner) if owner else None,
+                "items": [
+                    _public_collection_item_dict(item, summary, request)
+                    for item, summary, request in rows
+                ],
+            }
+
     async def async_list_smart_collections_for_user(self, user_id: int) -> list[dict[str, Any]]:
         async with self._database.session() as session:
             rows = (
@@ -954,6 +1075,52 @@ def _invite_dict(invite: CollectionInvite) -> dict[str, Any]:
     data = model_to_dict(invite) or {}
     data["collection"] = data.get("collection_id")
     return data
+
+
+def _public_link_dict(
+    link: CollectionPublicLink, *, include_password_hash: bool = False
+) -> dict[str, Any]:
+    data = model_to_dict(link) or {}
+    data["collection"] = data.get("collection_id")
+    data["has_password"] = bool(data.get("password_hash"))
+    if not include_password_hash:
+        data.pop("password_hash", None)
+    return data
+
+
+def _public_collection_item_dict(
+    item: CollectionItem, summary: Summary, request: Request
+) -> dict[str, Any]:
+    payload = summary.json_payload if isinstance(summary.json_payload, dict) else {}
+    return {
+        "collection_id": item.collection_id,
+        "summary_id": summary.id,
+        "position": item.position,
+        "title": _first_text(
+            summary.title,
+            payload.get("title"),
+            payload.get("tldr"),
+            request.normalized_url,
+            request.input_url,
+            default=f"Summary {summary.id}",
+        ),
+        "url": request.normalized_url or request.input_url,
+        "summary_250": _first_text(
+            payload.get("summary_250"),
+            payload.get("tldr"),
+            payload.get("summary_1000"),
+            default="",
+        ),
+        "tldr": payload.get("tldr") if isinstance(payload.get("tldr"), str) else None,
+        "created_at": summary.created_at,
+    }
+
+
+def _first_text(*values: Any, default: str) -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return default
 
 
 async def _touch_collection(session: Any, collection_id: int) -> None:

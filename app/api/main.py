@@ -268,6 +268,9 @@ app.include_router(apple_auth.router, prefix="/v1/auth", tags=["Authentication"]
 app.include_router(github_auth.router)
 app.include_router(aggregation.router, prefix="/v1/aggregations", tags=["Aggregations"])
 app.include_router(collections.router, prefix="/v1/collections", tags=["Collections"])
+app.include_router(
+    collections.public_router, prefix="/v1/public/collections", tags=["Public Collections"]
+)
 app.include_router(summaries.router, prefix="/v1/summaries", tags=["Summaries"])
 app.include_router(repositories.router)
 app.include_router(git_mirrors.router)

@@ -803,8 +803,14 @@ Response:
 - `DELETE /v1/collections/{collection_id}/share/{target_user_id}`
 - `GET /v1/collections/{collection_id}/acl`
 - `POST /v1/collections/{collection_id}/invite`
+- `POST /v1/collections/{collection_id}/public-link`
+- `GET /v1/collections/{collection_id}/public-link`
+- `DELETE /v1/collections/{collection_id}/public-link/{token}`
+- `GET /v1/public/collections/{token}`
 - `GET /v1/collections/invites/incoming`
 - `POST /v1/collections/invites/{token}/accept`
+
+`POST /v1/collections/{collection_id}/public-link` is owner-only and creates a read-only public collection link. The request accepts optional `expiresAt` and optional `password`; the response returns `token`, `url`, `expiresAt`, `hasPassword`, and `viewCount`. `GET /v1/collections/{collection_id}/public-link` lists active public links for the owner, and `DELETE /v1/collections/{collection_id}/public-link/{token}` revokes one. `GET /v1/public/collections/{token}` is bearer-auth-free and returns collection title, description, owner display name, item titles, URLs, and short summaries. Unknown, expired, revoked, and wrong-password links return the standard 404 envelope. Successful public reads increment `viewCount`, write an audit log entry, and are rate-limited per token/IP.
 
 ### User Profile
 

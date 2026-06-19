@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import hmac
 import json
+import secrets
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from app.api.exceptions import (
     AuthorizationError,
+    RateLimitExceededError,
     ResourceNotFoundError,
     ValidationError,
 )
@@ -30,6 +34,10 @@ Role = Literal["owner", "editor", "viewer"]
 CollectionMembership = Literal["any", "owned", "shared"]
 ROLE_RANK = {"owner": 3, "editor": 2, "viewer": 1}
 BULK_COLLECTION_MAX_IDS = 500
+PUBLIC_LINK_TOKEN_BYTES = 32
+PUBLIC_LINK_PASSWORD_ITERATIONS = 120_000
+PUBLIC_LINK_READ_MIN_INTERVAL_SECONDS = 1.0
+_PUBLIC_LINK_READS: dict[tuple[str, str], dt.datetime] = {}
 
 
 class CollectionService:
@@ -572,6 +580,84 @@ class CollectionService:
         if result is None:
             raise ResourceNotFoundError("Invite", token)
 
+    async def create_public_link(
+        self,
+        *,
+        collection_id: int,
+        user_id: int,
+        expires_at: datetime | None,
+        password: str | None,
+    ) -> dict[str, Any]:
+        """Create a read-only public link for a collection."""
+        repo = self._repo()
+        await self._get_collection_or_raise(repo, collection_id)
+        await self._require_role(repo, collection_id, user_id, "owner")
+        token = secrets.token_urlsafe(PUBLIC_LINK_TOKEN_BYTES)
+        return cast(
+            "dict[str, Any]",
+            await repo.async_create_public_link(
+                collection_id=collection_id,
+                token=token,
+                expires_at=expires_at,
+                password_hash=_hash_public_link_password(password) if password else None,
+            ),
+        )
+
+    async def list_public_links(self, collection_id: int, user_id: int) -> list[dict[str, Any]]:
+        """List public links for a collection."""
+        repo = self._repo()
+        await self._get_collection_or_raise(repo, collection_id)
+        await self._require_role(repo, collection_id, user_id, "owner")
+        return cast("list[dict[str, Any]]", await repo.async_list_public_links(collection_id))
+
+    async def revoke_public_link(self, collection_id: int, token: str, user_id: int) -> None:
+        """Revoke a public collection link."""
+        repo = self._repo()
+        await self._get_collection_or_raise(repo, collection_id)
+        await self._require_role(repo, collection_id, user_id, "owner")
+        revoked = await repo.async_revoke_public_link(collection_id, token)
+        if not revoked:
+            raise ResourceNotFoundError("CollectionPublicLink", token)
+
+    async def get_public_collection(
+        self,
+        *,
+        token: str,
+        password: str | None,
+        viewer_ip: str | None,
+    ) -> dict[str, Any]:
+        """Load a public collection payload from a token."""
+        repo = self._repo()
+        link = await repo.async_get_public_link_by_token(token, include_password_hash=True)
+        if not _active_public_link(link):
+            raise ResourceNotFoundError("CollectionPublicLink", token)
+        password_hash = link.get("password_hash") if link else None
+        if isinstance(password_hash, str) and not _verify_public_link_password(
+            password=password,
+            encoded_hash=password_hash,
+        ):
+            raise ResourceNotFoundError("CollectionPublicLink", token)
+        self._check_public_link_rate_limit(token=token, viewer_ip=viewer_ip)
+        payload = await repo.async_get_public_collection_payload(token, viewer_ip=viewer_ip)
+        if payload is None:
+            raise ResourceNotFoundError("CollectionPublicLink", token)
+        return cast("dict[str, Any]", payload)
+
+    @staticmethod
+    def _check_public_link_rate_limit(*, token: str, viewer_ip: str | None) -> None:
+        if not viewer_ip:
+            viewer_ip = "unknown"
+        key = (token, viewer_ip)
+        now = dt.datetime.now(UTC)
+        previous = _PUBLIC_LINK_READS.get(key)
+        if previous is not None:
+            elapsed = (now - previous).total_seconds()
+            if elapsed < PUBLIC_LINK_READ_MIN_INTERVAL_SECONDS:
+                raise RateLimitExceededError(
+                    retry_after_seconds=max(1, int(PUBLIC_LINK_READ_MIN_INTERVAL_SECONDS - elapsed))
+                )
+        _PUBLIC_LINK_READS[key] = now
+
     # ---- smart collections ----
     async def evaluate_smart_collection(self, collection_id: int, user_id: int) -> int:
         """Evaluate a smart collection against all user summaries.
@@ -636,3 +722,52 @@ class CollectionService:
         )
 
         return count
+
+
+def _hash_public_link_password(password: str) -> str:
+    salt = secrets.token_urlsafe(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PUBLIC_LINK_PASSWORD_ITERATIONS,
+    ).hex()
+    return f"pbkdf2_sha256${PUBLIC_LINK_PASSWORD_ITERATIONS}${salt}${digest}"
+
+
+def _verify_public_link_password(*, password: str | None, encoded_hash: str) -> bool:
+    if not password:
+        return False
+    try:
+        algorithm, iterations_raw, salt, expected = encoded_hash.split("$", 3)
+        iterations = int(iterations_raw)
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    actual = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        iterations,
+    ).hex()
+    return hmac.compare_digest(actual, expected)
+
+
+def _active_public_link(link: dict[str, Any] | None) -> bool:
+    if not link or link.get("revoked_at") is not None:
+        return False
+    expires_at = link.get("expires_at")
+    if expires_at is None:
+        return True
+    if isinstance(expires_at, str):
+        try:
+            expires_at = dt.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if isinstance(expires_at, dt.datetime):
+        normalized = (
+            expires_at.astimezone(UTC) if expires_at.tzinfo else expires_at.replace(tzinfo=UTC)
+        )
+        return normalized > dt.datetime.now(UTC)
+    return False

@@ -170,4 +170,34 @@ class CollectionInvite(Base):
     collection: Mapped[Collection] = relationship(back_populates="invites")
 
 
-COLLECTION_MODELS = (Collection, CollectionItem, CollectionCollaborator, CollectionInvite)
+class CollectionPublicLink(Base):
+    __tablename__ = "collection_public_links"
+    __table_args__ = (
+        Index("ix_collection_public_links_token", "token", unique=True),
+        Index("ix_collection_public_links_collection_id", "collection_id"),
+        Index("ix_collection_public_links_active", "collection_id", "revoked_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    collection_id: Mapped[int] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    collection: Mapped[Collection] = relationship()
+
+
+COLLECTION_MODELS = (
+    Collection,
+    CollectionItem,
+    CollectionCollaborator,
+    CollectionInvite,
+    CollectionPublicLink,
+)

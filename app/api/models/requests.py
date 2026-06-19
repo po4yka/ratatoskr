@@ -205,6 +205,17 @@ class CollectionInviteRequest(BaseModel):
     recipient_user_id: int | None = Field(default=None, ge=1)
 
 
+class CollectionPublicLinkCreateRequest(BaseModel):
+    """Create a read-only public link for a collection."""
+
+    expires_at: str | None = Field(
+        default=None,
+        validation_alias="expiresAt",
+        serialization_alias="expiresAt",
+    )
+    password: str | None = Field(default=None, min_length=1, max_length=256)
+
+
 class SubmitFeedbackRequest(BaseModel):
     """Request body for submitting summary feedback."""
 

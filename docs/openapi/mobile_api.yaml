@@ -1710,6 +1710,113 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/collections/{collection_id}/public-link:
+    post:
+      tags:
+      - Collections
+      summary: Create Collection Public Link
+      operationId: create_collection_public_link_v1_collections__collection_id__public_link_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: collection_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Collection Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectionPublicLinkCreateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionPublicLinkSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+      - Collections
+      summary: List Collection Public Links
+      operationId: list_collection_public_links_v1_collections__collection_id__public_link_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: collection_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Collection Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionPublicLinkListSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/collections/{collection_id}/public-link/{token}:
+    delete:
+      tags:
+      - Collections
+      summary: Revoke Collection Public Link
+      operationId: revoke_collection_public_link_v1_collections__collection_id__public_link__token__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: collection_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Collection Id
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionPublicLinkRevocationSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/collections/{collection_id}/invite:
     post:
       tags:
@@ -1813,6 +1920,45 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/public/collections/{token}:
+    get:
+      tags:
+      - Public Collections
+      summary: Get Public Collection By Token
+      operationId: get_public_collection_by_token_v1_public_collections__token__get
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
+      - name: password
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 256
+          - type: 'null'
+          title: Password
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicCollectionSuccessResponse'
+        '404':
+          description: Unknown, expired, revoked, or password-protected link.
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security: []
   /v1/summaries:
     get:
       tags:
@@ -10110,6 +10256,124 @@ components:
       type: object
       title: CollectionMoveRequest
       description: Move collection to a new parent.
+    CollectionPublicLinkCreateRequest:
+      properties:
+        expiresAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expiresat
+        password:
+          anyOf:
+          - type: string
+            maxLength: 256
+            minLength: 1
+          - type: 'null'
+          title: Password
+      type: object
+      title: CollectionPublicLinkCreateRequest
+      description: Create a read-only public link for a collection.
+    CollectionPublicLinkListResponse:
+      properties:
+        links:
+          items:
+            $ref: '#/components/schemas/CollectionPublicLinkResponse'
+          type: array
+          title: Links
+      type: object
+      required:
+      - links
+      title: CollectionPublicLinkListResponse
+    CollectionPublicLinkListSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/CollectionPublicLinkListResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: CollectionPublicLinkListSuccessResponse
+    CollectionPublicLinkResponse:
+      properties:
+        token:
+          type: string
+          title: Token
+        url:
+          type: string
+          title: Url
+        collectionId:
+          type: integer
+          title: Collectionid
+        createdAt:
+          type: string
+          title: Createdat
+        expiresAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expiresat
+        revokedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Revokedat
+        hasPassword:
+          type: boolean
+          title: Haspassword
+        viewCount:
+          type: integer
+          title: Viewcount
+      type: object
+      required:
+      - token
+      - url
+      - collectionId
+      - createdAt
+      - hasPassword
+      - viewCount
+      title: CollectionPublicLinkResponse
+    CollectionPublicLinkRevocationResponse:
+      properties:
+        revoked:
+          type: boolean
+          title: Revoked
+      type: object
+      required:
+      - revoked
+      title: CollectionPublicLinkRevocationResponse
+    CollectionPublicLinkRevocationSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/CollectionPublicLinkRevocationResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: CollectionPublicLinkRevocationSuccessResponse
+    CollectionPublicLinkSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/CollectionPublicLinkResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: CollectionPublicLinkSuccessResponse
     CollectionReorderItem:
       properties:
         collection_id:
@@ -11645,6 +11909,84 @@ components:
       - done
       title: ProcessingStage
       description: Canonical public processing stages for request status polling and streams.
+    PublicCollectionItemResponse:
+      properties:
+        summaryId:
+          type: integer
+          title: Summaryid
+        title:
+          type: string
+          title: Title
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        summary250:
+          type: string
+          title: Summary250
+        tldr:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tldr
+        createdAt:
+          type: string
+          title: Createdat
+      type: object
+      required:
+      - summaryId
+      - title
+      - summary250
+      - createdAt
+      title: PublicCollectionItemResponse
+    PublicCollectionResponse:
+      properties:
+        collectionId:
+          type: integer
+          title: Collectionid
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        ownerDisplayName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ownerdisplayname
+        items:
+          items:
+            $ref: '#/components/schemas/PublicCollectionItemResponse'
+          type: array
+          title: Items
+        viewCount:
+          type: integer
+          title: Viewcount
+      type: object
+      required:
+      - collectionId
+      - name
+      - items
+      - viewCount
+      title: PublicCollectionResponse
+    PublicCollectionSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/PublicCollectionResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: PublicCollectionSuccessResponse
     QuickSaveRequest:
       properties:
         url:

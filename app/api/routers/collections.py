@@ -15,6 +15,7 @@ from app.api.models.requests import (
     CollectionItemMoveRequest,
     CollectionItemReorderRequest,
     CollectionMoveRequest,
+    CollectionPublicLinkCreateRequest,
     CollectionReorderRequest,
     CollectionShareRequest,
     CollectionUpdateRequest,
@@ -29,8 +30,17 @@ from app.api.models.responses import (
     CollectionItemsResponse,
     CollectionListResponse,
     CollectionMoveResponse,
+    CollectionPublicLinkListResponse,
+    CollectionPublicLinkListSuccessResponse,
+    CollectionPublicLinkRevocationResponse,
+    CollectionPublicLinkRevocationSuccessResponse,
+    CollectionPublicLinkResponse,
+    CollectionPublicLinkSuccessResponse,
     CollectionResponse,
     PaginationInfo,
+    PublicCollectionItemResponse,
+    PublicCollectionResponse,
+    PublicCollectionSuccessResponse,
     success_response,
 )
 from app.api.routers.auth import get_current_user
@@ -40,6 +50,7 @@ from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+public_router = APIRouter()
 CollectionMembership = Literal["any", "owned", "shared"]
 
 
@@ -83,6 +94,43 @@ def _build_incoming_invite_response(invite: dict[str, Any]) -> CollectionIncomin
         invited_by=invite["invited_by"],
         created_at=isotime(invite.get("created_at")),
         expires_at=isotime(invite.get("expires_at")) if invite.get("expires_at") else None,
+    )
+
+
+def _build_public_link_response(link: dict[str, Any], public_url: str) -> CollectionPublicLinkResponse:
+    return CollectionPublicLinkResponse(
+        token=link["token"],
+        url=public_url,
+        collection_id=link.get("collection_id") or link.get("collection"),
+        created_at=isotime(link.get("created_at")),
+        expires_at=isotime(link.get("expires_at")) if link.get("expires_at") else None,
+        revoked_at=isotime(link.get("revoked_at")) if link.get("revoked_at") else None,
+        has_password=bool(link.get("has_password")),
+        view_count=int(link.get("view_count") or 0),
+    )
+
+
+def _build_public_collection_response(payload: dict[str, Any]) -> PublicCollectionResponse:
+    collection = payload["collection"]
+    link = payload["link"]
+    owner = payload.get("owner") if isinstance(payload.get("owner"), dict) else {}
+    return PublicCollectionResponse(
+        collection_id=collection["id"],
+        name=collection["name"],
+        description=collection.get("description"),
+        owner_display_name=owner.get("display_name") or owner.get("username"),
+        view_count=int(link.get("view_count") or 0),
+        items=[
+            PublicCollectionItemResponse(
+                summary_id=item["summary_id"],
+                title=item["title"],
+                url=item.get("url"),
+                summary_250=item.get("summary_250") or "",
+                tldr=item.get("tldr"),
+                created_at=isotime(item.get("created_at")),
+            )
+            for item in payload.get("items", [])
+        ],
     )
 
 
@@ -434,6 +482,68 @@ async def remove_collection_collaborator(
     return success_response({"success": True})
 
 
+@router.post(
+    "/{collection_id}/public-link",
+    response_model=CollectionPublicLinkSuccessResponse,
+)
+async def create_collection_public_link(
+    collection_id: int,
+    body: CollectionPublicLinkCreateRequest,
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
+) -> Any:
+    expires = None
+    if body.expires_at:
+        try:
+            expires = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValidationError("Invalid expires_at") from None
+    link = await service.create_public_link(
+        collection_id=collection_id,
+        user_id=user["user_id"],
+        expires_at=expires,
+        password=body.password,
+    )
+    public_url = str(request.url_for("get_public_collection_by_token", token=link["token"]))
+    return success_response(_build_public_link_response(link, public_url))
+
+
+@router.get(
+    "/{collection_id}/public-link",
+    response_model=CollectionPublicLinkListSuccessResponse,
+)
+async def list_collection_public_links(
+    collection_id: int,
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
+) -> Any:
+    links = await service.list_public_links(collection_id, user["user_id"])
+    payload = [
+        _build_public_link_response(
+            link,
+            str(request.url_for("get_public_collection_by_token", token=link["token"])),
+        )
+        for link in links
+    ]
+    return success_response(CollectionPublicLinkListResponse(links=payload))
+
+
+@router.delete(
+    "/{collection_id}/public-link/{token}",
+    response_model=CollectionPublicLinkRevocationSuccessResponse,
+)
+async def revoke_collection_public_link(
+    collection_id: int,
+    token: str,
+    user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
+) -> Any:
+    await service.revoke_public_link(collection_id=collection_id, token=token, user_id=user["user_id"])
+    return success_response(CollectionPublicLinkRevocationResponse(revoked=True))
+
+
 @router.post("/{collection_id}/invite")
 async def create_collection_invite(
     collection_id: int,
@@ -483,3 +593,25 @@ async def evaluate_smart_collection(
     except ValueError as err:
         raise ValidationError(str(err)) from err
     return success_response({"item_count": count})
+
+
+@public_router.get(
+    "/{token}",
+    name="get_public_collection_by_token",
+    response_model=PublicCollectionSuccessResponse,
+    openapi_extra={"security": []},
+    responses={404: {"description": "Unknown, expired, revoked, or password-protected link."}},
+)
+async def get_public_collection_by_token(
+    token: str,
+    request: Request,
+    password: str | None = Query(default=None, min_length=1, max_length=256),
+    service: CollectionService = Depends(get_collection_service),
+) -> Any:
+    viewer_ip = request.client.host if request.client else None
+    payload = await service.get_public_collection(
+        token=token,
+        password=password,
+        viewer_ip=viewer_ip,
+    )
+    return success_response(_build_public_collection_response(payload))

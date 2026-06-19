@@ -1,4 +1,3 @@
-# ruff: noqa: TC001
 """Collection API response models."""
 
 from __future__ import annotations
@@ -7,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .common import PaginationInfo
+from .common import PaginationInfo, SuccessResponse
 
 
 class CollectionResponse(BaseModel):
@@ -93,6 +92,59 @@ class CollectionMoveResponse(BaseModel):
 
 class CollectionItemsMoveResponse(BaseModel):
     moved_summary_ids: list[int] = Field(serialization_alias="movedSummaryIds")
+
+
+class CollectionPublicLinkResponse(BaseModel):
+    token: str
+    url: str
+    collection_id: int = Field(serialization_alias="collectionId")
+    created_at: str = Field(serialization_alias="createdAt")
+    expires_at: str | None = Field(default=None, serialization_alias="expiresAt")
+    revoked_at: str | None = Field(default=None, serialization_alias="revokedAt")
+    has_password: bool = Field(serialization_alias="hasPassword")
+    view_count: int = Field(serialization_alias="viewCount")
+
+
+class CollectionPublicLinkListResponse(BaseModel):
+    links: list[CollectionPublicLinkResponse]
+
+
+class CollectionPublicLinkRevocationResponse(BaseModel):
+    revoked: bool
+
+
+class CollectionPublicLinkSuccessResponse(SuccessResponse):
+    data: CollectionPublicLinkResponse
+
+
+class CollectionPublicLinkListSuccessResponse(SuccessResponse):
+    data: CollectionPublicLinkListResponse
+
+
+class CollectionPublicLinkRevocationSuccessResponse(SuccessResponse):
+    data: CollectionPublicLinkRevocationResponse
+
+
+class PublicCollectionItemResponse(BaseModel):
+    summary_id: int = Field(serialization_alias="summaryId")
+    title: str
+    url: str | None = None
+    summary_250: str = Field(serialization_alias="summary250")
+    tldr: str | None = None
+    created_at: str = Field(serialization_alias="createdAt")
+
+
+class PublicCollectionResponse(BaseModel):
+    collection_id: int = Field(serialization_alias="collectionId")
+    name: str
+    description: str | None = None
+    owner_display_name: str | None = Field(default=None, serialization_alias="ownerDisplayName")
+    items: list[PublicCollectionItemResponse]
+    view_count: int = Field(serialization_alias="viewCount")
+
+
+class PublicCollectionSuccessResponse(SuccessResponse):
+    data: PublicCollectionResponse
 
 
 CollectionResponse.model_rebuild()
