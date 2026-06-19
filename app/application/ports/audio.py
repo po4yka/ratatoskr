@@ -29,6 +29,9 @@ class AudioGenerationRepositoryPort(Protocol):
         self,
         summary_id: int,
         source_field: str,
+        *,
+        voice_id: str | None = None,
+        model_name: str | None = None,
     ) -> dict[str, Any] | None:
         """Return a completed generation for the summary/source pair."""
 

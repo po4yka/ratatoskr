@@ -301,6 +301,7 @@ app.include_router(highlights.router, prefix="/v1/summaries", tags=["Highlights"
 app.include_router(highlights.router, prefix="/v1/articles", tags=["Article Highlights"])
 app.include_router(tts.router, prefix="/v1/summaries", tags=["TTS"])
 app.include_router(tts.router, prefix="/v1/articles", tags=["Article TTS"])
+app.include_router(tts.preferences_router, prefix="/v1/users", tags=["TTS"])
 app.include_router(rss.router, prefix="/v1/rss", tags=["RSS"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin"])
 app.include_router(health.router, tags=["Health"])

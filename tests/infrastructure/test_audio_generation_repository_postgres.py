@@ -99,6 +99,21 @@ async def test_audio_generation_repository_start_complete_and_read(
     assert completed["file_path"] == "/tmp/audio.mp3"
     assert completed["file_size_bytes"] == 123
 
+    matching = await repo.async_get_completed_generation(
+        summary.id,
+        "summary_1000",
+        voice_id="voice-a",
+        model_name="model-a",
+    )
+    mismatched = await repo.async_get_completed_generation(
+        summary.id,
+        "summary_1000",
+        voice_id="voice-b",
+        model_name="model-a",
+    )
+    assert matching is not None
+    assert mismatched is None
+
 
 @pytest.mark.asyncio
 async def test_audio_generation_repository_failed_upserts(database: Database) -> None:

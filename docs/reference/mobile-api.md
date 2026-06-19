@@ -358,6 +358,7 @@ Canonical summary endpoints:
 - `DELETE /v1/summaries/{summary_id}/highlights/{highlight_id}`
 - `POST /v1/summaries/{summary_id}/audio`
 - `GET /v1/summaries/{summary_id}/audio`
+- `POST /v1/summaries/audio/playlist`
 
 Alias endpoints for compatibility (`/v1/articles/*`) map to the same handlers:
 
@@ -383,6 +384,9 @@ Alias endpoints for compatibility (`/v1/articles/*`) map to the same handlers:
 - `DELETE /v1/articles/{summary_id}/highlights/{highlight_id}`
 - `POST /v1/articles/{summary_id}/audio`
 - `GET /v1/articles/{summary_id}/audio`
+- `POST /v1/articles/audio/playlist`
+
+TTS endpoints require bearer authentication and the server-side ElevenLabs feature flag. `GET /v1/users/me/tts-preferences` returns the effective `{voiceId, modelName, speed, language}` values after applying server defaults. `PUT /v1/users/me/tts-preferences` stores per-user overrides in `users.preferences_json["tts"]`; sending `null` for a field clears that override. `POST /v1/summaries/audio/playlist` accepts `{"summaryIds":[101,102],"sourceField":"summary_1000"}` and returns an ordered `items` manifest with `summaryId`, `position`, generation `status`, `audioUrl`, `charCount`, `fileSizeBytes`, `latencyMs`, and `error`. The `/v1/articles/audio/playlist` alias uses the same handler.
 
 `GET /v1/summaries/{summary_id}/related` and its `/v1/articles/{summary_id}/related` alias return vector-similar summaries for the authenticated user's summary. The endpoint uses the same related-reads application service as Telegram follow-up messages, excludes the source request from results, and returns `404` when the summary does not belong to the caller.
 

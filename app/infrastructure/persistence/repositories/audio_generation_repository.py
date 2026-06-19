@@ -23,16 +23,22 @@ class AudioGenerationRepositoryAdapter:
         self,
         summary_id: int,
         source_field: str,
+        *,
+        voice_id: str | None = None,
+        model_name: str | None = None,
     ) -> dict[str, Any] | None:
         """Return a completed generation record for the requested source field."""
+        conditions = [
+            AudioGeneration.summary_id == summary_id,
+            AudioGeneration.source_field == source_field,
+            AudioGeneration.status == "completed",
+        ]
+        if voice_id is not None:
+            conditions.append(AudioGeneration.voice_id == voice_id)
+        if model_name is not None:
+            conditions.append(AudioGeneration.model == model_name)
         async with self._database.session() as session:
-            row = await session.scalar(
-                select(AudioGeneration).where(
-                    AudioGeneration.summary_id == summary_id,
-                    AudioGeneration.source_field == source_field,
-                    AudioGeneration.status == "completed",
-                )
-            )
+            row = await session.scalar(select(AudioGeneration).where(*conditions))
             return model_to_dict(row)
 
     async def async_get_latest_generation(self, summary_id: int) -> dict[str, Any] | None:

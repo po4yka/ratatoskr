@@ -14233,6 +14233,61 @@
         }
       }
     },
+    "/v1/summaries/audio/playlist": {
+      "post": {
+        "tags": [
+          "TTS"
+        ],
+        "summary": "Generate Audio Playlist",
+        "description": "Generate an ordered playlist manifest for multiple summaries.",
+        "operationId": "generate_audio_playlist_v1_summaries_audio_playlist_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TTSPlaylistRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Generate Audio Playlist V1 Summaries Audio Playlist Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/v1/articles/{summary_id}/audio": {
       "post": {
         "tags": [
@@ -14348,6 +14403,152 @@
             "$ref": "#/components/responses/InternalServerError"
           }
         }
+      }
+    },
+    "/v1/articles/audio/playlist": {
+      "post": {
+        "tags": [
+          "Article TTS"
+        ],
+        "summary": "Generate Audio Playlist",
+        "description": "Alias for POST /v1/summaries/audio/playlist. Generate an ordered playlist manifest for multiple summaries.",
+        "operationId": "generate_audio_playlist_v1_articles_audio_playlist_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TTSPlaylistRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Generate Audio Playlist V1 Articles Audio Playlist Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/users/me/tts-preferences": {
+      "get": {
+        "tags": [
+          "TTS"
+        ],
+        "summary": "Get Tts Preferences",
+        "description": "Get the current user's effective TTS preferences.",
+        "operationId": "get_tts_preferences_v1_users_me_tts_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Tts Preferences V1 Users Me Tts Preferences Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "TTS"
+        ],
+        "summary": "Update Tts Preferences",
+        "description": "Update or clear the current user's TTS preference overrides.",
+        "operationId": "update_tts_preferences_v1_users_me_tts_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TTSPreferencesUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Update Tts Preferences V1 Users Me Tts Preferences Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/v1/rss/feeds": {
@@ -23875,6 +24076,90 @@
             }
           }
         ]
+      },
+      "TTSPlaylistRequest": {
+        "properties": {
+          "summaryIds": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Summaryids"
+          },
+          "sourceField": {
+            "type": "string",
+            "pattern": "^(summary_250|summary_1000|tldr)$",
+            "title": "Sourcefield",
+            "default": "summary_1000"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summaryIds"
+        ],
+        "title": "TTSPlaylistRequest",
+        "description": "Request body for generating an ordered audio playlist."
+      },
+      "TTSPreferencesUpdateRequest": {
+        "properties": {
+          "voiceId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voiceid"
+          },
+          "modelName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelname"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.5
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          }
+        },
+        "type": "object",
+        "title": "TTSPreferencesUpdateRequest",
+        "description": "User-level TTS preference overrides."
       },
       "TelegramLinkCompleteRequest": {
         "properties": {

@@ -32,9 +32,21 @@ class _FakeAudioRepo:
     failed_calls: list[dict]
 
     async def async_get_completed_generation(
-        self, summary_id: int, source_field: str
+        self,
+        summary_id: int,
+        source_field: str,
+        *,
+        voice_id: str | None = None,
+        model_name: str | None = None,
     ) -> dict | None:
-        return self.completed.get((summary_id, source_field))
+        generation = self.completed.get((summary_id, source_field))
+        if generation is None:
+            return None
+        if voice_id is not None and generation.get("voice_id") != voice_id:
+            return None
+        if model_name is not None and generation.get("model") != model_name:
+            return None
+        return generation
 
     async def async_get_latest_generation(self, summary_id: int) -> dict | None:
         return self.latest.get(summary_id)
@@ -126,6 +138,8 @@ async def test_returns_cached_result_when_completed_file_exists(tmp_path: Path) 
                 "file_size_bytes": 6,
                 "char_count": 10,
                 "latency_ms": 100,
+                "voice_id": "voice-123",
+                "model": "eleven-model",
             }
         },
     )
@@ -135,6 +149,32 @@ async def test_returns_cached_result_when_completed_file_exists(tmp_path: Path) 
     assert result.status == "completed"
     assert result.file_path == str(file_path)
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_ignores_cached_result_for_different_voice_or_model(tmp_path: Path) -> None:
+    file_path = tmp_path / "1.mp3"
+    file_path.write_bytes(b"cached")
+    service, _, provider = _build_service(
+        tmp_path=tmp_path,
+        summaries={1: {"id": 1, "lang": "en", "json_payload": {"summary_1000": "Fresh text"}}},
+        completed={
+            (1, "summary_1000"): {
+                "file_path": str(file_path),
+                "file_size_bytes": 6,
+                "char_count": 10,
+                "latency_ms": 100,
+                "voice_id": "other-voice",
+                "model": "eleven-model",
+            }
+        },
+        provider_result=b"fresh-audio",
+    )
+
+    result = await service.generate_audio(1)
+
+    assert result.status == "completed"
+    assert provider.calls[0]["text"] == "Fresh text"
 
 
 @pytest.mark.asyncio

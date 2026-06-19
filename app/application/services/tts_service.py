@@ -53,7 +53,12 @@ class TTSService:
         if source_field not in _VALID_SOURCE_FIELDS:
             source_field = "summary_1000"
 
-        existing = await self._audio_repo.async_get_completed_generation(summary_id, source_field)
+        existing = await self._audio_repo.async_get_completed_generation(
+            summary_id,
+            source_field,
+            voice_id=self._voice_id,
+            model_name=self._model_name,
+        )
         if existing and existing.get("file_path"):
             return AudioGenerationResult(
                 summary_id=summary_id,

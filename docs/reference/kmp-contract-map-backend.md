@@ -51,7 +51,7 @@ The cross-repo contract map called for by [[map-ratatoskr-mobile-api-contract-to
 | Recommendations | `GET /v1/summaries/recommendations` | `summaries.py:235` | same |
 | Highlights | `GET/POST/DELETE /v1/summaries/{id}/highlights/…` | `app/api/routers/content/` | `feature/summary/.../data/repository/HighlightRepositoryImpl.kt` |
 | Search | `GET /v1/search` | `app/api/routers/content/search.py` | `feature/summary/.../data/repository/SearchRepositoryImpl.kt` |
-| Audio (TTS) | `GET /v1/summaries/{id}/audio` | `app/api/routers/audio.py` (ElevenLabs) | `feature/summary/.../data/repository/AudioRepositoryImpl.kt` |
+| Audio (TTS) | `GET /v1/summaries/{id}/audio`; `POST /v1/summaries/audio/playlist`; `GET/PUT /v1/users/me/tts-preferences` | `app/api/routers/user/tts.py` (ElevenLabs) | `feature/summary/.../data/repository/AudioRepositoryImpl.kt` |
 
 ### Sync
 
