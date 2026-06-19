@@ -708,6 +708,113 @@ class SummaryRepositoryAdapter:
             )
             return list(rows)
 
+    async def async_get_user_stats_aggregates(self, user_id: int) -> dict[str, Any]:
+        """Return aggregated statistics for a user without loading individual rows.
+
+        Replaces the previous approach of fetching up to 10,000 summary rows
+        in-memory and computing stats in Python.  All heavy lifting happens in
+        three targeted SQL round-trips:
+
+        1. Scalar aggregates (counts, sums, max timestamp) via a single SELECT.
+        2. Top-10 topic-tag counts via jsonb_array_elements_text unnesting.
+        3. Top-10 domain counts via host extraction from normalized_url.
+
+        All queries include the ``user_id`` predicate (defense-in-depth IDOR guard).
+        """
+        async with self._database.session() as session:
+            # --- round-trip 1: scalar aggregates ---
+            scalar_row = (
+                await session.execute(
+                    select(
+                        func.count().label("total"),
+                        func.count().filter(Summary.is_read.is_(False)).label("unread"),
+                        func.count().filter(Summary.lang == "en").label("en_count"),
+                        func.count().filter(Summary.lang == "ru").label("ru_count"),
+                        func.coalesce(func.sum(Summary.reading_time), 0).label(
+                            "total_reading_time"
+                        ),
+                        func.max(Request.created_at).label("last_summary_at"),
+                    )
+                    .select_from(Summary)
+                    .join(Request, Summary.request_id == Request.id)
+                    .where(
+                        Request.user_id == user_id,
+                        Summary.is_deleted.is_(False),
+                    )
+                )
+            ).one()
+
+            total: int = int(scalar_row.total or 0)
+            unread_count: int = int(scalar_row.unread or 0)
+            en_count: int = int(scalar_row.en_count or 0)
+            ru_count: int = int(scalar_row.ru_count or 0)
+            total_reading_time: int = int(scalar_row.total_reading_time or 0)
+            last_summary_at: Any = scalar_row.last_summary_at
+
+            # --- round-trip 2: top-10 topic tags (unnest JSON array) ---
+            # jsonb_array_elements_text is Postgres-specific; it expands the
+            # topic_tags JSON array into one row per tag so we can GROUP BY tag.
+            topic_rows = (
+                await session.execute(
+                    text(
+                        "SELECT lower(tag) AS tag, count(*) AS cnt "
+                        "FROM summaries s "
+                        "JOIN requests r ON r.id = s.request_id, "
+                        "jsonb_array_elements_text(s.topic_tags) AS tag "
+                        "WHERE r.user_id = :user_id "
+                        "  AND s.is_deleted = false "
+                        "  AND s.topic_tags IS NOT NULL "
+                        "  AND jsonb_typeof(s.topic_tags) = 'array' "
+                        "GROUP BY lower(tag) "
+                        "ORDER BY cnt DESC "
+                        "LIMIT 10"
+                    ),
+                    {"user_id": user_id},
+                )
+            ).all()
+            favorite_topics = [{"topic": row.tag, "count": int(row.cnt)} for row in topic_rows]
+
+            # --- round-trip 3: top-10 domains ---
+            # Extract host from normalized_url using Postgres regexp_replace so we
+            # avoid loading URL strings into Python.  Falls back to input_url when
+            # normalized_url is NULL.
+            domain_rows = (
+                await session.execute(
+                    text(
+                        "SELECT "
+                        "  regexp_replace("
+                        "    coalesce(r.normalized_url, r.input_url), "
+                        "    '^(?:[a-z][a-z0-9+\\-.]*://)?([^/?#]*).*$', "
+                        "    '\\1', 'i'"
+                        "  ) AS domain, "
+                        "  count(*) AS cnt "
+                        "FROM summaries s "
+                        "JOIN requests r ON r.id = s.request_id "
+                        "WHERE r.user_id = :user_id "
+                        "  AND s.is_deleted = false "
+                        "  AND coalesce(r.normalized_url, r.input_url) IS NOT NULL "
+                        "GROUP BY domain "
+                        "ORDER BY cnt DESC "
+                        "LIMIT 10"
+                    ),
+                    {"user_id": user_id},
+                )
+            ).all()
+            favorite_domains = [
+                {"domain": row.domain, "count": int(row.cnt)} for row in domain_rows if row.domain
+            ]
+
+        return {
+            "total": total,
+            "unread_count": unread_count,
+            "en_count": en_count,
+            "ru_count": ru_count,
+            "total_reading_time": total_reading_time,
+            "last_summary_at": last_summary_at,
+            "favorite_topics": favorite_topics,
+            "favorite_domains": favorite_domains,
+        }
+
     async def async_get_max_server_version(self, user_id: int) -> int | None:
         """Return the maximum server_version across summaries owned by *user_id*."""
         async with self._database.session() as session:

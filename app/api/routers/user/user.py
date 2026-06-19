@@ -275,87 +275,31 @@ async def update_user_preferences(
 
 @router.get("/stats")
 async def get_user_stats(user: dict[str, Any] = Depends(get_current_user)) -> Any:
-    """Get user statistics."""
-    from collections import Counter
-    from urllib.parse import urlparse
+    """Get user statistics.
 
+    Aggregates are computed via targeted SQL queries (COUNT/SUM/GROUP BY) so
+    that no summary rows are loaded into Python memory regardless of collection
+    size.  The previous implementation fetched up to 10,000 rows in-process.
+    """
     user_repo = get_user_repository()
     summary_repo = get_summary_repository()
 
-    # Get user summaries with pagination (using a large limit for stats)
-    summaries_list, total_summaries, unread_count = await summary_repo.async_get_user_summaries(
-        user_id=user["user_id"],
-        limit=10000,  # Large limit for stats
-        offset=0,
-    )
+    agg = await summary_repo.async_get_user_stats_aggregates(user_id=user["user_id"])
 
+    total_summaries: int = agg["total"]
+    unread_count: int = agg["unread_count"]
     read_count = total_summaries - unread_count
-
-    # Calculate reading time, favorite topics, and domains
-    total_reading_time = 0
-    topic_counter: Counter[str] = Counter()
-    domain_counter: Counter[str] = Counter()
-    en_count = 0
-    ru_count = 0
-
-    for summary in summaries_list:
-        json_payload = ensure_mapping(summary.get("json_payload"))
-        total_reading_time += json_payload.get("estimated_reading_time_min", 0) or 0
-
-        # Count topic tags
-        topic_tags = json_payload.get("topic_tags", [])
-        if isinstance(topic_tags, list):
-            for tag in topic_tags:
-                if tag and isinstance(tag, str):
-                    topic_counter[tag.lower()] += 1
-
-        # Count domains (from metadata or request URL)
-        metadata = ensure_mapping(json_payload.get("metadata"))
-        domain = metadata.get("domain")
-
-        # Try to get domain from request data if available
-        request_data = summary.get("request") or {}
-        if isinstance(request_data, dict):
-            normalized_url = request_data.get("normalized_url")
-            if not domain and normalized_url:
-                try:
-                    parsed = urlparse(normalized_url)
-                    domain = parsed.netloc
-                except ValueError:
-                    domain = ""
-                    logger.warning("url_domain_parse_failed", exc_info=True)
-
-        if domain:
-            domain_counter[domain] += 1
-
-        # Language distribution
-        lang = summary.get("lang", "")
-        if lang == "en":
-            en_count += 1
-        elif lang == "ru":
-            ru_count += 1
-
+    total_reading_time: int = agg["total_reading_time"]
     average_reading_time = total_reading_time / total_summaries if total_summaries > 0 else 0
 
-    # Get top topics and domains
     favorite_topics = [
-        TopicStat(topic=tag, count=count) for tag, count in topic_counter.most_common(10)
+        TopicStat(topic=t["topic"], count=t["count"]) for t in agg["favorite_topics"]
     ]
     favorite_domains = [
-        DomainStat(domain=domain, count=count) for domain, count in domain_counter.most_common(10)
+        DomainStat(domain=d["domain"], count=d["count"]) for d in agg["favorite_domains"]
     ]
 
-    # Get user record
     user_record = await user_repo.async_get_user_by_telegram_id(user["user_id"])
-
-    # Get most recent summary timestamp from summaries_list
-    last_summary_at = None
-    if summaries_list:
-        # Summaries are sorted by created_at desc
-        first_summary = summaries_list[0]
-        request_data = first_summary.get("request") or {}
-        if isinstance(request_data, dict):
-            last_summary_at = safe_isoformat(request_data.get("created_at"))
 
     return success_response(
         UserStatsData(
@@ -366,9 +310,9 @@ async def get_user_stats(user: dict[str, Any] = Depends(get_current_user)) -> An
             average_reading_time_min=round(average_reading_time, 1),
             favorite_topics=favorite_topics,
             favorite_domains=favorite_domains,
-            language_distribution={"en": en_count, "ru": ru_count},
+            language_distribution={"en": agg["en_count"], "ru": agg["ru_count"]},
             joined_at=safe_isoformat(user_record.get("created_at")) if user_record else None,
-            last_summary_at=last_summary_at,
+            last_summary_at=safe_isoformat(agg["last_summary_at"]),
         )
     )
 
