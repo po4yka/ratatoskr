@@ -5,7 +5,7 @@ Collections management endpoints.
 from datetime import datetime
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 
 from app.api.exceptions import ValidationError
 from app.api.models.requests import (
@@ -609,13 +609,13 @@ async def evaluate_smart_collection(
 async def get_public_collection_by_token(
     token: str,
     request: Request,
-    password: str | None = Query(default=None, min_length=1, max_length=256),
+    x_collection_password: str | None = Header(default=None, min_length=1, max_length=256),
     service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     viewer_ip = request.client.host if request.client else None
     payload = await service.get_public_collection(
         token=token,
-        password=password,
+        password=x_collection_password,
         viewer_ip=viewer_ip,
     )
     return success_response(_build_public_collection_response(payload))
