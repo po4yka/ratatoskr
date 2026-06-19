@@ -428,7 +428,7 @@ class QuickSaveRequest(BaseModel):
     url: str = Field(..., max_length=2048)
     title: str | None = None
     selected_text: str | None = None
-    tag_names: list[str] = Field(default_factory=list)
+    tag_names: list[str] = Field(default_factory=list, max_length=20)
     summarize: bool = True
 
     @field_validator("url")
