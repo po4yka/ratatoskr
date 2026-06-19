@@ -10,12 +10,12 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 
 **Ratatoskr** is an async, single-tenant Telegram bot that:
 
-- Summarizes web articles, YouTube videos, Twitter/X posts, GitHub repos, and academic papers via a multi-provider scraper chain + OpenRouter LLMs.
+- Summarizes web articles, YouTube videos, Twitter/X posts, GitHub repos, and academic papers via a multi-provider scraper chain + OpenRouter by default, with direct `openai`, `anthropic`, and `ollama` LLM adapters available through `LLM_PROVIDER`.
 - Returns structured JSON summaries against a strict contract.
 - Persists every artifact -- Telegram messages, scraper responses, LLM calls (success and failure), summaries, embeddings -- in PostgreSQL via SQLAlchemy 2.0 + asyncpg.
 - Ships as a single Docker container with an owner-only access whitelist.
 
-**Core stack:** Python 3.13, Telethon, SQLAlchemy 2.0 + asyncpg, OpenRouter, Qdrant (with sentence-transformers or Gemini Embedding 2), FastAPI + JWT (Mobile API), React + TypeScript + Vite (web frontend). Full dependency list lives in `pyproject.toml`.
+**Core stack:** Python 3.13, Telethon, SQLAlchemy 2.0 + asyncpg, OpenRouter/direct LLM adapters, Qdrant (with sentence-transformers or Gemini Embedding 2), FastAPI + JWT (Mobile API), React + TypeScript + Vite (web frontend). Full dependency list lives in `pyproject.toml`.
 
 ## Architecture & Docs Index
 
@@ -72,7 +72,7 @@ app/
 |   +-- git_backup/     # On-disk git mirror engine (GitMirrorService, GitMirrorRepository, LFS, maintenance, circuit breaker)
 |   +-- github/         # GitHub API integration and repository ingestion
 |   +-- ingestors/      # Source-ingestor framework
-|   +-- llm/            # LLM abstraction (OpenRouter-only)
+|   +-- llm/            # LLM abstraction + direct OpenAI-compatible / Anthropic adapters
 |   +-- meta/           # Meta adapter helpers
 |   +-- openrouter/     # OpenRouter client and helpers
 |   +-- rss/            # RSS polling and feed helpers
@@ -117,7 +117,7 @@ Project-specific conventions that aren't visible from code alone. Treat these as
 8. **YouTube, Twitter/X, and academic papers each have dedicated extractors** (`app/adapters/youtube/`, `twitter/`, `academic/`) that bypass the standard scraper chain. Check `requests.source_kind` before assuming the chain ran.
 9. **Webwright is the only chain rung that costs real LLM money per URL.** Default off (`WEBWRIGHT_ENABLED=false`) and double-gated by a non-empty `WEBWRIGHT_HOST_ALLOWLIST` — an empty allowlist short-circuits provider construction so the sidecar is never called. The same sidecar also serves `/browse` (Path B); the former enricher (Path C) has been removed. Design rationale lives in `docs/explanation/webwright.md`.
 10. **When a client ships a new default client_id, add it to `app/config/known_client_ids.py` `KNOWN_CLIENT_IDS` and to every deployment's `ALLOWED_CLIENT_IDS` env var (or set `AUTH_ALLOW_ANY_CLIENT_ID=true` for local/development deployments).**
-11. **Model selection has no code default -- `ratatoskr.yaml` is the single source of truth.** `OpenRouterConfig.model`/`fallback_models`/`flash_model`/`flash_fallback_models`/`long_context_model` and `AttachmentConfig.vision_model`/`vision_fallback_models` are required fields with no `Field(default=...)`. The bot hard-fails at startup if any is absent from `ratatoskr.yaml` (or an env override). When changing models, edit the `openrouter:` / `attachment:` sections of `config/ratatoskr.yaml` (and the deployed `/app/config/ratatoskr.yaml`) -- never re-add code defaults. Tests that build config under `patch.dict(..., clear=True)` must supply these via `tests/_config_env.py::MODEL_SELECTION_ENV`.
+11. **Model selection has no code default -- `ratatoskr.yaml` is the single source of truth.** `OpenRouterConfig.model`/`fallback_models`/`flash_model`/`flash_fallback_models`/`long_context_model` and `AttachmentConfig.vision_model`/`vision_fallback_models` are required fields with no `Field(default=...)` for the default OpenRouter path. Direct `openai`, `anthropic`, and `ollama` modes require their matching provider model fields instead. When changing models, edit the matching provider section of `config/ratatoskr.yaml` (and the deployed `/app/config/ratatoskr.yaml`) -- never re-add code defaults. Tests that build config under `patch.dict(..., clear=True)` must supply these via `tests/_config_env.py::MODEL_SELECTION_ENV` for OpenRouter paths.
 12. **`user_id` WHERE filters are a defense-in-depth IDOR guard -- never remove them, even though the bot is single-tenant.** A single-owner deployment makes the predicate `WHERE user_id = <constant>` look redundant, but dropping it creates a forward-looking IDOR: any second authenticated identity (JWT-secret compromise, a manually-added DB row, or future multi-tenancy) would silently read all rows. An audit removed these filters once (`ae5c8b08`) and they were restored the same day (`26375553`). The retired single-tenant-simplification ADR that proposed removing them was deleted on 2026-06-15 because the project chose expansion over simplification; this rule preserves its one load-bearing conclusion.
 
 ### Bugbear rules to never suppress project-wide
@@ -256,8 +256,9 @@ Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bear
 | Var | Purpose |
 |---|---|
 | `ALLOWED_USER_IDS` | Comma-separated Telegram user IDs allowed to use the bot |
-| `OPENROUTER_API_KEY` | LLM provider key (secret -- `.env` only) |
-| `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`, `OPENROUTER_FLASH_MODEL`, `OPENROUTER_FLASH_FALLBACK_MODELS`, `OPENROUTER_LONG_CONTEXT_MODEL`, `ATTACHMENT_VISION_MODEL`, `ATTACHMENT_VISION_FALLBACK_MODELS` | **Model selection -- no code default.** Must be set in `ratatoskr.yaml` (`openrouter:` / `attachment:` sections); the bot hard-fails at startup if any is missing. `ratatoskr.yaml` is the single source of truth for which models the service uses. |
+| `LLM_PROVIDER` | `openrouter` (default), `openai`, `anthropic`, or `ollama`; see `docs/guides/configure-llm-provider.md` and `docs/reference/llm-providers.md` |
+| `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | LLM provider keys (secret -- `.env` only); only the selected provider's key is required |
+| `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`, `OPENROUTER_FLASH_MODEL`, `OPENROUTER_FLASH_FALLBACK_MODELS`, `OPENROUTER_LONG_CONTEXT_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `OLLAMA_MODEL`, `ATTACHMENT_VISION_MODEL`, `ATTACHMENT_VISION_FALLBACK_MODELS` | **Model selection -- no code default for selected provider.** Must be set in `ratatoskr.yaml` or env for the selected provider; `ratatoskr.yaml` is the single source of truth for which models the service uses. |
 | `LLM_CALL_TIMEOUT_SEC`, `LLM_PER_MODEL_TIMEOUT_MIN_SEC`, `LLM_PER_MODEL_TIMEOUT_OVERRIDES` | LLM cascade budget shaping |
 | `DATABASE_URL` | Postgres DSN |
 | `DIGEST_ENABLED`, `API_BASE_URL` | Channel digest subsystem on/off + Mini App callback URL |

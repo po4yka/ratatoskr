@@ -12,6 +12,9 @@ from .firecrawl import FirecrawlConfig
 from .integrations import EmbeddingConfig, McpConfig, QdrantConfig, WebSearchConfig
 from .langgraph import LangGraphCheckpointConfig
 from .llm import (
+    DirectAnthropicConfig,
+    DirectOllamaConfig,
+    DirectOpenAIConfig,
     LLMUsageBudgetConfig,
     ModelRoutingConfig,
     OpenRouterConfig,
@@ -45,6 +48,9 @@ __all__ = [
     "ConfigReloader",
     "ContentLimitsConfig",
     "DatabaseConfig",
+    "DirectAnthropicConfig",
+    "DirectOllamaConfig",
+    "DirectOpenAIConfig",
     "ElevenLabsConfig",
     "EmbeddingConfig",
     "FirecrawlConfig",

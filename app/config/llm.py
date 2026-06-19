@@ -104,6 +104,93 @@ class LLMUsageBudgetConfig(BaseModel):
         return parsed
 
 
+class DirectOpenAIConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    api_key: str | None = Field(
+        default=None, validation_alias="OPENAI_API_KEY", json_schema_extra=SECRET_MARKER
+    )
+    model: str | None = Field(default=None, validation_alias="OPENAI_MODEL")
+    base_url: str = Field(default="https://api.openai.com/v1", validation_alias="OPENAI_BASE_URL")
+    max_tokens: int | None = Field(default=None, validation_alias="OPENAI_MAX_TOKENS")
+    temperature: float = Field(default=0.2, validation_alias="OPENAI_TEMPERATURE")
+    timeout_sec: int = Field(default=60, validation_alias="OPENAI_TIMEOUT_SEC")
+    max_retries: int = Field(default=3, validation_alias="OPENAI_MAX_RETRIES")
+    max_response_size_mb: int = Field(default=10, validation_alias="OPENAI_MAX_RESPONSE_SIZE_MB")
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def _normalize_api_key(cls, value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _validate_model(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        return validate_model_name(str(value))
+
+
+class DirectAnthropicConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    api_key: str | None = Field(
+        default=None, validation_alias="ANTHROPIC_API_KEY", json_schema_extra=SECRET_MARKER
+    )
+    model: str | None = Field(default=None, validation_alias="ANTHROPIC_MODEL")
+    base_url: str = Field(
+        default="https://api.anthropic.com/v1", validation_alias="ANTHROPIC_BASE_URL"
+    )
+    version: str = Field(default="2023-06-01", validation_alias="ANTHROPIC_VERSION")
+    max_tokens: int = Field(default=4096, validation_alias="ANTHROPIC_MAX_TOKENS")
+    temperature: float = Field(default=0.2, validation_alias="ANTHROPIC_TEMPERATURE")
+    timeout_sec: int = Field(default=60, validation_alias="ANTHROPIC_TIMEOUT_SEC")
+    max_retries: int = Field(default=3, validation_alias="ANTHROPIC_MAX_RETRIES")
+    max_response_size_mb: int = Field(default=10, validation_alias="ANTHROPIC_MAX_RESPONSE_SIZE_MB")
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def _normalize_api_key(cls, value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _validate_model(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        return str(value).strip()
+
+
+class DirectOllamaConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    api_key: str | None = Field(
+        default=None, validation_alias="OLLAMA_API_KEY", json_schema_extra=SECRET_MARKER
+    )
+    model: str | None = Field(default=None, validation_alias="OLLAMA_MODEL")
+    base_url: str = Field(default="http://localhost:11434/v1", validation_alias="OLLAMA_BASE_URL")
+    max_tokens: int | None = Field(default=None, validation_alias="OLLAMA_MAX_TOKENS")
+    temperature: float = Field(default=0.2, validation_alias="OLLAMA_TEMPERATURE")
+    timeout_sec: int = Field(default=120, validation_alias="OLLAMA_TIMEOUT_SEC")
+    max_retries: int = Field(default=1, validation_alias="OLLAMA_MAX_RETRIES")
+    max_response_size_mb: int = Field(default=10, validation_alias="OLLAMA_MAX_RESPONSE_SIZE_MB")
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def _normalize_api_key(cls, value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _validate_model(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        return str(value).strip()
+
+
 class OpenRouterConfig(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 

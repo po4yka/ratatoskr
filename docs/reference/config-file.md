@@ -32,7 +32,7 @@ ALLOWED_USER_IDS=123456789
 OPENROUTER_API_KEY=sk-or-replace_with_openrouter_key
 ```
 
-`JWT_SECRET_KEY` is required only when web/API/browser-extension JWT auth is enabled. Generate it with `openssl rand -hex 32`.
+`JWT_SECRET_KEY` is required only when web/API/browser-extension JWT auth is enabled. Generate it with `openssl rand -hex 32`. If you set `LLM_PROVIDER=openai`, `anthropic`, or `ollama`, replace the OpenRouter secret with the matching direct provider key and model settings; see [Configure LLM Provider](../guides/configure-llm-provider.md).
 
 ## Example `ratatoskr.yaml`
 
@@ -109,9 +109,9 @@ mcp:
 
 ## Notes
 
-- OpenRouter is the only supported summarization backend in the bot/API runtime today.
-- `LLM_PROVIDER` must be `openrouter`. Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or `deepseek/...` in the `openrouter` section to select upstream model families without changing the backend adapter.
-- The `with-cloud-ollama` Compose profile is only a reachability/experimentation helper. It does not wire an Ollama adapter into the summarization runtime.
+- Supported summarization backends are `openrouter`, `openai`, `anthropic`, and `ollama`; `openrouter` remains the default and most feature-complete runtime path. See [LLM Providers](llm-providers.md) for the feature matrix.
+- Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or `deepseek/...` in the `openrouter` section when `LLM_PROVIDER=openrouter`. Use direct provider model names in the `openai`, `anthropic`, or `ollama` sections when selecting those adapters.
+- The `with-cloud-ollama` Compose profile is a reachability/experimentation helper for Ollama-compatible deployments; production summarization uses it only when `LLM_PROVIDER=ollama` and `ollama.base_url` points at the reachable endpoint.
 - The default scraper chain order is Scrapling → Crawl4AI → Firecrawl → Defuddle → Playwright → Crawlee → direct HTML → Scrapegraph-AI. Each provider is skipped when its sidecar is unavailable or its enabled flag is false. See [`docs/explanation/scraper-chain.md`](../explanation/scraper-chain.md) for the full chain reference.
 - The `firecrawl` provider slot activates only when `scraper.firecrawl_self_hosted_enabled: true`; cloud Firecrawl is not used for article scraping. `FIRECRAWL_API_KEY` is only consumed by the web-search enrichment path (`TopicSearchService`), not by the scraper chain.
 - SSRF redirect enforcement is strongest for backend-controlled HTTP fetchers that use the centralized safe httpx transport and manual redirect loops: proxy image fetches, direct HTML, Defuddle, and Crawl4AI sidecar requests re-check each redirect target and block private, link-local, localhost, and metadata IP ranges. Third-party/browser-controlled providers have limits: Scrapling, Playwright, Crawlee, Firecrawl sidecars, and ScrapeGraphAI may resolve or follow redirects inside external runtimes where this process cannot pin DNS at connect time, so keep those runtimes isolated from internal networks and treat their URL filters as preflight/best-effort controls.

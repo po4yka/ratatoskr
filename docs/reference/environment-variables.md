@@ -18,7 +18,7 @@ Only these assignments remain active in `.env.example`:
 | `API_HASH` | Always for Telegram bot runtime | `app/config/telegram.py::TelegramConfig` |
 | `BOT_TOKEN` | Always for Telegram bot runtime | `app/config/telegram.py::TelegramConfig` |
 | `ALLOWED_USER_IDS` | Always for owner-only access | `app/config/telegram.py::TelegramConfig` |
-| `OPENROUTER_API_KEY` | Always for the default OpenRouter quickstart path | `app/config/llm.py::OpenRouterConfig` |
+| `OPENROUTER_API_KEY` | Required when `LLM_PROVIDER=openrouter` | `app/config/llm.py::OpenRouterConfig` |
 
 `JWT_SECRET_KEY` is required only when web/API/browser-extension JWT auth is enabled. Firecrawl Cloud is optional; self-hosted Firecrawl and non-Firecrawl scraper providers exist.
 
@@ -36,7 +36,9 @@ This table categorizes every uncommented assignment that existed in `.env.exampl
 | `JWT_SECRET_KEY` | `app/config/runtime.py::RuntimeConfig` | required only when web/API/browser-extension auth is enabled | Keep commented in `.env.example` |
 | `FIRECRAWL_API_KEY` | `app/config/firecrawl.py::FirecrawlConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code default |
 | `SCRAPER_*` / `FIRECRAWL_SELF_HOSTED_*` | `app/config/scraper.py::ScraperConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code defaults |
-| `OPENROUTER_API_KEY` | `app/config/llm.py::OpenRouterConfig` | required | Keep in `.env.example` |
+| `OPENROUTER_API_KEY` | `app/config/llm.py::OpenRouterConfig` | required when `LLM_PROVIDER=openrouter` | Keep in `.env.example` for the default quickstart |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | `app/config/llm.py::DirectOpenAIConfig`, `app/config/llm.py::DirectAnthropicConfig` | required when the matching direct provider is selected | Keep in `.env` only when using the matching provider |
+| `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `OLLAMA_MODEL` | `app/config/llm.py` direct provider configs | required when the matching direct provider is selected | Prefer `ratatoskr.yaml` for non-secret model names |
 | `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODELS`, `OPENROUTER_LONG_CONTEXT_MODEL`, `OPENROUTER_FLASH_MODEL`, `OPENROUTER_FLASH_FALLBACK_MODELS` | `app/config/llm.py::OpenRouterConfig` | **required (no code default)** | Must be set in `ratatoskr.yaml` (`openrouter:` section); the bot hard-fails at startup if any is missing |
 | `OPENROUTER_HTTP_REFERER`, `OPENROUTER_X_TITLE` | `app/config/llm.py::OpenRouterConfig` | optional-defaulted | Move to `ratatoskr.yaml` or rely on code defaults |
 | `ATTACHMENT_VISION_MODEL`, `ATTACHMENT_VISION_FALLBACK_MODELS` | `app/config/media.py::AttachmentConfig` | **required (no code default)** | Must be set in `ratatoskr.yaml` (`attachment:` section); the bot hard-fails at startup if either is missing |
@@ -110,9 +112,9 @@ mcp:
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `LLM_PROVIDER` | `openrouter` | Active LLM backend. Only `openrouter` is currently supported by the bot/API runtime |
+| `LLM_PROVIDER` | `openrouter` | Active LLM backend: `openrouter`, `openai`, `anthropic`, or `ollama` |
 
-Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or `deepseek/...` in the OpenRouter model settings below to route through upstream model families. `OPENAI_*`, `ANTHROPIC_*`, and `OLLAMA_*` variables are not consumed by the summarization runtime.
+Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or `deepseek/...` in the OpenRouter model settings below to route through upstream model families while keeping OpenRouter's fallback and structured-output behavior. Use `OPENAI_*`, `ANTHROPIC_*`, or `OLLAMA_*` only when `LLM_PROVIDER` selects the matching direct adapter. See [LLM Providers](llm-providers.md) and [Configure LLM Provider](../guides/configure-llm-provider.md).
 
 ## [REQUIRED] OpenRouter (Default LLM Provider)
 
@@ -146,6 +148,46 @@ Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or
 | `OPENROUTER_PROMPT_CACHE_TTL_ANTHROPIC` | `1h` | Cache TTL for Anthropic models specifically. `1h` (2x write / 0.10x read) amortizes positively across batched requests vs `ephemeral` (1.25x write / 0.10x read) |
 | `OPENROUTER_CACHE_SYSTEM_PROMPT` | `true` | Cache system message for reuse |
 | `OPENROUTER_CACHE_LARGE_CONTENT_THRESHOLD` | `4096` | Min tokens to auto-cache (Gemini requires 4096) |
+
+## Direct OpenAI Provider
+
+| Variable | Default | Description |
+| ---------- | --------- | ------------- |
+| `OPENAI_API_KEY` | _(none)_ | Required when `LLM_PROVIDER=openai` |
+| `OPENAI_MODEL` | _(none)_ | Required model name for direct OpenAI |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
+| `OPENAI_MAX_TOKENS` | _(none)_ | Optional completion token limit |
+| `OPENAI_TEMPERATURE` | `0.2` | Sampling temperature |
+| `OPENAI_TIMEOUT_SEC` | `60` | HTTP timeout |
+| `OPENAI_MAX_RETRIES` | `3` | Adapter retry budget |
+| `OPENAI_MAX_RESPONSE_SIZE_MB` | `10` | Max response payload size |
+
+## Direct Anthropic Provider
+
+| Variable | Default | Description |
+| ---------- | --------- | ------------- |
+| `ANTHROPIC_API_KEY` | _(none)_ | Required when `LLM_PROVIDER=anthropic` |
+| `ANTHROPIC_MODEL` | _(none)_ | Required model name for direct Anthropic |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | Anthropic Messages API base URL |
+| `ANTHROPIC_VERSION` | `2023-06-01` | `anthropic-version` request header |
+| `ANTHROPIC_MAX_TOKENS` | `4096` | Completion token limit |
+| `ANTHROPIC_TEMPERATURE` | `0.2` | Sampling temperature |
+| `ANTHROPIC_TIMEOUT_SEC` | `60` | HTTP timeout |
+| `ANTHROPIC_MAX_RETRIES` | `3` | Adapter retry budget |
+| `ANTHROPIC_MAX_RESPONSE_SIZE_MB` | `10` | Max response payload size |
+
+## Direct Ollama Provider
+
+| Variable | Default | Description |
+| ---------- | --------- | ------------- |
+| `OLLAMA_MODEL` | _(none)_ | Required when `LLM_PROVIDER=ollama` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible Ollama base URL |
+| `OLLAMA_API_KEY` | _(none)_ | Optional bearer token for protected gateways |
+| `OLLAMA_MAX_TOKENS` | _(none)_ | Optional completion token limit |
+| `OLLAMA_TEMPERATURE` | `0.2` | Sampling temperature |
+| `OLLAMA_TIMEOUT_SEC` | `120` | HTTP timeout |
+| `OLLAMA_MAX_RETRIES` | `1` | Adapter retry budget |
+| `OLLAMA_MAX_RESPONSE_SIZE_MB` | `10` | Max response payload size |
 
 ## Content-Aware Model Routing
 
@@ -988,13 +1030,21 @@ ALLOWED_USER_IDS=123456789
 
 **Symptom**: Bot starts but summaries fail with "Model not found"
 
-**Fix**: Keep `LLM_PROVIDER=openrouter` and put upstream model-family choices in OpenRouter model IDs:
+**Fix**: Match the model namespace to the selected adapter. For OpenRouter, use OpenRouter model IDs:
 
 ```bash
 LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL=openai/gpt-4o-mini
 OPENROUTER_FALLBACK_MODELS=anthropic/claude-sonnet-4.5,deepseek/deepseek-v4-flash
+```
+
+For direct providers, use the direct provider's model name and key instead:
+
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
 ```
 
 ### 4. Redis Connection Failures

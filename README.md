@@ -9,7 +9,7 @@ A self-hosted Telegram bot that turns the things you read, watch, and forward in
 ## Why Ratatoskr?
 
 - **Self-hosted, single-tenant.** Your data, your server, your Telegram-API quota. The bot only answers IDs in `ALLOWED_USER_IDS`.
-- **Pluggable cost.** Bring your own OpenRouter key and choose any configured OpenRouter model ID, including upstream families such as `openai/...` or `anthropic/...`. Free DeepSeek / Gemini Flash models cover most workloads out of the box; paid models are an opt-in upgrade.
+- **Pluggable cost.** Bring your own OpenRouter key and choose any configured OpenRouter model ID, including upstream families such as `openai/...` or `anthropic/...`, or switch to the direct `openai`, `anthropic`, or `ollama` adapters when you want direct billing or local inference. Free DeepSeek / Gemini Flash models cover most workloads out of the box; paid models are an opt-in upgrade.
 - **Built for triage, not bookmarking.** Each summary is a strict 35+ field JSON contract — TLDR, key ideas, entities, key stats, topics, reading time — bound through an explicit default contract descriptor so prompts, schemas, and validation stay in sync as providers evolve.
 - **Multi-source aggregation.** Bundle a YouTube clip with two web articles and a forwarded post, get one synthesized output with per-source provenance.
 
@@ -34,13 +34,13 @@ DATABASE_URL=          # postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD}
 OPENROUTER_API_KEY=    # https://openrouter.ai
 ```
 
-Optional scraper, YouTube, Twitter/X, MCP, and provider tuning now live in `ratatoskr.yaml`; see [Optional YAML Configuration](docs/reference/config-file.md). `JWT_SECRET_KEY` is required only when enabling web/API/browser-extension JWT auth.
+Optional scraper, YouTube, Twitter/X, MCP, and provider tuning now live in `ratatoskr.yaml`; see [Optional YAML Configuration](docs/reference/config-file.md). `JWT_SECRET_KEY` is required only when enabling web/API/browser-extension JWT auth. To use direct OpenAI, Anthropic, or Ollama instead of OpenRouter, set `LLM_PROVIDER` and the matching provider key/model; see [Configure LLM Provider](docs/guides/configure-llm-provider.md).
 
 Compose profiles:
 
 - `with-scrapers` starts the full self-hosted scraper sidecar stack: `firecrawl-api` (port 3002), `crawl4ai` (port 11235), `defuddle-api` (port 3003), and `cloakbrowser` plus their dependencies. Cloud Firecrawl is not used for article extraction; there is no `FIRECRAWL_API_KEY` requirement. Set `FIRECRAWL_SELF_HOSTED_ENABLED=true` to activate the Firecrawl rung in the scraper chain.
 - `with-webwright` starts the Microsoft Webwright browser-agent sidecar (port 8090) — heavyweight LLM-driven Playwright agent. Opt-in only; see [Webwright Integration](docs/explanation/webwright.md) for cost gating and the three integration paths (scraper rung, `/browse` Telegram command, content enrichment).
-- `with-cloud-ollama` adds a remote OpenAI-compatible Ollama reachability check for experiments and sidecar validation. The main summarization backend still uses `LLM_PROVIDER=openrouter`; there is no production Ollama LLM adapter wired into the bot/API runtime.
+- `with-cloud-ollama` adds a remote OpenAI-compatible Ollama reachability check for experiments and sidecar validation. Use it for summarization only when `LLM_PROVIDER=ollama` and `ollama.base_url` points at that endpoint.
 - `with-monitoring` starts Prometheus, Grafana, Loki, Promtail, node-exporter, and OpenTelemetry / Tempo.
 - `mcp`, `mcp-write`, and `mcp-public` start the optional MCP server variants.
 

@@ -37,6 +37,9 @@ from .integrations import (
 )
 from .langgraph import LangGraphCheckpointConfig
 from .llm import (
+    DirectAnthropicConfig,
+    DirectOllamaConfig,
+    DirectOpenAIConfig,
     LLMUsageBudgetConfig,
     ModelRoutingConfig,
     OpenRouterConfig,
@@ -184,6 +187,9 @@ class AppConfig:
     web_search: WebSearchConfig
     adaptive_timeout: AdaptiveTimeoutConfig
     batch_analysis: BatchAnalysisConfig
+    openai: DirectOpenAIConfig = field(default_factory=DirectOpenAIConfig)
+    anthropic: DirectAnthropicConfig = field(default_factory=DirectAnthropicConfig)
+    ollama: DirectOllamaConfig = field(default_factory=DirectOllamaConfig)
     llm_usage_budget: LLMUsageBudgetConfig = field(default_factory=LLMUsageBudgetConfig)
     twitter: TwitterConfig = field(default_factory=TwitterConfig)
     digest: ChannelDigestConfig = field(default_factory=ChannelDigestConfig)
@@ -233,6 +239,9 @@ class Settings(BaseSettings):
     # default_factory lets the bot start when no FIRECRAWL_* env vars are set.
     firecrawl: FirecrawlConfig = Field(default_factory=FirecrawlConfig)
     openrouter: OpenRouterConfig
+    openai: DirectOpenAIConfig = Field(default_factory=DirectOpenAIConfig)
+    anthropic: DirectAnthropicConfig = Field(default_factory=DirectAnthropicConfig)
+    ollama: DirectOllamaConfig = Field(default_factory=DirectOllamaConfig)
     llm_usage_budget: LLMUsageBudgetConfig = Field(default_factory=LLMUsageBudgetConfig)
     youtube: YouTubeConfig
     attachment: AttachmentConfig
@@ -491,6 +500,9 @@ class Settings(BaseSettings):
             telegram=self.telegram,
             firecrawl=self.firecrawl,
             openrouter=self.openrouter,
+            openai=self.openai,
+            anthropic=self.anthropic,
+            ollama=self.ollama,
             youtube=self.youtube,
             attachment=self.attachment,
             runtime=self.runtime,
@@ -551,7 +563,7 @@ def _build_config(*, allow_stub_telegram: bool) -> AppConfig:
 
     if not allow_stub_telegram:
         available = set(os.environ) | _read_dotenv_keys()
-        missing = tuple(name for name in _FIRST_RUN_REQUIRED_ENV if name not in available)
+        missing = tuple(name for name in _required_first_run_env_names() if name not in available)
         if missing:
             raise RuntimeError(_format_required_config_error(missing))
 
@@ -569,6 +581,9 @@ def _build_config(*, allow_stub_telegram: bool) -> AppConfig:
         if telegram_overrides:
             overrides["telegram"] = telegram_overrides
 
+    if _configured_llm_provider_from_sources() != "openrouter":
+        overrides["openrouter"] = _direct_provider_openrouter_placeholder()
+
     try:
         settings = Settings(**overrides)
     except (ValidationError, RuntimeError) as exc:  # pragma: no cover - defensive
@@ -577,7 +592,7 @@ def _build_config(*, allow_stub_telegram: bool) -> AppConfig:
         # ALLOWED_USER_IDS to the report, which masked unrelated failures
         # (e.g. a missing DATABASE_URL) behind a misleading message.
         exc_text = str(exc)
-        missing = tuple(name for name in _FIRST_RUN_REQUIRED_ENV if name in exc_text)
+        missing = tuple(name for name in _required_first_run_env_names() if name in exc_text)
         if missing:
             msg = _format_required_config_error(missing)
         else:
@@ -594,6 +609,47 @@ def _build_config(*, allow_stub_telegram: bool) -> AppConfig:
         )
 
     return config
+
+
+def _configured_llm_provider_from_sources() -> str:
+    from app.config.config_file import load_ratatoskr_yaml
+
+    yaml_data = load_ratatoskr_yaml(Settings)
+    raw_value = yaml_data.get("LLM_PROVIDER", os.getenv("LLM_PROVIDER", "openrouter"))
+    return str(raw_value).strip().lower() or "openrouter"
+
+
+def _required_first_run_env_names() -> tuple[str, ...]:
+    required = tuple(name for name in _FIRST_RUN_REQUIRED_ENV if name != "OPENROUTER_API_KEY")
+    if _configured_llm_provider_from_sources() == "openrouter":
+        return (*required, "OPENROUTER_API_KEY")
+    return required
+
+
+def _direct_provider_openrouter_placeholder() -> dict[str, Any]:
+    return {
+        "api_key": "direct-provider-placeholder",
+        "model": "direct/provider-placeholder",
+        "fallback_models": (),
+        "flash_model": "direct/provider-placeholder",
+        "flash_fallback_models": (),
+        "long_context_model": "direct/provider-placeholder",
+        "temperature": 0.2,
+        "enable_stats": False,
+        "enable_structured_outputs": True,
+        "structured_output_mode": "json_object",
+        "require_parameters": False,
+        "auto_fallback_structured": False,
+        "max_response_size_mb": 10,
+        "enable_prompt_caching": False,
+        "prompt_cache_ttl": "ephemeral",
+        "prompt_cache_ttl_anthropic": "1h",
+        "cache_system_prompt": False,
+        "cache_large_content_threshold": 4096,
+        "transport_retry_max_attempts": 3,
+        "transport_retry_min_wait_sec": 0.5,
+        "transport_retry_max_wait_sec": 5.0,
+    }
 
 
 def load_config(*, allow_stub_telegram: bool = False) -> AppConfig:
