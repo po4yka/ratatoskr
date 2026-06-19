@@ -214,6 +214,19 @@ class _NullSem:
         return None
 
 
+class _FakeStreamCtx:
+    """Async context manager wrapping a pre-built httpx.Response for stream()."""
+
+    def __init__(self, response: httpx.Response) -> None:
+        self._response = response
+
+    async def __aenter__(self) -> httpx.Response:
+        return self._response
+
+    async def __aexit__(self, *exc: Any) -> None:
+        return None
+
+
 class _FakeHTTPClient:
     def __init__(self, responses: list[httpx.Response]) -> None:
         self._responses = list(responses)
@@ -224,7 +237,12 @@ class _FakeHTTPClient:
     async def __aexit__(self, *exc: Any) -> None:
         return None
 
-    async def get(self, url: str) -> httpx.Response:
+    def stream(self, method: str, url: str, **kwargs: Any) -> _FakeStreamCtx:
+        if not self._responses:
+            raise AssertionError(f"unexpected {method} {url}")
+        return _FakeStreamCtx(self._responses.pop(0))
+
+    async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         if not self._responses:
             raise AssertionError(f"unexpected GET {url}")
         return self._responses.pop(0)

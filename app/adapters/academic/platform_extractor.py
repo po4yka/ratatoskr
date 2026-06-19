@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import re
 import tempfile
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 import httpx
@@ -66,6 +66,12 @@ _DEFAULT_PDF_MAX_PAGES = 1000
 # Generous timeout for academic PDFs: arXiv preprints are ~1-5 MB,
 # SSRN papers up to ~15 MB, but Cloudflare-gated hosts can be slow.
 _PDF_DOWNLOAD_TIMEOUT_SEC = 60.0
+
+# Hard memory-protection cap: abort streaming download when the running
+# total exceeds this limit.  50 MB covers the largest real academic PDFs
+# (multi-chapter NBER working papers) while bounding the in-process
+# allocation on the Pi.  Override via AcademicPlatformExtractor(max_pdf_mb=N).
+_DEFAULT_MAX_PDF_MB = 50
 
 # Markers we look for in the landing HTML to detect a paywall response
 # (matches SSRN's "purchase to read" upsell and ResearchGate's
@@ -119,6 +125,7 @@ class AcademicPlatformExtractor(PlatformExtractor):
         firecrawl_sem: Any,
         lifecycle: PlatformRequestLifecycle,
         http_client_factory: Any | None = None,
+        max_pdf_mb: int = _DEFAULT_MAX_PDF_MB,
     ) -> None:
         self._cfg = cfg
         self._scraper = scraper
@@ -127,6 +134,7 @@ class AcademicPlatformExtractor(PlatformExtractor):
         # Injectable for tests; defaults to an SSRF-safe httpx client with
         # manual redirect handling (OSF /download 302s).
         self._http_client_factory = http_client_factory
+        self._max_pdf_bytes = max_pdf_mb * 1024 * 1024
 
     # ------------------------------------------------------------------
     # PlatformExtractor protocol
@@ -306,22 +314,29 @@ class AcademicPlatformExtractor(PlatformExtractor):
         return await asyncio.to_thread(_extract_pdf_text_from_bytes, pdf_bytes)
 
     async def _download_pdf(self, pdf_url: str) -> bytes:
+        """Stream-download a PDF with a hard size cap.
+
+        Raises ``PDFDownloadError`` with a short reason tag on any failure.
+        Returns raw PDF bytes without loading the full body into memory in
+        one shot — chunks are collected incrementally and the download is
+        aborted as soon as the running total exceeds ``self._max_pdf_bytes``.
+        """
+        _headers = {
+            # Several hosts (arXiv, NBER) serve a CDN-cached binary
+            # directly; SSRN's Delivery.cfm is more forgiving with a
+            # real browser UA.
+            "User-Agent": (
+                "Mozilla/5.0 (compatible; ratatoskr/1.0; +https://github.com/po4yka/ratatoskr)"
+            ),
+            "Accept": "application/pdf,*/*;q=0.8",
+        }
         if self._http_client_factory is not None:
             client_cm = self._http_client_factory()
         else:
             client_cm = make_safe_async_client(
                 timeout=httpx.Timeout(_PDF_DOWNLOAD_TIMEOUT_SEC),
                 follow_redirects=False,
-                headers={
-                    # Several hosts (arXiv, NBER) serve a CDN-cached
-                    # binary directly; SSRN's Delivery.cfm is more
-                    # forgiving with a real browser UA.
-                    "User-Agent": (
-                        "Mozilla/5.0 (compatible; ratatoskr/1.0; "
-                        "+https://github.com/po4yka/ratatoskr)"
-                    ),
-                    "Accept": "application/pdf,*/*;q=0.8",
-                },
+                headers=_headers,
             )
         async with client_cm as client:
             current_url = pdf_url
@@ -329,15 +344,33 @@ class AcademicPlatformExtractor(PlatformExtractor):
                 safe, reason = is_url_safe(current_url)
                 if not safe:
                     raise PDFDownloadError(f"ssrf_blocked:{reason}")
-                resp = await client.get(current_url)
-                if resp.status_code in {301, 302, 303, 307, 308}:
-                    location = resp.headers.get("location")
-                    if not location:
-                        resp.raise_for_status()
-                    current_url = urljoin(current_url, location)
-                    continue
-                resp.raise_for_status()
-                return cast("bytes", resp.content)
+                async with client.stream("GET", current_url, headers=_headers) as resp:
+                    if resp.status_code in {301, 302, 303, 307, 308}:
+                        location = resp.headers.get("location")
+                        await resp.aclose()
+                        if not location:
+                            resp.raise_for_status()
+                        current_url = urljoin(current_url, location)
+                        continue
+                    resp.raise_for_status()
+
+                    # Reject early if Content-Length already exceeds cap.
+                    cl = resp.headers.get("content-length")
+                    if cl:
+                        try:
+                            if int(cl) > self._max_pdf_bytes:
+                                raise PDFDownloadError("pdf_too_large")
+                        except ValueError:
+                            pass
+
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        total += len(chunk)
+                        if total > self._max_pdf_bytes:
+                            raise PDFDownloadError("pdf_too_large")
+                        chunks.append(chunk)
+                    return b"".join(chunks)
             raise PDFDownloadError("too_many_redirects")
 
     # ------------------------------------------------------------------
