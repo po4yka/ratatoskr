@@ -311,16 +311,12 @@ class ResponseProcessor:
             except Exception:
                 processed_text = text_str
 
-            # Require essential summary fields to be present and non-empty
-            if isinstance(parsed, dict):
-                has_content = False
-                for key in ("summary_250", "summary_1000", "tldr"):
-                    value = parsed.get(key)
-                    if isinstance(value, str) and value.strip():
-                        has_content = True
-                        break
-                if not has_content:
-                    return False, processed_text
+            # Reject an empty parsed value (empty dict/list) as a degenerate
+            # structured response.  Domain-field contract validation is the
+            # responsibility of the summarize-graph validate node, not this
+            # generic transport layer.
+            if not parsed:
+                return False, processed_text
 
             return True, processed_text
         # Invalid JSON with structured outputs
