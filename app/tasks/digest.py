@@ -14,6 +14,10 @@ from taskiq import TaskiqDepends
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
+from app.observability.metrics_digest import (
+    record_digest_delivery,
+    set_digest_active_subscription_users,
+)
 from app.tasks.broker import broker
 from app.tasks.deps import (
     create_digest_bot_client,
@@ -105,6 +109,7 @@ async def _channel_digest_body(cfg: AppConfig) -> None:
                 )
 
                 user_ids = await service.async_get_users_with_subscriptions()
+                set_digest_active_subscription_users(len(user_ids))
                 logger.info(
                     "scheduled_digest_users",
                     extra={"cid": correlation_id, "count": len(user_ids)},
@@ -132,6 +137,7 @@ async def _channel_digest_body(cfg: AppConfig) -> None:
                             "scheduled_digest_user_failed",
                             extra={"cid": correlation_id, "uid": uid, "error": str(exc)},
                         )
+                        record_digest_delivery("failed")
 
         except Exception as exc:
             logger.exception(

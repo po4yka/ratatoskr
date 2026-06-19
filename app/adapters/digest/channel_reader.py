@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from app.core.logging_utils import get_logger
 from app.core.time_utils import utc_now
 from app.infrastructure.persistence.digest_store import DigestStore
+from app.observability.metrics_digest import record_digest_channel_fetch_error
 
 if TYPE_CHECKING:
     from app.config import AppConfig
@@ -87,6 +88,7 @@ class ChannelReader:
                     "fetch_failed",
                     max_errors=max_errors,
                 )
+                record_digest_channel_fetch_error("fetch_failed")
                 if disable:
                     logger.warning(
                         "digest_channel_auto_disabled",
@@ -166,6 +168,7 @@ class ChannelReader:
                 "fetch_failed",
                 max_errors=self._cfg.digest.max_fetch_errors,
             )
+            record_digest_channel_fetch_error("fetch_failed")
             raise
         if max_items is not None:
             posts = posts[:max_items]

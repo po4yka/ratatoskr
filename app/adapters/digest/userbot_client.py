@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from app.adapters.telethon_compat import TelethonUserClient
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
+from app.observability.metrics_digest import record_digest_userbot_reconnect
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,6 +43,7 @@ class UserbotClient:
             api_hash=self._cfg.telegram.api_hash,
         )
         await self._client.start()
+        record_digest_userbot_reconnect()
         logger.info("digest_userbot_started", extra={"session": self._cfg.digest.session_name})
 
     async def stop(self) -> None:

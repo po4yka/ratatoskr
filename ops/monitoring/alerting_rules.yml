@@ -262,3 +262,43 @@ groups:
           summary: "Taskiq jobs are reaching the dead-letter queue"
           description: "At least one Taskiq job exhausted its retry policy and was persisted to taskiq_failed_jobs in the last 15 minutes. Inspect the failed payload and replay only after confirming the upstream cause is fixed."
           runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/runbooks/taskiq-failures.md"
+
+  - name: ratatoskr_channel_digest
+    rules:
+      - alert: RatatoskrDigestDeliveryFailureRateHigh
+        expr: |
+          (
+            sum(increase(ratatoskr_digest_deliveries_total{status="failed"}[1h]))
+            /
+            clamp_min(sum(increase(ratatoskr_digest_deliveries_total[1h])), 1)
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Channel digest delivery failures exceed 10% over 1h"
+          description: "Digest delivery failures are above the warning threshold. Check digest_delivery, digest_analysis_failed, digest_send_chunk_failed, and channel fetch logs for the current deployment."
+          runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"
+
+      - alert: RatatoskrScheduledDigestNoDeliveries
+        expr: |
+          max_over_time(ratatoskr_digest_active_subscription_users[24h]) > 0
+          and
+          sum(increase(ratatoskr_digest_deliveries_total{status=~"sent|empty"}[24h])) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Scheduled channel digest produced no deliveries with active subscriptions"
+          description: "The scheduled digest runner saw active subscribers in the last 24 hours, but no successful or empty digest delivery outcomes were recorded. Check the scheduler, Taskiq worker, Redis lock, userbot session, and delivery logs."
+          runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"
+
+      - alert: RatatoskrDigestUserbotReconnectsHigh
+        expr: increase(ratatoskr_digest_userbot_reconnects_total[1h]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Digest userbot reconnect rate exceeds 3/h"
+          description: "The digest Telethon userbot session has restarted more than three times in the last hour. Check scheduler cadence, worker restarts, session validity, and Telegram-side throttling."
+          runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"

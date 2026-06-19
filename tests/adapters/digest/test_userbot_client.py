@@ -10,6 +10,7 @@ from app.adapters.digest.userbot_client import UserbotClient, _telethon_media_ty
 from app.adapters.telethon_compat import TelethonUserClient
 from app.config import AppConfig
 from app.core.time_utils import UTC
+from app.observability import metrics
 
 
 class _FakeTelethonUserClient(TelethonUserClient):
@@ -97,6 +98,24 @@ async def test_start_requires_session_file_and_starts_client(
     assert isinstance(client, _FakeTelethonUserClient)
     assert client.disconnected
     assert not subject.is_connected
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not metrics.PROMETHEUS_AVAILABLE, reason="prometheus_client not installed")
+async def test_start_records_userbot_reconnect_metric(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(userbot_module, "TelethonUserClient", _FakeTelethonUserClient)
+    registry = metrics.REGISTRY
+    assert registry is not None
+    before = registry.get_sample_value("ratatoskr_digest_userbot_reconnects_total") or 0.0
+    (tmp_path / "digest_user.session").write_text("", encoding="utf-8")
+
+    subject = UserbotClient(_cfg(), tmp_path)
+    await subject.start()
+
+    after = registry.get_sample_value("ratatoskr_digest_userbot_reconnects_total") or 0.0
+    assert after - before == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio

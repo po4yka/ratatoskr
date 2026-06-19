@@ -34,6 +34,7 @@ Sub-module layout
 - ``metrics_social``          — social provider integrations
 - ``metrics_db``              — database query latency + admin diagnostics
 - ``metrics_vector``          — vector store writes + indexing lag
+- ``metrics_digest``          — Telegram channel digest delivery + userbot health
 - ``metrics_scheduler``       — APScheduler / queue depth
 - ``metrics_repositories``    — GitHub repo sync (pre-existing sibling module)
 """
@@ -110,6 +111,24 @@ from app.observability.metrics_db import (
     record_admin_diagnostics_request,
     record_db_query,
     set_db_connections,
+)
+
+# ---------------------------------------------------------------------------
+# Telegram channel digest
+# ---------------------------------------------------------------------------
+from app.observability.metrics_digest import (
+    DIGEST_ACTIVE_SUBSCRIPTION_USERS,
+    DIGEST_CHANNEL_FETCH_ERRORS_TOTAL,
+    DIGEST_DELIVERIES_TOTAL,
+    DIGEST_PIPELINE_DURATION_SECONDS,
+    DIGEST_POSTS_ANALYZED_TOTAL,
+    DIGEST_USERBOT_RECONNECTS_TOTAL,
+    record_digest_channel_fetch_error,
+    record_digest_delivery,
+    record_digest_pipeline_duration,
+    record_digest_posts_analyzed,
+    record_digest_userbot_reconnect,
+    set_digest_active_subscription_users,
 )
 
 # ---------------------------------------------------------------------------
@@ -420,6 +439,19 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_admin_diagnostics_request",
     "record_db_query",
     "set_db_connections",
+    # Telegram channel digest
+    "DIGEST_ACTIVE_SUBSCRIPTION_USERS",
+    "DIGEST_CHANNEL_FETCH_ERRORS_TOTAL",
+    "DIGEST_DELIVERIES_TOTAL",
+    "DIGEST_PIPELINE_DURATION_SECONDS",
+    "DIGEST_POSTS_ANALYZED_TOTAL",
+    "DIGEST_USERBOT_RECONNECTS_TOTAL",
+    "record_digest_channel_fetch_error",
+    "record_digest_delivery",
+    "record_digest_pipeline_duration",
+    "record_digest_posts_analyzed",
+    "record_digest_userbot_reconnect",
+    "set_digest_active_subscription_users",
     # Vector store
     "VECTOR_INDEXING_LAG",
     "VECTOR_RECONCILE_OLDEST_LAG_SECONDS",

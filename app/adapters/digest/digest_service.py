@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.digest_store import DigestStore
+from app.observability.metrics_digest import (
+    record_digest_delivery,
+    record_digest_pipeline_duration,
+    record_digest_posts_analyzed,
+)
 
 if TYPE_CHECKING:
     from app.adapters.digest.analyzer import DigestAnalyzer
@@ -72,6 +78,7 @@ class DigestService:
             digest_type=digest_type,
             correlation_id=correlation_id,
         )
+        started_at = time.monotonic()
 
         # 1. Fetch posts
         try:
@@ -79,6 +86,7 @@ class DigestService:
         except Exception as e:
             logger.exception("digest_fetch_failed", extra={"cid": correlation_id, "uid": user_id})
             result.errors.append(f"Fetch failed: {e}")
+            _record_digest_outcome(result, "failed", started_at)
             return result
 
         if not posts:
@@ -91,10 +99,11 @@ class DigestService:
                 result.messages_sent = 1
             except Exception as e:
                 result.errors.append(f"Send failed: {e}")
+            _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
 
         # 2-5. Analyze, filter, format, deliver, persist
-        return await self._run_digest_pipeline(posts, result, correlation_id, lang)
+        return await self._run_digest_pipeline(posts, result, correlation_id, lang, started_at)
 
     async def generate_channel_digest(
         self,
@@ -119,6 +128,7 @@ class DigestService:
             digest_type="channel_on_demand",
             correlation_id=correlation_id,
         )
+        started_at = time.monotonic()
 
         # 1. Fetch unread posts from the single channel
         try:
@@ -129,6 +139,7 @@ class DigestService:
                 extra={"cid": correlation_id, "uid": user_id, "channel": channel.username},
             )
             result.errors.append(f"Fetch failed: {e}")
+            _record_digest_outcome(result, "failed", started_at)
             return result
 
         if not posts:
@@ -144,10 +155,11 @@ class DigestService:
                 result.messages_sent = 1
             except Exception as e:
                 result.errors.append(f"Send failed: {e}")
+            _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
 
         # 2-5. Analyze, filter, format, deliver, persist
-        return await self._run_digest_pipeline(posts, result, correlation_id, lang)
+        return await self._run_digest_pipeline(posts, result, correlation_id, lang, started_at)
 
     async def _run_digest_pipeline(
         self,
@@ -155,8 +167,10 @@ class DigestService:
         result: DigestResult,
         correlation_id: str,
         lang: str,
+        started_at: float | None = None,
     ) -> DigestResult:
         """Shared pipeline: analyze, filter, format, deliver, persist."""
+        started_at = started_at if started_at is not None else time.monotonic()
         user_id = result.user_id
 
         # 2. Analyze posts
@@ -165,14 +179,18 @@ class DigestService:
         except Exception as e:
             logger.exception("digest_analysis_failed", extra={"cid": correlation_id})
             result.errors.append(f"Analysis failed: {e}")
+            record_digest_posts_analyzed("llm_error", count=len(posts))
+            _record_digest_outcome(result, "failed", started_at)
             return result
 
         if not analyzed:
+            record_digest_posts_analyzed("skipped", count=len(posts))
             await self._send_info_message_or_record_error(
                 user_id,
                 "\u041f\u043e\u0441\u0442\u044b \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u044b, \u043d\u043e \u0430\u043d\u0430\u043b\u0438\u0437 \u043d\u0435 \u0434\u0430\u043b \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432.",
                 result,
             )
+            _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
 
         # 2b. Filter out ads and announcements
@@ -192,6 +210,7 @@ class DigestService:
                     "remaining": len(analyzed),
                 },
             )
+            record_digest_posts_analyzed("skipped", count=filtered_count)
 
         if not analyzed:
             await self._send_info_message_or_record_error(
@@ -199,6 +218,7 @@ class DigestService:
                 "\u0412\u0441\u0435 \u043f\u043e\u0441\u0442\u044b \u043e\u0442\u0444\u0438\u043b\u044c\u0442\u0440\u043e\u0432\u0430\u043d\u044b (\u0440\u0435\u043a\u043b\u0430\u043c\u0430/\u0430\u043d\u043e\u043d\u0441\u044b). \u041d\u0435\u0447\u0435\u0433\u043e \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c.",
                 result,
             )
+            _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
 
         # 2c. Cross-channel deduplication by fuzzy topic matching
@@ -210,6 +230,7 @@ class DigestService:
                 "digest_dedup_dropped",
                 extra={"cid": correlation_id, "dropped": dedup_dropped},
             )
+            record_digest_posts_analyzed("skipped", count=dedup_dropped)
 
         # 2d. Filter by minimum relevance score
         min_rel = self._cfg.digest.min_relevance_score
@@ -225,6 +246,7 @@ class DigestService:
                     "threshold": min_rel,
                 },
             )
+            record_digest_posts_analyzed("skipped", count=rel_dropped)
 
         if not analyzed:
             await self._send_info_message_or_record_error(
@@ -232,7 +254,10 @@ class DigestService:
                 "\u0412\u0441\u0435 \u043f\u043e\u0441\u0442\u044b \u043e\u0442\u0444\u0438\u043b\u044c\u0442\u0440\u043e\u0432\u0430\u043d\u044b (\u0440\u0435\u043a\u043b\u0430\u043c\u0430, \u0434\u0443\u0431\u043b\u0438 \u0438\u043b\u0438 \u043d\u0438\u0437\u043a\u0430\u044f \u0440\u0435\u043b\u0435\u0432\u0430\u043d\u0442\u043d\u043e\u0441\u0442\u044c).",
                 result,
             )
+            _record_digest_outcome(result, "failed" if result.errors else "empty", started_at)
             return result
+
+        record_digest_posts_analyzed("ok", count=len(analyzed))
 
         # 3. Format digest
         message_chunks = self._formatter.format_digest(analyzed)
@@ -290,6 +315,8 @@ class DigestService:
                 "type": result.digest_type,
             },
         )
+        status = "sent" if result.messages_sent > 0 and not result.errors else "failed"
+        _record_digest_outcome(result, status, started_at)
         return result
 
     async def _send_info_message_or_record_error(
@@ -391,6 +418,15 @@ def _topic_bucket_keys(topic: str) -> set[str]:
         if len(token) >= 4:
             keys.add(f"token:{token}")
     return keys
+
+
+def _record_digest_outcome(result: DigestResult, status: str, started_at: float) -> None:
+    record_digest_delivery(status)
+    record_digest_pipeline_duration(
+        digest_type=result.digest_type,
+        status=status,
+        duration_seconds=time.monotonic() - started_at,
+    )
 
 
 def _build_inline_keyboard(

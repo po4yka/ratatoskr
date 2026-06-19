@@ -15,6 +15,7 @@ from app.adapters.digest.digest_service import (
 from app.adapters.digest.formatter import DigestFormatter
 from app.config import AppConfig
 from app.infrastructure.persistence.digest_store import DigestStore
+from app.observability import metrics
 
 
 class _Reader(ChannelReader):
@@ -255,6 +256,91 @@ async def test_run_digest_pipeline_records_analysis_send_and_persist_errors() ->
     result = await subject.generate_digest(10, "cid")
     assert sender.messages
     assert result.errors == ["Delivery record not saved: db failed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not metrics.PROMETHEUS_AVAILABLE, reason="prometheus_client not installed")
+async def test_generate_digest_records_success_path_metrics() -> None:
+    registry = metrics.REGISTRY
+    assert registry is not None
+    before_deliveries = (
+        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "sent"}) or 0.0
+    )
+    before_posts = (
+        registry.get_sample_value("ratatoskr_digest_posts_analyzed_total", {"status": "ok"})
+        or 0.0
+    )
+
+    subject, _sender, _store = _service(
+        reader=_Reader(posts=[{"message_id": 1}]),
+        analyzer=_Analyzer(
+            [
+                {
+                    "message_id": 1,
+                    "real_topic": "Topic",
+                    "relevance_score": 0.9,
+                    "_channel_username": "news",
+                    "content_type": "news",
+                }
+            ]
+        ),
+    )
+
+    result = await subject.generate_digest(10, "cid", digest_type="scheduled")
+
+    assert result.errors == []
+    assert (
+        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "sent"}) or 0.0
+    ) - before_deliveries == pytest.approx(1.0)
+    assert (
+        registry.get_sample_value("ratatoskr_digest_posts_analyzed_total", {"status": "ok"})
+        or 0.0
+    ) - before_posts == pytest.approx(1.0)
+    assert (
+        registry.get_sample_value(
+            "ratatoskr_digest_pipeline_duration_seconds_count",
+            {"digest_type": "scheduled", "status": "sent"},
+        )
+        or 0.0
+    ) >= 1.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not metrics.PROMETHEUS_AVAILABLE, reason="prometheus_client not installed")
+async def test_generate_digest_records_llm_failure_metrics() -> None:
+    registry = metrics.REGISTRY
+    assert registry is not None
+    before_deliveries = (
+        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "failed"})
+        or 0.0
+    )
+    before_posts = (
+        registry.get_sample_value(
+            "ratatoskr_digest_posts_analyzed_total",
+            {"status": "llm_error"},
+        )
+        or 0.0
+    )
+
+    subject, _sender, _store = _service(
+        reader=_Reader(posts=[{"message_id": 1}]),
+        analyzer=_Analyzer(exc=RuntimeError("bad analysis")),
+    )
+
+    result = await subject.generate_digest(10, "cid")
+
+    assert result.errors == ["Analysis failed: bad analysis"]
+    assert (
+        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "failed"})
+        or 0.0
+    ) - before_deliveries == pytest.approx(1.0)
+    assert (
+        registry.get_sample_value(
+            "ratatoskr_digest_posts_analyzed_total",
+            {"status": "llm_error"},
+        )
+        or 0.0
+    ) - before_posts == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio
