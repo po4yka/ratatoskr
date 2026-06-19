@@ -92,6 +92,9 @@ class ScraplingProvider:
         self._async_session: Any = None
         # The FetcherSession context-manager object (kept so __aexit__ can close it).
         self._fetcher_session_ctx: Any = None
+        # Guards the lazy-init block in _ensure_async_session against concurrent
+        # coroutines racing to open a second session before the first is stored.
+        self._session_init_lock: asyncio.Lock = asyncio.Lock()
 
         # Cached stealth fetcher class reference (import once, reuse across calls).
         self._stealth_fetcher_cls: Any = None
@@ -193,28 +196,41 @@ class ScraplingProvider:
         Tries ``FetcherSession`` (scrapling>=0.4.7) first.  Falls back to the
         module-level ``AsyncFetcher`` singleton (which already pools connections
         internally via curl_cffi) if the import fails.
+
+        Thread-safety: the fast path (session already set) is lock-free.  The
+        slow path (first initialisation) is serialised by ``_session_init_lock``
+        with a double-checked inner guard so that only one coroutine ever enters
+        the ``FetcherSession.__aenter__`` call even under concurrent pressure.
         """
+        # Fast path: session already initialised — no lock needed.
         if self._async_session is not None:
             return self._async_session
 
-        try:
-            import importlib
-
-            mod = importlib.import_module("scrapling.fetchers.requests")
-            FetcherSession = getattr(mod, "FetcherSession", None)  # noqa: N806
-            if FetcherSession is not None:
-                ctx = FetcherSession()
-                session = await ctx.__aenter__()
-                self._fetcher_session_ctx = ctx
-                self._async_session = session
+        # Slow path: serialise concurrent initialisers with the instance lock.
+        async with self._session_init_lock:
+            # Re-check inside the lock: a concurrent coroutine may have
+            # completed initialisation while we were waiting to acquire it.
+            if self._async_session is not None:
                 return self._async_session
-        except Exception:
-            pass
 
-        # Fallback: module-level AsyncFetcher (already a connection-pooling singleton).
-        async_fetcher_cls = _lazy_import_async_fetcher()
-        self._async_session = async_fetcher_cls  # class itself; callers use .get(url)
-        return self._async_session
+            try:
+                import importlib
+
+                mod = importlib.import_module("scrapling.fetchers.requests")
+                FetcherSession = getattr(mod, "FetcherSession", None)  # noqa: N806
+                if FetcherSession is not None:
+                    ctx = FetcherSession()
+                    session = await ctx.__aenter__()
+                    self._fetcher_session_ctx = ctx
+                    self._async_session = session
+                    return self._async_session
+            except Exception:
+                pass
+
+            # Fallback: module-level AsyncFetcher (already a connection-pooling singleton).
+            async_fetcher_cls = _lazy_import_async_fetcher()
+            self._async_session = async_fetcher_cls  # class itself; callers use .get(url)
+            return self._async_session
 
     async def _fetch(self, url: str) -> tuple[str | None, str | None]:
         """Fetch URL using Scrapling, with optional stealth fallback."""
