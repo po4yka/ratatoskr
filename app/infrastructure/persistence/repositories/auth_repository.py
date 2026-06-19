@@ -400,17 +400,25 @@ class AuthRepositoryAdapter:
     async def async_update_client_secret(
         self,
         key_id: int,
+        owner_user_id: int | None = None,
         **fields: Any,
     ) -> None:
-        """Update a client secret by ID."""
+        """Update a client secret by ID.
+
+        When ``owner_user_id`` is provided the UPDATE includes a
+        ``ClientSecret.user_id == owner_user_id`` predicate so that a stale
+        or manipulated ``key_id`` cannot mutate a row owned by a different
+        user. Callers that know the owner should always pass it.
+        """
         allowed = set(ClientSecret.__table__.columns.keys()) - {"id", "user_id"}
         update_fields = {key: value for key, value in fields.items() if key in allowed}
         if not update_fields:
             return
         async with self._database.transaction() as session:
-            await session.execute(
-                update(ClientSecret).where(ClientSecret.id == key_id).values(**update_fields)
-            )
+            stmt = update(ClientSecret).where(ClientSecret.id == key_id)
+            if owner_user_id is not None:
+                stmt = stmt.where(ClientSecret.user_id == owner_user_id)
+            await session.execute(stmt.values(**update_fields))
 
     async def async_list_client_secrets(
         self,

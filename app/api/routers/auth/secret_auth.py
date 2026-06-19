@@ -183,7 +183,12 @@ async def check_expired(record: dict[str, Any]) -> None:
             )
         if expires_at < now:
             auth_repo = get_auth_repository()
-            await auth_repo.async_update_client_secret(record["id"], status="expired")
+            owner_user_id = record.get("user_id") or record.get("user")
+            await auth_repo.async_update_client_secret(
+                record["id"],
+                owner_user_id=int(owner_user_id) if owner_user_id is not None else None,
+                status="expired",
+            )
             raise AuthenticationError("Secret has expired")
 
 

@@ -110,7 +110,9 @@ async def revoke_user_library_feed_token(
     record = await auth_repo.async_get_client_secret(user["user_id"], RSS_FEED_CLIENT_ID)
     revoked = bool(record and record.get("status") == "active")
     if record and record.get("status") == "active":
-        await auth_repo.async_update_client_secret(record["id"], status="revoked")
+        await auth_repo.async_update_client_secret(
+            record["id"], owner_user_id=user["user_id"], status="revoked"
+        )
     return success_response({"revoked": revoked})
 
 
@@ -168,7 +170,9 @@ async def get_current_user_library_feed(
     if etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
 
-    await auth_repo.async_update_client_secret(secret_record["id"], last_used_at=_now())
+    await auth_repo.async_update_client_secret(
+        secret_record["id"], owner_user_id=user_id, last_used_at=_now()
+    )
     return Response(
         content=feed_xml,
         media_type="application/atom+xml; charset=utf-8",
@@ -295,7 +299,9 @@ def build_atom_feed(*, user_id: int, items: list[FeedSummary], self_url: str) ->
     """Build an Atom 1.0 feed document."""
     feed = ElementTree.Element(f"{{{ATOM_NS}}}feed")
     ElementTree.SubElement(feed, f"{{{ATOM_NS}}}title").text = "Ratatoskr saved summaries"
-    ElementTree.SubElement(feed, f"{{{ATOM_NS}}}id").text = f"tag:ratatoskr.local,2026:user-{user_id}-library"
+    ElementTree.SubElement(
+        feed, f"{{{ATOM_NS}}}id"
+    ).text = f"tag:ratatoskr.local,2026:user-{user_id}-library"
     self_link = ElementTree.SubElement(feed, f"{{{ATOM_NS}}}link")
     self_link.set("rel", "self")
     self_link.set("href", self_url)
@@ -305,7 +311,9 @@ def build_atom_feed(*, user_id: int, items: list[FeedSummary], self_url: str) ->
     for item in items:
         entry = ElementTree.SubElement(feed, f"{{{ATOM_NS}}}entry")
         ElementTree.SubElement(entry, f"{{{ATOM_NS}}}title").text = item.title
-        ElementTree.SubElement(entry, f"{{{ATOM_NS}}}id").text = f"tag:ratatoskr.local,2026:summary-{item.id}"
+        ElementTree.SubElement(
+            entry, f"{{{ATOM_NS}}}id"
+        ).text = f"tag:ratatoskr.local,2026:summary-{item.id}"
         if item.url:
             link = ElementTree.SubElement(entry, f"{{{ATOM_NS}}}link")
             link.set("href", item.url)

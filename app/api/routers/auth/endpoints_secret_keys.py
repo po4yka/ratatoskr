@@ -122,7 +122,9 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
             )
             raise AuthorizationError("Secret is temporarily locked")
         if locked_until_dt < now:
-            await auth_repo.async_update_client_secret(secret_record["id"], status="active")
+            await auth_repo.async_update_client_secret(
+                secret_record["id"], owner_user_id=login_data.user_id, status="active"
+            )
             await reset_failed_attempts(secret_record)
         else:
             logger.warning(
@@ -157,6 +159,7 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
     await reset_failed_attempts(secret_record)
     await auth_repo.async_update_client_secret(
         secret_record["id"],
+        owner_user_id=login_data.user_id,
         last_used_at=now,
         status="active",
     )
@@ -265,6 +268,7 @@ async def rotate_secret_key(
 
     await auth_repo.async_update_client_secret(
         key_id,
+        owner_user_id=record_user_id,
         secret_salt=new_salt,
         secret_hash=new_hash,
         status="active",
@@ -323,6 +327,7 @@ async def revoke_secret_key(
     if record.get("status") != "revoked":
         await auth_repo.async_update_client_secret(
             key_id,
+            owner_user_id=record_user_id,
             status="revoked",
             failed_attempts=0,
             locked_until=None,
