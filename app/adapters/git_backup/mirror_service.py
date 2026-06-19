@@ -7,12 +7,18 @@ Adapts Engine from gitout to Ratatoskr's async infrastructure:
 - Reports outcomes back to GitMirrorRepository.
 
 Credential handling for GitHub mirrors:
-    A short-lived git-credential-store file is written to a tempfile, injected into
-    the clone URL is NOT used (to avoid putting tokens in argv and process listings).
-    Instead the token is embedded in the https URL via the standard
-    https://x-access-token:<token>@github.com/... form and passed as the URL
-    argument to git.  The raw token is NEVER logged; only a redacted placeholder
-    is logged.  The URL is discarded immediately after the git call.
+    The decrypted GitHub token is stored in MirrorTask.credentials_token and is
+    NEVER embedded in the clone URL (to avoid exposing secrets in process argv and
+    system process listings visible via ``ps aux`` / ``/proc/<pid>/cmdline``).
+
+    For both clone and update operations a short-lived git-credential-store file
+    is written to a tempfile (mode 0o600), passed to git via ``-c
+    credential.helper=store --file=<path>``, and deleted in a finally block.
+    The bare (unauthenticated) clone URL is used as the argv URL argument for
+    clones; update operations read the remote URL from .git/config (also bare)
+    and resolve credentials via the helper at runtime.
+
+    The raw token is never logged; only a redacted placeholder is emitted.
 
 For manual/arbitrary mirrors the clone URL is used unauthenticated.
 """
@@ -24,12 +30,14 @@ import contextlib
 import logging
 import os
 import re
+import stat
+import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import urlparse
 
 from app.adapters.git_backup.circuit_breaker import StorageCircuitBreaker
 from app.adapters.git_backup.errors import (
@@ -79,18 +87,38 @@ def _redact_url(text: str) -> str:
     return _CREDENTIAL_RE.sub(r"\1***@", text)
 
 
-def _inject_token_into_url(clone_url: str, token: str) -> str:
-    """Return a URL with x-access-token:<token> credentials embedded.
+def _credential_store_line(clone_url: str, token: str) -> str:
+    """Return a single git-credential-store line for the given https URL and token.
 
-    Works for https://github.com/<owner>/<repo>.git URLs.  The token is
-    percent-encoded so special characters do not break URL parsing.
+    Format: ``https://x-access-token:<token>@<host>``
+
+    The git credential helper matches on scheme + host only, so the path
+    component is intentionally omitted.  Special characters in the token
+    are NOT percent-encoded here because git-credential-store treats the
+    line as a raw netrc-style entry, not a URL.
     """
     parsed = urlparse(clone_url)
-    encoded_token = quote(token, safe="")
-    netloc_with_creds = f"x-access-token:{encoded_token}@{parsed.hostname}"
+    host = parsed.hostname or "github.com"
     if parsed.port:
-        netloc_with_creds = f"{netloc_with_creds}:{parsed.port}"
-    return urlunparse(parsed._replace(netloc=netloc_with_creds))
+        host = f"{host}:{parsed.port}"
+    return f"https://x-access-token:{token}@{host}"
+
+
+def _write_credential_file(clone_url: str, token: str) -> str:
+    """Write a temporary git-credential-store file (mode 0o600).
+
+    Returns the path to the temp file.  The caller is responsible for
+    deleting it in a finally block.
+    """
+    line = _credential_store_line(clone_url, token)
+    fd, path = tempfile.mkstemp(prefix="ratatoskr-git-cred-", suffix=".store")
+    try:
+        # Restrict to owner-only before writing the secret.
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+        os.write(fd, (line + "\n").encode())
+    finally:
+        os.close(fd)
+    return path
 
 
 async def _default_git_runner(
@@ -117,7 +145,7 @@ class MirrorTask:
     """Internal work item for a single mirror operation."""
 
     mirror: GitMirror
-    # Effective clone URL (may have credentials injected for GitHub sources).
+    # Bare (unauthenticated) clone URL — safe to log and pass in argv.
     effective_url: str
     # Human-readable name for logs.
     name: str
@@ -126,6 +154,10 @@ class MirrorTask:
     # Per-task timeout override derived from the matching PriorityRule, or None
     # to fall back to the global GIT_BACKUP_REPO_TIMEOUT_SECONDS.
     timeout_seconds_override: int | None = None
+    # Decrypted GitHub PAT for authenticated clones.  Never embedded in the URL
+    # (to keep it out of process argv / ps listings); written to a short-lived
+    # 0600 credential-store file in _sync_one and deleted in a finally block.
+    credentials_token: str | None = None
 
 
 @dataclass(frozen=True)
@@ -251,6 +283,7 @@ def _apply_priority_rules(
                 destination=task.destination,
                 is_large_repo=task.is_large_repo,
                 timeout_seconds_override=tov,
+                credentials_token=task.credentials_token,
             )
         annotated.append((prio, task))
 
@@ -512,7 +545,7 @@ class GitMirrorService:
                     mirror.clone_url,
                 )
                 continue
-            effective_url = await self._resolve_url(mirror)
+            effective_url, credentials_token = await self._resolve_url(mirror)
             dest = self._mirror_destination(data_path, mirror)
             is_large = bool(mirror.size_kb and mirror.size_kb >= threshold_kb)
             tasks.append(
@@ -522,6 +555,7 @@ class GitMirrorService:
                     name=name,
                     destination=dest,
                     is_large_repo=is_large,
+                    credentials_token=credentials_token,
                 )
             )
 
@@ -617,12 +651,19 @@ class GitMirrorService:
 
         return data_path / "manual" / f"{safe_name}.git"
 
-    async def _resolve_url(self, mirror: GitMirror) -> str:
-        """Return the effective clone URL, injecting credentials for GitHub mirrors."""
-        if mirror.source != GitMirrorSource.GITHUB:
-            return mirror.clone_url
+    async def _resolve_url(self, mirror: GitMirror) -> tuple[str, str | None]:
+        """Return (bare_clone_url, credentials_token | None).
 
-        # Authoritative guard: only embed the GitHub token when the URL's real
+        The bare URL is always the original clone_url without any embedded
+        credentials so it is safe to pass as a git argv argument (no token in
+        process listings).  The decrypted token, when available, is returned
+        separately and written to a short-lived credential-store tempfile by
+        _sync_one immediately before the git subprocess is launched.
+        """
+        if mirror.source != GitMirrorSource.GITHUB:
+            return mirror.clone_url, None
+
+        # Authoritative guard: only fetch the GitHub token when the URL's real
         # parsed host is exactly github.com. Defends against a mirror row whose
         # clone_url uses a userinfo (github.com@evil.com) or lookalike
         # (github.com.evil.com) host that was misclassified as GITHUB, which
@@ -633,7 +674,7 @@ class GitMirrorService:
                 mirror.user_id,
                 mirror.id,
             )
-            return mirror.clone_url
+            return mirror.clone_url, None
 
         # Look up UserGitHubIntegration for this user.
         from sqlalchemy import select as sa_select
@@ -654,7 +695,7 @@ class GitMirrorService:
                 mirror.user_id,
                 mirror.id,
             )
-            return mirror.clone_url  # attempt unauthenticated
+            return mirror.clone_url, None  # attempt unauthenticated
 
         try:
             token = decrypt_secret(integration.encrypted_token)
@@ -664,9 +705,9 @@ class GitMirrorService:
                 mirror.user_id,
                 mirror.id,
             )
-            return mirror.clone_url
+            return mirror.clone_url, None
 
-        return _inject_token_into_url(mirror.clone_url, token)
+        return mirror.clone_url, token
 
     # ------------------------------------------------------------------
     # Single-repo sync
@@ -742,31 +783,49 @@ class GitMirrorService:
         db_http1_seed = bool(task.mirror.use_http1_fallback)
 
         async def operation(context: RetryContext) -> str:
-            argv = build_git_command(
-                repo_exists=not is_clone,
-                url=task.effective_url if is_clone else None,
-                repo_name=dest.name if is_clone else None,
-                git_executable=resolve_git_executable(),
-                verify_certificates=cfg.verify_certificates,
-                ssl_ca_info=cfg.ssl_ca_info,
-                http_version=cfg.http_version,
-                post_buffer_size=cfg.post_buffer_size,
-                low_speed_limit=cfg.low_speed_limit,
-                low_speed_time=cfg.low_speed_time,
-                single_branch_only=cfg.single_branch_only,
-                force_http1=db_http1_seed or context.should_use_http1_fallback,
-                use_shallow_clone=use_shallow,
-                show_progress=task.is_large_repo or context.is_retry,
-                disable_redirects=True,
-            )
-            code, output = await self._git_runner(argv, cwd, timeout)
-            if code != 0:
-                # Redact before raising: git stderr commonly echoes the remote
-                # URL, which carries the injected x-access-token credential.
-                raise RuntimeError(
-                    _redact_url(output) if output else f"git exited with code {code}"
+            # For authenticated GitHub mirrors, write a short-lived
+            # git-credential-store file (mode 0o600) so the token never
+            # appears in the git argv / process listing.  Applies to both
+            # clone (new repo) and update (existing repo) operations because
+            # the remote URL stored in .git/config is the bare unauthenticated
+            # URL; git resolves credentials via the helper at operation time.
+            # The file is deleted in the finally block regardless of outcome.
+            credentials_path: str | None = None
+            if task.credentials_token:
+                credentials_path = await asyncio.to_thread(
+                    _write_credential_file,
+                    task.effective_url,
+                    task.credentials_token,
                 )
-            return output
+            try:
+                argv = build_git_command(
+                    repo_exists=not is_clone,
+                    url=task.effective_url if is_clone else None,
+                    repo_name=dest.name if is_clone else None,
+                    git_executable=resolve_git_executable(),
+                    verify_certificates=cfg.verify_certificates,
+                    ssl_ca_info=cfg.ssl_ca_info,
+                    http_version=cfg.http_version,
+                    post_buffer_size=cfg.post_buffer_size,
+                    low_speed_limit=cfg.low_speed_limit,
+                    low_speed_time=cfg.low_speed_time,
+                    credentials_path=credentials_path,
+                    single_branch_only=cfg.single_branch_only,
+                    force_http1=db_http1_seed or context.should_use_http1_fallback,
+                    use_shallow_clone=use_shallow,
+                    show_progress=task.is_large_repo or context.is_retry,
+                    disable_redirects=True,
+                )
+                code, output = await self._git_runner(argv, cwd, timeout)
+                if code != 0:
+                    raise RuntimeError(
+                        _redact_url(output) if output else f"git exited with code {code}"
+                    )
+                return output
+            finally:
+                if credentials_path is not None:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.unlink(credentials_path)
 
         async def run_with_retry() -> MirrorOutcome:
             try:
