@@ -20,7 +20,7 @@ from app.api.models.requests import (
 from app.api.routers import collections
 from app.api.routers.content import summaries
 from app.api.routers.user import tags
-from app.api.services import collection_service
+from app.api.services.collection_service import CollectionService
 from app.core.time_utils import UTC
 
 
@@ -116,21 +116,20 @@ class _CollectionRepo:
         return [summary_id for summary_id in summary_ids if summary_id in existing]
 
 
-def _use_collection_repo(monkeypatch: pytest.MonkeyPatch, repo: _CollectionRepo) -> None:
-    monkeypatch.setattr(collection_service, "_repo_factory_holder", [lambda: repo])
+def _collection_service(repo: _CollectionRepo) -> CollectionService:
+    return CollectionService(lambda: repo)
 
 
 @pytest.mark.asyncio
-async def test_collection_move_items_skips_absent_ids_and_dedupes_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_collection_move_items_skips_absent_ids_and_dedupes_response() -> None:
     repo = _CollectionRepo()
-    _use_collection_repo(monkeypatch, repo)
+    service = _collection_service(repo)
 
     response = await collections.move_collection_items(
         collection_id=10,
         body=CollectionItemMoveRequest(summary_ids=[101, 101, 999], target_collection_id=11),
         user={"user_id": 8101},
+        service=service,
     )
 
     assert response["data"] == {"movedSummaryIds": [101]}
@@ -138,16 +137,15 @@ async def test_collection_move_items_skips_absent_ids_and_dedupes_response(
 
 
 @pytest.mark.asyncio
-async def test_collection_move_items_skips_all_ids_absent_from_source(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_collection_move_items_skips_all_ids_absent_from_source() -> None:
     repo = _CollectionRepo()
-    _use_collection_repo(monkeypatch, repo)
+    service = _collection_service(repo)
 
     response = await collections.move_collection_items(
         collection_id=10,
         body=CollectionItemMoveRequest(summary_ids=[999, 1000], target_collection_id=11),
         user={"user_id": 8101},
+        service=service,
     )
 
     assert response["data"] == {"movedSummaryIds": []}
@@ -155,11 +153,9 @@ async def test_collection_move_items_skips_all_ids_absent_from_source(
 
 
 @pytest.mark.asyncio
-async def test_collection_reorder_items_errors_on_ids_not_in_owned_collection(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_collection_reorder_items_errors_on_ids_not_in_owned_collection() -> None:
     repo = _CollectionRepo()
-    _use_collection_repo(monkeypatch, repo)
+    service = _collection_service(repo)
 
     with pytest.raises(ResourceNotFoundError):
         await collections.reorder_collection_items(
@@ -171,17 +167,16 @@ async def test_collection_reorder_items_errors_on_ids_not_in_owned_collection(
                 ]
             ),
             user={"user_id": 8101},
+            service=service,
         )
 
     repo.async_reorder_items.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_collection_reorder_items_dedupes_owned_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_collection_reorder_items_dedupes_owned_ids() -> None:
     repo = _CollectionRepo()
-    _use_collection_repo(monkeypatch, repo)
+    service = _collection_service(repo)
 
     await collections.reorder_collection_items(
         collection_id=10,
@@ -192,17 +187,16 @@ async def test_collection_reorder_items_dedupes_owned_ids(
             ]
         ),
         user={"user_id": 8101},
+        service=service,
     )
 
     repo.async_reorder_items.assert_awaited_once_with(10, [{"summary_id": 101, "position": 1}])
 
 
 @pytest.mark.asyncio
-async def test_collection_reorder_collections_rejects_cross_user_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_collection_reorder_collections_rejects_cross_user_ids() -> None:
     repo = _CollectionRepo()
-    _use_collection_repo(monkeypatch, repo)
+    service = _collection_service(repo)
 
     with pytest.raises(AuthorizationError):
         await collections.reorder_collections(
@@ -214,17 +208,16 @@ async def test_collection_reorder_collections_rejects_cross_user_ids(
                 ]
             ),
             user={"user_id": 8101},
+            service=service,
         )
 
     repo.async_reorder_collections.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_collection_reorder_collections_dedupes_owned_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_collection_reorder_collections_dedupes_owned_ids() -> None:
     repo = _CollectionRepo()
-    _use_collection_repo(monkeypatch, repo)
+    service = _collection_service(repo)
 
     await collections.reorder_collections(
         collection_id=10,
@@ -235,6 +228,7 @@ async def test_collection_reorder_collections_dedupes_owned_ids(
             ]
         ),
         user={"user_id": 8101},
+        service=service,
     )
 
     repo.async_reorder_collections.assert_awaited_once_with(

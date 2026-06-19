@@ -111,20 +111,11 @@ async def db(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def collection_service():
-    """Configure CollectionService repo factory for every API test.
-
-    Wires up the module-level repo factory so any router/service path that
-    reaches into ``CollectionService`` finds a factory. The factory itself
-    resolves the active session manager lazily, so this fixture
-    intentionally does *not* depend on the ``db`` fixture -- forcing
-    ``db`` here would change the env-var setup order for tests that
-    bring their own database (e.g., ``tests/api/test_secret_login.py``).
-    """
+    """Build the collection service with the lazily resolved test repository."""
     from app.api.dependencies.database import get_collection_repository
     from app.api.services.collection_service import CollectionService
 
-    CollectionService.configure(get_collection_repository)
-    return CollectionService
+    return CollectionService(get_collection_repository)
 
 
 @pytest.fixture

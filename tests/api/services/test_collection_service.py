@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.api.exceptions import ResourceNotFoundError
-from app.api.services.collection_service import CollectionService
 from app.db.models import Collection, CollectionCollaborator, CollectionItem
 
 
@@ -15,21 +14,21 @@ async def test_collection_service_creates_lists_builds_tree_and_reorders(
 ) -> None:
     owner = user_factory(username="collection-owner", telegram_user_id=6001)
 
-    root = await CollectionService.create_collection(
+    root = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Root",
         description=None,
         parent_id=None,
         position=None,
     )
-    child = await CollectionService.create_collection(
+    child = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Child",
         description="Nested child",
         parent_id=root["id"],
         position=None,
     )
-    second_root = await CollectionService.create_collection(
+    second_root = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Second Root",
         description=None,
@@ -37,16 +36,16 @@ async def test_collection_service_creates_lists_builds_tree_and_reorders(
         position=None,
     )
 
-    listed = await CollectionService.list_collections(
+    listed = await collection_service.list_collections(
         owner.telegram_user_id, None, limit=10, offset=0
     )
     assert {item["name"] for item in listed} == {"Root", "Second Root"}
 
-    tree = await CollectionService.get_tree(owner.telegram_user_id)
+    tree = await collection_service.get_tree(owner.telegram_user_id)
     root_tree = next(item for item in tree if item["name"] == "Root")
     assert root_tree["_children"][0]["id"] == child["id"]
 
-    authorized = await CollectionService.get_collection_with_auth(
+    authorized = await collection_service.get_collection_with_auth(
         root["id"],
         owner.telegram_user_id,
         "viewer",
@@ -57,7 +56,7 @@ async def test_collection_service_creates_lists_builds_tree_and_reorders(
         "app.infrastructure.persistence.repositories.collection_repository.CollectionRepositoryAdapter.async_reorder_collections",
         new=AsyncMock(),
     ) as reorder:
-        await CollectionService.reorder_collections(
+        await collection_service.reorder_collections(
             None,
             owner.telegram_user_id,
             [
@@ -80,21 +79,21 @@ async def test_collection_service_updates_moves_and_soft_deletes(
     db, user_factory, collection_service
 ) -> None:
     owner = user_factory(username="collection-editor", telegram_user_id=6002)
-    parent_a = await CollectionService.create_collection(
+    parent_a = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Parent A",
         description=None,
         parent_id=None,
         position=None,
     )
-    parent_b = await CollectionService.create_collection(
+    parent_b = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Parent B",
         description=None,
         parent_id=None,
         position=None,
     )
-    child = await CollectionService.create_collection(
+    child = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Child To Move",
         description=None,
@@ -102,7 +101,7 @@ async def test_collection_service_updates_moves_and_soft_deletes(
         position=None,
     )
 
-    updated = await CollectionService.update_collection(
+    updated = await collection_service.update_collection(
         collection_id=child["id"],
         user_id=owner.telegram_user_id,
         name="Renamed Child",
@@ -114,7 +113,7 @@ async def test_collection_service_updates_moves_and_soft_deletes(
     assert updated["description"] == "Updated description"
 
     with pytest.raises(ValueError, match="own parent"):
-        await CollectionService.update_collection(
+        await collection_service.update_collection(
             collection_id=child["id"],
             user_id=owner.telegram_user_id,
             name=None,
@@ -122,7 +121,7 @@ async def test_collection_service_updates_moves_and_soft_deletes(
             parent_id=child["id"],
         )
 
-    moved = await CollectionService.move_collection(
+    moved = await collection_service.move_collection(
         child["id"],
         owner.telegram_user_id,
         parent_id=None,
@@ -131,7 +130,7 @@ async def test_collection_service_updates_moves_and_soft_deletes(
     assert moved["parent"] is None
     assert moved["position"] == 1
 
-    await CollectionService.delete_collection(child["id"], owner.telegram_user_id)
+    await collection_service.delete_collection(child["id"], owner.telegram_user_id)
     assert Collection.get_by_id(child["id"]).is_deleted is True  # type: ignore[attr-defined]
 
 
@@ -140,16 +139,17 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
     db,
     user_factory,
     summary_factory,
+    collection_service,
 ) -> None:
     owner = user_factory(username="collection-items", telegram_user_id=6003)
-    source = await CollectionService.create_collection(
+    source = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Source Collection",
         description=None,
         parent_id=None,
         position=None,
     )
-    target = await CollectionService.create_collection(
+    target = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Target Collection",
         description=None,
@@ -159,13 +159,13 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
     summary_a = summary_factory(user=owner)
     summary_b = summary_factory(user=owner)
 
-    await CollectionService.add_item(source["id"], summary_a.id, owner.telegram_user_id)
-    await CollectionService.add_item(source["id"], summary_b.id, owner.telegram_user_id)
+    await collection_service.add_item(source["id"], summary_a.id, owner.telegram_user_id)
+    await collection_service.add_item(source["id"], summary_b.id, owner.telegram_user_id)
 
     with pytest.raises(ResourceNotFoundError):
-        await CollectionService.add_item(source["id"], 999999, owner.telegram_user_id)
+        await collection_service.add_item(source["id"], 999999, owner.telegram_user_id)
 
-    items = await CollectionService.list_items(
+    items = await collection_service.list_items(
         source["id"], owner.telegram_user_id, limit=10, offset=0
     )
     assert len(items) == 2
@@ -174,7 +174,7 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
         "app.infrastructure.persistence.repositories.collection_repository.CollectionRepositoryAdapter.async_reorder_items",
         new=AsyncMock(),
     ) as reorder:
-        await CollectionService.reorder_items(
+        await collection_service.reorder_items(
             source["id"],
             owner.telegram_user_id,
             [
@@ -191,7 +191,7 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
         ],
     )
 
-    moved = await CollectionService.move_items(
+    moved = await collection_service.move_items(
         source["id"],
         owner.telegram_user_id,
         [summary_a.id],
@@ -208,7 +208,7 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
         .exists()
     )
 
-    await CollectionService.remove_item(target["id"], summary_a.id, owner.telegram_user_id)
+    await collection_service.remove_item(target["id"], summary_a.id, owner.telegram_user_id)
     assert (
         not CollectionItem.select()  # type: ignore[attr-defined]
         .where(
@@ -224,10 +224,11 @@ async def test_collection_service_rejects_cross_user_summary_ids(
     db,
     user_factory,
     summary_factory,
+    collection_service,
 ) -> None:
     owner = user_factory(username="collection-owner-summary", telegram_user_id=6101)
     other = user_factory(username="collection-other-summary", telegram_user_id=6102)
-    collection = await CollectionService.create_collection(
+    collection = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Owned Collection",
         description=None,
@@ -237,7 +238,7 @@ async def test_collection_service_rejects_cross_user_summary_ids(
     other_summary = summary_factory(user=other)
 
     with pytest.raises(ResourceNotFoundError):
-        await CollectionService.add_item(
+        await collection_service.add_item(
             collection["id"],
             other_summary.id,
             owner.telegram_user_id,
@@ -258,16 +259,17 @@ async def test_collection_service_move_items_skips_ids_not_in_source_collection(
     db,
     user_factory,
     summary_factory,
+    collection_service,
 ) -> None:
     owner = user_factory(username="collection-move-absent", telegram_user_id=6103)
-    source = await CollectionService.create_collection(
+    source = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Move Source",
         description=None,
         parent_id=None,
         position=None,
     )
-    target = await CollectionService.create_collection(
+    target = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Move Target",
         description=None,
@@ -276,7 +278,7 @@ async def test_collection_service_move_items_skips_ids_not_in_source_collection(
     )
     absent_summary = summary_factory(user=owner)
 
-    moved = await CollectionService.move_items(
+    moved = await collection_service.move_items(
         source["id"],
         owner.telegram_user_id,
         [absent_summary.id],
@@ -302,7 +304,7 @@ async def test_collection_service_collaborators_acl_and_invites(
     owner = user_factory(username="collection-owner-acl", telegram_user_id=6004)
     collaborator = user_factory(username="collection-editor-acl", telegram_user_id=6005)
     invitee = user_factory(username="collection-invitee-acl", telegram_user_id=6006)
-    collection = await CollectionService.create_collection(
+    collection = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Shared Collection",
         description=None,
@@ -310,14 +312,14 @@ async def test_collection_service_collaborators_acl_and_invites(
         position=None,
     )
 
-    await CollectionService.add_collaborator(
+    await collection_service.add_collaborator(
         collection["id"],
         owner.telegram_user_id,
         collaborator.telegram_user_id,
         "editor",
     )
 
-    acl = await CollectionService.list_acl(collection["id"], owner.telegram_user_id)
+    acl = await collection_service.list_acl(collection["id"], owner.telegram_user_id)
     roles = {entry["role"] for entry in acl}
     assert roles == {"owner", "editor"}
     assert (
@@ -329,7 +331,7 @@ async def test_collection_service_collaborators_acl_and_invites(
         .exists()
     )
 
-    await CollectionService.remove_collaborator(
+    await collection_service.remove_collaborator(
         collection["id"],
         owner.telegram_user_id,
         collaborator.telegram_user_id,
@@ -343,14 +345,14 @@ async def test_collection_service_collaborators_acl_and_invites(
         .exists()
     )
 
-    invite = await CollectionService.create_invite(
+    invite = await collection_service.create_invite(
         collection["id"],
         owner.telegram_user_id,
         "viewer",
         expires_at=None,
         recipient_user_id=invitee.telegram_user_id,
     )
-    incoming = await CollectionService.list_incoming_invites(
+    incoming = await collection_service.list_incoming_invites(
         invitee.telegram_user_id,
         limit=10,
         offset=0,
@@ -358,11 +360,11 @@ async def test_collection_service_collaborators_acl_and_invites(
     assert [item["token"] for item in incoming] == [invite["token"]]
 
     with pytest.raises(ResourceNotFoundError):
-        await CollectionService.accept_invite(invite["token"], collaborator.telegram_user_id)
+        await collection_service.accept_invite(invite["token"], collaborator.telegram_user_id)
 
-    await CollectionService.accept_invite(invite["token"], invitee.telegram_user_id)
+    await collection_service.accept_invite(invite["token"], invitee.telegram_user_id)
 
-    invited_access = await CollectionService.get_collection_with_auth(
+    invited_access = await collection_service.get_collection_with_auth(
         collection["id"],
         invitee.telegram_user_id,
         "viewer",
@@ -370,4 +372,4 @@ async def test_collection_service_collaborators_acl_and_invites(
     assert invited_access["id"] == collection["id"]
 
     with pytest.raises(ResourceNotFoundError):
-        await CollectionService.accept_invite("missing-token", invitee.telegram_user_id)
+        await collection_service.accept_invite("missing-token", invitee.telegram_user_id)

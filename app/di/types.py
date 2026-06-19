@@ -121,6 +121,7 @@ class ApiRuntime:
     summary_read_model_use_case: Any
     search_read_model_use_case: Any
     request_service: Any
+    collection_service: Any
     sync_service: Any
     social_auth_service: Any
     repository_service: Any = None

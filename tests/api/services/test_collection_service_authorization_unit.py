@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Generator
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.api.exceptions import ResourceNotFoundError
-from app.api.services import collection_service as collection_service_module
 from app.api.services.collection_service import CollectionService
 
 
@@ -24,24 +22,24 @@ class _FakeCollectionRepository:
 
 
 @pytest.fixture
-def fake_collection_repo() -> Generator[_FakeCollectionRepository]:
-    repo = _FakeCollectionRepository()
-    previous = collection_service_module._repo_factory_holder[0]
-    CollectionService.configure(lambda: repo)
-    try:
-        yield repo
-    finally:
-        collection_service_module._repo_factory_holder[0] = previous
+def fake_collection_repo() -> _FakeCollectionRepository:
+    return _FakeCollectionRepository()
+
+
+@pytest.fixture
+def collection_service(fake_collection_repo: _FakeCollectionRepository) -> CollectionService:
+    return CollectionService(lambda: fake_collection_repo)
 
 
 @pytest.mark.asyncio
 async def test_add_item_rejects_summary_not_owned_by_actor(
     fake_collection_repo: _FakeCollectionRepository,
+    collection_service: CollectionService,
 ) -> None:
     fake_collection_repo.async_summary_belongs_to_user.return_value = False
 
     with pytest.raises(ResourceNotFoundError):
-        await CollectionService.add_item(collection_id=10, summary_id=55, user_id=1001)
+        await collection_service.add_item(collection_id=10, summary_id=55, user_id=1001)
 
     fake_collection_repo.async_summary_belongs_to_user.assert_awaited_once_with(55, 1001)
     fake_collection_repo.async_add_item.assert_not_awaited()
@@ -50,11 +48,12 @@ async def test_add_item_rejects_summary_not_owned_by_actor(
 @pytest.mark.asyncio
 async def test_move_items_passes_only_ids_present_in_source_collection(
     fake_collection_repo: _FakeCollectionRepository,
+    collection_service: CollectionService,
 ) -> None:
     fake_collection_repo.async_list_item_summary_ids.return_value = [11]
     fake_collection_repo.async_move_items.return_value = [11]
 
-    moved = await CollectionService.move_items(
+    moved = await collection_service.move_items(
         source_collection_id=10,
         user_id=1001,
         summary_ids=[11, 12],
@@ -70,10 +69,11 @@ async def test_move_items_passes_only_ids_present_in_source_collection(
 @pytest.mark.asyncio
 async def test_move_items_returns_empty_when_no_ids_are_in_source_collection(
     fake_collection_repo: _FakeCollectionRepository,
+    collection_service: CollectionService,
 ) -> None:
     fake_collection_repo.async_list_item_summary_ids.return_value = []
 
-    moved = await CollectionService.move_items(
+    moved = await collection_service.move_items(
         source_collection_id=10,
         user_id=1001,
         summary_ids=[12],

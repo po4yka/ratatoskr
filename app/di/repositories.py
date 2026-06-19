@@ -17,6 +17,9 @@ from app.infrastructure.persistence.repositories.batch_session_repository import
 from app.infrastructure.persistence.repositories.crawl_result_repository import (
     CrawlResultRepositoryAdapter,
 )
+from app.infrastructure.persistence.repositories.collection_repository import (
+    CollectionRepositoryAdapter,
+)
 from app.infrastructure.persistence.repositories.embedding_repository import (
     EmbeddingRepositoryAdapter,
 )
@@ -102,6 +105,10 @@ def build_llm_repository(db: Database) -> LLMRepositoryPort:
 
 def build_crawl_result_repository(db: Database) -> CrawlResultRepositoryPort:
     return CrawlResultRepositoryAdapter(db)
+
+
+def build_collection_repository(db: Database) -> Any:
+    return CollectionRepositoryAdapter(db)
 
 
 def build_video_download_repository(db: Database) -> VideoDownloadRepositoryPort:

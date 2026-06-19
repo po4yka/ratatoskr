@@ -3,9 +3,9 @@ Collections management endpoints.
 """
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.exceptions import ValidationError
 from app.api.models.requests import (
@@ -41,6 +41,12 @@ from app.core.logging_utils import get_logger
 logger = get_logger(__name__)
 router = APIRouter()
 CollectionMembership = Literal["any", "owned", "shared"]
+
+
+def get_collection_service(request: Request) -> CollectionService:
+    from app.di.api import resolve_api_runtime
+
+    return cast("CollectionService", resolve_api_runtime(request).collection_service)
 
 
 def _build_collection_response(c: dict[str, Any]) -> CollectionResponse:
@@ -87,6 +93,7 @@ async def get_collections(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """List collections for the current user (and collaborations) under a parent."""
     if not isinstance(parent_id, (int, type(None))):
@@ -95,7 +102,7 @@ async def get_collections(
         limit = 20
     if not isinstance(offset, int):
         offset = 0
-    collections = await CollectionService.list_collections(
+    collections = await service.list_collections(
         user_id=user["user_id"],
         parent_id=parent_id,
         limit=limit,
@@ -120,9 +127,10 @@ async def list_incoming_collection_invites(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """List pending collection invites addressed to the current user."""
-    invites = await CollectionService.list_incoming_invites(
+    invites = await service.list_incoming_invites(
         user_id=user["user_id"],
         limit=limit,
         offset=offset,
@@ -144,10 +152,11 @@ async def list_incoming_collection_invites(
 async def create_collection(
     body: CollectionCreateRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """Create a new collection."""
     try:
-        collection = await CollectionService.create_collection(
+        collection = await service.create_collection(
             user_id=user["user_id"],
             name=body.name,
             description=body.description,
@@ -167,11 +176,10 @@ async def create_collection(
 async def get_collection(
     collection_id: int,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """Get collection details."""
-    collection = await CollectionService.get_collection_with_auth(
-        collection_id, user["user_id"], "viewer"
-    )
+    collection = await service.get_collection_with_auth(collection_id, user["user_id"], "viewer")
 
     return success_response(_build_collection_response(collection))
 
@@ -181,10 +189,11 @@ async def update_collection(
     collection_id: int,
     body: CollectionUpdateRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """Update a collection."""
     try:
-        collection = await CollectionService.update_collection(
+        collection = await service.update_collection(
             collection_id=collection_id,
             user_id=user["user_id"],
             name=body.name,
@@ -204,9 +213,10 @@ async def update_collection(
 async def delete_collection(
     collection_id: int,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """Delete a collection (soft delete)."""
-    await CollectionService.delete_collection(collection_id, user["user_id"])
+    await service.delete_collection(collection_id, user["user_id"])
     return success_response({"success": True})
 
 
@@ -215,9 +225,10 @@ async def add_collection_item(
     collection_id: int,
     body: CollectionItemCreateRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """Add a summary to a collection."""
-    await CollectionService.add_item(collection_id, body.summary_id, user["user_id"])
+    await service.add_item(collection_id, body.summary_id, user["user_id"])
     return success_response({"success": True})
 
 
@@ -227,8 +238,9 @@ async def list_collection_items(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    items = await CollectionService.list_items(collection_id, user["user_id"], limit, offset)
+    items = await service.list_items(collection_id, user["user_id"], limit, offset)
     payload = [
         CollectionItem(
             collection_id=item.get("collection_id") or item.get("collection"),
@@ -254,8 +266,9 @@ async def reorder_collection_items(
     collection_id: int,
     body: CollectionItemReorderRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    await CollectionService.reorder_items(
+    await service.reorder_items(
         collection_id,
         user["user_id"],
         [item.model_dump() for item in body.items],
@@ -268,8 +281,9 @@ async def move_collection_items(
     collection_id: int,
     body: CollectionItemMoveRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    moved = await CollectionService.move_items(
+    moved = await service.move_items(
         source_collection_id=collection_id,
         user_id=user["user_id"],
         summary_ids=body.summary_ids,
@@ -284,9 +298,10 @@ async def remove_collection_item(
     collection_id: int,
     summary_id: int,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """Remove a summary from a collection."""
-    await CollectionService.remove_item(collection_id, summary_id, user["user_id"])
+    await service.remove_item(collection_id, summary_id, user["user_id"])
     return success_response({"success": True})
 
 
@@ -295,8 +310,9 @@ async def reorder_collections(
     collection_id: int,
     body: CollectionReorderRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    await CollectionService.reorder_collections(
+    await service.reorder_collections(
         parent_id=collection_id,
         user_id=user["user_id"],
         items=[item.model_dump() for item in body.items],
@@ -309,9 +325,10 @@ async def move_collection(
     collection_id: int,
     body: CollectionMoveRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     try:
-        moved = await CollectionService.move_collection(
+        moved = await service.move_collection(
             collection_id=collection_id,
             user_id=user["user_id"],
             parent_id=body.parent_id,
@@ -334,8 +351,9 @@ async def move_collection(
 async def get_collection_tree(
     max_depth: int = Query(3, ge=1, le=10),
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    tree = await CollectionService.get_tree(user_id=user["user_id"], max_depth=max_depth)
+    tree = await service.get_tree(user_id=user["user_id"], max_depth=max_depth)
 
     def to_response(col: dict[str, Any]) -> CollectionResponse:
         children = col.get("_children") or []
@@ -349,9 +367,11 @@ async def get_collection_tree(
 
 @router.get("/{collection_id}/acl")
 async def get_collection_acl(
-    collection_id: int, user: dict[str, Any] = Depends(get_current_user)
+    collection_id: int,
+    user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    acl = await CollectionService.list_acl(collection_id, user["user_id"])
+    acl = await service.list_acl(collection_id, user["user_id"])
     payload = []
     for entry in acl:
         # Get user_id from nested owner_user dict or direct user_id field
@@ -390,8 +410,9 @@ async def add_collection_collaborator(
     collection_id: int,
     body: CollectionShareRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    await CollectionService.add_collaborator(
+    await service.add_collaborator(
         collection_id=collection_id,
         user_id=user["user_id"],
         target_user_id=body.user_id,
@@ -405,8 +426,9 @@ async def remove_collection_collaborator(
     collection_id: int,
     target_user_id: int,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    await CollectionService.remove_collaborator(
+    await service.remove_collaborator(
         collection_id=collection_id, user_id=user["user_id"], target_user_id=target_user_id
     )
     return success_response({"success": True})
@@ -417,6 +439,7 @@ async def create_collection_invite(
     collection_id: int,
     body: CollectionInviteRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     expires = None
     if body.expires_at:
@@ -424,7 +447,7 @@ async def create_collection_invite(
             expires = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
         except ValueError:
             raise ValidationError("Invalid expires_at") from None
-    invite = await CollectionService.create_invite(
+    invite = await service.create_invite(
         collection_id=collection_id,
         user_id=user["user_id"],
         role=body.role,
@@ -440,8 +463,9 @@ async def create_collection_invite(
 async def accept_collection_invite(
     token: str,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
-    await CollectionService.accept_invite(token=token, user_id=user["user_id"])
+    await service.accept_invite(token=token, user_id=user["user_id"])
     return success_response({"success": True})
 
 
@@ -449,10 +473,11 @@ async def accept_collection_invite(
 async def evaluate_smart_collection(
     collection_id: int,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CollectionService = Depends(get_collection_service),
 ) -> Any:
     """Force re-evaluation of a smart collection's items."""
     try:
-        count = await CollectionService.evaluate_smart_collection(
+        count = await service.evaluate_smart_collection(
             collection_id=collection_id, user_id=user["user_id"]
         )
     except ValueError as err:

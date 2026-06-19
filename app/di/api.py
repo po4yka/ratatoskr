@@ -19,6 +19,7 @@ from app.api.services.sync import (
     SyncRecordCollector,
 )
 from app.api.services.sync_service import SyncService
+from app.api.services.collection_service import CollectionService
 from app.adapters.github.platform_extractor import GitHubPlatformExtractor
 from app.agents.repo_analysis_agent import RepoAnalysisAgent
 from app.application.services.repository_service import RepositoryService
@@ -38,6 +39,7 @@ from app.db.api_runtime_holder import (  # noqa: F401  - re-exported for back-co
 from app.di.database import build_runtime_database
 from app.di.repositories import (
     build_crawl_result_repository,
+    build_collection_repository,
     build_llm_repository,
     build_request_repository,
     build_rss_feed_repository,
@@ -241,6 +243,7 @@ async def build_api_runtime(
         llm_repository=llm_repository,
         progress_event_repository=progress_event_repository,
     )
+    collection_service = CollectionService(lambda: build_collection_repository(database))
     sync_serializer = SyncEnvelopeSerializer()
     sync_aux_reads = SyncAuxReadAdapter(database)
     sync_session_store = FallbackSyncSessionStore(
@@ -304,6 +307,7 @@ async def build_api_runtime(
         summary_read_model_use_case=summary_read_model_use_case,
         search_read_model_use_case=search_read_model_use_case,
         request_service=request_service,
+        collection_service=collection_service,
         sync_service=sync_service,
         social_auth_service=social_auth_service,
         repository_service=repository_service,
