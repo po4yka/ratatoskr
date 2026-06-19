@@ -265,7 +265,31 @@ class PlaywrightProvider:
 
             def _block_ssrf_route(route: object) -> None:
                 # Best-effort URL-level SSRF filter for browser-initiated requests.
-                # Does not close the DNS-rebinding window (browser DNS is opaque).
+                #
+                # LIMITATION -- DNS rebinding is not fully mitigated here.
+                # is_url_safe() resolves the hostname via Python's resolver and
+                # checks the returned IPs against BLOCKED_NETWORKS, but Chromium
+                # performs its own independent DNS resolution at TCP-connect time.
+                # A DNS rebinding attack can therefore return a public IP on the
+                # Python pre-check and a private IP (e.g. 169.254.169.254 AWS
+                # metadata, RFC1918) when Chromium actually connects -- there is
+                # no hook in the Playwright route API that exposes the final
+                # resolved IP to let us re-validate at connection time.
+                #
+                # What IS protected by this filter:
+                #   - IP-literal private/reserved addresses in the URL itself
+                #     (RFC1918, link-local, loopback, 169.254.x.x, multicast, etc.)
+                #   - Disallowed URL schemes (file://, data://, etc.)
+                #   - Hostnames whose DNS response is unambiguously private at
+                #     check time (e.g. internal hostnames that always resolve to
+                #     RFC1918 addresses)
+                #   - Subresource requests made by the page (images, scripts, XHR)
+                #     are each individually checked via this route handler
+                #
+                # Residual risk: a TTL=0 hostname that serves a public IP to our
+                # resolver and a private IP to the browser is not caught. Mitigate
+                # at the network layer (host firewall / egress policy) for a
+                # complete defence.
                 req_url: str = route.request.url  # type: ignore[attr-defined]
                 safe, reason = is_url_safe(req_url)
                 if not safe:
