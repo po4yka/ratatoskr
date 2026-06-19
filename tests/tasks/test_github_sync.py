@@ -296,6 +296,87 @@ async def test_rate_limited_user_increments_sync_metrics(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rate_limited_user_does_not_block_other_users_and_resumes_next_run(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.adapters.github.exceptions import GitHubRateLimitError
+    from app.tasks.github_sync import _sync_all
+
+    user_a = _make_integration(user_id=1001)
+    user_a.id = 1
+    user_a.last_sync_cursor = None
+    user_b = _make_integration(user_id=1002)
+    user_b.id = 2
+    user_b.last_sync_cursor = None
+    integrations_by_id = {1: user_a, 2: user_b}
+    processed: list[int] = []
+
+    class _TxnSession:
+        async def get(self, model, pk):
+            return integrations_by_id.get(pk)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    db = MagicMock()
+    db.transaction = MagicMock(side_effect=_TxnSession)
+
+    async def _fake_sync_one_integration(*, integration, **kwargs):
+        processed.append(integration.user_id)
+        if integration.user_id == user_a.user_id and processed.count(user_a.user_id) == 1:
+            raise GitHubRateLimitError(reset_epoch=1)
+        integration.last_sync_cursor = None
+        return (1, 0, 0, 1, 0)
+
+    with (
+        patch(
+            "app.tasks.github_sync._sync_one_integration", side_effect=_fake_sync_one_integration
+        ),
+        patch("app.tasks.github_sync.GITHUB_SYNC_RATE_LIMITED_TOTAL", _RecordingMetric()),
+        patch("app.tasks.github_sync.GITHUB_SYNC_RATE_LIMIT_STREAK", _RecordingMetric()),
+        patch("app.tasks.github_sync.GITHUB_SYNC_RUNS_TOTAL", _RecordingMetric()),
+        patch("app.tasks.github_sync.GITHUB_SYNC_REPOS_IMPORTED_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_SYNC_REPOS_UPDATED_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_SYNC_REPOS_UNSTARRED_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_SYNC_LLM_CALLS_TOTAL", None),
+        patch("app.tasks.github_sync.GITHUB_PENDING_ANALYSIS_BACKLOG", None),
+    ):
+        first = await _sync_all(
+            [user_a, user_b],
+            cfg=_build_cfg(),
+            db=db,
+            bot=None,
+            correlation_id="first-run",
+        )
+        assert first.users_processed == 2
+        assert first.repos_imported == 1
+        assert first.llm_calls_made == 1
+        assert first.errors_per_user == {user_a.user_id: "rate_limit reset=1"}
+        assert processed == [user_a.user_id, user_b.user_id]
+        assert user_a.last_sync_cursor is not None
+        assert user_b.last_sync_cursor is None
+
+        second = await _sync_all(
+            [user_a, user_b],
+            cfg=_build_cfg(),
+            db=db,
+            bot=None,
+            correlation_id="second-run",
+        )
+
+    assert second.users_processed == 2
+    assert second.errors_per_user == {}
+    assert second.repos_imported == 2
+    assert processed == [user_a.user_id, user_b.user_id, user_a.user_id, user_b.user_id]
+    assert user_a.last_sync_cursor is None
+
+
+@pytest.mark.asyncio
 async def test_sync_imports_new_starred_repos(monkeypatch):
     """3 new starred items → 3 Repository rows created; analyze called 3 times."""
     _stub_taskiq(monkeypatch)
