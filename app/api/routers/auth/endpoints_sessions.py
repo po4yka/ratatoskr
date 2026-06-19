@@ -129,7 +129,7 @@ async def refresh_access_token(
         clear_refresh_cookie(response)
         raise TokenInvalidError("Refresh token is missing family metadata")
 
-    family_rows = await auth_repo.async_get_family_records(family_id)
+    family_rows = await auth_repo.async_get_family_records(family_id, owner_user_id=user_id)
     # The presented token must be one of the family rows (it must contain
     # `family_id` and matching `token_hash`). Find it for the policy call.
     presented = next(
@@ -149,7 +149,7 @@ async def refresh_access_token(
     _record_token_family_decision_metric(decision.kind)
 
     if decision.kind is FamilyDecisionKind.REVOKE_FAMILY:
-        revoked_hashes = await auth_repo.async_revoke_family(family_id)
+        revoked_hashes = await auth_repo.async_revoke_family(family_id, owner_user_id=user_id)
         try:
             audit_repo = _get_audit_log_repository()
             await audit_repo.async_insert_audit_log(
@@ -344,7 +344,7 @@ async def logout_all(
     audit_repo = _get_audit_log_repository()
     revoked_count = 0
     for fid in family_ids:
-        hashes = await auth_repo.async_revoke_family(fid)
+        hashes = await auth_repo.async_revoke_family(fid, owner_user_id=user_id)
         revoked_count += len(hashes)
         try:
             await audit_repo.async_insert_audit_log(

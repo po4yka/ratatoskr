@@ -89,39 +89,53 @@ class AuthRepositoryAdapter:
 
         return token_id
 
-    async def async_get_family_records(self, family_id: str) -> list[dict[str, Any]]:
+    async def async_get_family_records(
+        self, family_id: str, owner_user_id: int | None = None
+    ) -> list[dict[str, Any]]:
         """Return every refresh-token row sharing ``family_id``.
 
         Always reads from the DB (no cache) so the policy sees a consistent
         snapshot — required to decide REVOKE_FAMILY vs ROTATE correctly under
         concurrent refresh.
+
+        When ``owner_user_id`` is provided the query includes a
+        ``RefreshToken.user_id == owner_user_id`` predicate so that a
+        manipulated ``family_id`` cannot expose another user's token rows.
+        Callers that know the authenticated user should always pass it.
         """
         async with self._database.session() as session:
-            rows = (
-                await session.execute(
-                    select(RefreshToken)
-                    .where(RefreshToken.family_id == family_id)
-                    .order_by(RefreshToken.id)
-                )
-            ).scalars()
+            stmt = select(RefreshToken).where(RefreshToken.family_id == family_id)
+            if owner_user_id is not None:
+                stmt = stmt.where(RefreshToken.user_id == owner_user_id)
+            rows = (await session.execute(stmt.order_by(RefreshToken.id))).scalars()
             return [_token_to_dict(row) or {} for row in rows]
 
-    async def async_revoke_family(self, family_id: str) -> list[str]:
+    async def async_revoke_family(
+        self, family_id: str, owner_user_id: int | None = None
+    ) -> list[str]:
         """Mark every token in ``family_id`` revoked.
 
         Returns the list of token hashes that flipped to revoked so the
         caller can invalidate the token cache. Already-revoked rows are
         not re-touched.
+
+        When ``owner_user_id`` is provided the UPDATE includes a
+        ``RefreshToken.user_id == owner_user_id`` predicate so that a
+        manipulated ``family_id`` cannot revoke another user's tokens.
+        Callers that know the authenticated user should always pass it.
         """
         async with self._database.transaction() as session:
+            conditions = [
+                RefreshToken.family_id == family_id,
+                RefreshToken.is_revoked.is_(False),
+            ]
+            if owner_user_id is not None:
+                conditions.append(RefreshToken.user_id == owner_user_id)
             hashes = list(
                 (
                     await session.execute(
                         update(RefreshToken)
-                        .where(
-                            RefreshToken.family_id == family_id,
-                            RefreshToken.is_revoked.is_(False),
-                        )
+                        .where(*conditions)
                         .values(is_revoked=True)
                         .returning(RefreshToken.token_hash)
                     )
