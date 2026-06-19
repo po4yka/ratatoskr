@@ -1,4 +1,5 @@
 import hashlib
+import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -7,7 +8,7 @@ import pytest_asyncio
 from sqlalchemy import func, select as sa_select
 
 from app.api.dependencies.database import get_auth_repository
-from app.api.exceptions import TokenRevokedError
+from app.api.exceptions import TokenInvalidError, TokenRevokedError
 from app.api.models.auth import RefreshTokenRequest
 from app.api.routers.auth.endpoints_sessions import refresh_access_token
 from app.api.routers.auth.tokens import create_refresh_token
@@ -151,6 +152,38 @@ def _mock_request_response() -> tuple[MagicMock, MagicMock]:
     return request, MagicMock()
 
 
+def _refresh_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def _refresh_once(token: str):
+    request, response = _mock_request_response()
+    payload = RefreshTokenRequest(refresh_token=token)
+    return await refresh_access_token(request, response, payload, auth_repo=get_auth_repository())
+
+
+async def _family_rows(db, family_id: str) -> list[RefreshTokenModel]:
+    async with db.session() as session:
+        rows = (
+            await session.execute(
+                sa_select(RefreshTokenModel)
+                .where(RefreshTokenModel.family_id == family_id)
+                .order_by(RefreshTokenModel.id)
+            )
+        ).scalars()
+        return list(rows.all())
+
+
+async def _token_row(db, token: str) -> RefreshTokenModel:
+    token_hash = _refresh_hash(token)
+    async with db.session() as session:
+        row = await session.scalar(
+            sa_select(RefreshTokenModel).where(RefreshTokenModel.token_hash == token_hash)
+        )
+    assert row is not None
+    return row
+
+
 @pytest.mark.asyncio
 async def test_refresh_rotates_refresh_token_and_revokes_previous(db, user_factory):
     user = await user_factory(telegram_user_id=987654321, username="rotator")
@@ -185,6 +218,43 @@ async def test_refresh_rotates_refresh_token_and_revokes_previous(db, user_facto
     assert old_row.is_revoked is True, "previous refresh token must be revoked"
     assert new_row is not None
     assert new_row.is_revoked is False, "new refresh token row must be live"
+
+
+@pytest.mark.asyncio
+async def test_refresh_rotate_chain_keeps_one_family_and_active_leaf(db, user_factory):
+    user = await user_factory(telegram_user_id=987654329, username="rotation-chain")
+
+    tokens: list[str] = []
+    root_token, _ = await create_refresh_token(
+        user_id=user.telegram_user_id,
+        client_id="mobile-app",
+    )
+    tokens.append(root_token)
+
+    current = root_token
+    for _ in range(3):
+        result = await _refresh_once(current)
+        current = result["data"]["tokens"]["refreshToken"]
+        tokens.append(current)
+
+    token_hashes = [_refresh_hash(token) for token in tokens]
+    async with db.session() as session:
+        rows = list(
+            (
+                await session.execute(
+                    sa_select(RefreshTokenModel)
+                    .where(RefreshTokenModel.token_hash.in_(token_hashes))
+                    .order_by(RefreshTokenModel.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert len(rows) == 4
+    assert {row.family_id for row in rows} == {rows[0].family_id}
+    assert [row.parent_token_hash for row in rows] == [None, *token_hashes[:3]]
+    assert [row.is_revoked for row in rows] == [True, True, True, False]
 
 
 @pytest.mark.asyncio
@@ -361,6 +431,52 @@ async def test_refresh_family_revoke_writes_one_audit_log_row(db, user_factory):
 
 
 @pytest.mark.asyncio
+async def test_retired_root_replay_revokes_entire_token_family_and_audits(db, user_factory):
+    from app.db.models import AuditLog as AuditLogModel
+
+    user = await user_factory(telegram_user_id=987654330, username="family-cascade")
+
+    tokens: list[str] = []
+    root_token, _ = await create_refresh_token(
+        user_id=user.telegram_user_id,
+        client_id="mobile-app",
+    )
+    tokens.append(root_token)
+    current = root_token
+    for _ in range(3):
+        result = await _refresh_once(current)
+        current = result["data"]["tokens"]["refreshToken"]
+        tokens.append(current)
+
+    family_id = (await _token_row(db, root_token)).family_id
+
+    with pytest.raises(TokenRevokedError):
+        await _refresh_once(root_token)
+
+    rows = await _family_rows(db, family_id)
+    assert len(rows) == 4
+    assert all(row.is_revoked for row in rows), "retired-token replay must revoke all siblings"
+
+    async with db.session() as session:
+        audit_rows = list(
+            (
+                await session.execute(
+                    sa_select(AuditLogModel).where(AuditLogModel.event == "refresh_family_revoked")
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert len(audit_rows) == 1
+    audit_payload = audit_rows[0].details_json
+    assert audit_payload is not None
+    assert audit_payload.get("family_id") == family_id
+    assert audit_payload.get("reason") == "retired_token_replay"
+    assert audit_payload.get("revoked_count") == 1
+
+
+@pytest.mark.asyncio
 async def test_refresh_expired_token_rejects_without_cascading(db, user_factory):
     """REJECT path: expired (not revoked) token rejects without revoking
     sibling family rows or any other family.
@@ -405,6 +521,77 @@ async def test_refresh_expired_token_rejects_without_cascading(db, user_factory)
         )
     assert other_row is not None
     assert other_row.is_revoked is False, "expired-token reject must NOT cascade"
+
+
+@pytest.mark.asyncio
+async def test_expired_active_leaf_rejects_without_revoking_family_siblings(db, user_factory):
+    user = await user_factory(telegram_user_id=987654331, username="expired-leaf")
+
+    root_token, _ = await create_refresh_token(
+        user_id=user.telegram_user_id,
+        client_id="mobile-app",
+    )
+    child_result = await _refresh_once(root_token)
+    child_token = child_result["data"]["tokens"]["refreshToken"]
+    child_hash = _refresh_hash(child_token)
+    family_id = (await _token_row(db, child_token)).family_id
+
+    async with db.transaction() as session:
+        child = await session.scalar(
+            sa_select(RefreshTokenModel).where(RefreshTokenModel.token_hash == child_hash)
+        )
+        assert child is not None
+        child.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await session.flush()
+
+    with pytest.raises(TokenInvalidError):
+        await _refresh_once(child_token)
+
+    rows = await _family_rows(db, family_id)
+    assert len(rows) == 2
+    root, child = rows
+    assert root.is_revoked is True
+    assert child.is_revoked is False, "expired active leaf should be rejected, not revoked"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_refresh_same_token_does_not_revoke_family(db, user_factory):
+    from app.db.models import AuditLog as AuditLogModel
+
+    user = await user_factory(telegram_user_id=987654332, username="concurrent-refresh")
+
+    root_token, _ = await create_refresh_token(
+        user_id=user.telegram_user_id,
+        client_id="mobile-app",
+    )
+    family_id = (await _token_row(db, root_token)).family_id
+
+    results = await asyncio.gather(
+        _refresh_once(root_token),
+        _refresh_once(root_token),
+        return_exceptions=True,
+    )
+
+    successes = [result for result in results if not isinstance(result, Exception)]
+    failures = [result for result in results if isinstance(result, Exception)]
+
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], TokenInvalidError)
+
+    rows = await _family_rows(db, family_id)
+    assert len(rows) == 2
+    assert sum(1 for row in rows if not row.is_revoked) == 1, (
+        "concurrent same-token refresh should leave the new leaf active"
+    )
+
+    async with db.session() as session:
+        audit_count = await session.scalar(
+            sa_select(func.count())
+            .select_from(AuditLogModel)
+            .where(AuditLogModel.event == "refresh_family_revoked")
+        )
+    assert audit_count == 0, "concurrent same-token refresh must not be treated as replay theft"
 
 
 # ----- POST /v1/auth/logout-all ----------------------------------------------
