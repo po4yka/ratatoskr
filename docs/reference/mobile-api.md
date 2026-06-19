@@ -474,6 +474,7 @@ Response shape:
 - `POST /v1/aggregations`
 - `GET /v1/aggregations`
 - `GET /v1/aggregations/{session_id}`
+- `DELETE /v1/aggregations/{session_id}`
 
 `POST /v1/aggregations` accepts a bundle of 1-25 URL items:
 
@@ -659,7 +660,8 @@ Duplicate handling and retries:
 
 - duplicate source items are accepted; later duplicates are persisted with duplicate status and counted in `duplicateCount` / `duplicate_count`
 - duplicate bundles are **not** de-duplicated at the bundle level; retrying the same bundle creates a new session
-- there is currently no public `DELETE /v1/aggregations/{id}` or cancel endpoint; treat sessions as immutable history records
+- `DELETE /v1/aggregations/{session_id}` permanently removes an owned aggregation session and its child items; missing or unowned sessions return `404`
+- there is currently no public cancel endpoint; in-flight sessions cannot be stopped through the mobile API
 - retry clients should retry the same request only after transport failures or a `PROCESSING_ERROR`; successful create calls already persisted the bundle session
 
 Common pre-execution failures:

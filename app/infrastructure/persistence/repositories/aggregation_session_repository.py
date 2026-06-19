@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from app.core.time_utils import UTC
 from app.db.json_utils import prepare_json_payload
@@ -129,6 +129,30 @@ class AggregationSessionRepositoryAdapter:
             if status:
                 stmt = stmt.where(AggregationSession.status == status)
             return int(await db_session.scalar(stmt) or 0)
+
+    async def async_delete_aggregation_session_for_user(
+        self,
+        session_id: int,
+        user_id: int,
+    ) -> bool:
+        async with self._database.transaction() as db_session:
+            owned_session_id = await db_session.scalar(
+                select(AggregationSession.id).where(
+                    AggregationSession.id == session_id,
+                    AggregationSession.user_id == user_id,
+                )
+            )
+            if owned_session_id is None:
+                return False
+            await db_session.execute(
+                delete(AggregationSessionItem).where(
+                    AggregationSessionItem.aggregation_session_id == session_id
+                )
+            )
+            await db_session.execute(
+                delete(AggregationSession).where(AggregationSession.id == session_id)
+            )
+            return True
 
     async def async_add_aggregation_session_item(
         self,

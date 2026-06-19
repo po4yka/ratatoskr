@@ -52,6 +52,13 @@ class AggregationSessionRepositoryPort(Protocol):
     ) -> int:
         """Return the total aggregation-session count for one user."""
 
+    async def async_delete_aggregation_session_for_user(
+        self,
+        session_id: int,
+        user_id: int,
+    ) -> bool:
+        """Delete one aggregation session owned by a user."""
+
     async def async_add_aggregation_session_item(
         self,
         session_id: int,

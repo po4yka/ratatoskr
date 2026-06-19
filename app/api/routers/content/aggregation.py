@@ -6,7 +6,7 @@ import contextlib
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.agents.multi_source_aggregation_agent import MultiSourceAggregationAgent
 from app.agents.multi_source_extraction_agent import MultiSourceExtractionAgent
@@ -463,6 +463,42 @@ async def get_aggregation_bundle(
     except Exception:
         _record_aggregation_api_metric(
             operation="get",
+            user=user,
+            status="error",
+            started_at=started_at,
+        )
+        raise
+
+
+@router.delete("/{session_id}", status_code=204)
+async def delete_aggregation_bundle(
+    session_id: int,
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+    workflow: MultiSourceAggregationService = Depends(_get_aggregation_workflow),
+    rollout_gate: AggregationRolloutGate = Depends(_get_rollout_gate),
+) -> Response:
+    """Delete one persisted aggregation session for the authenticated user."""
+
+    started_at = time.perf_counter()
+    try:
+        await _ensure_aggregation_available(gate=rollout_gate, user_id=user["user_id"])
+        deleted = await workflow.delete_session(
+            session_id=session_id,
+            user_id=user["user_id"],
+        )
+        if not deleted:
+            raise ResourceNotFoundError("Aggregation session", session_id)
+        _record_aggregation_api_metric(
+            operation="delete",
+            user=user,
+            status="success",
+            started_at=started_at,
+        )
+        return Response(status_code=204)
+    except Exception:
+        _record_aggregation_api_metric(
+            operation="delete",
             user=user,
             status="error",
             started_at=started_at,

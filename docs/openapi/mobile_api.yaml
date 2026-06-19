@@ -888,6 +888,34 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+      - Aggregations
+      summary: Delete Aggregation Bundle
+      description: Delete one persisted aggregation session for the authenticated user.
+      operationId: delete_aggregation_bundle_v1_aggregations__session_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Session Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/collections:
     get:
       tags:

@@ -162,6 +162,13 @@ class MultiSourceAggregationService:
             aggregation=aggregation_result.output,
         )
 
+    async def delete_session(self, *, session_id: int, user_id: int) -> bool:
+        """Delete one aggregation session owned by the user."""
+        return await self._aggregation_session_repo.async_delete_aggregation_session_for_user(
+            session_id=session_id,
+            user_id=user_id,
+        )
+
     async def _maybe_build_relationship_signal(
         self,
         extraction_output: MultiSourceExtractionOutput,

@@ -513,6 +513,92 @@ def test_get_aggregation_bundle_endpoint_rejects_foreign_session_and_records_met
     assert metric_kwargs["latency_seconds"] >= 0
 
 
+def test_delete_aggregation_bundle_endpoint_removes_owned_session_and_items(
+    client, db, user_factory
+):
+    allowed_ids = Config.get_allowed_user_ids()
+    user_id = int(allowed_ids[0]) if allowed_ids else 424242
+    user_factory(username="aggregation_delete_user", telegram_user_id=user_id)
+
+    repo = build_aggregation_session_repository(db)
+    session_id = asyncio.run(
+        repo.async_create_aggregation_session(
+            user_id=user_id,
+            correlation_id="cid-agg-delete",
+            total_items=1,
+        )
+    )
+    source = SourceItem.create(
+        kind=SourceKind.WEB_ARTICLE,
+        original_value="https://example.com/delete-me",
+    )
+    asyncio.run(repo.async_add_aggregation_session_item(session_id, source, 0))
+
+    runtime = _set_runtime(client, db)
+    try:
+        with patch("app.api.routers.aggregation.record_request") as metrics_mock:
+            response = client.delete(
+                f"/v1/aggregations/{session_id}",
+                headers=_auth_headers(user_id, client_id="cli-delete-v1"),
+            )
+    finally:
+        client.app.state.runtime = runtime
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert asyncio.run(repo.async_get_aggregation_session(session_id)) is None
+    assert asyncio.run(repo.async_get_aggregation_session_items(session_id)) == []
+    metrics_mock.assert_called_once()
+    metric_kwargs = metrics_mock.call_args.kwargs
+    assert metric_kwargs["request_type"] == "aggregation.delete"
+    assert metric_kwargs["status"] == "success"
+    assert metric_kwargs["source"] == "cli"
+    assert metric_kwargs["latency_seconds"] >= 0
+
+
+def test_delete_aggregation_bundle_endpoint_returns_not_found_for_foreign_session(
+    client, db, user_factory
+):
+    allowed_ids = Config.get_allowed_user_ids()
+    owner_user_id = int(allowed_ids[0]) if allowed_ids else 424242
+    foreign_user_id = int(allowed_ids[1]) if len(allowed_ids) > 1 else owner_user_id + 1
+    user_factory(username="aggregation_delete_owner", telegram_user_id=owner_user_id)
+    user_factory(username="aggregation_delete_foreign", telegram_user_id=foreign_user_id)
+
+    repo = build_aggregation_session_repository(db)
+    session_id = asyncio.run(
+        repo.async_create_aggregation_session(
+            user_id=owner_user_id,
+            correlation_id="cid-agg-delete-foreign",
+            total_items=1,
+        )
+    )
+
+    runtime = _set_runtime(client, db)
+    try:
+        with (
+            patch("app.api.routers.auth.dependencies.Config.is_user_allowed", return_value=True),
+            patch("app.api.routers.aggregation.record_request") as metrics_mock,
+        ):
+            response = client.delete(
+                f"/v1/aggregations/{session_id}",
+                headers=_auth_headers(foreign_user_id, client_id="cli-foreign-v1"),
+            )
+    finally:
+        client.app.state.runtime = runtime
+
+    assert response.status_code == 404
+    payload = response.json()
+    assert payload["error"]["code"] == "NOT_FOUND"
+    assert asyncio.run(repo.async_get_aggregation_session(session_id)) is not None
+    metrics_mock.assert_called_once()
+    metric_kwargs = metrics_mock.call_args.kwargs
+    assert metric_kwargs["request_type"] == "aggregation.delete"
+    assert metric_kwargs["status"] == "error"
+    assert metric_kwargs["source"] == "cli"
+    assert metric_kwargs["latency_seconds"] >= 0
+
+
 def test_list_aggregation_bundles_endpoint_returns_only_authenticated_user_sessions(
     client, db, user_factory
 ):

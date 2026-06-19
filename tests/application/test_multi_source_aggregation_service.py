@@ -20,6 +20,27 @@ from app.domain.models.source import SourceKind
 
 
 @pytest.mark.asyncio
+async def test_multi_source_aggregation_service_deletes_owned_session() -> None:
+    repo = SimpleNamespace(
+        async_delete_aggregation_session_for_user=AsyncMock(return_value=True),
+    )
+    service = MultiSourceAggregationService(
+        extraction_agent=cast("Any", SimpleNamespace()),
+        aggregation_agent=cast("Any", SimpleNamespace()),
+        aggregation_session_repo=cast("Any", repo),
+        relationship_agent=None,
+    )
+
+    deleted = await service.delete_session(session_id=42, user_id=1001)
+
+    assert deleted is True
+    repo.async_delete_aggregation_session_for_user.assert_awaited_once_with(
+        session_id=42,
+        user_id=1001,
+    )
+
+
+@pytest.mark.asyncio
 async def test_multi_source_aggregation_service_records_synthesis_metrics() -> None:
     extraction_output = MultiSourceExtractionOutput(
         session_id=10,
