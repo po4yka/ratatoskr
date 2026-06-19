@@ -11,6 +11,7 @@ from app.core.time_utils import UTC
 from app.domain.events.summary_events import SummaryMarkedAsUnread
 from app.domain.exceptions.domain_exceptions import (
     InvalidStateTransitionError,
+    ResourceNotFoundError,
 )
 from app.domain.models.summary import summary_from_dict
 from app.domain.services.summary_validator import SummaryValidator
@@ -64,6 +65,13 @@ class MarkSummaryAsUnreadUseCase:
             )
 
             summary_data = await fetch_summary_or_raise(self._summary_repo, command.summary_id)
+
+            # Ownership check: treat a mismatch identically to "not found" to
+            # avoid confirming that the summary_id exists for another user.
+            if summary_data.get("user_id") != command.user_id:
+                msg = f"Summary with ID {command.summary_id} not found"
+                raise ResourceNotFoundError(msg, details={"summary_id": command.summary_id})
+
             summary = summary_from_dict(summary_data)
 
             can_mark, reason = SummaryValidator.can_mark_as_unread(summary)
@@ -97,7 +105,9 @@ class MarkSummaryAsUnreadUseCase:
                     details={"summary_id": command.summary_id},
                 ) from e
 
-            await self._summary_repo.async_mark_summary_as_unread(command.summary_id)
+            await self._summary_repo.async_mark_summary_as_unread_for_user(
+                command.summary_id, command.user_id
+            )
 
             event = SummaryMarkedAsUnread(
                 occurred_at=datetime.now(UTC),

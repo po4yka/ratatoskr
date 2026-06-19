@@ -140,6 +140,13 @@ class SummaryRepositoryPort(Protocol):
     async def async_mark_summary_as_unread(self, summary_id: int) -> None:
         """Mark summary as unread."""
 
+    async def async_mark_summary_as_unread_for_user(self, summary_id: int, user_id: int) -> bool:
+        """Mark a summary as unread scoped to *user_id* (IDOR guard).
+
+        Returns True if the row was found and updated, False if it does not
+        exist or belongs to a different user.
+        """
+
     async def async_get_unread_summary_by_request_id(
         self, request_id: int
     ) -> dict[str, Any] | None:

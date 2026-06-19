@@ -482,6 +482,25 @@ class SummaryRepositoryAdapter:
         """Mark a summary as unread."""
         await self._set_summary_values(summary_id, is_read=False)
 
+    async def async_mark_summary_as_unread_for_user(self, summary_id: int, user_id: int) -> bool:
+        """Mark a summary as unread scoped to *user_id* (IDOR guard).
+
+        The ``user_id`` predicate is a defence-in-depth IDOR guard — a mutation
+        must only affect a summary owned by the requesting user.
+        Returns True if the row was found and updated, False otherwise.
+        """
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(Summary)
+                .where(
+                    Summary.id == summary_id,
+                    Summary.request_id == Request.id,
+                    Request.user_id == user_id,
+                )
+                .values(is_read=False, updated_at=_utcnow())
+            )
+            return result.rowcount > 0
+
     async def async_mark_summary_as_read_by_request(self, request_id: int) -> None:
         """Mark a summary as read by its request ID."""
         async with self._database.transaction() as session:
