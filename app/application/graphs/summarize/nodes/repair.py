@@ -63,7 +63,44 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
             "summarize_graph_repair_failed",
             extra={"cid": state.get("correlation_id"), "attempt": attempts, "error": str(exc)},
         )
-        return {"repair_attempts": attempts}
+        # Persist a failure llm_calls record so the repair attempt is observable
+        # in the DB (persist-everything rule 3). Surface real model/latency from
+        # __llm_result__ when the adapter attached it; fall back to config model.
+        llm_result = getattr(exc, "__llm_result__", None)
+        if llm_result is not None:
+            raw_model = getattr(llm_result, "model", None) or getattr(
+                llm_result, "model_used", None
+            )
+            failure_meta: dict[str, Any] = {
+                "model": raw_model or (config.model if config else None),
+                "tokens_prompt": getattr(llm_result, "tokens_prompt", None),
+                "tokens_completion": getattr(llm_result, "tokens_completion", None),
+                "cost_usd": getattr(llm_result, "cost_usd", None),
+                "latency_ms": getattr(llm_result, "latency_ms", None),
+            }
+        else:
+            failure_meta = {
+                "model": config.model if config else None,
+                "tokens_prompt": None,
+                "tokens_completion": None,
+                "cost_usd": None,
+                "latency_ms": None,
+            }
+        failure_record: dict[str, Any] = {
+            "request_id": state.get("request_id"),
+            "provider": "openrouter",
+            "model": failure_meta["model"],
+            "tokens_prompt": failure_meta["tokens_prompt"],
+            "tokens_completion": failure_meta["tokens_completion"],
+            "cost_usd": failure_meta["cost_usd"],
+            "latency_ms": failure_meta["latency_ms"],
+            "status": "error",
+            "structured_output_used": True,
+            "structured_output_mode": config.structured_output_mode if config else None,
+            "attempt_trigger": "graph_node",
+            "error_text": str(exc),
+        }
+        return {"repair_attempts": attempts, "llm_calls": [failure_record]}
 
     return {
         "repair_attempts": attempts,
