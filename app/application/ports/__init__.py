@@ -21,6 +21,7 @@ from .requests import (
     CrawlResultRepositoryPort,
     LLMCallRecord,
     LLMRepositoryPort,
+    RequestRepositoryFactory,
     RequestRepositoryPort,
     VideoDownloadRepositoryPort,
 )
@@ -52,7 +53,7 @@ from .social_connections import (
     SocialFetchAttemptCreate,
 )
 from .stream_sink import StreamSinkPort
-from .summaries import SummaryRepositoryPort, TagRepositoryPort
+from .summaries import SummaryRepositoryFactory, SummaryRepositoryPort, TagRepositoryPort
 from .transcriptions import (
     LeasedTranscriptionJob,
     TranscriptionArtifactCreate,
@@ -86,6 +87,7 @@ __all__ = [
     "MessagePersistencePort",
     "RepositoryAnalysisRecord",
     "RepositoryAnalysisRepositoryPort",
+    "RequestRepositoryFactory",
     "RequestRepositoryPort",
     "RetrievalPort",
     "RuleContextPort",
@@ -98,6 +100,7 @@ __all__ = [
     "SocialConnectionUpsert",
     "SocialFetchAttemptCreate",
     "StreamSinkPort",
+    "SummaryRepositoryFactory",
     "SummaryRepositoryPort",
     "TTSProviderPort",
     "TagRepositoryPort",

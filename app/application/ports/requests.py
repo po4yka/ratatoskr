@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 from app.domain.models.request import RequestStatus
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+    from app.db.session import Database
 
 
 class LLMCallRecord(TypedDict, total=False):
@@ -214,6 +217,9 @@ class RequestRepositoryPort(Protocol):
         telegram_raw_json: Any,
     ) -> int:
         """Persist a Telegram message snapshot and return its row id."""
+
+
+type RequestRepositoryFactory = Callable[[Database], RequestRepositoryPort]
 
 
 @runtime_checkable

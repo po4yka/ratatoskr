@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from app.domain.models.request import RequestStatus
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+    from app.db.session import Database
 
 
 @runtime_checkable
@@ -186,6 +189,9 @@ class SummaryRepositoryPort(Protocol):
         comment: str | None,
     ) -> dict[str, Any]:
         """Create or update feedback for a summary. Returns the feedback record dict."""
+
+
+type SummaryRepositoryFactory = Callable[[Database], SummaryRepositoryPort]
 
 
 @runtime_checkable

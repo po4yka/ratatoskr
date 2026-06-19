@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     import asyncio
     from collections.abc import Awaitable, Callable
 
+    from app.application.ports.requests import RequestRepositoryFactory
+    from app.application.ports.summaries import SummaryRepositoryFactory
     from app.config import AppConfig
     from app.db.session import Database
 
@@ -60,8 +62,8 @@ class BackgroundProcessor:
         database_builder: Callable[[AppConfig], Database] | None = None,
         request_repo: Any | None = None,
         summary_repo: Any | None = None,
-        request_repo_factory: Callable[[Database], Any] | None = None,
-        summary_repo_factory: Callable[[Database], Any] | None = None,
+        request_repo_factory: RequestRepositoryFactory | None = None,
+        summary_repo_factory: SummaryRepositoryFactory | None = None,
         progress_event_repo: Any | None = None,
         deps: Any | None = None,
     ) -> None:
