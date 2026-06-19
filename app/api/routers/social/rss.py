@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 from typing import Any
 
@@ -99,11 +100,11 @@ async def subscribe(
 
     category_id = body.get("category_id")
 
-    # Validate feed by fetching it
+    # Validate feed by fetching it (fetch_feed is sync; offload to thread pool)
     from app.adapters.rss.feed_fetcher import fetch_feed
 
     try:
-        result = fetch_feed(url)
+        result = await asyncio.to_thread(fetch_feed, url)
     except Exception as exc:
         raise ValidationError(f"Could not fetch feed: {exc}") from exc
 
@@ -226,7 +227,8 @@ async def refresh_feed(
     from app.adapters.rss.feed_fetcher import fetch_feed
 
     try:
-        result = fetch_feed(
+        result = await asyncio.to_thread(
+            fetch_feed,
             feed["url"],
             etag=feed.get("etag"),
             last_modified=feed.get("last_modified"),
