@@ -6,18 +6,17 @@ Lets users create and list backups via Telegram commands.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.infrastructure.persistence.backup_archive_service import async_create_backup_archive
-from app.infrastructure.persistence.repositories.backup_repository import (
-    BackupRepositoryAdapter,
-)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )
@@ -31,9 +30,23 @@ _MAX_LIST_COUNT = 5
 class BackupHandler(HandlerDependenciesMixin):
     """Handle /backup and /backups commands."""
 
+    def __init__(
+        self,
+        cfg: Any,
+        db: Any,
+        response_formatter: Any,
+        *,
+        backup_repo_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        super().__init__(cfg, db, response_formatter)
+        self._backup_repo_factory = backup_repo_factory
+
     @property
-    def _backup_repo(self) -> BackupRepositoryAdapter:
-        return BackupRepositoryAdapter(self._db)
+    def _backup_repo(self) -> Any:
+        if self._backup_repo_factory is None:
+            msg = "Backup repository factory is not configured"
+            raise RuntimeError(msg)
+        return self._backup_repo_factory()
 
     @combined_handler("command_backup", "backup")
     async def handle_backup(self, ctx: CommandExecutionContext) -> None:

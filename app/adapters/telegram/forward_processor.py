@@ -11,7 +11,7 @@ from app.adapters.content.summarization_runtime import SummarizationRuntime
 from app.adapters.telegram.forward_content_processor import ForwardContentProcessor
 from app.adapters.telegram.forward_summarizer import ForwardSummarizer
 from app.core.logging_utils import get_logger
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 
 if TYPE_CHECKING:

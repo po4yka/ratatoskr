@@ -43,6 +43,8 @@ class CallbackActionService:
         url_handler: URLHandler | None = None,
         hybrid_search: HybridSearchService | None = None,
         lang: str = "en",
+        request_repo: Any | None = None,
+        summary_repo: Any | None = None,
     ) -> None:
         self.db = db
         self.response_formatter = response_formatter
@@ -52,7 +54,8 @@ class CallbackActionService:
 
         self._presenters = CallbackActionPresenters(lang=lang)
         self._store = CallbackActionStore(
-            db=db,
+            request_repo=request_repo,
+            summary_repo=summary_repo,
             asyncio_module=asyncio,
             time_module=time,
             summary_cache_ttl=_SUMMARY_CACHE_TTL,

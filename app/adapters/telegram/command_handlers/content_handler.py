@@ -13,7 +13,7 @@ from app.adapters.telegram.command_handlers.decorators import audit_command
 from app.adapters.telegram.command_handlers.utils import maybe_load_json
 from app.application.services.topic_search_utils import ensure_mapping
 from app.core.logging_utils import get_logger
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 
 if TYPE_CHECKING:
     from app.adapters.external.formatting.protocols import (

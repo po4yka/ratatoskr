@@ -7,16 +7,15 @@ Rules are managed via the web UI.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
 from app.core.logging_utils import get_logger
-from app.infrastructure.persistence.repositories.rule_repository import (
-    RuleRepositoryAdapter,
-)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )
@@ -27,9 +26,23 @@ logger = get_logger(__name__)
 class RulesHandler(HandlerDependenciesMixin):
     """Handle /rules command -- list automation rules (read-only)."""
 
+    def __init__(
+        self,
+        cfg: Any,
+        db: Any,
+        response_formatter: Any,
+        *,
+        rule_repo_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        super().__init__(cfg, db, response_formatter)
+        self._rule_repo_factory = rule_repo_factory
+
     @property
-    def _rule_repo(self) -> RuleRepositoryAdapter:
-        return RuleRepositoryAdapter(self._db)
+    def _rule_repo(self) -> Any:
+        if self._rule_repo_factory is None:
+            msg = "Rule repository factory is not configured"
+            raise RuntimeError(msg)
+        return self._rule_repo_factory()
 
     @combined_handler("command_rules", "rules", include_text=True)
     async def handle_rules(self, ctx: CommandExecutionContext) -> None:

@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.adapters.telegram.lifecycle_manager import TelegramLifecycleManager
 from app.adapters.telegram.telethon_compat import normalize_parse_mode
@@ -148,12 +148,13 @@ class TelegramBot:
         owner_ids = getattr(self.cfg.telegram, "allowed_user_ids", None) or ()
         if not owner_ids:
             return None
-        from app.adapters.telegram.reaction_feedback import ReactionFeedbackHandler
-        from app.infrastructure.persistence.repositories.summary_repository import (
-            SummaryRepositoryAdapter,
-        )
+        from app.adapters.telegram.reaction_feedback import ReactionFeedbackHandler, SummaryFeedbackRepo
+        from app.di.repositories import build_summary_repository
 
-        recorder = ReactionFeedbackHandler(SummaryRepositoryAdapter(self.db), int(owner_ids[0]))
+        recorder = ReactionFeedbackHandler(
+            cast("SummaryFeedbackRepo", build_summary_repository(self.db)),
+            int(owner_ids[0]),
+        )
         return recorder.handle
 
     def _audit(self, level: str, event: str, details: dict) -> None:

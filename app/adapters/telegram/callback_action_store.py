@@ -8,17 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.digest_store import DigestStore
-from app.infrastructure.persistence.repositories.request_repository import (
-    RequestRepositoryAdapter,
-)
-from app.infrastructure.persistence.repositories.summary_repository import (
-    SummaryRepositoryAdapter,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from app.db.session import Database
 
 logger = get_logger(__name__)
 
@@ -29,14 +21,15 @@ class CallbackActionStore:
     def __init__(
         self,
         *,
-        db: Database,
+        request_repo: Any,
+        summary_repo: Any,
         asyncio_module: Any = asyncio,
         time_module: Any = time,
         summary_cache_ttl: float = 30.0,
         summary_cache_max: int = 50,
     ) -> None:
-        self._request_repo = RequestRepositoryAdapter(db)
-        self._summary_repo = SummaryRepositoryAdapter(db)
+        self._request_repo = request_repo
+        self._summary_repo = summary_repo
         self._digest_store = DigestStore()
         self._asyncio = asyncio_module
         self._time = time_module

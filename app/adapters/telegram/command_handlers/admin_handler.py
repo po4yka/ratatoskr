@@ -13,7 +13,7 @@ from app.adapters.telegram.command_handlers.decorators import audit_command
 from app.api.services.admin_read_service import AdminReadService
 from app.core.logging_utils import generate_correlation_id, get_logger
 from app.core.time_utils import UTC
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 
 if TYPE_CHECKING:
     from app.adapters.content.graph_url_processor import GraphURLProcessor as URLProcessor

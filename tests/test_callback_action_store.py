@@ -21,16 +21,19 @@ class _TimeStub:
         return next(self._values)
 
 
-def _make_db_mock() -> MagicMock:
-    return MagicMock()
+def _make_store(**kwargs: Any) -> CallbackActionStore:
+    return CallbackActionStore(
+        request_repo=kwargs.pop("request_repo", MagicMock()),
+        summary_repo=kwargs.pop("summary_repo", MagicMock()),
+        **kwargs,
+    )
 
 
 @pytest.mark.asyncio
 async def test_load_summary_payload_async_supports_request_lookup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    store = CallbackActionStore(
-        db=_make_db_mock(),
+    store = _make_store(
         asyncio_module=_AsyncioStub(),
         time_module=_TimeStub(100.0),
     )
@@ -67,8 +70,7 @@ async def test_load_summary_payload_async_supports_request_lookup(
 async def test_load_summary_payload_async_sanitizes_non_dict_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    store = CallbackActionStore(
-        db=_make_db_mock(),
+    store = _make_store(
         asyncio_module=_AsyncioStub(),
         time_module=_TimeStub(100.0),
     )
@@ -99,8 +101,7 @@ async def test_load_summary_payload_async_sanitizes_non_dict_payload(
 
 @pytest.mark.asyncio
 async def test_load_summary_payload_uses_cache_within_ttl() -> None:
-    store = CallbackActionStore(
-        db=_make_db_mock(),
+    store = _make_store(
         asyncio_module=_AsyncioStub(),
         time_module=_TimeStub(100.0, 100.5),
         summary_cache_ttl=30.0,
@@ -122,8 +123,7 @@ async def test_load_summary_payload_uses_cache_within_ttl() -> None:
 
 @pytest.mark.asyncio
 async def test_load_summary_payload_evicts_oldest_entry_when_cache_is_full() -> None:
-    store = CallbackActionStore(
-        db=_make_db_mock(),
+    store = _make_store(
         asyncio_module=_AsyncioStub(),
         time_module=_TimeStub(1.0, 2.0, 3.0),
         summary_cache_ttl=30.0,
@@ -142,7 +142,7 @@ async def test_load_summary_payload_evicts_oldest_entry_when_cache_is_full() -> 
 
 @pytest.mark.asyncio
 async def test_toggle_save_invalidates_exact_cache_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    store = CallbackActionStore(db=_make_db_mock(), asyncio_module=_AsyncioStub())
+    store = _make_store(asyncio_module=_AsyncioStub())
     store._summary_cache["42"] = (100.0, {"id": "42"})
     monkeypatch.setattr(store._summary_repo, "async_toggle_favorite", AsyncMock(return_value=True))
 

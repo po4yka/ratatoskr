@@ -9,14 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 from app.core.logging_utils import get_logger
-from app.db.user_interactions import async_safe_update_user_interaction
-from app.infrastructure.persistence.repositories.request_repository import (
-    RequestRepositoryAdapter,
-)
-from app.infrastructure.persistence.repositories.summary_repository import (
-    SummaryRepositoryAdapter,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,6 +18,8 @@ if TYPE_CHECKING:
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )
+    from app.application.ports.requests import RequestRepositoryPort
+    from app.application.ports.summaries import SummaryRepositoryPort
     from app.application.services.tts_service import TTSService
 
 logger = get_logger(__name__)
@@ -38,11 +34,13 @@ class ListenHandler(HandlerDependenciesMixin):
         db,
         response_formatter,
         tts_service_factory: Callable[[], TTSService] | None = None,
+        request_repo: RequestRepositoryPort | None = None,
+        summary_repo: SummaryRepositoryPort | None = None,
     ) -> None:
         super().__init__(cfg, db, response_formatter)
         self._tts_service_factory = tts_service_factory
-        self._request_repo = RequestRepositoryAdapter(db)
-        self._summary_repo = SummaryRepositoryAdapter(db)
+        self._request_repo = request_repo
+        self._summary_repo = summary_repo
 
     def _create_tts_service(self) -> TTSService:
         if self._tts_service_factory is not None:
@@ -145,6 +143,9 @@ class ListenHandler(HandlerDependenciesMixin):
         message), then falls back to input_message_id for rows created before this
         field was introduced.
         """
+        if self._request_repo is None or self._summary_repo is None:
+            msg = "ListenHandler requires request and summary repositories"
+            raise RuntimeError(msg)
         request = await self._request_repo.async_get_request_by_telegram_message(
             user_id=user_id,
             message_id=message_id,

@@ -37,7 +37,14 @@ from app.adapters.telegram.command_handlers.x_possible import (
 )
 from app.adapters.transcription import TranscriptionService
 from app.adapters.webwright.client import WebwrightClient
-from app.di.repositories import build_social_connection_repository, build_transcription_repository
+from app.di.repositories import (
+    build_backup_repository,
+    build_rss_feed_repository,
+    build_rule_repository,
+    build_social_connection_repository,
+    build_transcription_repository,
+    build_user_content_repository,
+)
 from app.di.social import build_social_auth_service
 from app.di.types import TelegramCommandDispatcherDeps, TelegramRepositories
 
@@ -189,6 +196,8 @@ def build_command_dispatcher_deps(
         db=db,
         response_formatter=response_formatter,
         tts_service_factory=tts_service_factory,
+        request_repo=repositories.request_repository,
+        summary_repo=repositories.summary_repository,
     )
     digest_handler = DigestHandler(
         cfg=cfg,
@@ -220,21 +229,25 @@ def build_command_dispatcher_deps(
         cfg=cfg,
         db=db,
         response_formatter=response_formatter,
+        rule_repo_factory=lambda: build_rule_repository(db),
     )
     export_handler = ExportHandler(
         cfg=cfg,
         db=db,
         response_formatter=response_formatter,
+        user_content_repo_factory=lambda: build_user_content_repository(db),
     )
     backup_handler = BackupHandler(
         cfg=cfg,
         db=db,
         response_formatter=response_formatter,
+        backup_repo_factory=lambda: build_backup_repository(db),
     )
     rss_handler = RSSHandler(
         cfg=cfg,
         db=db,
         response_formatter=response_formatter,
+        rss_repo_factory=lambda: build_rss_feed_repository(db),
     )
     git_mirror_handler = GitMirrorHandler(
         cfg=cfg,

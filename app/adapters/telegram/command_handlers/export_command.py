@@ -6,7 +6,7 @@ Lets users export all their summaries as JSON, CSV, or HTML file.
 from __future__ import annotations
 
 import io
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
@@ -16,11 +16,10 @@ from app.domain.services.import_export.export_serializers import (
     JsonExporter,
     NetscapeHtmlExporter,
 )
-from app.infrastructure.persistence.repositories.user_content_repository import (
-    UserContentRepositoryAdapter,
-)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )
@@ -46,12 +45,26 @@ _FILE_EXTENSIONS = {
 class ExportHandler(HandlerDependenciesMixin):
     """Handle /export command."""
 
+    def __init__(
+        self,
+        cfg: Any,
+        db: Any,
+        response_formatter: Any,
+        *,
+        user_content_repo_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        super().__init__(cfg, db, response_formatter)
+        self._user_content_repo_factory = user_content_repo_factory
+
     @combined_handler("command_export", "export", include_text=True)
     async def handle_export(self, ctx: CommandExecutionContext) -> None:
         """Handle /export [json|csv|html] -- export all summaries as a file."""
         fmt = _parse_format(ctx.text)
 
-        repo = UserContentRepositoryAdapter(self._db)
+        if self._user_content_repo_factory is None:
+            msg = "User content repository factory is not configured"
+            raise RuntimeError(msg)
+        repo = self._user_content_repo_factory()
         summaries = await repo.async_export_summaries(
             user_id=ctx.uid,
             tag=None,

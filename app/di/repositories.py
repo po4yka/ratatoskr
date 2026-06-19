@@ -53,6 +53,9 @@ from app.infrastructure.persistence.repositories.transcription_repository import
 from app.infrastructure.persistence.repositories.user_repository import (
     UserRepositoryAdapter,
 )
+from app.infrastructure.persistence.repositories.user_content_repository import (
+    UserContentRepositoryAdapter,
+)
 from app.infrastructure.persistence.repositories.video_download_repository import (
     VideoDownloadRepositoryAdapter,
 )
@@ -97,6 +100,10 @@ def build_summary_repository(db: Database) -> SummaryRepositoryPort:
 
 def build_user_repository(db: Database) -> UserRepositoryPort:
     return UserRepositoryAdapter(db)
+
+
+def build_user_content_repository(db: Database) -> Any:
+    return UserContentRepositoryAdapter(db)
 
 
 def build_llm_repository(db: Database) -> LLMRepositoryPort:

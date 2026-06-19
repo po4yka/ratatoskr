@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from app.core.logging_utils import get_logger
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

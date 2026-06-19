@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 
 if TYPE_CHECKING:
     from .models import PreparedRouteContext

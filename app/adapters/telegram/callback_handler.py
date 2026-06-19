@@ -31,6 +31,9 @@ class CallbackHandler:
         url_handler: URLHandler | None = None,
         hybrid_search: HybridSearchService | None = None,
         lang: str = "en",
+        request_repo: Any | None = None,
+        summary_repo: Any | None = None,
+        crawl_result_repo: Any | None = None,
     ) -> None:
         self.db = db
         self.response_formatter = response_formatter
@@ -47,12 +50,14 @@ class CallbackHandler:
             url_handler=url_handler,
             hybrid_search=hybrid_search,
             lang=lang,
+            request_repo=request_repo,
+            summary_repo=summary_repo,
         )
         self._registry = CallbackActionRegistry()
         self._register_default_actions()
 
         self._followup = SummaryFollowupManager(
-            db=db,
+            crawl_result_repo=crawl_result_repo,
             response_formatter=response_formatter,
             url_handler=url_handler,
             lang=lang,

@@ -5,17 +5,16 @@ Lets users manage RSS feed subscriptions via Telegram commands.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
 from app.core.logging_utils import get_logger
 from app.domain.services.import_export.opml_exporter import OPMLExporter
-from app.infrastructure.persistence.repositories.rss_feed_repository import (
-    RSSFeedRepositoryAdapter,
-)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from app.adapters.telegram.command_handlers.execution_context import (
         CommandExecutionContext,
     )
@@ -28,9 +27,23 @@ _MAX_ITEMS_PREVIEW = 5
 class RSSHandler(HandlerDependenciesMixin):
     """Handle /rss commands for RSS feed management."""
 
+    def __init__(
+        self,
+        cfg: Any,
+        db: Any,
+        response_formatter: Any,
+        *,
+        rss_repo_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        super().__init__(cfg, db, response_formatter)
+        self._rss_repo_factory = rss_repo_factory
+
     @property
-    def _rss_repo(self) -> RSSFeedRepositoryAdapter:
-        return RSSFeedRepositoryAdapter(self._db)
+    def _rss_repo(self) -> Any:
+        if self._rss_repo_factory is None:
+            msg = "RSS repository factory is not configured"
+            raise RuntimeError(msg)
+        return self._rss_repo_factory()
 
     @combined_handler("command_substack", "substack")
     async def handle_substack(self, ctx: CommandExecutionContext) -> None:

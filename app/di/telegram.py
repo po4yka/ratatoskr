@@ -504,6 +504,9 @@ def _build_telegram_interface_stack(
         url_handler=url_handler,
         hybrid_search=search.hybrid_search_service,
         lang=lang,
+        request_repo=repositories.request_repository,
+        summary_repo=repositories.summary_repository,
+        crawl_result_repo=repositories.crawl_result_repository,
     )
     message_router = MessageRouter(
         cfg=cfg,

@@ -29,7 +29,7 @@ from app.adapters.telegram.batch_sender_utils import (
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import generate_correlation_id
 from app.core.url_utils import compute_dedupe_hash, normalize_url
-from app.db.user_interactions import async_safe_update_user_interaction
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 from app.domain.models.request import RequestStatus
 from app.utils.progress_tracker import ProgressTracker
 
