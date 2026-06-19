@@ -358,6 +358,15 @@ class EmbeddingConfig(BaseModel):
         validation_alias="GEMINI_EMBEDDING_MODEL",
     )
     gemini_dimensions: int = Field(default=768, validation_alias="GEMINI_EMBEDDING_DIMENSIONS")
+    voyage_api_key: str = Field(
+        default="", validation_alias="VOYAGE_API_KEY", json_schema_extra=SECRET_MARKER
+    )
+    voyage_model: str = Field(default="voyage-3-large", validation_alias="VOYAGE_EMBEDDING_MODEL")
+    voyage_dimensions: int = Field(default=1024, validation_alias="VOYAGE_EMBEDDING_DIMENSIONS")
+    voyage_base_url: str = Field(
+        default="https://api.voyageai.com/v1",
+        validation_alias="VOYAGE_BASE_URL",
+    )
     max_token_length: int = Field(default=512, validation_alias="EMBEDDING_MAX_TOKEN_LENGTH")
 
     @property
@@ -365,6 +374,8 @@ class EmbeddingConfig(BaseModel):
         """Return vector dimension for the configured embedding provider."""
         if self.provider == "gemini":
             return self.gemini_dimensions
+        if self.provider == "voyage":
+            return self.voyage_dimensions
         return 384  # all local sentence-transformers models produce 384-dim vectors
 
     @field_validator("provider", mode="before")
@@ -373,8 +384,8 @@ class EmbeddingConfig(BaseModel):
         if value in (None, ""):
             return "local"
         normalized: str = str(value).strip().lower()
-        if normalized not in ("local", "gemini"):
-            msg = "EMBEDDING_PROVIDER must be 'local' or 'gemini'"
+        if normalized not in ("local", "gemini", "voyage"):
+            msg = "EMBEDDING_PROVIDER must be 'local', 'gemini', or 'voyage'"
             raise ValueError(msg)
         return normalized
 
@@ -392,6 +403,36 @@ class EmbeddingConfig(BaseModel):
             msg = "GEMINI_EMBEDDING_DIMENSIONS must be between 128 and 3072"
             raise ValueError(msg)
         return parsed
+
+    @field_validator("voyage_dimensions", mode="before")
+    @classmethod
+    def _validate_voyage_dimensions(cls, value: Any) -> int:
+        if value in (None, ""):
+            return 1024
+        try:
+            parsed = int(str(value))
+        except ValueError as exc:
+            msg = "VOYAGE_EMBEDDING_DIMENSIONS must be a valid integer"
+            raise ValueError(msg) from exc
+        if parsed not in {256, 512, 1024, 2048}:
+            msg = "VOYAGE_EMBEDDING_DIMENSIONS must be one of: 256, 512, 1024, 2048"
+            raise ValueError(msg)
+        return parsed
+
+    @field_validator("voyage_base_url", mode="before")
+    @classmethod
+    def _validate_voyage_base_url(cls, value: Any) -> str:
+        url = str(value or "https://api.voyageai.com/v1").strip().rstrip("/")
+        if not url:
+            msg = "VOYAGE_BASE_URL cannot be empty"
+            raise ValueError(msg)
+        if len(url) > 200:
+            msg = "VOYAGE_BASE_URL value appears to be too long"
+            raise ValueError(msg)
+        if "\x00" in url:
+            msg = "VOYAGE_BASE_URL contains invalid characters"
+            raise ValueError(msg)
+        return url
 
     @field_validator("max_token_length", mode="before")
     @classmethod

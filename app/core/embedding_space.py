@@ -11,7 +11,7 @@ def build_embedding_space_identifier(
 ) -> str | None:
     """Return a stable identifier for embedding spaces that need isolated indexes."""
     normalized_provider = str(provider or "").strip().lower()
-    if normalized_provider != "gemini":
+    if normalized_provider not in {"gemini", "voyage"}:
         return None
 
     safe_model = _sanitize_identifier(model_name or "gemini")
@@ -33,8 +33,12 @@ def resolve_embedding_space_identifier(config: Any) -> str | None:
 
     return build_embedding_space_identifier(
         getattr(config, "provider", None),
-        model_name=getattr(config, "gemini_model", None),
-        dimensions=getattr(config, "gemini_dimensions", None),
+        model_name=getattr(config, "gemini_model", None)
+        if getattr(config, "provider", None) == "gemini"
+        else getattr(config, "voyage_model", None),
+        dimensions=getattr(config, "gemini_dimensions", None)
+        if getattr(config, "provider", None) == "gemini"
+        else getattr(config, "voyage_dimensions", None),
     )
 
 

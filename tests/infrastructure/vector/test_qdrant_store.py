@@ -65,6 +65,14 @@ class _Client:
     def get_collections(self) -> None:
         return None
 
+    def collection_exists(self, _collection_name: str) -> bool:
+        return True
+
+    def get_collection(self, _collection_name: str) -> Any:
+        return SimpleNamespace(
+            config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=3)))
+        )
+
     def delete_collection(self, _collection_name: str) -> None:
         return None
 
@@ -113,6 +121,20 @@ def test_qdrant_store_properties_and_helpers() -> None:
     assert QdrantVectorStore._extract_id({"request_id": 1, "window_id": "w"}) == "1:w"
     assert QdrantVectorStore._extract_id({"request_id": 1, "summary_id": 2}) == "1:2"
     assert QdrantVectorStore._extract_id({}) != ""
+    assert (
+        QdrantVectorStore._extract_collection_vector_size(
+            SimpleNamespace(
+                config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=384)))
+            )
+        )
+        == 384
+    )
+    assert (
+        QdrantVectorStore._extract_collection_vector_size(
+            SimpleNamespace(config=SimpleNamespace(params={"vectors": {"size": 1024}}))
+        )
+        == 1024
+    )
 
     points = store._build_points(
         [[0.1, 0.2, 0.3]],
@@ -125,6 +147,21 @@ def test_qdrant_store_properties_and_helpers() -> None:
         "environment": "dev",
         "user_scope": "user",
     }
+
+
+def test_qdrant_store_accepts_existing_collection_with_matching_dimension() -> None:
+    store = _store(_Client(), required=True)
+
+    store._validate_collection_dimensions(cast("QdrantClient", store._client))
+
+
+def test_qdrant_store_rejects_existing_collection_with_wrong_dimension() -> None:
+    client = _Client()
+    store = _store(client, required=True)
+    store._embedding_dim = 1024
+
+    with pytest.raises(VectorStoreError, match="vector dimension 3"):
+        store._validate_collection_dimensions(cast("QdrantClient", client))
 
 
 def test_qdrant_store_upsert_replace_query_and_read_indexes() -> None:

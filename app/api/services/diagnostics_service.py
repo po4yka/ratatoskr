@@ -265,8 +265,11 @@ def _component_from_health(value: object, *, checked_at: _dt.datetime) -> Diagno
 
 
 def _expected_embedding_models(cfg: Any) -> set[str]:
-    if getattr(cfg.embedding, "provider", "local") == "gemini":
+    provider = getattr(cfg.embedding, "provider", "local")
+    if provider == "gemini":
         return {str(cfg.embedding.gemini_model)}
+    if provider == "voyage":
+        return {str(cfg.embedding.voyage_model)}
     return set(DEFAULT_MODELS.values())
 
 

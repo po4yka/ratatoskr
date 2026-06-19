@@ -471,18 +471,23 @@ Controls which embedding backend generates vectors for semantic search.
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `EMBEDDING_PROVIDER` | `local` | `local` (sentence-transformers) or `gemini` (Google Gemini API) |
+| `EMBEDDING_PROVIDER` | `local` | `local` (sentence-transformers), `gemini` (Google Gemini API), or `voyage` (Voyage AI API) |
 | `GEMINI_API_KEY` | _(empty)_ | Google Gemini API key (required when `EMBEDDING_PROVIDER=gemini`) |
 | `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2-preview` | Gemini embedding model ID |
 | `GEMINI_EMBEDDING_DIMENSIONS` | `768` | Output embedding dimensions (128-3072; Google recommends 768, 1536, or 3072) |
+| `VOYAGE_API_KEY` | _(empty)_ | Voyage AI API key (required when `EMBEDDING_PROVIDER=voyage`) |
+| `VOYAGE_EMBEDDING_MODEL` | `voyage-3-large` | Voyage embedding model ID |
+| `VOYAGE_EMBEDDING_DIMENSIONS` | `1024` | Output embedding dimensions (`256`, `512`, `1024`, or `2048`) |
+| `VOYAGE_BASE_URL` | `https://api.voyageai.com/v1` | Voyage API base URL |
 | `EMBEDDING_MAX_TOKEN_LENGTH` | `512` | Max tokens per text chunk for embedding (64-8192; Gemini supports up to 8192) |
 
 **Notes:**
 
-- Switching providers or Gemini output dimensions changes the embedding space. Re-embed all data after switching: `python -m app.cli.backfill_embeddings --force` then `python -m app.cli.backfill_vector_store --force`.
-- Qdrant collections are automatically namespaced by Gemini model + dimensionality to avoid mixing incompatible embedding spaces such as `gemini-embedding-001` and `gemini-embedding-2-preview`.
+- Switching providers or remote-provider output dimensions changes the embedding space. Re-embed all data after switching: `python -m app.cli.backfill_embeddings --force` then `python -m app.cli.backfill_vector_store --force`.
+- Qdrant collections are automatically namespaced by Gemini/Voyage model + dimensionality to avoid mixing incompatible embedding spaces such as `gemini-embedding-2-preview_768d` and `voyage-3-large_1024d`. Existing collections are checked at startup; a dimension mismatch disables vector search or fails startup when `QDRANT_REQUIRED=true`.
 - `google-genai` package is an optional dependency (`pip install ratatoskr[gemini]`). The app works without it when `EMBEDDING_PROVIDER=local`.
 - Gemini uses task-type-aware embeddings: `RETRIEVAL_DOCUMENT` for indexing, `RETRIEVAL_QUERY` for search queries.
+- Voyage uses task-type-aware embeddings: `document` for indexing, `query` for search queries.
 
 ## Vector-Index Sync
 

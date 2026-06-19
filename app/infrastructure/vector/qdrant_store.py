@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 import warnings
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -179,7 +180,9 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             )
             client.get_collections()  # probe / auth check
 
-            if not client.collection_exists(self._collection_name):
+            if client.collection_exists(self._collection_name):
+                self._validate_collection_dimensions(client)
+            else:
                 client.create_collection(
                     collection_name=self._collection_name,
                     vectors_config=VectorParams(
@@ -229,6 +232,61 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             if self._required:
                 raise VectorStoreError(str(exc)) from exc
             return False
+
+    def _validate_collection_dimensions(self, client: QdrantClient) -> None:
+        collection = client.get_collection(self._collection_name)
+        actual_dim = self._extract_collection_vector_size(collection)
+        if actual_dim is None:
+            logger.warning(
+                "vector_collection_dimension_unknown",
+                extra={"collection": self._collection_name, "expected_dim": self._embedding_dim},
+            )
+            return
+        if actual_dim == self._embedding_dim:
+            return
+
+        msg = (
+            f"Qdrant collection '{self._collection_name}' has vector dimension {actual_dim}, "
+            f"but configured embedding provider expects {self._embedding_dim}. "
+            "Switch back to the matching embedding provider, set QDRANT_COLLECTION_VERSION "
+            "or embedding-space config to a fresh collection, or re-index with "
+            "`python -m app.cli.backfill_vector_store --force` after recreating the collection."
+        )
+        logger.error(
+            "vector_collection_dimension_mismatch",
+            extra={
+                "collection": self._collection_name,
+                "actual_dim": actual_dim,
+                "expected_dim": self._embedding_dim,
+                "embedding_space": self._embedding_space,
+            },
+        )
+        raise VectorStoreError(msg)
+
+    @staticmethod
+    def _extract_collection_vector_size(collection: Any) -> int | None:
+        config = getattr(collection, "config", None)
+        params = getattr(config, "params", None)
+        vectors = getattr(params, "vectors", None)
+        if vectors is None and isinstance(params, Mapping):
+            vectors = params.get("vectors")
+
+        if isinstance(vectors, Mapping):
+            size = vectors.get("size")
+            if size is not None:
+                return int(size)
+            for vector_config in vectors.values():
+                size = getattr(vector_config, "size", None)
+                if size is None and isinstance(vector_config, Mapping):
+                    size = vector_config.get("size")
+                if size is not None:
+                    return int(size)
+            return None
+
+        size = getattr(vectors, "size", None)
+        if size is not None:
+            return int(size)
+        return None
 
     def ensure_available(self) -> bool:
         logger.info("vector_reconnect_attempt", extra={"url": self._url})

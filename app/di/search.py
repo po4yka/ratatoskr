@@ -71,6 +71,7 @@ def build_search_dependencies(
             user_scope=cfg.vector_store.user_scope,
             collection_version=cfg.vector_store.collection_version,
             embedding_space=resolve_embedding_space_identifier(cfg.embedding),
+            embedding_dim=cfg.embedding.embedding_dim,
             required=cfg.vector_store.required,
             connection_timeout=cfg.vector_store.connection_timeout,
         )

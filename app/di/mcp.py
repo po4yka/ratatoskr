@@ -108,6 +108,7 @@ async def ensure_mcp_vector_service(runtime: McpRuntime) -> Any:
             user_scope=cfg.user_scope,
             collection_version=cfg.collection_version,
             embedding_space=resolve_embedding_space_identifier(runtime.cfg.embedding),
+            embedding_dim=runtime.cfg.embedding.embedding_dim,
             required=cfg.required,
             connection_timeout=cfg.connection_timeout,
         )

@@ -47,9 +47,27 @@ class TestCreateEmbeddingService:
         assert isinstance(svc, GeminiEmbeddingService)
         assert isinstance(svc, EmbeddingServiceProtocol)
 
+    def test_voyage_provider_returns_voyage(self) -> None:
+        config = EmbeddingConfig(
+            provider="voyage",
+            voyage_api_key="test-key",
+            voyage_model="voyage-3-large",
+            voyage_dimensions=1024,
+        )
+        svc = create_embedding_service(config)
+        from app.infrastructure.embedding.voyage_embedding_service import VoyageEmbeddingService
+
+        assert isinstance(svc, VoyageEmbeddingService)
+        assert isinstance(svc, EmbeddingServiceProtocol)
+
     def test_gemini_without_key_raises(self) -> None:
         config = EmbeddingConfig(provider="gemini", gemini_api_key="")
         with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+            create_embedding_service(config)
+
+    def test_voyage_without_key_raises(self) -> None:
+        config = EmbeddingConfig(provider="voyage", voyage_api_key="")
+        with pytest.raises(ValueError, match="VOYAGE_API_KEY"):
             create_embedding_service(config)
 
     def test_unknown_provider_raises(self) -> None:
@@ -94,6 +112,18 @@ class TestServiceCaching:
         )
         assert a is not b
 
+    def test_voyage_cached_by_signature(self) -> None:
+        cfg = EmbeddingConfig(provider="voyage", voyage_api_key="k", voyage_dimensions=1024)
+        first = create_embedding_service(cfg)
+        second = create_embedding_service(
+            EmbeddingConfig(provider="voyage", voyage_api_key="k", voyage_dimensions=1024)
+        )
+        third = create_embedding_service(
+            EmbeddingConfig(provider="voyage", voyage_api_key="k", voyage_dimensions=512)
+        )
+        assert first is second
+        assert first is not third
+
     def test_reset_rebuilds_instance(self) -> None:
         first = create_embedding_service(None)
         reset_embedding_service_cache()
@@ -108,6 +138,10 @@ class TestEmbeddingConfig:
         assert config.gemini_api_key == ""
         assert config.gemini_model == "gemini-embedding-2-preview"
         assert config.gemini_dimensions == 768
+        assert config.voyage_api_key == ""
+        assert config.voyage_model == "voyage-3-large"
+        assert config.voyage_dimensions == 1024
+        assert config.voyage_base_url == "https://api.voyageai.com/v1"
         assert config.max_token_length == 512
 
     def test_invalid_provider_raises(self) -> None:
@@ -123,6 +157,11 @@ class TestEmbeddingConfig:
     def test_supported_gemini_dimensions_include_128(self) -> None:
         config = EmbeddingConfig(gemini_dimensions=128)
         assert config.gemini_dimensions == 128
+
+    def test_voyage_dimensions_supported_set(self) -> None:
+        assert EmbeddingConfig(voyage_dimensions=256).voyage_dimensions == 256
+        with pytest.raises(ValueError, match="VOYAGE_EMBEDDING_DIMENSIONS"):
+            EmbeddingConfig(voyage_dimensions=768)
 
     def test_max_token_length_bounds(self) -> None:
         with pytest.raises(ValueError):

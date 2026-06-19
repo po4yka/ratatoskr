@@ -32,6 +32,14 @@ def _cache_key(config: EmbeddingConfig | None) -> tuple[object, ...]:
             config.gemini_model,
             config.gemini_dimensions,
         )
+    if config.provider == "voyage":
+        return (
+            "voyage",
+            config.voyage_api_key,
+            config.voyage_model,
+            config.voyage_dimensions,
+            config.voyage_base_url,
+        )
     return (config.provider,)
 
 
@@ -44,7 +52,7 @@ def create_embedding_service(
     sentence-transformers ``EmbeddingService`` is returned.
 
     Services are cached per process keyed by config signature so the underlying
-    model (local) or client (gemini) is built once and reused across task runs.
+    model (local) or remote client (Gemini/Voyage) is built once and reused across task runs.
     """
     key = _cache_key(config)
     cached = _SERVICE_CACHE.get(key)
@@ -76,6 +84,16 @@ def _build_embedding_service(
             api_key=config.gemini_api_key,
             model=config.gemini_model,
             dimensions=config.gemini_dimensions,
+        )
+
+    if config.provider == "voyage":
+        from app.infrastructure.embedding.voyage_embedding_service import VoyageEmbeddingService
+
+        return VoyageEmbeddingService(
+            api_key=config.voyage_api_key,
+            model=config.voyage_model,
+            dimensions=config.voyage_dimensions,
+            base_url=config.voyage_base_url,
         )
 
     msg = f"Unknown embedding provider: {config.provider}"

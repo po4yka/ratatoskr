@@ -76,8 +76,9 @@ This re-embeds and re-upserts everything. Slow but authoritative.
 | -------- | --- | ----- |
 | `local` | `EMBEDDING_PROVIDER=local` (default) | `sentence-transformers`, runs in-process |
 | `gemini` | `EMBEDDING_PROVIDER=gemini` + `GEMINI_API_KEY` | Google's Gemini Embedding 2 API |
+| `voyage` | `EMBEDDING_PROVIDER=voyage` + `VOYAGE_API_KEY` | Voyage AI text embeddings via direct HTTP |
 
-**Switching providers invalidates ALL existing vectors** -- the embedding dimensions and semantics differ. Run the backfill after switching, and consider truncating the Qdrant collection first.
+**Switching providers invalidates ALL existing vectors** -- the embedding dimensions and semantics differ. Remote providers are namespaced by model + dimension; run the backfill after switching and use a fresh collection/version or recreate the incompatible collection first.
 
 ## Failure Modes
 

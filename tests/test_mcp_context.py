@@ -127,7 +127,7 @@ async def test_get_vector_service_forwards_required_and_timeout(
                 required=True,
                 connection_timeout=7.5,
             ),
-            embedding=object(),
+            embedding=SimpleNamespace(embedding_dim=1024),
         ),
     )
     monkeypatch.setattr(embedding_factory_module, "create_embedding_service", lambda _cfg: object())
@@ -150,6 +150,7 @@ async def test_get_vector_service_forwards_required_and_timeout(
         "user_scope": "scope",
         "collection_version": "v5",
         "embedding_space": None,
+        "embedding_dim": 1024,
         "required": True,
         "connection_timeout": 7.5,
     }

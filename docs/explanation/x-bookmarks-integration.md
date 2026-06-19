@@ -238,7 +238,7 @@ XWikiSync                  (app/tasks/x_wiki_sync.py)
   |     |-- compute content_hash (sha256 of file body)
   |     |-- look up by stable point_id = sha256(file path)
   |     |   (path is the natural key; content_hash drives the re-embed decision)
-  |     |-- changed?  re-embed via EmbeddingFactory (sentence-transformers or Gemini)
+  |     |-- changed?  re-embed via EmbeddingFactory (sentence-transformers, Gemini, or Voyage)
   |     |             upsert Qdrant point (entity_type="x_wiki")
   |     |-- unchanged? skip (cheap stat() pass)
   |-- compute set difference: known_paths - current_paths

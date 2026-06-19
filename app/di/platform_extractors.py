@@ -242,6 +242,7 @@ def _build_github_platform_extractor(context: PlatformExtractorBuildContext) -> 
             user_scope=context.cfg.vector_store.user_scope,
             collection_version=context.cfg.vector_store.collection_version,
             embedding_space=resolve_embedding_space_identifier(context.cfg.embedding),
+            embedding_dim=context.cfg.embedding.embedding_dim,
             required=False,
             connection_timeout=context.cfg.vector_store.connection_timeout,
         )

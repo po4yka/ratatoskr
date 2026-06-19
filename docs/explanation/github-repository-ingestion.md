@@ -46,7 +46,7 @@ RepoAnalysis JSON stored in repositories.analysis_json
   v
 RepositoryEmbeddingGenerator (app/infrastructure/embedding/repository_embedding.py)
   |-- concatenate: purpose + tech_stack + architecture_summary + key_concepts
-  |-- call EmbeddingFactory (local sentence-transformers or Gemini API)
+  |-- call EmbeddingFactory (local sentence-transformers, Gemini API, or Voyage AI)
   v
 Qdrant upsert  (entity_type="repository", user_id=<id>)
 RepositoryEmbedding row upserted (app/db/models/repository.py)

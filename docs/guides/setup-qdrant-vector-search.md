@@ -1,6 +1,6 @@
 # Set Up Qdrant Vector Search
 
-Enable semantic search with Qdrant and configurable embedding providers (local sentence-transformers or Google Gemini API). Qdrant stores summary vectors and, when GitHub ingestion is enabled, repository vectors in the same collection with an `entity_type` discriminator.
+Enable semantic search with Qdrant and configurable embedding providers (local sentence-transformers, Google Gemini API, or Voyage AI). Qdrant stores summary vectors and, when GitHub ingestion is enabled, repository vectors in the same collection with an `entity_type` discriminator.
 
 **Audience:** Operators **Difficulty:** Intermediate **Estimated Time:** 15 minutes
 
@@ -11,7 +11,7 @@ Enable semantic search with Qdrant and configurable embedding providers (local s
 Qdrant enables **semantic search** over summaries and analyzed GitHub repositories:
 
 - **Natural language queries**: "machine learning tutorials" finds relevant articles even if they use different terms
-- **Vector embeddings**: Converts text to vectors using sentence-transformers (384-dim, local) or Gemini Embedding 2 API (768-dim, remote)
+- **Vector embeddings**: Converts text to vectors using sentence-transformers (384-dim, local), Gemini Embedding 2 API (768-dim, remote), or Voyage AI (1024-dim by default)
 - **Similarity search**: Finds semantically similar summaries (not just keyword matches)
 - **Hybrid search**: Combines semantic search with full-text search and reranking
 
@@ -26,6 +26,7 @@ Qdrant is lighter than ChromaDB, ships a first-class arm64 Docker image, and has
 - Ratatoskr installed and running
 - **Local provider:** Python 3.13+ with sentence-transformers support, 1-2 GB RAM for embedding model
 - **Gemini provider:** Google Gemini API key ([get one free](https://aistudio.google.com/apikey)), `pip install google-genai`
+- **Voyage provider:** Voyage AI API key, no extra SDK dependency
 
 ---
 
@@ -288,12 +289,13 @@ python -m app.cli.backfill_vector_store
 
 ### Embedding Provider Selection
 
-Ratatoskr supports two embedding providers, controlled by `EMBEDDING_PROVIDER`:
+Ratatoskr supports three embedding providers, controlled by `EMBEDDING_PROVIDER`:
 
 | Provider | Dimensions | Latency | Cost | Multilingual | Setup |
 | ---------- | ---------- | --------- | ------ | ------------ | ------- |
 | `local` (default) | 384 | ~50ms | Free (CPU/GPU) | Limited | Download model (~90 MB) |
 | `gemini` | 768 (configurable 1-3072) | ~200ms | Free tier / $0.20 per 1M tokens | Native | API key only |
+| `voyage` | 1024 (configurable 256/512/1024/2048) | ~200ms | Paid API | Native | API key only |
 
 **Local provider** (default -- no changes needed):
 
@@ -313,12 +315,26 @@ EMBEDDING_MAX_TOKEN_LENGTH=2048                      # Gemini supports up to 819
 
 Gemini uses task-type-aware embeddings automatically: `RETRIEVAL_DOCUMENT` when indexing summaries, `RETRIEVAL_QUERY` when searching. The `google-genai` package is lazily imported and only required when `EMBEDDING_PROVIDER=gemini`. Qdrant collections are automatically namespaced by model + output dimensionality so newer Gemini Embedding 2 indexes do not collide with older embedding spaces.
 
-**Switching providers** requires re-embedding all data (dimensions differ):
+**Voyage AI provider:**
+
+```bash
+EMBEDDING_PROVIDER=voyage
+VOYAGE_API_KEY=your-api-key-here
+VOYAGE_EMBEDDING_MODEL=voyage-3-large   # default
+VOYAGE_EMBEDDING_DIMENSIONS=1024         # 256, 512, 1024, or 2048
+VOYAGE_BASE_URL=https://api.voyageai.com/v1
+```
+
+Voyage uses task-type-aware embeddings automatically: `document` when indexing summaries, `query` when searching. The adapter uses the existing `httpx` dependency and posts directly to `/v1/embeddings`, so no Voyage SDK install is required. Qdrant collections are automatically namespaced by model + output dimensionality, for example `voyage-3-large_1024d`.
+
+**Switching providers** requires re-embedding all data (dimensions and embedding spaces differ):
 
 ```bash
 python -m app.cli.backfill_embeddings --force
 python -m app.cli.backfill_vector_store --force
 ```
+
+If an existing Qdrant collection has the wrong vector dimension for the selected provider, startup logs `vector_collection_dimension_mismatch` with the collection name, actual dimension, expected dimension, and remediation hint. Set `QDRANT_COLLECTION_VERSION` to a fresh value or recreate the collection before backfilling; with `QDRANT_REQUIRED=true`, the app fails startup instead of serving vector search from an incompatible collection.
 
 ---
 

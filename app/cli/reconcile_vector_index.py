@@ -22,8 +22,11 @@ from app.infrastructure.vector.reconciliation import (
 
 
 def _expected_models(cfg: Any) -> set[str]:
-    if getattr(cfg.embedding, "provider", "local") == "gemini":
+    provider = getattr(cfg.embedding, "provider", "local")
+    if provider == "gemini":
         return {str(cfg.embedding.gemini_model)}
+    if provider == "voyage":
+        return {str(cfg.embedding.voyage_model)}
     return set(DEFAULT_MODELS.values())
 
 

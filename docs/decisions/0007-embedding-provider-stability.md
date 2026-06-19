@@ -5,13 +5,13 @@
 
 ## Context
 
-`EMBEDDING_PROVIDER` selects between `local` (sentence-transformers, 384-dim) and `gemini` (Gemini Embedding, 768-dim). Switching provider or dimension **invalidates all existing vectors**: the Qdrant collection name encodes the embedding space and the dimensions differ. With RAG grounding (ADR-0005) becoming load-bearing, an unplanned switch silently breaks retrieval.
+`EMBEDDING_PROVIDER` selects between `local` (sentence-transformers, 384-dim), `gemini` (Gemini Embedding, 768-dim by default), and `voyage` (Voyage AI, 1024-dim by default). Switching provider or dimension **invalidates all existing vectors**: the Qdrant collection name encodes the remote embedding space and the dimensions differ. With RAG grounding (ADR-0005) becoming load-bearing, an unplanned switch silently breaks retrieval.
 
 ## Decision
 
 - The embedding provider and dimension are a **deployment-stable** choice. Changing them is a **migration, not a config flip**.
 - A switch requires a full reindex into a new collection (the collection name already namespaces by embedding space, so old and new coexist without collision) followed by a read cutover. Run the backfill/reconcile path (`app/cli/backfill_vector_store.py` + `app/cli/reconcile_vector_index.py`) against the new collection **before** flipping reads.
-- Default remains `local` (no external dependency, no per-call cost). `gemini` is opt-in for quality.
+- Default remains `local` (no external dependency, no per-call cost). `gemini` and `voyage` are opt-in for quality.
 
 ## Consequences
 
