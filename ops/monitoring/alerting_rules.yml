@@ -251,6 +251,31 @@ groups:
           summary: "Very high daily OpenRouter spending"
           description: "OpenRouter costs in the last 24 hours: ${{ $value | printf \"%.2f\" }}"
 
+  - name: ratatoskr_tts
+    rules:
+      - alert: RatatoskrTTSQuotaExceeded
+        expr: increase(ratatoskr_tts_requests_total{outcome="quota_exceeded"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ElevenLabs TTS quota exhausted"
+          description: "At least one ElevenLabs text-to-speech request hit quota exhaustion in the last 5 minutes. Check ELEVENLABS_API_KEY quota, recent TTS request volume, and any retry loops."
+
+      - alert: RatatoskrTTSHTTPErrorRateHigh
+        expr: |
+          (
+            sum(rate(ratatoskr_tts_requests_total{outcome="http_error"}[15m]))
+            /
+            clamp_min(sum(rate(ratatoskr_tts_requests_total{outcome!="retry"}[15m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ElevenLabs TTS HTTP error rate exceeds 5%"
+          description: "ElevenLabs text-to-speech HTTP errors are above 5% over 15 minutes. Check provider status, API key validity, and request payload compatibility."
+
   - name: ratatoskr_llm_retry_budget
     rules:
       # Retry-budget exhaustion: ratio of requests that burned through

@@ -33,6 +33,7 @@ Sub-module layout
 - ``metrics_aggregation``     — multi-source aggregation
 - ``metrics_streaming``       — draft stream events + stream latency
 - ``metrics_social``          — social provider integrations
+- ``metrics_tts``             — text-to-speech provider requests
 - ``metrics_db``              — database query latency + admin diagnostics
 - ``metrics_vector``          — vector store writes + indexing lag
 - ``metrics_digest``          — Telegram channel digest delivery + userbot health
@@ -219,6 +220,18 @@ from app.observability.metrics_stt import (
     STT_REQUESTS_TOTAL,
     record_stt_audio_seconds,
     record_stt_request,
+)
+
+# ---------------------------------------------------------------------------
+# Text-to-speech
+# ---------------------------------------------------------------------------
+from app.observability.metrics_tts import (
+    TTS_AUDIO_BYTES_TOTAL,
+    TTS_LATENCY_SECONDS,
+    TTS_REQUESTS_TOTAL,
+    record_tts_audio_bytes,
+    record_tts_latency,
+    record_tts_request,
 )
 
 # ---------------------------------------------------------------------------
@@ -483,6 +496,13 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "STT_REQUESTS_TOTAL",
     "record_stt_audio_seconds",
     "record_stt_request",
+    # Text-to-speech
+    "TTS_AUDIO_BYTES_TOTAL",
+    "TTS_LATENCY_SECONDS",
+    "TTS_REQUESTS_TOTAL",
+    "record_tts_audio_bytes",
+    "record_tts_latency",
+    "record_tts_request",
     # Vector store
     "VECTOR_INDEXING_LAG",
     "VECTOR_RECONCILE_OLDEST_LAG_SECONDS",

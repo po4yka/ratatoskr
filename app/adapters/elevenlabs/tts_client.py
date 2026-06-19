@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from app.core.logging_utils import get_logger
+from app.observability.metrics import (
+    record_tts_audio_bytes,
+    record_tts_latency,
+    record_tts_request,
+)
 
 from .exceptions import (
     ElevenLabsAPIError,
@@ -133,21 +139,28 @@ class ElevenLabsTTSClient:
         """Execute POST request with retry on transient errors."""
         client = self._get_client()
         last_exc: Exception | None = None
+        started = time.monotonic()
 
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 response = await client.post(url, json=payload)
                 if response.status_code == 200:
-                    return response.content
+                    content = response.content
+                    record_tts_request("success")
+                    record_tts_audio_bytes(len(content))
+                    record_tts_latency(time.monotonic() - started)
+                    return content
 
                 self._handle_error_response(response)
 
             except (ElevenLabsRateLimitError, ElevenLabsAPIError) as exc:
                 last_exc = exc
                 if exc.status_code not in _RETRYABLE_STATUS_CODES:
+                    self._record_terminal_error(exc, started)
                     raise
                 if attempt < _MAX_RETRIES:
                     delay = 2 ** (attempt + 1)
+                    record_tts_request("retry")
                     logger.warning(
                         "elevenlabs_retry",
                         extra={
@@ -158,12 +171,14 @@ class ElevenLabsTTSClient:
                     )
                     await asyncio.sleep(delay)
                 else:
+                    self._record_terminal_error(exc, started)
                     raise
 
             except httpx.HTTPError as exc:
                 last_exc = exc
                 if attempt < _MAX_RETRIES:
                     delay = 2 ** (attempt + 1)
+                    record_tts_request("retry")
                     logger.warning(
                         "elevenlabs_http_error_retry",
                         extra={"attempt": attempt + 1, "error": str(exc), "delay_sec": delay},
@@ -171,11 +186,21 @@ class ElevenLabsTTSClient:
                     await asyncio.sleep(delay)
                 else:
                     msg = f"ElevenLabs request failed after {_MAX_RETRIES + 1} attempts: {exc}"
+                    record_tts_request("timeout" if isinstance(exc, httpx.TimeoutException) else "http_error")
+                    record_tts_latency(time.monotonic() - started)
                     raise ElevenLabsAPIError(msg) from exc
 
         # Should not reach here, but satisfy type checker
         msg = "ElevenLabs request failed"
+        record_tts_request("http_error")
+        record_tts_latency(time.monotonic() - started)
         raise ElevenLabsAPIError(msg) from last_exc
+
+    @staticmethod
+    def _record_terminal_error(exc: ElevenLabsAPIError, started: float) -> None:
+        outcome = "quota_exceeded" if isinstance(exc, ElevenLabsQuotaExceededError) else "http_error"
+        record_tts_request(outcome)
+        record_tts_latency(time.monotonic() - started)
 
     @staticmethod
     def _handle_error_response(response: httpx.Response) -> None:

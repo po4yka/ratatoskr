@@ -14,6 +14,30 @@ from app.adapters.elevenlabs.exceptions import (
     ElevenLabsRateLimitError,
 )
 from app.adapters.elevenlabs.tts_client import ElevenLabsTTSClient
+from app.observability import metrics as metrics_module
+
+
+def _counter_value(counter, **labels: str) -> float:
+    if counter is None:
+        pytest.skip("prometheus_client not installed")
+    child = counter.labels(**labels)
+    return float(child._value.get())
+
+
+def _histogram_count(histogram) -> float:
+    if histogram is None:
+        pytest.skip("prometheus_client not installed")
+    for metric in histogram.collect():
+        for sample in metric.samples:
+            if sample.name.endswith("_count"):
+                return float(sample.value)
+    return 0.0
+
+
+def _unlabeled_counter_value(counter) -> float:
+    if counter is None:
+        pytest.skip("prometheus_client not installed")
+    return float(counter._value.get())
 
 
 def _make_config(*, max_chars: int = 5000) -> SimpleNamespace:
@@ -47,6 +71,9 @@ async def test_synthesize_returns_bytes_on_200():
     client = ElevenLabsTTSClient(_make_config())
     audio = b"MP3_DATA"
     mock_resp = _make_response(200, content=audio)
+    before_success = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success")
+    before_bytes = _unlabeled_counter_value(metrics_module.TTS_AUDIO_BYTES_TOTAL)
+    before_latency = _histogram_count(metrics_module.TTS_LATENCY_SECONDS)
 
     with patch.object(client, "_get_client") as mock_get_client:
         http = AsyncMock()
@@ -56,12 +83,16 @@ async def test_synthesize_returns_bytes_on_200():
         result = await client.synthesize("Hello world")
 
     assert result == audio
+    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success") == before_success + 1
+    assert _unlabeled_counter_value(metrics_module.TTS_AUDIO_BYTES_TOTAL) == before_bytes + len(audio)
+    assert _histogram_count(metrics_module.TTS_LATENCY_SECONDS) == before_latency + 1
 
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_synthesize_401_raises_api_error():
     client = ElevenLabsTTSClient(_make_config())
     mock_resp = _make_response(401, json_body={"detail": {"message": "Invalid key"}})
+    before_error = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error")
 
     with patch.object(client, "_get_client") as mock_get_client:
         http = AsyncMock()
@@ -72,12 +103,15 @@ async def test_synthesize_401_raises_api_error():
             await client.synthesize("Hello")
 
     assert exc_info.value.status_code == 401
+    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error") == before_error + 1
 
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_synthesize_429_raises_rate_limit_error():
     client = ElevenLabsTTSClient(_make_config())
     mock_resp = _make_response(429, json_body={"detail": {"message": "Too many requests"}})
+    before_retry = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="retry")
+    before_error = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error")
 
     with patch.object(client, "_get_client") as mock_get_client:
         http = AsyncMock()
@@ -87,11 +121,15 @@ async def test_synthesize_429_raises_rate_limit_error():
         with pytest.raises(ElevenLabsRateLimitError):
             await client.synthesize("Hello")
 
+    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="retry") == before_retry + 2
+    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error") == before_error + 1
+
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_synthesize_quota_exceeded_error():
     client = ElevenLabsTTSClient(_make_config())
     mock_resp = _make_response(400, json_body={"detail": {"message": "quota characters exceeded"}})
+    before_quota = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="quota_exceeded")
 
     with patch.object(client, "_get_client") as mock_get_client:
         http = AsyncMock()
@@ -101,6 +139,11 @@ async def test_synthesize_quota_exceeded_error():
         with pytest.raises(ElevenLabsQuotaExceededError):
             await client.synthesize("Hello")
 
+    assert (
+        _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="quota_exceeded")
+        == before_quota + 1
+    )
+
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_synthesize_retries_on_500_then_succeeds():
@@ -108,6 +151,8 @@ async def test_synthesize_retries_on_500_then_succeeds():
     client = ElevenLabsTTSClient(_make_config())
     fail_resp = _make_response(500, json_body={"detail": {"message": "server error"}})
     ok_resp = _make_response(200, content=b"audio")
+    before_retry = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="retry")
+    before_success = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success")
 
     with (
         patch.object(client, "_get_client") as mock_get_client,
@@ -121,6 +166,27 @@ async def test_synthesize_retries_on_500_then_succeeds():
 
     assert result == b"audio"
     assert http.post.call_count == 2
+    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="retry") == before_retry + 1
+    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success") == before_success + 1
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_synthesize_timeout_records_timeout_metric():
+    client = ElevenLabsTTSClient(_make_config())
+    before_timeout = _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="timeout")
+
+    with (
+        patch.object(client, "_get_client") as mock_get_client,
+        patch("asyncio.sleep", new_callable=AsyncMock),
+    ):
+        http = AsyncMock()
+        http.post = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
+        mock_get_client.return_value = http
+
+        with pytest.raises(ElevenLabsAPIError):
+            await client.synthesize("Hello")
+
+    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="timeout") == before_timeout + 1
 
 
 def test_chunk_text_single_chunk_when_short():
