@@ -47,6 +47,7 @@ class SummarizeConfig:
     """
 
     model: str
+    llm_provider: str
     temperature: float
     structured_output_mode: str | None
     long_context_threshold_tokens: int

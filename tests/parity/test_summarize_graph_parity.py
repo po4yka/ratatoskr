@@ -139,6 +139,7 @@ def _summarize_deps() -> SummarizeDeps:
         summary_index=m,
         config=SummarizeConfig(
             model="model-x",
+            llm_provider="openrouter",
             temperature=0.2,
             structured_output_mode="json_schema",
             long_context_threshold_tokens=1_000_000,

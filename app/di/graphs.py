@@ -86,6 +86,7 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
     threshold = routing.long_context_threshold_tokens if routing.enabled else 80000
     return SummarizeConfig(
         model=openrouter.model,
+        llm_provider=cfg.runtime.llm_provider,
         temperature=openrouter.temperature,
         structured_output_mode=openrouter.structured_output_mode,
         long_context_threshold_tokens=threshold,

@@ -81,6 +81,7 @@ def _deps(**over: Any) -> SummarizeDeps:
 def _config(**over: Any) -> SummarizeConfig:
     base: dict[str, Any] = {
         "model": "base-model",
+        "llm_provider": "openrouter",
         "temperature": 0.2,
         "structured_output_mode": "json_schema",
         "long_context_threshold_tokens": 1_000_000,
@@ -301,6 +302,7 @@ def _graph_config_from_routing(routing: Any, openrouter: Any) -> SummarizeConfig
     """Snapshot a SummarizeConfig the way di/graphs.build_summarize_config does."""
     return SummarizeConfig(
         model=openrouter.model,
+        llm_provider="openrouter",
         temperature=openrouter.temperature,
         structured_output_mode=openrouter.structured_output_mode,
         long_context_threshold_tokens=routing.long_context_threshold_tokens,

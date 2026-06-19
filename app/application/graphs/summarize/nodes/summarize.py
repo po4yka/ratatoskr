@@ -149,7 +149,7 @@ def _call_record(
     """Build the serializable ``llm_calls`` record (attempt_trigger='graph_node')."""
     rec: dict[str, Any] = {
         "request_id": state.get("request_id"),
-        "provider": "openrouter",
+        "provider": config.llm_provider if config else "openrouter",
         "model": call_meta.get("model"),
         "tokens_prompt": call_meta.get("tokens_prompt"),
         "tokens_completion": call_meta.get("tokens_completion"),

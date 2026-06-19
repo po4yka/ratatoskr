@@ -31,6 +31,7 @@ def _structured(payload: dict[str, Any], *, model: str = "m") -> StructuredLLMRe
 def _config(**over: Any) -> SummarizeConfig:
     base: dict[str, Any] = {
         "model": "base-model",
+        "llm_provider": "openrouter",
         "temperature": 0.2,
         "structured_output_mode": "json_schema",
         "long_context_threshold_tokens": 1_000_000,

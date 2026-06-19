@@ -88,6 +88,7 @@ def _real_deps(database: Any) -> SummarizeDeps:
         crawl_repo=CrawlResultRepositoryAdapter(database),
         config=SummarizeConfig(
             model="base-model",
+            llm_provider="openrouter",
             temperature=0.2,
             structured_output_mode="json_schema",
             long_context_threshold_tokens=1_000_000,
