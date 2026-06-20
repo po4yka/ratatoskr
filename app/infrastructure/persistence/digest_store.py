@@ -92,6 +92,22 @@ class DigestStore:
         return _run_sync(self.async_list_active_subscriptions(user_id))
 
     async def async_list_fetchable_subscriptions(self, user_id: int) -> list[ChannelSubscription]:
+        """Return active subscriptions whose channels are due for a fetch.
+
+        The result is a best-effort snapshot. The method intentionally uses two
+        separate transactions: the first reads ChannelSubscription rows
+        (async_list_active_subscriptions), and the second resolves run-state
+        via _batch_channel_run_states (which also upserts backing Source /
+        Subscription rows). A row written by another concurrent actor between the
+        two transactions may not be reflected in the returned list. This is a
+        TOCTOU race that is acceptable here: the worst outcome is a missed or
+        spurious fetch cycle, both of which self-correct on the next scheduler
+        tick. Callers should not rely on this list being perfectly consistent
+        with the live database state at the moment it is consumed.
+
+        If strong consistency is required in the future, both queries should be
+        merged into a single transaction with appropriate locking.
+        """
         subscriptions = await self.async_list_active_subscriptions(user_id)
         channels = [sub.channel for sub in subscriptions if sub.channel is not None]
         if not channels:
