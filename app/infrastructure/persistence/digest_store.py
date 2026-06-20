@@ -878,20 +878,11 @@ class DigestStore:
                 )
             )
             if source is not None:
-                # Use a SQL-expression increment so the UPDATE is atomic,
-                # consistent with the Channel handling above. Assigning via
-                # the ORM (source.fetch_error_count = X + 1) would read a
-                # stale Python value and lose concurrent increments.
-                source_values: dict[str, Any] = {
-                    "fetch_error_count": Source.fetch_error_count + 1,
-                    "last_error": error,
-                    "updated_at": now,
-                }
+                source.fetch_error_count = (source.fetch_error_count or 0) + 1
+                source.last_error = error
+                source.updated_at = now
                 if disable:
-                    source_values["is_active"] = False
-                await session.execute(
-                    update(Source).where(Source.id == source.id).values(**source_values)
-                )
+                    source.is_active = False
                 backoff_seconds = 300 * (2 ** max(0, new_count - 1))
                 await session.execute(
                     update(Subscription)
