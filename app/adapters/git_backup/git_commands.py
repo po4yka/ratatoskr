@@ -30,7 +30,26 @@ Argv shape (in order):
 
 from __future__ import annotations
 
+import re
+
 GIT_EXECUTABLE = "git"
+
+# Characters that are safe in a path embedded inside a git -c value string.
+# Git splits "credential.helper=store --file=<path>" by whitespace when
+# invoking the helper, so any whitespace in the path would cause git to
+# misinterpret additional tokens as separate arguments.  = and " also
+# have special meaning in git -c value parsing.
+_SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./()\-]+$")
+
+
+def _validate_credentials_path(path: str) -> None:
+    """Raise ValueError if *path* contains characters unsafe for git -c interpolation."""
+    if not _SAFE_PATH_RE.match(path):
+        raise ValueError(
+            f"credentials_path contains characters that are unsafe for git -c "
+            f"interpolation (whitespace, '=', quotes, or other shell-significant "
+            f"characters are not allowed): {path!r}"
+        )
 
 
 def build_git_command(
@@ -84,6 +103,7 @@ def build_git_command(
         ]
 
     if credentials_path is not None:
+        _validate_credentials_path(credentials_path)
         command += ["-c", f"credential.helper=store --file={credentials_path}"]
 
     if not repo_exists:
