@@ -382,6 +382,10 @@ async def _sync_all(
         # A metrics read must never break the sync run, so swallow any DB error.
         try:
             async with db.session() as session:
+                # Intentionally global (no user_id filter): this is a Prometheus
+                # system-health gauge reflecting the total pending-analysis backlog
+                # across the entire single-tenant deployment. Adding a per-user
+                # predicate would undercount and misrepresent the real queue depth.
                 backlog = await session.execute(
                     select(func.count(Repository.id)).where(
                         Repository.pending_analysis == True  # noqa: E712
