@@ -421,5 +421,4 @@ document.addEventListener("DOMContentLoaded", async () => {
   await updateAuthState();
   await refreshQueueCount();
   await retryQueue().catch(() => undefined);
-  if (await getTokens().then(tokens => tokens.accessToken)) await saveCurrentTab();
 });
