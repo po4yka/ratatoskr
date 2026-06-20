@@ -52,13 +52,14 @@ class DigestService:
         analyzer: DigestAnalyzer,
         formatter: DigestFormatter,
         send_message_func: Any,  # async callable(user_id, text, reply_markup=...)
+        store: DigestStore | None = None,
     ) -> None:
         self._cfg = cfg
         self._reader = reader
         self._analyzer = analyzer
         self._formatter = formatter
         self._send = send_message_func
-        self._store = DigestStore()
+        self._store = store if store is not None else DigestStore()
         self._email_service: EmailDeliveryService | None = None
 
     async def generate_digest(
@@ -522,15 +523,13 @@ class DigestService:
             self._email_service = EmailDeliveryService(self._cfg.email)
         return self._email_service
 
-    @classmethod
-    async def async_get_users_with_subscriptions(cls) -> list[int]:
+    async def async_get_users_with_subscriptions(self) -> list[int]:
         """Return user IDs that have at least one active subscription."""
-        return await DigestStore().async_get_users_with_subscriptions()
+        return await self._store.async_get_users_with_subscriptions()
 
-    @classmethod
-    def get_users_with_subscriptions(cls) -> list[int]:
+    def get_users_with_subscriptions(self) -> list[int]:
         """Return user IDs that have at least one active subscription."""
-        return DigestStore().get_users_with_subscriptions()
+        return self._store.get_users_with_subscriptions()
 
 
 def _deduplicate_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
