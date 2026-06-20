@@ -210,7 +210,7 @@ async def _upsert_demo_summary(session: Any, *, user_id: int, seed: DemoSummaryS
         request_id = int(existing_request_id)
         await session.execute(
             update(Request)
-            .where(Request.id == request_id)
+            .where(Request.id == request_id, Request.user_id == user_id)
             .values(
                 status="completed",
                 input_url=seed.url,
