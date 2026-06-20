@@ -337,10 +337,10 @@ async def delete_backup(
     """Delete a backup record and its file from disk."""
     backup = await _verify_ownership(backup_repo, backup_id, user["user_id"])
 
-    # Remove file from disk
+    # Remove file from disk — both stat and unlink are blocking; run off the event loop.
     file_path = backup.get("file_path")
-    if file_path and os.path.isfile(file_path):
-        os.remove(file_path)
+    if file_path and await asyncio.to_thread(os.path.isfile, file_path):
+        await asyncio.to_thread(os.remove, file_path)
 
     await backup_repo.async_delete_backup(backup_id)
     return success_response({"deleted": True, "id": backup_id})
