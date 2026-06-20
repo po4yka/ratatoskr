@@ -22,7 +22,7 @@ from app.api.models.responses.git_mirrors import (
     RegisterMirrorResponse,
 )
 from app.api.routers.auth import get_current_user
-from app.core.git_url_safety import is_github_host
+from app.core.git_url_safety import assert_safe_git_url, is_github_host
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirror, GitMirrorSource
 from app.db.models.repository import Repository
@@ -218,10 +218,18 @@ async def register_mirror(
     """
     user_id: int = user["user_id"]
 
+    # Syntactic SSRF guard: reject literal-IP and blocked-hostname targets before
+    # any DB write. The authoritative resolution-time check (assert_resolved_public_host)
+    # runs inside the git-backup worker immediately before the actual clone.
+    clone_url = body.clone_url
+    try:
+        assert_safe_git_url(clone_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # Classify by the URL's real parsed host (not a substring match): a userinfo
     # or lookalike host like github.com@evil.com / github.com.evil.com must NOT be
     # treated as GitHub, or _resolve_url would embed the user's token for it.
-    clone_url = body.clone_url
     source = GitMirrorSource.GITHUB if is_github_host(clone_url) else GitMirrorSource.MANUAL
     if body.repository_id is not None:
         repository = await _load_owned_repository(
