@@ -43,6 +43,24 @@ def validate_extension() -> None:
         raise SystemExit("extension/manifest.json action must declare a 128px PNG icon")
     if "<all_urls>" in manifest.get("host_permissions", []):
         raise SystemExit("extension/manifest.json must not request persistent <all_urls>")
+    # optional_host_permissions may contain "https://*/*" (broad HTTPS access).
+    # This is intentional: the extension needs to reach any page the user wants to
+    # save, but the permission is user-gated (granted only when the user triggers
+    # the action on a given site).  Blocking <all_urls> only in the persistent
+    # host_permissions list is therefore sufficient; we explicitly permit the
+    # optional variant here.  Reject only if a literal "<all_urls>" token appears,
+    # which would be a mistake rather than the intentional broad-optional pattern.
+    if "<all_urls>" in manifest.get("optional_host_permissions", []):
+        raise SystemExit(
+            "extension/manifest.json must not request <all_urls> in optional_host_permissions; "
+            "use 'https://*/*' as a user-gated optional permission instead"
+        )
+
+
+# Directories present in the extension source tree that must not be included in
+# the published zip artifact. screenshots/ holds store-listing assets, not
+# runtime extension files.
+_EXCLUDE_DIRS: frozenset[str] = frozenset({"screenshots"})
 
 
 def build_zip(output: Path) -> Path:
@@ -51,7 +69,10 @@ def build_zip(output: Path) -> Path:
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(EXTENSION_DIR.rglob("*")):
             if path.is_file():
-                archive.write(path, path.relative_to(EXTENSION_DIR).as_posix())
+                relative = path.relative_to(EXTENSION_DIR)
+                if relative.parts[0] in _EXCLUDE_DIRS:
+                    continue
+                archive.write(path, relative.as_posix())
     return output
 
 
