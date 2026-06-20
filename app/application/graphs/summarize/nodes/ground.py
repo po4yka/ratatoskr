@@ -63,7 +63,7 @@ async def ground(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     result = await deps.retrieval.retrieve(
         entity_type=EntityType.SUMMARY,
         scope=scope,
-        query=source_text,
+        query=source_text[: deps.rag_query_max_chars],
         top_k=max(1, deps.rag_top_k),
         exclude_request_id=state.get("request_id"),
         correlation_id=state.get("correlation_id"),

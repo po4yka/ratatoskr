@@ -118,6 +118,7 @@ def build_summarize_deps(
     config: SummarizeConfig | None = None,
     rag_enabled: bool = False,
     rag_top_k: int = 5,
+    rag_query_max_chars: int = 8000,
     model_router: Any | None = None,
     summary_cache: Any | None = None,
     crawl_repo: Any | None = None,
@@ -125,9 +126,9 @@ def build_summarize_deps(
 ) -> SummarizeDeps:
     """Pack already-constructed ports + config snapshot into the node dependency bundle.
 
-    ``config`` / ``rag_enabled`` / ``rag_top_k`` come from ``AppConfig`` at this
-    composition root so the nodes never import ``app.config``
-    (application-no-outward).
+    ``config`` / ``rag_enabled`` / ``rag_top_k`` / ``rag_query_max_chars`` come
+    from ``AppConfig`` at this composition root so the nodes never import
+    ``app.config`` (application-no-outward).
 
     GAP 1: ``model_router`` is a ``functools.partial`` of
     ``resolve_model_for_content`` pre-bound with ``routing_config`` and
@@ -151,6 +152,7 @@ def build_summarize_deps(
         config=config,
         rag_enabled=rag_enabled,
         rag_top_k=rag_top_k,
+        rag_query_max_chars=rag_query_max_chars,
         model_router=model_router,
         summary_cache=summary_cache,
         crawl_repo=crawl_repo,
@@ -476,6 +478,7 @@ def assemble_graph_url_processor(
         config=build_summarize_config(cfg),
         rag_enabled=bool(getattr(cfg.runtime, "summarize_rag_enabled", False)),
         rag_top_k=int(getattr(cfg.runtime, "rag_top_k", 5)),
+        rag_query_max_chars=int(getattr(cfg.runtime, "rag_query_max_chars", 8000)),
         model_router=build_model_router(cfg),
         summary_cache=build_summary_cache_adapter(cfg, cache=redis_cache),
         crawl_repo=crawl_result_repo,

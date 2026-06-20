@@ -104,6 +104,11 @@ class SummarizeDeps:
     # is transitional and retires at the T6 cutover.
     rag_enabled: bool = False
     rag_top_k: int = 5
+    # Maximum characters of source_text forwarded to the embedding query in the
+    # ground node. Bounding this caps both state size and per-call embedding cost.
+    # Sourced from RAG_QUERY_MAX_CHARS at the composition root; default 8000 chars
+    # (~2 k tokens) is sufficient for semantic similarity without sending full docs.
+    rag_query_max_chars: int = 8000
     # Config snapshot for build_prompt/summarize/enrich. Optional so a bare-mock
     # deps (unit tests) yields the conservative path (dynamic budget, base model,
     # no two-pass); production always supplies it.

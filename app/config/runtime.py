@@ -179,6 +179,17 @@ class RuntimeConfig(BaseModel):
             "the T6 cutover (ADR-0018)."
         ),
     )
+    rag_query_max_chars: int = Field(
+        default=8000,
+        validation_alias="RAG_QUERY_MAX_CHARS",
+        description=(
+            "Maximum characters of source_text forwarded to the embedding query in "
+            "the ground node. Caps state size and per-call embedding cost. ~8 000 "
+            "chars (~2 k tokens) is sufficient for semantic similarity without "
+            "sending full documents. REMOVE alongside SUMMARIZE_RAG_ENABLED at the "
+            "T6 cutover (ADR-0018)."
+        ),
+    )
     aggregation_bundle_enabled: bool = Field(
         default=True, validation_alias="AGGREGATION_BUNDLE_ENABLED"
     )
