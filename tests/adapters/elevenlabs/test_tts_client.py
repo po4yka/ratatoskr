@@ -83,8 +83,12 @@ async def test_synthesize_returns_bytes_on_200():
         result = await client.synthesize("Hello world")
 
     assert result == audio
-    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success") == before_success + 1
-    assert _unlabeled_counter_value(metrics_module.TTS_AUDIO_BYTES_TOTAL) == before_bytes + len(audio)
+    assert (
+        _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success") == before_success + 1
+    )
+    assert _unlabeled_counter_value(metrics_module.TTS_AUDIO_BYTES_TOTAL) == before_bytes + len(
+        audio
+    )
     assert _histogram_count(metrics_module.TTS_LATENCY_SECONDS) == before_latency + 1
 
 
@@ -103,7 +107,9 @@ async def test_synthesize_401_raises_api_error():
             await client.synthesize("Hello")
 
     assert exc_info.value.status_code == 401
-    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error") == before_error + 1
+    assert (
+        _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error") == before_error + 1
+    )
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -122,7 +128,9 @@ async def test_synthesize_429_raises_rate_limit_error():
             await client.synthesize("Hello")
 
     assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="retry") == before_retry + 2
-    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error") == before_error + 1
+    assert (
+        _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="http_error") == before_error + 1
+    )
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -167,7 +175,9 @@ async def test_synthesize_retries_on_500_then_succeeds():
     assert result == b"audio"
     assert http.post.call_count == 2
     assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="retry") == before_retry + 1
-    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success") == before_success + 1
+    assert (
+        _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="success") == before_success + 1
+    )
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -186,7 +196,9 @@ async def test_synthesize_timeout_records_timeout_metric():
         with pytest.raises(ElevenLabsAPIError):
             await client.synthesize("Hello")
 
-    assert _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="timeout") == before_timeout + 1
+    assert (
+        _counter_value(metrics_module.TTS_REQUESTS_TOTAL, outcome="timeout") == before_timeout + 1
+    )
 
 
 def test_chunk_text_single_chunk_when_short():

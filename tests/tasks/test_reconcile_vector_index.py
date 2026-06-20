@@ -263,9 +263,7 @@ async def test_reconcile_records_metrics_for_forced_run(monkeypatch):
     )
 
     before_scanned = _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="scanned")
-    before_requeued = _counter_value(
-        metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="requeued"
-    )
+    before_requeued = _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="requeued")
     before_skipped = _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="skipped")
     before_failed = _counter_value(metrics_module.VECTOR_RECONCILE_ROWS_TOTAL, outcome="failed")
     before_success = _counter_value(metrics_module.VECTOR_RECONCILE_RUNS_TOTAL, status="success")

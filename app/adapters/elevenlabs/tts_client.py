@@ -186,7 +186,9 @@ class ElevenLabsTTSClient:
                     await asyncio.sleep(delay)
                 else:
                     msg = f"ElevenLabs request failed after {_MAX_RETRIES + 1} attempts: {exc}"
-                    record_tts_request("timeout" if isinstance(exc, httpx.TimeoutException) else "http_error")
+                    record_tts_request(
+                        "timeout" if isinstance(exc, httpx.TimeoutException) else "http_error"
+                    )
                     record_tts_latency(time.monotonic() - started)
                     raise ElevenLabsAPIError(msg) from exc
 
@@ -198,7 +200,9 @@ class ElevenLabsTTSClient:
 
     @staticmethod
     def _record_terminal_error(exc: ElevenLabsAPIError, started: float) -> None:
-        outcome = "quota_exceeded" if isinstance(exc, ElevenLabsQuotaExceededError) else "http_error"
+        outcome = (
+            "quota_exceeded" if isinstance(exc, ElevenLabsQuotaExceededError) else "http_error"
+        )
         record_tts_request(outcome)
         record_tts_latency(time.monotonic() - started)
 

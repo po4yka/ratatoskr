@@ -89,9 +89,10 @@ def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
     alertmanager = services["alertmanager"]
 
     assert alertmanager["image"] == "prom/alertmanager:v0.27.0"
-    assert "../monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" in alertmanager[
-        "volumes"
-    ]
+    assert (
+        "../monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"
+        in alertmanager["volumes"]
+    )
     assert (
         "../monitoring/render-alertmanager-config.sh:/etc/alertmanager/render-alertmanager-config.sh:ro"
         in alertmanager["volumes"]
@@ -107,7 +108,9 @@ def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
     prometheus_config = yaml.safe_load(
         (ROOT / "ops/monitoring/prometheus.yml").read_text(encoding="utf-8")
     )
-    loki_config = yaml.safe_load((ROOT / "ops/monitoring/loki-config.yml").read_text(encoding="utf-8"))
+    loki_config = yaml.safe_load(
+        (ROOT / "ops/monitoring/loki-config.yml").read_text(encoding="utf-8")
+    )
     alertmanager_config = yaml.safe_load(
         (ROOT / "ops/monitoring/alertmanager.yml").read_text(encoding="utf-8")
     )
@@ -116,7 +119,9 @@ def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
     assert targets == ["alertmanager:9093"]
     assert loki_config["ruler"]["alertmanager_url"] == "http://alertmanager:9093"
     assert alertmanager_config["route"]["receiver"] == "webhook"
-    assert alertmanager_config["receivers"][0]["webhook_configs"][0]["url"] == "${ALERT_WEBHOOK_URL}"
+    assert (
+        alertmanager_config["receivers"][0]["webhook_configs"][0]["url"] == "${ALERT_WEBHOOK_URL}"
+    )
 
 
 def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:

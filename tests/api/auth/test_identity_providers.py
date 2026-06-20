@@ -125,6 +125,7 @@ async def test_apple_callback_links_by_verified_email(monkeypatch: pytest.Monkey
             auth=SimpleNamespace(apple_client_id="com.example.app")
         ),
     )
+
     async def _fake_validate(_token, audience, nonce):
         return {
             "sub": "apple-subject",

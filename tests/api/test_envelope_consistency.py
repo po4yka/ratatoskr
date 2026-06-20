@@ -237,7 +237,12 @@ def test_github_device_start_unconfigured_oauth_uses_standard_envelope(
     ("provider_response", "status_code", "code", "retryable"),
     [
         (Response(429, headers={"Retry-After": "17"}), 429, "github_oauth_rate_limited", True),
-        (Response(500, json={"message": "server error"}), 503, "github_token_exchange_failed", True),
+        (
+            Response(500, json={"message": "server error"}),
+            503,
+            "github_token_exchange_failed",
+            True,
+        ),
     ],
 )
 def test_github_device_start_provider_errors_use_standard_envelope(
@@ -332,7 +337,12 @@ def test_github_device_poll_unconfigured_oauth_uses_standard_envelope(
     ("provider_response", "status_code", "code", "retryable"),
     [
         (Response(429, headers={"Retry-After": "19"}), 429, "github_oauth_rate_limited", True),
-        (Response(500, json={"message": "server error"}), 503, "github_token_exchange_failed", True),
+        (
+            Response(500, json={"message": "server error"}),
+            503,
+            "github_token_exchange_failed",
+            True,
+        ),
     ],
 )
 async def test_github_device_poll_provider_errors_use_standard_envelope(
@@ -348,7 +358,9 @@ async def test_github_device_poll_provider_errors_use_standard_envelope(
     _override_use_case(github_auth_client, _UseCase())
 
     with respx.mock(assert_all_called=False) as mock:
-        mock.post("https://github.com/login/oauth/access_token").mock(return_value=provider_response)
+        mock.post("https://github.com/login/oauth/access_token").mock(
+            return_value=provider_response
+        )
         response = github_auth_client.post(
             "/v1/auth/github/device/poll",
             json={"device_code": _DEVICE_CODE},

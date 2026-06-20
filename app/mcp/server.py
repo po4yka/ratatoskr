@@ -136,10 +136,7 @@ def run_server(
     resolved_host = host
     set_mcp_unscoped_enabled(enabled=unscoped_sse_enabled, app_env=app_env)
 
-    if (
-        unscoped_sse
-        and not allow_unscoped_sse
-    ):
+    if unscoped_sse and not allow_unscoped_sse:
         msg = (
             "Refusing to start unscoped MCP SSE server. Set MCP_USER_ID/--user-id or "
             "explicitly acknowledge risk via allow_unscoped_sse=True / --allow-unscoped-sse."

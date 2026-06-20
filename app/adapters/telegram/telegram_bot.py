@@ -148,7 +148,10 @@ class TelegramBot:
         owner_ids = getattr(self.cfg.telegram, "allowed_user_ids", None) or ()
         if not owner_ids:
             return None
-        from app.adapters.telegram.reaction_feedback import ReactionFeedbackHandler, SummaryFeedbackRepo
+        from app.adapters.telegram.reaction_feedback import (
+            ReactionFeedbackHandler,
+            SummaryFeedbackRepo,
+        )
         from app.di.repositories import build_summary_repository
 
         recorder = ReactionFeedbackHandler(

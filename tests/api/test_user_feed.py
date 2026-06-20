@@ -50,7 +50,9 @@ class FakeAuthRepository:
         )
         return record_id
 
-    async def async_get_client_secret(self, user_id: int, client_id: str) -> dict[str, object] | None:
+    async def async_get_client_secret(
+        self, user_id: int, client_id: str
+    ) -> dict[str, object] | None:
         matches = [
             record
             for record in self.records

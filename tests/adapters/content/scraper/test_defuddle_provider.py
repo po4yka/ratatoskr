@@ -116,14 +116,20 @@ class TestDefuddleProvider:
         resp = httpx.Response(401, request=req)
         exc = httpx.HTTPStatusError("401 Unauthorized", request=req, response=resp)
 
-        with caplog.at_level(logging.WARNING, logger="app.adapters.content.scraper.defuddle_provider"):
+        with caplog.at_level(
+            logging.WARNING, logger="app.adapters.content.scraper.defuddle_provider"
+        ):
             with patch.object(provider, "_fetch_raw", new_callable=AsyncMock, side_effect=exc):
                 result = await provider.scrape_markdown("https://example.com")
 
-        rendered = "\n".join(record.getMessage() + str(record.__dict__) for record in caplog.records)
+        rendered = "\n".join(
+            record.getMessage() + str(record.__dict__) for record in caplog.records
+        )
         assert token not in rendered
         assert token not in (result.error_text or "")
-        record = next(record for record in caplog.records if record.message == "defuddle_http_error")
+        record = next(
+            record for record in caplog.records if record.message == "defuddle_http_error"
+        )
         request_headers = record.__dict__["request_headers"]
         assert request_headers["Authorization"] == "[REDACTED]"
 

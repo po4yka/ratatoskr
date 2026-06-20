@@ -226,14 +226,20 @@ class TestCrawl4AIProvider:
             "401 Unauthorized", request=req, response=resp
         )
 
-        with caplog.at_level(logging.WARNING, logger="app.adapters.content.scraper.crawl4ai_provider"):
+        with caplog.at_level(
+            logging.WARNING, logger="app.adapters.content.scraper.crawl4ai_provider"
+        ):
             with patch.object(provider, "_get_client", return_value=mock_client):
                 result = await provider.scrape_markdown("https://example.com")
 
-        rendered = "\n".join(record.getMessage() + str(record.__dict__) for record in caplog.records)
+        rendered = "\n".join(
+            record.getMessage() + str(record.__dict__) for record in caplog.records
+        )
         assert token not in rendered
         assert token not in (result.error_text or "")
-        record = next(record for record in caplog.records if record.message == "crawl4ai_http_error")
+        record = next(
+            record for record in caplog.records if record.message == "crawl4ai_http_error"
+        )
         request_headers = record.__dict__["request_headers"]
         assert request_headers["Authorization"] == "[REDACTED]"
 

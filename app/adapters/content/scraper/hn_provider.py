@@ -132,14 +132,20 @@ def _extract_item_id(url: str) -> str | None:
         return query_id
 
     path_parts = [part for part in parsed.path.split("/") if part]
-    if host == "hn.algolia.com" and len(path_parts) >= 3 and path_parts[:3] == ["api", "v1", "items"]:
+    if (
+        host == "hn.algolia.com"
+        and len(path_parts) >= 3
+        and path_parts[:3] == ["api", "v1", "items"]
+    ):
         candidate = path_parts[3] if len(path_parts) > 3 else None
         if candidate and _ITEM_ID_RE.fullmatch(candidate):
             return candidate
     return None
 
 
-def _render_hn_markdown(payload: dict[str, Any], source_url: str, top_comments: int) -> tuple[str, dict[str, Any]]:
+def _render_hn_markdown(
+    payload: dict[str, Any], source_url: str, top_comments: int
+) -> tuple[str, dict[str, Any]]:
     if not isinstance(payload, dict):
         raise ValueError("unexpected Hacker News payload")
 
@@ -151,7 +157,12 @@ def _render_hn_markdown(payload: dict[str, Any], source_url: str, top_comments: 
     created_at = _clean_text(payload.get("created_at"))
     story_text = _clean_html_text(payload.get("text"))
 
-    lines = [f"# {title}", "", f"Source: {source_url}", f"HN item: https://news.ycombinator.com/item?id={item_id}"]
+    lines = [
+        f"# {title}",
+        "",
+        f"Source: {source_url}",
+        f"HN item: https://news.ycombinator.com/item?id={item_id}",
+    ]
     if story_url:
         lines.append(f"Linked URL: {story_url}")
     if author:
@@ -201,9 +212,7 @@ def _flatten_comments(value: Any, limit: int) -> list[dict[str, Any]]:
             comments.append(comment)
         children = comment.get("children")
         if isinstance(children, list):
-            stack.extend(
-                child for child in reversed(children) if isinstance(child, dict)
-            )
+            stack.extend(child for child in reversed(children) if isinstance(child, dict))
     return comments
 
 

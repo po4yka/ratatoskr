@@ -132,7 +132,7 @@ async def test_post_pat_with_invalid_token_returns_400(
             "/v1/auth/github/pat",
             json={"token": "ghp_invalid_bad_token_xyz"},
             headers=_auth_headers(),
-    )
+        )
 
     assert resp.status_code == 400
     body = resp.json()

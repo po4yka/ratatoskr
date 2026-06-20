@@ -70,7 +70,11 @@ async def test_reddit_provider_extracts_submission_and_top_five_comments() -> No
                 "children": [
                     {
                         "kind": "t1",
-                        "data": {"author": f"user_{idx}", "body": f"Reply body {idx}", "score": idx},
+                        "data": {
+                            "author": f"user_{idx}",
+                            "body": f"Reply body {idx}",
+                            "score": idx,
+                        },
                     }
                     for idx in range(1, 7)
                 ]
@@ -122,7 +126,12 @@ async def test_hn_provider_extracts_story_and_comment_tree() -> None:
                     {"id": 2, "author": "bob", "text": "<p>Nested comment.</p>", "children": []}
                 ],
             },
-            {"id": 3, "author": "carol", "text": "<p>Second top-level comment.</p>", "children": []},
+            {
+                "id": 3,
+                "author": "carol",
+                "text": "<p>Second top-level comment.</p>",
+                "children": [],
+            },
         ],
     }
     client = _FakeClient(payload)

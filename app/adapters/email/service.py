@@ -119,9 +119,7 @@ class EmailDeliveryService:
 
     async def verify(self, token: str) -> dict[str, Any]:
         if not token.strip():
-            raise EmailValidationError(
-                "Verification token is required", details={"field": "token"}
-            )
+            raise EmailValidationError("Verification token is required", details={"field": "token"})
         address = await self._store.async_verify_token(token)
         if address is None:
             raise EmailValidationError("Verification token is invalid or expired")
@@ -147,9 +145,7 @@ class EmailDeliveryService:
             address_id=address_id,
         )
         if address is None:
-            raise EmailResourceNotFoundError(
-                "VerifiedEmailAddress", str(address_id or "default")
-            )
+            raise EmailResourceNotFoundError("VerifiedEmailAddress", str(address_id or "default"))
         await self._send_and_record(
             user_id=user_id,
             address_id=address.id,
@@ -178,9 +174,7 @@ class EmailDeliveryService:
             address_id=address_id,
         )
         if address is None:
-            raise EmailResourceNotFoundError(
-                "VerifiedEmailAddress", str(address_id or "default")
-            )
+            raise EmailResourceNotFoundError("VerifiedEmailAddress", str(address_id or "default"))
         delivery = await self._send_and_record(
             user_id=user_id,
             address_id=address.id,

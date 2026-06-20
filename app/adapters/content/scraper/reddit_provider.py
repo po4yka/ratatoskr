@@ -161,7 +161,9 @@ def _extract_post_id(url: str) -> str | None:
     return None
 
 
-def _render_reddit_markdown(payload: Any, source_url: str, top_comments: int) -> tuple[str, dict[str, Any]]:
+def _render_reddit_markdown(
+    payload: Any, source_url: str, top_comments: int
+) -> tuple[str, dict[str, Any]]:
     if not isinstance(payload, list) or len(payload) < 2:
         raise ValueError("unexpected Reddit comments payload")
 

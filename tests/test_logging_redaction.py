@@ -108,7 +108,9 @@ def test_openrouter_payload_logger_redacts_authorization_header(
 
     rendered = "\n".join(record.getMessage() + str(record.__dict__) for record in caplog.records)
     assert token not in rendered
-    record = next(record for record in caplog.records if record.message == "openrouter_request_payload")
+    record = next(
+        record for record in caplog.records if record.message == "openrouter_request_payload"
+    )
     headers = record.__dict__["headers"]
     assert headers["Authorization"] == "[REDACTED]"
 

@@ -104,11 +104,7 @@ def record_vector_reconcile_rows(
 
 def set_vector_reconcile_oldest_lag_seconds(value: float | int | None) -> None:
     """Set the oldest stale-row lag observed by the vector reconciler."""
-    if (
-        not PROMETHEUS_AVAILABLE
-        or VECTOR_RECONCILE_OLDEST_LAG_SECONDS is None
-        or value is None
-    ):
+    if not PROMETHEUS_AVAILABLE or VECTOR_RECONCILE_OLDEST_LAG_SECONDS is None or value is None:
         return
     VECTOR_RECONCILE_OLDEST_LAG_SECONDS.set(max(0.0, float(value)))
 
