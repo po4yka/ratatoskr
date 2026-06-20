@@ -105,34 +105,34 @@ class SearchFilters:
         if not date_str or not isinstance(date_str, str):
             return None
 
-        # Try ISO 8601 format first
+        # Try ISO 8601 format first; always produce UTC-aware datetimes so that
+        # comparisons with aware date_from / date_to never raise TypeError.
         for fmt in (
             "%Y-%m-%dT%H:%M:%S",
             "%Y-%m-%dT%H:%M:%SZ",
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d",
         ):
-            parsed: dt.datetime | None = None
             try:
-                parsed = dt.datetime.strptime(date_str.strip(), fmt)  # noqa: DTZ007
+                return dt.datetime.strptime(date_str.strip(), fmt).replace(tzinfo=dt.UTC)
             except ValueError:
-                parsed = None
-            if parsed is not None:
-                return parsed
+                continue
 
-        # Try dateutil if available (handles more formats)
+        # Try dateutil if available (handles more formats).
+        # Normalize naive results to UTC so comparisons stay consistent.
         try:
             from dateutil import parser
 
-            return parser.parse(date_str)
+            result = parser.parse(date_str)
+            if result.tzinfo is None:
+                result = result.replace(tzinfo=dt.UTC)
+            return result
         except Exception as e:
             logger.debug(
                 "dateutil_parse_failed",
                 extra={"date_str": date_str, "error": str(e)},
             )
             return None
-
-        return None
 
     def has_filters(self) -> bool:
         """Check if any filters are set.
