@@ -368,6 +368,8 @@ class URLHandler:
                 await asyncio.sleep(min_gap_sec)
             except Exception as exc:
                 raise_if_cancelled(exc)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             logger.exception("document_file_processing_error", extra={"cid": correlation_id})
             await self.response_formatter.send_error_notification(
