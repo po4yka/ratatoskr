@@ -591,7 +591,19 @@ class GitBackupConfig(BaseModel):
     def _validate_hc_ping_url(cls, value: Any) -> str | None:
         if value in (None, ""):
             return None
-        return str(value).strip() or None
+        url = str(value).strip()
+        if not url:
+            return None
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            msg = (
+                f"GIT_BACKUP_HC_PING_URL must use http or https scheme to prevent SSRF, "
+                f"got scheme {parsed.scheme!r}"
+            )
+            raise ValueError(msg)
+        return url
 
     @field_validator("sync_cron", mode="before")
     @classmethod
