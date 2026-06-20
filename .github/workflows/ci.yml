@@ -1160,7 +1160,7 @@ jobs:
       - name: Run migration round-trip
         run: |
           set -euo pipefail
-          python -m app.cli.migrate_db
+          python -m app.cli.migrate_db --apply
           alembic downgrade -1
           alembic upgrade head
           alembic current 2>&1 | grep -q "(head)"
