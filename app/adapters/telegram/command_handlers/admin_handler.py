@@ -6,6 +6,7 @@ and verification, including automated reprocessing of failed requests.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 from typing import TYPE_CHECKING, Any
 
@@ -301,7 +302,7 @@ class AdminHandler:
 
             from app.config.config_file import save_model_to_yaml
 
-            old_value, new_value = save_model_to_yaml(section, new_model)
+            old_value, new_value = await asyncio.to_thread(save_model_to_yaml, section, new_model)
 
             # Trigger config reload
             cfg_holder = self._cfg
