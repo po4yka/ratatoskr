@@ -78,6 +78,17 @@ GitRunner = Callable[[list[str], Path, float], Awaitable[tuple[int, str]]]
 _CREDENTIAL_RE = re.compile(r"([a-z][a-z0-9+.\-]*://)([^/@\s]+@)", re.IGNORECASE)
 
 
+class _Unset:
+    """Sentinel type for lazy-initialised collaborators.
+
+    Using a distinct type (rather than None) lets the type checker distinguish
+    "not yet resolved" from "resolved to None / disabled".
+    """
+
+
+_UNSET = _Unset()
+
+
 def _redact_url(text: str) -> str:
     """Replace any 'scheme://user:token@' segment with 'scheme://***@'.
 
@@ -351,8 +362,10 @@ class GitMirrorService:
         self._circuit_breaker = circuit_breaker
         # Build maintenance from config if not injected.
         self._maintenance = maintenance or self._build_maintenance()
-        # Build LFS support if not injected and fetch_lfs is enabled.
-        self._lfs = lfs or self._build_lfs()
+        # LFS support is resolved lazily on first async use to avoid blocking
+        # subprocess.run (is_lfs_available) on the event loop at __init__ time.
+        # When an explicit lfs instance is injected (tests), use it directly.
+        self._lfs: LfsSupport | None | _Unset = lfs if lfs is not None else _UNSET
         self._git_runner: GitRunner = git_runner or _default_git_runner
 
     # ------------------------------------------------------------------
@@ -910,6 +923,10 @@ class GitMirrorService:
                 await asyncio.to_thread(self._maintenance.run_post_sync_maintenance, dest)
 
             # LFS fetch (blocking, offloaded to thread).
+            # Resolve the lazy sentinel on first use so that is_lfs_available()
+            # (subprocess.run) never runs on the event loop thread.
+            if isinstance(self._lfs, _Unset):
+                self._lfs = await asyncio.to_thread(self._build_lfs)
             if self._lfs is not None:
                 await asyncio.to_thread(self._lfs.sync_lfs_if_needed, dest)
 
