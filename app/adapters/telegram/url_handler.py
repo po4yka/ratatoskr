@@ -111,6 +111,19 @@ class URLHandler:
             relationship_analysis_service=self._relationship_analysis_service,
         )
 
+        # Detect once at construction whether handle_url_flow uses the legacy
+        # positional signature (message, url_text, **kwargs) used by test
+        # monkeypatches, or the modern URLFlowRequest-based signature.
+        # Avoids repeated inspect.signature() calls on every URL dispatch.
+        _sig = inspect.signature(url_processor.handle_url_flow)
+        _positional = [
+            p
+            for p in _sig.parameters.values()
+            if p.kind
+            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        self._url_processor_legacy_dispatch: bool = len(_positional) >= 2
+
         # Test/introspection seam: exposes the awaiting-state mapping directly.
         self._awaiting_url_users = self._awaiting_state.raw_state
 
@@ -424,18 +437,13 @@ class URLHandler:
             progress_tracker=resolved_progress_tracker,
         )
         handle_url_flow = self.url_processor.handle_url_flow
-        signature = inspect.signature(handle_url_flow)
-        positional_params = [
-            param
-            for param in signature.parameters.values()
-            if param.kind
-            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        ]
 
         # Legacy tests monkeypatch ``handle_url_flow(message, url_text, **kwargs)`` on the
         # processor instance. Preserve that contract while keeping the production
         # URLFlowRequest-based call path as the default.
-        if len(positional_params) >= 2:
+        # Dispatch style was detected once at __init__ time via inspect.signature
+        # and stored in self._url_processor_legacy_dispatch to avoid per-call overhead.
+        if self._url_processor_legacy_dispatch:
             legacy_handle_url_flow = cast("Any", handle_url_flow)
             return await legacy_handle_url_flow(
                 message,
