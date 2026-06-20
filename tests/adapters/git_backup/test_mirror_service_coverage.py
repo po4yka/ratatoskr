@@ -1169,3 +1169,118 @@ class TestPersistOutcome:
 
         assert len(fake_repo.success_calls) == 0
         assert len(fake_repo.failure_calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# _mirror_destination: path-traversal containment
+# ---------------------------------------------------------------------------
+
+
+class TestMirrorDestinationPathTraversal:
+    """_mirror_destination must always resolve inside data_path.
+
+    Covers four attack vectors:
+    - name with ``..`` path-traversal segments (manual mirror)
+    - name with a null byte (manual mirror)
+    - crafted GITHUB clone_url whose extracted host contains ``..`` (SCP-like)
+    - mirror_path DB column set to an absolute path outside data_path
+    """
+
+    def _make_svc(self) -> GitMirrorService:
+        fake_repo = _FakeMirrorRepo([])
+        cfg = _make_config(GIT_BACKUP_DATA_PATH="/tmp/git-mirror-traversal-test")
+        return _make_service(fake_repo, cfg)
+
+    def _mirror(
+        self,
+        *,
+        name: str = "user/repo",
+        clone_url: str = "https://github.com/user/repo.git",
+        source: GitMirrorSource = GitMirrorSource.MANUAL,
+        mirror_path: str | None = None,
+    ) -> GitMirror:
+        m = GitMirror(
+            id=42,
+            user_id=1,
+            source=source,
+            clone_url=clone_url,
+            name=name,
+            consecutive_failures=0,
+        )
+        m.mirror_path = mirror_path  # type: ignore[assignment]
+        return m
+
+    def test_traversal_name_resolves_inside_data_path(self, tmp_path: Path) -> None:
+        """name='../../../etc' must not escape data_path."""
+        svc = self._make_svc()
+        mirror = self._mirror(name="../../../etc")
+        dest = svc._mirror_destination(tmp_path, mirror)
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))
+
+    def test_null_byte_in_name_resolves_inside_data_path(self, tmp_path: Path) -> None:
+        """name with a null byte must not escape data_path."""
+        svc = self._make_svc()
+        mirror = self._mirror(name="repo\x00evil")
+        dest = svc._mirror_destination(tmp_path, mirror)
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))
+
+    def test_crafted_github_host_with_traversal_resolves_inside_data_path(
+        self, tmp_path: Path
+    ) -> None:
+        """A GITHUB mirror whose SCP-like clone_url yields a host with '..' must not escape.
+
+        ``extract_git_host('../../etc:path')`` returns ``'../../etc'``.  The
+        safe_host sanitisation in ``_mirror_destination`` must strip that
+        traversal so the final path stays inside data_path.
+        """
+        svc = self._make_svc()
+        # SCP-like URL; extract_git_host returns '../../etc' as the host.
+        mirror = self._mirror(
+            name="repo",
+            clone_url="../../etc:path",
+            source=GitMirrorSource.GITHUB,
+        )
+        dest = svc._mirror_destination(tmp_path, mirror)
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))
+
+    def test_mirror_path_outside_data_path_raises(self, tmp_path: Path) -> None:
+        """A mirror_path stored in DB that points outside data_path must raise ValueError."""
+        svc = self._make_svc()
+        mirror = self._mirror(mirror_path="/etc/passwd")
+        with pytest.raises(ValueError, match="resolves outside data_path"):
+            svc._mirror_destination(tmp_path, mirror)
+
+    def test_mirror_path_traversal_outside_data_path_raises(self, tmp_path: Path) -> None:
+        """A mirror_path with '..' that escapes data_path must raise ValueError."""
+        svc = self._make_svc()
+        # Construct a path that traverses outside tmp_path.
+        outside = str(tmp_path) + "/../../etc/passwd"
+        mirror = self._mirror(mirror_path=outside)
+        with pytest.raises(ValueError, match="resolves outside data_path"):
+            svc._mirror_destination(tmp_path, mirror)
+
+    def test_legitimate_mirror_path_inside_data_path_is_accepted(self, tmp_path: Path) -> None:
+        """A mirror_path that is genuinely inside data_path must be returned as-is."""
+        svc = self._make_svc()
+        legitimate = str(tmp_path / "github" / "github.com" / "user_repo.git")
+        mirror = self._mirror(mirror_path=legitimate)
+        dest = svc._mirror_destination(tmp_path, mirror)
+        assert dest == Path(legitimate)
+
+    def test_normal_name_resolves_inside_data_path(self, tmp_path: Path) -> None:
+        """A well-formed name must resolve inside data_path (regression guard)."""
+        svc = self._make_svc()
+        mirror = self._mirror(name="user/repo")
+        dest = svc._mirror_destination(tmp_path, mirror)
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))
+
+    def test_github_mirror_normal_url_resolves_inside_data_path(self, tmp_path: Path) -> None:
+        """A well-formed GitHub URL must resolve inside data_path (regression guard)."""
+        svc = self._make_svc()
+        mirror = self._mirror(
+            name="user/repo",
+            clone_url="https://github.com/user/repo.git",
+            source=GitMirrorSource.GITHUB,
+        )
+        dest = svc._mirror_destination(tmp_path, mirror)
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))

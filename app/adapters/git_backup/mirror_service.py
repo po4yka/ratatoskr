@@ -650,19 +650,59 @@ class GitMirrorService:
         Once ``mirror_path`` is populated (after the first successful sync)
         the stored path is returned directly, so the directory is stable
         across service restarts regardless of this derivation logic.
+
+        The resolved path is always verified to be inside *data_path* to guard
+        against path-traversal inputs (crafted ``name``, ``clone_url`` host
+        components with ``..`` segments, or a tampered ``mirror_path`` row).
         """
         if mirror.mirror_path:
-            return Path(mirror.mirror_path)
+            candidate = Path(mirror.mirror_path)
+            self._assert_inside_data_path(data_path, candidate, "mirror_path")
+            return candidate
 
-        safe_name = (mirror.name or str(mirror.id)).replace("/", "_").replace("..", "_")
+        # Replace path separators and null bytes before joining.  The ``..``
+        # replacement handles the ``../`` token after ``/`` was already replaced,
+        # but a final containment check below is the authoritative guard.
+        safe_name = (
+            (mirror.name or str(mirror.id))
+            .replace("\x00", "_")
+            .replace("/", "_")
+            .replace("..", "_")
+        )
 
         if mirror.source == GitMirrorSource.GITHUB:
             # Use the URL host as a sub-directory to prevent collisions
-            # between github.com repos and gist.github.com gists.
-            host = extract_git_host(mirror.clone_url) or "github.com"
-            return data_path / "github" / host / f"{safe_name}.git"
+            # between github.com repos and gist.github.com gists.  Strip any
+            # path-traversal components from the extracted host before joining.
+            raw_host = extract_git_host(mirror.clone_url) or "github.com"
+            safe_host = raw_host.replace("/", "_").replace("..", "_").replace("\x00", "_")
+            candidate = data_path / "github" / safe_host / f"{safe_name}.git"
+            self._assert_inside_data_path(data_path, candidate, "github host")
+            return candidate
 
-        return data_path / "manual" / f"{safe_name}.git"
+        candidate = data_path / "manual" / f"{safe_name}.git"
+        self._assert_inside_data_path(data_path, candidate, "manual name")
+        return candidate
+
+    @staticmethod
+    def _assert_inside_data_path(data_path: Path, candidate: Path, label: str) -> None:
+        """Raise ValueError if *candidate* resolves outside *data_path*.
+
+        Uses ``Path.resolve()`` so symlinks and ``..`` segments are followed
+        before comparison.  This is the authoritative path-traversal guard for
+        :meth:`_mirror_destination`.
+        """
+        resolved_candidate = candidate.resolve()
+        resolved_root = data_path.resolve()
+        if (
+            not str(resolved_candidate).startswith(str(resolved_root) + "/")
+            and resolved_candidate != resolved_root
+        ):
+            msg = (
+                f"mirror destination ({label}) resolves outside data_path: "
+                f"{resolved_candidate} is not under {resolved_root}"
+            )
+            raise ValueError(msg)
 
     async def _resolve_url(self, mirror: GitMirror) -> tuple[str, str | None]:
         """Return (bare_clone_url, credentials_token | None).
