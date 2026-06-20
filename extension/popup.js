@@ -80,7 +80,7 @@ async function setTokens(tokens, { rememberMe = false } = {}) {
 }
 
 async function clearTokens() {
-  await storageRemove("local", ["accessToken", "refreshToken", "authStorageArea"]);
+  await storageRemove("local", ["accessToken", "refreshToken", "authStorageArea", "identifier"]);
   if (ext.storage.session) await storageRemove("session", ["accessToken", "refreshToken"]);
 }
 
