@@ -177,7 +177,7 @@ class SummaryQualityMetadata(BaseModel):
 class SummaryModel(BaseModel):
     summary_250: str = Field(min_length=1, max_length=250)
     summary_1000: str = Field(min_length=1, max_length=1000)
-    tldr: str = Field(min_length=1)
+    tldr: str = Field(min_length=1, max_length=300)
     tldr_ru: str = Field(
         default="",
         description="Full Russian translation of the tldr field. Must be written entirely in Russian (Cyrillic script).",
@@ -282,6 +282,12 @@ class SummaryModel(BaseModel):
     def cap_summary_1000(cls, v: Any) -> str:
         text = str(v).strip() if v is not None else ""
         return cap_text(text, 1000)
+
+    @field_validator("tldr", mode="before")
+    @classmethod
+    def cap_tldr(cls, v: Any) -> str:
+        text = str(v).strip() if v is not None else ""
+        return cap_text(text, 300)
 
     @field_validator("topic_tags", mode="before")
     @classmethod
