@@ -102,6 +102,16 @@ class WebwrightProvider:
                 endpoint="webwright",
             )
 
+        # Derive a local correlation token from request_id.
+        # NOTE: ContentScraperProtocol does not yet thread the canonical
+        # correlation_id (Operating Rule 1) through its scrape_markdown
+        # signature — only request_id is available here.  We synthesise a
+        # stable, traceable stand-in so the sidecar's trajectory/logs can
+        # still be joined back to the originating request.  When the
+        # interface is extended to carry correlation_id directly, replace
+        # this derivation with the canonical value.  (Tracked as a future
+        # interface-level change; not implemented here to keep the diff
+        # minimal and safe.)
         correlation_id = f"req-{request_id}" if request_id is not None else None
 
         try:
