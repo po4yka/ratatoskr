@@ -475,12 +475,19 @@ class ContentScraperChain:
             for provider in providers
         }
         pending = set(tasks)
+        # Track tasks from the last asyncio.wait `done` set that were not yet
+        # consumed when the inner for-loop broke early (winner found while
+        # other tasks in `done` were still unprocessed).  These are already
+        # complete but must be cancelled (no-op) and awaited so their
+        # exceptions are not silently swallowed.
+        unprocessed_done: set[asyncio.Task[Any]] = set()
         winner: FirecrawlResult | None = None
         winner_provider: str | None = None
 
         try:
             while pending:
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                unprocessed_done = set()
                 for finished in done:
                     provider = tasks[finished]
                     try:
@@ -493,14 +500,20 @@ class ContentScraperChain:
                     if result is not None and winner is None:
                         winner = result
                         winner_provider = provider.provider_name
+                        # Collect remaining unprocessed done tasks so the
+                        # finally block can await them for clean shutdown.
+                        unprocessed_done = done - {finished}
                         break
                 if winner is not None:
                     break
         finally:
-            for task in pending:
+            # Cancel all tasks that are still running (pending) plus any
+            # completed-but-unprocessed tasks from the last done set.
+            losers: set[asyncio.Task[Any]] = pending | unprocessed_done
+            for task in losers:
                 task.cancel()
-            if pending:
-                cancelled_losers = [tasks[t].provider_name for t in pending]
+            if losers:
+                cancelled_losers = [tasks[t].provider_name for t in losers]
                 logger.info(
                     "scraper_tier_losers_cancelled",
                     extra={
@@ -511,7 +524,7 @@ class ContentScraperChain:
                         "request_id": request_id,
                     },
                 )
-                await asyncio.gather(*pending, return_exceptions=True)
+                await asyncio.gather(*losers, return_exceptions=True)
 
         if winner is not None:
             chain_span.set_attribute(SCRAPER_WINNER, winner_provider or "unknown")
