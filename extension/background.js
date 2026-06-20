@@ -129,7 +129,14 @@ async function replayQueue() {
       if (response.status === 401) {
         const accessToken = await refreshAccessToken(baseUrl);
         if (!accessToken) {
-          remaining.push(entry);
+          // Token refresh failed (session expired). Preserve this entry and all
+          // subsequent unprocessed entries so the next alarm cycle can retry
+          // them after the user signs in again. Without slicing the tail here,
+          // entries after the current one would be silently dropped.
+          const currentIndex = entries.indexOf(entry);
+          for (const unprocessed of entries.slice(currentIndex)) {
+            remaining.push(unprocessed);
+          }
           break;
         }
         tokens = { ...tokens, accessToken };
