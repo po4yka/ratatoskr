@@ -178,36 +178,23 @@ class RepositorySearchService:
         top_k = limit + offset + 50
         score_threshold = min_similarity  # Qdrant uses similarity (higher = better)
 
-        try:
-            client = self._qdrant_store._client
-            collection_name = self._qdrant_store._collection_name
-
-            response = await asyncio.to_thread(
-                client.query_points,
-                collection_name,
-                list(query_vector),
-                query_filter=qdrant_filter,
-                limit=top_k,
-                score_threshold=score_threshold,
-                with_payload=True,
-            )
-            hits = response.points
-        except Exception:
-            logger.exception(
-                "repository_search_qdrant_failed",
-                extra={"correlation_id": correlation_id, "user_id": user_id},
-            )
-            return RepositorySearchResults(items=[], total=0, limit=limit, offset=offset)
-
-        if not hits:
+        result = await asyncio.to_thread(
+            self._qdrant_store.query_filter,
+            query_vector,
+            qdrant_filter,
+            top_k,
+            score_threshold=score_threshold,
+        )
+        if not result.hits:
             return RepositorySearchResults(items=[], total=0, limit=limit, offset=offset)
 
         # 4. Extract repository_ids preserving Qdrant rank order
+        # query_filter returns VectorQueryHit with distance = 1 - similarity;
+        # convert back to similarity score for downstream distance calculation.
         qdrant_scores: dict[int, float] = {}
         repo_ids_ordered: list[int] = []
-        for point in hits:
-            payload = dict(point.payload or {})
-            rid = payload.get("repository_id")
+        for hit in result.hits:
+            rid = hit.metadata.get("repository_id")
             if rid is None:
                 continue
             try:
@@ -216,7 +203,7 @@ class RepositorySearchService:
                 continue
             if rid_int not in qdrant_scores:
                 repo_ids_ordered.append(rid_int)
-                qdrant_scores[rid_int] = float(point.score)
+                qdrant_scores[rid_int] = max(0.0, 1.0 - hit.distance)
 
         if not repo_ids_ordered:
             return RepositorySearchResults(items=[], total=0, limit=limit, offset=offset)
@@ -227,8 +214,8 @@ class RepositorySearchService:
                 Repository.id.in_(repo_ids_ordered),
                 Repository.user_id == user_id,
             )
-            result = await session.execute(stmt)
-            db_rows: list[Repository] = list(result.scalars().all())
+            db_result = await session.execute(stmt)
+            db_rows: list[Repository] = list(db_result.scalars().all())
 
         # 6. Re-order to match Qdrant ranking
         db_by_id: dict[int, Repository] = {row.id: row for row in db_rows}
