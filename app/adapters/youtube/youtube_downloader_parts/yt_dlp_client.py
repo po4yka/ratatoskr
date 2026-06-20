@@ -77,15 +77,13 @@ def download_video_sync(
                 "yt_dlp_extract_info_failed",
                 extra={"url": url, "error": str(exc), "cid": correlation_id},
             )
-            raise ValueError(
-                f"❌ Unexpected error extracting video info: {str(exc)[:200]}"
-            ) from exc
+            raise ValueError(f"Unexpected error extracting video info: {str(exc)[:200]}") from exc
 
         filesize = info.get("filesize") or info.get("filesize_approx", 0)
         max_size = int(ydl_opts.get("max_filesize") or 0)
         if max_size and filesize and filesize > max_size:
             raise ValueError(
-                f"❌ Video too large: {filesize / 1024 / 1024:.1f}MB exceeds maximum allowed size "
+                f"Video too large: {filesize / 1024 / 1024:.1f}MB exceeds maximum allowed size "
                 f"({max_size / 1024 / 1024:.0f}MB). Try a lower quality setting."
             )
 
@@ -102,7 +100,7 @@ def download_video_sync(
                 "yt_dlp_download_failed",
                 extra={"url": url, "error": str(exc), "cid": correlation_id},
             )
-            raise ValueError(f"❌ Unexpected download error: {str(exc)[:200]}") from exc
+            raise ValueError(f"Unexpected download error: {str(exc)[:200]}") from exc
 
         video_file = ydl.prepare_filename(info)
         video_path = Path(video_file)
@@ -154,54 +152,52 @@ def _raise_extract_info_error(exc: Exception) -> None:
     error_msg = str(exc).lower()
     if "sign in to confirm your age" in error_msg or "age-restricted" in error_msg:
         raise ValueError(
-            "❌ This video is age-restricted and cannot be downloaded. "
+            "This video is age-restricted and cannot be downloaded. "
             "YouTube requires login/age verification for this content."
         ) from exc
     if "video is not available" in error_msg or "video unavailable" in error_msg:
         raise ValueError(
-            "❌ Video is not available. It may be private, deleted, or geo-blocked in your region."
+            "Video is not available. It may be private, deleted, or geo-blocked in your region."
         ) from exc
     if "private video" in error_msg:
-        raise ValueError("❌ This video is private and cannot be accessed.") from exc
+        raise ValueError("This video is private and cannot be accessed.") from exc
     if "members-only" in error_msg or "join this channel" in error_msg:
         raise ValueError(
-            "❌ This video is members-only content. YouTube Premium or channel membership required."
+            "This video is members-only content. YouTube Premium or channel membership required."
         ) from exc
     if "this live event will begin" in error_msg or "premieres in" in error_msg:
         raise ValueError(
-            "❌ This video is a scheduled premiere or upcoming live stream. "
+            "This video is a scheduled premiere or upcoming live stream. "
             "Please try again after it starts."
         ) from exc
     if "copyright" in error_msg:
-        raise ValueError("❌ Video unavailable due to copyright restrictions.") from exc
+        raise ValueError("Video unavailable due to copyright restrictions.") from exc
     if "geo" in error_msg or "not available in your country" in error_msg:
-        raise ValueError("❌ This video is geo-blocked and not available in your region.") from exc
-    raise ValueError(f"❌ Failed to extract video information: {str(exc)[:200]}") from exc
+        raise ValueError("This video is geo-blocked and not available in your region.") from exc
+    raise ValueError(f"Failed to extract video information: {str(exc)[:200]}") from exc
 
 
 def _raise_download_error(exc: Exception) -> None:
     error_msg = str(exc).lower()
     if "http error 429" in error_msg or "too many requests" in error_msg:
-        raise ValueError(
-            "❌ YouTube rate limit exceeded. Please try again in a few minutes."
-        ) from exc
+        raise ValueError("YouTube rate limit exceeded. Please try again in a few minutes.") from exc
     if "http error 403" in error_msg:
         raise ValueError(
-            "❌ Access forbidden. Video may require authentication or is geo-blocked."
+            "Access forbidden. Video may require authentication or is geo-blocked."
         ) from exc
     if "http error 404" in error_msg:
         raise ValueError(
-            "❌ Video not found. It may have been deleted or the URL is incorrect."
+            "Video not found. It may have been deleted or the URL is incorrect."
         ) from exc
     if "timed out" in error_msg or "timeout" in error_msg:
         raise ValueError(
-            "❌ Download timed out. Please try again or check your internet connection."
+            "Download timed out. Please try again or check your internet connection."
         ) from exc
     if "connection" in error_msg:
         raise ValueError(
-            "❌ Network connection error. Please check your internet connection and try again."
+            "Network connection error. Please check your internet connection and try again."
         ) from exc
-    raise ValueError(f"❌ Download failed: {str(exc)[:200]}") from exc
+    raise ValueError(f"Download failed: {str(exc)[:200]}") from exc
 
 
 def _find_subtitle_file(*, video_path: Path, subtitle_languages: list[str]) -> str | None:
