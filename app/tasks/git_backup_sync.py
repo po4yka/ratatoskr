@@ -518,7 +518,7 @@ async def _reconcile_mirror_readmes(cfg: AppConfig, db: Database) -> None:
     await reconciler.reconcile_and_repair()
 
 
-@broker.task(task_name="ratatoskr.git_backup.sync", retry_on_error=True, max_retries=3)
+@broker.task(task_name="ratatoskr.git_backup.sync")
 async def sync_git_backup(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),
