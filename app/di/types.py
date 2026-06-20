@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import Callable
 
     from app.adapters.content.scraper.protocol import ContentScraperProtocol
@@ -140,7 +140,7 @@ class McpScope:
 class McpServiceState:
     service: Any | None = None
     last_failed_at: float | None = None
-    init_lock: Any | None = None
+    init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     resources: tuple[Any, ...] = ()
 
 

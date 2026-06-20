@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -67,9 +66,6 @@ async def _init_lazy_service(
     now = time.monotonic()
     if state.last_failed_at is not None and (now - state.last_failed_at) < retry_interval:
         return None
-
-    if state.init_lock is None:
-        state.init_lock = asyncio.Lock()
 
     async with state.init_lock:
         if state.service is not None:
