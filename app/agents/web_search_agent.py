@@ -226,8 +226,16 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
             },
         ]
 
-        # Make LLM call with latency tracking for Prometheus
+        # Make LLM call with latency tracking for Prometheus.
+        # request_id is int | None (DB foreign key); this agent has no DB-backed
+        # request row so it remains None.  correlation_id is the string tracer for
+        # log correlation and is emitted below so any failure is bracketed by a
+        # traceable log entry.
         model = getattr(self._llm, "_model", "unknown")
+        logger.debug(
+            "web_search_analysis_llm_start",
+            extra={"correlation_id": correlation_id, "model": model},
+        )
         t0 = time.monotonic()
         try:
             result = await self._llm.chat_structured(
@@ -236,7 +244,7 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
                 max_retries=3,
                 max_tokens=500,
                 temperature=0.1,  # Low temperature for deterministic analysis
-                request_id=None,  # No DB persistence for analysis
+                request_id=None,
             )
             record_llm_call_attempt(provider="openrouter", model=model, status="success")
             record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)
@@ -251,6 +259,10 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         except Exception:
             record_llm_call_attempt(provider="openrouter", model=model, status="error")
             record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)
+            logger.debug(
+                "web_search_analysis_llm_failed",
+                extra={"correlation_id": correlation_id, "model": model},
+            )
             raise
 
         return result.parsed
