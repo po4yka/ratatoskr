@@ -17,9 +17,10 @@ All four are disabled by default and can be toggled independently.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PriorityRule(BaseModel):
@@ -531,6 +532,33 @@ class GitBackupConfig(BaseModel):
         if value in (None, ""):
             return None
         return str(value).strip() or None
+
+    @model_validator(mode="after")
+    def _validate_metrics_export_path_within_data_path(self) -> GitBackupConfig:
+        """Ensure metrics_export_path is absolute and resolves inside data_path.
+
+        This prevents arbitrary filesystem writes: an operator-supplied path like
+        ``../../etc/cron.d/evil`` or ``/proc/1/mem`` would otherwise be written to
+        during every sync run.  The allowed root is the same data_path already
+        bind-mounted by the operator (typically /data/git-mirrors), so a dedicated
+        metrics sub-directory (e.g. /data/git-mirrors/metrics/sync.jsonl) is the
+        natural location.
+        """
+        export_path = self.metrics_export_path
+        if export_path is None:
+            return self
+        resolved = Path(export_path).resolve()
+        if not resolved.is_absolute():
+            msg = f"GIT_BACKUP_METRICS_EXPORT_PATH must be an absolute path, got {export_path!r}"
+            raise ValueError(msg)
+        data_root = Path(self.data_path).resolve()
+        if not (resolved == data_root or resolved.is_relative_to(data_root)):
+            msg = (
+                "GIT_BACKUP_METRICS_EXPORT_PATH must resolve inside GIT_BACKUP_DATA_PATH "
+                f"({data_root}), got {resolved}"
+            )
+            raise ValueError(msg)
+        return self
 
     @field_validator("metrics_format", mode="before")
     @classmethod
