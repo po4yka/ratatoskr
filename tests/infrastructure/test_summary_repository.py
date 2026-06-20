@@ -416,3 +416,40 @@ async def test_summary_repository_user_lists_and_topic_filter(database: Database
         )
         == 2
     )
+
+
+@pytest.mark.asyncio
+async def test_apply_sync_change_rejects_cross_user_mutation(database: Database) -> None:
+    """User B cannot mutate a summary owned by user A via async_apply_sync_change.
+
+    Adversarial scenario: user A creates a summary, user B supplies user A's
+    summary_id but their own user_id.  The UPDATE must touch zero rows and the
+    returned server_version must be 0 (not found).  User A's summary must
+    remain unchanged.
+    """
+    repo = SummaryRepositoryAdapter(database)
+
+    # Arrange: user A owns the summary.
+    owner_id = 8001
+    attacker_id = 8002
+    owner_summary_id = await _create_summary_for_user(
+        database, repo, user_id=owner_id, url="https://idor.example/owner-summary"
+    )
+
+    # Establish baseline is_read=False.
+    before = await repo.async_get_summary_for_sync_apply(owner_summary_id, owner_id)
+    assert before is not None
+    assert before["is_read"] is False
+
+    # Act: attacker attempts to mark the owner's summary as read.
+    returned_version = await repo.async_apply_sync_change(
+        owner_summary_id, attacker_id, is_read=True
+    )
+
+    # Assert: call returns 0 (summary invisible to attacker).
+    assert returned_version == 0
+
+    # Assert: owner's summary is unchanged.
+    after = await repo.async_get_summary_for_sync_apply(owner_summary_id, owner_id)
+    assert after is not None
+    assert after["is_read"] is False
