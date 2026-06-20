@@ -942,6 +942,7 @@ class GitMirrorService:
         if outcome.excluded:
             await self._mirror_repo.record_excluded(
                 mirror.id,
+                mirror.user_id,
                 outcome.error or "repository permanently gone",
             )
             return
@@ -949,6 +950,7 @@ class GitMirrorService:
         if outcome.skipped:
             await self._mirror_repo.record_skip(
                 mirror.id,
+                mirror.user_id,
                 outcome.skip_reason or "skipped",
             )
             return
@@ -966,6 +968,7 @@ class GitMirrorService:
 
             await self._mirror_repo.record_success(
                 mirror_id=mirror.id,
+                user_id=mirror.user_id,
                 mirror_path=str(dest) if dest else "",
                 size_kb=size_kb,
                 default_branch=mirror.default_branch,
@@ -982,6 +985,7 @@ class GitMirrorService:
                 use_http1 = True
             await self._mirror_repo.record_failure(
                 mirror_id=mirror.id,
+                user_id=mirror.user_id,
                 error_category=outcome.error_category or ErrorCategory.UNKNOWN,
                 message=outcome.error or "",
                 clone_strategy=outcome.clone_strategy,

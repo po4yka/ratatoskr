@@ -163,6 +163,7 @@ class GitMirrorRepository:
     async def record_success(
         self,
         mirror_id: int,
+        user_id: int,
         mirror_path: str,
         size_kb: int | None,
         default_branch: str | None,
@@ -172,10 +173,18 @@ class GitMirrorRepository:
 
         Also clears ``use_http1_fallback``: a clean sync means the host is fine
         on HTTP/2 again, so the next run should not be burdened with the flag.
+
+        ``user_id`` is included in the WHERE clause as a defense-in-depth IDOR
+        guard: the update silently does nothing if the row does not belong to
+        the expected user.
         """
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
-            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
+            row = await session.scalar(
+                select(GitMirror).where(
+                    and_(GitMirror.id == mirror_id, GitMirror.user_id == user_id)
+                )
+            )
             if row is None:
                 return
             row.status = GitMirrorStatus.OK
@@ -195,6 +204,7 @@ class GitMirrorRepository:
     async def record_failure(
         self,
         mirror_id: int,
+        user_id: int,
         error_category: ErrorCategory,
         message: str,
         clone_strategy: str | None = None,
@@ -210,11 +220,19 @@ class GitMirrorRepository:
         row so that the next sync attempt starts with HTTP/1.1.  When ``False``,
         clears the flag.  ``None`` (the default) leaves the column unchanged so
         callers that don't care about the flag never regress existing behaviour.
+
+        ``user_id`` is included in the WHERE clause as a defense-in-depth IDOR
+        guard: the update silently does nothing if the row does not belong to
+        the expected user.
         """
         now = dt.datetime.now(tz=dt.UTC)
         cfg = self._config
         async with self._db.transaction() as session:
-            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
+            row = await session.scalar(
+                select(GitMirror).where(
+                    and_(GitMirror.id == mirror_id, GitMirror.user_id == user_id)
+                )
+            )
             if row is None:
                 return
             row.status = GitMirrorStatus.FAILED
@@ -236,11 +254,20 @@ class GitMirrorRepository:
             ):
                 row.backoff_until = now + dt.timedelta(hours=cfg.failure_cooldown_hours)
 
-    async def record_skip(self, mirror_id: int, reason: str) -> None:
-        """Mark a mirror as skipped for this run (does not change failure counters)."""
+    async def record_skip(self, mirror_id: int, user_id: int, reason: str) -> None:
+        """Mark a mirror as skipped for this run (does not change failure counters).
+
+        ``user_id`` is included in the WHERE clause as a defense-in-depth IDOR
+        guard: the update silently does nothing if the row does not belong to
+        the expected user.
+        """
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
-            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
+            row = await session.scalar(
+                select(GitMirror).where(
+                    and_(GitMirror.id == mirror_id, GitMirror.user_id == user_id)
+                )
+            )
             if row is None:
                 return
             row.status = GitMirrorStatus.SKIPPED
@@ -274,15 +301,23 @@ class GitMirrorRepository:
             rows = (await session.scalars(stmt)).all()
         return list(rows)
 
-    async def clear_mirror_path(self, mirror_id: int) -> None:
+    async def clear_mirror_path(self, mirror_id: int, user_id: int) -> None:
         """NULL out mirror_path for a row without deleting the row.
 
         Called before on-disk deletion so the DB never holds a path that refers
         to a directory that no longer exists on disk.  Silently does nothing if
         the row no longer exists.
+
+        ``user_id`` is included in the WHERE clause as a defense-in-depth IDOR
+        guard: the update silently does nothing if the row does not belong to
+        the expected user.
         """
         async with self._db.transaction() as session:
-            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
+            row = await session.scalar(
+                select(GitMirror).where(
+                    and_(GitMirror.id == mirror_id, GitMirror.user_id == user_id)
+                )
+            )
             if row is None:
                 return
             row.mirror_path = None
@@ -296,17 +331,25 @@ class GitMirrorRepository:
         async with self._db.transaction() as session:
             await session.execute(sql_delete(GitMirror).where(GitMirror.id == mirror_id))
 
-    async def record_excluded(self, mirror_id: int, reason: str) -> None:
+    async def record_excluded(self, mirror_id: int, user_id: int, reason: str) -> None:
         """Tombstone a mirror whose upstream repository is permanently gone.
 
         Sets status=EXCLUDED and excluded_at=now so the mirror is never
         returned by list_due again.  The row can be revived by a fresh
         upsert_target call (e.g. the user re-adds the URL via /mirror or the
         API), which resets status to PENDING and clears excluded_at.
+
+        ``user_id`` is included in the WHERE clause as a defense-in-depth IDOR
+        guard: the update silently does nothing if the row does not belong to
+        the expected user.
         """
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
-            row = await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
+            row = await session.scalar(
+                select(GitMirror).where(
+                    and_(GitMirror.id == mirror_id, GitMirror.user_id == user_id)
+                )
+            )
             if row is None:
                 return
             row.status = GitMirrorStatus.EXCLUDED
