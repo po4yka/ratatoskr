@@ -160,8 +160,11 @@ class ContentScraperChain:
                 close = getattr(supported, "close", None)
                 if close is not None:
                     close()
-                filtered.append(provider)
-                continue
+                msg = (
+                    f"{provider.provider_name}.supports_url must be synchronous"
+                    f" but returned an awaitable; check the provider implementation"
+                )
+                raise TypeError(msg)
             if supported:
                 filtered.append(provider)
         return filtered
