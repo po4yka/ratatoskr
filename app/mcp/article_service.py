@@ -221,7 +221,6 @@ class ArticleReadService:
 
             total = total or 0
             payload = paginated_payload(results=results, total=total, limit=limit, offset=offset)
-            payload["has_more"] = (offset + len(results)) < total
             payload["articles"] = results
             return payload
         except Exception:

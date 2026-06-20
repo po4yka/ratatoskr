@@ -124,7 +124,7 @@ def paginated_payload(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "has_more": (offset + limit) < total,
+        "has_more": (offset + len(results)) < total,
     }
 
 
