@@ -58,9 +58,7 @@ def verify_telegram_auth(
             f"Telegram auth expired for user {user_id}. Age: {age_seconds}s",
             extra={"user_id": user_id, "age_seconds": age_seconds},
         )
-        raise AuthenticationError(
-            f"Authentication expired ({age_seconds} seconds old). Please log in again."
-        )
+        raise AuthenticationError("Authentication data has expired. Please log in again.")
 
     if age_seconds < -60:  # Allow 1 minute clock skew
         logger.warning(
