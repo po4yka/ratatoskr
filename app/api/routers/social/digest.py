@@ -23,8 +23,10 @@ from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     SubscribeRequest,
     UpdatePreferenceRequest,
 )
+from app.api.email_errors import raise_email_api_error
 from app.api.models.responses import success_response
 from app.adapters.content.streaming.operation_streams import digest_run_topic
+from app.adapters.email.service import EmailDeliveryError, EmailDeliveryService
 from app.api.routers.operation_streams import (
     DIGEST_RUN_STREAM_RESPONSES,
     event_source_for_operation_topic,
@@ -32,7 +34,6 @@ from app.api.routers.operation_streams import (
 from app.api.routers.auth.dependencies import get_webapp_user
 from app.api.services.auth_service import AuthService
 from app.api.services.digest_facade import DigestFacade, get_digest_facade
-from app.adapters.email.service import EmailDeliveryService
 from app.config import load_config
 from app.core.logging_utils import get_logger
 
@@ -192,7 +193,10 @@ async def request_email_verification(
 ) -> dict[str, Any]:
     """Start email address verification."""
     service = EmailDeliveryService(load_config().email)
-    data = await service.start_verification(user_id=user["user_id"], email=body.email)
+    try:
+        data = await service.start_verification(user_id=user["user_id"], email=body.email)
+    except EmailDeliveryError as exc:
+        raise_email_api_error(exc)
     return success_response(data)
 
 
@@ -200,7 +204,10 @@ async def request_email_verification(
 async def verify_email_address(body: VerifyEmailRequest) -> dict[str, Any]:
     """Verify an email address with a one-time token."""
     service = EmailDeliveryService(load_config().email)
-    data = await service.verify(body.token)
+    try:
+        data = await service.verify(body.token)
+    except EmailDeliveryError as exc:
+        raise_email_api_error(exc)
     return success_response(data)
 
 

@@ -6,7 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from app.adapters.email.service import EmailDeliveryService
+from app.adapters.email.service import EmailDeliveryError, EmailDeliveryService
+from app.api.email_errors import raise_email_api_error
 from app.api.models.digest import SendEmailRequest  # noqa: TC001
 from app.api.models.requests import CreateCustomDigestRequest  # noqa: TC001
 from app.api.models.responses import success_response
@@ -58,12 +59,15 @@ async def email_custom_digest(
     digest = await CustomDigestService().get_digest(user_id=user["user_id"], digest_id=digest_id)
     subject = str(digest.get("title") or "Ratatoskr custom digest")
     content = str(digest.get("content") or "")
-    payload = await EmailDeliveryService(load_config().email).send_custom_content(
-        user_id=user["user_id"],
-        address_id=body.email_address_id,
-        subject=subject,
-        content=content,
-        purpose="custom_digest",
-        metadata={"custom_digest_id": digest_id},
-    )
+    try:
+        payload = await EmailDeliveryService(load_config().email).send_custom_content(
+            user_id=user["user_id"],
+            address_id=body.email_address_id,
+            subject=subject,
+            content=content,
+            purpose="custom_digest",
+            metadata={"custom_digest_id": digest_id},
+        )
+    except EmailDeliveryError as exc:
+        raise_email_api_error(exc)
     return success_response(payload)

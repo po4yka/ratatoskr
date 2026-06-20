@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from app.adapters.email.protocol import EmailDeliveryProtocol, EmailMessage
 from app.adapters.email.resend import ResendEmailProvider
 from app.adapters.email.smtp import SMTPEmailProvider
-from app.api.exceptions import FeatureDisabledError, ResourceNotFoundError, ValidationError
 from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.email_delivery_store import EmailDeliveryStore
 from app.observability.metrics_email import record_email_delivery
@@ -17,6 +16,39 @@ if TYPE_CHECKING:
     from app.config.email import EmailConfig
 
 logger = get_logger(__name__)
+
+
+class EmailDeliveryError(RuntimeError):
+    """Base error for email delivery service failures."""
+
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
+
+
+class EmailValidationError(EmailDeliveryError):
+    """Raised when email service input is invalid."""
+
+
+class EmailResourceNotFoundError(EmailDeliveryError):
+    """Raised when a verified email resource cannot be found."""
+
+    def __init__(self, resource_type: str, resource_id: int | str) -> None:
+        super().__init__(
+            f"{resource_type} with ID {resource_id} not found",
+            details={"resource_type": resource_type, "resource_id": str(resource_id)},
+        )
+        self.resource_type = resource_type
+        self.resource_id = resource_id
+
+
+class EmailFeatureDisabledError(EmailDeliveryError):
+    """Raised when email delivery is disabled by configuration."""
+
+    def __init__(self, feature: str) -> None:
+        super().__init__(f"Feature '{feature}' is disabled", details={"feature": feature})
+        self.feature = feature
 
 
 class EmailDeliveryService:
@@ -49,7 +81,7 @@ class EmailDeliveryService:
     async def start_verification(self, *, user_id: int, email: str) -> dict[str, Any]:
         display_email, canonical_email = _canonicalize_email(email)
         if not display_email or not canonical_email:
-            raise ValidationError("Email is required", details={"field": "email"})
+            raise EmailValidationError("Email is required", details={"field": "email"})
 
         token = await self._store.async_start_verification(
             user_id=user_id,
@@ -87,10 +119,12 @@ class EmailDeliveryService:
 
     async def verify(self, token: str) -> dict[str, Any]:
         if not token.strip():
-            raise ValidationError("Verification token is required", details={"field": "token"})
+            raise EmailValidationError(
+                "Verification token is required", details={"field": "token"}
+            )
         address = await self._store.async_verify_token(token)
         if address is None:
-            raise ValidationError("Verification token is invalid or expired")
+            raise EmailValidationError("Verification token is invalid or expired")
         return {
             "id": address.id,
             "email": address.email,
@@ -113,7 +147,9 @@ class EmailDeliveryService:
             address_id=address_id,
         )
         if address is None:
-            raise ResourceNotFoundError("VerifiedEmailAddress", str(address_id or "default"))
+            raise EmailResourceNotFoundError(
+                "VerifiedEmailAddress", str(address_id or "default")
+            )
         await self._send_and_record(
             user_id=user_id,
             address_id=address.id,
@@ -142,7 +178,9 @@ class EmailDeliveryService:
             address_id=address_id,
         )
         if address is None:
-            raise ResourceNotFoundError("VerifiedEmailAddress", str(address_id or "default"))
+            raise EmailResourceNotFoundError(
+                "VerifiedEmailAddress", str(address_id or "default")
+            )
         delivery = await self._send_and_record(
             user_id=user_id,
             address_id=address.id,
@@ -196,7 +234,7 @@ class EmailDeliveryService:
     ) -> Any:
         if self._cfg.provider == "none":
             record_email_delivery("disabled")
-            raise FeatureDisabledError("email")
+            raise EmailFeatureDisabledError("email")
 
         result = await self._provider.send(
             EmailMessage(to=recipient, subject=subject, text=text, html=html)
@@ -255,7 +293,9 @@ def _canonicalize_email(email: str) -> tuple[str | None, str | None]:
     if not cleaned:
         return None, None
     if "@" not in cleaned:
-        raise ValidationError("Email must contain '@'", details={"field": "email"})
+        raise EmailValidationError("Email must contain '@'", details={"field": "email"})
     if len(cleaned) > 256:
-        raise ValidationError("Email must be at most 256 characters", details={"field": "email"})
+        raise EmailValidationError(
+            "Email must be at most 256 characters", details={"field": "email"}
+        )
     return cleaned, cleaned.casefold()

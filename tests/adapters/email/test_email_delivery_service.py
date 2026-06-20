@@ -7,8 +7,7 @@ from typing import Any
 import pytest
 
 from app.adapters.email.protocol import EmailDeliveryResult, EmailMessage
-from app.adapters.email.service import EmailDeliveryService
-from app.api.exceptions import FeatureDisabledError
+from app.adapters.email.service import EmailDeliveryService, EmailFeatureDisabledError
 from app.config.email import EmailConfig
 from app.core.time_utils import UTC
 from app.infrastructure.persistence.email_delivery_store import EmailVerificationToken
@@ -127,7 +126,7 @@ async def test_send_custom_content_fails_when_email_disabled() -> None:
         provider=FakeProvider(),
     )
 
-    with pytest.raises(FeatureDisabledError):
+    with pytest.raises(EmailFeatureDisabledError):
         await service.send_custom_content(
             user_id=42,
             address_id=7,

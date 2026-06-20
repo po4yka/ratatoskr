@@ -11,10 +11,11 @@ from typing import Any, Literal, cast
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel as _BulkBaseModel, Field
 
-from app.adapters.email.service import EmailDeliveryService
+from app.adapters.email.service import EmailDeliveryError, EmailDeliveryService
 from app.api.aggregation_provenance import build_source_bundle
 from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.dependencies.search_resources import get_vector_search_service
+from app.api.email_errors import raise_email_api_error
 from app.api.exceptions import FeatureDisabledError, ResourceNotFoundError, ValidationError
 from app.api.models.digest import SendEmailRequest
 from app.api.models.requests import (
@@ -696,14 +697,17 @@ async def email_summary(
     metadata = ensure_mapping(json_payload.get("metadata"))
     title = metadata.get("title") or request_data.get("input_url") or f"Summary {summary_id}"
     content = _format_summary_email_content(json_payload, request_data)
-    payload = await EmailDeliveryService(load_config().email).send_custom_content(
-        user_id=user["user_id"],
-        address_id=body.email_address_id,
-        subject=f"Ratatoskr summary: {title}",
-        content=content,
-        purpose="summary",
-        metadata={"summary_id": summary_id},
-    )
+    try:
+        payload = await EmailDeliveryService(load_config().email).send_custom_content(
+            user_id=user["user_id"],
+            address_id=body.email_address_id,
+            subject=f"Ratatoskr summary: {title}",
+            content=content,
+            purpose="summary",
+            metadata={"summary_id": summary_id},
+        )
+    except EmailDeliveryError as exc:
+        raise_email_api_error(exc)
     return success_response(payload)
 
 
