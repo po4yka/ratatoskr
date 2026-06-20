@@ -77,7 +77,7 @@ class MessageRateLimitCoordinator:
         redis_client = await get_redis(self.cfg)
 
         if redis_client is not None:
-            if not self._redis_limiter_available:
+            if self._redis_limiter is None:
                 self._redis_limiter = RedisUserRateLimiter(
                     redis_client,
                     self._rate_limiter_config,
@@ -85,7 +85,6 @@ class MessageRateLimitCoordinator:
                 )
                 self._redis_limiter_available = True
                 logger.info("telegram_rate_limiter_redis_enabled")
-            assert self._redis_limiter is not None
             return self._redis_limiter
 
         is_prod = self.cfg.deployment.is_production_mode
