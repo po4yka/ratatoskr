@@ -265,10 +265,12 @@ class TagRepositoryPort(Protocol):
         tag_id: int,
         name: str | None,
         color: str | None,
+        *,
+        user_id: int,
     ) -> dict[str, Any]:
         """Update a tag and return the updated record."""
 
-    async def async_delete_tag(self, tag_id: int) -> None:
+    async def async_delete_tag(self, tag_id: int, *, user_id: int) -> None:
         """Delete a tag."""
 
     async def async_attach_tag(
@@ -282,7 +284,9 @@ class TagRepositoryPort(Protocol):
     async def async_detach_tag(self, summary_id: int, tag_id: int) -> None:
         """Detach a tag from a summary."""
 
-    async def async_restore_tag(self, tag_id: int, *, name: str | None = None) -> dict[str, Any]:
+    async def async_restore_tag(
+        self, tag_id: int, *, user_id: int, name: str | None = None
+    ) -> dict[str, Any]:
         """Restore a previously soft-deleted tag."""
 
     async def async_get_tags_for_summary(self, summary_id: int) -> list[dict[str, Any]]:
@@ -297,7 +301,9 @@ class TagRepositoryPort(Protocol):
     ) -> list[dict[str, Any]]:
         """Return recent summaries for a tag owned by the user."""
 
-    async def async_merge_tags(self, source_tag_ids: list[int], target_tag_id: int) -> None:
+    async def async_merge_tags(
+        self, source_tag_ids: list[int], target_tag_id: int, *, user_id: int
+    ) -> None:
         """Merge source tags into target tag, reassigning all associations."""
 
     async def async_get_tag_by_normalized_name(

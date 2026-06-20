@@ -161,7 +161,9 @@ async def update_tag(
         if not valid:
             raise ValidationError(err or "Invalid tag color")
 
-    updated = await repo.async_update_tag(tag_id, name=body.name, color=body.color)
+    updated = await repo.async_update_tag(
+        tag_id, name=body.name, color=body.color, user_id=user["user_id"]
+    )
     return success_response(_tag_to_response(updated))
 
 
@@ -175,7 +177,7 @@ async def delete_tag(
     tag = await repo.async_get_tag_by_id(tag_id)
     _verify_tag_ownership(tag, tag_id, user["user_id"])
 
-    await repo.async_delete_tag(tag_id)
+    await repo.async_delete_tag(tag_id, user_id=user["user_id"])
     return success_response({"deleted": True, "id": tag_id})
 
 
@@ -200,7 +202,7 @@ async def merge_tags(
     if body.target_tag_id in source_tag_ids:
         raise ValidationError("Target tag cannot be in source tags")
 
-    await repo.async_merge_tags(source_tag_ids, body.target_tag_id)
+    await repo.async_merge_tags(source_tag_ids, body.target_tag_id, user_id=user["user_id"])
     return success_response({"merged": True, "target_tag_id": body.target_tag_id})
 
 

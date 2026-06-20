@@ -81,7 +81,9 @@ class TagHandler(HandlerDependenciesMixin):
                 color=None,
             )
         elif tag.get("is_deleted"):
-            tag = await self._tag_repo.async_restore_tag(tag["id"], name=tag_name.strip())
+            tag = await self._tag_repo.async_restore_tag(
+                tag["id"], user_id=ctx.uid, name=tag_name.strip()
+            )
 
         await self._tag_repo.async_attach_tag(summary["id"], tag["id"], "manual")
 

@@ -70,6 +70,8 @@ class TagRepositoryAdapter:
         tag_id: int,
         name: str | None,
         color: str | None,
+        *,
+        user_id: int,
     ) -> dict[str, Any]:
         """Update a tag and return the updated record."""
         update_values: dict[str, Any] = {"updated_at": _utcnow()}
@@ -82,16 +84,18 @@ class TagRepositoryAdapter:
             update_values["color"] = color
 
         async with self._database.transaction() as session:
-            await session.execute(update(Tag).where(Tag.id == tag_id).values(**update_values))
+            await session.execute(
+                update(Tag).where(Tag.id == tag_id, Tag.user_id == user_id).values(**update_values)
+            )
             tag = await session.get(Tag, tag_id)
             return model_to_dict(tag) or {}
 
-    async def async_delete_tag(self, tag_id: int) -> None:
+    async def async_delete_tag(self, tag_id: int, *, user_id: int) -> None:
         """Soft-delete a tag."""
         async with self._database.transaction() as session:
             await session.execute(
                 update(Tag)
-                .where(Tag.id == tag_id)
+                .where(Tag.id == tag_id, Tag.user_id == user_id)
                 .values(is_deleted=True, deleted_at=_utcnow(), updated_at=_utcnow())
             )
 
@@ -129,7 +133,9 @@ class TagRepositoryAdapter:
                 )
             )
 
-    async def async_restore_tag(self, tag_id: int, *, name: str | None = None) -> dict[str, Any]:
+    async def async_restore_tag(
+        self, tag_id: int, *, user_id: int, name: str | None = None
+    ) -> dict[str, Any]:
         """Restore a previously soft-deleted tag."""
         update_values: dict[str, Any] = {
             "is_deleted": False,
@@ -139,7 +145,9 @@ class TagRepositoryAdapter:
         if name is not None:
             update_values["name"] = name
         async with self._database.transaction() as session:
-            await session.execute(update(Tag).where(Tag.id == tag_id).values(**update_values))
+            await session.execute(
+                update(Tag).where(Tag.id == tag_id, Tag.user_id == user_id).values(**update_values)
+            )
             tag = await session.get(Tag, tag_id)
             return model_to_dict(tag) or {}
 
@@ -188,14 +196,22 @@ class TagRepositoryAdapter:
                 result.append(data)
             return result
 
-    async def async_merge_tags(self, source_tag_ids: list[int], target_tag_id: int) -> None:
-        """Merge source tags into target: re-point associations, soft-delete sources."""
+    async def async_merge_tags(
+        self, source_tag_ids: list[int], target_tag_id: int, *, user_id: int
+    ) -> None:
+        """Merge source tags into target: re-point associations, soft-delete sources.
+
+        Both source and target tags must belong to user_id; the WHERE clauses
+        enforce ownership as a defense-in-depth IDOR guard.
+        """
         if not source_tag_ids:
             return
         async with self._database.transaction() as session:
             existing_summary_ids = set(
                 await session.scalars(
-                    select(SummaryTag.summary_id).where(SummaryTag.tag_id == target_tag_id)
+                    select(SummaryTag.summary_id).where(
+                        SummaryTag.tag_id == target_tag_id,
+                    )
                 )
             )
             for src_id in source_tag_ids:
@@ -211,7 +227,7 @@ class TagRepositoryAdapter:
 
             await session.execute(
                 update(Tag)
-                .where(Tag.id.in_(source_tag_ids))
+                .where(Tag.id.in_(source_tag_ids), Tag.user_id == user_id)
                 .values(is_deleted=True, deleted_at=_utcnow(), updated_at=_utcnow())
             )
 
