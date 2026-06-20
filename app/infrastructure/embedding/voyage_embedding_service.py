@@ -38,7 +38,9 @@ _MAX_BACKOFF_SEC = 30.0
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
-    status_code = getattr(exc, "response", None).status_code if getattr(exc, "response", None) else None
+    status_code = (
+        getattr(exc, "response", None).status_code if getattr(exc, "response", None) else None
+    )
     if status_code == 429:
         return True
     text = str(exc).lower()
@@ -135,7 +137,9 @@ class VoyageEmbeddingService(EmbeddingSerializationMixin):
                 span.set_attribute(EMBEDDING_DIMS, self._dimensions)
                 t0 = time.monotonic()
                 try:
-                    response = await client.post("/embeddings", json=self._payload(texts, input_type))
+                    response = await client.post(
+                        "/embeddings", json=self._payload(texts, input_type)
+                    )
                     response.raise_for_status()
                     record_db_query("voyage_embedding", time.monotonic() - t0)
                     return self._parse_embeddings(response.json(), expected_count=len(texts))
@@ -200,7 +204,16 @@ class VoyageEmbeddingService(EmbeddingSerializationMixin):
         return self._dimensions
 
     def close(self) -> None:
-        self._client = None
+        """Not supported — VoyageEmbeddingService wraps an httpx.AsyncClient.
+
+        Calling this method would silently drop the client reference without
+        draining in-flight connections or closing the underlying transport,
+        leaking file descriptors and connection-pool resources.
+
+        Use ``await service.aclose()`` instead.
+        """
+        msg = "VoyageEmbeddingService.close() is not supported; use await aclose() instead"
+        raise TypeError(msg)
 
     async def aclose(self) -> None:
         client = self._client
