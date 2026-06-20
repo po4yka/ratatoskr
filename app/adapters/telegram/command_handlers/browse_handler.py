@@ -121,7 +121,11 @@ class BrowseHandler:
             session.add(row)
             await session.flush()
             await session.commit()
-            assert row.id is not None
+            if row.id is None:
+                raise RuntimeError(
+                    f"WebwrightRun insert did not return a primary key "
+                    f"(correlation_id={correlation_id!r})"
+                )
             return row.id
 
     async def _finalize_run(
