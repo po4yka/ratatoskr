@@ -68,7 +68,7 @@ class LLMWorkflowAttemptsMixin:
         if mod is not None:
             fn = getattr(mod, "parse_summary_response", None)
             if fn is not None:
-                return fn  # type: ignore[return-value]
+                return fn
         return _default_parse_summary_response
 
     async def _evaluate_attempt_outcome(self, ctx: AttemptContext) -> dict[str, Any] | None:

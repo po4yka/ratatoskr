@@ -421,7 +421,7 @@ async def _prune_stale_excluded(cfg: AppConfig, db: Database) -> None:
         #    that no longer exists on disk, even if a later step fails.
         if mirror_path_str:
             try:
-                await mirror_repo.clear_mirror_path(mirror_id)
+                await mirror_repo.clear_mirror_path(mirror_id, mirror.user_id)
             except Exception as exc:
                 logger.warning(
                     "git_backup_prune_excluded_db_clear_path_failed",
