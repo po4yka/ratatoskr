@@ -32,9 +32,11 @@ class _Session:
         *,
         execute_results: list[list[Any]] | None = None,
         scalars_results: list[list[Any]] | None = None,
+        scalar_results: list[Any] | None = None,
     ) -> None:
         self._execute_results = list(execute_results or [])
         self._scalars_results = list(scalars_results or [])
+        self._scalar_results = list(scalar_results or [])
 
     async def __aenter__(self) -> _Session:
         return self
@@ -47,6 +49,9 @@ class _Session:
 
     async def scalars(self, _query: Any) -> _ScalarResult:
         return _ScalarResult(self._scalars_results.pop(0))
+
+    async def scalar(self, _query: Any) -> Any:
+        return self._scalar_results.pop(0)
 
 
 class _Database:
@@ -103,7 +108,10 @@ async def test_list_articles_tag_filter_paginates_correctly() -> None:
     old_ai = _summary(1, 101, "Old AI", ["#ai"])
     other = _summary(2, 102, "Other", ["#other"])
     new_ai = _summary(3, 103, "New AI", ["#ai"])
-    session = _Session(scalars_results=[[new_ai, other, old_ai], [new_ai, other, old_ai]])
+    session = _Session(
+        scalars_results=[[new_ai], [old_ai]],
+        scalar_results=[2, 2],
+    )
     service = ArticleReadService(_context(session, user_id=1))  # type: ignore[arg-type]
 
     page1 = await service.list_articles(limit=1, offset=0, tag="ai")

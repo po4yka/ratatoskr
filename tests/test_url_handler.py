@@ -134,7 +134,14 @@ def _make_handler() -> URLHandler:
                 MAX_BATCH_URLS=5, safe_reply=AsyncMock(), send_error_notification=AsyncMock()
             ),
         ),
-        url_processor=cast("URLProcessor", SimpleNamespace(summary_repo=None, audit_func=None)),
+        url_processor=cast(
+            "URLProcessor",
+            SimpleNamespace(
+                summary_repo=None,
+                audit_func=None,
+                handle_url_flow=AsyncMock(),
+            ),
+        ),
     )
 
 

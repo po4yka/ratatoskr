@@ -323,7 +323,7 @@ async def test_tag_merge_dedupes_source_ids_and_pins_response_shape(
     )
 
     assert response["data"] == {"merged": True, "target_tag_id": 1}
-    repo.async_merge_tags.assert_awaited_once_with([2], 1)
+    repo.async_merge_tags.assert_awaited_once_with([2], 1, user_id=8401)
 
 
 @pytest.mark.asyncio

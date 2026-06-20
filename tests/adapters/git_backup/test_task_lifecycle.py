@@ -155,6 +155,7 @@ class TestMetricsExport:
 
         out = tmp_path / "metrics.jsonl"
         git_cfg = _make_config(
+            GIT_BACKUP_DATA_PATH=str(tmp_path),
             GIT_BACKUP_METRICS_EXPORT_PATH=str(out),
             GIT_BACKUP_METRICS_FORMAT="json",
         )
@@ -179,6 +180,7 @@ class TestMetricsExport:
 
         out = tmp_path / "metrics.jsonl"
         git_cfg = _make_config(
+            GIT_BACKUP_DATA_PATH=str(tmp_path),
             GIT_BACKUP_METRICS_EXPORT_PATH=str(out),
             GIT_BACKUP_METRICS_FORMAT="json",
         )
@@ -197,6 +199,7 @@ class TestMetricsExport:
 
         out = tmp_path / "metrics.csv"
         git_cfg = _make_config(
+            GIT_BACKUP_DATA_PATH=str(tmp_path),
             GIT_BACKUP_METRICS_EXPORT_PATH=str(out),
             GIT_BACKUP_METRICS_FORMAT="csv",
         )
@@ -218,6 +221,7 @@ class TestMetricsExport:
 
         out = tmp_path / "metrics.csv"
         git_cfg = _make_config(
+            GIT_BACKUP_DATA_PATH=str(tmp_path),
             GIT_BACKUP_METRICS_EXPORT_PATH=str(out),
             GIT_BACKUP_METRICS_FORMAT="csv",
         )
@@ -235,8 +239,10 @@ class TestMetricsExport:
         from app.tasks.git_backup_sync import _export_metrics
 
         # Point at a non-writable path by mocking Path.open to raise.
+        out = tmp_path / "nonexistent" / "deeply" / "nested" / "metrics.jsonl"
         git_cfg = _make_config(
-            GIT_BACKUP_METRICS_EXPORT_PATH="/nonexistent/deeply/nested/metrics.jsonl",
+            GIT_BACKUP_DATA_PATH=str(tmp_path),
+            GIT_BACKUP_METRICS_EXPORT_PATH=str(out),
             GIT_BACKUP_METRICS_FORMAT="json",
         )
         cfg = _make_app_config(git_cfg)

@@ -119,6 +119,7 @@ class _FakeMirrorRepo:
     async def record_success(
         self,
         mirror_id: int,
+        user_id: int,
         mirror_path: str,
         size_kb: int | None,
         default_branch: str | None,
@@ -127,6 +128,7 @@ class _FakeMirrorRepo:
         self.success_calls.append(
             {
                 "mirror_id": mirror_id,
+                "user_id": user_id,
                 "mirror_path": mirror_path,
                 "size_kb": size_kb,
             }
@@ -135,6 +137,7 @@ class _FakeMirrorRepo:
     async def record_failure(
         self,
         mirror_id: int,
+        user_id: int,
         error_category: ErrorCategory,
         message: str,
         clone_strategy: str | None = None,
@@ -144,6 +147,7 @@ class _FakeMirrorRepo:
         self.failure_calls.append(
             {
                 "mirror_id": mirror_id,
+                "user_id": user_id,
                 "error_category": error_category,
                 "message": message,
                 "use_http1": use_http1,
@@ -224,7 +228,7 @@ async def test_db_http1_flag_seeds_force_http1_on_first_attempt() -> None:
     with (
         _PATCH_PREFLIGHT,
         _PATCH_DNS,
-        patch.object(service, "_resolve_url", return_value=_URL),
+        patch.object(service, "_resolve_url", return_value=(_URL, None)),
         patch("pathlib.Path.exists", return_value=False),
         patch("pathlib.Path.mkdir", return_value=None),
         patch.object(_svc_mod, "build_git_command", side_effect=_capturing_build),
@@ -259,7 +263,7 @@ async def test_db_http1_flag_false_does_not_force_http1_on_first_attempt() -> No
     with (
         _PATCH_PREFLIGHT,
         _PATCH_DNS,
-        patch.object(service, "_resolve_url", return_value=_URL),
+        patch.object(service, "_resolve_url", return_value=(_URL, None)),
         patch("pathlib.Path.exists", return_value=False),
         patch("pathlib.Path.mkdir", return_value=None),
         patch.object(_svc_mod, "build_git_command", side_effect=_capturing_build),
@@ -295,7 +299,7 @@ async def test_http2_error_sets_use_http1_via_record_failure() -> None:
     with (
         _PATCH_PREFLIGHT,
         _PATCH_DNS,
-        patch.object(service, "_resolve_url", return_value=_URL),
+        patch.object(service, "_resolve_url", return_value=(_URL, None)),
         patch("pathlib.Path.exists", return_value=False),
         patch("pathlib.Path.mkdir", return_value=None),
     ):
@@ -326,7 +330,7 @@ async def test_non_http2_error_does_not_set_use_http1() -> None:
     with (
         _PATCH_PREFLIGHT,
         _PATCH_DNS,
-        patch.object(service, "_resolve_url", return_value=_URL),
+        patch.object(service, "_resolve_url", return_value=(_URL, None)),
         patch("pathlib.Path.exists", return_value=False),
         patch("pathlib.Path.mkdir", return_value=None),
     ):
@@ -354,6 +358,7 @@ async def test_record_success_clears_use_http1_fallback() -> None:
 
     await repo.record_success(
         mirror_id=5,
+        user_id=100,
         mirror_path="/data/test.git",
         size_kb=1024,
         default_branch="main",
@@ -378,6 +383,7 @@ def test_record_success_clears_use_http1_fallback_sync() -> None:
         repo = GitMirrorRepository(db, cfg)  # type: ignore[arg-type]
         await repo.record_success(
             mirror_id=6,
+            user_id=100,
             mirror_path="/data/test2.git",
             size_kb=512,
             default_branch=None,
@@ -404,6 +410,7 @@ async def test_record_failure_with_use_http1_true_sets_flag() -> None:
 
     await repo.record_failure(
         mirror_id=7,
+        user_id=100,
         error_category=ErrorCategory.HTTP2_ERROR,
         message="HTTP/2 stream error",
         use_http1=True,
@@ -426,6 +433,7 @@ async def test_record_failure_with_use_http1_none_leaves_flag_unchanged() -> Non
 
     await repo.record_failure(
         mirror_id=8,
+        user_id=100,
         error_category=ErrorCategory.NETWORK_ERROR,
         message="connection reset by peer",
         use_http1=None,
@@ -451,7 +459,7 @@ async def test_record_failure_network_error_sets_use_http1() -> None:
     with (
         _PATCH_PREFLIGHT,
         _PATCH_DNS,
-        patch.object(service, "_resolve_url", return_value=_URL),
+        patch.object(service, "_resolve_url", return_value=(_URL, None)),
         patch("pathlib.Path.exists", return_value=False),
         patch("pathlib.Path.mkdir", return_value=None),
     ):

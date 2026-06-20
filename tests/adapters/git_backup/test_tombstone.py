@@ -396,30 +396,31 @@ class FakeMirrorRepo:
 
     def __init__(self, mirrors: list[GitMirror]) -> None:
         self._mirrors = mirrors
-        self.excluded_calls: list[tuple[int, str]] = []
-        self.failure_calls: list[tuple[int, str]] = []
+        self.excluded_calls: list[tuple[int, int, str]] = []
+        self.failure_calls: list[tuple[int, int, str]] = []
 
     async def list_due(self, user_id: int | None = None) -> list[GitMirror]:
         return list(self._mirrors)
 
-    async def record_excluded(self, mirror_id: int, reason: str) -> None:
-        self.excluded_calls.append((mirror_id, reason))
+    async def record_excluded(self, mirror_id: int, user_id: int, reason: str) -> None:
+        self.excluded_calls.append((mirror_id, user_id, reason))
 
     async def record_failure(
         self,
         mirror_id: int,
+        user_id: int,
         error_category: Any,
         message: str,
         clone_strategy: str | None = None,
         *,
         use_http1: bool | None = None,
     ) -> None:
-        self.failure_calls.append((mirror_id, message))
+        self.failure_calls.append((mirror_id, user_id, message))
 
     async def record_success(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    async def record_skip(self, mirror_id: int, reason: str) -> None:
+    async def record_skip(self, mirror_id: int, user_id: int, reason: str) -> None:
         pass
 
 
@@ -474,7 +475,7 @@ class TestServiceTombstoneIntegration:
                 "app.adapters.git_backup.mirror_service.assert_resolved_public_host",
                 return_value=None,
             ),
-            patch.object(service, "_resolve_url", return_value=_URL),
+            patch.object(service, "_resolve_url", return_value=(_URL, None)),
             patch("pathlib.Path.exists", return_value=False),
             patch("pathlib.Path.mkdir", return_value=None),
         ):
@@ -484,7 +485,7 @@ class TestServiceTombstoneIntegration:
         assert summary.skipped == 1
         assert summary.failed == 0
         assert len(fake_repo.excluded_calls) == 1
-        mirror_id, reason = fake_repo.excluded_calls[0]
+        mirror_id, _user_id, reason = fake_repo.excluded_calls[0]
         assert mirror_id == 42
         assert "repository not found" in reason.lower()
         assert len(fake_repo.failure_calls) == 0
@@ -508,7 +509,7 @@ class TestServiceTombstoneIntegration:
                 "app.adapters.git_backup.mirror_service.assert_resolved_public_host",
                 return_value=None,
             ),
-            patch.object(service, "_resolve_url", return_value=_URL),
+            patch.object(service, "_resolve_url", return_value=(_URL, None)),
             patch("pathlib.Path.exists", return_value=False),
             patch("pathlib.Path.mkdir", return_value=None),
         ):
@@ -542,7 +543,7 @@ class TestServiceTombstoneIntegration:
                 "app.adapters.git_backup.mirror_service.assert_resolved_public_host",
                 return_value=None,
             ),
-            patch.object(service, "_resolve_url", return_value=_URL),
+            patch.object(service, "_resolve_url", return_value=(_URL, None)),
             patch("pathlib.Path.exists", return_value=False),
             patch("pathlib.Path.mkdir", return_value=None),
         ):

@@ -107,7 +107,7 @@ def test_build_search_dependencies_raises_when_vector_store_is_required(monkeypa
             required=True,
             connection_timeout=3.0,
         ),
-        embedding=SimpleNamespace(provider="local", max_token_length=512),
+        embedding=SimpleNamespace(provider="local", max_token_length=512, embedding_dim=768),
     )
 
     with pytest.raises(RuntimeError, match="store unavailable"):

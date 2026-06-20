@@ -743,6 +743,7 @@ class TestExportMetricsCsvPath:
 
         out = tmp_path / "m.csv"
         git_cfg = _make_git_cfg(
+            GIT_BACKUP_DATA_PATH=str(tmp_path),
             GIT_BACKUP_METRICS_EXPORT_PATH=str(out),
             GIT_BACKUP_METRICS_FORMAT="csv",
         )

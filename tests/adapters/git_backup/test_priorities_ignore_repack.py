@@ -263,7 +263,7 @@ class TestCollectTasksPriorities:
 
         data_path = Path("/tmp/git-priorities-test")
         with (
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch.object(
                 service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
             ),
@@ -290,7 +290,7 @@ class TestCollectTasksPriorities:
 
         data_path = Path("/tmp/git-priorities-test")
         with (
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch.object(
                 service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
             ),
@@ -322,7 +322,7 @@ class TestCollectTasksIgnore:
 
         data_path = Path("/tmp/git-ignore-test")
         with (
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch.object(
                 service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
             ),
@@ -353,7 +353,7 @@ class TestCollectTasksIgnore:
 
         data_path = Path("/tmp/git-ignore-test")
         with (
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch.object(
                 service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
             ),
@@ -380,7 +380,7 @@ class TestCollectTasksIgnore:
 
         data_path = Path("/tmp/git-ignore-test")
         with (
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch.object(
                 service, "_mirror_destination", side_effect=lambda dp, m: dp / (m.name or "")
             ),
@@ -435,7 +435,7 @@ class TestFullRepackTiming:
 
         with (
             patch("pathlib.Path.exists", return_value=True),
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch(
                 "app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None
             ),
@@ -461,7 +461,7 @@ class TestFullRepackTiming:
 
         with (
             patch("pathlib.Path.exists", return_value=True),
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch(
                 "app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None
             ),
@@ -483,7 +483,7 @@ class TestFullRepackTiming:
 
         with (
             patch("pathlib.Path.exists", return_value=True),
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch(
                 "app.adapters.git_backup.mirror_service._preflight_storage_check", return_value=None
             ),

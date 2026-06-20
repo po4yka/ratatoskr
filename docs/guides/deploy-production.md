@@ -394,9 +394,9 @@ docker run -d --env-file .env -v $(pwd)/data:/data \
   -p 8000:8000 --name ratatoskr --restart unless-stopped ratatoskr:latest
 ```
 
-> The `migrate` service no longer runs automatically before app containers start. App containers run `python -m app.cli.migrate_db --check` at startup and exit cleanly when the live schema is not at Alembic head. Use `make pi-migrate` to render the SQL dry-run and `make pi-migrate APPLY=1` to consciously apply the migration before restarting app services. This keeps a bad migration from blocking rollback to the previous image.
+The `migrate` service no longer runs automatically before app containers start. App containers run `python -m app.cli.migrate_db --check` at startup and exit cleanly when the live schema is not at Alembic head. Use `make pi-migrate` to render the SQL dry-run and `make pi-migrate APPLY=1` to consciously apply the migration before restarting app services. This keeps a bad migration from blocking rollback to the previous image.
 
-> `make pi-deploy` tags the currently running service image as `<project>-<service>:previous` before it recreates the container. If the new image fails, run `make pi-rollback SERVICE=ratatoskr` (or `SERVICE=mobile-api`, `worker`, `scheduler`) to swap `:latest` and `:previous` and recreate the service without applying migrations. The deploy script writes `ratatoskr_deploy_version_info{service,slot,git_sha,deployed_at}` into the node-exporter textfile volume so Grafana can show the current and previous image SHAs.
+`make pi-deploy` tags the currently running service image as `<project>-<service>:previous` before it recreates the container. If the new image fails, run `make pi-rollback SERVICE=ratatoskr` (or `SERVICE=mobile-api`, `worker`, `scheduler`) to swap `:latest` and `:previous` and recreate the service without applying migrations. The deploy script writes `ratatoskr_deploy_version_info{service,slot,git_sha,deployed_at}` into the node-exporter textfile volume so Grafana can show the current and previous image SHAs.
 
 ### 5. Verify
 

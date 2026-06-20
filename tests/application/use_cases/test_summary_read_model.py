@@ -58,6 +58,7 @@ async def test_get_summary_context_for_user_prefers_joined_repository_path() -> 
         "crawl_result": {"request": 70, "status": "ok"},
         "llm_calls": [{"id": 1, "request": 70}],
         "aggregation_source_bundle": None,
+        "transcription_artifact": None,
     }
     summary_repo.get_summary_context_mock.assert_awaited_once_with(7)
     summary_repo.get_aggregation_source_bundle_mock.assert_awaited_once_with(7, 3)

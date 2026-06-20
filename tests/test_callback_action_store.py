@@ -144,9 +144,11 @@ async def test_load_summary_payload_evicts_oldest_entry_when_cache_is_full() -> 
 async def test_toggle_save_invalidates_exact_cache_key(monkeypatch: pytest.MonkeyPatch) -> None:
     store = _make_store(asyncio_module=_AsyncioStub())
     store._summary_cache["42"] = (100.0, {"id": "42"})
-    monkeypatch.setattr(store._summary_repo, "async_toggle_favorite", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        store._summary_repo, "async_toggle_favorite_for_user", AsyncMock(return_value=True)
+    )
 
-    result = await store.toggle_save("42")
+    result = await store.toggle_save("42", user_id=100)
 
     assert result is True
     assert "42" not in store._summary_cache

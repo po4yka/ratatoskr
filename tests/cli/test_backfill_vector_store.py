@@ -65,8 +65,8 @@ def _patch_backfill_dependencies(
     )
     monkeypatch.setattr(
         backfill_vector_store,
-        "_fetch_summaries",
-        AsyncMock(return_value=summaries),
+        "_fetch_summaries_page",
+        AsyncMock(side_effect=[summaries, []]),
     )
     monkeypatch.setattr(
         backfill_vector_store,

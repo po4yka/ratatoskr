@@ -17,6 +17,7 @@ import yaml
 REQUIRED_SERVICES = [
     "migrate",
     "mobile-api",
+    "pg-backup",
     "postgres",
     "qdrant",
     "ratatoskr",

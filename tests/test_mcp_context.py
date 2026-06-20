@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -16,12 +17,12 @@ def _fake_runtime(database_dsn: str | None, user_id: int | None = None) -> Simpl
         database=SimpleNamespace(),
         scope=SimpleNamespace(user_id=user_id),
         vector_state=SimpleNamespace(
-            service=None, last_failed_at=None, init_lock=None, resources=()
+            service=None, last_failed_at=None, init_lock=asyncio.Lock(), resources=()
         ),
         local_vector_state=SimpleNamespace(
             service=None,
             last_failed_at=None,
-            init_lock=None,
+            init_lock=asyncio.Lock(),
             resources=(),
         ),
     )

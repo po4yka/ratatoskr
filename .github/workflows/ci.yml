@@ -886,7 +886,6 @@ jobs:
 
           expected_commands = {
               "migrate": ["python", "-m", "app.cli.migrate_db"],
-              "worker": ["taskiq", "worker"],
               "scheduler": ["taskiq", "scheduler", "app.tasks.scheduler:scheduler"],
           }
           for service_name, expected in expected_commands.items():
@@ -897,7 +896,15 @@ jobs:
                   raise SystemExit(f"MISSING command for {service_name}: {' '.join(expected)}")
 
           worker_command = services["worker"].get("command", [])
-          if "app.tasks.import_tasks" not in worker_command:
+          if isinstance(worker_command, str):
+              worker_command = worker_command.split()
+          expected_worker = ["sh", "-c"]
+          if worker_command[: len(expected_worker)] != expected_worker:
+              raise SystemExit("MISSING worker shell entrypoint")
+          worker_script = " ".join(worker_command[len(expected_worker):])
+          if "exec taskiq worker" not in worker_script:
+              raise SystemExit("MISSING worker command: taskiq worker")
+          if "app.tasks.import_tasks" not in worker_script:
               raise SystemExit("MISSING worker task module: app.tasks.import_tasks")
           PY
           echo "All expected service commands found."

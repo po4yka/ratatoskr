@@ -1868,6 +1868,62 @@
         }
       }
     },
+    "/v1/collections/tree": {
+      "get": {
+        "tags": [
+          "Collections"
+        ],
+        "summary": "Get Collection Tree",
+        "operationId": "get_collection_tree_v1_collections_tree_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "max_depth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10,
+              "minimum": 1,
+              "default": 3,
+              "title": "Max Depth"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Collection Tree V1 Collections Tree Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/collections/{collection_id}": {
       "get": {
         "tags": [
@@ -2489,62 +2545,6 @@
         }
       }
     },
-    "/v1/collections/tree": {
-      "get": {
-        "tags": [
-          "Collections"
-        ],
-        "summary": "Get Collection Tree",
-        "operationId": "get_collection_tree_v1_collections_tree_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "max_depth",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 10,
-              "minimum": 1,
-              "default": 3,
-              "title": "Max Depth"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "title": "Response Get Collection Tree V1 Collections Tree Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/UnauthorizedError"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalServerError"
-          }
-        }
-      }
-    },
     "/v1/collections/{collection_id}/acl": {
       "get": {
         "tags": [
@@ -3087,8 +3087,8 @@
             }
           },
           {
-            "name": "password",
-            "in": "query",
+            "name": "x-collection-password",
+            "in": "header",
             "required": false,
             "schema": {
               "anyOf": [
@@ -3101,7 +3101,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Password"
+              "title": "X-Collection-Password"
             }
           }
         ],
@@ -8689,7 +8689,7 @@
           "User"
         ],
         "summary": "Get User Stats",
-        "description": "Get user statistics.",
+        "description": "Get user statistics.\n\nAggregates are computed via targeted SQL queries (COUNT/SUM/GROUP BY) so\nthat no summary rows are loaded into Python memory regardless of collection\nsize.  The previous implementation fetched up to 10,000 rows in-process.",
         "operationId": "get_user_stats_v1_user_stats_get",
         "responses": {
           "200": {
@@ -20128,7 +20128,8 @@
           "selected_text": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 8000
               },
               {
                 "type": "null"
@@ -20141,6 +20142,7 @@
               "type": "string"
             },
             "type": "array",
+            "maxItems": 20,
             "title": "Tag Names"
           },
           "summarize": {

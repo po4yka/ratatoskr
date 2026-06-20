@@ -93,7 +93,7 @@ markdown-it-py==4.2.0
     # via rich
 mdurl==0.1.2
     # via markdown-it-py
-msgpack==1.1.2
+msgpack==1.2.1
     # via cachecontrol
 multidict==6.7.1
     # via
@@ -152,7 +152,7 @@ pydantic==2.13.4
     #   taskiq
 pydantic-core==2.46.4
     # via pydantic
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
     # via
     #   openapi-schema-validator
     #   openapi-spec-validator

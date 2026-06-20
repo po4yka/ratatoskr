@@ -45,9 +45,11 @@ class SearchFilters:
                 # Try to parse published_at string to datetime
                 result_date = self._parse_date(published_at)
                 if result_date:
-                    if self.date_from and result_date < self.date_from:
+                    date_from = self._align_timezone(self.date_from, result_date)
+                    date_to = self._align_timezone(self.date_to, result_date)
+                    if date_from and result_date < date_from:
                         return False
-                    if self.date_to and result_date > self.date_to:
+                    if date_to and result_date > date_to:
                         return False
                 else:
                     # If we can't parse the date and filters are set, exclude the result
@@ -86,6 +88,18 @@ class SearchFilters:
                     return False
 
         return True
+
+    @staticmethod
+    def _align_timezone(
+        boundary: dt.datetime | None, result_date: dt.datetime
+    ) -> dt.datetime | None:
+        if boundary is None:
+            return None
+        if result_date.tzinfo is not None and boundary.tzinfo is None:
+            return boundary.replace(tzinfo=result_date.tzinfo)
+        if result_date.tzinfo is None and boundary.tzinfo is not None:
+            return boundary.replace(tzinfo=None)
+        return boundary
 
     @staticmethod
     def _parse_date(date_str: str) -> dt.datetime | None:

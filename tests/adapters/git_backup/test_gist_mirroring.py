@@ -154,17 +154,18 @@ def test_two_gists_with_same_name_but_different_ids_differ() -> None:
 
 
 def test_mirror_path_overrides_derivation() -> None:
-    """When mirror_path is already set, _mirror_destination returns it verbatim."""
+    """When mirror_path is already set under data_path, _mirror_destination returns it verbatim."""
     svc = _make_service()
     data_path = Path("/data/git-mirrors")
+    mirror_path = data_path / "github" / "gist.github.com" / "abc123.git"
 
     mirror = _make_mirror(
         1,
         "https://gist.github.com/abc123.git",
-        mirror_path="/custom/path/abc123.git",
+        mirror_path=str(mirror_path),
     )
     dest = svc._mirror_destination(data_path, mirror)
-    assert dest == Path("/custom/path/abc123.git")
+    assert dest == mirror_path
 
 
 def test_manual_mirror_lands_under_manual_dir() -> None:

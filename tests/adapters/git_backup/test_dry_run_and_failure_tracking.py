@@ -158,7 +158,7 @@ class TestDryRunPlanLines:
 
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch.object(service, "_resolve_url", return_value=_URL_NO_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_NO_CREDS, None)),
             caplog.at_level(logging.INFO, logger="app.adapters.git_backup.mirror_service"),
         ):
             summary = await service.perform_sync(user_id=100, dry_run=True)
@@ -185,7 +185,7 @@ class TestDryRunPlanLines:
 
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch.object(service, "_resolve_url", return_value=_URL_NO_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_NO_CREDS, None)),
             caplog.at_level(logging.INFO, logger="app.adapters.git_backup.mirror_service"),
         ):
             await service.perform_sync(user_id=100, dry_run=True)
@@ -213,7 +213,7 @@ class TestDryRunPlanLines:
         with (
             patch("pathlib.Path.exists", return_value=False),
             # Simulate an effective_url that already has credentials injected
-            patch.object(service, "_resolve_url", return_value=_URL_WITH_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_WITH_CREDS, None)),
             caplog.at_level(logging.INFO, logger="app.adapters.git_backup.mirror_service"),
         ):
             await service.perform_sync(user_id=100, dry_run=True)
@@ -242,7 +242,7 @@ class TestDryRunPlanLines:
 
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch.object(service, "_resolve_url", return_value=_URL_NO_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_NO_CREDS, None)),
         ):
             summary = await service.perform_sync(user_id=100, dry_run=True)
 
@@ -264,7 +264,7 @@ class TestDryRunPlanLines:
 
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch.object(service, "_resolve_url", return_value=_URL_NO_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_NO_CREDS, None)),
             caplog.at_level(logging.INFO, logger="app.adapters.git_backup.mirror_service"),
         ):
             await service.perform_sync(user_id=100, dry_run=True)
@@ -290,7 +290,7 @@ class TestDryRunPlanLines:
 
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch.object(service, "_resolve_url", return_value=_URL_NO_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_NO_CREDS, None)),
         ):
             summary = await service.perform_sync(user_id=100, dry_run=True)
 
@@ -316,7 +316,7 @@ class TestDryRunPlanLines:
 
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch.object(service, "_resolve_url", return_value=_URL_NO_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_NO_CREDS, None)),
             caplog.at_level(logging.INFO, logger="app.adapters.git_backup.mirror_service"),
         ):
             await service.perform_sync(user_id=100, dry_run=True)
@@ -341,7 +341,7 @@ class TestDryRunPlanLines:
 
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch.object(service, "_resolve_url", return_value=_URL_NO_CREDS),
+            patch.object(service, "_resolve_url", return_value=(_URL_NO_CREDS, None)),
             caplog.at_level(logging.INFO, logger="app.adapters.git_backup.mirror_service"),
         ):
             summary = await service.perform_sync(user_id=100, dry_run=True)
@@ -414,6 +414,7 @@ class TestRecordFailureTotalFailures:
 
         await repo.record_failure(
             mirror_id=1,
+            user_id=100,
             error_category=ErrorCategory.NETWORK_ERROR,
             message="connection reset",
         )
@@ -434,6 +435,7 @@ class TestRecordFailureTotalFailures:
 
         await repo.record_failure(
             mirror_id=2,
+            user_id=100,
             error_category=ErrorCategory.TIMEOUT,
             message="timed out",
         )
@@ -455,6 +457,7 @@ class TestRecordFailureTotalFailures:
         before = dt.datetime.now(tz=dt.UTC)
         await repo.record_failure(
             mirror_id=3,
+            user_id=100,
             error_category=ErrorCategory.AUTH_ERROR,
             message="auth failed",
         )
@@ -480,6 +483,7 @@ class TestRecordFailureTotalFailures:
         before = dt.datetime.now(tz=dt.UTC)
         await repo.record_failure(
             mirror_id=4,
+            user_id=100,
             error_category=ErrorCategory.UNKNOWN,
             message="unknown error",
         )
@@ -503,6 +507,7 @@ class TestRecordFailureTotalFailures:
 
         await repo.record_failure(
             mirror_id=5,
+            user_id=100,
             error_category=ErrorCategory.SSL_ERROR,
             message="ssl error",
         )
@@ -526,6 +531,7 @@ class TestRecordSuccessDoesNotResetTotalFailures:
 
         await repo.record_success(
             mirror_id=10,
+            user_id=100,
             mirror_path="/data/test.git",
             size_kb=1024,
             default_branch="main",
@@ -548,6 +554,7 @@ class TestRecordSuccessDoesNotResetTotalFailures:
 
         await repo.record_success(
             mirror_id=11,
+            user_id=100,
             mirror_path="/data/test.git",
             size_kb=512,
             default_branch="main",
@@ -570,6 +577,7 @@ class TestRecordSuccessDoesNotResetTotalFailures:
 
         await repo.record_success(
             mirror_id=12,
+            user_id=100,
             mirror_path="/data/test.git",
             size_kb=256,
             default_branch="main",

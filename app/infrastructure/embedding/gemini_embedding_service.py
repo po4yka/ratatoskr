@@ -73,8 +73,9 @@ class GeminiEmbeddingService(EmbeddingSerializationMixin):
     def _ensure_client(self) -> Any:
         """Lazily initialise the google-genai client."""
         if self._client is None:
-            from google import genai
+            from importlib import import_module
 
+            genai = import_module("google.genai")
             self._client = genai.Client(api_key=self._api_key)
             logger.info(
                 "gemini_embedding_client_initialized",

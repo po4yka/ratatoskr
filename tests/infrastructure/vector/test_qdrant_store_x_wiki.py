@@ -33,6 +33,13 @@ class _FakeQdrantClient:
     def collection_exists(self, _name: str) -> bool:
         return True  # skip create_collection branch
 
+    def get_collection(self, _name: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            config=SimpleNamespace(
+                params=SimpleNamespace(vectors=SimpleNamespace(size=EMBEDDING_DIM))
+            )
+        )
+
     def scroll(
         self,
         *,
@@ -381,6 +388,9 @@ def test_delete_x_wiki_paths_logs_and_marks_unavailable_on_error() -> None:
     failing_client = MagicMock()
     failing_client.get_collections.return_value = None
     failing_client.collection_exists.return_value = True
+    failing_client.get_collection.return_value = SimpleNamespace(
+        config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=EMBEDDING_DIM)))
+    )
     failing_client.delete.side_effect = RuntimeError("qdrant delete failed")
 
     with patch(

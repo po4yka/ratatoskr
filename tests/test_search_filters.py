@@ -52,7 +52,9 @@ def test_language_filter_is_only_applied_when_result_has_language() -> None:
 
 def test_parse_date_supports_common_formats_and_invalid_values() -> None:
     assert SearchFilters._parse_date("2024-01-15").date() == dt.date(2024, 1, 15)
-    assert SearchFilters._parse_date("2024-01-15T10:30:00Z") == dt.datetime(2024, 1, 15, 10, 30)
+    assert SearchFilters._parse_date("2024-01-15T10:30:00Z") == dt.datetime(
+        2024, 1, 15, 10, 30, tzinfo=dt.UTC
+    )
     assert SearchFilters._parse_date("15 Jan 2024").date() == dt.date(2024, 1, 15)
     assert SearchFilters._parse_date("") is None
     assert SearchFilters._parse_date(None) is None

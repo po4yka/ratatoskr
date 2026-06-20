@@ -239,6 +239,17 @@ class _FakeQdrantClient:
     def collection_exists(self, name: str) -> bool:
         return True
 
+    def get_collection(self, name: str) -> MagicMock:
+        vectors = MagicMock()
+        vectors.size = 768
+        params = MagicMock()
+        params.vectors = vectors
+        config = MagicMock()
+        config.params = params
+        collection = MagicMock()
+        collection.config = config
+        return collection
+
     def upsert(self, *, collection_name: str, points: list, wait: bool = True) -> None:
         self.upserted.extend(points)
 

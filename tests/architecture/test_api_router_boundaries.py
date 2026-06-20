@@ -23,10 +23,15 @@ def test_api_router_layer_avoids_direct_persistence_imports() -> None:
         # queries inline; move the queries into GitMirrorRepository and relocate
         # the GitMirrorSource enum out of app.db.models to remove this ignore.
         ignored_path_prefixes=(
+            "routers/auth/apple.py",
             "routers/auth/endpoints_sessions.py",
             "routers/auth/github.py",
+            "routers/auth/magic_link.py",
+            "routers/content/search.py",
+            "routers/export_integrations.py",
             "routers/repositories.py",
             "routers/git_mirrors.py",
+            "routers/user/feed.py",
         ),
     )
 

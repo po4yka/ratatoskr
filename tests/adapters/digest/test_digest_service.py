@@ -84,6 +84,9 @@ class _Store(DigestStore):
     def get_users_with_subscriptions(self) -> list[int]:
         return [3]
 
+    async def async_get_user_preference(self, user_id: int) -> SimpleNamespace:
+        return SimpleNamespace(delivery_channel="telegram", email_address_id=None)
+
 
 class _Sender:
     def __init__(self, exc: Exception | None = None) -> None:
@@ -267,8 +270,7 @@ async def test_generate_digest_records_success_path_metrics() -> None:
         registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "sent"}) or 0.0
     )
     before_posts = (
-        registry.get_sample_value("ratatoskr_digest_posts_analyzed_total", {"status": "ok"})
-        or 0.0
+        registry.get_sample_value("ratatoskr_digest_posts_analyzed_total", {"status": "ok"}) or 0.0
     )
 
     subject, _sender, _store = _service(
@@ -293,8 +295,7 @@ async def test_generate_digest_records_success_path_metrics() -> None:
         registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "sent"}) or 0.0
     ) - before_deliveries == pytest.approx(1.0)
     assert (
-        registry.get_sample_value("ratatoskr_digest_posts_analyzed_total", {"status": "ok"})
-        or 0.0
+        registry.get_sample_value("ratatoskr_digest_posts_analyzed_total", {"status": "ok"}) or 0.0
     ) - before_posts == pytest.approx(1.0)
     assert (
         registry.get_sample_value(
@@ -311,8 +312,7 @@ async def test_generate_digest_records_llm_failure_metrics() -> None:
     registry = metrics.REGISTRY
     assert registry is not None
     before_deliveries = (
-        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "failed"})
-        or 0.0
+        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "failed"}) or 0.0
     )
     before_posts = (
         registry.get_sample_value(
@@ -331,8 +331,7 @@ async def test_generate_digest_records_llm_failure_metrics() -> None:
 
     assert result.errors == ["Analysis failed: bad analysis"]
     assert (
-        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "failed"})
-        or 0.0
+        registry.get_sample_value("ratatoskr_digest_deliveries_total", {"status": "failed"}) or 0.0
     ) - before_deliveries == pytest.approx(1.0)
     assert (
         registry.get_sample_value(
@@ -344,11 +343,11 @@ async def test_generate_digest_records_llm_failure_metrics() -> None:
 
 
 @pytest.mark.asyncio
-async def test_subscription_classmethods(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(digest_module, "DigestStore", _Store)
+async def test_subscription_helpers_delegate_to_store() -> None:
+    subject, _sender, _store = _service()
 
-    assert await DigestService.async_get_users_with_subscriptions() == [1, 2]
-    assert DigestService.get_users_with_subscriptions() == [3]
+    assert await subject.async_get_users_with_subscriptions() == [1, 2]
+    assert subject.get_users_with_subscriptions() == [3]
 
 
 def test_digest_result_defaults() -> None:

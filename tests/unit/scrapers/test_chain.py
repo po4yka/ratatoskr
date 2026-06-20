@@ -15,7 +15,7 @@ are network-free and key-free.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -465,6 +465,7 @@ async def test_chain_uses_async_mock_provider_via_unittest_mock() -> None:
     """Sanity check that an unittest.mock-based provider also works."""
     mock_provider = AsyncMock()
     mock_provider.provider_name = "mocked"
+    mock_provider.supports_url = Mock(return_value=True)
     mock_provider.scrape_markdown = AsyncMock(return_value=_ok_result("ok-mock"))
     mock_provider.aclose = AsyncMock()
 

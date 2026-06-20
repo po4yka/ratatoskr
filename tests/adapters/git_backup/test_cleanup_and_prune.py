@@ -246,6 +246,12 @@ class FakeMirrorRepoForPrune:
     async def list_stale_excluded(self, older_than_days: int) -> list[GitMirror]:
         return list(self._stale)
 
+    async def clear_mirror_path(self, mirror_id: int, user_id: int) -> None:
+        for mirror in self._stale:
+            if mirror.id == mirror_id and mirror.user_id == user_id:
+                mirror.mirror_path = None
+                return
+
     async def delete_mirror(self, mirror_id: int) -> None:
         self.deleted_ids.append(mirror_id)
 

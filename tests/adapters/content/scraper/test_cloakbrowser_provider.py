@@ -68,8 +68,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             result = await provider.scrape_markdown("https://example.com")
@@ -90,8 +90,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             await provider.scrape_markdown("https://example.com")
@@ -112,8 +112,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             await provider.scrape_markdown("https://example.com", mobile=False)
@@ -137,8 +137,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             result = await provider.scrape_markdown("https://example.com")
@@ -155,8 +155,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(False, "private network"),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(False, "private network")),
             ),
         ):
             result = await provider.scrape_markdown("http://10.0.0.1/internal")
@@ -179,8 +179,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             result = await provider.scrape_markdown("https://example.com")
@@ -200,8 +200,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             result = await provider.scrape_markdown("https://example.com")
@@ -225,8 +225,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             await provider.scrape_markdown("https://example.com")
@@ -251,8 +251,8 @@ class TestCloakBrowserProvider:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             await provider.scrape_markdown("https://example.com")
@@ -291,8 +291,8 @@ class TestStealthKnobs:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             await provider.scrape_markdown("https://example.com/article")
@@ -328,8 +328,8 @@ class TestStealthKnobs:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             await provider.scrape_markdown("https://example.com")
@@ -348,8 +348,8 @@ class TestStealthKnobs:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             result = await provider.scrape_markdown("https://example.com")
@@ -369,8 +369,8 @@ class TestStealthKnobs:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             result = await provider.scrape_markdown("https://example.com")
@@ -393,8 +393,8 @@ class TestStealthKnobs:
         with (
             patch("playwright.async_api.async_playwright", factory),
             patch(
-                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe",
-                return_value=(True, None),
+                "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+                new=AsyncMock(return_value=(True, None)),
             ),
         ):
             result = await provider.scrape_markdown("https://example.com")

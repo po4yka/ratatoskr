@@ -109,8 +109,8 @@ class _FakeMirrorRepo:
         self.upsert_calls: list[dict[str, Any]] = []
         self.success_calls: list[dict[str, Any]] = []
         self.failure_calls: list[dict[str, Any]] = []
-        self.excluded_calls: list[tuple[int, str]] = []
-        self.skip_calls: list[tuple[int, str]] = []
+        self.excluded_calls: list[tuple[int, int, str]] = []
+        self.skip_calls: list[tuple[int, int, str]] = []
 
     async def list_due(self, user_id: int | None = None) -> list[GitMirror]:
         return list(self._mirrors)
@@ -129,11 +129,11 @@ class _FakeMirrorRepo:
     async def record_failure(self, **kwargs: Any) -> None:
         self.failure_calls.append(kwargs)
 
-    async def record_excluded(self, mirror_id: int, reason: str) -> None:
-        self.excluded_calls.append((mirror_id, reason))
+    async def record_excluded(self, mirror_id: int, user_id: int, reason: str) -> None:
+        self.excluded_calls.append((mirror_id, user_id, reason))
 
-    async def record_skip(self, mirror_id: int, reason: str) -> None:
-        self.skip_calls.append((mirror_id, reason))
+    async def record_skip(self, mirror_id: int, user_id: int, reason: str) -> None:
+        self.skip_calls.append((mirror_id, user_id, reason))
 
 
 def _make_service(
@@ -322,8 +322,7 @@ class TestBuildLfs:
             return_value=fake_lfs,
         ):
             service = GitMirrorService(cfg, mirror_repo, db)
-
-        assert service._lfs is None
+            assert service._build_lfs() is None
 
     def test_lfs_available_returns_lfs_instance(self) -> None:
         """When LfsSupport.is_lfs_available() is True, _build_lfs must return the instance."""
@@ -339,8 +338,7 @@ class TestBuildLfs:
             return_value=fake_lfs,
         ):
             service = GitMirrorService(cfg, mirror_repo, db)
-
-        assert service._lfs is fake_lfs
+            assert service._build_lfs() is fake_lfs
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +364,7 @@ class TestDryRunIgnore:
         service = _make_service(fake_repo, cfg)
 
         with (
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch.object(
                 service,
                 "_mirror_destination",
@@ -428,7 +426,7 @@ class TestCircuitBreakerOpenSkip:
         service = _make_service(fake_repo, cfg, circuit_breaker=open_breaker)
 
         with (
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch(
                 "app.adapters.git_backup.mirror_service._preflight_storage_check",
                 return_value=None,
@@ -464,7 +462,7 @@ class TestExtraRepos:
                 "app.adapters.git_backup.mirror_service._preflight_storage_check",
                 return_value=None,
             ),
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
             patch("pathlib.Path.exists", return_value=True),
         ):
@@ -493,7 +491,7 @@ class TestExtraRepos:
                 "app.adapters.git_backup.mirror_service._preflight_storage_check",
                 return_value=None,
             ),
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
             patch("pathlib.Path.exists", return_value=True),
         ):
@@ -526,7 +524,7 @@ class TestExtraRepos:
                 "app.adapters.git_backup.mirror_service._preflight_storage_check",
                 return_value=None,
             ),
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
         ):
             await service.perform_sync(user_id=None)
@@ -551,7 +549,7 @@ class TestExtraRepos:
                 "app.adapters.git_backup.mirror_service._preflight_storage_check",
                 return_value=None,
             ),
-            patch.object(service, "_resolve_url", side_effect=lambda m: m.clone_url),
+            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
             patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
         ):
             await service.perform_sync(user_id=None)
@@ -579,7 +577,7 @@ class TestResolveUrl:
         service = _make_service(fake_repo, cfg)
 
         result = await service._resolve_url(mirror)
-        assert result == mirror.clone_url
+        assert result == (mirror.clone_url, None)
 
     @pytest.mark.asyncio
     async def test_missing_integration_returns_plain_url(self) -> None:
@@ -611,7 +609,7 @@ class TestResolveUrl:
         )
 
         result = await service._resolve_url(mirror)
-        assert result == mirror.clone_url
+        assert result == (mirror.clone_url, None)
 
     @pytest.mark.asyncio
     async def test_github_credentials_query_requires_active_integration(self) -> None:
@@ -645,7 +643,7 @@ class TestResolveUrl:
 
         result = await service._resolve_url(mirror)
 
-        assert result == mirror.clone_url
+        assert result == (mirror.clone_url, None)
         statement_text = str(captured["statement"].compile(compile_kwargs={"literal_binds": True}))
         assert "user_github_integrations.status" in statement_text
         assert GitHubIntegrationStatus.ACTIVE.value in statement_text
@@ -687,7 +685,7 @@ class TestResolveUrl:
         ):
             result = await service._resolve_url(mirror)
 
-        assert result == mirror.clone_url
+        assert result == (mirror.clone_url, None)
 
     @pytest.mark.asyncio
     async def test_manual_source_returns_plain_url(self) -> None:
@@ -701,7 +699,7 @@ class TestResolveUrl:
         service = _make_service(fake_repo, cfg)
 
         result = await service._resolve_url(mirror)
-        assert result == mirror.clone_url
+        assert result == (mirror.clone_url, None)
 
 
 # ---------------------------------------------------------------------------
@@ -1146,7 +1144,7 @@ class TestPersistOutcome:
         await service._persist_outcome(outcome, [task])
 
         assert len(fake_repo.skip_calls) == 1
-        assert fake_repo.skip_calls[0][1] == "storage circuit breaker open"
+        assert fake_repo.skip_calls[0][2] == "storage circuit breaker open"
 
     @pytest.mark.asyncio
     async def test_synthetic_mirror_persist_skipped(self) -> None:
