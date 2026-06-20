@@ -149,7 +149,14 @@ class AnthropicDirectLLMClient(BaseLLMClient):
                 fallback_models_override=fallback_models_override,
             )
             if result.status != CallStatus.OK or result.response_text is None:
-                last_error = RuntimeError(result.error_text or "Structured chat failed")
+                http_status: int | None = None
+                if isinstance(result.error_context, dict):
+                    http_status = result.error_context.get("status_code")
+                cause = RuntimeError(result.error_text or "Structured chat failed")
+                last_error = cause
+                # Non-retryable 4xx (anything except 429 Too Many Requests): break immediately.
+                if http_status is not None and 400 <= http_status < 500 and http_status != 429:
+                    break
                 continue
             try:
                 parsed = response_model.model_validate(json.loads(result.response_text))
@@ -165,7 +172,7 @@ class AnthropicDirectLLMClient(BaseLLMClient):
                 retry_count=attempt,
                 model_used=result.model,
             )
-        raise RuntimeError(f"Structured chat failed after retries: {last_error}")
+        raise RuntimeError(f"Structured chat failed after retries: {last_error}") from last_error
 
 
 def _split_anthropic_messages(
