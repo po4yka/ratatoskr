@@ -344,6 +344,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         scroll_filter: Filter,
         with_payload: Any,
         page_size: int = 5000,
+        max_records: int | None = None,
     ) -> list[Any]:
         """Scroll every matching point, following next_page_offset to exhaustion.
 
@@ -352,12 +353,32 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         drift detection) must page through to the end; otherwise large
         collections silently truncate and already-indexed points are reported
         as missing.
+
+        ``max_records`` caps total records returned across all pages. When the
+        cap is reached the scroll stops early and the caller receives a partial
+        result (logged as a warning). This prevents unbounded memory growth on
+        very large collections. Set to ``None`` to retain the previous
+        unlimited behaviour (reconciler full-scan callers should leave it
+        ``None``; ad-hoc callers that pass ``limit`` as ``page_size`` should
+        consider passing ``max_records=limit`` to make the cap explicit).
         """
         client = self._client
         records: list[Any] = []
         offset: Any = None
         page = max(1, int(page_size))
         while True:
+            if max_records is not None:
+                remaining = max_records - len(records)
+                if remaining <= 0:
+                    logger.warning(
+                        "vector_scroll_all_cap_reached",
+                        extra={
+                            "max_records": max_records,
+                            "collection": self._collection_name,
+                        },
+                    )
+                    break
+                page = min(page, remaining)
             batch, offset = client.scroll(
                 collection_name=self._collection_name,
                 scroll_filter=scroll_filter,
