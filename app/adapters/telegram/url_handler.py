@@ -761,7 +761,7 @@ class URLHandler:
         max_cleanup_attempts = 3
         while cleanup_attempts < max_cleanup_attempts:
             try:
-                self._file_validator.cleanup_file(file_path)
+                await asyncio.to_thread(self._file_validator.cleanup_file, file_path)
                 return
             except PermissionError as exc:
                 cleanup_attempts += 1
