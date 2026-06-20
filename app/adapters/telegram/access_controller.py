@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
     from app.db.session import Database
 
 logger = get_logger(__name__)
+
+# Maximum number of distinct unauthorized user IDs tracked in-memory.
+# Oldest entries are evicted when the cap is reached (LRU by insertion order).
+_MAX_TRACKED_UIDS = 10_000
 
 
 class _NullUserRepository:
@@ -47,11 +52,11 @@ class AccessController:
             msg = "Telegram access control requires ALLOWED_USER_IDS to be configured."
             raise RuntimeError(msg)
 
-        # Security tracking
-        self._failed_attempts: dict[int, int] = {}
-        self._last_attempt_time: dict[int, float] = {}
-        self._block_notified_until: dict[int, float] = {}
-        self._deny_notified_until: dict[int, float] = {}
+        # Security tracking — OrderedDict preserves insertion order for LRU eviction.
+        self._failed_attempts: OrderedDict[int, int] = OrderedDict()
+        self._last_attempt_time: OrderedDict[int, float] = OrderedDict()
+        self._block_notified_until: OrderedDict[int, float] = OrderedDict()
+        self._deny_notified_until: OrderedDict[int, float] = OrderedDict()
         self.MAX_FAILED_ATTEMPTS = 3
         self.BLOCK_DURATION_SECONDS = 300  # 5 minutes
         self.DENY_NOTIFICATION_COOLDOWN_SECONDS = 300
@@ -62,6 +67,35 @@ class AccessController:
         self._last_attempt_time.pop(uid, None)
         self._block_notified_until.pop(uid, None)
         self._deny_notified_until.pop(uid, None)
+
+    def _evict_lru(self) -> None:
+        """Evict the oldest tracked UIDs when the cap is exceeded.
+
+        Uses insertion order of each OrderedDict as a proxy for access recency.
+        Only the oldest entries (across the union of all dicts) are dropped.
+        Called after stale cleanup so that genuinely active UIDs are not evicted first.
+        """
+        tracked_uids = (
+            set(self._failed_attempts)
+            | set(self._last_attempt_time)
+            | set(self._block_notified_until)
+            | set(self._deny_notified_until)
+        )
+        overflow = len(tracked_uids) - _MAX_TRACKED_UIDS
+        if overflow <= 0:
+            return
+
+        # Walk insertion order of _last_attempt_time (widest dict) to pick victims.
+        # Fall back to arbitrary ordering for UIDs absent from that dict.
+        ordered = list(self._last_attempt_time.keys())
+        extras = [uid for uid in tracked_uids if uid not in self._last_attempt_time]
+        for uid in ordered[:overflow] + extras[: max(0, overflow - len(ordered))]:
+            self._clear_tracking(uid)
+
+        logger.warning(
+            "access_controller_lru_eviction",
+            extra={"evicted": overflow, "cap": _MAX_TRACKED_UIDS},
+        )
 
     def _cleanup_stale_tracking(self, current_time: float) -> int:
         """Reclaim stale unauthorized-user tracking state."""
@@ -95,6 +129,7 @@ class AccessController:
 
         current_time = time.time()
         self._cleanup_stale_tracking(current_time)
+        self._evict_lru()
 
         if uid in allowed_ids:
             # Reset failed attempts on successful access
