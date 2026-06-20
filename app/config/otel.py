@@ -40,6 +40,15 @@ class OtelConfig(BaseSettings):
         validation_alias="OTEL_FILE_EXPORTER_PATH",
     )
 
+    # Controls whether the OTLP gRPC exporter uses an insecure (plaintext)
+    # channel.  Defaults to True to preserve backward compatibility with the
+    # default local Tempo deployment (http://tempo:4317).  Set to False when
+    # exporting to a TLS-terminating endpoint (HTTPS / port 443).
+    otel_insecure: bool = Field(
+        default=True,
+        validation_alias="OTEL_EXPORTER_OTLP_INSECURE",
+    )
+
     @classmethod
     def from_env(cls) -> OtelConfig:
         return cls()

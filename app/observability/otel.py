@@ -109,7 +109,12 @@ def _build_exporter(cfg: AppConfig | None) -> Any:
         if cfg is not None
         else os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4317")
     )
-    return OTLPSpanExporter(endpoint=endpoint, insecure=True)
+    insecure = (
+        cfg.otel.otel_insecure
+        if cfg is not None
+        else os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() not in ("0", "false")
+    )
+    return OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
 
 
 def init_tracing(cfg: AppConfig | None = None, *, fastapi_app: Any | None = None) -> None:
