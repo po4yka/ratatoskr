@@ -56,8 +56,19 @@ async function clearTokens() {
   if (ext.storage.session) await storageRemove("session", ["accessToken", "refreshToken"]);
 }
 
+function isLoopbackHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost");
+}
+
 function cleanApiBaseUrl(value) {
-  const parsed = new URL(String(value || DEFAULT_API_BASE_URL).trim().replace(/\/+$/, ""));
+  const raw = String(value || DEFAULT_API_BASE_URL).trim().replace(/\/+$/, "");
+  const parsed = new URL(raw);
+  // Reject non-HTTPS for remote hosts: tokens must not be sent over plain HTTP
+  // to a non-loopback address. HTTP is allowed only for local development.
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopbackHost(parsed.hostname))) {
+    throw new Error("Use HTTPS for remote API URLs. Plain HTTP is allowed only for localhost.");
+  }
   return parsed.origin;
 }
 
@@ -113,7 +124,13 @@ async function replayQueue() {
   ]);
   const entries = queueEntries(quickSaveQueue);
   if (!entries.length) return;
-  const baseUrl = cleanApiBaseUrl(apiBaseUrl);
+  let baseUrl;
+  try {
+    baseUrl = cleanApiBaseUrl(apiBaseUrl);
+  } catch (_error) {
+    // Stored URL is invalid or non-HTTPS; skip replay until the user corrects it.
+    return;
+  }
   const remaining = [];
   for (const entry of entries) {
     let response;
