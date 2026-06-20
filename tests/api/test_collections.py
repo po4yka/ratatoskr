@@ -180,6 +180,49 @@ async def test_delete_collection(db, user_factory, collection_service):
 
 
 @pytest.mark.asyncio
+async def test_get_collection_tree_returns_collections_array(db, user_factory, collection_service):
+    """GET /v1/collections/tree returns success with a non-empty collections list.
+
+    Covers the tree route ordering: root collections appear at the top level and
+    child collections are nested under their parent via the children field.
+    """
+    user = await user_factory(username="col_tree_user")
+    user_context = {"user_id": user.telegram_user_id}
+
+    root_resp = await collections.create_collection(
+        CollectionCreateRequest(name="Root"),
+        user=user_context,
+        service=collection_service,
+    )
+    root_id = root_resp["data"]["id"]
+
+    child_resp = await collections.create_collection(
+        CollectionCreateRequest(name="Child", parent_id=root_id),
+        user=user_context,
+        service=collection_service,
+    )
+    child_id = child_resp["data"]["id"]
+
+    response = await collections.get_collection_tree(
+        max_depth=3,
+        user=user_context,
+        service=collection_service,
+    )
+
+    assert response["success"] is True
+    tree = response["data"]["collections"]
+    assert isinstance(tree, list)
+    assert len(tree) >= 1
+
+    root_nodes = [c for c in tree if c["id"] == root_id]
+    assert len(root_nodes) == 1, "root collection must appear at top level of tree"
+
+    root_node = root_nodes[0]
+    child_ids = [c["id"] for c in (root_node.get("children") or [])]
+    assert child_id in child_ids, "child collection must be nested under its parent"
+
+
+@pytest.mark.asyncio
 async def test_add_remove_item(db, user_factory, summary_factory, collection_service):
     user = user_factory(username="col_user_item")
     user_context = {"user_id": user.telegram_user_id}
