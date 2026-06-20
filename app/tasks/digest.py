@@ -117,11 +117,12 @@ async def _channel_digest_body(cfg: AppConfig) -> None:
 
                 for uid in user_ids:
                     try:
+                        lang = await service.async_get_user_locale(uid)
                         result = await service.generate_digest(
                             user_id=uid,
                             correlation_id=f"{correlation_id}_u{uid}",
                             digest_type="scheduled",
-                            lang="ru",
+                            lang=lang,
                         )
                         logger.info(
                             "scheduled_digest_user_complete",

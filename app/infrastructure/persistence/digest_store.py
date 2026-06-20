@@ -20,6 +20,7 @@ from app.db.models import (
     FeedItem,
     Source,
     Subscription,
+    User,
     UserDigestPreference,
     _utcnow,
 )
@@ -436,6 +437,14 @@ class DigestStore:
 
     def get_user_preference(self, user_id: int) -> Any | None:
         return _run_sync(self.async_get_user_preference(user_id))
+
+    async def async_get_user_locale(self, user_id: int) -> str:
+        """Return the stored locale for a user, falling back to 'en' if not found."""
+        async with self._database().session() as session:
+            locale: str | None = await session.scalar(
+                select(User.locale).where(User.telegram_user_id == user_id)
+            )
+        return locale if locale else "en"
 
     async def async_get_or_create_user_preference(
         self, user_id: int, defaults: dict[str, Any]

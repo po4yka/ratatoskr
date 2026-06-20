@@ -531,6 +531,10 @@ class DigestService:
         """Return user IDs that have at least one active subscription."""
         return self._store.get_users_with_subscriptions()
 
+    async def async_get_user_locale(self, user_id: int) -> str:
+        """Return the stored locale for a user, falling back to 'en' if not found."""
+        return await self._store.async_get_user_locale(user_id)
+
 
 def _deduplicate_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Remove cross-channel duplicates by fuzzy topic matching.
