@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -13,6 +14,8 @@ from app.core.time_utils import UTC
 from app.db.models import Repository, RepositoryEmbedding, Summary, SummaryEmbedding
 from app.db.models.git_backup import GitMirror, GitMirrorStatus
 from app.observability.metrics import record_vector_index_lag
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,15 +167,37 @@ class VectorIndexReconciler:
 
         # Run every adapter concurrently, and overlap the Qdrant point count with
         # them, instead of serially (~7 round-trips -> roughly the slowest one).
+        # return_exceptions=True prevents one failing adapter from cancelling the
+        # rest; exceptions are logged and the adapter is silently skipped so the
+        # report reflects whatever partial data is available.
         adapter_coros = [_run_adapter(adapter) for adapter in self._adapters]
         indexed_points: int | None = None
         if vector_available:
-            *stats, indexed_points = await asyncio.gather(
+            raw_results = await asyncio.gather(
                 *adapter_coros,
                 asyncio.to_thread(self._vector_store.count),
+                return_exceptions=True,
             )
+            *adapter_results, point_count_result = raw_results
+            if isinstance(point_count_result, BaseException):
+                log.warning(
+                    "vector store count failed during reconciliation: %s",
+                    point_count_result,
+                )
+            else:
+                indexed_points = point_count_result
         else:
-            stats = list(await asyncio.gather(*adapter_coros))
+            adapter_results = list(await asyncio.gather(*adapter_coros, return_exceptions=True))
+        stats: list[VectorIndexedEntityStats] = []
+        for adapter, result in zip(self._adapters, adapter_results, strict=False):
+            if isinstance(result, BaseException):
+                log.warning(
+                    "adapter %r failed during reconciliation inspect: %s",
+                    adapter.entity_type,
+                    result,
+                )
+            else:
+                stats.append(result)
         summary_stats = _stats_for(stats, "summary")
         repository_stats = _stats_for(stats, "repository")
         oldest_unindexed = _oldest_unindexed(stats)
