@@ -557,9 +557,15 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         :meth:`replace_request_notes` because ``payload`` must be byte-identical
         to the shared point shape (:mod:`app.infrastructure.vector.summary_point`):
         no empty-list pruning and no scope overwrite (``_build_points`` would do
-        both), so the reconciler sees no drift. Deletes any stale points for ``request_id`` so
-        a re-summarization (new ``summary_id``) leaves no orphan. Fully
-        synchronous -- callers wrap it in ``asyncio.to_thread``.
+        both), so the reconciler sees no drift.
+
+        Stale orphan removal: delete all points for ``request_id`` by filter
+        before upserting the new point. This eliminates the TOCTOU race present
+        in the previous fetch-stale-ids-then-delete approach (a concurrent writer
+        between the scroll and the delete could produce orphans that the
+        filter-delete avoids). Any transient gap between delete and upsert is
+        closed by the 30-minute reconciler (ADR-0012). Fully synchronous --
+        callers wrap it in ``asyncio.to_thread``.
         """
         if not self._available:
             self.ensure_available()
@@ -578,19 +584,29 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             span.set_attribute(VECTOR_OPERATION, "replace")
             t0 = time.perf_counter()
             try:
-                existing_uuid_strs = self._fetch_request_point_ids(request_id)
+                # Delete all existing points for this request_id by filter so
+                # that a re-summarization (new summary_id) leaves no orphan.
+                # Filter-delete avoids the fetch-then-delete TOCTOU; the
+                # subsequent upsert writes the new point.
+                client.delete(
+                    collection_name=self._collection_name,
+                    points_selector=FilterSelector(
+                        filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="request_id",
+                                    match=MatchValue(value=int(request_id)),
+                                )
+                            ]
+                        )
+                    ),
+                    wait=wait,
+                )
                 client.upsert(
                     collection_name=self._collection_name,
                     points=[point],
                     wait=wait,
                 )
-                stale = existing_uuid_strs - {point_uuid}
-                if stale:
-                    client.delete(
-                        collection_name=self._collection_name,
-                        points_selector=PointIdsList(points=list(stale)),
-                        wait=wait,
-                    )
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
                 record_vector_write(operation="replace", status="success")
