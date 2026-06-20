@@ -31,12 +31,12 @@ class WebhookRepositoryPort(Protocol):
         """Create a new webhook subscription."""
 
     async def async_update_subscription(
-        self, subscription_id: int, **kwargs: Any
+        self, subscription_id: int, user_id: int, **kwargs: Any
     ) -> dict[str, Any]:
-        """Update an existing webhook subscription."""
+        """Update an existing webhook subscription owned by user_id."""
 
-    async def async_delete_subscription(self, subscription_id: int) -> None:
-        """Delete a webhook subscription."""
+    async def async_delete_subscription(self, subscription_id: int, user_id: int) -> None:
+        """Soft-delete a webhook subscription owned by user_id."""
 
     async def async_log_delivery(
         self,
@@ -66,8 +66,10 @@ class WebhookRepositoryPort(Protocol):
     async def async_disable_subscription(self, subscription_id: int) -> None:
         """Disable a webhook subscription."""
 
-    async def async_rotate_secret(self, subscription_id: int, new_secret: str) -> None:
-        """Rotate the HMAC secret for a subscription."""
+    async def async_rotate_secret(
+        self, subscription_id: int, new_secret: str, user_id: int
+    ) -> None:
+        """Rotate the HMAC secret for a subscription owned by user_id."""
 
 
 @runtime_checkable

@@ -216,7 +216,9 @@ async def update_subscription(
             status_code=400,
         )
 
-    updated = await webhook_repo.async_update_subscription(webhook_id, **update_fields)
+    updated = await webhook_repo.async_update_subscription(
+        webhook_id, user_id=user["user_id"], **update_fields
+    )
     return success_response(_sub_to_response(updated))
 
 
@@ -228,7 +230,7 @@ async def delete_subscription(
 ) -> dict[str, Any]:
     """Soft-delete a webhook subscription."""
     await _verify_ownership(webhook_repo, webhook_id, user["user_id"])
-    await webhook_repo.async_delete_subscription(webhook_id)
+    await webhook_repo.async_delete_subscription(webhook_id, user_id=user["user_id"])
     return success_response({"deleted": True, "id": webhook_id})
 
 
@@ -338,6 +340,6 @@ async def rotate_secret(
     await _verify_ownership(webhook_repo, webhook_id, user["user_id"])
 
     new_secret = generate_webhook_secret()
-    await webhook_repo.async_rotate_secret(webhook_id, new_secret)
+    await webhook_repo.async_rotate_secret(webhook_id, new_secret, user_id=user["user_id"])
 
     return success_response({"id": webhook_id, "secret": new_secret})

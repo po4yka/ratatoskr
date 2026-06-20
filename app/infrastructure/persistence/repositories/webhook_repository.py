@@ -66,9 +66,9 @@ class WebhookRepositoryAdapter:
             return model_to_dict(sub) or {}
 
     async def async_update_subscription(
-        self, subscription_id: int, **kwargs: Any
+        self, subscription_id: int, user_id: int, **kwargs: Any
     ) -> dict[str, Any]:
-        """Update an existing webhook subscription."""
+        """Update an existing webhook subscription owned by user_id."""
         update_data = dict(kwargs)
         if "events" in update_data:
             update_data["events_json"] = prepare_json_payload(update_data.pop("events"), default=[])
@@ -79,18 +79,24 @@ class WebhookRepositoryAdapter:
         async with self._database.transaction() as session:
             await session.execute(
                 update(WebhookSubscription)
-                .where(WebhookSubscription.id == subscription_id)
+                .where(
+                    WebhookSubscription.id == subscription_id,
+                    WebhookSubscription.user_id == user_id,
+                )
                 .values(**update_values)
             )
             sub = await session.get(WebhookSubscription, subscription_id)
             return model_to_dict(sub) or {}
 
-    async def async_delete_subscription(self, subscription_id: int) -> None:
-        """Soft-delete a webhook subscription."""
+    async def async_delete_subscription(self, subscription_id: int, user_id: int) -> None:
+        """Soft-delete a webhook subscription owned by user_id."""
         async with self._database.transaction() as session:
             await session.execute(
                 update(WebhookSubscription)
-                .where(WebhookSubscription.id == subscription_id)
+                .where(
+                    WebhookSubscription.id == subscription_id,
+                    WebhookSubscription.user_id == user_id,
+                )
                 .values(
                     is_deleted=True,
                     deleted_at=_utcnow(),
@@ -181,11 +187,16 @@ class WebhookRepositoryAdapter:
                 .values(status="disabled", enabled=False, updated_at=_utcnow())
             )
 
-    async def async_rotate_secret(self, subscription_id: int, new_secret: str) -> None:
-        """Rotate the HMAC secret for a subscription."""
+    async def async_rotate_secret(
+        self, subscription_id: int, new_secret: str, user_id: int
+    ) -> None:
+        """Rotate the HMAC secret for a subscription owned by user_id."""
         async with self._database.transaction() as session:
             await session.execute(
                 update(WebhookSubscription)
-                .where(WebhookSubscription.id == subscription_id)
+                .where(
+                    WebhookSubscription.id == subscription_id,
+                    WebhookSubscription.user_id == user_id,
+                )
                 .values(secret=new_secret, updated_at=_utcnow())
             )
