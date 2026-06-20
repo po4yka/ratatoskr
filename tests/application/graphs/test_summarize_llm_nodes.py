@@ -167,10 +167,16 @@ async def test_repair_node_reruns_and_records_call() -> None:
     assert out["llm_calls"][0]["attempt_trigger"] == "graph_node"
 
 
-async def test_repair_node_swallows_llm_failure_and_advances_budget() -> None:
+async def test_repair_node_records_failure_call_and_advances_budget() -> None:
     llm = SimpleNamespace(chat_structured=AsyncMock(side_effect=RuntimeError("boom")))
     out = await repair(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
-    assert out == {"repair_attempts": 1}  # no summary/llm_calls; budget advanced
+    assert out["repair_attempts"] == 1
+    assert "summary" not in out  # no valid summary produced on failure
+    # persist-everything: the failed repair attempt is recorded as an llm_call
+    failure = out["llm_calls"][0]
+    assert failure["status"] == "error"
+    assert failure["attempt_trigger"] == "graph_node"
+    assert "boom" in failure["error_text"]
 
 
 async def test_repair_node_without_messages_only_advances_budget() -> None:

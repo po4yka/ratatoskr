@@ -16,10 +16,11 @@ from app.domain.exceptions.domain_exceptions import (
 )
 
 
-def _make_summary_dict(summary_id: int, is_read: bool = True) -> dict:
+def _make_summary_dict(summary_id: int, is_read: bool = True, user_id: int = 2) -> dict:
     return {
         "id": summary_id,
         "request_id": summary_id * 10,
+        "user_id": user_id,
         "lang": "en",
         "json_payload": {"summary_250": "text", "summary_1000": "text"},
         "insights_json": None,
@@ -33,7 +34,7 @@ def _make_summary_dict(summary_id: int, is_read: bool = True) -> dict:
 async def test_mark_as_unread_happy_path() -> None:
     repo = AsyncMock()
     repo.async_get_summary_by_id = AsyncMock(return_value=_make_summary_dict(7, is_read=True))
-    repo.async_mark_summary_as_unread = AsyncMock()
+    repo.async_mark_summary_as_unread_for_user = AsyncMock(return_value=True)
     use_case = MarkSummaryAsUnreadUseCase(summary_repository=repo)
     command = MarkSummaryAsUnreadCommand(summary_id=7, user_id=2)
 
@@ -41,7 +42,7 @@ async def test_mark_as_unread_happy_path() -> None:
 
     assert isinstance(event, SummaryMarkedAsUnread)
     assert event.summary_id == 7
-    repo.async_mark_summary_as_unread.assert_awaited_once_with(7)
+    repo.async_mark_summary_as_unread_for_user.assert_awaited_once_with(7, 2)
 
 
 @pytest.mark.asyncio

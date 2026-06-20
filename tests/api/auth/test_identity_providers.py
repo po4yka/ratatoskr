@@ -125,16 +125,15 @@ async def test_apple_callback_links_by_verified_email(monkeypatch: pytest.Monkey
             auth=SimpleNamespace(apple_client_id="com.example.app")
         ),
     )
-    monkeypatch.setattr(
-        apple,
-        "_validate_apple_id_token",
-        lambda _token, audience, nonce: {
+    async def _fake_validate(_token, audience, nonce):
+        return {
             "sub": "apple-subject",
             "email": "Owner@privaterelay.appleid.com",
             "email_verified": "true",
             "nonce": nonce,
-        },
-    )
+        }
+
+    monkeypatch.setattr(apple, "_validate_apple_id_token", _fake_validate)
 
     async def fake_issue(**kwargs: Any) -> dict[str, Any]:
         return {"data": {"user_id": kwargs["user_id"], "client_id": kwargs["client_id"]}}
