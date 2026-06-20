@@ -82,10 +82,11 @@ class CustomDigestService:
 
     async def get_digest(self, *, user_id: int, digest_id: str) -> dict[str, Any]:
         """Get a single digest if owned by the user."""
-        digest = await self._user_content_repo.async_get_custom_digest(digest_id)
+        digest = await self._user_content_repo.async_get_custom_digest(
+            digest_id,
+            user_id=user_id,
+        )
         if digest is None:
-            raise ResourceNotFoundError("CustomDigest", digest_id)
-        if str(digest.get("user")) != str(user_id):
             raise ResourceNotFoundError("CustomDigest", digest_id)
         return self._digest_to_response(digest).model_dump(by_alias=True)
 

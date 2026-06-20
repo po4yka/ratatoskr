@@ -68,6 +68,7 @@ class SummaryHighlightService:
             highlight_id=highlight_id,
         )
         highlight = await self._user_content_repo.async_update_highlight(
+            user_id=user_id,
             highlight_id=highlight_id,
             color=body.color,
             note=body.note,
@@ -87,7 +88,10 @@ class SummaryHighlightService:
             summary_id=summary_id,
             highlight_id=highlight_id,
         )
-        await self._user_content_repo.async_delete_highlight(highlight_id)
+        await self._user_content_repo.async_delete_highlight(
+            user_id=user_id,
+            highlight_id=highlight_id,
+        )
 
     async def _verify_summary_ownership(self, *, summary_id: int, user_id: int) -> None:
         summary = await self._user_content_repo.async_get_owned_summary(

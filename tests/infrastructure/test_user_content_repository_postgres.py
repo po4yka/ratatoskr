@@ -218,7 +218,9 @@ async def test_user_content_repository_digests_highlights_and_owned_summaries(
     assert [row["id"] for row in await repo.async_list_custom_digests(ids["user_id"])] == [
         digest["id"]
     ]
-    assert (await repo.async_get_custom_digest(str(digest["id"])))["title"] == "Digest"
+    assert (await repo.async_get_custom_digest(str(digest["id"]), user_id=ids["user_id"]))[
+        "title"
+    ] == "Digest"
 
     highlight = await repo.async_create_highlight(
         user_id=ids["user_id"],
@@ -237,6 +239,7 @@ async def test_user_content_repository_digests_highlights_and_owned_summaries(
     assert loaded_highlight is not None
     assert loaded_highlight["text"] == "important"
     updated_highlight = await repo.async_update_highlight(
+        user_id=ids["user_id"],
         highlight_id=str(highlight["id"]),
         color="green",
         note="saved",
@@ -247,7 +250,7 @@ async def test_user_content_repository_digests_highlights_and_owned_summaries(
         len(await repo.async_list_highlights(user_id=ids["user_id"], summary_id=ids["summary_id"]))
         == 1
     )
-    await repo.async_delete_highlight(str(highlight["id"]))
+    await repo.async_delete_highlight(user_id=ids["user_id"], highlight_id=str(highlight["id"]))
     assert (
         await repo.async_list_highlights(user_id=ids["user_id"], summary_id=ids["summary_id"]) == []
     )

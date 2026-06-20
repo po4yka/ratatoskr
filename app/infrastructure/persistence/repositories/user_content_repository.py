@@ -207,9 +207,19 @@ class UserContentRepositoryAdapter:
             ).scalars()
             return [model_to_dict(row) or {} for row in rows]
 
-    async def async_get_custom_digest(self, digest_id: str) -> dict[str, Any] | None:
+    async def async_get_custom_digest(
+        self,
+        digest_id: str,
+        *,
+        user_id: int,
+    ) -> dict[str, Any] | None:
         async with self._database.session() as session:
-            digest = await session.get(CustomDigest, _uuid(digest_id))
+            digest = await session.scalar(
+                select(CustomDigest).where(
+                    CustomDigest.id == _uuid(digest_id),
+                    CustomDigest.user_id == user_id,
+                )
+            )
             return model_to_dict(digest)
 
     async def async_get_owned_summary(
@@ -296,6 +306,7 @@ class UserContentRepositoryAdapter:
     async def async_update_highlight(
         self,
         *,
+        user_id: int,
         highlight_id: str,
         color: str | None,
         note: str | None,
@@ -310,16 +321,27 @@ class UserContentRepositoryAdapter:
             if update_fields:
                 await session.execute(
                     update(SummaryHighlight)
-                    .where(SummaryHighlight.id == _uuid(highlight_id))
+                    .where(
+                        SummaryHighlight.id == _uuid(highlight_id),
+                        SummaryHighlight.user_id == user_id,
+                    )
                     .values(**update_fields)
                 )
-            highlight = await session.get(SummaryHighlight, _uuid(highlight_id))
+            highlight = await session.scalar(
+                select(SummaryHighlight).where(
+                    SummaryHighlight.id == _uuid(highlight_id),
+                    SummaryHighlight.user_id == user_id,
+                )
+            )
             return model_to_dict(highlight) or {}
 
-    async def async_delete_highlight(self, highlight_id: str) -> None:
+    async def async_delete_highlight(self, *, user_id: int, highlight_id: str) -> None:
         async with self._database.transaction() as session:
             await session.execute(
-                delete(SummaryHighlight).where(SummaryHighlight.id == _uuid(highlight_id))
+                delete(SummaryHighlight).where(
+                    SummaryHighlight.id == _uuid(highlight_id),
+                    SummaryHighlight.user_id == user_id,
+                )
             )
 
     async def async_export_summaries(
