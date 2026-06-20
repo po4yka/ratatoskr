@@ -18,6 +18,10 @@ from uuid import uuid4
 from sqlalchemy import select
 from taskiq import TaskiqDepends
 
+from app.adapters.content.streaming.operation_streams import (
+    publish_operation_event,
+    vector_reconcile_topic,
+)
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
 from app.db.models import Request, Summary, SummaryEmbedding
@@ -29,10 +33,6 @@ from app.infrastructure.vector.summary_point import (
     build_summary_qdrant_payload,
     coerce_summary_payload,
     extract_indexable_text,
-)
-from app.adapters.content.streaming.operation_streams import (
-    publish_operation_event,
-    vector_reconcile_topic,
 )
 from app.observability.metrics import (
     compute_vector_reconcile_oldest_lag_seconds,

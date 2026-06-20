@@ -14,6 +14,10 @@ from uuid import uuid4
 from sqlalchemy import func, select, update
 from taskiq import TaskiqDepends
 
+from app.adapters.content.streaming.operation_streams import (
+    github_sync_topic,
+    publish_operation_event,
+)
 from app.adapters.github.exceptions import GitHubAuthError, GitHubRateLimitError
 from app.adapters.github.github_api_client import GitHubAPIClient
 from app.application.events.repository_watch import RepositoryWatchTriggered
@@ -30,10 +34,6 @@ from app.db.models.repository import (
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
-from app.adapters.content.streaming.operation_streams import (
-    github_sync_topic,
-    publish_operation_event,
-)
 from app.observability.metrics_repositories import (
     GITHUB_PENDING_ANALYSIS_BACKLOG,
     GITHUB_REPOSITORY_WATCH_TRIGGERS_TOTAL,

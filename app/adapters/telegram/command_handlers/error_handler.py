@@ -9,8 +9,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-from app.core.logging_utils import get_logger
 from app.application.services.user_interaction_service import async_safe_update_user_interaction
+from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

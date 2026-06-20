@@ -13,8 +13,10 @@ from app.core.call_status import CallStatus
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.core.summary_normalization import normalize_metric_names
 from app.domain.models.request import RequestStatus
-from app.utils.json_validation import finalize_summary_texts
-from app.utils.json_validation import parse_summary_response as _default_parse_summary_response
+from app.utils.json_validation import (
+    finalize_summary_texts,
+    parse_summary_response as _default_parse_summary_response,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

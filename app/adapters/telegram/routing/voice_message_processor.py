@@ -37,11 +37,11 @@ from app.adapters.transcription.diarization_engine import speaker_at
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
+    from app.adapters.content.graph_url_processor import GraphURLProcessor
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
     from app.adapters.transcription import TranscriptionService
-    from app.adapters.content.graph_url_processor import GraphURLProcessor
     from app.application.ports.transcriptions import TranscriptionRepositoryPort
     from app.application.services.transcription_job_service import TranscriptionJobService
     from app.config.transcription import TranscriptionConfig

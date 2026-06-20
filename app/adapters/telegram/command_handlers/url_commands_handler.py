@@ -9,9 +9,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 from app.adapters.telegram.command_handlers.decorators import audit_command
+from app.application.services.user_interaction_service import async_safe_update_user_interaction
 from app.core.logging_utils import get_logger
 from app.core.url_utils import extract_all_urls
-from app.application.services.user_interaction_service import async_safe_update_user_interaction
 
 if TYPE_CHECKING:
     from app.adapters.content.graph_url_processor import GraphURLProcessor as URLProcessor

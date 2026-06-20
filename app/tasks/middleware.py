@@ -7,8 +7,8 @@ preserving the existing record_scheduler_chronic_failure Prometheus metric.
 
 from __future__ import annotations
 
-from collections import defaultdict
 import traceback
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
 from taskiq import TaskiqMiddleware

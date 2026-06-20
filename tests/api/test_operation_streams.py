@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.adapters.content.streaming.operation_streams import (
-    OperationStreamHub,
     OperationStreamEvent,
+    OperationStreamHub,
     digest_run_topic,
     github_sync_topic,
     publish_operation_event,

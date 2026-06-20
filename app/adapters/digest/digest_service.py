@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any
 
-from app.core.logging_utils import get_logger
 from app.adapters.content.streaming.operation_streams import (
     digest_run_topic,
     publish_operation_event,
 )
+from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.digest_store import DigestStore
 from app.observability.metrics_digest import (
     record_digest_delivery,

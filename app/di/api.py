@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, cast
 
+from app.adapters.github.platform_extractor import GitHubPlatformExtractor
 from app.adapters.transcription import get_or_create_transcription_service
+from app.agents.repo_analysis_agent import RepoAnalysisAgent
 from app.api.background import (
     DurableRequestProcessingQueue,
     ProgressEventRepository,
     RequestProcessingJobRepository,
 )
 from app.api.background_processor import BackgroundProcessor
+from app.api.services.collection_service import CollectionService
 from app.api.services.sync import (
     FallbackSyncSessionStore,
     InMemorySyncSessionStore,
@@ -19,9 +22,6 @@ from app.api.services.sync import (
     SyncRecordCollector,
 )
 from app.api.services.sync_service import SyncService
-from app.api.services.collection_service import CollectionService
-from app.adapters.github.platform_extractor import GitHubPlatformExtractor
-from app.agents.repo_analysis_agent import RepoAnalysisAgent
 from app.application.services.repository_service import RepositoryService
 from app.application.services.request_service import RequestService
 from app.application.services.transcription_job_service import TranscriptionJobService
@@ -38,8 +38,8 @@ from app.db.api_runtime_holder import (  # noqa: F401  - re-exported for back-co
 )
 from app.di.database import build_runtime_database
 from app.di.repositories import (
-    build_crawl_result_repository,
     build_collection_repository,
+    build_crawl_result_repository,
     build_llm_repository,
     build_request_repository,
     build_rss_feed_repository,
@@ -59,7 +59,6 @@ from app.di.shared import (
 )
 from app.di.social import build_social_auth_service
 from app.di.types import ApiRuntime, DatabaseRuntimeServices, SyncDeps
-from app.infrastructure.persistence.sync_aux_read_adapter import SyncAuxReadAdapter
 from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
 from app.infrastructure.persistence.repositories.repository_analysis_repository import (
     RepositoryAnalysisRepositoryAdapter,
@@ -67,6 +66,7 @@ from app.infrastructure.persistence.repositories.repository_analysis_repository 
 from app.infrastructure.persistence.repositories.repository_read_repository import (
     RepositoryReadRepositoryAdapter,
 )
+from app.infrastructure.persistence.sync_aux_read_adapter import SyncAuxReadAdapter
 from app.infrastructure.redis import get_redis
 
 if TYPE_CHECKING:

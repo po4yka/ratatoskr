@@ -38,6 +38,13 @@ def _counter_value(counter, **labels: str) -> float:
     return float(counter.labels(**labels)._value.get())
 
 
+def _taskiq_retries_counter():
+    counter = metrics_module.TASKIQ_RETRIES_TOTAL
+    if counter is None:
+        pytest.skip("prometheus_client metrics are not initialized")
+    return counter
+
+
 def test_taskiq_failed_job_model_is_registered() -> None:
     assert TaskiqFailedJob in ALL_MODELS
     assert "kwargs_json" in TaskiqFailedJob.__table__.columns
@@ -77,8 +84,9 @@ async def test_retryable_failure_records_retry_metric_without_dlq() -> None:
 
     middleware = TaskiqDeadLetterMiddleware(persist_failed_job=_persist)
     message = _FakeMessage(labels={"retry_on_error": True, "max_retries": 3, "_retries": 0})
+    counter = _taskiq_retries_counter()
     before = _counter_value(
-        metrics_module.TASKIQ_RETRIES_TOTAL,
+        counter,
         task="ratatoskr.test.task",
         outcome="retry",
     )
@@ -88,7 +96,7 @@ async def test_retryable_failure_records_retry_metric_without_dlq() -> None:
     assert persisted == []
     assert (
         _counter_value(
-            metrics_module.TASKIQ_RETRIES_TOTAL,
+            counter,
             task="ratatoskr.test.task",
             outcome="retry",
         )
@@ -106,8 +114,9 @@ async def test_terminal_failure_is_dead_lettered_with_payload() -> None:
 
     middleware = TaskiqDeadLetterMiddleware(persist_failed_job=_persist)
     message = _FakeMessage(labels={"retry_on_error": True, "max_retries": 3, "_retries": 2})
+    counter = _taskiq_retries_counter()
     before = _counter_value(
-        metrics_module.TASKIQ_RETRIES_TOTAL,
+        counter,
         task="ratatoskr.test.task",
         outcome="dead_letter",
     )
@@ -125,7 +134,7 @@ async def test_terminal_failure_is_dead_lettered_with_payload() -> None:
     assert payload["error_text"] == "ValueError: permanent"
     assert (
         _counter_value(
-            metrics_module.TASKIQ_RETRIES_TOTAL,
+            counter,
             task="ratatoskr.test.task",
             outcome="dead_letter",
         )
@@ -137,8 +146,9 @@ async def test_terminal_failure_is_dead_lettered_with_payload() -> None:
 async def test_success_after_retry_metric_records_on_recovered_message() -> None:
     middleware = TaskiqDeadLetterMiddleware()
     message = _FakeMessage(labels={"_retries": 1})
+    counter = _taskiq_retries_counter()
     before = _counter_value(
-        metrics_module.TASKIQ_RETRIES_TOTAL,
+        counter,
         task="ratatoskr.test.task",
         outcome="success_after_retry",
     )
@@ -148,7 +158,7 @@ async def test_success_after_retry_metric_records_on_recovered_message() -> None
     assert result.is_err is False
     assert (
         _counter_value(
-            metrics_module.TASKIQ_RETRIES_TOTAL,
+            counter,
             task="ratatoskr.test.task",
             outcome="success_after_retry",
         )

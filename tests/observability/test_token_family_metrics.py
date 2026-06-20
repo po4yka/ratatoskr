@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.observability import metrics_auth
-from app.observability import metrics
+from app.observability import metrics, metrics_auth
 
 
 def _counter_value(exported: str, decision: str) -> float:

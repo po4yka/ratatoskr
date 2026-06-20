@@ -347,13 +347,13 @@ async def device_flow_start(
 async def _run_user_sync(user_id: int, *, sync_id: str) -> None:
     from sqlalchemy import select
 
-    from app.api.dependencies.database import get_session_manager
-    from app.config.settings import load_config
-    from app.db.models.repository import GitHubIntegrationStatus, UserGitHubIntegration
     from app.adapters.content.streaming.operation_streams import (
         github_sync_topic,
         publish_operation_event,
     )
+    from app.api.dependencies.database import get_session_manager
+    from app.config.settings import load_config
+    from app.db.models.repository import GitHubIntegrationStatus, UserGitHubIntegration
     from app.tasks.github_sync import _sync_all
 
     cfg = load_config(allow_stub_telegram=True)

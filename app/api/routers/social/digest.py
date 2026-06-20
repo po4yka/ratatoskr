@@ -11,6 +11,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query
 from sse_starlette.sse import EventSourceResponse
 
+from app.adapters.content.streaming.operation_streams import digest_run_topic
+from app.adapters.email.service import EmailDeliveryError, EmailDeliveryService
+from app.api.email_errors import raise_email_api_error
 from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     AssignCategoryRequest,
     BulkCategoryRequest,
@@ -19,19 +22,16 @@ from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     ChannelControlRequest,
     RequestEmailVerificationRequest,
     ResolveChannelRequest,
-    VerifyEmailRequest,
     SubscribeRequest,
     UpdatePreferenceRequest,
+    VerifyEmailRequest,
 )
-from app.api.email_errors import raise_email_api_error
 from app.api.models.responses import success_response
-from app.adapters.content.streaming.operation_streams import digest_run_topic
-from app.adapters.email.service import EmailDeliveryError, EmailDeliveryService
+from app.api.routers.auth.dependencies import get_webapp_user
 from app.api.routers.operation_streams import (
     DIGEST_RUN_STREAM_RESPONSES,
     event_source_for_operation_topic,
 )
-from app.api.routers.auth.dependencies import get_webapp_user
 from app.api.services.auth_service import AuthService
 from app.api.services.digest_facade import DigestFacade, get_digest_facade
 from app.config import load_config

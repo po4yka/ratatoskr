@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.application.ports.extraction import ExtractionPort
     from app.application.ports.export_events import SummaryExportEventPublisherPort
+    from app.application.ports.extraction import ExtractionPort
     from app.application.ports.llm_client import LLMClientProtocol
     from app.application.ports.requests import (
         CrawlResultRepositoryPort,

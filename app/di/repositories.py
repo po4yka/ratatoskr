@@ -14,11 +14,11 @@ from app.infrastructure.persistence.repositories.backup_repository import (
 from app.infrastructure.persistence.repositories.batch_session_repository import (
     BatchSessionRepositoryAdapter,
 )
-from app.infrastructure.persistence.repositories.crawl_result_repository import (
-    CrawlResultRepositoryAdapter,
-)
 from app.infrastructure.persistence.repositories.collection_repository import (
     CollectionRepositoryAdapter,
+)
+from app.infrastructure.persistence.repositories.crawl_result_repository import (
+    CrawlResultRepositoryAdapter,
 )
 from app.infrastructure.persistence.repositories.embedding_repository import (
     EmbeddingRepositoryAdapter,
@@ -50,11 +50,11 @@ from app.infrastructure.persistence.repositories.topic_search_repository import 
 from app.infrastructure.persistence.repositories.transcription_repository import (
     TranscriptionRepositoryAdapter,
 )
-from app.infrastructure.persistence.repositories.user_repository import (
-    UserRepositoryAdapter,
-)
 from app.infrastructure.persistence.repositories.user_content_repository import (
     UserContentRepositoryAdapter,
+)
+from app.infrastructure.persistence.repositories.user_repository import (
+    UserRepositoryAdapter,
 )
 from app.infrastructure.persistence.repositories.video_download_repository import (
     VideoDownloadRepositoryAdapter,

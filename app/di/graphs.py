@@ -446,8 +446,8 @@ def assemble_graph_url_processor(
     falls back to an ``InMemorySaver`` (the flag-off behavior), so the graph is
     never compiled without a checkpointer.
     """
-    from app.di.extraction import build_extraction_port
     from app.adapters.export.dispatcher import SummaryExportDispatcher
+    from app.di.extraction import build_extraction_port
     from app.infrastructure.persistence.repositories.embedding_repository import (
         EmbeddingRepositoryAdapter,
     )

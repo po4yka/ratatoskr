@@ -97,6 +97,16 @@ from app.observability.metrics_aggregation import (
 )
 
 # ---------------------------------------------------------------------------
+# Auth / sessions
+# ---------------------------------------------------------------------------
+from app.observability.metrics_auth import (
+    RATE_LIMIT_HITS_TOTAL,
+    TOKEN_FAMILY_DECISIONS_TOTAL,
+    record_rate_limit_hit,
+    record_token_family_decision,
+)
+
+# ---------------------------------------------------------------------------
 # Circuit breaker (service-level)
 # ---------------------------------------------------------------------------
 from app.observability.metrics_circuit_breaker import (
@@ -169,16 +179,6 @@ from app.observability.metrics_llm import (
 )
 
 # ---------------------------------------------------------------------------
-# Auth / sessions
-# ---------------------------------------------------------------------------
-from app.observability.metrics_auth import (
-    RATE_LIMIT_HITS_TOTAL,
-    TOKEN_FAMILY_DECISIONS_TOTAL,
-    record_rate_limit_hit,
-    record_token_family_decision,
-)
-
-# ---------------------------------------------------------------------------
 # MCP exposure posture
 # ---------------------------------------------------------------------------
 from app.observability.metrics_mcp import (
@@ -211,28 +211,6 @@ from app.observability.metrics_scheduler import (
     record_scheduler_chronic_failure,
     record_taskiq_retry_outcome,
     set_scheduler_queue_depth,
-)
-
-# ---------------------------------------------------------------------------
-# Speech-to-text
-# ---------------------------------------------------------------------------
-from app.observability.metrics_stt import (
-    STT_AUDIO_SECONDS_TOTAL,
-    STT_REQUESTS_TOTAL,
-    record_stt_audio_seconds,
-    record_stt_request,
-)
-
-# ---------------------------------------------------------------------------
-# Text-to-speech
-# ---------------------------------------------------------------------------
-from app.observability.metrics_tts import (
-    TTS_AUDIO_BYTES_TOTAL,
-    TTS_LATENCY_SECONDS,
-    TTS_REQUESTS_TOTAL,
-    record_tts_audio_bytes,
-    record_tts_latency,
-    record_tts_request,
 )
 
 # ---------------------------------------------------------------------------
@@ -283,6 +261,28 @@ from app.observability.metrics_streaming import (
 )
 
 # ---------------------------------------------------------------------------
+# Speech-to-text
+# ---------------------------------------------------------------------------
+from app.observability.metrics_stt import (
+    STT_AUDIO_SECONDS_TOTAL,
+    STT_REQUESTS_TOTAL,
+    record_stt_audio_seconds,
+    record_stt_request,
+)
+
+# ---------------------------------------------------------------------------
+# Text-to-speech
+# ---------------------------------------------------------------------------
+from app.observability.metrics_tts import (
+    TTS_AUDIO_BYTES_TOTAL,
+    TTS_LATENCY_SECONDS,
+    TTS_REQUESTS_TOTAL,
+    record_tts_audio_bytes,
+    record_tts_latency,
+    record_tts_request,
+)
+
+# ---------------------------------------------------------------------------
 # Twitter/X + generic extraction pipeline
 # ---------------------------------------------------------------------------
 from app.observability.metrics_twitter import (
@@ -296,16 +296,6 @@ from app.observability.metrics_twitter import (
     record_extraction_failure,
     record_twitter_article_extraction,
     record_twitter_article_resolution,
-)
-
-# ---------------------------------------------------------------------------
-# Web-search enrichment
-# ---------------------------------------------------------------------------
-from app.observability.metrics_web_search import (
-    WEB_SEARCH_DECISIONS_TOTAL,
-    WEB_SEARCH_QUERY_RESULTS,
-    record_web_search_decision,
-    record_web_search_query_results,
 )
 
 # ---------------------------------------------------------------------------
@@ -323,6 +313,16 @@ from app.observability.metrics_vector import (
     record_vector_reconcile_run,
     record_vector_write,
     set_vector_reconcile_oldest_lag_seconds,
+)
+
+# ---------------------------------------------------------------------------
+# Web-search enrichment
+# ---------------------------------------------------------------------------
+from app.observability.metrics_web_search import (
+    WEB_SEARCH_DECISIONS_TOTAL,
+    WEB_SEARCH_QUERY_RESULTS,
+    record_web_search_decision,
+    record_web_search_query_results,
 )
 
 # ---------------------------------------------------------------------------
