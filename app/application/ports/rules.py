@@ -147,11 +147,11 @@ class RuleRepositoryPort(Protocol):
     ) -> dict[str, Any]:
         """Create a rule and return the created record."""
 
-    async def async_update_rule(self, rule_id: int, **fields: Any) -> dict[str, Any]:
-        """Update provided fields on a rule and return the updated record."""
+    async def async_update_rule(self, rule_id: int, user_id: int, **fields: Any) -> dict[str, Any]:
+        """Update provided fields on a rule owned by user_id and return the updated record."""
 
-    async def async_soft_delete_rule(self, rule_id: int) -> None:
-        """Soft-delete a rule."""
+    async def async_soft_delete_rule(self, rule_id: int, user_id: int) -> None:
+        """Soft-delete a rule owned by user_id."""
 
     async def async_increment_run_count(self, rule_id: int) -> None:
         """Increment run_count and set last_triggered_at to now."""

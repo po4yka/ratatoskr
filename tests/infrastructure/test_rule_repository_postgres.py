@@ -70,6 +70,7 @@ async def test_rule_repository_crud_filters_and_soft_delete(database: Database) 
     )
     await repo.async_update_rule(
         low["id"],
+        15001,
         name="updated",
         enabled=False,
         conditions=[{"field": "updated"}],
@@ -89,7 +90,7 @@ async def test_rule_repository_crud_filters_and_soft_delete(database: Database) 
         row["id"] for row in await repo.async_get_rules_by_event_type(15001, "summary.created")
     ] == [high["id"]]
 
-    await repo.async_soft_delete_rule(high["id"])
+    await repo.async_soft_delete_rule(high["id"], 15001)
     assert [row["id"] for row in await repo.async_get_user_rules(15001)] == [low["id"]]
 
 

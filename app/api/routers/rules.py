@@ -180,7 +180,7 @@ async def update_rule(
     if not ok:
         raise ValidationError(err or "Invalid rule definition")
 
-    updated = await rule_repo.async_update_rule(rule_id, **update_fields)
+    updated = await rule_repo.async_update_rule(rule_id, user["user_id"], **update_fields)
     return success_response(_rule_to_response(updated))
 
 
@@ -194,7 +194,7 @@ async def delete_rule(
     rule = await rule_repo.async_get_rule_by_id(rule_id)
     _verify_rule_ownership(rule, rule_id, user["user_id"])
 
-    await rule_repo.async_soft_delete_rule(rule_id)
+    await rule_repo.async_soft_delete_rule(rule_id, user["user_id"])
     return success_response({"deleted": True, "id": rule_id})
 
 

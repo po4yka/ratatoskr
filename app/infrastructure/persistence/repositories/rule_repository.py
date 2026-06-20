@@ -89,7 +89,7 @@ class RuleRepositoryAdapter:
             await session.flush()
             return model_to_dict(rule) or {}
 
-    async def async_update_rule(self, rule_id: int, **fields: Any) -> dict[str, Any]:
+    async def async_update_rule(self, rule_id: int, user_id: int, **fields: Any) -> dict[str, Any]:
         """Update provided fields on a rule and return the updated record."""
         field_map = {
             "name": "name",
@@ -106,17 +106,19 @@ class RuleRepositoryAdapter:
 
         async with self._database.transaction() as session:
             await session.execute(
-                update(AutomationRule).where(AutomationRule.id == rule_id).values(**update_values)
+                update(AutomationRule)
+                .where(AutomationRule.id == rule_id, AutomationRule.user_id == user_id)
+                .values(**update_values)
             )
             rule = await session.get(AutomationRule, rule_id)
             return model_to_dict(rule) or {}
 
-    async def async_soft_delete_rule(self, rule_id: int) -> None:
-        """Soft-delete a rule."""
+    async def async_soft_delete_rule(self, rule_id: int, user_id: int) -> None:
+        """Soft-delete a rule owned by user_id."""
         async with self._database.transaction() as session:
             await session.execute(
                 update(AutomationRule)
-                .where(AutomationRule.id == rule_id)
+                .where(AutomationRule.id == rule_id, AutomationRule.user_id == user_id)
                 .values(is_deleted=True, deleted_at=_utcnow(), updated_at=_utcnow())
             )
 
