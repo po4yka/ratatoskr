@@ -443,16 +443,20 @@ class GraphURLProcessor:
         content_text: str,
         lang: str,
         correlation_id: str,
+        request_id: int | None = None,
     ) -> None:
         """LLM metadata-completion + RAG-field enrichment for the content-only path.
 
         Ports legacy ``ensure_summary_payload``'s two completion steps (audit #5)
         the content-only graph path lost. Port-safe: the LLM call goes through the
         ``llm_client`` port; the RAG enrichment is a pure ``app.core`` computation.
-        The content-only path has no request row, so the metadata-completion LLM
-        call is NOT persisted (request_id=None would FK-violate, audit #1) -- the
-        legacy path persisted it against a real request id, the content-only callers
-        (handlers/rss) own their own request row + summary persistence downstream.
+
+        When ``request_id`` is provided and ``self._deps.llm_repo`` is available the
+        metadata-completion LLM call record is persisted (persist-everything, audit
+        finding [1]).  When ``request_id`` is None (the standard content-only path
+        where the caller owns the request row) persistence is skipped with a debug
+        log -- FK-violating against ``requests.id=None`` would raise
+        ForeignKeyViolationError.
         """
         from app.application.services.summarization.rag_enrichment import (
             LLM_METADATA_FIELDS,
@@ -474,11 +478,11 @@ class GraphURLProcessor:
             llm_client = getattr(self._deps, "llm_client", None)
             if llm_client is not None:
                 try:
-                    completed, _record = await complete_summary_metadata_via_llm(
+                    completed, record = await complete_summary_metadata_via_llm(
                         llm_client=llm_client,
                         content_text=content_text,
                         fields=missing,
-                        request_id=None,
+                        request_id=request_id,
                         correlation_id=correlation_id,
                         structured_output_mode=getattr(
                             self.cfg.openrouter, "structured_output_mode", None
@@ -487,6 +491,32 @@ class GraphURLProcessor:
                     for key, value in completed.items():
                         if value and key in missing:
                             metadata[key] = value
+                    # Persist the LLM call record when a request row is available
+                    # (persist-everything).  When request_id is None the caller owns
+                    # the request row and handles persistence downstream; skip to avoid
+                    # FK violation.
+                    llm_repo = getattr(self._deps, "llm_repo", None)
+                    if record is not None and request_id is not None and llm_repo is not None:
+                        try:
+                            await llm_repo.async_insert_llm_call(record)
+                        except Exception as exc:
+                            raise_if_cancelled(exc)
+                            logger.warning(
+                                "content_only_metadata_llm_call_persist_failed",
+                                extra={
+                                    "cid": correlation_id,
+                                    "req_id": request_id,
+                                    "error": str(exc),
+                                },
+                            )
+                    elif record is not None and request_id is None:
+                        logger.debug(
+                            "content_only_metadata_llm_call_not_persisted",
+                            extra={
+                                "cid": correlation_id,
+                                "reason": "no request_id on content-only path; caller owns persistence",
+                            },
+                        )
                 except Exception as exc:
                     raise_if_cancelled(exc)
                     logger.warning(
