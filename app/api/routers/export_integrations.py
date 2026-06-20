@@ -172,7 +172,12 @@ async def list_export_deliveries(
         rows = (
             await session.execute(
                 select(ExportDeliveryLog)
+                .join(
+                    UserExportIntegration,
+                    ExportDeliveryLog.integration_id == UserExportIntegration.id,
+                )
                 .where(ExportDeliveryLog.integration_id == integration_id)
+                .where(UserExportIntegration.user_id == user["user_id"])
                 .order_by(ExportDeliveryLog.created_at.desc())
                 .limit(limit)
                 .offset(offset)
