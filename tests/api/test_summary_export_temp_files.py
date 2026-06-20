@@ -43,7 +43,7 @@ async def test_export_response_keeps_file_until_background_cleanup(
         summary_id=123,
         format="md",
         user={"user_id": 77},
-        use_case=_FakeSummaryUseCase(),  # type: ignore[arg-type]
+        use_case=_FakeSummaryUseCase(),
     )
 
     assert export_path.exists()

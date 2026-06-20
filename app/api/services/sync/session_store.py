@@ -121,8 +121,7 @@ class FallbackSyncSessionStore:
             # and will be lost on restart — see class docstring.
             logger.warning(
                 "sync_session_redis_write_failed_using_memory_fallback",
-                session_id=payload.get("session_id"),
-                error=str(exc),
+                extra={"session_id": payload.get("session_id"), "error": str(exc)},
             )
         await self._fallback_store.store(payload, ttl_seconds=ttl_seconds)
 
@@ -132,8 +131,7 @@ class FallbackSyncSessionStore:
         except Exception as exc:
             logger.warning(
                 "sync_session_redis_load_failed_using_memory_fallback",
-                session_id=session_id,
-                error=str(exc),
+                extra={"session_id": session_id, "error": str(exc)},
             )
             payload = None
         if payload is not None:
@@ -146,7 +144,6 @@ class FallbackSyncSessionStore:
         except Exception as exc:
             logger.warning(
                 "sync_session_redis_delete_failed",
-                session_id=session_id,
-                error=str(exc),
+                extra={"session_id": session_id, "error": str(exc)},
             )
         await self._fallback_store.delete(session_id)
