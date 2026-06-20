@@ -37,6 +37,51 @@ class TestHostAllowlist:
         provider = WebwrightProvider(host_allowlist=("Example.COM",))
         assert provider._host_in_allowlist("https://EXAMPLE.com/a") is True
 
+    def test_no_host_url_is_blocked(self):
+        # file:///etc/passwd has no hostname; must never be allowed even with a
+        # populated allowlist, because urlparse returns hostname=None/'' for
+        # file-scheme URIs and we must not grant access on empty host.
+        provider = WebwrightProvider(host_allowlist=("example.com",))
+        assert provider._host_in_allowlist("file:///etc/passwd") is False
+
+    def test_empty_hostname_string_is_blocked(self):
+        # Contrived but possible if a caller passes a URL without a scheme/host
+        # component (e.g. "/relative/path"). Must not match any allowlist entry.
+        provider = WebwrightProvider(host_allowlist=("example.com",))
+        assert provider._host_in_allowlist("") is False
+        assert provider._host_in_allowlist("/relative/path") is False
+
+    def test_numeric_ip_host_not_matched_by_domain_allowlist(self):
+        # An allowlist entry of "example.com" must not match a numeric IP host.
+        # The _host_in_allowlist check is exact-or-subdomain, so 1.2.3.4 can
+        # never equal "example.com" nor end with ".example.com".
+        provider = WebwrightProvider(host_allowlist=("example.com",))
+        assert provider._host_in_allowlist("https://1.2.3.4/path") is False
+
+    def test_numeric_ip_allowed_only_by_exact_entry(self):
+        # A numeric IP is matched only when it appears explicitly in the allowlist.
+        provider = WebwrightProvider(host_allowlist=("1.2.3.4",))
+        assert provider._host_in_allowlist("https://1.2.3.4/path") is True
+        assert provider._host_in_allowlist("https://1.2.3.5/path") is False
+
+    def test_evilexample_not_matched_by_example_entry(self):
+        # "evilexample.com" must NOT match an allowlist entry of "example.com".
+        # The suffix check requires a "." separator, so a bare suffix match on
+        # "example.com" must not fire for "evilexample.com".
+        provider = WebwrightProvider(host_allowlist=("example.com",))
+        assert provider._host_in_allowlist("https://evilexample.com/path") is False
+
+    def test_subdomain_of_allowlisted_domain_is_allowed(self):
+        # Positive confirmation that the dot-separator rule works correctly:
+        # sub.example.com ends with ".example.com" and must be allowed.
+        provider = WebwrightProvider(host_allowlist=("example.com",))
+        assert provider._host_in_allowlist("https://sub.example.com/path") is True
+
+    def test_wildcard_in_allowlist_allows_numeric_ip(self):
+        # "*" means allow any host, including bare IPs.
+        provider = WebwrightProvider(host_allowlist=("*",))
+        assert provider._host_in_allowlist("https://10.0.0.1/path") is True
+
 
 class TestScrapeMarkdown:
     @pytest.mark.asyncio(loop_scope="function")
