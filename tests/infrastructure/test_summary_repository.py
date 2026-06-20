@@ -189,7 +189,7 @@ async def test_summary_repository_context_state_sync_and_feedback(database: Data
     await repo.async_update_reading_progress(summary_id, 0.5, 123)
     assert await repo.async_toggle_favorite(summary_id) is True
     await repo.async_set_favorite(summary_id, False)
-    assert await repo.async_apply_sync_change(summary_id, is_read=True) >= summary_version
+    assert await repo.async_apply_sync_change(summary_id, 303, is_read=True) >= summary_version
     assert (await repo.async_get_summary_for_sync_apply(summary_id, 303))["id"] == summary_id
 
     feedback = await repo.async_upsert_feedback(303, summary_id, 5, ["clear"], "good")

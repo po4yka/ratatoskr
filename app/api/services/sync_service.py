@@ -56,7 +56,7 @@ class _NullRepository:
     ) -> dict[str, Any] | None:
         return None
 
-    async def async_apply_sync_change(self, *_args: Any, **_kwargs: Any) -> int:
+    async def async_apply_sync_change(self, _summary_id: int, _user_id: int, **_kwargs: Any) -> int:
         return 0
 
 

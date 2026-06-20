@@ -234,6 +234,7 @@ async def _apply_summary_change(
 
     new_version = await context.summary_repository.async_apply_sync_change(
         summary_id,
+        user_id,
         is_deleted=is_deleted,
         deleted_at=deleted_at,
         is_read=is_read,

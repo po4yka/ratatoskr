@@ -156,8 +156,8 @@ async def test_summary_repository_empty_database_paths() -> None:
     assert await repo.async_get_max_server_version(1) is None
     assert await repo.async_get_all_for_user(1) == []
     assert await repo.async_get_summary_for_sync_apply(1, 1) is None
-    assert await repo.async_apply_sync_change(1) == 0
-    assert await repo.async_apply_sync_change(1, is_read=True, is_deleted=False) == 0
+    assert await repo.async_apply_sync_change(1, 1) == 0
+    assert await repo.async_apply_sync_change(1, 1, is_read=True, is_deleted=False) == 0
 
     feedback = await repo.async_upsert_feedback(
         user_id=1,

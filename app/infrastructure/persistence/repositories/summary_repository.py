@@ -939,6 +939,7 @@ class SummaryRepositoryAdapter:
     async def async_apply_sync_change(
         self,
         summary_id: int,
+        user_id: int,
         *,
         is_deleted: bool | None = None,
         deleted_at: datetime | None = None,
@@ -953,6 +954,12 @@ class SummaryRepositoryAdapter:
           2. A subsequent stale upload (using the pre-mutation server_version)
              is detected as a conflict by SyncApplyService instead of silently
              overwriting the new state.
+
+        ``user_id`` is a defence-in-depth IDOR guard: the UPDATE and the
+        subsequent server_version read are both scoped to summaries owned by
+        the requesting user via a Request join.  If the summary does not exist
+        or belongs to a different user, rowcount is 0 and the scalar SELECT
+        returns None, so this method returns 0 without raising.
 
         Returns the post-mutation server_version (or the existing one if the
         caller passed no fields to mutate — a no-op).
@@ -973,13 +980,22 @@ class SummaryRepositoryAdapter:
         if has_mutation:
             update_values["server_version"] = _next_server_version()
 
+        # Build the user-scoped WHERE predicate used by both the UPDATE and the
+        # subsequent server_version read.  The join to Request enforces the IDOR
+        # guard: a summary whose Request.user_id != user_id is invisible here.
+        owned_where = and_(
+            Summary.id == summary_id,
+            Summary.request_id == Request.id,
+            Request.user_id == user_id,
+        )
+
         async with self._database.transaction() as session:
             if has_mutation:
-                await session.execute(
-                    update(Summary).where(Summary.id == summary_id).values(**update_values)
-                )
+                await session.execute(update(Summary).where(owned_where).values(**update_values))
             value = await session.scalar(
-                select(Summary.server_version).where(Summary.id == summary_id)
+                select(Summary.server_version)
+                .join(Request, Summary.request_id == Request.id)
+                .where(Summary.id == summary_id, Request.user_id == user_id)
             )
             return int(value or 0)
 

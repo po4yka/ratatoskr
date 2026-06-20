@@ -114,13 +114,18 @@ class SummaryRepositoryPort(Protocol):
     async def async_apply_sync_change(
         self,
         summary_id: int,
+        user_id: int,
         *,
         is_deleted: bool | None = None,
         deleted_at: datetime | None = None,
         is_read: bool | None = None,
         is_favorited: bool | None = None,
     ) -> int:
-        """Apply a sync mutation and return the new server version."""
+        """Apply a sync mutation and return the new server version.
+
+        ``user_id`` is a defence-in-depth IDOR guard: the UPDATE must only
+        affect a summary owned by the requesting user.
+        """
 
     async def async_mark_summary_as_read(self, summary_id: int) -> None:
         """Mark summary as read."""
