@@ -427,7 +427,7 @@ class QuickSaveRequest(BaseModel):
 
     url: str = Field(..., max_length=2048)
     title: str | None = None
-    selected_text: str | None = None
+    selected_text: str | None = Field(None, max_length=8000)
     tag_names: list[str] = Field(default_factory=list, max_length=20)
     summarize: bool = True
 
