@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.security.ssrf import is_url_safe, make_safe_async_client
 
 logger = get_logger(__name__)
@@ -59,7 +59,11 @@ class DirectHTMLProvider:
             latency = int((time.perf_counter() - started) * 1000)
             logger.debug(
                 "direct_html_fetch_failed",
-                extra={"url": url, "error": str(exc), "error_type": type(exc).__name__},
+                extra={
+                    "url": redact_url_for_logging(url),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
             )
             return FirecrawlResult(
                 status=CallStatus.ERROR,
