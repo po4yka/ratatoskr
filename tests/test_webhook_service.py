@@ -1,5 +1,6 @@
 # ruff: noqa: RUF059
-from unittest.mock import patch
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -132,3 +133,125 @@ class TestBuildWebhookPayload:
         payload = build_webhook_payload("test.event", {})
         # Should parse without error
         datetime.fromisoformat(payload["timestamp"])
+
+
+# ---------------------------------------------------------------------------
+# SSRF tests for send_test_webhook (router-level, no DB required)
+# ---------------------------------------------------------------------------
+
+
+def _make_sub(url: str) -> dict:
+    """Return a minimal subscription dict for send_test_webhook."""
+    return {
+        "id": 1,
+        "user": 42,
+        "url": url,
+        "secret": "a" * 64,
+        "name": "test",
+        "events_json": ["test"],
+        "enabled": True,
+        "status": "active",
+        "failure_count": 0,
+        "last_delivery_at": None,
+        "created_at": "2024-01-01T00:00:00+00:00",
+        "updated_at": "2024-01-01T00:00:00+00:00",
+    }
+
+
+def _make_delivery() -> dict:
+    """Return a minimal delivery log dict."""
+    return {
+        "id": 1,
+        "event_type": "test",
+        "response_status": 200,
+        "success": True,
+        "attempt": 1,
+        "duration_ms": 10,
+        "error": None,
+        "created_at": "2024-01-01T00:00:00+00:00",
+    }
+
+
+class TestSendTestWebhookSSRF:
+    """Verify that send_test_webhook blocks private/reserved IPs and allows public URLs.
+
+    Tests call the route coroutine directly (no live DB or HTTP server required).
+    The SSRF pre-check (is_webhook_url_safe) and the HTTP client
+    (make_safe_async_client) are both patched so no network I/O occurs.
+    """
+
+    def _make_repo(self, url: str) -> MagicMock:
+        repo = MagicMock()
+        repo.async_get_subscription_by_id = AsyncMock(return_value=_make_sub(url))
+        repo.async_log_delivery = AsyncMock(return_value=_make_delivery())
+        return repo
+
+    def _make_user(self) -> dict:
+        return {"user_id": 42}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "private_url",
+        [
+            "http://127.0.0.1/hook",
+            "https://169.254.169.254/latest/meta-data/",
+        ],
+    )
+    async def test_blocks_private_ip_urls(self, private_url: str) -> None:
+        """send_test_webhook must return 400 when the stored URL resolves to a private IP."""
+        from app.api.exceptions import APIException
+        from app.api.routers.webhooks import send_test_webhook
+
+        repo = self._make_repo(private_url)
+
+        with patch(
+            "app.api.routers.webhooks.is_webhook_url_safe",
+            return_value=(False, "Private or reserved IP address"),
+        ):
+            with pytest.raises(APIException) as exc_info:
+                await send_test_webhook(
+                    webhook_id=1,
+                    user=self._make_user(),
+                    webhook_repo=repo,
+                )
+
+        assert exc_info.value.status_code == 400
+        assert "SSRF" in str(exc_info.value.message) or "safety" in str(exc_info.value.message)
+
+    @pytest.mark.asyncio
+    async def test_allows_public_url(self) -> None:
+        """send_test_webhook must succeed when the URL passes the SSRF check."""
+        from app.api.routers.webhooks import send_test_webhook
+
+        public_url = "https://hooks.example.com/notify"
+        repo = self._make_repo(public_url)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "ok"
+
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        @asynccontextmanager
+        async def _mock_safe_client(**_kwargs):
+            yield mock_client
+
+        with (
+            patch(
+                "app.api.routers.webhooks.is_webhook_url_safe",
+                return_value=(True, None),
+            ),
+            patch(
+                "app.api.routers.webhooks.make_safe_async_client",
+                side_effect=_mock_safe_client,
+            ),
+        ):
+            result = await send_test_webhook(
+                webhook_id=1,
+                user=self._make_user(),
+                webhook_repo=repo,
+            )
+
+        assert result["success"] is True
+        repo.async_log_delivery.assert_awaited_once()
