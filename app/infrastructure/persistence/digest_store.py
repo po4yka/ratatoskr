@@ -195,6 +195,17 @@ class DigestStore:
         return _run_sync(self.async_create_category(user_id=user_id, name=name, position=position))
 
     async def async_save_model(self, instance: Any) -> None:
+        """Persist an ORM instance via session.merge().
+
+        This is a generic last-writer-wins upsert: whichever caller commits last
+        wins. There is no version column or optimistic-lock guard; concurrent
+        saves to the same row can silently overwrite each other's changes.
+
+        Deferred: adding a `version` column for optimistic locking is tracked
+        separately and requires a schema migration. Until then callers should
+        ensure they do not hold stale in-memory instances across long-lived
+        operations before calling save_model.
+        """
         if hasattr(instance, "updated_at"):
             instance.updated_at = _utcnow()
         async with self._database().transaction() as session:
