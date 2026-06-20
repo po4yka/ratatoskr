@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import socket
+from unittest.mock import patch
 
 import pytest
 
-from app.core.urls.validation import _resolve_hostname_to_addrs, dns_cache_scope, validate_url_input
+from app.core.urls.validation import (
+    _resolve_hostname_to_addrs,
+    async_validate_url_input,
+    dns_cache_scope,
+    validate_url_input,
+)
 
 
 def test_validate_url_input_rejects_localhost() -> None:
@@ -72,3 +78,86 @@ def test_dns_cache_scope_reuses_hostname_resolution(monkeypatch: pytest.MonkeyPa
 
     assert first == second == uncached == fake_response
     assert calls["count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# DNS-rebinding SSRF tests
+#
+# A DNS-rebinding attack works in two phases: (1) the validator resolves a
+# public-looking hostname and sees a public IP, then (2) the HTTP client
+# re-resolves and a malicious DNS server returns a private IP.  The tests
+# below cover the validation-time half of that attack: when getaddrinfo
+# returns a private address at check time the request is rejected.
+#
+# Residual TOCTOU limitation: because the HTTP client performs its own
+# independent DNS resolution after validation, an adversary-controlled DNS
+# server can still swap the IP between the two resolves.  Closing that gap
+# requires connect-by-IP (pass the resolved address to the HTTP client
+# directly) or a second post-connect IP check; neither is implemented here.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_url_input_rejects_dns_rebinding_to_private_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sync validator rejects a hostname whose DNS resolves to a private IP.
+
+    This simulates the validation-time leg of a DNS-rebinding attack where
+    getaddrinfo returns an RFC-1918 address for a public-looking hostname.
+    """
+    private_addr = "192.168.0.1"
+    fake_result = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (private_addr, 0))]
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_kw: fake_result)
+
+    with pytest.raises(
+        ValueError, match=r"Hostname resolves to blocked IP address: 192\.168\.0\.1"
+    ):
+        validate_url_input("https://totally-public.example.com/path")
+
+
+def test_validate_url_input_rejects_dns_rebinding_to_link_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sync validator rejects a hostname resolving to a link-local (169.254.x.x) IP.
+
+    Link-local addresses are commonly used for cloud metadata endpoints
+    (e.g. AWS instance metadata at 169.254.169.254).
+    """
+    link_local_addr = "169.254.169.254"
+    fake_result = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (link_local_addr, 0))]
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_kw: fake_result)
+
+    with pytest.raises(
+        ValueError, match=r"Hostname resolves to blocked IP address: 169\.254\.169\.254"
+    ):
+        validate_url_input("https://cloud-metadata.example.com/path")
+
+
+@pytest.mark.asyncio
+async def test_async_validate_url_input_rejects_dns_rebinding_to_private_ip() -> None:
+    """Async validator rejects a hostname whose DNS resolves to a private IP.
+
+    Uses unittest.mock.patch to intercept socket.getaddrinfo inside the
+    asyncio.to_thread worker, exercising the async code path independently.
+    """
+    private_addr = "10.0.0.1"
+    fake_result = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (private_addr, 0))]
+
+    with patch("socket.getaddrinfo", return_value=fake_result):
+        with pytest.raises(
+            ValueError, match=r"Hostname resolves to blocked IP address: 10\.0\.0\.1"
+        ):
+            await async_validate_url_input("https://totally-public.example.com/path")
+
+
+@pytest.mark.asyncio
+async def test_async_validate_url_input_rejects_dns_rebinding_to_loopback() -> None:
+    """Async validator rejects a hostname resolving to the loopback range (127.x.x.x)."""
+    loopback_addr = "127.0.0.1"
+    fake_result = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (loopback_addr, 0))]
+
+    with patch("socket.getaddrinfo", return_value=fake_result):
+        with pytest.raises(
+            ValueError, match=r"Hostname resolves to blocked IP address: 127\.0\.0\.1"
+        ):
+            await async_validate_url_input("https://not-loopback.example.com/path")

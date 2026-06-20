@@ -164,6 +164,15 @@ def _resolve_hostname_to_addrs(hostname: str, hostname_lower: str) -> list[Any]:
     Called from sync paths (Pydantic validators, CLI).  Callers running on the
     async event loop should use ``async_validate_url_input`` instead, which
     offloads the blocking ``socket.getaddrinfo`` call via ``asyncio.to_thread``.
+
+    DNS-rebinding limitation (TOCTOU): this function resolves the hostname once
+    at validation time.  A malicious DNS server can return a public IP here and
+    then switch to a private/internal IP when the HTTP client resolves the same
+    hostname milliseconds later.  Mitigation requires either (a) passing the
+    resolved IP directly to the HTTP client (connect-by-IP + Host header), or
+    (b) a second post-connect IP check at the socket level.  Neither is
+    implemented here; callers that handle untrusted, adversary-controlled
+    domains must be aware of this residual risk.
     """
     import socket
 
