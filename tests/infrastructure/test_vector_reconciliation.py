@@ -22,7 +22,11 @@ from app.db.models import (
 )
 from app.db.models.repository import RepoSource
 from app.db.session import Database
-from app.infrastructure.vector.reconciliation import VectorIndexedEntityStats, VectorIndexReconciler
+from app.infrastructure.vector.reconciliation import (
+    SummaryVectorIndexedEntityAdapter,
+    VectorIndexedEntityStats,
+    VectorIndexReconciler,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -335,3 +339,51 @@ async def test_adapters_inspect_concurrently() -> None:
     # Distinct sessions prove each adapter got its own connection (the
     # precondition for concurrent inspection).
     assert _AdapterA.session_obj is not _AdapterB.session_obj
+
+
+# ---------------------------------------------------------------------------
+# notin_() empty-set behavior in stale_model_count
+# ---------------------------------------------------------------------------
+# SQLAlchemy renders `col.notin_(set())` as `col NOT IN (NULL) OR (1 = 1)`,
+# which is always TRUE.  The adapter guards against this by skipping the
+# notin_() clause when expected_models is empty.  These parametrized tests
+# verify the three meaningful configurations against a real Postgres session.
+#
+# Seed state (from _seed()):
+#   summary_one: model_name="expected-model", model_version="1.0"  (current)
+#   summary_two: model_name="old-model",      model_version="0.9"  (stale ver)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("expected_models", "expected_model_version", "expected_stale"),
+    [
+        # Empty set: only the version predicate fires.  Before the fix,
+        # notin_(set()) matched every row and returned 2.
+        (set(), "1.0", 1),
+        # Wrong model name: every row either has wrong version OR wrong name.
+        ({"wrong-model"}, "1.0", 2),
+        # Both model names present and version matches the "current" row:
+        # only summary_two (version "0.9") is stale.
+        ({"expected-model", "old-model"}, "1.0", 1),
+    ],
+    ids=["empty-models", "wrong-model", "all-models-present"],
+)
+async def test_stale_model_count_notin_empty_set_behavior(
+    database: Database,
+    expected_models: set[str],
+    expected_model_version: str,
+    expected_stale: int,
+) -> None:
+    """stale_model_count is correct for empty, wrong, and matching expected_models."""
+    await _seed(database)
+    adapter = SummaryVectorIndexedEntityAdapter(expected_models)
+    async with database.session() as session:
+        stats = await adapter.inspect(
+            session,
+            vector_store=None,
+            vector_store_available=False,
+            scan_limit=10_000,
+            expected_model_version=expected_model_version,
+        )
+    assert stats.stale_model_count == expected_stale

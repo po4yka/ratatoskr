@@ -322,14 +322,17 @@ class SummaryVectorIndexedEntityAdapter:
             )
         )
         latest_indexed = await session.scalar(select(func.max(SummaryEmbedding.last_indexed_at)))
+        # notin_() with an empty set emits "NOT IN (NULL) OR (1 = 1)" which is
+        # always TRUE, counting every row as stale. When no expected models are
+        # configured only the version predicate applies.
+        stale_model_clauses: list[Any] = [
+            SummaryEmbedding.model_version != expected_model_version,
+        ]
+        if self._expected_models:
+            stale_model_clauses.append(SummaryEmbedding.model_name.notin_(self._expected_models))
         stale_model_count = int(
             await session.scalar(
-                select(func.count(SummaryEmbedding.id)).where(
-                    or_(
-                        SummaryEmbedding.model_version != expected_model_version,
-                        SummaryEmbedding.model_name.notin_(self._expected_models),
-                    )
-                )
+                select(func.count(SummaryEmbedding.id)).where(or_(*stale_model_clauses))
             )
             or 0
         )
@@ -388,14 +391,17 @@ class RepositoryVectorIndexedEntityAdapter:
             )
             or 0
         )
+        # notin_() with an empty set emits "NOT IN (NULL) OR (1 = 1)" which is
+        # always TRUE, counting every row as stale. When no expected models are
+        # configured only the version predicate applies.
+        stale_model_clauses: list[Any] = [
+            RepositoryEmbedding.model_version != expected_model_version,
+        ]
+        if self._expected_models:
+            stale_model_clauses.append(RepositoryEmbedding.model_name.notin_(self._expected_models))
         stale_model_count = int(
             await session.scalar(
-                select(func.count(RepositoryEmbedding.id)).where(
-                    or_(
-                        RepositoryEmbedding.model_version != expected_model_version,
-                        RepositoryEmbedding.model_name.notin_(self._expected_models),
-                    )
-                )
+                select(func.count(RepositoryEmbedding.id)).where(or_(*stale_model_clauses))
             )
             or 0
         )
