@@ -154,7 +154,7 @@ class ConfigReloader:
             new_cfg = self._rebuild_model_sections(old_cfg, new_env, changes)
         except Exception:
             logger.exception("config_rebuild_failed")
-            return False
+            raise
 
         if not changes:
             return False
