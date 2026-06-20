@@ -106,7 +106,9 @@ async def test_defuddle_provider_blocks_redirect_to_private_ip() -> None:
         ),
         patch(
             "app.adapters.content.scraper.defuddle_provider.is_url_safe",
-            side_effect=[_SAFE_URL, _PRIVATE_REDIRECT],
+            # 1st call: target-URL input guard; 2nd: initial defuddle_url;
+            # 3rd: the redirect target (private IP) which is blocked.
+            side_effect=[_SAFE_URL, _SAFE_URL, _PRIVATE_REDIRECT],
         ),
     ):
         with pytest.raises(ValueError, match="SSRF blocked redirect target"):
