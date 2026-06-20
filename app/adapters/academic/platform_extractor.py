@@ -28,8 +28,8 @@ Flow (one ``extract`` call):
 from __future__ import annotations
 
 import asyncio
+import io
 import re
-import tempfile
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
@@ -465,7 +465,7 @@ def _landing_looks_like_paywall(markdown: str) -> bool:
 
 
 def _extract_pdf_text_from_bytes(pdf_bytes: bytes) -> tuple[str, int]:
-    """Write PDF bytes to a temp file and pull text via pymupdf.
+    """Extract text from PDF bytes via pymupdf (no tempfile).
 
     Returns ``(body_text, page_count)``. Text-only extraction (no
     page rendering, no embedded-image extraction) so we don't drag
@@ -478,31 +478,28 @@ def _extract_pdf_text_from_bytes(pdf_bytes: bytes) -> tuple[str, int]:
     except ModuleNotFoundError as exc:
         raise PDFDownloadError("pymupdf_missing") from exc
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
-        tmp.write(pdf_bytes)
-        tmp.flush()
-        try:
-            doc = fitz.open(tmp.name)
-        except Exception as exc:
-            raise PDFDownloadError("pdf_parse_failed") from exc
+    try:
+        doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    except Exception as exc:
+        raise PDFDownloadError("pdf_parse_failed") from exc
 
-        try:
-            if doc.is_encrypted:
-                raise PDFDownloadError("pdf_encrypted")
-            total_pages = len(doc)
-            pages_to_process = min(total_pages, _DEFAULT_PDF_MAX_PAGES)
-            text_parts: list[str] = []
-            for page_idx in range(pages_to_process):
-                page = doc[page_idx]
-                blocks = page.get_text("blocks")
-                blocks.sort(key=lambda b: (b[1], b[0]))
-                page_text = "\n".join(b[4].strip() for b in blocks if b[4].strip())
-                if page_text:
-                    text_parts.append(f"--- Page {page_idx + 1} ---\n{page_text}")
-            full_text = "\n\n".join(text_parts)
-            return full_text, total_pages
-        finally:
-            doc.close()
+    try:
+        if doc.is_encrypted:
+            raise PDFDownloadError("pdf_encrypted")
+        total_pages = len(doc)
+        pages_to_process = min(total_pages, _DEFAULT_PDF_MAX_PAGES)
+        text_parts: list[str] = []
+        for page_idx in range(pages_to_process):
+            page = doc[page_idx]
+            blocks = page.get_text("blocks")
+            blocks.sort(key=lambda b: (b[1], b[0]))
+            page_text = "\n".join(b[4].strip() for b in blocks if b[4].strip())
+            if page_text:
+                text_parts.append(f"--- Page {page_idx + 1} ---\n{page_text}")
+        full_text = "\n\n".join(text_parts)
+        return full_text, total_pages
+    finally:
+        doc.close()
 
 
 __all__ = [
