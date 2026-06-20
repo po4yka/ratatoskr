@@ -499,7 +499,7 @@ class SummaryRepositoryAdapter:
                 )
                 .values(is_read=False, updated_at=_utcnow())
             )
-            return result.rowcount > 0
+            return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def async_mark_summary_as_read_by_request(self, request_id: int) -> None:
         """Mark a summary as read by its request ID."""
@@ -553,7 +553,7 @@ class SummaryRepositoryAdapter:
                 )
                 .values(is_deleted=True, deleted_at=now, updated_at=now)
             )
-            return result.rowcount > 0
+            return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def async_toggle_favorite(self, summary_id: int) -> bool:
         """Toggle favorite status of a summary."""
@@ -611,7 +611,7 @@ class SummaryRepositoryAdapter:
                 )
                 .values(is_favorited=value, updated_at=_utcnow())
             )
-            return result.rowcount > 0
+            return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def async_upsert_feedback(
         self,

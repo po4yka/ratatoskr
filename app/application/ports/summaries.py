@@ -49,6 +49,14 @@ class SummaryRepositoryPort(Protocol):
         The ``user_id`` predicate is a defense-in-depth IDOR guard.
         """
 
+    async def async_get_user_stats_aggregates(self, user_id: int) -> dict[str, Any]:
+        """Return aggregated user statistics computed entirely in SQL.
+
+        No summary rows are loaded into Python memory; counts, sums and the
+        top-N topic/domain breakdowns are computed via targeted aggregate
+        queries. The ``user_id`` predicate is a defense-in-depth IDOR guard.
+        """
+
     async def async_get_user_summaries_for_insights(
         self,
         user_id: int,
