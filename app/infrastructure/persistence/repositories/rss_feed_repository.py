@@ -232,12 +232,26 @@ class RSSFeedRepositoryAdapter:
                 include_feed=True,
             )
 
-    async def async_set_subscription_active(self, subscription_id: int, *, is_active: bool) -> None:
-        """Update subscription active state."""
+    async def async_set_subscription_active(
+        self,
+        subscription_id: int,
+        *,
+        is_active: bool,
+        user_id: int | None = None,
+    ) -> None:
+        """Update subscription active state.
+
+        When user_id is provided it is included in the WHERE clause so the
+        update only applies when the subscription belongs to that user
+        (defense-in-depth IDOR guard).
+        """
         async with self._database.transaction() as session:
+            predicates = [RSSFeedSubscription.id == subscription_id]
+            if user_id is not None:
+                predicates.append(RSSFeedSubscription.user_id == user_id)
             await session.execute(
                 update(RSSFeedSubscription)
-                .where(RSSFeedSubscription.id == subscription_id)
+                .where(*predicates)
                 .values(is_active=is_active, updated_at=_utcnow())
             )
 

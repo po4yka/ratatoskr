@@ -177,7 +177,7 @@ class RSSHandler(HandlerDependenciesMixin):
         if existing:
             if not existing.get("is_active"):
                 await self._rss_repo.async_set_subscription_active(
-                    int(existing["id"]), is_active=True
+                    int(existing["id"]), is_active=True, user_id=ctx.uid
                 )
                 await ctx.response_formatter.safe_reply(
                     ctx.message,
@@ -222,7 +222,7 @@ class RSSHandler(HandlerDependenciesMixin):
 
         feed = sub.get("feed") if isinstance(sub.get("feed"), dict) else {}
         feed_title = feed.get("title") or feed.get("url")
-        await self._rss_repo.async_set_subscription_active(sub_id, is_active=False)
+        await self._rss_repo.async_set_subscription_active(sub_id, is_active=False, user_id=ctx.uid)
 
         await ctx.response_formatter.safe_reply(
             ctx.message,
