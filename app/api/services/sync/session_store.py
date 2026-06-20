@@ -93,6 +93,15 @@ class RedisSyncSessionStore:
 
 
 class FallbackSyncSessionStore:
+    """Session store that attempts Redis first and falls back to in-memory.
+
+    DATA-LOSS WARNING: when Redis is unavailable and writes fall back to
+    in-memory storage, session data is lost on process restart and is not
+    visible to other process replicas.  This fallback is intended only as a
+    short-lived safety net during transient Redis outages; it is not a
+    durable replacement for Redis.
+    """
+
     def __init__(
         self,
         *,
@@ -101,22 +110,31 @@ class FallbackSyncSessionStore:
     ) -> None:
         self._redis_store = redis_store
         self._fallback_store = fallback_store
-        self._redis_warning_logged = False
 
     async def store(self, payload: dict[str, Any], *, ttl_seconds: int) -> None:
         try:
             await self._redis_store.store(payload, ttl_seconds=ttl_seconds)
             return
-        except Exception:
-            if not self._redis_warning_logged:
-                logger.warning("sync_session_redis_unavailable_fallback")
-                self._redis_warning_logged = True
+        except Exception as exc:
+            # Log every Redis write failure so operators can detect persistent
+            # outages.  Data written to the in-memory fallback is process-local
+            # and will be lost on restart — see class docstring.
+            logger.warning(
+                "sync_session_redis_write_failed_using_memory_fallback",
+                session_id=payload.get("session_id"),
+                error=str(exc),
+            )
         await self._fallback_store.store(payload, ttl_seconds=ttl_seconds)
 
     async def load(self, session_id: str) -> dict[str, Any] | None:
         try:
             payload = await self._redis_store.load(session_id)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "sync_session_redis_load_failed_using_memory_fallback",
+                session_id=session_id,
+                error=str(exc),
+            )
             payload = None
         if payload is not None:
             return payload
@@ -125,6 +143,10 @@ class FallbackSyncSessionStore:
     async def delete(self, session_id: str) -> None:
         try:
             await self._redis_store.delete(session_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "sync_session_redis_delete_failed",
+                session_id=session_id,
+                error=str(exc),
+            )
         await self._fallback_store.delete(session_id)
