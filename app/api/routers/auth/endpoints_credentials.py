@@ -116,9 +116,7 @@ async def credentials_login(
             "credentials_login_locked",
             extra={"user_id": user_id, "locked_until": locked_until.isoformat()},
         )
-        err = AuthenticationError("Invalid credentials")
-        err.retry_after = seconds
-        raise err
+        raise AuthenticationError("Invalid credentials", retry_after=seconds)
 
     cfg = load_config(allow_stub_telegram=True)
     auth_cfg = cfg.auth

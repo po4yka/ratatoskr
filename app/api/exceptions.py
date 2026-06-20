@@ -162,11 +162,12 @@ class ValidationError(APIException):
 class AuthenticationError(APIException):
     """Raised when authentication fails."""
 
-    def __init__(self, message: str = "Authentication failed"):
+    def __init__(self, message: str = "Authentication failed", retry_after: int | None = None):
         super().__init__(
             message=message,
             error_code=ErrorCode.UNAUTHORIZED,
             status_code=401,
+            retry_after=retry_after,
         )
 
 
