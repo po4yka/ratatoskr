@@ -316,8 +316,8 @@ class AggregationMcpService:
         except ValidationError as exc:
             return {
                 "supported": False,
-                "error": str(exc),
-                "details": exc.errors(),
+                "error": "Validation failed",
+                "details": [{"loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()],
             }
         except Exception as exc:
             logger.exception("mcp_check_source_supported_failed")
