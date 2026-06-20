@@ -224,8 +224,11 @@ class ScraplingProvider:
                     self._fetcher_session_ctx = ctx
                     self._async_session = session
                     return self._async_session
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "scrapling_session_init_failed",
+                    extra={"error": str(exc), "error_type": type(exc).__name__},
+                )
 
             # Fallback: module-level AsyncFetcher (already a connection-pooling singleton).
             async_fetcher_cls = _lazy_import_async_fetcher()
