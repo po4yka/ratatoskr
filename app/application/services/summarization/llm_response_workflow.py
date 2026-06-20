@@ -143,6 +143,7 @@ class LLMResponseWorkflow(
         request_repo: RequestRepositoryPort | None = None,
         llm_repo: LLMRepositoryPort | None = None,
         user_repo: UserRepositoryPort | None = None,
+        parse_fn: Callable[..., Any] | None = None,
     ) -> None:
         """Initialize workflow dependencies and repositories."""
         if llm_client is None:
@@ -177,6 +178,10 @@ class LLMResponseWorkflow(
         self.llm_repo = llm_repo
         self.user_repo = user_repo
         self._background_tasks: set[Any] = set()
+        # Allows tests to inject a mock without a sys.modules shim; None means
+        # the call-site falls back to the module-level parse_summary_response
+        # import (which mock.patch can intercept at call time).
+        self._parse_summary_response = parse_fn
 
         try:
             sem_timeout = float(getattr(cfg.runtime, "semaphore_acquire_timeout_sec", 30.0))

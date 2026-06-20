@@ -14,6 +14,7 @@ from app.core.summary_contract_impl.quality_metadata import merge_summary_qualit
 from app.core.summary_normalization import normalize_metric_names
 from app.domain.models.request import RequestStatus
 from app.utils.json_validation import finalize_summary_texts
+from app.utils.json_validation import parse_summary_response as _default_parse_summary_response
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -21,6 +22,8 @@ if TYPE_CHECKING:
     from app.application.services.summarization.llm_response_workflow import AttemptContext
 
 logger = logging.getLogger("app.application.services.summarization.llm_response_workflow")
+
+_WORKFLOW_MODULE = "app.application.services.summarization.llm_response_workflow"
 
 
 def summary_has_content(summary: dict[str, Any], required_fields: Sequence[str]) -> bool:
@@ -45,6 +48,28 @@ class LLMWorkflowAttemptsMixin:
     request_repo: Any
     summary_repo: Any
     user_repo: Any
+
+    def _get_parse_fn(self) -> Callable[..., Any]:
+        """Return the parse_summary_response callable to use.
+
+        Prefers the injected callable stored as ``_parse_summary_response``
+        (set by the constructor when a ``parse_fn`` argument is supplied).
+        Falls back to the module-level name on ``llm_response_workflow`` so
+        that ``unittest.mock.patch("...llm_response_workflow.parse_summary_response")``
+        continues to intercept calls in existing tests without requiring
+        per-test constructor injection.
+        """
+        injected: Callable[..., Any] | None = getattr(self, "_parse_summary_response", None)
+        if injected is not None:
+            return injected
+        import sys
+
+        mod = sys.modules.get(_WORKFLOW_MODULE)
+        if mod is not None:
+            fn = getattr(mod, "parse_summary_response", None)
+            if fn is not None:
+                return fn  # type: ignore[return-value]
+        return _default_parse_summary_response
 
     async def _evaluate_attempt_outcome(self, ctx: AttemptContext) -> dict[str, Any] | None:
         """Inspect the LLM result and route to salvage, error, or finalize path."""
@@ -71,24 +96,9 @@ class LLMWorkflowAttemptsMixin:
 
         json_parse_timeout = getattr(self.cfg.runtime, "json_parse_timeout_sec", 60.0)
         try:
-            # Look up parse_summary_response via the adapter shim namespace so that
-            # unittest.mock.patch("app.application.services.summarization.llm_response_workflow.parse_summary_response")
-            # intercepts the call in tests.  sys.modules access is not a static import
-            # and is therefore invisible to import-linter, preserving the layering contract.
-            import sys
-
-            _shim = sys.modules.get("app.application.services.summarization.llm_response_workflow")
-            _parse_fn = (
-                getattr(_shim, "parse_summary_response", None) if _shim is not None else None
-            )
-            if _parse_fn is None:
-                from app.utils.json_validation import (
-                    parse_summary_response as _parse_fn,
-                )
-
             async with asyncio.timeout(json_parse_timeout):
                 parse_result = await asyncio.to_thread(
-                    _parse_fn,
+                    self._get_parse_fn(),
                     ctx.llm.response_json,
                     ctx.llm.response_text,
                 )

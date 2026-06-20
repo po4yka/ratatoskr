@@ -49,18 +49,7 @@ class LLMWorkflowRepairMixin:
                 if shaped:
                     return shaped
 
-            import sys
-
-            _shim = sys.modules.get("app.application.services.summarization.llm_response_workflow")
-            _parse_fn = (
-                getattr(_shim, "parse_summary_response", None) if _shim is not None else None
-            )
-            if _parse_fn is None:
-                from app.utils.json_validation import (
-                    parse_summary_response as _parse_fn,
-                )
-
-            parse_result = _parse_fn(llm.response_json, llm.response_text)
+            parse_result = self._get_parse_fn()(llm.response_json, llm.response_text)
             shaped = parse_result.shaped if parse_result else None
             if shaped:
                 finalize_summary_texts(shaped)
@@ -198,20 +187,7 @@ class LLMWorkflowRepairMixin:
             )
 
             if repair.status == CallStatus.OK:
-                import sys
-
-                _shim2 = sys.modules.get(
-                    "app.application.services.summarization.llm_response_workflow"
-                )
-                _parse_fn2 = (
-                    getattr(_shim2, "parse_summary_response", None) if _shim2 is not None else None
-                )
-                if _parse_fn2 is None:
-                    from app.utils.json_validation import (
-                        parse_summary_response as _parse_fn2,
-                    )
-
-                repair_result = _parse_fn2(repair.response_json, repair.response_text)
+                repair_result = self._get_parse_fn()(repair.response_json, repair.response_text)
                 if repair_result.shaped is not None:
                     finalize_summary_texts(repair_result.shaped)
                     logger.info(
