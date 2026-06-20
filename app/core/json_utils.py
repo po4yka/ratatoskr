@@ -49,12 +49,11 @@ def dumps(obj: Any, *, indent: int | None = None, ensure_ascii: bool = False) ->
         JSON string
     """
     if _HAS_ORJSON and orjson is not None:
-        # orjson.dumps returns bytes, so decode to str
-        options = 0
-        if indent is not None:
-            options |= orjson.OPT_INDENT_2
-        if not ensure_ascii:
-            options |= orjson.OPT_NON_STR_KEYS
+        # orjson.dumps returns bytes, so decode to str.
+        # orjson never ASCII-escapes unicode by default; no option needed for
+        # ensure_ascii=False. OPT_NON_STR_KEYS is unrelated (non-str dict keys)
+        # and must not be enabled here.
+        options = orjson.OPT_INDENT_2 if indent is not None else 0
         result = orjson.dumps(obj, option=options)
         return result.decode("utf-8")
     return json.dumps(obj, indent=indent, ensure_ascii=ensure_ascii)
