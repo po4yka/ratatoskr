@@ -24,6 +24,27 @@ from app.tasks.deps import get_app_config, get_db
 logger = get_logger(__name__)
 
 
+# ── Runtime dataclass ─────────────────────────────────────────────────────────
+# Defined before the @broker.task functions below: taskiq resolves task type
+# hints eagerly at decoration (import) time via get_type_hints, so this name
+# must already be in module scope when `process_url_request` is decorated.
+
+
+class URLProcessingTaskRuntime:
+    """Holds the per-worker-process singletons needed by the URL task."""
+
+    def __init__(
+        self,
+        *,
+        url_processor: Any,
+        telegram_sender: Any,
+        response_formatter: Any,
+    ) -> None:
+        self.url_processor = url_processor
+        self.telegram_sender = telegram_sender
+        self.response_formatter = response_formatter
+
+
 # ── Taskiq dependency provider for URLProcessingTaskRuntime ──────────────────
 
 
@@ -420,24 +441,6 @@ class _WorkerPeerStub:
         self.channel_id = chat_id
         self.chat_id = chat_id
         self.user_id = chat_id
-
-
-# ── Runtime dataclass ─────────────────────────────────────────────────────────
-
-
-class URLProcessingTaskRuntime:
-    """Holds the per-worker-process singletons needed by the URL task."""
-
-    def __init__(
-        self,
-        *,
-        url_processor: Any,
-        telegram_sender: Any,
-        response_formatter: Any,
-    ) -> None:
-        self.url_processor = url_processor
-        self.telegram_sender = telegram_sender
-        self.response_formatter = response_formatter
 
 
 def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessingTaskRuntime:
