@@ -28,8 +28,12 @@ COPY pyproject.toml uv.lock ./
 
 # Build virtual environment with API dependencies
 # (includes sentence-transformers for /search/semantic)
+# --compile-bytecode: pre-build .pyc at image-build time. Without it (uv's
+# default, unlike pip) every container boot recompiles all imports from source,
+# which under the API's 0.3-CPU limit + PYTHONDONTWRITEBYTECODE never finishes
+# before uvicorn startup is killed (build_api_runtime hangs importing asyncpg).
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra api --extra otel --extra scheduler
+    uv sync --compile-bytecode --frozen --no-dev --extra api --extra otel --extra scheduler --extra graph
 
 # Stage 1.5: Web - Build Carbon Web App assets
 # Stage 2: Runtime - Minimal runtime environment (no build tools)
