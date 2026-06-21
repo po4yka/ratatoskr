@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from app.adapters.telegram.telegram_bot import TelegramBot
-from app.config import ConfigHolder, ConfigReloader, load_config
+from app.config import ConfigHolder, load_config
 from app.db.write_queue import DbWriteQueue
 from app.di.database import build_runtime_database
 from app.di.repositories import build_audit_log_repository
@@ -26,7 +26,6 @@ async def main() -> None:
 
     init_tracing(cfg)
     cfg_holder = ConfigHolder(cfg)
-    config_reloader = ConfigReloader(cfg_holder)
 
     # Log active model configuration at startup
     _log = logging.getLogger(__name__)
@@ -83,7 +82,6 @@ async def main() -> None:
     except ImportError:
         broker = None
 
-    config_reloader.start()
     # Start the LangGraph Postgres checkpointer when enabled (opt-in,
     # failure-isolated; ADR-0004). Dedicated psycopg3 pool -- not Database.
     # Started inside the try so the finally below always tears the pool down.
@@ -108,7 +106,6 @@ async def main() -> None:
             logging.getLogger(__name__).warning("coalescer_shutdown_failed", exc_info=True)
         if checkpointer_runtime is not None:
             await checkpointer_runtime.stop(timeout=10.0)
-        await config_reloader.stop()
         await db_write_queue.stop()
         if broker_started and broker is not None and not broker.is_worker_process:
             await broker.shutdown()
