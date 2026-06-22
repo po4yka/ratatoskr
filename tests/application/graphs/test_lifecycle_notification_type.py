@@ -27,6 +27,11 @@ class GraphRecursionError(Exception):
         ValueError("Low-value content detected: empty_after_cleaning"),
         ValueError("Extraction failed: Direct HTML: no usable content"),
         ValueError("Content text is empty or contains only whitespace"),
+        # AcademicPaperUnavailableError message shape (paywalled SSRN paper etc.)
+        Exception(
+            "Academic paper unavailable (host=ssrn, reason=paywall): "
+            "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1"
+        ),
     ],
 )
 def test_extraction_failures_map_to_empty_content(exc: Exception) -> None:

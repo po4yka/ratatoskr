@@ -55,17 +55,23 @@ def error_id_message(correlation_id: str | None, request_id: int | None) -> str:
     return f"Processing failed (Error ID: {error_id}). Please try again."
 
 
-# Substrings present in the ValueError messages raised by the extraction path
-# (``app.adapters.content.content_extractor`` + the extract node) when the page
-# could not be fetched / yielded no usable content. Matched case-insensitively so
-# a content-acquisition failure is reported with the accurate "couldn't fetch the
-# page" copy instead of the misleading "AI couldn't parse / repair failed" one.
+# Substrings present in the exception messages raised by the extraction path
+# (``app.adapters.content.content_extractor`` + the extract node, plus the
+# academic extractor's ``AcademicPaperUnavailableError``) when the page could not
+# be fetched / was paywalled / yielded no usable content. Matched
+# case-insensitively so a content-acquisition failure is reported with the
+# accurate "couldn't fetch the page" copy instead of the misleading
+# "AI couldn't parse / repair failed" one.
 _EXTRACTION_FAILURE_MARKERS = (
     "low-value content detected",
     "extraction failed",
     "content text is empty",
     "no usable content",
     "empty_after_cleaning",
+    # AcademicPaperUnavailableError: "Academic paper unavailable (host=..., reason=
+    # paywall/no_content/...)" -- paper behind a paywall/login or otherwise
+    # unreachable; the LLM is never called.
+    "academic paper unavailable",
 )
 
 
