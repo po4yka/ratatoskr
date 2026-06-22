@@ -882,12 +882,15 @@ services:
     restart: unless-stopped
     deploy:
       resources:
-        # Sized for upstream's published footprint (~190 MB idle, ~280 MB with
-        # 3 tabs, +30 MB per tab). 512 MB covers idle + 4 concurrent tabs with
-        # comfortable headroom; bump if you start seeing OOM kills under load.
+        # cloakserve spawns a SEPARATE Chrome per fingerprint seed (seed =
+        # sha1(registrable_domain)), not lightweight tabs — each is ~190-300 MB
+        # and they are not aggressively reaped, so a handful of distinct target
+        # domains needs ~1 GB+. 512 MB caused Chrome thrashing + hung/502 CDP
+        # connects under real load. 1.5 GB / 1 CPU is a safer floor; raise on
+        # hosts that drive many distinct domains (the Pi overlay uses more).
         limits:
-          memory: 512M
-          cpus: "0.5"
+          memory: 1536M
+          cpus: "1.0"
         reservations:
           memory: 256M
     healthcheck:
