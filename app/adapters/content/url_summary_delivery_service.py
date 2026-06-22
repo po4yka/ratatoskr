@@ -115,15 +115,28 @@ class URLSummaryDeliveryService:
         correlation_id: str | None,
         silent: bool,
         batch_mode: bool,
+        error_type: str = "processing_failed",
     ) -> URLProcessingFlowResult:
+        """Notify the user of a terminal failure.
+
+        ``error_type`` selects the message template (see
+        ``send_error_notification``). It defaults to ``processing_failed`` (the
+        LLM parse/repair copy); extraction/content-fetch failures pass
+        ``empty_content`` so the user is told the page couldn't be retrieved
+        rather than that the AI failed to parse it -- the LLM was never reached.
+        """
         logger.error(
             "summarization_failed",
-            extra={"cid": correlation_id, "url": redact_url_for_logging(url_text)},
+            extra={
+                "cid": correlation_id,
+                "url": redact_url_for_logging(url_text),
+                "error_type": error_type,
+            },
         )
         if not silent and not batch_mode:
             await self._response_formatter.send_error_notification(
                 message,
-                "processing_failed",
+                error_type,
                 correlation_id or "unknown",
             )
         return URLProcessingFlowResult(success=False)

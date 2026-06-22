@@ -29,6 +29,7 @@ from app.application.graphs.summarize.lifecycle import (
     REASON_GRAPH_NODE_FAILURE,
     REASON_GRAPH_RECURSION_LIMIT,
     CallBudgetExceeded,
+    notification_type_for_exception,
     route_terminal_failure,
 )
 from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS, SummarizeState
@@ -241,6 +242,7 @@ async def run_summarize_graph(
         message = await route_terminal_failure(initial_state, deps, exc, reason_code=reason_code)
         return {
             "error": message,
+            "notification_type": notification_type_for_exception(exc),
             "correlation_id": correlation_id,
             "request_id": request_id,
         }

@@ -883,12 +883,20 @@ class GraphURLProcessor:
         """
         if request.effective_silent:
             return
+        # The runner classifies the terminal exception into a user-facing message
+        # type (extraction/content-fetch failures -> ``empty_content`` instead of
+        # the misleading ``processing_failed`` LLM-parse copy). Default preserves
+        # the historical ``processing_failed`` behaviour when absent.
+        error_type = "processing_failed"
+        if isinstance(final_state, dict):
+            error_type = str(final_state.get("notification_type") or "processing_failed")
         await self.summary_delivery.send_processing_failure(
             message=request.message,
             url_text=request.url_text,
             correlation_id=request.correlation_id,
             silent=request.silent,
             batch_mode=request.batch_mode,
+            error_type=error_type,
         )
 
     async def _notify_orchestration_failure(self, request: URLFlowRequest, exc: Exception) -> None:

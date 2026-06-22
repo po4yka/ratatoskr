@@ -26,7 +26,10 @@ from app.application.graphs.summarize.graph import (
     invocation_config,
     reason_code_for_exception,
 )
-from app.application.graphs.summarize.lifecycle import route_terminal_failure
+from app.application.graphs.summarize.lifecycle import (
+    notification_type_for_exception,
+    route_terminal_failure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +390,12 @@ async def run_summarize_graph_streamed(
         message = await route_terminal_failure(
             initial_state, deps, exc, reason_code=reason_code_for_exception(exc)
         )
-        return {"error": message, "correlation_id": correlation_id, "request_id": request_id}
+        return {
+            "error": message,
+            "notification_type": notification_type_for_exception(exc),
+            "correlation_id": correlation_id,
+            "request_id": request_id,
+        }
 
 
 def _final_state_from_event(event: dict[str, Any]) -> dict[str, Any] | None:

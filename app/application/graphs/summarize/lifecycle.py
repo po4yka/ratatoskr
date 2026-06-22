@@ -55,6 +55,39 @@ def error_id_message(correlation_id: str | None, request_id: int | None) -> str:
     return f"Processing failed (Error ID: {error_id}). Please try again."
 
 
+# Substrings present in the ValueError messages raised by the extraction path
+# (``app.adapters.content.content_extractor`` + the extract node) when the page
+# could not be fetched / yielded no usable content. Matched case-insensitively so
+# a content-acquisition failure is reported with the accurate "couldn't fetch the
+# page" copy instead of the misleading "AI couldn't parse / repair failed" one.
+_EXTRACTION_FAILURE_MARKERS = (
+    "low-value content detected",
+    "extraction failed",
+    "content text is empty",
+    "no usable content",
+    "empty_after_cleaning",
+)
+
+
+def notification_type_for_exception(exc: BaseException) -> str:
+    """Map a terminal exception to the user-facing ``send_error_notification`` type.
+
+    LLM/repair/budget exhaustion keeps ``processing_failed`` ("the AI returned data
+    that couldn't be parsed; repair was unsuccessful"). Extraction/content-fetch
+    failures get ``empty_content`` ("couldn't retrieve the article -- blocked /
+    paywall / non-text / server error"), which is what actually happened: the LLM
+    was never reached. Anything else stays ``processing_failed`` (unchanged default).
+    """
+    if isinstance(exc, CallBudgetExceeded):
+        return "processing_failed"
+    if type(exc).__name__ == "GraphRecursionError":
+        return "processing_failed"
+    text = str(exc).lower()
+    if any(marker in text for marker in _EXTRACTION_FAILURE_MARKERS):
+        return "empty_content"
+    return "processing_failed"
+
+
 async def route_terminal_failure(
     state: SummarizeState,
     deps: SummarizeDeps,

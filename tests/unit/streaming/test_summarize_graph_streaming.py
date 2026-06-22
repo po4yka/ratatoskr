@@ -122,7 +122,13 @@ async def test_driver_routes_node_failure_to_terminal_path(monkeypatch) -> None:
         request_id=_RID,
         lang="en",
     )
-    assert result == {"error": "Error ID: corr-xyz", "correlation_id": _CID, "request_id": _RID}
+    assert result == {
+        "error": "Error ID: corr-xyz",
+        # Generic node failure (no extraction marker) keeps the LLM-parse copy.
+        "notification_type": "processing_failed",
+        "correlation_id": _CID,
+        "request_id": _RID,
+    }
     assert captured["reason_code"] == "GRAPH_NODE_FAILURE"
     assert captured["exc_type"] == "RuntimeError"
 
