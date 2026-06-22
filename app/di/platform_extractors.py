@@ -204,12 +204,40 @@ def _build_meta_platform_extractor(context: PlatformExtractorBuildContext) -> An
 def _build_academic_platform_extractor(context: PlatformExtractorBuildContext) -> Any:
     from app.adapters.academic.platform_extractor import AcademicPlatformExtractor
 
+    browser_pdf = _build_academic_browser_pdf(context)
+    agentic_pdf = None
+    if browser_pdf is not None:
+        from app.adapters.academic.agentic_pdf import AgenticPdfDownloader
+
+        agentic_pdf = AgenticPdfDownloader(browser_pdf)
+
     return AcademicPlatformExtractor(
         cfg=context.cfg,
         scraper=context.scraper,
         firecrawl_sem=context.sem,
         lifecycle=context.lifecycle,
+        browser_pdf=browser_pdf,
+        agentic_pdf=agentic_pdf,
     )
+
+
+def _build_academic_browser_pdf(context: PlatformExtractorBuildContext) -> Any | None:
+    """CloakBrowser-backed PDF fetcher for academic recovery, or None when off.
+
+    Reuses the scraper factory's CloakBrowser builder so the sidecar's
+    enabled/url gating lives in one place; returns None (recovery rung no-ops)
+    whenever the CloakBrowser sidecar is disabled or unavailable.
+    """
+    try:
+        from app.adapters.content.scraper.factory import _build_cloakbrowser
+
+        return _build_cloakbrowser(context.cfg.scraper, context.audit_func)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "academic_browser_pdf_init_failed",
+            extra={"error": str(exc), "error_type": type(exc).__name__},
+        )
+        return None
 
 
 def _build_github_platform_extractor(context: PlatformExtractorBuildContext) -> Any:

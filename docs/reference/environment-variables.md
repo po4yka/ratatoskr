@@ -1007,6 +1007,18 @@ When a paper's landing page can't be scraped (Cloudflare-gated SSRN/ResearchGate
 
 Caveat: very recently posted papers may not be indexed by any provider yet, so the fallback won't recover them — those still fail honestly. arXiv rarely needs the fallback (its landing abstract is public); it matters most for gated SSRN/RePEc.
 
+### Browser PDF recovery (optional, distinct from the metadata fallback above)
+
+When the cookie-less httpx PDF download is blocked (paywall / 403 / non-PDF) — which happens for Cloudflare-gated SSRN even though the PDF is public — the extractor can re-fetch the PDF through the **CloakBrowser** stealth session that already cleared Cloudflare for the landing page (the cookie-less download can't carry the `cf_clearance` cookie). Tiered: tier 1 fetches the already-known/anchor PDF URL (cheap, no LLM); tier 2 autonomously locates and clicks the download control for hosts with no deterministic URL (ResearchGate/RePEc). **Both require the CloakBrowser sidecar to be enabled** (`SCRAPER_CLOAKBROWSER_ENABLED=true` + the `with-scrapers` compose profile); otherwise the rung silently no-ops. Configuration owner: `app/config/academic.py::AcademicConfig`.
+
+| Variable | Type | Default | Purpose |
+|---|---|---|---|
+| `ACADEMIC_BROWSER_PDF_RECOVERY_ENABLED` | bool | `false` | Tier 1. Re-fetch the deterministic PDF URL through the stealth session. One extra browser render, no LLM cost. |
+| `ACADEMIC_AGENTIC_PDF_DOWNLOAD_ENABLED` | bool | `false` | Tier 2. For hosts with no deterministic URL, render the page and autonomously pick + fetch the download control. **Double-gated**: requires a non-empty `ACADEMIC_AGENTIC_PDF_HOST_ALLOWLIST` (the bot hard-fails at startup otherwise). |
+| `ACADEMIC_AGENTIC_PDF_HOST_ALLOWLIST` | CSV/list of academic host tokens | _(empty)_ | Hosts (`ssrn`, `arxiv`, `nber`, `osf`, `researchgate`, `repec`) where tier 2 may fire. Empty = no host allowed. Lower-cased on load. |
+
+Tier-2 uses a DOM heuristic over anchor/button text + href patterns by default; an LLM picker is a pluggable upgrade (off by default). Recovery sets `metadata.pdf_browser_recovery_used` / `pdf_browser_recovery_tier` (`deterministic` | `agentic`) on the extraction result.
+
 ---
 
 ## Configuration Validation Checklist

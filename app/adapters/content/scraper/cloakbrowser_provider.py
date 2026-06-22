@@ -22,9 +22,11 @@ this provider expects under the ``with-scrapers`` profile.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import random
 import time
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlsplit
 
@@ -37,7 +39,7 @@ from app.core.url_utils import extract_domain
 from app.security.ssrf import is_url_safe_async
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
 logger = get_logger(__name__)
 
@@ -62,6 +64,27 @@ _LOCALE_POOL: tuple[tuple[str, str], ...] = (
     ("Asia/Tokyo", "ja-JP"),
     ("America/Sao_Paulo", "pt-BR"),
 )
+
+
+# In-page scan for download controls (tier-2 agentic recovery). Returns anchors
+# and buttons with their visible text + resolved href, capped so a hostile page
+# can't flood the picker. Kept as a string literal so it can ship without a JS
+# build step.
+_CONTROL_SCAN_JS = """
+() => {
+  const out = [];
+  const pick = (el) => (el.innerText || el.getAttribute('aria-label') || el.title || '').trim().slice(0, 160);
+  for (const a of document.querySelectorAll('a[href]')) {
+    out.push({tag: 'a', text: pick(a), href: a.href});
+    if (out.length >= 200) return out;
+  }
+  for (const b of document.querySelectorAll('button, [role="button"], input[type="submit"]')) {
+    out.push({tag: 'button', text: pick(b), href: null});
+    if (out.length >= 200) return out;
+  }
+  return out;
+}
+"""
 
 
 def _seed_for_url(url: str) -> str:
@@ -433,6 +456,253 @@ class CloakBrowserProvider:
         # 2-4 wheel deltas at varying magnitudes to mimic real scroll bursts.
         for _ in range(random.randint(2, 4)):
             await page.mouse.wheel(0, random.randint(180, 420))
+
+    async def fetch_pdf(
+        self,
+        landing_url: str,
+        pdf_url: str,
+        *,
+        max_bytes: int,
+        mobile: bool = False,
+    ) -> bytes | None:
+        """Fetch ``pdf_url`` through a stealth session that first clears Cloudflare.
+
+        The cookie-less httpx download in the academic extractor cannot carry the
+        ``cf_clearance`` cookie minted when the landing page passes the challenge, so
+        a gated PDF (SSRN ``Delivery.cfm``) 403s even though it is public. Here we
+        render the landing page in a fresh CloakBrowser context — minting the
+        clearance cookie into that context's jar — then navigate to the PDF in the
+        SAME context so the cookie travels with the request.
+
+        Returns the raw PDF bytes, or ``None`` on any miss (SSRF block, non-PDF
+        body — e.g. Cloudflare served a second challenge — oversize, or error).
+        Never raises: the caller degrades to the next recovery tier.
+        """
+        safe, reason = await is_url_safe_async(pdf_url)
+        if not safe:
+            logger.warning(
+                "cloakbrowser_pdf_ssrf_blocked", extra={"url": pdf_url, "reason": reason}
+            )
+            return None
+
+        seed = _seed_for_url(landing_url)
+        timeout_ms = max(1_000, int(self._timeout_sec * 1000))
+        try:
+            async with self._stealth_page(landing_url, seed=seed, mobile=mobile) as (
+                page,
+                downloads,
+            ):
+                body = await self._goto_capture(
+                    page, pdf_url, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
+                )
+            return self._validate_pdf(body, pdf_url)
+        except Exception as exc:
+            logger.warning(
+                "cloakbrowser_pdf_fetch_failed",
+                extra={
+                    "landing_url": landing_url,
+                    "pdf_url": pdf_url,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "fingerprint_seed": seed,
+                },
+            )
+            return None
+
+    async def download_pdf_via_controls(
+        self,
+        landing_url: str,
+        *,
+        picker: Callable[[list[dict[str, Any]]], Awaitable[dict[str, Any] | None]],
+        max_bytes: int,
+        mobile: bool = False,
+    ) -> bytes | None:
+        """Tier-2 agentic download: render the page, let ``picker`` choose a control.
+
+        Used for hosts with no deterministic PDF URL. The page is rendered in a
+        stealth context; ``picker`` receives the live anchor/button candidates and
+        returns the one that downloads the paper (by ``href`` or visible text). An
+        ``href`` candidate is fetched through the session (reusing the cleared
+        Cloudflare cookie); a button is clicked inside ``expect_download``. Never
+        raises.
+        """
+        safe, reason = await is_url_safe_async(landing_url)
+        if not safe:
+            logger.warning(
+                "cloakbrowser_agentic_ssrf_blocked",
+                extra={"url": landing_url, "reason": reason},
+            )
+            return None
+
+        seed = _seed_for_url(landing_url)
+        timeout_ms = max(1_000, int(self._timeout_sec * 1000))
+        try:
+            async with self._stealth_page(landing_url, seed=seed, mobile=mobile) as (
+                page,
+                downloads,
+            ):
+                candidates = await page.evaluate(_CONTROL_SCAN_JS)
+                choice = await picker(list(candidates or []))
+                if not choice:
+                    return None
+                href = choice.get("href")
+                if href:
+                    ok, _why = await is_url_safe_async(href)
+                    if not ok:
+                        return None
+                    body = await self._goto_capture(
+                        page, href, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
+                    )
+                else:
+                    body = await self._click_capture(
+                        page, choice, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
+                    )
+            return self._validate_pdf(body, href or landing_url)
+        except Exception as exc:
+            logger.warning(
+                "cloakbrowser_agentic_failed",
+                extra={
+                    "landing_url": landing_url,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "fingerprint_seed": seed,
+                },
+            )
+            return None
+
+    @asynccontextmanager
+    async def _stealth_page(
+        self, landing_url: str, *, seed: str, mobile: bool
+    ) -> AsyncIterator[tuple[Any, list[Any]]]:
+        """Connect over CDP, open a downloads-enabled page, clear CF on the landing.
+
+        Yields ``(page, downloads)`` where ``downloads`` accumulates any download
+        events. Tears down the context + CDP connection (without stopping the
+        shared sidecar) on exit.
+        """
+        from playwright.async_api import (
+            Error as PlaywrightError,
+            TimeoutError as PlaywrightTimeoutError,
+            async_playwright,
+        )
+
+        timezone, locale = _locale_for_seed(seed)
+        cdp_url = self._build_cdp_url(seed, timezone, locale)
+        timeout_ms = max(1_000, int(self._timeout_sec * 1000))
+
+        async with async_playwright() as p:
+            browser = await p.chromium.connect_over_cdp(cdp_url)
+            try:
+                context = await browser.new_context(
+                    user_agent=_MOBILE_UA if mobile else _DESKTOP_UA,
+                    viewport=(
+                        {"width": 390, "height": 844} if mobile else {"width": 1366, "height": 768}
+                    ),
+                    is_mobile=mobile,
+                    has_touch=mobile,
+                    accept_downloads=True,
+                )
+                try:
+                    page = await context.new_page()
+                    downloads: list[Any] = []
+                    page.on("download", downloads.append)
+
+                    async def _block_ssrf_route(route: Any) -> None:
+                        ok, _why = await is_url_safe_async(route.request.url)
+                        if not ok:
+                            await route.abort("accessdenied")
+                            return
+                        await route.continue_()
+
+                    await page.route("**/*", _block_ssrf_route)
+
+                    # Clear Cloudflare on the landing page → mints cf_clearance
+                    # into the context jar for the subsequent PDF request.
+                    try:
+                        await page.goto(
+                            landing_url, wait_until="domcontentloaded", timeout=timeout_ms
+                        )
+                        if self._humanize:
+                            await self._apply_humanize(page)
+                    except (PlaywrightTimeoutError, PlaywrightError):
+                        logger.debug(
+                            "cloakbrowser_pdf_landing_partial",
+                            extra={"landing_url": landing_url},
+                            exc_info=True,
+                        )
+
+                    yield page, downloads
+                finally:
+                    await context.close()
+            finally:
+                await browser.close()
+
+    async def _goto_capture(
+        self, page: Any, url: str, downloads: list[Any], *, timeout_ms: int, max_bytes: int
+    ) -> bytes | None:
+        """Navigate to ``url`` and capture either the response body or a download."""
+        from playwright.async_api import Error as PlaywrightError, TimeoutError as PWTimeout
+
+        downloads.clear()
+        response = None
+        try:
+            response = await page.goto(url, wait_until="commit", timeout=timeout_ms)
+        except (PWTimeout, PlaywrightError):
+            # An attachment (Content-Disposition) aborts the navigation but still
+            # fires the download event we captured in ``downloads``.
+            logger.debug("cloakbrowser_pdf_goto_aborted", extra={"url": url}, exc_info=True)
+        return await self._read_pdf_body(downloads, response, max_bytes=max_bytes)
+
+    async def _click_capture(
+        self,
+        page: Any,
+        choice: dict[str, Any],
+        downloads: list[Any],
+        *,
+        timeout_ms: int,
+        max_bytes: int,
+    ) -> bytes | None:
+        """Click a text-identified control and capture the resulting download."""
+        from playwright.async_api import Error as PlaywrightError, TimeoutError as PWTimeout
+
+        text = (choice.get("text") or "").strip()
+        if not text:
+            return None
+        downloads.clear()
+        try:
+            async with page.expect_download(timeout=timeout_ms):
+                await page.get_by_text(text, exact=False).first.click(timeout=timeout_ms)
+        except (PWTimeout, PlaywrightError):
+            return None
+        return await self._read_pdf_body(downloads, None, max_bytes=max_bytes)
+
+    @staticmethod
+    async def _read_pdf_body(
+        downloads: list[Any], response: Any, *, max_bytes: int
+    ) -> bytes | None:
+        """Read the PDF bytes from either a captured download or the goto response."""
+        if downloads:
+            path = await downloads[0].path()
+            if path is None:
+                return None
+            data = await asyncio.to_thread(path.read_bytes)
+            return data if 0 < len(data) <= max_bytes else None
+        if response is None:
+            return None
+        body = await response.body()
+        if not body or len(body) > max_bytes:
+            return None
+        return body
+
+    @staticmethod
+    def _validate_pdf(body: bytes | None, source: str) -> bytes | None:
+        """Return ``body`` only if it is non-empty PDF bytes, else ``None``."""
+        if body is None:
+            return None
+        if not body.lstrip().startswith(b"%PDF"):
+            logger.info("cloakbrowser_pdf_not_a_pdf", extra={"source": source, "bytes": len(body)})
+            return None
+        return body
 
     async def aclose(self) -> None:
         # Each scrape opens and closes its own async_playwright + CDP

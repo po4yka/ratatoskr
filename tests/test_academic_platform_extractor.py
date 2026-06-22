@@ -294,7 +294,11 @@ def _ssrn_request() -> PlatformExtractionRequest:
 
 
 def _gated_extractor(
-    academic: AcademicConfig, monkeypatch: pytest.MonkeyPatch
+    academic: AcademicConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    browser_pdf: Any | None = None,
+    agentic_pdf: Any | None = None,
 ) -> AcademicPlatformExtractor:
     """Extractor whose landing scrape is empty and whose SSRN PDF 403s -> gated."""
     monkeypatch.setattr(
@@ -305,9 +309,51 @@ def _gated_extractor(
         scraper=_FakeScraper(_FakeCrawl(markdown="")),
         firecrawl_sem=_NullSem(),
         lifecycle=None,
+        browser_pdf=browser_pdf,
+        agentic_pdf=agentic_pdf,
         http_client_factory=lambda: _FakeHTTPClient(
             [httpx.Response(403, request=httpx.Request("GET", "https://papers.ssrn.com/D.pdf"))]
         ),
+    )
+
+
+class _FakeBrowserPdf:
+    """Tier-1 fake: records calls and returns canned bytes (or None for a miss)."""
+
+    def __init__(self, pdf: bytes | None) -> None:
+        self._pdf = pdf
+        self.calls: list[tuple[str, str]] = []
+
+    async def fetch_pdf(
+        self, landing_url: str, pdf_url: str, *, max_bytes: int, mobile: bool = False
+    ) -> bytes | None:
+        self.calls.append((landing_url, pdf_url))
+        return self._pdf
+
+
+class _FakeAgenticPdf:
+    """Tier-2 fake: records the landing it was asked to recover."""
+
+    def __init__(self, pdf: bytes | None) -> None:
+        self._pdf = pdf
+        self.calls: list[str] = []
+
+    async def download(
+        self, landing_url: str, *, max_bytes: int, correlation_id: str | None = None
+    ) -> bytes | None:
+        self.calls.append(landing_url)
+        return self._pdf
+
+
+def _researchgate_request() -> PlatformExtractionRequest:
+    url = "https://www.researchgate.net/publication/123456_Some_Paper"
+    return PlatformExtractionRequest(
+        message=None,
+        url_text=url,
+        normalized_url=url,
+        correlation_id="cid-rg",
+        request_id_override=2,
+        mode="pure",
     )
 
 
@@ -466,3 +512,107 @@ async def test_extract_fallback_oa_pdf_fails_uses_abstract(monkeypatch: pytest.M
     assert result.metadata["metadata_fallback_used"] is True
     assert result.metadata["oa_pdf_used"] is False
     assert result.metadata["pdf_extracted"] is False
+
+
+# ---------------------------------------------------------------------------
+# Browser PDF recovery (tier 1 deterministic + tier 2 agentic)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_browser_pdf_tier1_recovers_full_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gated SSRN PDF is recovered through the stealth session -> full body."""
+    browser = _FakeBrowserPdf(b"%PDF-1.7 fake bytes")
+    extractor = _gated_extractor(
+        AcademicConfig(browser_pdf_recovery_enabled=True), monkeypatch, browser_pdf=browser
+    )
+    monkeypatch.setattr(
+        "app.adapters.academic.platform_extractor._extract_pdf_text_from_bytes",
+        lambda raw: ("Recovered body.", 5),
+    )
+
+    result = await extractor.extract(_ssrn_request())
+
+    assert result.content_source == "academic_paper_full"
+    assert "## Body\n\nRecovered body." in result.content_text
+    assert result.metadata["pdf_browser_recovery_used"] is True
+    assert result.metadata["pdf_browser_recovery_tier"] == "deterministic"
+    assert result.metadata["pdf_pages_extracted"] == 5
+    # Fetched the deterministic SSRN Delivery.cfm URL through the landing session.
+    assert len(browser.calls) == 1
+    landing, pdf_url = browser.calls[0]
+    assert "abstract_id=6531478" in landing
+    assert "Delivery.cfm" in pdf_url
+
+
+@pytest.mark.asyncio
+async def test_browser_pdf_recovery_disabled_does_not_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Flag off -> the browser is never invoked and the paper fails as before."""
+    browser = _FakeBrowserPdf(b"%PDF-1.7 fake")
+    extractor = _gated_extractor(AcademicConfig(), monkeypatch, browser_pdf=browser)
+    with pytest.raises(AcademicPaperUnavailableError) as exc:
+        await extractor.extract(_ssrn_request())
+    assert exc.value.reason == "paywall"
+    assert browser.calls == []
+
+
+@pytest.mark.asyncio
+async def test_browser_pdf_miss_falls_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A browser miss (None) degrades to the existing unavailable error."""
+    browser = _FakeBrowserPdf(None)
+    extractor = _gated_extractor(
+        AcademicConfig(browser_pdf_recovery_enabled=True), monkeypatch, browser_pdf=browser
+    )
+    with pytest.raises(AcademicPaperUnavailableError):
+        await extractor.extract(_ssrn_request())
+    assert len(browser.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_pdf_tier2_agentic_for_no_deterministic_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ResearchGate has no deterministic URL -> tier-2 agentic download fires."""
+    agentic = _FakeAgenticPdf(b"%PDF-1.7 fake")
+    extractor = _gated_extractor(
+        AcademicConfig(
+            browser_pdf_recovery_enabled=True,
+            agentic_pdf_download_enabled=True,
+            agentic_pdf_host_allowlist=("researchgate",),
+        ),
+        monkeypatch,
+        browser_pdf=_FakeBrowserPdf(None),
+        agentic_pdf=agentic,
+    )
+    monkeypatch.setattr(
+        "app.adapters.academic.platform_extractor._extract_pdf_text_from_bytes",
+        lambda raw: ("RG body.", 3),
+    )
+
+    result = await extractor.extract(_researchgate_request())
+
+    assert result.content_source == "academic_paper_full"
+    assert result.metadata["pdf_browser_recovery_tier"] == "agentic"
+    assert "## Body\n\nRG body." in result.content_text
+    assert len(agentic.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_pdf_tier2_skipped_when_host_not_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Agentic tier honors the host allowlist: a non-listed host is not attempted."""
+    agentic = _FakeAgenticPdf(b"%PDF-1.7 fake")
+    extractor = _gated_extractor(
+        AcademicConfig(
+            agentic_pdf_download_enabled=True,
+            agentic_pdf_host_allowlist=("repec",),  # NOT researchgate
+        ),
+        monkeypatch,
+        agentic_pdf=agentic,
+    )
+    with pytest.raises(AcademicPaperUnavailableError):
+        await extractor.extract(_researchgate_request())
+    assert agentic.calls == []

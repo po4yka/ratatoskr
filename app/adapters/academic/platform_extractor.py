@@ -75,6 +75,14 @@ _PDF_DOWNLOAD_TIMEOUT_SEC = 60.0
 # allocation on the Pi.  Override via AcademicPlatformExtractor(max_pdf_mb=N).
 _DEFAULT_MAX_PDF_MB = 50
 
+# PDF-download failure reasons the browser-recovery rung can plausibly fix by
+# re-fetching through a Cloudflare-cleared stealth session (or discovering the
+# real download control). Transient ``network_error`` is excluded — a browser
+# render would just waste a sidecar round-trip on a genuinely-down host.
+_BROWSER_RECOVERABLE_REASONS = frozenset(
+    {"paywall", "not_a_pdf", "no_pdf_url_resolved", "pdf_not_found", "empty_pdf", "unknown"}
+)
+
 # Markers we look for in the landing HTML to detect a paywall response
 # (matches SSRN's "purchase to read" upsell and ResearchGate's
 # "Request full-text" gate).
@@ -144,6 +152,8 @@ class AcademicPlatformExtractor(PlatformExtractor):
         firecrawl_sem: Any,
         lifecycle: PlatformRequestLifecycle,
         http_client_factory: Any | None = None,
+        browser_pdf: Any | None = None,
+        agentic_pdf: Any | None = None,
         max_pdf_mb: int = _DEFAULT_MAX_PDF_MB,
     ) -> None:
         self._cfg = cfg
@@ -153,6 +163,11 @@ class AcademicPlatformExtractor(PlatformExtractor):
         # Injectable for tests; defaults to an SSRF-safe httpx client with
         # manual redirect handling (OSF /download 302s).
         self._http_client_factory = http_client_factory
+        # Tier-1 browser PDF fetcher (CloakBrowserProvider) and tier-2 agentic
+        # downloader. Both optional: None when CloakBrowser is disabled, in which
+        # case the browser-recovery rung silently no-ops.
+        self._browser_pdf = browser_pdf
+        self._agentic_pdf = agentic_pdf
         self._max_pdf_bytes = max_pdf_mb * 1024 * 1024
 
     # ------------------------------------------------------------------
@@ -213,6 +228,7 @@ class AcademicPlatformExtractor(PlatformExtractor):
         pdf_text: str | None = None
         pdf_failure_reason: str | None = None
         pages_extracted: int = 0
+        browser_recovery_tier: str | None = None
         if pdf_url:
             try:
                 pdf_text, pages_extracted = await self._fetch_and_extract_pdf(pdf_url)
@@ -237,6 +253,24 @@ class AcademicPlatformExtractor(PlatformExtractor):
             pdf_failure_reason = "unknown"
         if pdf_text is None and _landing_looks_like_paywall(landing_markdown):
             pdf_failure_reason = "paywall"
+
+        # 4b. Browser PDF recovery (tier 1 deterministic + tier 2 agentic).
+        # The cookie-less httpx download cannot carry the cf_clearance cookie
+        # minted by the landing scrape, so a gated PDF 403s. Re-fetch it through
+        # the CloakBrowser stealth session. No-ops unless enabled + provider wired
+        # (applicability guard lives in the helper to keep this orchestrator flat).
+        recovered = await self._recover_via_browser_pdf(
+            ref,
+            landing_url=canonical_landing,
+            pdf_url=pdf_url,
+            landing_markdown=landing_markdown,
+            current_pdf_text=pdf_text,
+            failure_reason=pdf_failure_reason,
+            correlation_id=request.correlation_id,
+        )
+        if recovered is not None:
+            pdf_text, pages_extracted, pdf_url, browser_recovery_tier = recovered
+            pdf_failure_reason = None
 
         # 5. Open-access / metadata fallback BEFORE declaring the paper
         # unavailable. When the landing scrape yielded neither an abstract nor a
@@ -324,6 +358,8 @@ class AcademicPlatformExtractor(PlatformExtractor):
                 in ("academic_metadata_fallback_used", "academic_oa_pdf_used"),
                 "metadata_provider": meta_source,
                 "oa_pdf_used": content_source == "academic_oa_pdf_used",
+                "pdf_browser_recovery_used": browser_recovery_tier is not None,
+                "pdf_browser_recovery_tier": browser_recovery_tier,
                 "request_id": request_id,
             },
         )
@@ -507,6 +543,94 @@ class AcademicPlatformExtractor(PlatformExtractor):
             content_source=content_source,
             source=oa.source,
         )
+
+    # ------------------------------------------------------------------
+    # Browser PDF recovery (tier 1 deterministic + tier 2 agentic)
+    # ------------------------------------------------------------------
+
+    async def _recover_via_browser_pdf(
+        self,
+        ref: AcademicPaperRef,
+        *,
+        landing_url: str,
+        pdf_url: str | None,
+        landing_markdown: str,
+        current_pdf_text: str | None,
+        failure_reason: str | None,
+        correlation_id: str | None,
+    ) -> tuple[str, int, str, str] | None:
+        """Re-fetch a gated PDF through the CloakBrowser stealth session.
+
+        Returns ``(pdf_text, page_count, pdf_url, tier)`` on success, else
+        ``None``. Applicability is guarded here (no-ops unless the httpx download
+        already missed with a browser-recoverable reason) so the ``extract``
+        orchestrator stays flat. Tier 1 (``deterministic``) fetches the
+        already-known PDF URL (or a harvested ``.pdf`` anchor) through a context
+        that first clears Cloudflare on the landing page — carrying the
+        ``cf_clearance`` cookie the cookie-less httpx download never had. Tier 2
+        (``agentic``, opt-in + host-allowlisted) lets a single flash-LLM call
+        locate and click the download control for hosts with no deterministic
+        URL. Never raises.
+        """
+        if current_pdf_text is not None or failure_reason not in _BROWSER_RECOVERABLE_REASONS:
+            return None
+        cfg = getattr(self._cfg, "academic", None)
+        if cfg is None:
+            return None
+
+        target = pdf_url or _harvest_pdf_anchor(landing_markdown)
+        if self._browser_pdf is not None and cfg.browser_pdf_recovery_enabled and target:
+            raw = await self._browser_pdf.fetch_pdf(
+                landing_url, target, max_bytes=self._max_pdf_bytes
+            )
+            parsed = await self._extract_pdf_safely(raw)
+            if parsed is not None:
+                logger.info(
+                    "academic_browser_pdf_recovered",
+                    extra={
+                        "canonical_id": ref.canonical_id,
+                        "tier": "deterministic",
+                        "pdf_url": target,
+                        "pages": parsed[1],
+                        "cid": correlation_id,
+                    },
+                )
+                return (parsed[0], parsed[1], target, "deterministic")
+
+        if (
+            self._agentic_pdf is not None
+            and cfg.agentic_pdf_download_enabled
+            and ref.host.value in cfg.agentic_pdf_host_allowlist
+        ):
+            raw = await self._agentic_pdf.download(
+                landing_url, max_bytes=self._max_pdf_bytes, correlation_id=correlation_id
+            )
+            parsed = await self._extract_pdf_safely(raw)
+            if parsed is not None:
+                logger.info(
+                    "academic_browser_pdf_recovered",
+                    extra={
+                        "canonical_id": ref.canonical_id,
+                        "tier": "agentic",
+                        "pdf_url": landing_url,
+                        "pages": parsed[1],
+                        "cid": correlation_id,
+                    },
+                )
+                return (parsed[0], parsed[1], target or landing_url, "agentic")
+
+        return None
+
+    async def _extract_pdf_safely(self, raw: bytes | None) -> tuple[str, int] | None:
+        """Parse browser-fetched PDF bytes, swallowing all errors (never raises)."""
+        if not raw:
+            return None
+        try:
+            text, pages = await asyncio.to_thread(_extract_pdf_text_from_bytes, raw)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.info("academic_browser_pdf_parse_failed", extra={"error": str(exc)})
+            return None
+        return (text, pages) if text else None
 
     # ------------------------------------------------------------------
     # Helpers

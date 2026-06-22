@@ -58,3 +58,44 @@ def test_malformed_email_raises(bad_email: str) -> None:
 
 def test_valid_email_accepted() -> None:
     assert AcademicConfig(contact_email="ops@example.com").contact_email == "ops@example.com"
+
+
+# ---------------------------------------------------------------------------
+# Browser / agentic PDF recovery
+# ---------------------------------------------------------------------------
+
+
+def test_browser_pdf_fields_default_off() -> None:
+    cfg = AcademicConfig()
+    assert cfg.browser_pdf_recovery_enabled is False
+    assert cfg.agentic_pdf_download_enabled is False
+    assert cfg.agentic_pdf_host_allowlist == ()
+
+
+def test_agentic_enabled_without_allowlist_raises() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        AcademicConfig(agentic_pdf_download_enabled=True)
+
+
+def test_agentic_enabled_with_allowlist_ok() -> None:
+    cfg = AcademicConfig(
+        agentic_pdf_download_enabled=True, agentic_pdf_host_allowlist="researchgate, repec"
+    )
+    assert cfg.agentic_pdf_download_enabled is True
+    assert cfg.agentic_pdf_host_allowlist == ("researchgate", "repec")
+
+
+def test_host_allowlist_parses_csv_and_lowercases() -> None:
+    cfg = AcademicConfig(agentic_pdf_host_allowlist="ResearchGate, , RePEc ")
+    assert cfg.agentic_pdf_host_allowlist == ("researchgate", "repec")
+
+
+def test_host_allowlist_accepts_list() -> None:
+    cfg = AcademicConfig(agentic_pdf_host_allowlist=["SSRN", "arxiv"])
+    assert cfg.agentic_pdf_host_allowlist == ("ssrn", "arxiv")
+
+
+def test_browser_pdf_recovery_enabled_alone_is_allowed() -> None:
+    # Tier 1 needs no allowlist (cheap, no LLM) — only tier 2 is gated.
+    cfg = AcademicConfig(browser_pdf_recovery_enabled=True)
+    assert cfg.browser_pdf_recovery_enabled is True

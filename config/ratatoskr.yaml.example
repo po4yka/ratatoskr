@@ -266,6 +266,11 @@ academic:
   metadata_fallback_enabled: false
   # contact_email: you@example.com   # REQUIRED when metadata_fallback_enabled=true
   # api_timeout_sec: 12.0
+  # Browser PDF recovery: re-fetch a gated PDF through the CloakBrowser stealth
+  # session (needs SCRAPER_CLOAKBROWSER_ENABLED=true + the with-scrapers profile).
+  # browser_pdf_recovery_enabled: false   # tier 1: deterministic URL, no LLM cost
+  # agentic_pdf_download_enabled: false    # tier 2: autonomously click the download control
+  # agentic_pdf_host_allowlist: [researchgate, repec]   # REQUIRED (non-empty) when tier 2 on
 
 # ---------------------------------------------------------------------------
 # Signal ingestion (proactive source ingestors: HN, Reddit, X timeline)
