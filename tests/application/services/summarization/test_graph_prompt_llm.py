@@ -45,11 +45,11 @@ def _structured(payload: dict[str, Any], *, model: str = "base-model") -> Struct
 
 
 def test_select_max_tokens_dynamic_and_clamped() -> None:
-    # No configured ceiling -> dynamic budget, floored at 1536.
-    assert graph_prompt.select_max_tokens("short", configured_max=None) == 1536
-    # Configured ceiling clamps DOWN to the dynamic budget (still >= 1536 floor).
-    assert graph_prompt.select_max_tokens("short", configured_max=4096) == 1536
-    assert graph_prompt.select_max_tokens("short", configured_max=100) == 1536
+    # No configured ceiling -> dynamic budget, floored at 16384.
+    assert graph_prompt.select_max_tokens("short", configured_max=None) == 16384
+    # A configured ceiling below the 16384 floor is overridden by the floor.
+    assert graph_prompt.select_max_tokens("short", configured_max=4096) == 16384
+    assert graph_prompt.select_max_tokens("short", configured_max=100) == 16384
 
 
 def test_build_summary_user_prompt_structure() -> None:

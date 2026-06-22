@@ -411,35 +411,36 @@ def test_tier1b_routing_long_content_resolves_long_context_via_legacy_helper() -
 
 
 # --------------------------------------------------------------------------- #
-# select_max_tokens: graph helper == frozen golden (the legacy
-# PureSummaryService.select_max_tokens values, captured here after legacy deletion).
+# select_max_tokens: graph helper dynamic-budget bounds.
 #
-# The graph helper carries the same dynamic-budget formula the legacy method had;
-# assert byte-equality across the three regimes (floor / ceiling / configured clamp)
-# against the frozen golden constants the legacy path produced.
+# Bounds raised 2026-06-22 (1536/12288 -> 16384/32768): the reasoning-model
+# primary (qwen/qwen3.7-max) spends thinking tokens against max_tokens and
+# truncated the structured summary under the old bounds. These mirror
+# graph_prompt._MIN/_MAX_OUTPUT_TOKENS (the legacy PureSummaryService path that
+# originally set them was deleted at T9).
 # --------------------------------------------------------------------------- #
 
-_MIN_OUTPUT_TOKENS = 1536
-_MAX_OUTPUT_TOKENS = 12288
+_MIN_OUTPUT_TOKENS = 16384
+_MAX_OUTPUT_TOKENS = 32768
 
 
 def test_tier1b_select_max_tokens_floor_matches_legacy() -> None:
-    """Tiny input (< ~1024 tokens) clamps UP to the 1536 floor (frozen golden)."""
-    content = "short"  # << 1024 tokens
+    """Tiny input clamps UP to the 16384 floor."""
+    content = "short"  # << floor regime
     assert select_max_tokens(content, configured_max=None) == _MIN_OUTPUT_TOKENS
 
 
 def test_tier1b_select_max_tokens_ceiling_matches_legacy() -> None:
-    """Huge input (> ~22528 tokens) clamps DOWN to the 12288 ceiling (frozen golden)."""
-    content = "word " * 60_000  # ~ well past the ceiling regime
+    """Huge input (> ~63488 tokens) clamps DOWN to the 32768 ceiling."""
+    content = "word " * 150_000  # ~ well past the ceiling regime
     assert select_max_tokens(content, configured_max=None) == _MAX_OUTPUT_TOKENS
 
 
 def test_tier1b_select_max_tokens_configured_clamp_matches_legacy() -> None:
-    """A configured ceiling clamps the dynamic budget DOWN (floor 1536; frozen golden)."""
-    content = "word " * 60_000  # dynamic budget would hit the 12288 ceiling
-    configured = 4096
-    # 1536 <= 4096 <= 12288
+    """A configured ceiling between floor and cap clamps the dynamic budget DOWN."""
+    content = "word " * 150_000  # dynamic budget would hit the 32768 ceiling
+    configured = 24576
+    # 16384 <= 24576 <= 32768
     assert select_max_tokens(content, configured_max=configured) == configured
 
 

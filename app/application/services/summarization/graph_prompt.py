@@ -27,9 +27,15 @@ from app.prompts.file_cache import read_prompt_text
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeConfig
 
-# Dynamic output-token budget bounds (verbatim from pure_summary_service).
-_MIN_OUTPUT_TOKENS = 1536
-_MAX_OUTPUT_TOKENS = 12288
+# Dynamic output-token budget bounds. Raised 2026-06-22: the primary model
+# (qwen/qwen3.7-max) is a reasoning model whose thinking tokens count against
+# max_tokens, so the old 1536/12288 bounds truncated the structured summary
+# before the JSON completed ("output is incomplete due to a max_tokens length
+# limit"), exhausting the repair loop. max_tokens is a ceiling, not a target —
+# the model stops when the summary is done, so a generous bound costs nothing
+# on non-reasoning models while giving reasoning models room to finish.
+_MIN_OUTPUT_TOKENS = 16384
+_MAX_OUTPUT_TOKENS = 32768
 
 # Image-URL validation literals (verbatim parity with summary_request_factory so the
 # graph forwards EXACTLY the same image set to the vision model as the legacy path).
