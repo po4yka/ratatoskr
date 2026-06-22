@@ -605,7 +605,10 @@ class CloakBrowserProvider:
                 try:
                     page = await context.new_page()
                     downloads: list[Any] = []
-                    page.on("download", downloads.append)
+                    # NB: a bound builtin method (downloads.append) cannot be used
+                    # directly — Playwright setattr()s the handler, which fails on
+                    # builtins. Wrap in a lambda.
+                    page.on("download", lambda d: downloads.append(d))
 
                     async def _block_ssrf_route(route: Any) -> None:
                         ok, _why = await is_url_safe_async(route.request.url)
@@ -617,13 +620,20 @@ class CloakBrowserProvider:
                     await page.route("**/*", _block_ssrf_route)
 
                     # Clear Cloudflare on the landing page → mints cf_clearance
-                    # into the context jar for the subsequent PDF request.
+                    # into the context jar for the subsequent PDF request. The
+                    # networkidle settle gives a managed challenge a chance to
+                    # resolve + redirect before we navigate to the PDF (mirrors
+                    # scrape_markdown). A strict managed challenge that never
+                    # clears just leaves the PDF gated → graceful None.
                     try:
                         await page.goto(
                             landing_url, wait_until="domcontentloaded", timeout=timeout_ms
                         )
                         if self._humanize:
                             await self._apply_humanize(page)
+                        await page.wait_for_load_state(
+                            "networkidle", timeout=min(8_000, timeout_ms)
+                        )
                     except (PlaywrightTimeoutError, PlaywrightError):
                         logger.debug(
                             "cloakbrowser_pdf_landing_partial",
