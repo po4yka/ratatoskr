@@ -650,18 +650,35 @@ class CloakBrowserProvider:
     async def _goto_capture(
         self, page: Any, url: str, downloads: list[Any], *, timeout_ms: int, max_bytes: int
     ) -> bytes | None:
-        """Navigate to ``url`` and capture either the response body or a download."""
+        """Fetch PDF bytes through the stealth context.
+
+        Primary path: the context's APIRequestContext (``context.request``) —
+        reuses the context cookies (incl. ``cf_clearance``) and returns the RAW
+        response body. A plain ``page.goto`` to an inline ``application/pdf`` is
+        wrong: Chrome hands it to its built-in PDF viewer and ``response.body()``
+        yields the viewer's HTML shell, not the file. Fallback: a navigation that
+        triggers a forced download (hosts that send ``Content-Disposition:
+        attachment``), captured via the download event.
+        """
         from playwright.async_api import Error as PlaywrightError, TimeoutError as PWTimeout
 
-        downloads.clear()
-        response = None
         try:
-            response = await page.goto(url, wait_until="commit", timeout=timeout_ms)
+            resp = await page.context.request.get(url, timeout=timeout_ms)
+            body = await resp.body()
+            if body and len(body) <= max_bytes and body.lstrip().startswith(b"%PDF"):
+                return body
         except (PWTimeout, PlaywrightError):
-            # An attachment (Content-Disposition) aborts the navigation but still
-            # fires the download event we captured in ``downloads``.
+            logger.debug(
+                "cloakbrowser_pdf_request_fetch_failed", extra={"url": url}, exc_info=True
+            )
+
+        # Fallback: forced-download navigation (Content-Disposition: attachment).
+        downloads.clear()
+        try:
+            await page.goto(url, wait_until="commit", timeout=timeout_ms)
+        except (PWTimeout, PlaywrightError):
             logger.debug("cloakbrowser_pdf_goto_aborted", extra={"url": url}, exc_info=True)
-        return await self._read_pdf_body(downloads, response, max_bytes=max_bytes)
+        return await self._read_pdf_body(downloads, None, max_bytes=max_bytes)
 
     async def _click_capture(
         self,
