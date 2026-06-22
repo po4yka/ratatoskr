@@ -4510,7 +4510,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28.0,<2" },
     { name = "msgspec", specifier = ">=0.21.1" },
     { name = "openai", specifier = ">=2.42.0,<3" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.41,<2" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.42.1,<2" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.42.1,<2" },
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'otel'", specifier = ">=0.63b1,<1" },
     { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'otel'", specifier = ">=0.63b1,<1" },
