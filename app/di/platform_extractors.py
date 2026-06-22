@@ -224,14 +224,35 @@ def _build_academic_platform_extractor(context: PlatformExtractorBuildContext) -
 def _build_academic_browser_pdf(context: PlatformExtractorBuildContext) -> Any | None:
     """CloakBrowser-backed PDF fetcher for academic recovery, or None when off.
 
-    Reuses the scraper factory's CloakBrowser builder so the sidecar's
-    enabled/url gating lives in one place; returns None (recovery rung no-ops)
-    whenever the CloakBrowser sidecar is disabled or unavailable.
+    Deliberately INDEPENDENT of the scraper chain's ``cloakbrowser_enabled``
+    flag: a deployment can keep CloakBrowser off as a general scraper rung yet
+    still use the same sidecar for gated academic-PDF recovery. Gated only by the
+    academic recovery flags + a configured CloakBrowser URL; returns None
+    otherwise (the recovery rung then no-ops). The CloakBrowser sidecar must be
+    running for the fetch to succeed.
     """
+    academic = getattr(context.cfg, "academic", None)
+    scraper = getattr(context.cfg, "scraper", None)
+    if academic is None or scraper is None:
+        return None
+    if not (academic.browser_pdf_recovery_enabled or academic.agentic_pdf_download_enabled):
+        return None
+    url = getattr(scraper, "cloakbrowser_url", "")
+    if not url:
+        return None
     try:
-        from app.adapters.content.scraper.factory import _build_cloakbrowser
+        from app.adapters.content.scraper.cloakbrowser_provider import CloakBrowserProvider
 
-        return _build_cloakbrowser(context.cfg.scraper, context.audit_func)
+        return CloakBrowserProvider(
+            endpoint_url=url,
+            timeout_sec=scraper.cloakbrowser_timeout_sec,
+            min_text_length=scraper.min_content_length,
+            profile=scraper.profile,
+            js_heavy_hosts=scraper.js_heavy_hosts,
+            humanize=scraper.cloakbrowser_humanize,
+            proxy=scraper.cloakbrowser_proxy,
+            audit=context.audit_func,
+        )
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning(
             "academic_browser_pdf_init_failed",
