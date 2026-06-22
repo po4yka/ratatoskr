@@ -74,7 +74,9 @@ def prepare_config(args: argparse.Namespace) -> AppConfig:
         )
 
     if getattr(args, "log_level", None):
-        runtime = replace(runtime, log_level=args.log_level)
+        # RuntimeConfig is a (frozen) pydantic BaseModel, not a dataclass --
+        # dataclasses.replace() raises TypeError on it. Use model_copy().
+        runtime = runtime.model_copy(update={"log_level": args.log_level})
         updated = True
 
     if updated:
