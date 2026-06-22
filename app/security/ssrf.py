@@ -73,14 +73,23 @@ def resolve_host_ips(hostname: str) -> list[str]:
 async def resolve_host_ips_async(
     hostname: str,
     *,
-    retries: int = 1,
-    retry_delay_sec: float = 0.5,
+    retries: int = 3,
+    retry_delay_sec: float = 0.25,
 ) -> list[str]:
     """Async counterpart of :func:`resolve_host_ips` with bounded retry.
 
     Uses ``loop.getaddrinfo`` (thread-pool backed) so a slow resolver cannot
-    block the event loop, and retries once on transient resolver failure --
-    one-off DNS blips were killing whole requests before any scraper ran.
+    block the event loop, and retries with exponential backoff on transient
+    resolver failure -- one-off DNS blips were killing whole requests before any
+    scraper ran.
+
+    The default of 3 retries (4 attempts; backoff 0.25s -> 0.5s -> 1.0s, ~1.75s
+    worst case) targets the Pi's Docker embedded resolver (127.0.0.11), which
+    drops a large share of *concurrent* queries under load with EAI_AGAIN
+    ("Temporary failure in name resolution"). A single concurrent burst can fail
+    >50% of lookups while the resolver recovers within ~1-2s, so spacing several
+    retries across that window converts the blip into a success instead of a
+    user-visible "No Content Found".
     """
     loop = asyncio.get_running_loop()
     attempt = 0
@@ -90,12 +99,16 @@ async def resolve_host_ips_async(
         except (socket.gaierror, OSError) as exc:
             if attempt >= retries:
                 raise
+            # Exponential backoff so successive attempts land after the embedded
+            # resolver has recovered, rather than hammering it while it is still
+            # dropping queries.
+            backoff = retry_delay_sec * (2**attempt)
             attempt += 1
             logger.warning(
                 "dns_resolution_retry",
                 extra={"hostname": hostname, "attempt": attempt, "error": str(exc)},
             )
-            await asyncio.sleep(retry_delay_sec)
+            await asyncio.sleep(backoff)
             continue
         addresses: list[str] = []
         for info in infos:

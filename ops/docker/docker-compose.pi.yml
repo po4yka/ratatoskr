@@ -24,6 +24,15 @@
 
 services:
   ratatoskr:
+    # Serialize A+AAAA DNS queries. Docker's embedded resolver (127.0.0.11)
+    # drops a large share of *concurrent* lookups under load with EAI_AGAIN
+    # ("Temporary failure in name resolution"), which aborts the scraper SSRF
+    # gate before any provider runs -> spurious "No Content Found". glibc sends
+    # A+AAAA in parallel on one socket by default; single-request-reopen forces
+    # them sequential on a reopened socket, which the embedded resolver handles
+    # reliably. Pairs with the bounded-retry hardening in app/security/ssrf.py.
+    dns_opt:
+      - single-request-reopen
     environment:
       - QDRANT_URL=http://host-gateway:6333
       # Cap glibc malloc arenas (default up to 8*cores) to curb RSS growth on
@@ -51,6 +60,11 @@ services:
         required: false
 
   worker:
+    # Same Docker embedded-DNS concurrency mitigation as the bot (see above):
+    # the worker resolves many external hosts (RSS / digest / source ingestion /
+    # git-backup) and hits the same EAI_AGAIN drops.
+    dns_opt:
+      - single-request-reopen
     environment:
       - QDRANT_URL=http://host-gateway:6333
       - MALLOC_ARENA_MAX=2

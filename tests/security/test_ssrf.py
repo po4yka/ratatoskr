@@ -390,6 +390,24 @@ async def test_resolve_host_ips_async_retries_transient_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_resolve_host_ips_async_default_survives_three_transient_failures() -> None:
+    # The Docker embedded-DNS (127.0.0.11) concurrency drop is transient; the
+    # hardened default (retries=3 -> 4 attempts) must convert three consecutive
+    # EAI_AGAIN blips into a success rather than a user-visible "No Content Found".
+    from app.security.ssrf import resolve_host_ips_async
+
+    blip = socket.gaierror("Temporary failure in name resolution")
+    with patch(
+        "socket.getaddrinfo",
+        side_effect=[blip, blip, blip, _ADDRINFO_PUBLIC],
+    ) as mock_gai:
+        ips = await resolve_host_ips_async("example.com", retry_delay_sec=0)
+
+    assert ips == ["93.184.216.34"]
+    assert mock_gai.call_count == 4
+
+
+@pytest.mark.asyncio
 async def test_resolve_host_ips_async_raises_after_retries_exhausted() -> None:
     from app.security.ssrf import resolve_host_ips_async
 
