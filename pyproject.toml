@@ -405,6 +405,24 @@ override-dependencies = [
 name = "safety"
 url = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/"
 default = false
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+# The aarch64 (Raspberry Pi) torch wheel from the default index is a CUDA build
+# that dlopens libcudart.so.13 / libcublasLt at import. Those CUDA satellites
+# are x86_64-only (see the override-dependencies block above), so on the
+# GPU-less Pi torch import fails with "libcudart.so.13 not found", which breaks
+# sentence-transformers and the whole embedding/vector-index path. Pin aarch64
+# Linux to the CPU-only wheel (150 MB vs 426 MB) from PyTorch's CPU index;
+# x86_64 keeps the CUDA wheel from the default index.
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
