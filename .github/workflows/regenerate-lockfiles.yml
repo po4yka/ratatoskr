@@ -26,7 +26,7 @@ jobs:
       ACTIONS_PR_TOKEN: ${{ secrets.ACTIONS_PR_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Git user
         run: |
