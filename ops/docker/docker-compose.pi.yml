@@ -23,6 +23,33 @@
 #     up -d ratatoskr mobile-api
 
 services:
+  # Caching DNS resolver sidecar. Sits as the bot/worker's FIRST external DNS
+  # upstream so concurrent external lookups are cached + coalesced locally
+  # instead of hammering (and being dropped by) Docker's embedded resolver
+  # 127.0.0.11. Pure enhancement: the `dns:` lists keep 1.1.1.1/8.8.8.8 as
+  # fallbacks, and service-name discovery never touches dnsmasq. See
+  # ops/docker/dnsmasq.conf for the full rationale.
+  dnsmasq:
+    image: 4km3/dnsmasq@sha256:52e25fb2601156ab66f6a0872c180b285df7cafaa41267d8d65689f066490641
+    container_name: ratatoskr-dnsmasq
+    restart: unless-stopped
+    volumes:
+      - ./dnsmasq.conf:/etc/dnsmasq.conf:ro
+    networks:
+      dns_net:
+        ipv4_address: 10.224.0.2
+    healthcheck:
+      test: ["CMD-SHELL", "nslookup example.com 127.0.0.1 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
   ratatoskr:
     # Serialize A+AAAA DNS queries. Docker's embedded resolver (127.0.0.11)
     # drops a large share of *concurrent* lookups under load with EAI_AGAIN
@@ -33,6 +60,13 @@ services:
     # reliably. Pairs with the bounded-retry hardening in app/security/ssrf.py.
     dns_opt:
       - single-request-reopen
+    # Forward external DNS through the caching dnsmasq sidecar first; keep
+    # 1.1.1.1/8.8.8.8 as fallbacks. !override replaces the base dns: list --
+    # compose otherwise APPENDS, which would bury dnsmasq behind 1.1.1.1.
+    dns: !override
+      - 10.224.0.2
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       - QDRANT_URL=http://host-gateway:6333
       # Cap glibc malloc arenas (default up to 8*cores) to curb RSS growth on
@@ -54,6 +88,7 @@ services:
     networks:
       default: {}
       firecrawl_internal: {}
+      dns_net: {}
     depends_on:
       qdrant:
         condition: service_started
@@ -65,6 +100,11 @@ services:
     # git-backup) and hits the same EAI_AGAIN drops.
     dns_opt:
       - single-request-reopen
+    # Forward external DNS through the caching dnsmasq sidecar first (see bot).
+    dns: !override
+      - 10.224.0.2
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       - QDRANT_URL=http://host-gateway:6333
       - MALLOC_ARENA_MAX=2
@@ -88,6 +128,7 @@ services:
     networks:
       default: {}
       firecrawl_internal: {}
+      dns_net: {}
     depends_on:
       qdrant:
         condition: service_started
@@ -159,3 +200,11 @@ networks:
   # run, reuses it thereafter.
   default:
     name: docker_default
+  # Tiny isolated bridge carrying DNS traffic between the app containers and the
+  # dnsmasq sidecar (static IP 10.224.0.2). /29 = 6 usable addresses; 10.224/29
+  # is well clear of the existing 172.x / 192.168.x Docker subnets.
+  dns_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.224.0.0/29
