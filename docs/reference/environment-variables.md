@@ -995,6 +995,20 @@ Vision model selection (`ATTACHMENT_VISION_MODEL`, `ATTACHMENT_VISION_FALLBACK_M
 
 ---
 
+## Academic Paper Metadata Fallback (optional)
+
+When a paper's landing page can't be scraped (Cloudflare-gated SSRN/ResearchGate, etc.) and yields neither an abstract nor a PDF, the academic extractor can recover the paper's abstract (OpenAlex → Semantic Scholar → Crossref) and/or an open-access PDF (Unpaywall) over open scholarly APIs instead of failing. Off by default. Configuration owner: `app/config/academic.py::AcademicConfig`.
+
+| Variable | Type | Default | Purpose |
+|---|---|---|---|
+| `ACADEMIC_METADATA_FALLBACK_ENABLED` | bool | `false` | Master switch. When false, a gated paper still fails with the accurate "paper unavailable" message (behaviour unchanged). |
+| `ACADEMIC_CONTACT_EMAIL` (alias `UNPAYWALL_EMAIL`) | str | _(none)_ | Contact email sent to the scholarly APIs. **Required when the fallback is enabled** — Unpaywall returns HTTP 422 without it, and OpenAlex/Crossref reward a `mailto` with the faster "polite pool". The bot **hard-fails at startup** if the fallback is enabled without it (no invented default). |
+| `ACADEMIC_API_TIMEOUT_SEC` | float (>0) | `12.0` | Per-provider HTTP timeout. Endpoints are fast; a short timeout just speeds the fall-through to the next provider. |
+
+Caveat: very recently posted papers may not be indexed by any provider yet, so the fallback won't recover them — those still fail honestly. arXiv rarely needs the fallback (its landing abstract is public); it matters most for gated SSRN/RePEc.
+
+---
+
 ## Configuration Validation Checklist
 
 Use this checklist to verify your configuration before deploying:

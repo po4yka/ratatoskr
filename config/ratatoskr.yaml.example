@@ -255,6 +255,19 @@ twitter:
   playwright_enabled: false
 
 # ---------------------------------------------------------------------------
+# Academic paper metadata / open-access fallback
+# When a paper's landing page can't be scraped (Cloudflare-gated SSRN etc.),
+# recover its abstract (OpenAlex/Semantic Scholar/Crossref) and/or an
+# open-access PDF (Unpaywall) over open scholarly APIs instead of failing.
+# Disabled by default. If you enable it you MUST set contact_email (Unpaywall
+# returns 422 without it); the bot hard-fails at startup otherwise.
+# ---------------------------------------------------------------------------
+academic:
+  metadata_fallback_enabled: false
+  # contact_email: you@example.com   # REQUIRED when metadata_fallback_enabled=true
+  # api_timeout_sec: 12.0
+
+# ---------------------------------------------------------------------------
 # Signal ingestion (proactive source ingestors: HN, Reddit, X timeline)
 # All sources are disabled by default; opt in per-source.
 # ---------------------------------------------------------------------------

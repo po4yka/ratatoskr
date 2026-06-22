@@ -30,12 +30,14 @@ from __future__ import annotations
 import asyncio
 import io
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 import httpx
 
 from app.adapters.academic.resolvers import landing_url_for, pdf_url_for
+from app.adapters.academic.scholarly_metadata import fetch_oa_metadata
 from app.adapters.academic.url_patterns import (
     AcademicPaperRef,
     is_academic_paper_url,
@@ -112,6 +114,23 @@ class AcademicPaperUnavailableError(Exception):
         self.reason = reason
         self.host = host
         self.url = url
+
+
+@dataclass(frozen=True)
+class _OARecovery:
+    """Additive result of the open-access / metadata fallback.
+
+    Only ever produced when the landing scrape yielded nothing, so every field
+    is purely recovered content the extractor layers on before composing.
+    """
+
+    title: str | None
+    abstract: str | None
+    pdf_text: str | None
+    pdf_pages: int
+    pdf_url: str | None
+    content_source: str
+    source: str | None
 
 
 class AcademicPlatformExtractor(PlatformExtractor):
@@ -219,9 +238,35 @@ class AcademicPlatformExtractor(PlatformExtractor):
         if pdf_text is None and _landing_looks_like_paywall(landing_markdown):
             pdf_failure_reason = "paywall"
 
-        # 5. Compose content_text. Order: title → abstract → body (or
-        # paywall note). Abstract is always first so that even when the
-        # body is truncated, the LLM sees the author-authored TL;DR.
+        # 5. Open-access / metadata fallback BEFORE declaring the paper
+        # unavailable. When the landing scrape yielded neither an abstract nor a
+        # PDF (typical for a Cloudflare-gated SSRN page), recover the abstract
+        # and/or an open-access PDF from open scholarly APIs. Off by default and
+        # purely additive when on (see app/config/academic.py).
+        content_source = "academic_paper_full" if pdf_text else "academic_paper_abstract_only"
+        meta_source: str | None = None
+        fallback_attempted = self._oa_fallback_enabled(have_content=bool(abstract or pdf_text))
+        if fallback_attempted:
+            recovery = await self._recover_via_oa_metadata(
+                ref, title_hint=title, correlation_id=request.correlation_id
+            )
+            if recovery is not None:
+                if recovery.title:
+                    title = recovery.title
+                if recovery.abstract:
+                    abstract = recovery.abstract
+                if recovery.pdf_text:
+                    pdf_text = recovery.pdf_text
+                    pages_extracted = recovery.pdf_pages
+                    pdf_url = recovery.pdf_url
+                    pdf_failure_reason = None
+                content_source = recovery.content_source
+                meta_source = recovery.source
+
+        # 6. Compose content_text ONCE from the now-final title/abstract/body.
+        # Order: title → abstract → body (or paywall note). Abstract is always
+        # first so that even when the body is truncated the LLM still sees the
+        # author-authored TL;DR.
         content_parts: list[str] = []
         if title:
             content_parts.append(f"# {title}")
@@ -236,20 +281,22 @@ class AcademicPlatformExtractor(PlatformExtractor):
             )
         content_text = "\n\n".join(content_parts)
 
-        # If we have neither abstract nor body, the paper is fully
-        # gated (typical for SSRN papers whose abstract isn't public).
-        # Raise the typed exception so the URL-flow handler can show a
-        # paywall diagnostic instead of the generic LLM-parse-error
-        # template.
+        # 7. If we STILL have neither abstract nor body, the paper is fully
+        # gated and unreachable even via the scholarly APIs. Raise the typed
+        # exception so the URL-flow handler shows the accurate 'paper
+        # unavailable' message instead of the LLM-parse-error template.
         if not abstract and not pdf_text:
             raise AcademicPaperUnavailableError(
-                reason=pdf_failure_reason or "no_content",
+                reason=(
+                    "metadata_fallback_exhausted"
+                    if fallback_attempted
+                    else (pdf_failure_reason or "no_content")
+                ),
                 host=ref.host.value,
                 url=canonical_landing,
             )
 
         detected_lang = detect_language(content_text)
-        content_source = "academic_paper_full" if pdf_text else "academic_paper_abstract_only"
 
         if request.mode == "interactive" and request_id is not None:
             await self._lifecycle.persist_detected_lang(request_id, detected_lang)
@@ -273,6 +320,10 @@ class AcademicPlatformExtractor(PlatformExtractor):
                 "pdf_failure_reason": pdf_failure_reason,
                 "pdf_pages_extracted": pages_extracted,
                 "abstract_extracted": bool(abstract),
+                "metadata_fallback_used": content_source
+                in ("academic_metadata_fallback_used", "academic_oa_pdf_used"),
+                "metadata_provider": meta_source,
+                "oa_pdf_used": content_source == "academic_oa_pdf_used",
                 "request_id": request_id,
             },
         )
@@ -374,6 +425,90 @@ class AcademicPlatformExtractor(PlatformExtractor):
             raise PDFDownloadError("too_many_redirects")
 
     # ------------------------------------------------------------------
+    # Open-access / metadata fallback
+    # ------------------------------------------------------------------
+
+    def _oa_fallback_enabled(self, *, have_content: bool) -> bool:
+        """Whether the OA/metadata fallback should run for this (gated) request."""
+        if have_content:
+            return False
+        cfg = getattr(self._cfg, "academic", None)
+        return bool(cfg is not None and cfg.metadata_fallback_enabled and cfg.contact_email)
+
+    async def _recover_via_oa_metadata(
+        self,
+        ref: AcademicPaperRef,
+        *,
+        title_hint: str | None,
+        correlation_id: str | None,
+    ) -> _OARecovery | None:
+        """Recover an abstract / open-access PDF from open scholarly APIs.
+
+        Called only when the landing scrape yielded neither abstract nor PDF and
+        the fallback is enabled with a contact email. Best-effort: returns
+        ``None`` when nothing usable was recovered. An OA PDF (a full body) is
+        preferred over an abstract and is run back through the existing hardened
+        ``_fetch_and_extract_pdf`` so it inherits the SSRF / size / magic-byte
+        protections.
+        """
+        academic_cfg = self._cfg.academic
+        oa = await fetch_oa_metadata(
+            ref,
+            contact_email=academic_cfg.contact_email,
+            title_hint=(None if _is_synthetic_title(title_hint, ref) else title_hint),
+            timeout_sec=academic_cfg.api_timeout_sec,
+            http_client_factory=self._http_client_factory,
+            correlation_id=correlation_id,
+        )
+        if oa is None:
+            return None
+
+        pdf_text: str | None = None
+        pdf_pages = 0
+        pdf_url: str | None = None
+        content_source = "academic_metadata_fallback_used"
+
+        if oa.oa_pdf_url:
+            try:
+                pdf_text, pdf_pages = await self._fetch_and_extract_pdf(oa.oa_pdf_url)
+                pdf_url = oa.oa_pdf_url
+                content_source = "academic_oa_pdf_used"
+            except PDFDownloadError as exc:
+                logger.info(
+                    "academic_oa_pdf_unavailable",
+                    extra={
+                        "canonical_id": ref.canonical_id,
+                        "reason": f"oa_{exc.reason}",
+                        "cid": correlation_id,
+                    },
+                )
+
+        abstract = (oa.abstract or oa.tldr) if pdf_text is None else None
+        new_title = oa.title if (oa.title and _is_synthetic_title(title_hint, ref)) else None
+
+        if not pdf_text and not abstract:
+            return None
+
+        logger.info(
+            "academic_metadata_fallback_used",
+            extra={
+                "canonical_id": ref.canonical_id,
+                "source": oa.source,
+                "used_oa_pdf": content_source == "academic_oa_pdf_used",
+                "cid": correlation_id,
+            },
+        )
+        return _OARecovery(
+            title=new_title,
+            abstract=abstract,
+            pdf_text=pdf_text,
+            pdf_pages=pdf_pages,
+            pdf_url=pdf_url,
+            content_source=content_source,
+            source=oa.source,
+        )
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -441,6 +576,16 @@ def _extract_title(
         return h1.group(1).strip() or None
     # Generic fallback so the user-facing reply isn't empty.
     return f"{ref.host.value.upper()} paper {ref.paper_id}"
+
+
+def _is_synthetic_title(title: str | None, ref: AcademicPaperRef) -> bool:
+    """True when ``title`` is the host-fallback placeholder, not a real title.
+
+    ``_extract_title`` returns ``"{HOST} paper {id}"`` when no real title was
+    harvested; that must never be used as a title-search query (it would poison
+    the OpenAlex / Semantic Scholar title match) nor be overwritten in place.
+    """
+    return (not title) or title == f"{ref.host.value.upper()} paper {ref.paper_id}"
 
 
 def _harvest_pdf_anchor(markdown: str) -> str | None:
