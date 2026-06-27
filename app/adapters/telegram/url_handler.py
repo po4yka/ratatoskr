@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+import tempfile
 from typing import TYPE_CHECKING, Any, cast
 
 from app.adapters.telegram.batch_relationship_analysis_service import (
@@ -861,8 +863,14 @@ class URLHandler:
             document = getattr(message, "document", None)
             if not document:
                 return None
-            file_info = await message.download()
-            return str(file_info) if file_info else None
+            # Download into the system temp dir -- the only location
+            # SecureFileValidator permits. ``message.download()`` with no path
+            # writes to the process CWD (/app in the container), which the
+            # validator rejects with "File path outside allowed directories".
+            fd, tmp_path = tempfile.mkstemp(prefix="tg-upload-", dir=tempfile.gettempdir())
+            os.close(fd)
+            file_info = await message.download(file_name=tmp_path)
+            return str(file_info) if file_info else tmp_path
         except Exception as exc:
             logger.error("file_download_failed", extra={"error": str(exc)})
             return None

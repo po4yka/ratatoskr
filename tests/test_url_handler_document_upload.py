@@ -260,5 +260,31 @@ class TestHandleDocumentUrlListPath(unittest.IsolatedAsyncioTestCase):
         cast("Any", handler.url_processor).create_text_request.assert_not_awaited()
 
 
+class TestDownloadDocumentFile(unittest.IsolatedAsyncioTestCase):
+    async def test_downloads_into_system_temp_dir(self) -> None:
+        import os
+        import tempfile
+
+        handler = _make_handler(lines=[])
+        captured: dict[str, Any] = {}
+
+        async def fake_download(*, file_name: Any = None) -> Any:
+            captured["file_name"] = file_name
+            return file_name
+
+        msg = SimpleNamespace(
+            document=SimpleNamespace(mime_type="text/markdown"),
+            download=fake_download,
+        )
+        path = await handler._download_document_file(msg)
+        try:
+            assert path is not None
+            self.assertTrue(path.startswith(tempfile.gettempdir()))
+            self.assertTrue(str(captured["file_name"]).startswith(tempfile.gettempdir()))
+        finally:
+            if path and os.path.exists(path):
+                os.remove(path)
+
+
 if __name__ == "__main__":
     unittest.main()
