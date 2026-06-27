@@ -1,0 +1,288 @@
+"""ChatGPT (chatgpt.com) account backup client.
+
+Drives the undocumented internal web API through an already-authenticated browser
+session (``AuthedFetcher`` over a CloakBrowser context). Endpoint shapes were
+extracted from the verified OSS exporters (brianjlacy/export-chatgpt,
+pionxzh/chatgpt-exporter); see TODO(live-validation).
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import datetime as dt
+import json
+import re
+from typing import TYPE_CHECKING, Any
+
+from app.adapters.ai_backup.errors import (
+    AiBackupAuthExpiredError,
+    AiBackupMaxRequestsError,
+)
+from app.adapters.content.browser_auth.authenticated_context import (
+    FetchResponse,
+    RequestCapExceededError,
+)
+from app.core.logging_utils import get_logger
+
+if TYPE_CHECKING:
+    from app.adapters.ai_backup.disk_writer import AiBackupDiskWriter
+    from app.adapters.content.browser_auth.authenticated_context import AuthedFetcher
+
+logger = get_logger(__name__)
+
+_API = "https://chatgpt.com"
+_PAGE_SIZE = 28
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+)
+# Strip either asset-pointer scheme before treating the remainder as a file id.
+_ASSET_POINTER_RE = re.compile(r"^(sediment|file-service)://")
+
+# TODO(live-validation): the ChatGPT internal API is undocumented and may change
+# without notice; live validation against a real account is required before this
+# is production-ready. Deep-research SSE streams and adaptive 429 throttling are
+# intentionally not implemented in P1 (the final report is already in the
+# conversation mapping; fixed delay comes from AI_BACKUP_REQUEST_DELAY_MS).
+
+
+def _should_skip(update_time: float | str | None, since: dt.datetime | None) -> bool:
+    """True when a conversation has not changed since the last successful run."""
+    if since is None or update_time is None:
+        return False
+    if isinstance(update_time, (int, float)):
+        ts = dt.datetime.fromtimestamp(update_time, tz=dt.UTC)
+    else:
+        try:
+            ts = dt.datetime.fromisoformat(update_time)
+        except ValueError:
+            return False
+        ts = ts.astimezone(dt.UTC) if ts.tzinfo else ts.replace(tzinfo=dt.UTC)
+    return ts <= since
+
+
+class ChatGptClient:
+    """Backs up a ChatGPT account via its internal web API."""
+
+    def __init__(
+        self,
+        fetcher: AuthedFetcher,
+        writer: AiBackupDiskWriter,
+        *,
+        bearer_token: str | None = None,
+        download_files: bool = True,
+        incremental: bool = True,
+        last_backed_up_at: dt.datetime | None = None,
+    ) -> None:
+        self._fetcher = fetcher
+        self._writer = writer
+        self._access_token: str | None = bearer_token
+        self._account_id: str | None = None
+        self._download_files = download_files
+        self._incremental = incremental
+        self._since = last_backed_up_at
+        self.skipped = 0
+
+    # -- HTTP plumbing ------------------------------------------------------
+
+    def _make_headers(self) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self._access_token}",
+            "Accept": "application/json",
+            "User-Agent": _UA,
+        }
+        if self._account_id:  # Teams/Enterprise only
+            headers["chatgpt-account-id"] = self._account_id
+        return headers
+
+    @staticmethod
+    def _check_auth(resp: FetchResponse, url: str) -> None:
+        if resp.status in (401, 403):
+            raise AiBackupAuthExpiredError(f"ChatGPT session expired: HTTP {resp.status} on {url}")
+
+    async def _get(self, url: str, *, auth: bool = True) -> FetchResponse:
+        headers = (
+            self._make_headers() if auth else {"User-Agent": _UA, "Accept": "application/json"}
+        )
+        try:
+            resp = await self._fetcher.get(url, headers=headers)
+        except RequestCapExceededError as exc:
+            raise AiBackupMaxRequestsError(str(exc)) from exc
+        self._check_auth(resp, url)
+        return resp
+
+    # -- Auth ---------------------------------------------------------------
+
+    async def exchange_session_cookie(self) -> None:
+        """Fetch the short-lived access token from ``/api/auth/session``.
+
+        The session cookie is carried automatically by the browser context.
+        Decodes the JWT to extract the Teams/Enterprise account id when present.
+        """
+        resp = await self._get(f"{_API}/api/auth/session", auth=False)
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise AiBackupAuthExpiredError(
+                f"ChatGPT session endpoint returned non-JSON: {exc}"
+            ) from exc
+        token = data.get("accessToken") if isinstance(data, dict) else None
+        if not token:
+            raise AiBackupAuthExpiredError("ChatGPT session has no accessToken (logged out)")
+        self._access_token = token
+        self._account_id = self._extract_account_id(token)
+
+    @staticmethod
+    def _extract_account_id(token: str) -> str | None:
+        try:
+            payload_b64 = token.split(".")[1]
+            payload_b64 += "=" * (-len(payload_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        except (IndexError, ValueError, binascii.Error, json.JSONDecodeError):
+            return None
+        auth = payload.get("https://api.openai.com/auth", {}) if isinstance(payload, dict) else {}
+        plan = auth.get("chatgpt_plan_type")
+        if plan in ("team", "enterprise"):
+            return auth.get("chatgpt_account_id")
+        return None
+
+    # -- Collection ---------------------------------------------------------
+
+    async def collect(self) -> dict[str, int]:
+        counts = {"conversations": 0, "projects": 0, "files": 0, "artifacts": 0}
+        if not self._access_token:
+            await self.exchange_session_cookie()
+
+        conv_index: dict[str, dict[str, Any]] = {}
+        for is_archived in (False, True):
+            await self._list_conversations(conv_index, is_archived=is_archived)
+
+        # Projects (best-effort: shape may drift; never lose the core chat backup).
+        try:
+            await self._collect_projects(conv_index, counts)
+        except (AiBackupAuthExpiredError, AiBackupMaxRequestsError):
+            raise
+        except Exception as exc:
+            logger.warning("chatgpt_projects_failed", extra={"error": str(exc)})
+
+        file_refs: dict[str, str] = {}
+        for conv_id, meta in conv_index.items():
+            if self._incremental and _should_skip(meta.get("update_time"), self._since):
+                self.skipped += 1
+                continue
+            detail = await self._get_conversation(conv_id)
+            self._writer.write_conversation(conv_id, detail)
+            counts["conversations"] += 1
+            self._collect_file_refs(detail, conv_id, file_refs)
+
+        if self._download_files and file_refs:
+            try:
+                await self._download_all(file_refs, counts)
+            except (AiBackupAuthExpiredError, AiBackupMaxRequestsError):
+                raise
+            except Exception as exc:
+                logger.warning("chatgpt_files_failed", extra={"error": str(exc)})
+
+        return counts
+
+    async def _list_conversations(
+        self, conv_index: dict[str, dict[str, Any]], *, is_archived: bool
+    ) -> None:
+        offset = 0
+        consecutive_no_new = 0
+        while True:
+            url = (
+                f"{_API}/backend-api/conversations?offset={offset}&limit={_PAGE_SIZE}"
+                f"&order=updated&is_archived={str(is_archived).lower()}"
+            )
+            data = (await self._get(url)).json()
+            items = data.get("items", []) if isinstance(data, dict) else []
+            new_this_page = 0
+            for c in items:
+                cid = c.get("id")
+                if cid and cid not in conv_index:
+                    conv_index[cid] = {**c, "_archived": is_archived}
+                    new_this_page += 1
+            offset += len(items)
+            if new_this_page == 0:
+                consecutive_no_new += 1
+                if consecutive_no_new >= 3:
+                    break
+            else:
+                consecutive_no_new = 0
+            if len(items) < _PAGE_SIZE:
+                break
+
+    async def _get_conversation(self, conv_id: str) -> dict[str, Any]:
+        return (await self._get(f"{_API}/backend-api/conversation/{conv_id}")).json()
+
+    async def _collect_projects(
+        self, conv_index: dict[str, dict[str, Any]], counts: dict[str, int]
+    ) -> None:
+        cursor: str | None = None
+        while True:
+            url = f"{_API}/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0"
+            if cursor:
+                url += f"&cursor={cursor}"
+            data = (await self._get(url)).json()
+            for item in data.get("items", []) if isinstance(data, dict) else []:
+                inner = item.get("gizmo") or {}
+                gizmo = inner.get("gizmo") or inner
+                gid = gizmo.get("id") if isinstance(gizmo, dict) else None
+                if not gid:
+                    continue
+                self._writer.write_project(gid, gizmo)
+                counts["projects"] += 1
+                await self._list_project_conversations(gid, conv_index)
+            cursor = data.get("cursor") if isinstance(data, dict) else None
+            if not cursor:
+                break
+
+    async def _list_project_conversations(
+        self, gizmo_id: str, conv_index: dict[str, dict[str, Any]]
+    ) -> None:
+        cursor = "0"
+        while True:
+            url = f"{_API}/backend-api/gizmos/{gizmo_id}/conversations?cursor={cursor}"
+            data = (await self._get(url)).json()
+            for c in data.get("items", []) if isinstance(data, dict) else []:
+                cid = c.get("id")
+                if cid and cid not in conv_index:
+                    conv_index[cid] = {**c, "_gizmo_id": gizmo_id}
+            cursor = data.get("cursor") if isinstance(data, dict) else None
+            if not cursor:
+                break
+
+    @staticmethod
+    def _collect_file_refs(detail: dict[str, Any], conv_id: str, file_refs: dict[str, str]) -> None:
+        mapping = detail.get("mapping", {}) if isinstance(detail, dict) else {}
+        for node in mapping.values():
+            msg = (node or {}).get("message") or {}
+            content = msg.get("content") or {}
+            if content.get("content_type") != "multimodal_text":
+                continue
+            for part in content.get("parts") or []:
+                if not isinstance(part, dict):
+                    continue
+                ptr = part.get("asset_pointer")
+                if ptr:
+                    file_id = _ASSET_POINTER_RE.sub("", ptr)
+                    file_refs.setdefault(file_id, conv_id)
+
+    async def _download_all(self, file_refs: dict[str, str], counts: dict[str, int]) -> None:
+        for file_id, conv_id in file_refs.items():
+            url = f"{_API}/backend-api/files/download/{file_id}?conversation_id={conv_id}&inline=false"
+            meta = (await self._get(url)).json()
+            if not isinstance(meta, dict) or meta.get("status") != "success":
+                continue
+            download_url = meta.get("download_url")
+            if not download_url:
+                continue
+            resp = await self._get(download_url)
+            if resp.status == 200:
+                self._writer.write_file(file_id, meta.get("file_name") or file_id, resp.bytes())
+                counts["files"] += 1
+
+
+__all__ = ["ChatGptClient"]

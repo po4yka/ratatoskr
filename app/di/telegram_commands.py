@@ -579,6 +579,10 @@ def build_command_dispatcher_deps(
                     "/ai_backups",
                     _build_text_handler(context_factory, ai_backup_handler.handle_ai_backups),
                 ),
+                TextCommandRoute(
+                    "/ai_backup_login",
+                    _build_text_handler(context_factory, ai_backup_handler.handle_ai_backup_login),
+                ),
             ),
         ),
         TelegramCommandContribution(

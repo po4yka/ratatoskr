@@ -5117,6 +5117,62 @@
         }
       }
     },
+    "/v1/ai-backups/{service}/session": {
+      "post": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Ingest Session",
+        "description": "Persist a Playwright browser session for (user, service) — Mode A ingest.\n\nOn success: 204. On bad shape: 400. The storage_state is never echoed back.\nClears an existing AUTH_EXPIRED halt so the next scheduled run fires.",
+        "operationId": "ingest_session_v1_ai_backups__service__session_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionIngestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/articles": {
       "get": {
         "tags": [
@@ -22483,6 +22539,22 @@
         "type": "object",
         "title": "SendEmailRequest",
         "description": "Request sending existing content to a verified email address."
+      },
+      "SessionIngestRequest": {
+        "properties": {
+          "storage_state": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Storage State",
+            "description": "Full Playwright storage_state object with a 'cookies' list (and optional 'origins'), exported from a browser already logged into the target service. Never echoed back in any response."
+          }
+        },
+        "type": "object",
+        "required": [
+          "storage_state"
+        ],
+        "title": "SessionIngestRequest",
+        "description": "Body for ``POST /{service}/session`` (Mode A session ingest)."
       },
       "SignalFeedbackRequest": {
         "properties": {

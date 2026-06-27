@@ -1,10 +1,8 @@
-"""Telegram command handlers for /ai_backup and /ai_backups.
+"""Telegram command handlers for /ai_backup, /ai_backups, /ai_backup_login.
 
-/ai_backups  -- list the per-service backup status rows for the operator.
-/ai_backup   -- short overview of the AI account-backup subsystem state.
-
-Read-only in this phase: the authenticated scrape is not functional yet, so
-these commands surface status and configuration only.
+/ai_backups       -- list the per-service backup status rows for the operator.
+/ai_backup        -- short overview of the AI account-backup subsystem state.
+/ai_backup_login  -- ingest a Playwright storage_state session blob (Mode A).
 """
 
 from __future__ import annotations
@@ -112,3 +110,57 @@ class AiBackupHandler(HandlerDependenciesMixin):
         lines = [_format_backup_row(r) for r in rows]
         text = f"AI account backups ({len(rows)}):\n\n" + "\n\n".join(lines)
         await ctx.response_formatter.safe_reply(ctx.message, text)
+
+    @combined_handler("command_ai_backup_login", "ai_backup_login", include_text=True)
+    async def handle_ai_backup_login(self, ctx: CommandExecutionContext) -> None:
+        """Handle /ai_backup_login <chatgpt|claude>\\n<storage_state JSON> (Mode A).
+
+        Stores the session encrypted. Never logs the blob or any cookie value.
+        """
+        import json
+
+        from app.adapters.ai_backup.session_store import (
+            AiBackupSessionStore,
+            _validate_storage_state_shape,
+        )
+        from app.db.models.ai_backup import AiBackupService, AiBackupStatus
+
+        parts = (ctx.text or "").split(None, 2)
+        if len(parts) < 3:
+            await ctx.response_formatter.safe_reply(
+                ctx.message,
+                "Usage: /ai_backup_login <chatgpt|claude>\n<storage_state JSON>",
+            )
+            return
+
+        service_name = parts[1].lower()
+        try:
+            service = AiBackupService(service_name)
+        except ValueError:
+            await ctx.response_formatter.safe_reply(
+                ctx.message,
+                f"Unknown service {service_name!r}. Use 'chatgpt' or 'claude'.",
+            )
+            return
+
+        try:
+            storage_state = json.loads(parts[2])
+            _validate_storage_state_shape(storage_state)
+        except json.JSONDecodeError as exc:
+            await ctx.response_formatter.safe_reply(ctx.message, f"Invalid JSON: {exc}")
+            return
+        except ValueError as exc:
+            await ctx.response_formatter.safe_reply(ctx.message, f"Invalid session shape: {exc}")
+            return
+
+        await AiBackupSessionStore(self._db).save(ctx.uid, service, storage_state)
+        row = await self._repo.get(ctx.uid, service)
+        if row is not None and row.status == AiBackupStatus.AUTH_EXPIRED:
+            await self._repo.record_success(ctx.uid, service)
+
+        logger.info("ai_backup_login_saved", extra=ctx.log_extra(service=service.value))
+        await ctx.response_formatter.safe_reply(
+            ctx.message,
+            f"Session for {service.value} saved. "
+            "Please delete your message — it contained live session cookies.",
+        )

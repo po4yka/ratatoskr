@@ -54,7 +54,7 @@ Operator decisions recorded:
 ## Subtasks (phased)
 
 - [x] P0 — schema + config + repository + task skeleton + scheduler block + REST/Telegram stubs. **Landed:** `AiBackupConfig` wired into `AppConfig`; `AiAccountBackup` model + enums + migration `0049` + `ALL_MODELS`; `AiBackupRepository` (IDOR-guarded); `ratatoskr.ai_backup.sync` Taskiq task (Redis-locked, no scraping) + scheduler block + worker/requeue registration; read-only `/v1/ai-backups` REST (OpenAPI regenerated) + `/ai_backup` `/ai_backups` Telegram. Verified: ruff + mypy clean, 15 new tests + 40 existing scheduler/config tests pass. REST session-ingest/trigger and the scrape clients are deferred to P1.
-- [ ] P1/P2 — `authenticated_context()` + both backup clients on shared scaffolding + Mode A ingest + on-disk writer + incremental.
+- [x] P1/P2 — `authenticated_context()` + both backup clients on shared scaffolding + Mode A ingest + on-disk writer + incremental. **Landed:** `allowlist`/`session_store`/`disk_writer`/`client_factory`/`service` + `content/browser_auth/authenticated_context` (AuthedFetcher + PlaywrightAuthedFetcher) + `chatgpt_client`/`claude_client`; task wired to the orchestrator (tasks-layer notifier for Telegram/healthcheck, keeping adapters off the di/tasks tiers); REST `POST /v1/ai-backups/{service}/session` + Telegram `/ai_backup_login`. Verified: ruff + mypy clean, 78 new unit tests (fakes/fixtures) pass, OpenAPI regenerated. **Not validated live** — clients carry `TODO(live-validation)`; Claude Compliance-API path and project-knowledge-file downloads deferred.
 - [ ] P3 — auth-expiry/notify, Healthchecks, rate-cap + jitter, docs, OpenAPI regen, tests.
 - [ ] P4 (optional) — Mode B noVNC login; git-versioned backup tree; Claude Compliance-API mode.
 

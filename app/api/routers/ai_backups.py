@@ -1,9 +1,8 @@
 """AI account backup status endpoints (read-only).
 
-Exposes the lifecycle state of the operator's ChatGPT/Claude account backups.
-The backup itself runs in the Taskiq ``ratatoskr.ai_backup.sync`` job; these
-endpoints surface status only. Session ingest and run-triggering are added in a
-later phase (the stealth-scrape subsystem is not functional yet).
+Exposes the lifecycle state of the operator's ChatGPT/Claude account backups and
+accepts a Mode A session blob (Playwright ``storage_state``) for a service. The
+backup itself runs in the Taskiq ``ratatoskr.ai_backup.sync`` job.
 """
 
 from __future__ import annotations
@@ -49,6 +48,18 @@ class AiBackupListResponse(BaseModel):
     """All AI account backups for the authenticated user."""
 
     backups: list[AiBackupItem]
+
+
+class SessionIngestRequest(BaseModel):
+    """Body for ``POST /{service}/session`` (Mode A session ingest)."""
+
+    storage_state: dict = Field(
+        description=(
+            "Full Playwright storage_state object with a 'cookies' list "
+            "(and optional 'origins'), exported from a browser already logged "
+            "into the target service. Never echoed back in any response."
+        )
+    )
 
 
 def _get_db(request: Request) -> Database:
@@ -99,3 +110,36 @@ async def get_ai_backup(
     if row is None:
         raise HTTPException(status_code=404, detail="No backup status for this service")
     return _to_item(row)
+
+
+@router.post("/{service}/session", status_code=204)
+async def ingest_session(
+    service: AiBackupService,
+    body: SessionIngestRequest,
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> None:
+    """Persist a Playwright browser session for (user, service) — Mode A ingest.
+
+    On success: 204. On bad shape: 400. The storage_state is never echoed back.
+    Clears an existing AUTH_EXPIRED halt so the next scheduled run fires.
+    """
+    from app.adapters.ai_backup.session_store import (
+        AiBackupSessionStore,
+        _validate_storage_state_shape,
+    )
+    from app.db.models.ai_backup import AiBackupStatus
+
+    user_id: int = user["user_id"]
+    try:
+        _validate_storage_state_shape(body.storage_state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    db = _get_db(request)
+    await AiBackupSessionStore(db).save(user_id, service, body.storage_state)
+
+    repo = _get_repo(request)
+    row = await repo.get(user_id, service)
+    if row is not None and row.status == AiBackupStatus.AUTH_EXPIRED:
+        await repo.record_success(user_id, service)
