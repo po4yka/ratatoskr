@@ -376,6 +376,11 @@ class GraphURLProcessor:
             cached=False,
             request_id=request_id,
         )
+        will_send_bilingual_ru = (
+            not silent
+            and LANG_RU not in (detected_lang, lang)
+            and bool(getattr(self.cfg.runtime, "summary_bilingual_enabled", False))
+        )
         if not silent:
             await self._deliver_text_summary(
                 message=message,
@@ -384,6 +389,7 @@ class GraphURLProcessor:
                 correlation_id=correlation_id,
                 interaction_id=interaction_id,
                 request_type=request_type,
+                suppress_tldr_ru=will_send_bilingual_ru,
             )
         await self.post_summary_tasks.schedule_tasks(
             message,
@@ -409,6 +415,7 @@ class GraphURLProcessor:
         correlation_id: str | None,
         interaction_id: int | None,
         request_type: str,
+        suppress_tldr_ru: bool = False,
     ) -> None:
         context = URLFlowContext(
             dedupe_hash=f"{request_type}:{request_id}",
@@ -424,7 +431,9 @@ class GraphURLProcessor:
             chunks=None,
         )
         summary_result = _SummaryResultStub(
-            summary=result.summary_json,
+            summary=_summary_for_delivery(
+                result.summary_json, suppress_tldr_ru=suppress_tldr_ru
+            ),
             llm_result=create_chunk_llm_stub(self.cfg),
             served_from_cache=False,
             model_used=getattr(self.cfg.openrouter, "model", None),
@@ -610,16 +619,24 @@ class GraphURLProcessor:
                 summary_json, cached=False, request_id=req_id
             )
 
-            # Parity concern 9 -- bot_reply_message_id update (delivery concern).
-            await self._persist_bot_reply(request, req_id, result)
-
             # The graph re-detects the content language during extract; read it back
             # from final_state so the chosen output lang + RU-translation gating match
             # the legacy context builder (which fed both off ``extraction.detected_lang``)
-            # rather than the pre-graph preferred_lang.
+            # rather than the pre-graph preferred_lang. Computed BEFORE delivery so the
+            # EN card knows whether a full Russian block will follow.
             detected_lang = self._detected_lang(final_state)
             chosen_lang = choose_language(
                 getattr(self.cfg.runtime, "preferred_lang", None), detected_lang
+            )
+            will_send_bilingual_ru = (
+                not request.batch_mode
+                and self._needs_ru_translation(request, chosen_lang, detected_lang)
+                and bool(getattr(self.cfg.runtime, "summary_bilingual_enabled", False))
+            )
+
+            # Parity concern 9 -- bot_reply_message_id update (delivery concern).
+            await self._persist_bot_reply(
+                request, req_id, result, suppress_tldr_ru=will_send_bilingual_ru
             )
 
             # Parity concern 8 -- post-summary follow-up tasks, gated like legacy
@@ -818,13 +835,20 @@ class GraphURLProcessor:
         )
 
     async def _persist_bot_reply(
-        self, request: URLFlowRequest, req_id: int, result: URLProcessingFlowResult
+        self,
+        request: URLFlowRequest,
+        req_id: int,
+        result: URLProcessingFlowResult,
+        *,
+        suppress_tldr_ru: bool = False,
     ) -> None:
         """Deliver the summary + persist bot_reply_message_id via the delivery service.
 
         The delivery service owns both the structured-summary send and the
         bot_reply_message_id persistence (parity concern 9). We build the minimal
-        context it needs from the graph result.
+        context it needs from the graph result. When ``suppress_tldr_ru`` is set a
+        full Russian block will follow, so the inline TL;DR (RU) is stripped from
+        the primary card to avoid showing the Russian TL;DR twice.
         """
         if request.effective_silent:
             return
@@ -832,7 +856,9 @@ class GraphURLProcessor:
         from app.adapters.content.url_flow_models import create_chunk_llm_stub
 
         summary_result = _SummaryResultStub(
-            summary=result.summary_json,
+            summary=_summary_for_delivery(
+                result.summary_json, suppress_tldr_ru=suppress_tldr_ru
+            ),
             llm_result=create_chunk_llm_stub(self.cfg),
             served_from_cache=False,
             model_used=getattr(self.cfg.openrouter, "model", None),
@@ -1049,6 +1075,18 @@ class _SummaryResultStub:
         self.llm_result = llm_result
         self.served_from_cache = served_from_cache
         self.model_used = model_used
+
+
+def _summary_for_delivery(summary_json: Any, *, suppress_tldr_ru: bool) -> Any:
+    """Return the summary to render, optionally without the inline ``tldr_ru``.
+
+    When a full Russian block will follow (bilingual delivery), the inline
+    TL;DR (RU) section is redundant, so it is stripped from a shallow copy of the
+    primary-card summary. The original dict is left untouched.
+    """
+    if suppress_tldr_ru and isinstance(summary_json, dict) and "tldr_ru" in summary_json:
+        return {k: v for k, v in summary_json.items() if k != "tldr_ru"}
+    return summary_json
 
 
 def _message_identity(message: Any) -> tuple[int | None, int | None, int | None]:

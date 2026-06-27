@@ -216,6 +216,32 @@ class TestPostSummaryBilingualGate(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ru_translation", _scheduled_labels(delivery))
 
 
+class TestSummaryForDelivery(unittest.TestCase):
+    def test_strips_tldr_ru_when_suppressing(self) -> None:
+        from app.adapters.content.graph_url_processor import _summary_for_delivery
+
+        original = {"summary_250": "Hi", "tldr_ru": "Привет"}
+        out = _summary_for_delivery(original, suppress_tldr_ru=True)
+        self.assertNotIn("tldr_ru", out)
+        self.assertEqual(out["summary_250"], "Hi")
+        # original is not mutated
+        self.assertIn("tldr_ru", original)
+
+    def test_keeps_tldr_ru_when_not_suppressing(self) -> None:
+        from app.adapters.content.graph_url_processor import _summary_for_delivery
+
+        original = {"summary_250": "Hi", "tldr_ru": "Привет"}
+        out = _summary_for_delivery(original, suppress_tldr_ru=False)
+        self.assertIs(out, original)
+
+    def test_noop_when_no_tldr_ru(self) -> None:
+        from app.adapters.content.graph_url_processor import _summary_for_delivery
+
+        original = {"summary_250": "Hi"}
+        out = _summary_for_delivery(original, suppress_tldr_ru=True)
+        self.assertIs(out, original)
+
+
 class TestBilingualCache(unittest.IsolatedAsyncioTestCase):
     async def _run(self, *, cache_helper: Any) -> Any:
         svc, rf, _ = _make_post_service(
