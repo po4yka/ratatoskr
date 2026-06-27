@@ -218,11 +218,17 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         # Truncate content for analysis (save tokens)
         content_preview = content[:8000] if len(content) > 8000 else content
 
+        from app.core.content_cleaner import wrap_untrusted_source
+
         messages = [
             {"role": "system", "content": prompt},
             {
                 "role": "user",
-                "content": f"Analyze this content and determine if web search would help:\n\n{content_preview}",
+                "content": (
+                    "Analyze the source content inside the boundary and determine if "
+                    "web search would help. Output only your analysis.\n\n"
+                    + wrap_untrusted_source(content_preview)
+                ),
             },
         ]
 
