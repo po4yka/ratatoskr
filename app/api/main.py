@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path as _Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -19,6 +20,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.error_handlers import (
     api_exception_handler,
@@ -224,6 +226,45 @@ def _resolve_allowed_origins() -> list[str]:
 
 
 _ALLOWED_ORIGINS = _resolve_allowed_origins()
+
+
+def _resolve_trusted_hosts() -> list[str]:
+    """Allowed Host header values for TrustedHostMiddleware.
+
+    Read TRUSTED_HOSTS (comma-separated) when set. Otherwise default to the
+    declared deployment hosts (the OpenAPI ``servers`` URLs) plus the configured
+    CORS origin hosts and local/test hosts, so legitimate deployments keep
+    working while still rejecting Host-header injection. ``*`` is intentionally
+    NOT the default; set TRUSTED_HOSTS='*' to disable the check explicitly.
+    """
+    raw = Config.get("TRUSTED_HOSTS", "")
+    explicit = [h.strip() for h in raw.split(",") if h.strip()]
+    if explicit:
+        return explicit
+
+    hosts: set[str] = {"localhost", "127.0.0.1", "testserver"}
+    for url in (
+        "https://ratatoskrapi.po4yka.com",
+        "https://staging-ratatoskrapi.po4yka.com",
+    ):
+        host = urlparse(url).hostname
+        if host:
+            hosts.add(host)
+    for origin in _ALLOWED_ORIGINS:
+        host = urlparse(origin).hostname
+        if host:
+            hosts.add(host)
+    logger.warning(
+        "trusted_hosts_defaulted",
+        extra={"trusted_hosts_count": len(hosts), "hint": "set TRUSTED_HOSTS to restrict"},
+    )
+    return sorted(hosts)
+
+
+# Reject requests with an unexpected Host header (host-header injection,
+# cache poisoning, poisoned redirect/callback URLs) before any route handler
+# runs.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_resolve_trusted_hosts())
 
 
 # CORS middleware with specific origins
