@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from pydantic import AliasChoices, BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .academic import AcademicConfig
 from .adaptive_timeout import AdaptiveTimeoutConfig
 from .api import ApiLimitsConfig, AuthConfig, SyncConfig
 from .background import BackgroundProcessorConfig
@@ -56,7 +57,6 @@ from .scraper import ScraperConfig
 from .signal_ingestion import SignalIngestionConfig
 from .social import SocialConfig
 from .telegram import TelegramConfig, TelegramLimitsConfig
-from .academic import AcademicConfig
 from .transcription import TranscriptionConfig
 from .tts import ElevenLabsConfig
 from .twitter import TwitterConfig
