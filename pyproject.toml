@@ -325,6 +325,9 @@ graph = [
   "langgraph>=1.2.6,<2",
   "langchain-core>=1.4.8,<2",
   "langgraph-checkpoint-postgres>=3,<4",
+  # Direct floor for the transitive checkpointer: 4.1.0 carries GHSA-fjqc-hq36-qh5p
+  # (CVSS 6.8 Medium), fixed in 4.1.1. Still satisfies langgraph-checkpoint-postgres's >=4.1.0.
+  "langgraph-checkpoint>=4.1.1,<5",
   "psycopg[binary]>=3.3.4",
   "psycopg-pool>=3.2",
 ]
