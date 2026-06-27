@@ -295,6 +295,8 @@ def build_url_processor(
         insights_generator=summarization_runtime.insights_generator,
         summary_delivery=summary_delivery,
         related_reads_service=related_reads_service,
+        cfg=cfg,
+        llm_client=openrouter,
     )
 
     return assemble_graph_url_processor(

@@ -731,6 +731,7 @@ Configures scheduled nulling of raw artifact columns and cleanup of orphaned loc
 | `LOG_TRUNCATE_LENGTH` | `1000` | Max chars for truncated log fields |
 | `REQUEST_TIMEOUT_SEC` | `60` | General request timeout |
 | `PREFERRED_LANG` | `auto` | Language preference: `auto`, `en`, `ru` |
+| `SUMMARY_BILINGUAL_ENABLED` | `true` | For non-Russian, interactive summaries, deliver the full summary in Russian (every field) as a second block after the primary-language summary, not only the TL;DR. The Russian version is produced by translating the finished summary via `chat_structured` (cheaper flash model when configured). On translation failure it falls back to the legacy prose Russian translation. No effect on Russian-source content or silent/batch flows. |
 | `DEBUG_PAYLOADS` | `0` | Enable bounded debug payload previews. Keep disabled in production; tokens, prompts, raw content, and private URLs are redacted by default. |
 | `LOG_PRIVACY_REDACT_URLS` | `1` | Redact URL path/query/fragment fields in logs and traces by default; set to `0` only for controlled local debugging. |
 | `MAX_CONCURRENT_CALLS` | `4` | Max concurrent Firecrawl/OpenRouter calls |

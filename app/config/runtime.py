@@ -25,6 +25,9 @@ class RuntimeConfig(BaseModel):
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     request_timeout_sec: int = Field(default=60, validation_alias="REQUEST_TIMEOUT_SEC")
     preferred_lang: str = Field(default="auto", validation_alias="PREFERRED_LANG")
+    summary_bilingual_enabled: bool = Field(
+        default=True, validation_alias="SUMMARY_BILINGUAL_ENABLED"
+    )
     debug_payloads: bool = Field(default=False, validation_alias="DEBUG_PAYLOADS")
     enable_textacy: bool = Field(default=False, validation_alias="TEXTACY_ENABLED")
     enable_chunking: bool = Field(default=True, validation_alias="CHUNKING_ENABLED")

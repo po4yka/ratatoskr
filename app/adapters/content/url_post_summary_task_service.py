@@ -22,6 +22,10 @@ from app.core.async_utils import raise_if_cancelled
 
 logger = get_logger(__name__)
 
+# Header that introduces the full Russian rendering of a summary (always Russian,
+# regardless of the configured UI language).
+_RU_SUMMARY_HEADER = "🇷🇺 Версия на русском"
+
 
 class URLPostSummaryTaskService:
     """Own translation, insights, custom article, and related-reads follow-up work."""
@@ -35,6 +39,8 @@ class URLPostSummaryTaskService:
         insights_generator: LLMInsightsGenerator,
         summary_delivery: URLSummaryDeliveryService,
         related_reads_service: RelatedReadsService | None = None,
+        cfg: Any = None,
+        llm_client: Any = None,
     ) -> None:
         self._response_formatter = response_formatter
         self._summary_repo = summary_repo
@@ -42,7 +48,14 @@ class URLPostSummaryTaskService:
         self._insights_generator = insights_generator
         self._summary_delivery = summary_delivery
         self._related_reads_service = related_reads_service
+        self._cfg = cfg
+        self._llm_client = llm_client
         self._background_tasks: set[asyncio.Task[Any]] = set()
+
+    def _bilingual_enabled(self) -> bool:
+        return bool(
+            getattr(getattr(self._cfg, "runtime", None), "summary_bilingual_enabled", False)
+        )
 
     def set_related_reads_service(self, service: RelatedReadsService | None) -> None:
         """Inject or replace the related-reads service after construction."""
@@ -70,9 +83,33 @@ class URLPostSummaryTaskService:
         silent: bool,
         url_hash: str | None,
     ) -> None:
-        # Skip separate translation if tldr_ru is already in the summary (inline in card)
+        # Bilingual delivery: for non-Russian content deliver the WHOLE summary in
+        # Russian (every field), not just the TL;DR. Falls back to the legacy prose
+        # translation when bilingual mode is off or the structured pass fails.
         _has_inline_ru = bool(str(summary.get("tldr_ru") or "").strip())
-        if needs_ru_translation and not _has_inline_ru:
+        if needs_ru_translation and not silent and self._bilingual_enabled():
+            # Awaited inline (not fire-and-forget) so the Russian block lands right
+            # after the primary-language summary, before the insights/article
+            # follow-ups. The primary summary is already delivered at this point,
+            # so this only delays the secondary enrichment notices, not the summary.
+            ru_sent = await self._send_bilingual_ru_summary(
+                message, summary, req_id, correlation_id
+            )
+            if not ru_sent and not _has_inline_ru:
+                self._schedule_task(
+                    self._maybe_send_russian_translation(
+                        message,
+                        summary,
+                        req_id,
+                        correlation_id,
+                        needs_ru_translation,
+                        url_hash=url_hash,
+                        source_lang=chosen_lang,
+                    ),
+                    correlation_id,
+                    "ru_translation",
+                )
+        elif needs_ru_translation and not _has_inline_ru:
             self._schedule_task(
                 self._maybe_send_russian_translation(
                     message,
@@ -175,6 +212,58 @@ class URLPostSummaryTaskService:
             url_hash=url_hash,
             source_lang=source_lang,
         )
+
+    async def _send_bilingual_ru_summary(
+        self,
+        message: Any,
+        summary: dict[str, Any],
+        req_id: int,
+        correlation_id: str | None,
+    ) -> bool:
+        """Translate the finished summary and deliver the full Russian version.
+
+        Returns True when the Russian block was delivered; False when translation
+        or delivery did not happen, so the caller can fall back to the legacy
+        prose translation.
+        """
+        if self._llm_client is None:
+            return False
+        from app.adapters.content.summary_translation import translate_summary_to_ru_struct
+
+        try:
+            ru_summary = await translate_summary_to_ru_struct(
+                llm_client=self._llm_client,
+                summary=summary,
+                cfg=self._cfg,
+                correlation_id=correlation_id,
+                req_id=req_id,
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "bilingual_ru_translation_failed",
+                extra={"cid": correlation_id, "error": str(exc)},
+            )
+            return False
+
+        if not ru_summary:
+            return False
+
+        try:
+            return await self._response_formatter.send_secondary_language_summary(
+                message,
+                ru_summary,
+                lang="ru",
+                header=_RU_SUMMARY_HEADER,
+                correlation_id=correlation_id,
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "bilingual_ru_delivery_failed",
+                extra={"cid": correlation_id, "error": str(exc)},
+            )
+            return False
 
     async def _maybe_send_russian_translation(
         self,

@@ -370,6 +370,82 @@ class StructuredSummaryFlow:
                 await self._send_action_buttons(message, summary_id, correlation_id)
             return None
 
+    def _with_lang(self, lang: str) -> StructuredSummaryFlow:
+        """Return a sibling flow that renders in ``lang``.
+
+        The rendering helpers key every label off ``context.lang``, so a second
+        language is rendered by cloning the collaborator bundle with a different
+        ``lang`` rather than threading an override through every call.
+        """
+        if lang == self._context.lang:
+            return self
+        from dataclasses import replace
+
+        from app.adapters.external.formatting.summary.summary_blocks import (
+            SummaryBlocksPresenter,
+        )
+
+        ctx = replace(self._context, lang=lang)
+        return StructuredSummaryFlow(ctx, blocks=SummaryBlocksPresenter(ctx))
+
+    async def send_secondary_language_summary(
+        self,
+        message: Any,
+        summary_shaped: dict[str, Any],
+        *,
+        lang: str,
+        header: str | None = None,
+        correlation_id: str | None = None,
+    ) -> bool:
+        """Render the full summary content in a second language as new messages.
+
+        Sends every textual field (combined lines, longest summary, key ideas,
+        and supplemental blocks) translated into ``lang``. Deliberately omits the
+        cover, compact-card progress finalize, action buttons, and crosspost --
+        those belong to the primary-language delivery and must not be duplicated.
+        Returns True when at least the main content block was sent.
+        """
+        flow = self._with_lang(lang)
+        sent_main = False
+        try:
+            if header:
+                await flow._context.response_sender.safe_reply(message, header)
+
+            main_parts: list[str] = []
+            combined_lines = flow._blocks.build_combined_summary_lines(
+                summary_shaped, include_domain=True
+            )
+            if combined_lines:
+                main_parts.append("\n".join(combined_lines))
+
+            summary_text = flow._blocks.build_summary_field_text(
+                summary_shaped, include_tldr=True
+            )
+            if summary_text:
+                main_parts.append(summary_text)
+
+            ideas_text = flow._blocks.build_key_ideas_text(summary_shaped)
+            if ideas_text:
+                main_parts.append(ideas_text)
+
+            if main_parts:
+                await flow._context.text_processor.send_long_text(
+                    message, "\n\n".join(main_parts), parse_mode="HTML"
+                )
+                sent_main = True
+
+            await flow._blocks.send_new_field_messages(message, summary_shaped)
+            return sent_main
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "secondary_language_summary_failed",
+                extra={"cid": correlation_id, "lang": lang, "error": str(exc)},
+            )
+            # Report whether the main block already reached the user so the caller
+            # does not schedule a duplicate (prose) translation on top of it.
+            return sent_main
+
     async def send_forward_summary_response(
         self, message: Any, forward_shaped: dict[str, Any], summary_id: int | str | None = None
     ) -> None:

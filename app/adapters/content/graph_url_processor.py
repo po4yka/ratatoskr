@@ -392,7 +392,9 @@ class GraphURLProcessor:
             request_id,
             correlation_id,
             summary_json,
-            needs_ru_translation=False,
+            # Non-Russian uploaded/text materials get the full bilingual treatment
+            # too (gated downstream by SUMMARY_BILINGUAL_ENABLED + not silent).
+            needs_ru_translation=(not silent and LANG_RU not in (detected_lang, lang)),
             silent=silent,
             url_hash=f"{request_type}:{request_id}",
         )

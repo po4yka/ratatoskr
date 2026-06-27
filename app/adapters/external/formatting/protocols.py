@@ -375,6 +375,18 @@ class SummaryPresenter(Protocol):
         """Send forward summary with per-field messages."""
         ...
 
+    async def send_secondary_language_summary(
+        self,
+        message: Any,
+        summary_shaped: dict[str, Any],
+        *,
+        lang: str,
+        header: str | None = None,
+        correlation_id: str | None = None,
+    ) -> bool:
+        """Render the full summary content in a second language as new messages."""
+        ...
+
     async def send_russian_translation(
         self, message: Any, translated_text: str, correlation_id: str | None = None
     ) -> None:

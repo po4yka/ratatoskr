@@ -535,6 +535,24 @@ class ResponseFormatter:
             message, forward_shaped, summary_id=summary_id
         )
 
+    async def send_secondary_language_summary(
+        self,
+        message: Any,
+        summary_shaped: dict[str, Any],
+        *,
+        lang: str,
+        header: str | None = None,
+        correlation_id: str | None = None,
+    ) -> bool:
+        """Render the full summary content in a second language (e.g. Russian)."""
+        return await self._summary_presenter.send_secondary_language_summary(
+            message,
+            summary_shaped,
+            lang=lang,
+            header=header,
+            correlation_id=correlation_id,
+        )
+
     async def send_russian_translation(
         self, message: Any, translated_text: str, correlation_id: str | None = None
     ) -> None:
