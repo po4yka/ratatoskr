@@ -126,20 +126,18 @@ async def ingest_session(
     """
     from app.adapters.ai_backup.session_store import (
         AiBackupSessionStore,
-        _validate_storage_state_shape,
+        validate_storage_state_shape,
     )
-    from app.db.models.ai_backup import AiBackupStatus
 
     user_id: int = user["user_id"]
     try:
-        _validate_storage_state_shape(body.storage_state)
+        validate_storage_state_shape(body.storage_state)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     db = _get_db(request)
     await AiBackupSessionStore(db).save(user_id, service, body.storage_state)
 
-    repo = _get_repo(request)
-    row = await repo.get(user_id, service)
-    if row is not None and row.status == AiBackupStatus.AUTH_EXPIRED:
-        await repo.record_success(user_id, service)
+    # Lift any AUTH_EXPIRED halt without advancing last_backed_up_at, so the next
+    # scheduled run still picks up everything changed during the outage window.
+    await _get_repo(request).clear_auth_expired(user_id, service)

@@ -76,7 +76,7 @@ class AiBackupOrchestrationService:
         from app.adapters.ai_backup.chatgpt_client import ChatGptClient
         from app.adapters.ai_backup.client_factory import build_client
         from app.adapters.ai_backup.disk_writer import AiBackupDiskWriter
-        from app.adapters.ai_backup.session_store import _SERVICE_DOMAIN
+        from app.adapters.ai_backup.session_store import domain_for_service
         from app.adapters.content.browser_auth.authenticated_context import (
             PlaywrightAuthedFetcher,
             authenticated_context,
@@ -112,7 +112,7 @@ class AiBackupOrchestrationService:
         try:
             await self._notifier.on_start(service)
             async with authenticated_context(
-                _SERVICE_DOMAIN[service],
+                domain_for_service(service),
                 storage_state,
                 endpoint_url=self._cfg.scraper.cloakbrowser_url,
                 refreshed_out=refreshed_out,

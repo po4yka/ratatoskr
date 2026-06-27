@@ -184,7 +184,9 @@ async def authenticated_context(
                         refreshed_out.append(dict(refreshed))
                 except PWError:
                     logger.warning("auth_ctx_storage_state_export_failed")
-                await context.close()
+                finally:
+                    # Always close, even if storage_state() raised a non-PWError.
+                    await context.close()
         finally:
             # CDP disconnect only — never stop the shared cloakserve sidecar.
             await browser.close()

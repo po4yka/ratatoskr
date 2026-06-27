@@ -14,6 +14,7 @@ import datetime as dt
 import json
 import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from app.adapters.ai_backup.errors import (
     AiBackupAuthExpiredError,
@@ -100,6 +101,8 @@ class ChatGptClient:
     def _check_auth(resp: FetchResponse, url: str) -> None:
         if resp.status in (401, 403):
             raise AiBackupAuthExpiredError(f"ChatGPT session expired: HTTP {resp.status} on {url}")
+        if resp.status == 429:
+            raise AiBackupMaxRequestsError(f"ChatGPT rate-limited: HTTP 429 on {url}")
 
     async def _get(self, url: str, *, auth: bool = True) -> FetchResponse:
         headers = (
@@ -215,7 +218,9 @@ class ChatGptClient:
                 break
 
     async def _get_conversation(self, conv_id: str) -> dict[str, Any]:
-        return (await self._get(f"{_API}/backend-api/conversation/{conv_id}")).json()
+        return (
+            await self._get(f"{_API}/backend-api/conversation/{quote(conv_id, safe='')}")
+        ).json()
 
     async def _collect_projects(
         self, conv_index: dict[str, dict[str, Any]], counts: dict[str, int]
@@ -224,7 +229,7 @@ class ChatGptClient:
         while True:
             url = f"{_API}/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0"
             if cursor:
-                url += f"&cursor={cursor}"
+                url += f"&cursor={quote(cursor, safe='')}"
             data = (await self._get(url)).json()
             for item in data.get("items", []) if isinstance(data, dict) else []:
                 inner = item.get("gizmo") or {}
@@ -244,7 +249,10 @@ class ChatGptClient:
     ) -> None:
         cursor = "0"
         while True:
-            url = f"{_API}/backend-api/gizmos/{gizmo_id}/conversations?cursor={cursor}"
+            url = (
+                f"{_API}/backend-api/gizmos/{quote(gizmo_id, safe='')}"
+                f"/conversations?cursor={quote(cursor, safe='')}"
+            )
             data = (await self._get(url)).json()
             for c in data.get("items", []) if isinstance(data, dict) else []:
                 cid = c.get("id")
@@ -272,14 +280,19 @@ class ChatGptClient:
 
     async def _download_all(self, file_refs: dict[str, str], counts: dict[str, int]) -> None:
         for file_id, conv_id in file_refs.items():
-            url = f"{_API}/backend-api/files/download/{file_id}?conversation_id={conv_id}&inline=false"
+            url = (
+                f"{_API}/backend-api/files/download/{quote(file_id, safe='')}"
+                f"?conversation_id={quote(conv_id, safe='')}&inline=false"
+            )
             meta = (await self._get(url)).json()
             if not isinstance(meta, dict) or meta.get("status") != "success":
                 continue
             download_url = meta.get("download_url")
             if not download_url:
                 continue
-            resp = await self._get(download_url)
+            # Signed CDN URL: access is by query-param signature, not the Bearer
+            # token -- do NOT forward Authorization to oaiusercontent.com.
+            resp = await self._get(download_url, auth=False)
             if resp.status == 200:
                 self._writer.write_file(file_id, meta.get("file_name") or file_id, resp.bytes())
                 counts["files"] += 1

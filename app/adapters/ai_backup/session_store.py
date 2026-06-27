@@ -34,7 +34,12 @@ _SERVICE_DOMAIN: dict[AiBackupService, str] = {
 }
 
 
-def _validate_storage_state_shape(obj: object) -> None:
+def domain_for_service(service: AiBackupService) -> str:
+    """Return the canonical (never user-derived) domain for an AI backup service."""
+    return _SERVICE_DOMAIN[service]
+
+
+def validate_storage_state_shape(obj: object) -> None:
     """Raise ``ValueError`` unless ``obj`` is a Playwright storage_state dict.
 
     Minimum contract: a mapping with a ``cookies`` key whose value is a list.
@@ -86,7 +91,7 @@ class AiBackupSessionStore:
 
         Validates shape before any DB write. Never logs the storage_state value.
         """
-        _validate_storage_state_shape(storage_state)
+        validate_storage_state_shape(storage_state)
         domain = _SERVICE_DOMAIN[service]
         encrypted = encrypt_secret(json.dumps(storage_state, ensure_ascii=False))
         async with self._db.transaction() as session:
@@ -109,4 +114,4 @@ class AiBackupSessionStore:
                 row.encrypted_cookies = encrypted
 
 
-__all__ = ["_SERVICE_DOMAIN", "AiBackupSessionStore", "_validate_storage_state_shape"]
+__all__ = ["AiBackupSessionStore", "domain_for_service", "validate_storage_state_shape"]

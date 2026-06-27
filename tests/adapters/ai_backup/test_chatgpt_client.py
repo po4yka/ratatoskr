@@ -10,7 +10,7 @@ import pytest
 
 from app.adapters.ai_backup.chatgpt_client import ChatGptClient
 from app.adapters.ai_backup.disk_writer import AiBackupDiskWriter
-from app.adapters.ai_backup.errors import AiBackupAuthExpiredError
+from app.adapters.ai_backup.errors import AiBackupAuthExpiredError, AiBackupMaxRequestsError
 from app.adapters.content.browser_auth.authenticated_context import FetchResponse
 
 _DATE = dt.date(2026, 6, 27)
@@ -136,4 +136,19 @@ async def test_401_raises_auth_expired(tmp_path, fake_fetcher) -> None:
     fetcher = fake_fetcher(lambda url: FetchResponse(status=401, body_bytes=b"{}"))
     client = ChatGptClient(fetcher, _writer(tmp_path))
     with pytest.raises(AiBackupAuthExpiredError):
+        await client.collect()
+
+
+async def test_429_is_rate_limited_not_auth_expired(tmp_path, fake_fetcher) -> None:
+    token = _jwt({"https://api.openai.com/auth": {"chatgpt_plan_type": "pro"}})
+
+    def handler(url: str) -> object:
+        if "/api/auth/session" in url:
+            return _json({"accessToken": token})
+        if "/backend-api/conversations?" in url:
+            return FetchResponse(status=429, body_bytes=b"")
+        return None
+
+    client = ChatGptClient(fake_fetcher(handler), _writer(tmp_path))
+    with pytest.raises(AiBackupMaxRequestsError):
         await client.collect()

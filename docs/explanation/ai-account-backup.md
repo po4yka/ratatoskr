@@ -25,7 +25,7 @@ CloakBrowser is already integrated as a stealth-Chromium **sidecar** (`cloakhq/c
 ```mermaid
 flowchart TB
     subgraph Operator["Operator (one-time, Mode A)"]
-        Paste["/ai_backup_login chatgpt|claude\n+ storage_state blob"]
+        Paste["POST /v1/ai-backups/{service}/session\n+ storage_state blob (HTTPS)"]
     end
     subgraph Backend["Ratatoskr backend"]
         Store[(user_browser_sessions\nFernet-encrypted)]
@@ -54,7 +54,7 @@ flowchart TB
 
 The hard problem is not reading the APIs — it is establishing and keeping a session past 2FA and Cloudflare. Three bootstrap modes exist; the build targets **Mode A** and documents the others as future options.
 
-- **Mode A — operator-supplied session (primary).** The operator logs into their normal browser, exports the relevant state as a Playwright `storage_state` JSON, and submits it once via the `/ai_backup_login` Telegram DM or `POST /v1/ai-backups/{service}/session`. ChatGPT needs `__Secure-next-auth.session-token` + `cf_clearance`; Claude needs `sessionKey` + `cf_clearance` + the organization UUID. A short documented DevTools snippet (or a tiny bookmarklet) produces the blob. **No account credentials are ever stored** — only the session blob, encrypted. This sidesteps headless login, login-page Turnstile, and 2FA entirely, and it is the lowest-ban-signal automatable path.
+- **Mode A — operator-supplied session (primary).** The operator logs into their normal browser, exports the relevant state as a Playwright `storage_state` JSON, and submits it once via `POST /v1/ai-backups/{service}/session` (HTTPS). ChatGPT needs `__Secure-next-auth.session-token` + `cf_clearance`; Claude needs `sessionKey` + `cf_clearance` + the organization UUID. A short documented DevTools snippet (or a tiny bookmarklet) produces the blob. **No account credentials are ever stored** — only the session blob, encrypted. This sidesteps headless login, login-page Turnstile, and 2FA entirely, and it is the lowest-ban-signal automatable path. Ingest is REST-only on purpose: the blob holds live cookies, so it must not transit Telegram's non-E2E chat (stored on Telegram servers, shown in notification previews). The Telegram surface is status-only (`/ai_backup`, `/ai_backups`).
 - **Mode B — headful noVNC login (future).** Interactive human login into the cloakserve profile via CloakBrowser-Manager's noVNC viewer, snapshotting `context.storage_state()` afterward. Lowest ban signal of all (a real human login from the backup fingerprint and IP) but adds an early-alpha sidecar.
 - **Mode C — automated credential login (explicit non-goal).** Storing email/password + a TOTP secret and logging in headlessly. Highest detection surface, most brittle, and the worst ban signal. Documented as out of scope.
 
@@ -76,7 +76,7 @@ Cloudflare binds the `cf_clearance` cookie to the browser's TLS/JA3 fingerprint 
 | Taskiq task | `app/tasks/ai_backup_sync.py` (`ratatoskr.ai_backup.sync`, lock `task_lock:ai_backup_sync`) | `app/tasks/git_backup_sync.py` |
 | Scheduler | `if cfg.ai_backup.enabled:` block in `app/tasks/scheduler.py::_build_tasks` | the `git_backup` block |
 | REST | `app/api/routers/ai_backups.py`; regen OpenAPI | `app/api/routers/git_mirrors.py` |
-| Telegram | `app/adapters/telegram/command_handlers/ai_backup_handler.py` (`/ai_backup`, `/ai_backups`, `/ai_backup_login`) | `git_mirror_handler.py` |
+| Telegram | `app/adapters/telegram/command_handlers/ai_backup_handler.py` (`/ai_backup`, `/ai_backups` — status only) | `git_mirror_handler.py` |
 
 ## Data model
 
@@ -138,7 +138,7 @@ Writes are idempotent by id; `AI_BACKUP_INCREMENTAL` skips unchanged conversatio
 
 ## Task, scheduler, and surfaces
 
-The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_sync", ttl=1800)` with silent skip-if-held (copying the git-backup header), loops the enabled services, runs each, records the lifecycle row, fires the Healthchecks ping, and sends the Telegram notification. The scheduler gains one `if cfg.ai_backup.enabled:` block emitting a `ScheduledTask(task_name="ratatoskr.ai_backup.sync", cron=cfg.ai_backup.sync_cron, labels={"job": "ai_backup_sync"})`. REST exposes list / trigger (202) / session-ingest / status / delete; Telegram exposes `/ai_backup`, `/ai_backups`, and `/ai_backup_login`.
+The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_sync", ttl=1800)` with silent skip-if-held (copying the git-backup header), loops the enabled services, runs each, records the lifecycle row, fires the Healthchecks ping, and sends the Telegram notification. The scheduler gains one `if cfg.ai_backup.enabled:` block emitting a `ScheduledTask(task_name="ratatoskr.ai_backup.sync", cron=cfg.ai_backup.sync_cron, labels={"job": "ai_backup_sync"})`. REST exposes list / status / session-ingest; Telegram exposes status-only `/ai_backup` and `/ai_backups` (session ingest is REST-only — the blob holds live cookies).
 
 ## Security checklist
 

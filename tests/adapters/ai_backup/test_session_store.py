@@ -8,7 +8,7 @@ import pytest
 
 from app.adapters.ai_backup.session_store import (
     AiBackupSessionStore,
-    _validate_storage_state_shape,
+    validate_storage_state_shape,
 )
 from app.db.models.ai_backup import AiBackupService
 
@@ -60,11 +60,11 @@ def _fernet(monkeypatch) -> None:
 )
 def test_validate_rejects_bad_shapes(bad: object) -> None:
     with pytest.raises(ValueError, match="storage_state"):
-        _validate_storage_state_shape(bad)
+        validate_storage_state_shape(bad)
 
 
 def test_validate_accepts_minimal() -> None:
-    _validate_storage_state_shape({"cookies": []})
+    validate_storage_state_shape({"cookies": []})
 
 
 async def test_load_absent_returns_none() -> None:

@@ -73,7 +73,7 @@ class TaskAiBackupNotifier:
         if self._cfg.ai_backup.notify_on != "never":
             await self._send(
                 f"AI backup session EXPIRED for [{service.value}]. "
-                f"Re-supply a session via /ai_backup_login {service.value}."
+                f"Re-supply a session via POST /v1/ai-backups/{service.value}/session."
             )
 
     async def _ping(self, phase: str) -> None:
@@ -82,10 +82,12 @@ class TaskAiBackupNotifier:
             return
         url = base if not phase else f"{base.rstrip('/')}/{phase}"
         try:
-            import httpx
+            # SSRF-validating client: an hc_ping_url pointed at an internal host
+            # (metadata service, postgres, ...) is refused, not POSTed to.
+            from app.security.ssrf import make_safe_async_client
 
             timeout = self._cfg.ai_backup.hc_ping_timeout_seconds
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with make_safe_async_client(timeout=timeout) as client:
                 await client.post(url)
         except Exception as exc:
             logger.debug("ai_backup_hc_ping_failed", extra={"phase": phase, "error": str(exc)})

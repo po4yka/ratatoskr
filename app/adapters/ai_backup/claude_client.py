@@ -12,9 +12,11 @@ import datetime as dt
 import json
 import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from app.adapters.ai_backup.errors import (
     AiBackupAuthExpiredError,
+    AiBackupError,
     AiBackupMaxRequestsError,
     AiBackupParseError,
 )
@@ -81,12 +83,16 @@ class ClaudeClient:
 
     @staticmethod
     def _check_auth(resp: FetchResponse, url: str) -> None:
-        if resp.status == 401:
-            raise AiBackupAuthExpiredError(f"Claude session expired: HTTP 401 on {url}")
-        if resp.status == 403:
-            raise AiBackupAuthExpiredError(f"Claude session blocked: HTTP 403 on {url}")
-        if resp.status >= 300:
-            raise AiBackupAuthExpiredError(f"Claude unexpected HTTP {resp.status} on {url}")
+        # Only 401/403 are terminal (auth gone). 429 + 5xx are TRANSIENT and must
+        # NOT halt the service — they record a retryable failure with backoff.
+        # (A redirect to login is followed by the fetcher and surfaces as an HTML
+        # 200, caught by _parse_json's interstitial check.)
+        if resp.status in (401, 403):
+            raise AiBackupAuthExpiredError(f"Claude session rejected: HTTP {resp.status} on {url}")
+        if resp.status == 429:
+            raise AiBackupMaxRequestsError(f"Claude rate-limited: HTTP 429 on {url}")
+        if resp.status >= 500:
+            raise AiBackupError(f"Claude server error: HTTP {resp.status} on {url}")
 
     def _parse_json(self, resp: FetchResponse, url: str) -> Any:
         body = resp.bytes()
@@ -110,7 +116,7 @@ class ClaudeClient:
 
     async def collect(self) -> dict[str, int]:
         counts = {"conversations": 0, "projects": 0, "files": 0, "artifacts": 0}
-        org = await self._get_org_id()
+        org = quote(await self._get_org_id(), safe="")
 
         try:
             for project in await self._get(f"{_API}/api/organizations/{org}/projects"):
@@ -134,7 +140,7 @@ class ClaudeClient:
                 self.skipped += 1
                 continue
             detail = await self._get(
-                f"{_API}/api/organizations/{org}/chat_conversations/{uuid}"
+                f"{_API}/api/organizations/{org}/chat_conversations/{quote(uuid, safe='')}"
                 "?tree=True&rendering_mode=messages&render_all_tools=true"
             )
             self._writer.write_conversation(uuid, detail)
@@ -181,9 +187,9 @@ class ClaudeClient:
         for message in messages:
             for art in self._extract_artifacts(message):
                 ext = art.get("language") or _ext_for_content_type(art.get("content_type", ""))
-                self._writer.write_artifact(
-                    conv_id, art["artifact_id"], ext, (art.get("code") or "").encode("utf-8")
-                )
+                code = art.get("code")
+                data = (code if isinstance(code, str) else "").encode("utf-8")
+                self._writer.write_artifact(conv_id, art["artifact_id"], ext, data)
                 written += 1
         return written
 
@@ -202,9 +208,11 @@ class ClaudeClient:
                 code = dc.get("code", "")
                 if dc.get("type") == "json_block" and isinstance(code, str):
                     try:
-                        code = json.loads(code).get("code", code)
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
+                        parsed = json.loads(code)
+                    except json.JSONDecodeError:
+                        parsed = None
+                    if isinstance(parsed, dict) and isinstance(parsed.get("code"), str):
+                        code = parsed["code"]
                 results.append(
                     {
                         "artifact_id": block.get("id") or f"artifact_{len(results)}",

@@ -160,6 +160,24 @@ class AiBackupRepository:
             row.last_error = message[:4000] if message else None
             row.last_error_category = "auth_expired"
 
+    async def clear_auth_expired(self, user_id: int, service: AiBackupService) -> None:
+        """Lift an AUTH_EXPIRED halt after a fresh session is supplied.
+
+        Resets status + error fields to PENDING but deliberately does NOT touch
+        ``last_backed_up_at`` -- using ``record_success`` here would advance it to
+        now and make the next incremental run skip everything that changed during
+        the outage window. No-op unless the row is currently AUTH_EXPIRED.
+        """
+        async with self._db.transaction() as session:
+            row = await self._load_for_update(session, user_id, service)
+            if row is None or row.status != AiBackupStatus.AUTH_EXPIRED:
+                return
+            row.status = AiBackupStatus.PENDING
+            row.consecutive_failures = 0
+            row.backoff_until = None
+            row.last_error = None
+            row.last_error_category = None
+
     async def _load_for_update(
         self, session: AsyncSession, user_id: int, service: AiBackupService
     ) -> AiAccountBackup | None:

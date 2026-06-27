@@ -9,7 +9,11 @@ import pytest
 
 from app.adapters.ai_backup.claude_client import ClaudeClient
 from app.adapters.ai_backup.disk_writer import AiBackupDiskWriter
-from app.adapters.ai_backup.errors import AiBackupAuthExpiredError
+from app.adapters.ai_backup.errors import (
+    AiBackupAuthExpiredError,
+    AiBackupError,
+    AiBackupMaxRequestsError,
+)
 from app.adapters.content.browser_auth.authenticated_context import FetchResponse
 
 _DATE = dt.date(2026, 6, 27)
@@ -147,6 +151,81 @@ async def test_cloudflare_html_interstitial_is_auth_expired(tmp_path, fake_fetch
     client = ClaudeClient(fake_fetcher(handler), _writer(tmp_path))
     with pytest.raises(AiBackupAuthExpiredError):
         await client.collect()
+
+
+def _account_org(url: str):
+    return _json({"memberships": [{"organization": {"uuid": "o", "capabilities": ["chat"]}}]})
+
+
+async def test_429_is_rate_limited_not_auth_expired(tmp_path, fake_fetcher) -> None:
+    def handler(url: str) -> object:
+        if url.endswith("/api/account"):
+            return _account_org(url)
+        if url.endswith("/projects"):
+            return _json([])
+        if url.endswith("/chat_conversations"):
+            return FetchResponse(status=429, body_bytes=b"")
+        return None
+
+    client = ClaudeClient(fake_fetcher(handler), _writer(tmp_path))
+    with pytest.raises(AiBackupMaxRequestsError):
+        await client.collect()
+
+
+async def test_5xx_is_transient_not_auth_expired(tmp_path, fake_fetcher) -> None:
+    def handler(url: str) -> object:
+        if url.endswith("/api/account"):
+            return _account_org(url)
+        if url.endswith("/projects"):
+            return _json([])
+        if url.endswith("/chat_conversations"):
+            return FetchResponse(status=503, body_bytes=b"")
+        return None
+
+    client = ClaudeClient(fake_fetcher(handler), _writer(tmp_path))
+    with pytest.raises(AiBackupError) as exc_info:
+        await client.collect()
+    # A 503 must NOT terminally halt the service.
+    assert not isinstance(exc_info.value, AiBackupAuthExpiredError)
+
+
+async def test_non_string_artifact_code_does_not_crash(tmp_path, fake_fetcher) -> None:
+    detail = {
+        "chat_messages": [
+            {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "artifacts",
+                        "id": "a1",
+                        # display_content.code is a dict, not a string.
+                        "display_content": {
+                            "type": "code_block",
+                            "language": "py",
+                            "code": {"x": 1},
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+
+    def handler(url: str) -> object:
+        if url.endswith("/api/account"):
+            return _account_org(url)
+        if url.endswith("/projects"):
+            return _json([])
+        if url.endswith("/chat_conversations"):
+            return _json([{"uuid": "u1", "updated_at": "2026-06-01T00:00:00Z"}])
+        if "/chat_conversations/u1" in url:
+            return _json(detail)
+        return None
+
+    writer = _writer(tmp_path)
+    client = ClaudeClient(fake_fetcher(handler), writer, incremental=False)
+    counts = await client.collect()  # must not raise AttributeError
+    assert counts["artifacts"] == 1
+    assert (writer.run_dir / "artifacts" / "u1" / "a1.py").read_bytes() == b""
 
 
 async def test_incremental_skip(tmp_path, fake_fetcher) -> None:

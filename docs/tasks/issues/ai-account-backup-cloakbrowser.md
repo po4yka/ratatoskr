@@ -44,7 +44,7 @@ Operator decisions recorded:
 - [ ] `CloakBrowserProvider.authenticated_context()` loads/persists encrypted `storage_state`, keeps the SSRF guard, pins the per-domain fingerprint.
 - [ ] `ChatGPTBackupClient` walks conversations + gizmo Projects + file downloads; `ClaudeBackupClient` walks conversations + projects + artifacts.
 - [ ] Taskiq task `ratatoskr.ai_backup.sync` with Redis lock; scheduler emits it only when `cfg.ai_backup.enabled`.
-- [ ] Mode A session ingest via `/ai_backup_login` (Telegram) and `POST /v1/ai-backups/{service}/session` (REST); OpenAPI regenerated.
+- [x] Mode A session ingest via `POST /v1/ai-backups/{service}/session` (REST/HTTPS only — Telegram ingest removed in security review: live cookies must not transit non-E2E chat); OpenAPI regenerated.
 - [ ] `/ai_backup` and `/ai_backups` status surfaces; `auth_expired` detection halts the service and notifies the operator.
 - [ ] On-disk layout with idempotent-by-id writes, `manifest.json`, and `AI_BACKUP_INCREMENTAL` skipping.
 - [ ] Host allowlist enforced on every internal-API URL; session secrets redacted from logs and never written to the backup tree.
