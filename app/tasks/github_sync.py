@@ -1016,6 +1016,9 @@ def _build_analyze_use_case(db: Database, settings: AppConfig) -> Any:
 
         qdrant_store = build_qdrant_vector_store(settings)
     except Exception:
+        # Degrade to DB-only embedding, but log it: silently dropping the vector
+        # store makes the index diverge from the repo DB with no signal (CWE-390).
+        logger.warning("github_sync_qdrant_unavailable", exc_info=True)
         qdrant_store = None
 
     embedding_gen = RepositoryEmbeddingGenerator(

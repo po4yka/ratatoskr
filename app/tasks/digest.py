@@ -69,7 +69,14 @@ async def _acquire_scheduled_lock(cfg: AppConfig, correlation_id: str) -> AsyncG
                 if current == correlation_id:
                     await redis_client.delete(_LOCK_KEY)
             except Exception:
-                pass
+                # Don't fail the task on unlock error, but never swallow it
+                # silently: a stuck lock skips subsequent digest runs until TTL
+                # and must be observable (CWE-390).
+                logger.warning(
+                    "digest_lock_release_failed",
+                    extra={"cid": correlation_id},
+                    exc_info=True,
+                )
 
 
 @broker.task(task_name="ratatoskr.digest.run")
