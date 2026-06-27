@@ -10,8 +10,11 @@
 FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
 
 ARG WEBWRIGHT_REPO=https://github.com/microsoft/Webwright.git
-# TODO: bump this SHA as upstream stabilizes.
-ARG WEBWRIGHT_REF=main
+# Pinned to an immutable upstream commit SHA (NOT a moving branch like `main`)
+# so the build is reproducible and cannot pull in an attacker's commit pushed to
+# the upstream default branch. Bump this SHA deliberately after reviewing the
+# upstream diff.
+ARG WEBWRIGHT_REF=4a46f282ec37f27d6003cc498a977939d62d9015
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -23,14 +26,18 @@ RUN apt-get update \
 
 WORKDIR /opt
 
-# Clone Webwright at the pinned ref. We do NOT `pip install -e .` blindly —
-# upstream is pre-release and dependency pins shift; the sidecar declares the
-# narrow surface it needs in requirements.txt and lets the agent's runtime
-# imports resolve from the cloned tree on PYTHONPATH.
-RUN git clone --depth 1 "${WEBWRIGHT_REPO}" Webwright \
- && cd Webwright \
- && (git fetch --depth 1 origin "${WEBWRIGHT_REF}" && git checkout FETCH_HEAD || true) \
- && pip install --no-cache-dir -e . || echo "[webwright] editable install failed; falling back to PYTHONPATH"
+# Clone Webwright and check out the pinned commit SHA. A full clone (not
+# --depth 1) is required so an arbitrary historical SHA can be checked out. The
+# checkout MUST hard-fail the build if the pinned SHA is unavailable — never
+# silently fall back to the default branch (that would defeat the pin).
+RUN git clone "${WEBWRIGHT_REPO}" Webwright \
+ && git -C Webwright checkout "${WEBWRIGHT_REF}"
+
+# Editable install is best-effort: upstream is pre-release and dependency pins
+# shift, so the sidecar declares its narrow surface in requirements.txt and
+# resolves the rest from the cloned tree on PYTHONPATH.
+RUN pip install --no-cache-dir -e ./Webwright \
+ || echo "[webwright] editable install failed; falling back to PYTHONPATH"
 
 ENV PYTHONPATH=/opt/Webwright/src:${PYTHONPATH:-}
 
