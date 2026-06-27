@@ -32,17 +32,17 @@ jobs:
       ACTIONS_PR_TOKEN: ${{ secrets.ACTIONS_PR_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           version: "0.8.17"
           enable-cache: true
@@ -145,7 +145,7 @@ jobs:
       - name: Create Pull Request (using PAT if provided)
         if: steps.changes.outputs.changes == 'true' && env.ACTIONS_PR_TOKEN != ''
         id: cpr
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
           token: ${{ env.ACTIONS_PR_TOKEN }}
           commit-message: "chore(lock): update requirements via uv export"
@@ -168,7 +168,7 @@ jobs:
         if: steps.changes.outputs.changes == 'true' && (env.ACTIONS_PR_TOKEN == '')
         id: cpr_fallback
         continue-on-error: true
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
           commit-message: "chore(lock): update requirements via uv export"
           title: "chore(lock): update requirements"
@@ -194,7 +194,7 @@ jobs:
 
       - name: Enable auto-merge for lockfile PR
         if: steps.changes.outputs.changes == 'true' && steps.cpr.outputs.pull-request-number != ''
-        uses: peter-evans/enable-pull-request-automerge@v3
+        uses: peter-evans/enable-pull-request-automerge@a660677d5469627102a1c1e11409dd063606628d # v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
