@@ -46,6 +46,24 @@ _TEXT_DOCUMENT_SUFFIXES = (".txt", *_MARKDOWN_DOCUMENT_SUFFIXES)
 # mixing prose with links is summarized as an article (preserving the prose)
 # rather than routed to the batch flow (which discards everything but the URLs).
 _URL_LIST_MIN_RATIO = 0.8
+
+
+def _document_file_name(message: Any) -> str:
+    """Resolve an uploaded document's filename across message shapes.
+
+    Telethon's raw ``Document`` has no flat ``file_name`` -- the name lives in
+    ``message.file.name`` (the File helper) or is exposed as ``message.file_name``.
+    A flat ``document.file_name`` is kept as a last resort for adapter/test
+    message shapes. Returns ``""`` when no filename is available.
+    """
+    for candidate in (
+        getattr(getattr(message, "file", None), "name", None),
+        getattr(message, "file_name", None),
+        getattr(getattr(message, "document", None), "file_name", None),
+    ):
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return ""
 # Upper bound on the characters fed to the summarizer from an uploaded document.
 # A file is accepted up to SecureFileValidator.MAX_FILE_SIZE_BYTES (10 MB); that
 # much text would overflow every model context window, so it is truncated here.
@@ -305,13 +323,9 @@ class URLHandler:
         Accepts ``.txt`` (a batch-URL list or article prose) and Markdown
         (``.md`` / ``.markdown``, always summarized as an article).
         """
-        document = getattr(message, "document", None)
-        if not document or not hasattr(document, "file_name"):
+        if getattr(message, "document", None) is None:
             return False
-        file_name = getattr(document, "file_name", "")
-        if not isinstance(file_name, str):
-            return False
-        return file_name.lower().endswith(_TEXT_DOCUMENT_SUFFIXES)
+        return _document_file_name(message).lower().endswith(_TEXT_DOCUMENT_SUFFIXES)
 
     async def handle_document_file(
         self,
@@ -383,10 +397,7 @@ class URLHandler:
 
     def _is_markdown_document(self, message: Any) -> bool:
         """Return True when the uploaded document has a Markdown extension."""
-        file_name = getattr(getattr(message, "document", None), "file_name", "") or ""
-        return isinstance(file_name, str) and file_name.lower().endswith(
-            _MARKDOWN_DOCUMENT_SUFFIXES
-        )
+        return _document_file_name(message).lower().endswith(_MARKDOWN_DOCUMENT_SUFFIXES)
 
     def _should_summarize_as_article(self, message: Any, lines: list[str]) -> bool:
         """Decide whether an uploaded document is summarized as an article.

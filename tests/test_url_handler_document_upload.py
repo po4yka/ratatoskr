@@ -72,6 +72,24 @@ class TestCanHandleDocument(unittest.TestCase):
             self.assertFalse(handler.can_handle_document(_doc_message(name)), name)
         self.assertFalse(handler.can_handle_document(SimpleNamespace(document=None)))
 
+    def test_accepts_telethon_file_name_shape(self) -> None:
+        # Telethon's raw Document has no flat file_name; the name is exposed via
+        # message.file.name. Regression: the filename must resolve from there.
+        handler = _make_handler(lines=[])
+        msg = SimpleNamespace(
+            document=SimpleNamespace(mime_type="text/markdown"),
+            file=SimpleNamespace(name="RAW_rawknuckle.md"),
+        )
+        self.assertTrue(handler.can_handle_document(msg))
+        self.assertTrue(handler._is_markdown_document(msg))
+
+    def test_accepts_message_file_name_fallback(self) -> None:
+        handler = _make_handler(lines=[])
+        msg = SimpleNamespace(
+            document=SimpleNamespace(mime_type="text/plain"), file_name="notes.txt"
+        )
+        self.assertTrue(handler.can_handle_document(msg))
+
 
 class TestShouldSummarizeAsArticle(unittest.TestCase):
     def test_markdown_is_always_article_even_when_all_urls(self) -> None:
