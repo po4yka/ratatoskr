@@ -38,17 +38,27 @@ class PayloadLogger:
         content_lengths = [len(str(msg.get("content", ""))) for msg in messages]
         total_content = sum(content_lengths)
 
+        # Message content can carry scraped PII. Even with debug payloads
+        # explicitly enabled, never emit content previews in production logs --
+        # keep only role + length there (CWE-532). Fail safe to no-content.
+        include_content = False
+        try:
+            from app.config import load_config
+
+            include_content = not load_config(
+                allow_stub_telegram=True
+            ).deployment.is_production_mode
+        except Exception:
+            include_content = False
+
         message_summaries: list[dict[str, Any]] = []
         for msg in messages[:2]:
             role = msg.get("role", "?")
             content = str(msg.get("content", ""))
-            message_summaries.append(
-                {
-                    "role": role,
-                    "len": len(content),
-                    "debug_content_preview": bounded_debug_preview(content, max_chars=120),
-                }
-            )
+            summary: dict[str, Any] = {"role": role, "len": len(content)}
+            if include_content:
+                summary["debug_content_preview"] = bounded_debug_preview(content, max_chars=120)
+            message_summaries.append(summary)
 
         self._logger.debug(
             "openrouter_request_payload",
