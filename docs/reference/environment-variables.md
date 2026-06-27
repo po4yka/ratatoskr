@@ -915,6 +915,38 @@ Periodic bare-clone mirroring of GitHub repositories (starred, owned, watched) a
 
 ---
 
+## AI Account Backup
+
+Periodic scrape-based backup of the operator's own ChatGPT and Claude web-account data (conversations, projects, file attachments, artifacts) to a local store using authenticated CloakBrowser sessions. Off by default and double-gated: `AI_BACKUP_ENABLED` plus the per-service flag (`AI_BACKUP_CHATGPT_ENABLED` / `AI_BACKUP_CLAUDE_ENABLED`) must both be true for a service to run. Configuration owner: `app/config/ai_backup.py::AiBackupConfig`. **Caution: the scrape path drives the providers' web products with automation, which violates their Terms of Service; this is an eyes-open, own-account-only, single-tenant tool.** Full design: `docs/explanation/ai-account-backup.md`.
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `AI_BACKUP_ENABLED` | bool | `false` | Master switch for the periodic AI account-backup Taskiq job; when `false` the job is not registered with the scheduler. |
+| `AI_BACKUP_SYNC_CRON` | str | `"0 5 * * *"` | UTC 5-field cron expression for the AI account-backup sync job (default: 05:00 UTC daily). |
+| `AI_BACKUP_DATA_PATH` | str | `/data/ai-backups` | Container-internal path where backed-up account data is written; typically a bind-mounted or named Docker volume on the worker service. |
+| `AI_BACKUP_CHATGPT_ENABLED` | bool | `false` | Back up the operator's ChatGPT (`chatgpt.com`) account when `true`. Requires `AI_BACKUP_ENABLED=true`. |
+| `AI_BACKUP_CLAUDE_ENABLED` | bool | `false` | Back up the operator's Claude (`claude.ai`) account when `true`. Requires `AI_BACKUP_ENABLED=true`. |
+| `AI_BACKUP_REQUEST_DELAY_MS` | int (≥ 0) | `1500` | Base delay between internal-API requests within a run, in milliseconds. Jitter is added on top to keep the request cadence below bot-scoring thresholds. |
+| `AI_BACKUP_MAX_REQUESTS_PER_RUN` | int (≥ 1) | `5000` | Hard cap on internal-API requests per service per run (safety stop). |
+| `AI_BACKUP_DOWNLOAD_FILES` | bool | `true` | Download conversation/project file attachments (not just metadata). |
+| `AI_BACKUP_INCREMENTAL` | bool | `true` | Skip conversations whose update timestamp is unchanged since the last successful run instead of re-downloading everything. |
+| `AI_BACKUP_HOST_ALLOWLIST` | str \| list | `chatgpt.com,chat.openai.com,*.oaiusercontent.com,claude.ai,*.anthropic.com` | Hostnames (exact or `*.suffix` wildcards) the backup clients may call. Every internal-API URL is validated against this list before the request. Accepts a comma-separated string or a JSON list. |
+| `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` | str \| None | `None` | Optional Anthropic Compliance API key (Claude Enterprise). When set, the Claude path uses the sanctioned `api.anthropic.com/v1/compliance/*` surface instead of the stealth scrape. Leave unset for consumer (Pro/Max) accounts. |
+| `AI_BACKUP_HC_PING_URL` | str \| None | `None` | Base Healthchecks.io (or compatible) ping URL for the AI backup job (e.g. `https://hc-ping.com/<uuid>`). When set, the task POSTs to `{url}/start` before the run, `{url}` on success, and `{url}/fail` on error. Disabled when empty or unset. |
+| `AI_BACKUP_HC_PING_TIMEOUT_SECONDS` | float (> 0) | `10.0` | HTTP timeout in seconds for each Healthchecks.io ping request. |
+| `AI_BACKUP_NOTIFY_CHAT_ID` | int \| None | `None` | Telegram chat ID to notify after each run. When `None` (default), no notification is sent. Requires the standard bot credentials. |
+| `AI_BACKUP_NOTIFY_ON` | str | `never` | When to send the Telegram notification. Accepted values: `never` (default), `always`, or `failure` (only when a service failed or its session expired). Only used when `AI_BACKUP_NOTIFY_CHAT_ID` is set. |
+
+**Notes:**
+
+- `AI_BACKUP_ENABLED=false` disables only the scheduled Taskiq job; the underlying backup clients and DB table remain available for manual invocation.
+- `AI_BACKUP_DATA_PATH` must be writable by the worker container user. Mount it as a named volume or bind mount in `ops/docker/docker-compose.yml` under the `worker` service.
+- The CloakBrowser sidecar (`with-scrapers` compose profile, `SCRAPER_CLOAKBROWSER_URL`) must be reachable for the backup clients to establish authenticated sessions; without it the job fails at session init.
+- `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is the only path that does not violate provider ToS; it requires an active Claude Enterprise seat with compliance-export access.
+- `AI_BACKUP_HOST_ALLOWLIST` validation is applied per-request at the HTTP client level. Any URL not matching the allowlist raises a `BackupHostNotAllowedError` and the request is never sent.
+
+---
+
 ## Observability / OpenTelemetry Tracing
 
 Distributed tracing across the full pipeline (Telegram intake -> scraper rungs -> LLM cascade -> request root -> agents -> embedding/Qdrant) is emitted via the OpenTelemetry API and is **opt-in and graceful**: when disabled, or when the `[otel]` extra is not installed, or when the export endpoint is unreachable, the service runs with zero degradation (every tracing call degrades to a no-op; export failures are isolated by the batch processor and never reach the request path). Spans carry attributes from the single `ratatoskr.*` namespace defined in `app/observability/attributes.py`, keyed by the existing `correlation_id` (no parallel trace id is introduced). Metrics remain on the existing Prometheus layer (`app/observability/metrics.py`) and are unaffected by these variables.

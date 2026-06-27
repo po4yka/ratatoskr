@@ -49,6 +49,15 @@ def test_invalid_cron_rejected() -> None:
         AiBackupConfig(sync_cron="not-a-cron")
 
 
+def test_relative_data_path_rejected() -> None:
+    with pytest.raises(ValidationError):
+        AiBackupConfig(data_path="relative/backups")
+
+
+def test_absolute_data_path_accepted() -> None:
+    assert AiBackupConfig(data_path="/srv/ai-backups").data_path == "/srv/ai-backups"
+
+
 def test_invalid_notify_on_rejected() -> None:
     with pytest.raises(ValidationError):
         AiBackupConfig(notify_on="sometimes")

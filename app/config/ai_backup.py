@@ -154,6 +154,19 @@ class AiBackupConfig(BaseModel):
         """True when at least one provider is switched on."""
         return self.chatgpt_enabled or self.claude_enabled
 
+    @field_validator("data_path", mode="before")
+    @classmethod
+    def _validate_data_path(cls, value: Any) -> str:
+        from pathlib import Path
+
+        if value in (None, ""):
+            return "/data/ai-backups"
+        path = str(value).strip()
+        if not Path(path).is_absolute():
+            msg = f"AI_BACKUP_DATA_PATH must be an absolute path, got {path!r}"
+            raise ValueError(msg)
+        return path
+
     @field_validator("sync_cron", mode="before")
     @classmethod
     def _validate_sync_cron(cls, value: Any) -> str:
