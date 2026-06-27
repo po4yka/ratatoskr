@@ -24,7 +24,7 @@ import random
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -39,6 +39,11 @@ from app.core.logging_utils import get_logger
 from app.security.ssrf import is_url_safe_async
 
 logger = get_logger(__name__)
+
+# Redirects are followed manually so the host allowlist + SSRF guard re-run on
+# every hop (auto-following would let a 3xx escape the allowlist -> SSRF).
+_MAX_REDIRECTS = 5
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 # ── Fetcher-layer exceptions ─────────────────────────────────────────────────
@@ -216,24 +221,41 @@ class PlaywrightAuthedFetcher:
         return self._count
 
     async def get(self, url: str, *, headers: dict[str, str] | None = None) -> FetchResponse:
-        host = (urlparse(url).hostname or "").lower()
-        if not _host_in_allowlist(host, self._allowlist):
-            raise HostNotAllowedError(f"{host!r} not in host allowlist")
+        """GET ``url``, re-validating the allowlist + SSRF guard on every redirect hop.
 
-        ok, why = await is_url_safe_async(url)
-        if not ok:
-            raise SSRFBlockedError(why or "SSRF blocked")
+        Redirects are NOT followed automatically (``max_redirects=0``); each 3xx
+        ``Location`` is resolved and re-checked before the next request, so a
+        302 to an internal/disallowed host is refused rather than followed.
+        """
+        target = url
+        for _ in range(_MAX_REDIRECTS + 1):
+            host = (urlparse(target).hostname or "").lower()
+            if not _host_in_allowlist(host, self._allowlist):
+                raise HostNotAllowedError(f"{host!r} not in host allowlist")
 
-        if self._count >= self._max:
-            raise RequestCapExceededError(f"request cap {self._max} reached")
+            ok, why = await is_url_safe_async(target)
+            if not ok:
+                raise SSRFBlockedError(why or "SSRF blocked")
 
-        if self._count > 0:
-            await asyncio.sleep(self._delay + random.uniform(0.0, self._jitter))
+            if self._count >= self._max:
+                raise RequestCapExceededError(f"request cap {self._max} reached")
 
-        self._count += 1
-        resp = await self._req.get(url, headers=headers or {}, timeout=self._timeout_ms)
-        body = await resp.body()
-        return FetchResponse(status=resp.status, body_bytes=body)
+            if self._count > 0:
+                await asyncio.sleep(self._delay + random.uniform(0.0, self._jitter))
+
+            self._count += 1
+            resp = await self._req.get(
+                target, headers=headers or {}, timeout=self._timeout_ms, max_redirects=0
+            )
+            if resp.status in _REDIRECT_STATUSES:
+                location = (resp.headers or {}).get("location")
+                if location:
+                    target = urljoin(target, location)
+                    continue
+                # 3xx without a Location: surface it to the caller as-is.
+            return FetchResponse(status=resp.status, body_bytes=await resp.body())
+
+        raise SSRFBlockedError(f"too many redirects (> {_MAX_REDIRECTS})")
 
 
 __all__ = [

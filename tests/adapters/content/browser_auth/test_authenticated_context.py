@@ -16,9 +16,10 @@ _MOD = "app.adapters.content.browser_auth.authenticated_context"
 
 
 class _FakeApiResp:
-    def __init__(self, status: int, body: bytes) -> None:
+    def __init__(self, status: int, body: bytes, headers: dict | None = None) -> None:
         self.status = status
         self._body = body
+        self.headers = headers or {}
 
     async def body(self) -> bytes:
         return self._body
@@ -28,8 +29,8 @@ class _FakeRequest:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
 
-    async def get(self, url, headers=None, timeout=None):
-        self.calls.append((url, headers, timeout))
+    async def get(self, url, headers=None, timeout=None, max_redirects=None):
+        self.calls.append((url, headers, timeout, max_redirects))
         return _FakeApiResp(200, b'{"ok":true}')
 
 
@@ -104,6 +105,58 @@ async def test_success_returns_body(monkeypatch) -> None:
     resp = await f.get("https://chatgpt.com/api", headers={"Authorization": "Bearer x"})
     assert resp.status == 200
     assert resp.json() == {"ok": True}
+
+
+class _RedirectRequest:
+    """Returns a 302 to ``location`` on the first call, then 200."""
+
+    def __init__(self, location: str) -> None:
+        self._location = location
+        self._n = 0
+
+    async def get(self, url, headers=None, timeout=None, max_redirects=None):
+        assert max_redirects == 0  # auto-following must be disabled
+        self._n += 1
+        if self._n == 1:
+            return _FakeApiResp(302, b"", {"location": self._location})
+        return _FakeApiResp(200, b'{"ok":true}')
+
+
+def _ctx_with(request) -> object:
+    return type("C", (), {"request": request})()
+
+
+async def test_redirect_to_disallowed_host_is_refused(monkeypatch) -> None:
+    _allow_all_ssrf(monkeypatch)
+    monkeypatch.setattr(ac.asyncio, "sleep", _noop_sleep)
+    req = _RedirectRequest("https://169.254.169.254/latest/meta-data/")
+    f = PlaywrightAuthedFetcher(_ctx_with(req), host_allowlist=["chatgpt.com"])
+    with pytest.raises(HostNotAllowedError):
+        await f.get("https://chatgpt.com/api")
+
+
+async def test_redirect_to_allowed_host_is_followed(monkeypatch) -> None:
+    _allow_all_ssrf(monkeypatch)
+    monkeypatch.setattr(ac.asyncio, "sleep", _noop_sleep)
+    req = _RedirectRequest("https://chatgpt.com/final")
+    f = PlaywrightAuthedFetcher(_ctx_with(req), host_allowlist=["chatgpt.com"])
+    resp = await f.get("https://chatgpt.com/api")
+    assert resp.status == 200
+    assert resp.json() == {"ok": True}
+    assert f.requests_made == 2  # original + followed hop
+
+
+async def test_redirect_revalidates_ssrf_on_each_hop(monkeypatch) -> None:
+    # Redirect target is in the allowlist but fails the SSRF resolution check.
+    async def _safe(url: str):
+        return ("evil.internal" not in url, "private" if "evil.internal" in url else None)
+
+    monkeypatch.setattr(f"{_MOD}.is_url_safe_async", _safe)
+    monkeypatch.setattr(ac.asyncio, "sleep", _noop_sleep)
+    req = _RedirectRequest("https://evil.internal/x")
+    f = PlaywrightAuthedFetcher(_ctx_with(req), host_allowlist=["chatgpt.com", "evil.internal"])
+    with pytest.raises(SSRFBlockedError):
+        await f.get("https://chatgpt.com/api")
 
 
 async def _noop_sleep(_seconds: float) -> None:
