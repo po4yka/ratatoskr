@@ -23,19 +23,24 @@ this provider expects under the ``with-scrapers`` profile.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import random
 import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote, urlsplit
 
+from app.adapters.content.scraper.fingerprint import (
+    DESKTOP_UA as _DESKTOP_UA,
+    LOCALE_POOL as _LOCALE_POOL,  # noqa: F401 - backward-compat alias; imported by tests
+    MOBILE_UA as _MOBILE_UA,
+    build_cdp_url,
+    locale_for_seed as _locale_for_seed,
+    seed_for_url as _seed_for_url,
+)
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger
-from app.core.url_utils import extract_domain
 from app.security.ssrf import is_url_safe_async
 
 if TYPE_CHECKING:
@@ -44,27 +49,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _DEFAULT_TIMEOUT_SEC = 60
-
-_MOBILE_UA = (
-    "Mozilla/5.0 (Linux; Android 11; Pixel 5) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Mobile Safari/537.36"
-)
-_DESKTOP_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36"
-)
-
-# Picked deterministically per-domain so that a host always sees the same
-# (timezone, locale) — same as a real returning user would.
-_LOCALE_POOL: tuple[tuple[str, str], ...] = (
-    ("UTC", "en-US"),
-    ("Europe/Berlin", "de-DE"),
-    ("Asia/Tokyo", "ja-JP"),
-    ("America/Sao_Paulo", "pt-BR"),
-)
-
 
 # In-page scan for download controls (tier-2 agentic recovery). Returns anchors
 # and buttons with their visible text + resolved href, capped so a hostile page
@@ -85,19 +69,6 @@ _CONTROL_SCAN_JS = """
   return out;
 }
 """
-
-
-def _seed_for_url(url: str) -> str:
-    """Deterministic 12-hex-char fingerprint seed keyed on the registrable domain."""
-    # extract_domain is the project-wide normalizer; falls back to the raw
-    # netloc if parsing fails. The empty-string case is fine — sha1("") is
-    # still a valid hex digest.
-    domain = (extract_domain(url) or urlsplit(url).netloc or "").lower()
-    return hashlib.sha1(domain.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
-
-
-def _locale_for_seed(seed: str) -> tuple[str, str]:
-    return _LOCALE_POOL[int(seed, 16) % len(_LOCALE_POOL)]
 
 
 class CloakBrowserProvider:
@@ -129,14 +100,7 @@ class CloakBrowserProvider:
         return "cloakbrowser"
 
     def _build_cdp_url(self, seed: str, timezone: str, locale: str) -> str:
-        params = [
-            f"fingerprint={seed}",
-            f"timezone={quote(timezone, safe='')}",
-            f"locale={quote(locale, safe='')}",
-        ]
-        if self._proxy:
-            params.append(f"proxy={quote(self._proxy, safe='')}")
-        return f"{self._endpoint_url}?{'&'.join(params)}"
+        return build_cdp_url(self._endpoint_url, seed, timezone, locale, proxy=self._proxy)
 
     async def scrape_markdown(
         self,

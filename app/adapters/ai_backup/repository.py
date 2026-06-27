@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import and_, select
 
+from app.adapters.ai_backup.redaction import redact_urls
 from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
 
 if TYPE_CHECKING:
@@ -138,7 +139,7 @@ class AiBackupRepository:
             row.consecutive_failures = (row.consecutive_failures or 0) + 1
             row.total_failures = (row.total_failures or 0) + 1
             row.last_failure_at = now
-            row.last_error = message[:4000] if message else None
+            row.last_error = (redact_urls(message) or "")[:4000] if message else None
             row.last_error_category = category.value
             hours = min(row.consecutive_failures, _BACKOFF_CAP_HOURS)
             row.backoff_until = now + dt.timedelta(hours=hours)
@@ -157,7 +158,7 @@ class AiBackupRepository:
             row.status = AiBackupStatus.AUTH_EXPIRED
             row.last_attempt_at = now
             row.last_failure_at = now
-            row.last_error = message[:4000] if message else None
+            row.last_error = (redact_urls(message) or "")[:4000] if message else None
             row.last_error_category = "auth_expired"
 
     async def clear_auth_expired(self, user_id: int, service: AiBackupService) -> None:

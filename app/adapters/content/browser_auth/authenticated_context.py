@@ -24,16 +24,17 @@ import random
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-from app.adapters.content.scraper.cloakbrowser_provider import (
-    _DESKTOP_UA,
-    _MOBILE_UA,
-    _locale_for_seed,
-    _seed_for_url,
+from app.adapters.content.scraper.fingerprint import (
+    DESKTOP_UA,
+    MOBILE_UA,
+    build_cdp_url,
+    locale_for_seed,
+    seed_for_url,
 )
 from app.core.logging_utils import get_logger
 from app.security.ssrf import is_url_safe_async
@@ -100,24 +101,6 @@ def _host_in_allowlist(host: str, patterns: list[str]) -> bool:
     return False
 
 
-def _build_auth_cdp_url(
-    endpoint_url: str, seed: str, timezone: str, locale: str, *, proxy: str = ""
-) -> str:
-    """Construct the cloakserve CDP endpoint for a fingerprint seed.
-
-    Mirrors ``CloakBrowserProvider._build_cdp_url`` (which is an instance method
-    and therefore not importable).
-    """
-    params = [
-        f"fingerprint={seed}",
-        f"timezone={quote(timezone, safe='')}",
-        f"locale={quote(locale, safe='')}",
-    ]
-    if proxy:
-        params.append(f"proxy={quote(proxy, safe='')}")
-    return f"{endpoint_url.rstrip('/')}?{'&'.join(params)}"
-
-
 @asynccontextmanager
 async def authenticated_context(
     domain: str,
@@ -139,9 +122,9 @@ async def authenticated_context(
       BEFORE closing the context (the jar is gone after ``context.close()``), then
       disconnects from the shared sidecar without stopping it.
     """
-    seed = _seed_for_url(f"https://{domain}")
-    timezone, locale = _locale_for_seed(seed)
-    cdp_url = _build_auth_cdp_url(endpoint_url, seed, timezone, locale, proxy=proxy)
+    seed = seed_for_url(f"https://{domain}")
+    timezone, locale = locale_for_seed(seed)
+    cdp_url = build_cdp_url(endpoint_url, seed, timezone, locale, proxy=proxy)
 
     from playwright.async_api import Error as PWError, async_playwright
 
@@ -149,7 +132,7 @@ async def authenticated_context(
         browser = await p.chromium.connect_over_cdp(cdp_url)
         try:
             ctx_kwargs: dict[str, Any] = {
-                "user_agent": _MOBILE_UA if mobile else _DESKTOP_UA,
+                "user_agent": MOBILE_UA if mobile else DESKTOP_UA,
                 "viewport": {"width": 390, "height": 844}
                 if mobile
                 else {"width": 1366, "height": 768},

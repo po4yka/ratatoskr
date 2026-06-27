@@ -13,6 +13,17 @@ Layout::
       files/<file_id>__<name>
       artifacts/<conv_id>/<artifact_id>.<ext>
       manifest.json
+
+TOCTOU hardening
+----------------
+``_safe_child`` resolves and containment-checks the path at planning time, but a
+race could plant a symlink at the final component between that check and the
+actual open.  ``_write_nofollow`` and ``_read_nofollow`` close this window by
+opening the file with ``O_NOFOLLOW`` (where available), which causes the kernel
+to raise ``OSError`` (``ELOOP``) if the final path component is a symlink.  On
+platforms that lack ``O_NOFOLLOW`` (non-POSIX) the flag degrades to 0, so writes
+are still atomic — they just lack the symlink guard; the containment check still
+runs.
 """
 
 from __future__ import annotations
@@ -32,6 +43,9 @@ _SAFE_ID_RE = re.compile(r"[^\w\-]")
 _SAFE_NAME_RE = re.compile(r"[^\w.\-]")
 _SAFE_EXT_RE = re.compile(r"[^\w.]")
 _MANIFEST_SCHEMA_VERSION = "1"
+
+# O_NOFOLLOW is POSIX but absent on Windows/some exotic platforms; degrade safely.
+_O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
 
 
 def _sanitize_id(raw: str) -> str:
@@ -60,6 +74,49 @@ def _safe_child(root: Path, *parts: str) -> Path:
 
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _write_nofollow(path: Path, data: bytes) -> None:
+    """Write *data* to *path* without following a symlink at the final component.
+
+    Opens with ``O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW`` (0o600 mode).
+    If the final path component is a symlink ``os.open`` raises ``OSError``
+    (``ELOOP`` on Linux/macOS).  That exception is caught by callers and re-raised
+    as ``PathTraversalError``.
+
+    On platforms without ``O_NOFOLLOW`` the flag is 0, so the write proceeds
+    normally; the containment check in ``_safe_child`` still protects against
+    resolved-path escapes.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | _O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+def _read_nofollow(path: Path) -> bytes | None:
+    """Read *path* without following a symlink at the final component.
+
+    Returns ``None`` if the path does not exist.  Raises ``OSError`` (``ELOOP``)
+    if the final component is a symlink — callers treat that as a security event.
+    """
+    flags = os.O_RDONLY | _O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return None
+    try:
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 class AiBackupDiskWriter:
@@ -96,12 +153,27 @@ class AiBackupDiskWriter:
         """Write ``data`` to ``path`` unless an identical blob is already there.
 
         Returns the SHA-256 hex of ``data`` regardless. Creates parent dirs.
+
+        Both the read (idempotency check) and the write use ``O_NOFOLLOW`` so a
+        symlink planted between ``_safe_child`` and this call cannot redirect I/O
+        outside the run directory.
         """
         sha = _sha256_hex(data)
-        if path.exists() and _sha256_hex(path.read_bytes()) == sha:
+        try:
+            existing = _read_nofollow(path)
+        except OSError as exc:
+            raise PathTraversalError(
+                f"Symlink detected at {path!r} during idempotency read — refusing"
+            ) from exc
+        if existing is not None and _sha256_hex(existing) == sha:
             return sha
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        try:
+            _write_nofollow(path, data)
+        except OSError as exc:
+            raise PathTraversalError(
+                f"Symlink detected at {path!r} — write refused to prevent escape"
+            ) from exc
         return sha
 
     def write_conversation(self, conv_id: str, payload: dict) -> None:
@@ -121,9 +193,20 @@ class AiBackupDiskWriter:
         name = _sanitize_filename(original_name)
         path = _safe_child(self._run_dir, "files", f"{sid}__{name}")
         # Same file_id always means identical bytes by construction: skip if present.
-        if path.exists():
+        # Use O_NOFOLLOW-safe existence check (lstat, not stat) to avoid following symlinks.
+        try:
+            lst = path.lstat()
+        except FileNotFoundError:
+            lst = None
+        except OSError:
+            lst = None
+        if lst is not None and not path.is_symlink():
             self._manifest["files"][sid] = _sha256_hex(data)
             return
+        if lst is not None and path.is_symlink():
+            raise PathTraversalError(
+                f"Symlink detected at {path!r} — write_file refused to prevent escape"
+            )
         self._manifest["files"][sid] = self._write_idempotent(path, data)
 
     def write_artifact(self, conv_id: str, artifact_id: str, ext: str, data: bytes) -> None:
@@ -132,9 +215,19 @@ class AiBackupDiskWriter:
         safe_ext = _sanitize_ext(ext)
         path = _safe_child(self._run_dir, "artifacts", cid, f"{aid}.{safe_ext}")
         key = f"{cid}/{aid}.{safe_ext}"
-        if path.exists():
+        try:
+            lst = path.lstat()
+        except FileNotFoundError:
+            lst = None
+        except OSError:
+            lst = None
+        if lst is not None and not path.is_symlink():
             self._manifest["artifacts"][key] = _sha256_hex(data)
             return
+        if lst is not None and path.is_symlink():
+            raise PathTraversalError(
+                f"Symlink detected at {path!r} — write_artifact refused to prevent escape"
+            )
         self._manifest["artifacts"][key] = self._write_idempotent(path, data)
 
     def finalize_manifest(
@@ -171,7 +264,14 @@ class AiBackupDiskWriter:
         }
         blob = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
         tmp = self._run_dir / ".manifest.json.tmp"
-        tmp.write_bytes(blob)
+        # Tmp file itself written with O_NOFOLLOW; final rename is atomic and
+        # os.replace never follows symlinks on the destination on Linux/macOS.
+        try:
+            _write_nofollow(tmp, blob)
+        except OSError as exc:
+            raise PathTraversalError(
+                f"Symlink detected at tmp path {tmp!r} — manifest write refused"
+            ) from exc
         os.replace(tmp, self._run_dir / "manifest.json")
         return manifest
 
