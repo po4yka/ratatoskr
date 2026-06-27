@@ -33,9 +33,12 @@ logger = get_logger(__name__)
 # `global`.
 _cfg_holder: list[AppConfig | None] = [None]
 
-# One-time warning flag — emitted at most once per process. Wrapped in
-# a single-element list so the mutation site doesn't need `global`.
-_redis_warning_emitted: list[bool] = [False]
+# Redis-unavailable warning is re-armed every _REDIS_WARN_INTERVAL_SEC so a
+# sustained or recurring outage keeps producing an alertable log line instead of
+# being silenced after the first occurrence for the rest of the process life.
+# Holds the last-emitted monotonic-ish timestamp (time.time()).
+_REDIS_WARN_INTERVAL_SEC = 300.0
+_redis_warning_last_ts: list[float] = [0.0]
 
 # Auth buckets whose rate limiting is a security control (brute force /
 # credential stuffing). In production these MUST NOT silently degrade to the
@@ -86,7 +89,17 @@ async def webapp_auth_middleware(request: Request, call_next: Callable[..., Any]
                 pass
         except Exception as exc:
             request.state.webapp_auth_error = str(exc)
-            logger.debug("webapp_auth_header_parse_failed", extra={"error": str(exc)})
+            # WARNING, not DEBUG: forged/replayed WebApp init-data is a security
+            # event that must be visible in production logs and alertable. Include
+            # the client IP and correlation ID for SIEM correlation.
+            logger.warning(
+                "webapp_auth_header_parse_failed",
+                extra={
+                    "error": str(exc),
+                    "client_ip": _get_client_ip(request),
+                    "correlation_id": getattr(request.state, "correlation_id", None),
+                },
+            )
     return cast("Response", await call_next(request))
 
 
@@ -526,7 +539,8 @@ def _compute_retry_after(now: int, window_start: int, window: int, cfg: AppConfi
 
 
 def _log_redis_unavailable_once(cfg: AppConfig, correlation_id: str | None, path: str) -> None:
-    if _redis_warning_emitted[0]:
+    now = time.time()
+    if now - _redis_warning_last_ts[0] < _REDIS_WARN_INTERVAL_SEC:
         return
     is_prod = cfg.deployment.is_production_mode
     extra: dict[str, Any] = {
@@ -542,7 +556,7 @@ def _log_redis_unavailable_once(cfg: AppConfig, correlation_id: str | None, path
             "workers or restarts. Set REDIS_REQUIRED=true in production."
         )
     logger.warning("rate_limit_redis_unavailable", extra=extra)
-    _redis_warning_emitted[0] = True
+    _redis_warning_last_ts[0] = now
 
 
 async def _handle_local_rate_limit(
