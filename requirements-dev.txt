@@ -61,7 +61,7 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via respx
-hypothesis==6.155.3
+hypothesis==6.155.7
 identify==2.6.19
     # via pre-commit
 idna==3.15
@@ -162,7 +162,7 @@ pygments==2.20.0
     #   rich
 pyparsing==3.3.2
     # via pip-requirements-parser
-pytest==9.1.0
+pytest==9.1.1
     # via
     #   pytest-asyncio
     #   pytest-benchmark
@@ -177,7 +177,7 @@ pyyaml==6.0.3
     #   bandit
     #   jsonschema-path
     #   pre-commit
-redis==7.4.0
+redis==8.0.1
     # via
     #   fakeredis
     #   taskiq-redis
@@ -202,7 +202,7 @@ rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.17
+ruff==0.15.20
 six==1.17.0
     # via rfc3339-validator
 sortedcontainers==2.4.0
@@ -216,7 +216,7 @@ taskiq==0.12.4
     # via taskiq-redis
 taskiq-dependencies==1.5.7
     # via taskiq
-taskiq-redis==1.2.2
+taskiq-redis==1.2.3
 tomli==2.4.1
     # via pip-audit
 tomli-w==1.2.0

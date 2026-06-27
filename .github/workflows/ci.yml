@@ -30,7 +30,7 @@ jobs:
       lock_drift: ${{ steps.lockcheck.outputs.drift }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -129,7 +129,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Lint Markdown files
         uses: DavidAnson/markdownlint-cli2-action@v23
@@ -145,7 +145,7 @@ jobs:
     timeout-minutes: 2
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -187,7 +187,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Check links in Markdown files
         uses: lycheeverse/lychee-action@v2
@@ -213,7 +213,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
@@ -306,7 +306,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
@@ -361,7 +361,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
@@ -409,7 +409,7 @@ jobs:
         python-version: ["3.13"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
@@ -549,7 +549,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -582,7 +582,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
@@ -646,7 +646,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -726,7 +726,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # OSV Scanner reads uv.lock directly, so it sees every package in the
       # lockfile including torch, nvidia-*, triton, and other packages that
@@ -749,7 +749,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # paths-filter scopes the actual build to commits that touched Docker
       # inputs. PRs always build; pushes to main only build when Dockerfile,
@@ -794,7 +794,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Detect Docker-relevant changes
         id: filter
@@ -855,7 +855,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Validate production compose renders cleanly
         env:
@@ -937,7 +937,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -997,7 +997,7 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.draft == false
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
@@ -1132,7 +1132,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ratatoskr_ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
@@ -1192,7 +1192,7 @@ jobs:
       RESTORE_SMOKE_DB: ratatoskr_restore_smoke
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -1282,7 +1282,7 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ratatoskr_ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download compiled requirements
         uses: actions/download-artifact@v8
