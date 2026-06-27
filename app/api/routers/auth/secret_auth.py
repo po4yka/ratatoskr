@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from argon2 import PasswordHasher
+from argon2.exceptions import Argon2Error, InvalidHashError
 
 from app.api.dependencies.database import get_auth_repository
 from app.api.exceptions import (
@@ -169,9 +170,12 @@ def verify_secret(secret: str, salt: str, stored_hash: str) -> bool:
     if not stored_hash:
         return False
     if stored_hash.startswith("$argon2"):
+        # Catch only argon2 verification failures (mismatch / malformed hash) ->
+        # treat as no-match. Config errors (e.g. missing pepper) propagate so a
+        # misconfiguration surfaces loudly instead of failing silently.
         try:
             return _get_password_hasher().verify(stored_hash, _peppered_input(secret, salt))
-        except Exception:
+        except (Argon2Error, InvalidHashError):
             return False
     return hmac.compare_digest(_legacy_hmac_hash(secret, salt), stored_hash)
 

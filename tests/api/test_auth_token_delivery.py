@@ -236,8 +236,8 @@ async def test_secret_login_token_delivery(client_id, expect_cookie):
             return_value="sk-test-value-here",
         ),
         patch(
-            "app.api.routers.auth.endpoints_secret_keys.hash_secret",
-            return_value="hashed",
+            "app.api.routers.auth.endpoints_secret_keys.verify_secret",
+            return_value=True,
         ),
         patch(
             "app.api.routers.auth.endpoints_secret_keys.reset_failed_attempts",
