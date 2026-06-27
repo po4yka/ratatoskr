@@ -713,6 +713,10 @@ class Summary(Base):
     lang: Mapped[str | None] = mapped_column(Text, nullable=True)
     json_payload: Mapped[JSONValue] = _json_column()
     insights_json: Mapped[JSONValue] = _json_column()
+    # Full Russian bilingual rendering of json_payload (same SummaryModel shape),
+    # written when SUMMARY_BILINGUAL_ENABLED produces a second-language summary.
+    # NULL when absent; the primary json_payload/lang are never overwritten by it.
+    ru_payload: Mapped[JSONValue] = _json_column()
     # Denormalized metadata columns (migration 0030 / audit findings 7A, 5C).
     # These mirror fields inside json_payload so list-view and smart-collection
     # scan queries can project scalar columns without loading the full JSONB blob.

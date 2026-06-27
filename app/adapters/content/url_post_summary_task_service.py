@@ -249,6 +249,18 @@ class URLPostSummaryTaskService:
         if not ru_summary:
             return False
 
+        # Persist the Russian summary alongside the primary one so it is not
+        # ephemeral (available to exports / API / web). Best-effort: a DB failure
+        # must not block Telegram delivery.
+        try:
+            await self._summary_repo.async_update_ru_payload(req_id, ru_summary)
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "bilingual_ru_persist_failed",
+                extra={"cid": correlation_id, "req_id": req_id, "error": str(exc)},
+            )
+
         try:
             return await self._response_formatter.send_secondary_language_summary(
                 message,

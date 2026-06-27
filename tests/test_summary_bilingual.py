@@ -136,9 +136,10 @@ def _make_post_service(*, bilingual: bool, struct_result: dict[str, Any] | None)
         runtime=SimpleNamespace(summary_bilingual_enabled=bilingual),
         openrouter=SimpleNamespace(temperature=0.2),
     )
+    summary_repo = SimpleNamespace(async_update_ru_payload=AsyncMock())
     svc = URLPostSummaryTaskService(
         response_formatter=cast("Any", response_formatter),
-        summary_repo=cast("Any", SimpleNamespace()),
+        summary_repo=cast("Any", summary_repo),
         article_generator=cast("Any", SimpleNamespace()),
         insights_generator=cast("Any", SimpleNamespace()),
         summary_delivery=cast("Any", summary_delivery),
@@ -174,6 +175,7 @@ class TestPostSummaryBilingualGate(unittest.IsolatedAsyncioTestCase):
             url_hash="u:1",
         )
         rf.send_secondary_language_summary.assert_awaited_once()
+        cast("Any", svc._summary_repo).async_update_ru_payload.assert_awaited_once()
         self.assertNotIn("ru_translation", _scheduled_labels(delivery))
 
     async def test_struct_failure_falls_back_to_prose(self) -> None:

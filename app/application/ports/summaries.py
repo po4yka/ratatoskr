@@ -193,6 +193,13 @@ class SummaryRepositoryPort(Protocol):
     ) -> None:
         """Persist summary insights JSON."""
 
+    async def async_update_ru_payload(
+        self,
+        request_id: int,
+        ru_json: dict[str, Any],
+    ) -> None:
+        """Persist the full Russian bilingual summary alongside the primary payload."""
+
     async def async_update_reading_progress(
         self,
         summary_id: int,

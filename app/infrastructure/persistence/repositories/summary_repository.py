@@ -95,6 +95,22 @@ class SummaryRepositoryAdapter:
                 .values(insights_json=prepare_json_payload(insights_json), updated_at=_utcnow())
             )
 
+    async def async_update_ru_payload(self, request_id: int, ru_json: dict[str, Any]) -> None:
+        """Persist the full Russian bilingual summary alongside the primary payload.
+
+        Writes only the secondary-language ``ru_payload`` column on the existing
+        single row; the primary ``json_payload``/``lang`` and the ``version`` /
+        ``server_version`` counters are left untouched (the primary content did not
+        change, so sync clients should not see a spurious conflict). No-op against
+        the row count when ``request_id`` has no summary row yet.
+        """
+        async with self._database.transaction() as session:
+            await session.execute(
+                update(Summary)
+                .where(Summary.request_id == request_id)
+                .values(ru_payload=prepare_json_payload(ru_json), updated_at=_utcnow())
+            )
+
     async def async_get_user_summaries(
         self,
         user_id: int,
