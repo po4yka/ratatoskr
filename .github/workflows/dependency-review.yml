@@ -14,9 +14,10 @@ jobs:
     # non-actionable error ("Couldn't retrieve dependency changes") even though
     # the configuration is correct.
     #
-    # The Dependency Review step uses continue-on-error until Dependency Graph is
-    # enabled. Once enabled, remove it so PRs introducing high-severity
-    # dependency changes are blocked.
+    # The Dependency Graph MUST be enabled for this repository so this gate can
+    # block PRs that introduce high-severity dependency changes. The step is no
+    # longer `continue-on-error`; if the graph is disabled the job will fail,
+    # which is intentional (enable the graph in repo settings to unblock).
     #
     # When Dependency Graph IS enabled this job will:
     #   - Compare the dependency diff of the PR against the OSV/GitHub Advisory
@@ -30,7 +31,6 @@ jobs:
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v5
-        continue-on-error: true
         with:
           fail-on-severity: high
           comment-summary-in-pr: always
