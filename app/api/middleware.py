@@ -432,6 +432,18 @@ def _auth_client_ip_actor(bucket: str | None, client_id: str | None, client_ip: 
         return None
     if not client_id:
         return None
+    # Only let a client_id refine the rate-limit key if it is in the configured
+    # allowlist. Otherwise an attacker could mint a fresh counter per request by
+    # rotating arbitrary client_id values in the body (unbounded brute force).
+    # Returning None falls back to the IP-based actor (a single bucket per IP).
+    try:
+        from app.config import Config
+
+        allowed = Config.get_allowed_client_ids()
+    except Exception:
+        allowed = None
+    if not allowed or client_id not in allowed:
+        return None
     return f"client_id={client_id}|ip={client_ip}"
 
 
