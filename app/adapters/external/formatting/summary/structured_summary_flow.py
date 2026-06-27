@@ -418,9 +418,7 @@ class StructuredSummaryFlow:
             if combined_lines:
                 main_parts.append("\n".join(combined_lines))
 
-            summary_text = flow._blocks.build_summary_field_text(
-                summary_shaped, include_tldr=True
-            )
+            summary_text = flow._blocks.build_summary_field_text(summary_shaped, include_tldr=True)
             if summary_text:
                 main_parts.append(summary_text)
 

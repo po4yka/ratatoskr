@@ -668,9 +668,7 @@ class CloakBrowserProvider:
             if body and len(body) <= max_bytes and body.lstrip().startswith(b"%PDF"):
                 return body
         except (PWTimeout, PlaywrightError):
-            logger.debug(
-                "cloakbrowser_pdf_request_fetch_failed", extra={"url": url}, exc_info=True
-            )
+            logger.debug("cloakbrowser_pdf_request_fetch_failed", extra={"url": url}, exc_info=True)
 
         # Fallback: forced-download navigation (Content-Disposition: attachment).
         downloads.clear()

@@ -339,9 +339,7 @@ class URLHandler:
                 return
 
             try:
-                lines = await asyncio.to_thread(
-                    self._file_validator.safe_read_text_file, file_path
-                )
+                lines = await asyncio.to_thread(self._file_validator.safe_read_text_file, file_path)
             except FileValidationError as exc:
                 logger.error(
                     "file_validation_failed",
@@ -401,18 +399,14 @@ class URLHandler:
         if self._is_markdown_document(message):
             return True
         content_lines = [
-            stripped
-            for raw in lines
-            if (stripped := raw.strip()) and not stripped.startswith("#")
+            stripped for raw in lines if (stripped := raw.strip()) and not stripped.startswith("#")
         ]
         if not content_lines:
             # Comment-only .txt (truly empty files are handled earlier): defer to
             # the URL-list path so the user gets the "no links found" notification
             # rather than an empty-content summary attempt.
             return False
-        url_lines = sum(
-            1 for line in content_lines if line.startswith(("http://", "https://"))
-        )
+        url_lines = sum(1 for line in content_lines if line.startswith(("http://", "https://")))
         return (url_lines / len(content_lines)) < _URL_LIST_MIN_RATIO
 
     async def _summarize_document_as_article(
@@ -467,9 +461,7 @@ class URLHandler:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception(
-                "document_article_summarize_failed", extra={"cid": correlation_id}
-            )
+            logger.exception("document_article_summarize_failed", extra={"cid": correlation_id})
             await self.response_formatter.send_error_notification(
                 message,
                 "unexpected_error",

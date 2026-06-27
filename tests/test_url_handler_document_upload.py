@@ -36,9 +36,7 @@ def _make_handler(*, lines: list[str], summary_success: bool = True) -> URLHandl
         SimpleNamespace(
             handle_url_flow=AsyncMock(),
             create_text_request=AsyncMock(return_value=123),
-            summarize_text_request=AsyncMock(
-                return_value=SimpleNamespace(success=summary_success)
-            ),
+            summarize_text_request=AsyncMock(return_value=SimpleNamespace(success=summary_success)),
             summary_repo=None,
             audit_func=None,
         ),
