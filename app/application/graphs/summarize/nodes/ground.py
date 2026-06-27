@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from app.application.dto.vector_search import EntityType, RetrievalScope
@@ -24,6 +25,18 @@ _GROUNDING_GUARD = (
 )
 # Bound each snippet so the block stays small regardless of summary length.
 _SNIPPET_MAX_CHARS = 280
+_TITLE_MAX_CHARS = 200
+# Strip control chars (newlines/tabs included) so a poisoned stored title/tldr
+# cannot forge the block's line structure or inject an instruction on its own
+# line (second-order prompt injection, HIGH-010).
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]+")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _sanitize_grounding_text(value: str, *, max_chars: int) -> str:
+    cleaned = _CONTROL_CHARS_RE.sub(" ", value)
+    cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
+    return cleaned[:max_chars]
 
 
 @graph_node("ground")
@@ -82,9 +95,14 @@ def _format_grounding_block(hits: list[RetrievalHit]) -> str:
     lines = [GROUNDING_BLOCK_HEADER, _GROUNDING_GUARD]
     for index, hit in enumerate(hits, start=1):
         payload = hit.payload or {}
-        title = str(payload.get("title") or "").strip() or "(untitled)"
-        snippet = str(payload.get("tldr") or payload.get("summary_250") or "").strip()
-        snippet = snippet[:_SNIPPET_MAX_CHARS]
+        title = (
+            _sanitize_grounding_text(str(payload.get("title") or ""), max_chars=_TITLE_MAX_CHARS)
+            or "(untitled)"
+        )
+        snippet = _sanitize_grounding_text(
+            str(payload.get("tldr") or payload.get("summary_250") or ""),
+            max_chars=_SNIPPET_MAX_CHARS,
+        )
         lines.append(f"{index}. {title}" if not snippet else f"{index}. {title} -- {snippet}")
     lines.append(GROUNDING_BLOCK_FOOTER)
     return "\n".join(lines)
