@@ -140,11 +140,15 @@ async def global_exception_handler(request: Request, exc: Exception) -> Response
         extra={"correlation_id": correlation_id, "path": request.url.path},
     )
 
-    # Don't leak error details in production
+    # Don't leak error details in production. This MUST key off the deployment
+    # environment, not the log level: an operator raising LOG_LEVEL=DEBUG for
+    # troubleshooting must never start returning raw exception text (DB hosts,
+    # internal URLs) to API clients (CWE-209). Fail safe to production behavior
+    # if the deployment flag is unavailable.
     config = load_config()
-    debug_mode = config.runtime.log_level == "DEBUG"
+    is_production = getattr(getattr(config, "deployment", None), "is_production_mode", True)
 
-    message = str(exc) if debug_mode else "An internal server error occurred"
+    message = str(exc) if not is_production else "An internal server error occurred"
 
     detail = make_error(
         code=ErrorCode.INTERNAL_ERROR.value,
