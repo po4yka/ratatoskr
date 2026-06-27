@@ -8,14 +8,47 @@ service classes.
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable  # noqa: TC003
 from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.local_rate_limiter import LocalRateLimiter
 from app.mcp.helpers import to_json
 from app.observability.metrics import record_request
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, "") or default))
+    except ValueError:
+        return default
+
+
+# In-process per-tool rate limiting for MCP. The Telegram UserRateLimiter is not
+# wired to the MCP transport, so without this a single MCP session could drive
+# unbounded scrape + LLM cost via tools like create_aggregation_bundle
+# (CWE-770). Process-local (sufficient: MCP runs as a single scoped process).
+_MCP_TOOL_RATE_LIMITER = LocalRateLimiter()
+_MCP_TOOL_WINDOW_SEC = _env_positive_int("MCP_TOOL_RATE_WINDOW_SEC", 60)
+_MCP_TOOL_DEFAULT_LIMIT = _env_positive_int("MCP_TOOL_RATE_LIMIT", 60)
+_MCP_EXPENSIVE_TOOL_LIMIT = _env_positive_int("MCP_EXPENSIVE_TOOL_RATE_LIMIT", 5)
+# Tools that fan out to scraping + LLM calls and must be capped tighter.
+_MCP_EXPENSIVE_TOOLS = frozenset({"create_aggregation_bundle"})
+
+
+def _mcp_tool_rate_limited(tool_name: str) -> bool:
+    limit = (
+        _MCP_EXPENSIVE_TOOL_LIMIT
+        if tool_name in _MCP_EXPENSIVE_TOOLS
+        else _MCP_TOOL_DEFAULT_LIMIT
+    )
+    allowed, _ = _MCP_TOOL_RATE_LIMITER.check(
+        tool_name, limit=limit, window=_MCP_TOOL_WINDOW_SEC
+    )
+    return not allowed
 
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
@@ -91,7 +124,17 @@ def register_tools(
             latency_seconds=max(0.0, time.perf_counter() - started_at),
         )
 
+    def _rate_limited_result(tool_name: str) -> dict[str, str]:
+        started_at = time.perf_counter()
+        _record_tool_metric(tool_name, status="error", started_at=started_at)
+        return {
+            "error": "rate_limited",
+            "message": f"MCP tool '{tool_name}' rate limit exceeded; retry later.",
+        }
+
     async def _call_async(tool_name: str, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
+        if _mcp_tool_rate_limited(tool_name):
+            return _rate_limited_result(tool_name)
         started_at = time.perf_counter()
         try:
             result = await fn(*args, **kwargs)
@@ -102,6 +145,8 @@ def register_tools(
         return result
 
     def _call_sync(tool_name: str, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
+        if _mcp_tool_rate_limited(tool_name):
+            return _rate_limited_result(tool_name)
         started_at = time.perf_counter()
         try:
             result = fn(*args, **kwargs)
