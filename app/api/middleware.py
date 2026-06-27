@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import TYPE_CHECKING, Any, cast
 
@@ -125,6 +126,41 @@ async def correlation_id_middleware(request: Request, call_next: Callable[..., A
         return response
     finally:
         correlation_id_ctx.reset(token)
+
+
+# Default CSP frame-ancestors policy. The backend serves the Telegram WebApp,
+# which Telegram renders inside its own (cross-origin) iframe, so we cannot use
+# X-Frame-Options: DENY / frame-ancestors 'none' (that would break the WebApp).
+# Instead we allowlist self + the Telegram web origins. Override via env if the
+# app is embedded elsewhere.
+_DEFAULT_FRAME_ANCESTORS = "'self' https://web.telegram.org https://*.telegram.org"
+_DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment=()"
+
+
+async def security_headers_middleware(
+    request: Request, call_next: Callable[..., Any]
+) -> Response:
+    """Attach baseline security response headers to every response.
+
+    Uses ``setdefault`` so a handler that intentionally set its own value wins.
+    CSP is limited to ``frame-ancestors`` (clickjacking protection) rather than a
+    full ``default-src`` policy so the served SPA's scripts/styles keep loading.
+    HSTS is safe to always send: browsers ignore it over plain HTTP.
+    """
+    response = cast("Response", await call_next(request))
+    headers = response.headers
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("Referrer-Policy", "no-referrer")
+    headers.setdefault(
+        "Permissions-Policy",
+        os.getenv("PERMISSIONS_POLICY", _DEFAULT_PERMISSIONS_POLICY),
+    )
+    frame_ancestors = os.getenv("CSP_FRAME_ANCESTORS", _DEFAULT_FRAME_ANCESTORS)
+    headers.setdefault("Content-Security-Policy", f"frame-ancestors {frame_ancestors}")
+    headers.setdefault(
+        "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+    )
+    return response
 
 
 def _get_cfg() -> AppConfig:

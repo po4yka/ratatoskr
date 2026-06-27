@@ -30,6 +30,7 @@ from app.api.exceptions import APIException
 from app.api.middleware import (
     correlation_id_middleware,
     rate_limit_middleware,
+    security_headers_middleware,
     webapp_auth_middleware,
 )
 from app.api.models.responses import success_response
@@ -248,10 +249,13 @@ app.add_middleware(
 )
 
 # Custom middleware (order: last added = outermost = runs first)
-# correlation_id must run first, then auth, then rate limit
+# correlation_id must run first, then auth, then rate limit. security_headers is
+# added last so it is the outermost layer and stamps headers on every response,
+# including rate-limit (429) and error responses.
 app.middleware("http")(rate_limit_middleware)
 app.middleware("http")(webapp_auth_middleware)
 app.middleware("http")(correlation_id_middleware)
+app.middleware("http")(security_headers_middleware)
 
 # Include routers
 app.include_router(auth.router, prefix="/v1/auth", tags=["Authentication"])
