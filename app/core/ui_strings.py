@@ -433,8 +433,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     # Router messages (message_router.py)
     # ------------------------------------------------------------------
     "fallback_prompt": {
-        "en": "Send a URL or forward a channel post.",
-        "ru": "Отправьте URL или перешлите пост из канала.",
+        "en": "Send a URL, forward a channel post, or upload a .txt / .md file.",
+        "ru": "Отправьте URL, перешлите пост из канала или загрузите файл .txt / .md.",
     },
     "concurrent_ops_limit": {
         "en": "Too many concurrent operations. Please wait for your previous requests to complete.",

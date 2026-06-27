@@ -15,6 +15,8 @@ class RequestType(StrEnum):
     URL = "url"
     FORWARD = "forward"
     TEXT = "text"
+    # Article text supplied as an uploaded .txt / .md / .markdown document.
+    UPLOAD = "upload"
     # Free-form interactive browser-agent task initiated via `/browse`.
     # Lifecycle drains the same status enum (pending -> crawling -> completed)
     # but the body lives in `webwright_runs` rather than `summaries`.

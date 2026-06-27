@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.adapters.telegram.url_handler import URLHandler
 
 _DOWNLOAD_TARGET = "app.adapters.telegram.url_handler.URLHandler._download_document_file"
-_PARSE_TARGET = "app.adapters.telegram.url_handler.URLHandler._parse_txt_file"
 _SLEEP_TARGET = "app.adapters.telegram.url_handler.asyncio.sleep"
 _PROCESS_TARGET = "app.adapters.telegram.url_handler.URLHandler.process_url_batch"
 
@@ -35,6 +34,9 @@ def _make_handler() -> URLHandler:
     )
     file_validator = MagicMock()
     file_validator.cleanup_file = MagicMock()
+    # A .txt upload whose contents are a bare URL list routes to the batch path,
+    # where the rate-limit sleeps under test live.
+    file_validator.safe_read_text_file = MagicMock(return_value=["https://example.com"])
     return URLHandler(
         db=cast("Any", SimpleNamespace()),
         response_formatter=response_formatter,
@@ -53,7 +55,6 @@ class TestHandleDocumentFileCancellation(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(_DOWNLOAD_TARGET, new_callable=AsyncMock, return_value="/tmp/fake.txt"),
-            patch(_PARSE_TARGET, return_value=["https://example.com"]),
             patch(_SLEEP_TARGET, side_effect=asyncio.CancelledError()),
         ):
             with self.assertRaises(asyncio.CancelledError):
@@ -76,7 +77,6 @@ class TestHandleDocumentFileCancellation(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(_DOWNLOAD_TARGET, new_callable=AsyncMock, return_value="/tmp/fake.txt"),
-            patch(_PARSE_TARGET, return_value=["https://example.com"]),
             patch(_PROCESS_TARGET, new_callable=AsyncMock),
             patch(_SLEEP_TARGET, side_effect=_selective_sleep),
         ):
@@ -90,7 +90,6 @@ class TestHandleDocumentFileCancellation(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(_DOWNLOAD_TARGET, new_callable=AsyncMock, return_value="/tmp/fake.txt"),
-            patch(_PARSE_TARGET, return_value=["https://example.com"]),
             patch(_SLEEP_TARGET, side_effect=RuntimeError("timer glitch")),
         ):
             await handler.handle_document_file(message, "cid-test", 1, 0.0)

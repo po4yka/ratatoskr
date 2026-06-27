@@ -20,6 +20,7 @@ from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.core.url_utils import extract_all_urls, normalize_url
 from app.core.verbosity import VerbosityLevel
+from app.domain.models.request import RequestType
 from app.security.file_validation import FileValidationError, SecureFileValidator
 
 if TYPE_CHECKING:
@@ -36,6 +37,20 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Uploaded text documents the bot accepts as a content source.
+_MARKDOWN_DOCUMENT_SUFFIXES = (".md", ".markdown")
+_TEXT_DOCUMENT_SUFFIXES = (".txt", *_MARKDOWN_DOCUMENT_SUFFIXES)
+# A .txt upload is treated as a batch URL list (rather than an article) when at
+# least this fraction of its content lines are bare URLs. Markdown is always an
+# article regardless of its contents. The threshold is high so that any file
+# mixing prose with links is summarized as an article (preserving the prose)
+# rather than routed to the batch flow (which discards everything but the URLs).
+_URL_LIST_MIN_RATIO = 0.8
+# Upper bound on the characters fed to the summarizer from an uploaded document.
+# A file is accepted up to SecureFileValidator.MAX_FILE_SIZE_BYTES (10 MB); that
+# much text would overflow every model context window, so it is truncated here.
+_MAX_UPLOAD_CONTENT_CHARS = 200_000
+
 
 class _NullRepository:
     def __getattr__(self, _name: str) -> Any:  # pragma: no cover - defensive only
@@ -49,7 +64,7 @@ class URLHandler:
     - Batch policy enforcement: delegates to URLBatchPolicyService
     - Awaiting-URL state: delegates to URLAwaitingStateStore
     - Batch processing: delegates to URLBatchProcessor
-    - Document file handling (.txt uploads → URL lists)
+    - Document file handling (.txt/.md uploads → article summary or URL-list batch)
     - Security checks (URL validation, rate limits) via ResponseFormatter
     - Wires above into the correct sequence for each Telegram message path
 
@@ -285,12 +300,18 @@ class URLHandler:
         return await self._awaiting_state.cleanup_expired()
 
     def can_handle_document(self, message: Any) -> bool:
-        """Return True when the message contains a supported .txt batch file."""
+        """Return True for an uploaded text document the bot can summarize.
+
+        Accepts ``.txt`` (a batch-URL list or article prose) and Markdown
+        (``.md`` / ``.markdown``, always summarized as an article).
+        """
         document = getattr(message, "document", None)
         if not document or not hasattr(document, "file_name"):
             return False
         file_name = getattr(document, "file_name", "")
-        return isinstance(file_name, str) and file_name.lower().endswith(".txt")
+        if not isinstance(file_name, str):
+            return False
+        return file_name.lower().endswith(_TEXT_DOCUMENT_SUFFIXES)
 
     async def handle_document_file(
         self,
@@ -299,7 +320,12 @@ class URLHandler:
         interaction_id: int,
         start_time: float,
     ) -> None:
-        """Handle .txt file processing (files containing URLs)."""
+        """Handle an uploaded text document (.txt / .md / .markdown).
+
+        Markdown is always summarized as an article. A ``.txt`` upload is
+        content-sniffed: a file that is predominantly bare URLs runs the legacy
+        batch-URL flow; otherwise its text is summarized as an article.
+        """
         file_path: str | None = None
         try:
             file_path = await self._download_document_file(message)
@@ -313,7 +339,9 @@ class URLHandler:
                 return
 
             try:
-                urls = await self._parse_txt_file(file_path)
+                lines = await asyncio.to_thread(
+                    self._file_validator.safe_read_text_file, file_path
+                )
             except FileValidationError as exc:
                 logger.error(
                     "file_validation_failed",
@@ -325,62 +353,22 @@ class URLHandler:
                 )
                 return
 
-            if not urls:
-                await self.response_formatter.send_error_notification(
+            if not any(line.strip() for line in lines):
+                await self.response_formatter.safe_reply(
                     message,
-                    "no_urls_found",
-                    correlation_id,
-                    details="No valid links starting with http:// or https:// were detected in the file.",
+                    "📄 The uploaded file is empty -- nothing to summarize.",
                 )
                 return
 
-            uid = self._resolve_user_id(message)
-            valid_urls = await self.apply_url_security_checks(message, urls, uid, correlation_id)
-            if not valid_urls:
+            if self._should_summarize_as_article(message, lines):
+                await self._summarize_document_as_article(
+                    message, lines, correlation_id, interaction_id
+                )
                 return
 
-            await self.response_formatter.safe_reply(
-                message,
-                f"📄 File accepted. Processing {len(valid_urls)} links.",
+            await self._process_url_list_document(
+                message, lines, correlation_id, interaction_id, start_time
             )
-            try:
-                initial_gap = max(
-                    0.12,
-                    (self.response_formatter.MIN_MESSAGE_INTERVAL_MS + 10) / 1000.0,
-                )
-                await asyncio.sleep(initial_gap)
-            except Exception as exc:
-                raise_if_cancelled(exc)
-
-            progress_message_id: int | None = None
-            if not self._is_draft_streaming_enabled():
-                progress_message_id = await self.response_formatter.safe_reply_with_id(
-                    message,
-                    f"🔄 Preparing to process {len(valid_urls)} links...",
-                )
-            logger.debug(
-                "document_file_processing_started",
-                extra={"url_count": len(valid_urls)},
-            )
-
-            await self.process_url_batch(
-                message,
-                valid_urls,
-                uid,
-                correlation_id,
-                interaction_id=interaction_id,
-                start_time=start_time,
-                initial_message_id=progress_message_id,
-            )
-
-            try:
-                min_gap_sec = max(
-                    0.6,
-                    (self.response_formatter.MIN_MESSAGE_INTERVAL_MS + 50) / 1000.0,
-                )
-                await asyncio.sleep(min_gap_sec)
-            except Exception as exc:
-                raise_if_cancelled(exc)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -394,6 +382,176 @@ class URLHandler:
         finally:
             if file_path:
                 await self._cleanup_downloaded_file(file_path, correlation_id)
+
+    def _is_markdown_document(self, message: Any) -> bool:
+        """Return True when the uploaded document has a Markdown extension."""
+        file_name = getattr(getattr(message, "document", None), "file_name", "") or ""
+        return isinstance(file_name, str) and file_name.lower().endswith(
+            _MARKDOWN_DOCUMENT_SUFFIXES
+        )
+
+    def _should_summarize_as_article(self, message: Any, lines: list[str]) -> bool:
+        """Decide whether an uploaded document is summarized as an article.
+
+        Markdown is always an article. A ``.txt`` file is an article unless it is
+        overwhelmingly bare URLs (the legacy batch-URL upload), in which case it
+        keeps the batch flow. A file mixing prose with links stays an article so
+        the prose is summarized rather than discarded.
+        """
+        if self._is_markdown_document(message):
+            return True
+        content_lines = [
+            stripped
+            for raw in lines
+            if (stripped := raw.strip()) and not stripped.startswith("#")
+        ]
+        if not content_lines:
+            # Comment-only .txt (truly empty files are handled earlier): defer to
+            # the URL-list path so the user gets the "no links found" notification
+            # rather than an empty-content summary attempt.
+            return False
+        url_lines = sum(
+            1 for line in content_lines if line.startswith(("http://", "https://"))
+        )
+        return (url_lines / len(content_lines)) < _URL_LIST_MIN_RATIO
+
+    async def _summarize_document_as_article(
+        self,
+        message: Any,
+        lines: list[str],
+        correlation_id: str,
+        interaction_id: int,
+    ) -> None:
+        """Summarize an uploaded text / Markdown file as an article."""
+        from app.utils.typing_indicator import send_typing_once
+
+        content_text = "\n".join(lines).strip()
+        # Truly-empty files are handled by handle_document_file before reaching
+        # here; this guard only covers a file that is purely whitespace once the
+        # lines are joined.
+        if not content_text:
+            await self.response_formatter.safe_reply(
+                message,
+                "📄 The uploaded file is empty -- nothing to summarize.",
+            )
+            return
+
+        truncated = len(content_text) > _MAX_UPLOAD_CONTENT_CHARS
+        if truncated:
+            content_text = content_text[:_MAX_UPLOAD_CONTENT_CHARS]
+
+        await send_typing_once(self.response_formatter, message)
+        ack = "📄 File received. Summarizing..."
+        if truncated:
+            ack = (
+                "📄 File received. It is large, so only the first "
+                f"{_MAX_UPLOAD_CONTENT_CHARS:,} characters will be summarized."
+            )
+        await self.response_formatter.safe_reply(message, ack)
+
+        try:
+            request_id = await self.url_processor.create_text_request(
+                message=message,
+                request_type=RequestType.UPLOAD,
+                correlation_id=correlation_id,
+                content_text=content_text,
+            )
+            result = await self.url_processor.summarize_text_request(
+                message=message,
+                request_id=request_id,
+                content_text=content_text,
+                correlation_id=correlation_id,
+                interaction_id=interaction_id,
+                request_type=RequestType.UPLOAD,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "document_article_summarize_failed", extra={"cid": correlation_id}
+            )
+            await self.response_formatter.send_error_notification(
+                message,
+                "unexpected_error",
+                correlation_id,
+                details="Could not generate a summary from the uploaded file.",
+            )
+            return
+
+        if not result.success:
+            await self.response_formatter.send_error_notification(
+                message,
+                "unexpected_error",
+                correlation_id,
+                details="Could not generate a summary from the uploaded file.",
+            )
+
+    async def _process_url_list_document(
+        self,
+        message: Any,
+        lines: list[str],
+        correlation_id: str,
+        interaction_id: int,
+        start_time: float,
+    ) -> None:
+        """Process an uploaded .txt file as a batch list of URLs (legacy path)."""
+        urls = self._extract_urls_from_lines(lines)
+        if not urls:
+            await self.response_formatter.send_error_notification(
+                message,
+                "no_urls_found",
+                correlation_id,
+                details="No valid links starting with http:// or https:// were detected in the file.",
+            )
+            return
+
+        uid = self._resolve_user_id(message)
+        valid_urls = await self.apply_url_security_checks(message, urls, uid, correlation_id)
+        if not valid_urls:
+            return
+
+        await self.response_formatter.safe_reply(
+            message,
+            f"📄 File accepted. Processing {len(valid_urls)} links.",
+        )
+        try:
+            initial_gap = max(
+                0.12,
+                (self.response_formatter.MIN_MESSAGE_INTERVAL_MS + 10) / 1000.0,
+            )
+            await asyncio.sleep(initial_gap)
+        except Exception as exc:
+            raise_if_cancelled(exc)
+
+        progress_message_id: int | None = None
+        if not self._is_draft_streaming_enabled():
+            progress_message_id = await self.response_formatter.safe_reply_with_id(
+                message,
+                f"🔄 Preparing to process {len(valid_urls)} links...",
+            )
+        logger.debug(
+            "document_file_processing_started",
+            extra={"url_count": len(valid_urls)},
+        )
+
+        await self.process_url_batch(
+            message,
+            valid_urls,
+            uid,
+            correlation_id,
+            interaction_id=interaction_id,
+            start_time=start_time,
+            initial_message_id=progress_message_id,
+        )
+
+        try:
+            min_gap_sec = max(
+                0.6,
+                (self.response_formatter.MIN_MESSAGE_INTERVAL_MS + 50) / 1000.0,
+            )
+            await asyncio.sleep(min_gap_sec)
+        except Exception as exc:
+            raise_if_cancelled(exc)
 
     async def handle_single_url(
         self,
@@ -706,9 +864,8 @@ class URLHandler:
             logger.error("file_download_failed", extra={"error": str(exc)})
             return None
 
-    async def _parse_txt_file(self, file_path: str) -> list[str]:
-        lines = await asyncio.to_thread(self._file_validator.safe_read_text_file, file_path)
-
+    def _extract_urls_from_lines(self, lines: list[str]) -> list[str]:
+        """Extract normalized http(s) URLs from already-read file lines."""
         urls: list[str] = []
         skipped_count = 0
         for line_num, line in enumerate(lines, 1):
@@ -740,7 +897,6 @@ class URLHandler:
                             "url_preview": line[:50],
                             "error": str(exc),
                             "line_num": line_num,
-                            "file_path": file_path,
                         },
                     )
                     skipped_count += 1
@@ -758,7 +914,6 @@ class URLHandler:
         logger.info(
             "file_parsed_successfully",
             extra={
-                "file_path": file_path,
                 "urls_found": len(urls),
                 "urls_skipped": skipped_count,
                 "lines_read": len(lines),
