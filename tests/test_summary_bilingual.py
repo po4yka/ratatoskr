@@ -38,7 +38,7 @@ class TestTranslateSummaryStruct(unittest.IsolatedAsyncioTestCase):
                 return_value=_FakeStructResult({"summary_250": "Привет", "tldr_ru": "Привет"})
             )
         )
-        out = await translate_summary_to_ru_struct(
+        out, meta = await translate_summary_to_ru_struct(
             llm_client=cast("Any", client),
             summary={"summary_250": "Hello", "canonical_url": "https://x.test/a"},
             cfg=_cfg(),
@@ -48,28 +48,33 @@ class TestTranslateSummaryStruct(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["summary_250"], "Привет")
         # canonical_url is preserved even though the translator omitted it
         self.assertEqual(out["canonical_url"], "https://x.test/a")
+        assert meta is not None
+        self.assertIn("model", meta)
         client.chat_structured.assert_awaited_once()
 
     async def test_none_client_returns_none(self) -> None:
-        out = await translate_summary_to_ru_struct(
+        out, meta = await translate_summary_to_ru_struct(
             llm_client=cast("Any", None), summary={"summary_250": "x"}, cfg=_cfg()
         )
         self.assertIsNone(out)
+        self.assertIsNone(meta)
 
     async def test_empty_summary_returns_none(self) -> None:
         client = SimpleNamespace(chat_structured=AsyncMock())
-        out = await translate_summary_to_ru_struct(
+        out, meta = await translate_summary_to_ru_struct(
             llm_client=cast("Any", client), summary={}, cfg=_cfg()
         )
         self.assertIsNone(out)
+        self.assertIsNone(meta)
         client.chat_structured.assert_not_awaited()
 
     async def test_llm_failure_returns_none(self) -> None:
         client = SimpleNamespace(chat_structured=AsyncMock(side_effect=RuntimeError("boom")))
-        out = await translate_summary_to_ru_struct(
+        out, meta = await translate_summary_to_ru_struct(
             llm_client=cast("Any", client), summary={"summary_250": "x"}, cfg=_cfg()
         )
         self.assertIsNone(out)
+        self.assertIsNone(meta)
 
 
 def _flow_with_lang(lang: str) -> tuple[StructuredSummaryFlow, Any, Any]:
@@ -139,9 +144,11 @@ def _make_post_service(
         openrouter=SimpleNamespace(temperature=0.2),
     )
     summary_repo = SimpleNamespace(async_update_ru_payload=AsyncMock())
+    llm_repo = SimpleNamespace(async_insert_llm_call=AsyncMock(return_value=1))
     svc = URLPostSummaryTaskService(
         response_formatter=cast("Any", response_formatter),
         summary_repo=cast("Any", summary_repo),
+        llm_repo=cast("Any", llm_repo),
         article_generator=cast("Any", SimpleNamespace()),
         insights_generator=cast("Any", SimpleNamespace()),
         summary_delivery=cast("Any", summary_delivery),
@@ -179,6 +186,9 @@ class TestPostSummaryBilingualGate(unittest.IsolatedAsyncioTestCase):
         )
         rf.send_secondary_language_summary.assert_awaited_once()
         cast("Any", svc._summary_repo).async_update_ru_payload.assert_awaited_once()
+        cast("Any", svc._llm_repo).async_insert_llm_call.assert_awaited_once()
+        record = cast("Any", svc._llm_repo).async_insert_llm_call.await_args.args[0]
+        self.assertEqual(record["attempt_trigger"], "ru_translation")
         self.assertNotIn("ru_translation", _scheduled_labels(delivery))
 
     async def test_struct_failure_falls_back_to_prose(self) -> None:
@@ -268,6 +278,8 @@ class TestBilingualCache(unittest.IsolatedAsyncioTestCase):
         svc, rf = await self._run(cache_helper=cache_helper)
         cast("Any", svc._llm_client).chat_structured.assert_not_awaited()
         cache_helper.write_ru_struct_cache.assert_not_awaited()
+        # No fresh LLM call on a cache hit -> nothing to persist.
+        cast("Any", svc._llm_repo).async_insert_llm_call.assert_not_awaited()
         rf.send_secondary_language_summary.assert_awaited_once()
 
     async def test_cache_miss_translates_and_writes(self) -> None:
@@ -278,6 +290,7 @@ class TestBilingualCache(unittest.IsolatedAsyncioTestCase):
         svc, rf = await self._run(cache_helper=cache_helper)
         cast("Any", svc._llm_client).chat_structured.assert_awaited_once()
         cache_helper.write_ru_struct_cache.assert_awaited_once()
+        cast("Any", svc._llm_repo).async_insert_llm_call.assert_awaited_once()
         rf.send_secondary_language_summary.assert_awaited_once()
 
 

@@ -68,15 +68,17 @@ async def translate_summary_to_ru_struct(
     cfg: Any,
     correlation_id: str | None = None,
     req_id: int | None = None,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Translate a shaped summary dict into a Russian shaped dict.
 
-    Returns a render-ready Russian summary dict, or ``None`` when translation is
-    not possible (no client, empty input, or the LLM call fails). Callers treat
-    ``None`` as "fall back to the existing behavior" -- it is never fatal.
+    Returns ``(ru_summary, call_meta)`` where ``call_meta`` carries the LLM-call
+    fields (model / token counts / cost / latency) the caller persists to
+    ``llm_calls``. Returns ``(None, None)`` when translation is not possible (no
+    client, empty input, or the LLM call fails); callers treat that as "fall back
+    to the existing behavior" -- it is never fatal.
     """
     if llm_client is None or not isinstance(summary, dict) or not summary:
-        return None
+        return None, None
 
     from app.core.summary_schema import SummaryModel
 
@@ -100,15 +102,23 @@ async def translate_summary_to_ru_struct(
             "summary_ru_struct_translation_failed",
             extra={"cid": correlation_id, "error": str(exc)},
         )
-        return None
+        return None, None
 
     parsed = getattr(result, "parsed", None)
     if parsed is None:
-        return None
+        return None, None
     translated = parsed.model_dump()
     # Carry over the canonical URL / domain so the Russian card can still render
     # the source link and cover -- these are identifiers the translator may drop.
     for key in ("canonical_url", "metadata"):
         if not translated.get(key) and summary.get(key):
             translated[key] = summary[key]
-    return translated
+
+    call_meta = {
+        "model": getattr(result, "model_used", None),
+        "tokens_prompt": getattr(result, "tokens_prompt", None),
+        "tokens_completion": getattr(result, "tokens_completion", None),
+        "cost_usd": getattr(result, "cost_usd", None),
+        "latency_ms": getattr(result, "latency_ms", None),
+    }
+    return translated, call_meta

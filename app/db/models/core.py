@@ -51,6 +51,8 @@ class LLMAttemptTrigger(enum.StrEnum):
       graph (the graph orchestration path; ADR-0001/0011). RESERVED — added by
       the checkpoint-infrastructure track ahead of the graph cutover; no active
       code path writes this value yet (the graph runs behind a feature flag).
+    - ``ru_translation``: structured Russian translation of a finished summary,
+      issued by the bilingual post-summary step (``SUMMARY_BILINGUAL_ENABLED``).
     """
 
     initial = "initial"
@@ -60,6 +62,7 @@ class LLMAttemptTrigger(enum.StrEnum):
     stream_fallback_retry = "stream_fallback_retry"
     webwright_tool = "webwright_tool"
     graph_node = "graph_node"
+    ru_translation = "ru_translation"
 
 
 _llm_attempt_trigger_enum = Enum(

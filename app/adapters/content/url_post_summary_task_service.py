@@ -42,6 +42,7 @@ class URLPostSummaryTaskService:
         cfg: Any = None,
         llm_client: Any = None,
         cache_helper: Any = None,
+        llm_repo: Any = None,
     ) -> None:
         self._response_formatter = response_formatter
         self._summary_repo = summary_repo
@@ -52,6 +53,7 @@ class URLPostSummaryTaskService:
         self._cfg = cfg
         self._llm_client = llm_client
         self._cache_helper = cache_helper
+        self._llm_repo = llm_repo
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _bilingual_enabled(self) -> bool:
@@ -247,7 +249,7 @@ class URLPostSummaryTaskService:
             from app.adapters.content.summary_translation import translate_summary_to_ru_struct
 
             try:
-                ru_summary = await translate_summary_to_ru_struct(
+                ru_summary, call_meta = await translate_summary_to_ru_struct(
                     llm_client=self._llm_client,
                     summary=summary,
                     cfg=self._cfg,
@@ -264,6 +266,10 @@ class URLPostSummaryTaskService:
 
             if not ru_summary:
                 return False
+
+            # Persist the translation LLM call (persist-everything). Only on a
+            # fresh translation -- a cache hit issues no LLM call.
+            await self._persist_translation_call(req_id, call_meta, correlation_id)
 
             if url_hash and self._cache_helper is not None:
                 try:
@@ -304,6 +310,36 @@ class URLPostSummaryTaskService:
                 extra={"cid": correlation_id, "error": str(exc)},
             )
             return False
+
+    async def _persist_translation_call(
+        self,
+        req_id: int,
+        call_meta: dict[str, Any] | None,
+        correlation_id: str | None,
+    ) -> None:
+        """Record the Russian-translation LLM call in ``llm_calls`` (best-effort)."""
+        if not call_meta or self._llm_repo is None:
+            return
+        record: dict[str, Any] = {
+            "request_id": req_id,
+            "provider": getattr(getattr(self._cfg, "runtime", None), "llm_provider", None),
+            "model": call_meta.get("model"),
+            "tokens_prompt": call_meta.get("tokens_prompt"),
+            "tokens_completion": call_meta.get("tokens_completion"),
+            "cost_usd": call_meta.get("cost_usd"),
+            "latency_ms": call_meta.get("latency_ms"),
+            "status": "ok",
+            "structured_output_used": True,
+            "attempt_trigger": "ru_translation",
+        }
+        try:
+            await self._llm_repo.async_insert_llm_call(record)
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "ru_translation_llm_call_persist_failed",
+                extra={"cid": correlation_id, "req_id": req_id, "error": str(exc)},
+            )
 
     async def _maybe_send_russian_translation(
         self,

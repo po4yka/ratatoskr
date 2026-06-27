@@ -298,6 +298,7 @@ def build_url_processor(
         cfg=cfg,
         llm_client=openrouter,
         cache_helper=summarization_runtime.cache_helper,
+        llm_repo=llm_repository,
     )
 
     return assemble_graph_url_processor(
