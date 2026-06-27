@@ -23,6 +23,11 @@ logger = logging.getLogger("ratatoskr.mcp")
 
 _DEFAULT_CONTEXT = McpServerContext(logger=logger)
 _UNSCOPED_SSE_LOOPBACK_HOST = "127.0.0.1"
+# Environments where unscoped (all-users) MCP SSE may run without the explicit
+# MCP_ALLOW_UNSCOPED_PRODUCTION override. Anything else -- including an unset or
+# unrecognized APP_ENV -- is treated as non-dev and must opt in, so a forgotten
+# APP_ENV cannot silently expose every user's data (fail-safe).
+_DEV_ENVS = frozenset({"development", "dev", "test", "testing", "local", "ci"})
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -144,9 +149,9 @@ def run_server(
         raise ValueError(msg)
 
     if unscoped_sse_enabled:
-        if app_env == "production" and not allow_unscoped_production:
+        if app_env not in _DEV_ENVS and not allow_unscoped_production:
             logger.error(
-                "Refusing unscoped MCP SSE in production "
+                "Refusing unscoped MCP SSE outside a development environment "
                 "(app_env=%s, startup_user_scope=all, auth_mode=%s, requested_host=%s, "
                 "mcp_allow_unscoped_production=false)",
                 app_env,
@@ -154,8 +159,9 @@ def run_server(
                 host,
             )
             msg = (
-                "Refusing to start unscoped MCP SSE server in production without "
-                "MCP_ALLOW_UNSCOPED_PRODUCTION=true."
+                "Refusing to start unscoped MCP SSE server outside development "
+                "(set APP_ENV to a dev value, scope it with MCP_USER_ID, or set "
+                "MCP_ALLOW_UNSCOPED_PRODUCTION=true to acknowledge the risk)."
             )
             raise ValueError(msg)
         if not allow_unscoped_production and not _is_loopback_host(host):
