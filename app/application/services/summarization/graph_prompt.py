@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from app.core.content_cleaner import clean_content_for_llm, detect_prompt_injection_patterns
+from app.core.content_cleaner import (
+    clean_content_for_llm,
+    detect_prompt_injection_patterns,
+    maybe_redact_pii,
+)
 from app.core.lang import LANG_RU
 from app.core.token_utils import count_tokens
 from app.prompts.file_cache import read_prompt_text
@@ -148,7 +152,7 @@ def prepare_content_for_summary(
                 max_chars = max(1, int(threshold_tokens * chars_per_token))
                 content_for_summary = _truncate_content_text(content_text, max_chars)
 
-    return clean_content_for_llm(content_for_summary), model_override
+    return maybe_redact_pii(clean_content_for_llm(content_for_summary)), model_override
 
 
 def load_instructor_system_prompt(lang: str) -> str:

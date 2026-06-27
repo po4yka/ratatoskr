@@ -314,12 +314,12 @@ async def enrich_two_pass(
         core_summary_text = json_dumps(
             {k: v for k, v in summary.items() if k in _ENRICH_CORE_FIELDS}, indent=2
         )
-        from app.core.content_cleaner import wrap_untrusted_source
+        from app.core.content_cleaner import maybe_redact_pii, wrap_untrusted_source
 
         user_content = (
             f"Respond in {'Russian' if chosen_lang == LANG_RU else 'English'}.\n\n"
             f"CORE SUMMARY (already generated, do not modify):\n{core_summary_text}\n\n"
-            + wrap_untrusted_source(content_text[:enrichment_content_max_chars])
+            + wrap_untrusted_source(maybe_redact_pii(content_text[:enrichment_content_max_chars]))
         )
         messages = [
             {"role": "system", "content": enrichment_prompt},
