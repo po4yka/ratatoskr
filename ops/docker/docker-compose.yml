@@ -598,9 +598,13 @@ services:
       - POSTGRES_HOST=firecrawl-postgres
       - POSTGRES_PORT=5432
       - POSTGRES_USER=${FIRECRAWL_POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${FIRECRAWL_POSTGRES_PASSWORD:-postgres}
+      # REQUIRED for the with-scrapers profile: set FIRECRAWL_POSTGRES_PASSWORD
+      # in .env. No default is shipped — an empty value makes Postgres refuse to
+      # start (fail-closed) instead of using a guessable "postgres" password.
+      - POSTGRES_PASSWORD=${FIRECRAWL_POSTGRES_PASSWORD}
       - POSTGRES_DB=${FIRECRAWL_POSTGRES_DB:-postgres}
-      - BULL_AUTH_KEY=${FIRECRAWL_BULL_AUTH_KEY:-ratatoskr-local}
+      # REQUIRED for the with-scrapers profile: set FIRECRAWL_BULL_AUTH_KEY in .env.
+      - BULL_AUTH_KEY=${FIRECRAWL_BULL_AUTH_KEY}
       - ENV=local
     command: ["node", "dist/src/harness.js", "--start-docker"]
     ports:
@@ -718,7 +722,10 @@ services:
     container_name: ratatoskr-firecrawl-postgres
     environment:
       - POSTGRES_USER=${FIRECRAWL_POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${FIRECRAWL_POSTGRES_PASSWORD:-postgres}
+      # REQUIRED for the with-scrapers profile: set FIRECRAWL_POSTGRES_PASSWORD
+      # in .env. No default — empty makes Postgres refuse to start (fail-closed)
+      # rather than use a guessable "postgres" password.
+      - POSTGRES_PASSWORD=${FIRECRAWL_POSTGRES_PASSWORD}
       - POSTGRES_DB=${FIRECRAWL_POSTGRES_DB:-postgres}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres}"]
@@ -975,7 +982,10 @@ services:
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-change-this-grafana-password}
+      # REQUIRED for the with-monitoring profile: set GRAFANA_ADMIN_PASSWORD in
+      # .env. No guessable default is shipped; always set this before exposing
+      # Grafana.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_HTTP_PORT=3001
     volumes:
