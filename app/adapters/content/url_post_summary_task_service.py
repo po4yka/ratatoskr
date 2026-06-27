@@ -99,7 +99,11 @@ class URLPostSummaryTaskService:
             ru_sent = await self._send_bilingual_ru_summary(
                 message, summary, req_id, correlation_id, url_hash=url_hash
             )
-            if not ru_sent and not _has_inline_ru:
+            # When bilingual mode is on, the primary card was rendered WITHOUT the
+            # inline TL;DR (RU) (suppress_tldr_ru, A4). So if the full Russian block
+            # fails we must fall back to the prose translation regardless of
+            # _has_inline_ru -- otherwise the user would get no Russian at all.
+            if not ru_sent:
                 self._schedule_task(
                     self._maybe_send_russian_translation(
                         message,

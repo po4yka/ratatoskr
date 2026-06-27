@@ -207,6 +207,25 @@ class TestPostSummaryBilingualGate(unittest.IsolatedAsyncioTestCase):
         rf.send_secondary_language_summary.assert_not_awaited()
         self.assertIn("ru_translation", _scheduled_labels(delivery))
 
+    async def test_struct_failure_with_inline_tldr_ru_still_falls_back(self) -> None:
+        # Regression: bilingual on suppresses the inline TL;DR (RU) from the card,
+        # so a failed RU block must still fall back to prose even when the summary
+        # carries tldr_ru -- otherwise the user gets no Russian at all.
+        svc, rf, delivery = _make_post_service(bilingual=True, struct_result=None)
+        await svc.schedule_tasks(
+            cast("Any", SimpleNamespace()),
+            "content",
+            "en",
+            42,
+            "cid",
+            {"summary_250": "Hi", "tldr_ru": "Привет"},
+            needs_ru_translation=True,
+            silent=False,
+            url_hash="u:1",
+        )
+        rf.send_secondary_language_summary.assert_not_awaited()
+        self.assertIn("ru_translation", _scheduled_labels(delivery))
+
     async def test_bilingual_off_uses_prose_path(self) -> None:
         svc, rf, delivery = _make_post_service(
             bilingual=False, struct_result={"summary_250": "Привет"}
