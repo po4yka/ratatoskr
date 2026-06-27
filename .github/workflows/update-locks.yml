@@ -20,7 +20,10 @@ permissions:
 
 env:
   UV_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/cpu"
-  UV_INDEX_STRATEGY: "unsafe-best-match"
+  # unsafe-first-match: resolve from the first index (in order) that provides a
+  # package, not the highest version across indexes — prevents dependency
+  # confusion at lock-generation time. Do NOT use unsafe-best-match.
+  UV_INDEX_STRATEGY: "unsafe-first-match"
 
 jobs:
   update-locks:

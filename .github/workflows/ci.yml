@@ -19,7 +19,11 @@ permissions:
 
 env:
   UV_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/cpu"
-  UV_INDEX_STRATEGY: "unsafe-best-match"
+  # unsafe-first-match: resolve each package from the first index (in order) that
+  # provides it, NOT the highest version across all indexes. Prevents a public
+  # PyPI package from overriding a private/extra-index package via a bumped
+  # version number (dependency confusion). Do NOT use unsafe-best-match.
+  UV_INDEX_STRATEGY: "unsafe-first-match"
 
 jobs:
   prepare-environment:
