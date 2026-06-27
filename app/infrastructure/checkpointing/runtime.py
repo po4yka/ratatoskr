@@ -97,7 +97,15 @@ class CheckpointerRuntime:
                 await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
 
             # strict_msgpack -> no pickle fallback (no arbitrary-module deserialization).
-            serde = JsonPlusSerializer(pickle_fallback=not cp_cfg.strict_msgpack)
+            # In production the pickle fallback is forced OFF regardless of the
+            # flag: a checkpoint blob carrying a malicious pickle would otherwise
+            # execute arbitrary code on read (CWE-502). Only non-production
+            # deployments may opt into the fallback (e.g. to read legacy blobs).
+            allow_pickle = not cp_cfg.strict_msgpack
+            if allow_pickle and self._cfg.deployment.is_production_mode:
+                logger.warning("langgraph_pickle_fallback_disabled_in_production")
+                allow_pickle = False
+            serde = JsonPlusSerializer(pickle_fallback=allow_pickle)
             saver = AsyncPostgresSaver(pool, serde=serde)
             await saver.setup()
             self._saver = saver
