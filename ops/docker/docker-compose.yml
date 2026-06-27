@@ -1029,6 +1029,12 @@ services:
     image: grafana/promtail:2.9.2
     container_name: ratatoskr-promtail
     restart: unless-stopped
+    # Match the hardening already applied to the core app/db containers. The
+    # /var/log and docker-container log mounts are read-only and intrinsic to
+    # log shipping, so they are kept; no-new-privileges limits escalation if the
+    # container is compromised.
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ../monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
       - /var/log:/var/log:ro
@@ -1044,6 +1050,10 @@ services:
     image: prom/node-exporter:v1.8.2
     container_name: ratatoskr-node-exporter
     restart: unless-stopped
+    # The read-only host rootfs/proc/sys mounts are intrinsic to node-exporter's
+    # purpose; no-new-privileges limits escalation from a container compromise.
+    security_opt:
+      - no-new-privileges:true
     command:
       - "--path.procfs=/host/proc"
       - "--path.sysfs=/host/sys"
