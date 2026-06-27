@@ -37,6 +37,13 @@ _cfg_holder: list[AppConfig | None] = [None]
 # a single-element list so the mutation site doesn't need `global`.
 _redis_warning_emitted: list[bool] = [False]
 
+# Auth buckets whose rate limiting is a security control (brute force /
+# credential stuffing). In production these MUST NOT silently degrade to the
+# per-process in-memory limiter when Redis is down — they fail closed (503).
+_REDIS_REQUIRED_AUTH_BUCKETS = frozenset(
+    {"secret_login", "credentials_login", "telegram_login", "auth_refresh"}
+)
+
 # In-memory rate limiting fallback when Redis is unavailable. The
 # singleton lives at module scope so existing tests that import
 # `_local_rate_limits` continue to work; the underlying state is now
@@ -781,7 +788,14 @@ async def rate_limit_middleware(request: Request, call_next: Callable[..., Any])
     if redis_client is None:
         _log_redis_unavailable_once(cfg, correlation_id, request.url.path)
 
-        if cfg.redis.required:
+        # Fail closed when Redis is required, or when this is a security-sensitive
+        # auth bucket in production. The per-process in-memory fallback does not
+        # share state across workers/replicas, so allowing auth brute-force
+        # buckets through it in production would silently void the protection.
+        fail_closed = cfg.redis.required or (
+            bucket in _REDIS_REQUIRED_AUTH_BUCKETS and cfg.deployment.is_production_mode
+        )
+        if fail_closed:
             return _build_rate_limit_response(
                 correlation_id=correlation_id,
                 code="RATE_LIMIT_BACKEND_UNAVAILABLE",
