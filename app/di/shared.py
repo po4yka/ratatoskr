@@ -297,6 +297,7 @@ def build_url_processor(
         related_reads_service=related_reads_service,
         cfg=cfg,
         llm_client=openrouter,
+        cache_helper=summarization_runtime.cache_helper,
     )
 
     return assemble_graph_url_processor(

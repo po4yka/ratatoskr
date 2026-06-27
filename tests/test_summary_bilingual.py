@@ -121,7 +121,9 @@ class TestSecondaryLanguageRendering(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(flow._with_lang("en"), flow)
 
 
-def _make_post_service(*, bilingual: bool, struct_result: dict[str, Any] | None) -> Any:
+def _make_post_service(
+    *, bilingual: bool, struct_result: dict[str, Any] | None, cache_helper: Any = None
+) -> Any:
     if struct_result is None:
         chat_structured = AsyncMock(side_effect=RuntimeError("fail"))
     else:
@@ -145,6 +147,7 @@ def _make_post_service(*, bilingual: bool, struct_result: dict[str, Any] | None)
         summary_delivery=cast("Any", summary_delivery),
         cfg=cfg,
         llm_client=cast("Any", SimpleNamespace(chat_structured=chat_structured)),
+        cache_helper=cache_helper,
     )
     # Stub the fire-and-forget handlers so the gate test never spawns real work.
     svc._handle_additional_insights = MagicMock(return_value=None)  # type: ignore[method-assign]
@@ -211,6 +214,45 @@ class TestPostSummaryBilingualGate(unittest.IsolatedAsyncioTestCase):
         )
         rf.send_secondary_language_summary.assert_not_awaited()
         self.assertIn("ru_translation", _scheduled_labels(delivery))
+
+
+class TestBilingualCache(unittest.IsolatedAsyncioTestCase):
+    async def _run(self, *, cache_helper: Any) -> Any:
+        svc, rf, _ = _make_post_service(
+            bilingual=True, struct_result={"summary_250": "Привет"}, cache_helper=cache_helper
+        )
+        await svc.schedule_tasks(
+            cast("Any", SimpleNamespace()),
+            "content",
+            "en",
+            42,
+            "cid",
+            {"summary_250": "Hi"},
+            needs_ru_translation=True,
+            silent=False,
+            url_hash="u:1",
+        )
+        return svc, rf
+
+    async def test_cache_hit_skips_translation(self) -> None:
+        cache_helper = SimpleNamespace(
+            get_cached_ru_struct=AsyncMock(return_value={"summary_250": "Из кеша"}),
+            write_ru_struct_cache=AsyncMock(),
+        )
+        svc, rf = await self._run(cache_helper=cache_helper)
+        cast("Any", svc._llm_client).chat_structured.assert_not_awaited()
+        cache_helper.write_ru_struct_cache.assert_not_awaited()
+        rf.send_secondary_language_summary.assert_awaited_once()
+
+    async def test_cache_miss_translates_and_writes(self) -> None:
+        cache_helper = SimpleNamespace(
+            get_cached_ru_struct=AsyncMock(return_value=None),
+            write_ru_struct_cache=AsyncMock(),
+        )
+        svc, rf = await self._run(cache_helper=cache_helper)
+        cast("Any", svc._llm_client).chat_structured.assert_awaited_once()
+        cache_helper.write_ru_struct_cache.assert_awaited_once()
+        rf.send_secondary_language_summary.assert_awaited_once()
 
 
 if __name__ == "__main__":

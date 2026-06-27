@@ -41,6 +41,7 @@ class URLPostSummaryTaskService:
         related_reads_service: RelatedReadsService | None = None,
         cfg: Any = None,
         llm_client: Any = None,
+        cache_helper: Any = None,
     ) -> None:
         self._response_formatter = response_formatter
         self._summary_repo = summary_repo
@@ -50,6 +51,7 @@ class URLPostSummaryTaskService:
         self._related_reads_service = related_reads_service
         self._cfg = cfg
         self._llm_client = llm_client
+        self._cache_helper = cache_helper
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _bilingual_enabled(self) -> bool:
@@ -93,7 +95,7 @@ class URLPostSummaryTaskService:
             # follow-ups. The primary summary is already delivered at this point,
             # so this only delays the secondary enrichment notices, not the summary.
             ru_sent = await self._send_bilingual_ru_summary(
-                message, summary, req_id, correlation_id
+                message, summary, req_id, correlation_id, url_hash=url_hash
             )
             if not ru_sent and not _has_inline_ru:
                 self._schedule_task(
@@ -219,35 +221,61 @@ class URLPostSummaryTaskService:
         summary: dict[str, Any],
         req_id: int,
         correlation_id: str | None,
+        *,
+        url_hash: str | None = None,
     ) -> bool:
         """Translate the finished summary and deliver the full Russian version.
 
+        Reuses a cached structured Russian summary when available (keyed by
+        url_hash) so re-delivery / the "More" callback does not re-translate.
         Returns True when the Russian block was delivered; False when translation
         or delivery did not happen, so the caller can fall back to the legacy
         prose translation.
         """
         if self._llm_client is None:
             return False
-        from app.adapters.content.summary_translation import translate_summary_to_ru_struct
 
-        try:
-            ru_summary = await translate_summary_to_ru_struct(
-                llm_client=self._llm_client,
-                summary=summary,
-                cfg=self._cfg,
-                correlation_id=correlation_id,
-                req_id=req_id,
-            )
-        except Exception as exc:
-            raise_if_cancelled(exc)
-            logger.warning(
-                "bilingual_ru_translation_failed",
-                extra={"cid": correlation_id, "error": str(exc)},
-            )
-            return False
+        source_lang = summary.get("language") or "auto"
 
-        if not ru_summary:
-            return False
+        ru_summary: dict[str, Any] | None = None
+        if url_hash and self._cache_helper is not None:
+            ru_summary = await self._cache_helper.get_cached_ru_struct(
+                url_hash, source_lang, correlation_id
+            )
+
+        if ru_summary is None:
+            from app.adapters.content.summary_translation import translate_summary_to_ru_struct
+
+            try:
+                ru_summary = await translate_summary_to_ru_struct(
+                    llm_client=self._llm_client,
+                    summary=summary,
+                    cfg=self._cfg,
+                    correlation_id=correlation_id,
+                    req_id=req_id,
+                )
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                logger.warning(
+                    "bilingual_ru_translation_failed",
+                    extra={"cid": correlation_id, "error": str(exc)},
+                )
+                return False
+
+            if not ru_summary:
+                return False
+
+            if url_hash and self._cache_helper is not None:
+                try:
+                    await self._cache_helper.write_ru_struct_cache(
+                        url_hash, source_lang, ru_summary
+                    )
+                except Exception as exc:
+                    raise_if_cancelled(exc)
+                    logger.warning(
+                        "ru_struct_cache_write_failed",
+                        extra={"cid": correlation_id, "error": str(exc)},
+                    )
 
         # Persist the Russian summary alongside the primary one so it is not
         # ephemeral (available to exports / API / web). Best-effort: a DB failure

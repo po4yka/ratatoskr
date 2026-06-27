@@ -179,6 +179,50 @@ class LLMSummaryCache:
             ),
         )
 
+    async def get_cached_ru_struct(
+        self,
+        url_hash: str | None,
+        source_lang: str | None,
+        correlation_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Return a cached structured Russian-summary dict, or None on miss.
+
+        Distinct ``translation_ru_struct`` namespace so it never collides with the
+        prose ``translation_ru`` cache even for the same url_hash/lang/version.
+        """
+        if not url_hash or not self._cache.enabled:
+            return None
+        lang_key = source_lang or "auto"
+        cached = await self._cache.get_json(
+            "llm", "translation_ru_struct", self._prompt_version, lang_key, url_hash
+        )
+        if isinstance(cached, dict) and cached:
+            return cached
+        logger.debug(
+            "ru_struct_cache_miss",
+            extra={"cid": correlation_id, "lang": lang_key},
+        )
+        return None
+
+    async def write_ru_struct_cache(
+        self, url_hash: str, source_lang: str, ru_summary: dict[str, Any]
+    ) -> None:
+        if not self._cache.enabled:
+            return
+        if not ru_summary or not isinstance(ru_summary, dict):
+            return
+        await self._cache.set_json(
+            value=ru_summary,
+            ttl_seconds=getattr(self._cfg.redis, "llm_ttl_seconds", 7_200),
+            parts=(
+                "llm",
+                "translation_ru_struct",
+                self._prompt_version,
+                source_lang or "auto",
+                url_hash,
+            ),
+        )
+
     async def get_cached_custom_article(
         self,
         url_hash: str | None,
