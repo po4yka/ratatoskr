@@ -124,15 +124,20 @@ async def _check_database(
         return result
     except Exception as exc:
         latency_ms = (time.perf_counter() - start) * 1000
-        logger.debug(
+        logger.warning(
             "health_check_db_failed",
             extra={"error": str(exc), "latency_ms": latency_ms},
         )
-        return {
+        result = {
             "status": "unhealthy",
-            "error": str(exc),
             "latency_ms": round(latency_ms, 2),
         }
+        # Only expose the raw DB error on the authenticated, detailed path. The
+        # unauthenticated readiness/liveness probes must not leak DB host/schema
+        # to network-reachable callers (CWE-209); it's logged server-side above.
+        if include_details:
+            result["error"] = str(exc)
+        return result
 
 
 async def _check_redis() -> dict[str, Any]:
@@ -358,7 +363,9 @@ async def readiness_check() -> Any:
         status_code=503,
         content={
             "ready": False,
-            "error": db_status.get("error", "Database not ready"),
+            # Generic message only — never surface the underlying DB error to
+            # unauthenticated probe callers.
+            "error": "Database not ready",
             "timestamp": format_iso_z(datetime.now(UTC)),
         },
     )
