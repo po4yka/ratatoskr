@@ -123,6 +123,7 @@ jobs:
             --extra export \
             --extra scheduler \
             --extra mcp \
+            --extra graph \
             -o requirements-all.txt
 
       - name: Check for changes
