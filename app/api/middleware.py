@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import time
@@ -216,10 +217,56 @@ def _get_auth_context_from_auth_header(request: Request) -> tuple[str | None, st
     return None, normalized_client_id or None
 
 
+# Parsed TRUSTED_PROXY_IPS, cached keyed by the raw env string so a changed
+# value is re-parsed without a restart. Single-element list to avoid `global`.
+_trusted_proxies_holder: list[tuple[str, list[Any]] | None] = [None]
+
+
+def _trusted_proxy_networks() -> list[Any]:
+    """Parse TRUSTED_PROXY_IPS (comma-separated IPs/CIDRs) into ip_network objects."""
+    raw = os.getenv("TRUSTED_PROXY_IPS", "")
+    cached = _trusted_proxies_holder[0]
+    if cached is not None and cached[0] == raw:
+        return cached[1]
+    nets: list[Any] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(token, strict=False))
+        except ValueError:
+            logger.warning("invalid_trusted_proxy_ip", extra={"value": token})
+    _trusted_proxies_holder[0] = (raw, nets)
+    return nets
+
+
+def _ip_in_networks(ip_str: str, nets: list[Any]) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return any(ip in net for net in nets)
+
+
 def _get_client_ip(request: Request) -> str:
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    """Resolve the client IP for rate limiting.
+
+    X-Forwarded-For is honored ONLY when the direct peer is a configured trusted
+    proxy (TRUSTED_PROXY_IPS). Without that, the header is attacker-controlled
+    and ignored. When trusted, the right-most XFF entry that is not itself a
+    trusted proxy is the real client (so per-IP limits work behind a proxy
+    instead of collapsing every client into the proxy's single bucket).
+    """
+    direct = request.client.host if request.client else None
+    nets = _trusted_proxy_networks()
+    if direct and nets and _ip_in_networks(direct, nets):
+        xff = request.headers.get("X-Forwarded-For")
+        if xff:
+            for hop in reversed([h.strip() for h in xff.split(",") if h.strip()]):
+                if not _ip_in_networks(hop, nets):
+                    return hop
+    return direct or "unknown"
 
 
 async def _extract_json_body(request: Request) -> dict[str, Any]:
