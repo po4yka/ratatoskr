@@ -8,6 +8,12 @@ from app.db.models.aggregation import (
     AggregationSession,
     AggregationSessionItem,
 )
+from app.db.models.ai_backup import (
+    AI_BACKUP_MODELS,
+    AiAccountBackup,
+    AiBackupService,
+    AiBackupStatus,
+)
 from app.db.models.batch import BATCH_MODELS, BatchSession, BatchSessionItem
 from app.db.models.collections import (
     COLLECTION_MODELS,
@@ -124,6 +130,7 @@ from app.db.types import _next_server_version, _utcnow, model_to_dict
 ALL_MODELS: tuple[type[Base], ...] = (
     *CORE_MODELS,
     *AGGREGATION_MODELS,
+    *AI_BACKUP_MODELS,
     *BATCH_MODELS,
     *COLLECTION_MODELS,
     *DIGEST_MODELS,
@@ -144,6 +151,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
 
 __all__ = [
     "AGGREGATION_MODELS",
+    "AI_BACKUP_MODELS",
     "ALL_MODELS",
     "BATCH_MODELS",
     "COLLECTION_MODELS",
@@ -164,6 +172,9 @@ __all__ = [
     "WEBWRIGHT_MODELS",
     "AggregationSession",
     "AggregationSessionItem",
+    "AiAccountBackup",
+    "AiBackupService",
+    "AiBackupStatus",
     "AttachmentProcessing",
     "AudioGeneration",
     "AuditLog",

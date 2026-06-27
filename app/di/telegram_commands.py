@@ -15,6 +15,7 @@ from app.adapters.telegram.command_handlers.admin_handler import AdminHandler
 from app.adapters.telegram.command_handlers.aggregation_commands_handler import (
     AggregationCommandsHandler,
 )
+from app.adapters.telegram.command_handlers.ai_backup_handler import AiBackupHandler
 from app.adapters.telegram.command_handlers.backup_handler import BackupHandler
 from app.adapters.telegram.command_handlers.browse_handler import BrowseHandler
 from app.adapters.telegram.command_handlers.content_handler import ContentHandler
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
 
+    from app.adapters.ai_backup.repository import AiBackupRepository
     from app.adapters.content.graph_url_processor import GraphURLProcessor as URLProcessor
     from app.adapters.digest.digest_service import DigestService
     from app.adapters.git_backup.repository import GitMirrorRepository
@@ -112,6 +114,20 @@ def _build_digest_service_factory(
             await llm_client.aclose()
         finally:
             await userbot.stop()
+
+    return _factory
+
+
+def _build_ai_backup_repo_factory(db: Any) -> Callable[[], AiBackupRepository]:
+    """Return a factory that creates an AiBackupRepository.
+
+    Lives in the DI layer so the ``telegram`` adapter does not need a runtime
+    import of any ``ai_backup`` adapter module.
+    """
+    from app.adapters.ai_backup.repository import AiBackupRepository as _AiBackupRepository
+
+    def _factory() -> _AiBackupRepository:
+        return _AiBackupRepository(db)
 
     return _factory
 
@@ -254,6 +270,12 @@ def build_command_dispatcher_deps(
         db=db,
         response_formatter=response_formatter,
         mirror_repo_factory=_build_mirror_repo_factory(cfg, db),
+    )
+    ai_backup_handler = AiBackupHandler(
+        cfg=cfg,
+        db=db,
+        response_formatter=response_formatter,
+        ai_backup_repo_factory=_build_ai_backup_repo_factory(db),
     )
     x_possible_handler = XPossibleHandler(cfg=cfg)
 
@@ -543,6 +565,19 @@ def build_command_dispatcher_deps(
                 TextCommandRoute(
                     "/mirrors",
                     _build_text_handler(context_factory, git_mirror_handler.handle_mirrors),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="ai_backup",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/ai_backup",
+                    _build_text_handler(context_factory, ai_backup_handler.handle_ai_backup),
+                ),
+                TextCommandRoute(
+                    "/ai_backups",
+                    _build_text_handler(context_factory, ai_backup_handler.handle_ai_backups),
                 ),
             ),
         ),

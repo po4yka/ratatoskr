@@ -3166,6 +3166,60 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/ai-backups:
+    get:
+      tags:
+      - ai-backups
+      summary: List Ai Backups
+      description: List the authenticated user's AI account backup status rows.
+      operationId: list_ai_backups_v1_ai_backups_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiBackupListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/ai-backups/{service}:
+    get:
+      tags:
+      - ai-backups
+      summary: Get Ai Backup
+      description: Get the backup status for a single service (chatgpt | claude).
+      operationId: get_ai_backup_v1_ai_backups__service__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: service
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AiBackupService'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiBackupItem'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/articles:
     get:
       tags:
@@ -10485,6 +10539,73 @@ components:
       - sourceKind
       - extractionStatus
       title: AggregationSourceItem
+    AiBackupItem:
+      properties:
+        service:
+          type: string
+          title: Service
+          description: chatgpt | claude
+        status:
+          type: string
+          title: Status
+          description: pending | ok | failed | auth_expired | disabled
+        last_backed_up_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Backed Up At
+        last_attempt_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Attempt At
+        consecutive_failures:
+          type: integer
+          title: Consecutive Failures
+          default: 0
+        last_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Error
+        last_error_category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Error Category
+        counts:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Counts
+      type: object
+      required:
+      - service
+      - status
+      title: AiBackupItem
+      description: Lifecycle state of one service's backup.
+    AiBackupListResponse:
+      properties:
+        backups:
+          items:
+            $ref: '#/components/schemas/AiBackupItem'
+          type: array
+          title: Backups
+      type: object
+      required:
+      - backups
+      title: AiBackupListResponse
+      description: All AI account backups for the authenticated user.
+    AiBackupService:
+      type: string
+      enum:
+      - chatgpt
+      - claude
+      title: AiBackupService
+      description: Which AI web account this backup row tracks.
     AppleSignInCallbackRequest:
       properties:
         id_token:

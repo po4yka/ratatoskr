@@ -19,6 +19,7 @@ from app.infrastructure.persistence.repositories.taskiq_failed_job_repository im
 logger = get_logger(__name__)
 
 _TASK_MODULES = (
+    "app.tasks.ai_backup_sync",
     "app.tasks.digest",
     "app.tasks.git_backup_sync",
     "app.tasks.github_sync",

@@ -16,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .academic import AcademicConfig
 from .adaptive_timeout import AdaptiveTimeoutConfig
+from .ai_backup import AiBackupConfig
 from .api import ApiLimitsConfig, AuthConfig, SyncConfig
 from .background import BackgroundProcessorConfig
 from .backup import BackupConfig
@@ -217,6 +218,7 @@ class AppConfig:
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     x_bookmarks: XBookmarksConfig = field(default_factory=XBookmarksConfig)
     git_backup: GitBackupConfig = field(default_factory=GitBackupConfig)
+    ai_backup: AiBackupConfig = field(default_factory=AiBackupConfig)
     langgraph_checkpoint: LangGraphCheckpointConfig = field(
         default_factory=LangGraphCheckpointConfig
     )
@@ -287,6 +289,7 @@ class Settings(BaseSettings):
     deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
     x_bookmarks: XBookmarksConfig = Field(default_factory=XBookmarksConfig)
     git_backup: GitBackupConfig = Field(default_factory=GitBackupConfig)
+    ai_backup: AiBackupConfig = Field(default_factory=AiBackupConfig)
     langgraph_checkpoint: LangGraphCheckpointConfig = Field(
         default_factory=LangGraphCheckpointConfig
     )
@@ -548,6 +551,7 @@ class Settings(BaseSettings):
             deployment=self.deployment,
             x_bookmarks=self.x_bookmarks,
             git_backup=self.git_backup,
+            ai_backup=self.ai_backup,
             langgraph_checkpoint=self.langgraph_checkpoint,
         )
 

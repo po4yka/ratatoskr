@@ -148,6 +148,17 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
+        if cfg.ai_backup.enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.ai_backup.sync",
+                    cron=cfg.ai_backup.sync_cron,
+                    labels={"job": "ai_backup_sync"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+
         if cfg.langgraph_checkpoint.enabled:
             tasks.append(
                 ScheduledTask(
