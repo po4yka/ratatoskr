@@ -427,6 +427,12 @@ async def test_secret_login_rate_limit_uses_dedicated_bucket(monkeypatch):
         return redis_client
 
     monkeypatch.setattr(middleware, "get_redis", fake_get_redis)
+    # client_id only refines the auth bucket when it is in the configured
+    # allowlist (MEDIUM-009); otherwise the limiter keys on IP alone.
+    monkeypatch.setattr(
+        "app.config.settings.ConfigHelper.get_allowed_client_ids",
+        lambda: ("secret-client",),
+    )
 
     async def call_next(_: Request):
         return Response(status_code=200)
@@ -468,6 +474,11 @@ async def test_credentials_login_rate_limit_uses_client_id_and_ip(monkeypatch):
         return redis_client
 
     monkeypatch.setattr(middleware, "get_redis", fake_get_redis)
+    # Both client_ids are allowlisted, so each gets its own bucket (MEDIUM-009).
+    monkeypatch.setattr(
+        "app.config.settings.ConfigHelper.get_allowed_client_ids",
+        lambda: ("ios-app", "android-app"),
+    )
 
     async def call_next(_: Request):
         return Response(status_code=401)
@@ -519,6 +530,12 @@ async def test_refresh_rate_limit_uses_refresh_token_client_id(monkeypatch):
         return redis_client
 
     monkeypatch.setattr(middleware, "get_redis", fake_get_redis)
+    # web-client is allowlisted, so its refresh token gets a dedicated bucket
+    # keyed by client_id + IP (MEDIUM-009).
+    monkeypatch.setattr(
+        "app.config.settings.ConfigHelper.get_allowed_client_ids",
+        lambda: ("web-client",),
+    )
 
     async def call_next(_: Request):
         return Response(status_code=401)
