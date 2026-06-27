@@ -4,7 +4,6 @@ Secret-key auth and management endpoints.
 
 from __future__ import annotations
 
-import hmac
 import secrets
 from datetime import datetime
 from typing import Any, cast
@@ -43,6 +42,7 @@ from app.api.routers.auth.secret_auth import (
     serialize_secret,
     utcnow_naive,
     validate_secret_value,
+    verify_secret,
 )
 from app.api.routers.auth.tokens import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -140,9 +140,12 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
     await check_expired(secret_record)
 
     provided_secret = validate_secret_value(login_data.secret, context="login")
-    expected_hash = hash_secret(provided_secret, secret_record.get("secret_salt", ""))
 
-    if not hmac.compare_digest(expected_hash, secret_record.get("secret_hash", "")):
+    if not verify_secret(
+        provided_secret,
+        secret_record.get("secret_salt", ""),
+        secret_record.get("secret_hash", ""),
+    ):
         updated_record = await handle_failed_attempt(secret_record)
         logger.warning(
             "secret_login_failed",

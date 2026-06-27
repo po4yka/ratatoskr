@@ -8,6 +8,8 @@ import secrets
 from datetime import datetime
 from typing import Any, cast
 
+from argon2 import PasswordHasher
+
 from app.api.dependencies.database import get_auth_repository
 from app.api.exceptions import (
     AuthenticationError,
@@ -119,11 +121,59 @@ def validate_secret_value(secret: str, *, context: str = "login") -> str:
     return cleaned
 
 
-def hash_secret(secret: str, salt: str) -> str:
-    """Hash a secret with salt and pepper using HMAC-SHA256."""
+# Argon2id parameters for client-secret hashing. A slow KDF (vs the previous
+# fast HMAC-SHA256) makes offline brute force of a leaked client_secrets table
+# infeasible even for low-entropy, user-provided secrets (CWE-916).
+_password_hasher_holder: list[PasswordHasher | None] = [None]
+
+
+def _get_password_hasher() -> PasswordHasher:
+    if _password_hasher_holder[0] is None:
+        _password_hasher_holder[0] = PasswordHasher(
+            time_cost=3, memory_cost=65536, parallelism=2
+        )
+    return _password_hasher_holder[0]
+
+
+def _peppered_input(secret: str, salt: str) -> str:
+    """Combine the per-secret salt + server pepper with the secret.
+
+    The pepper (an env secret) is mixed in via HMAC so a DB-only leak (without
+    the pepper) cannot even begin an argon2 brute force.
+    """
     pepper = _get_secret_pepper().encode()
-    payload = f"{salt}:{secret}".encode()
-    return hmac.new(pepper, payload, hashlib.sha256).hexdigest()
+    return hmac.new(pepper, f"{salt}:{secret}".encode(), hashlib.sha256).hexdigest()
+
+
+def hash_secret(secret: str, salt: str) -> str:
+    """Hash a client secret with argon2id (peppered, per-secret salt mixed in).
+
+    Returns the standard ``$argon2id$...`` encoded string. Legacy rows store a
+    bare HMAC-SHA256 hex digest; :func:`verify_secret` accepts both.
+    """
+    return _get_password_hasher().hash(_peppered_input(secret, salt))
+
+
+def _legacy_hmac_hash(secret: str, salt: str) -> str:
+    """Pre-migration HMAC-SHA256 hash, kept only for verifying old rows."""
+    pepper = _get_secret_pepper().encode()
+    return hmac.new(pepper, f"{salt}:{secret}".encode(), hashlib.sha256).hexdigest()
+
+
+def verify_secret(secret: str, salt: str, stored_hash: str) -> bool:
+    """Constant-time verify a client secret against the stored hash.
+
+    Supports both the argon2id format (new) and the legacy HMAC-SHA256 hex
+    digest (old rows, until they are rotated). Never raises on mismatch.
+    """
+    if not stored_hash:
+        return False
+    if stored_hash.startswith("$argon2"):
+        try:
+            return _get_password_hasher().verify(stored_hash, _peppered_input(secret, salt))
+        except Exception:
+            return False
+    return hmac.compare_digest(_legacy_hmac_hash(secret, salt), stored_hash)
 
 
 def generate_secret_value() -> str:
