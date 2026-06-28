@@ -1,17 +1,23 @@
 """CLI: trigger an AI account backup on demand without waiting for the cron.
 
 Usage:
+    # Run a backup now (all enabled services, or one with --service):
     python -m app.cli.ai_backup [--service {chatgpt,claude}] [--log-level LEVEL]
+
+    # Ingest a captured session blob straight into the encrypted store
+    # (no JWT / REST needed — runs in-container with DB access):
+    python -m app.cli.ai_backup --ingest PATH --service {chatgpt,claude}
 
 Omit --service to run all currently-enabled services (mirrors the Taskiq cron
 behaviour). Pass --service to force a single service even if its config flag is
 off — useful for validating a freshly-supplied session before the next scheduled
-window.
+window. ``--ingest`` validates the storage_state shape, stores it Fernet-encrypted
+for the owner (first ALLOWED_USER_IDS), and lifts any AUTH_EXPIRED halt.
 
 Exit codes:
     0  success (or no services enabled)
     1  unexpected exception
-    2  ALLOWED_USER_IDS is empty
+    2  bad input (empty ALLOWED_USER_IDS, unreadable/invalid blob)
   130  interrupted by SIGINT
 """
 
@@ -19,13 +25,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 
 from app.adapters.ai_backup.repository import AiBackupRepository
 from app.adapters.ai_backup.service import AiBackupOrchestrationService, NullNotifier
-from app.adapters.ai_backup.session_store import AiBackupSessionStore
+from app.adapters.ai_backup.session_store import (
+    AiBackupSessionStore,
+    validate_storage_state_shape,
+)
 from app.config import load_config
 from app.core.logging_utils import get_logger
 from app.db.models.ai_backup import AiBackupService
@@ -109,6 +120,54 @@ async def run_backup(service_name: str | None) -> int:
     return 0
 
 
+async def ingest_session(service_name: str, path: str) -> int:
+    """Store a captured Playwright storage_state blob for the owner (no JWT/REST).
+
+    Reads ``path``, validates the shape, encrypts + persists it for the first
+    ALLOWED_USER_IDS owner, and lifts any AUTH_EXPIRED halt. Prints cookie names
+    only — never values.
+
+    Returns exit code (0 on success; 2 on bad input).
+    """
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
+        return 2
+    try:
+        storage_state = json.loads(raw)
+        validate_storage_state_shape(storage_state)
+    except json.JSONDecodeError as exc:
+        print(f"Error: {path} is not valid JSON: {exc}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"Error: invalid storage_state shape: {exc}", file=sys.stderr)
+        return 2
+
+    service = AiBackupService(service_name)
+    cfg = load_config()
+    db = Database(config=cfg.database)
+    try:
+        owner = next(iter(cfg.telegram.allowed_user_ids), None)
+        if owner is None:
+            print(
+                "Error: ALLOWED_USER_IDS is empty; cannot determine backup owner.",
+                file=sys.stderr,
+            )
+            return 2
+        await AiBackupSessionStore(db).save(owner, service, storage_state)
+        await AiBackupRepository(db).clear_auth_expired(owner, service)
+    finally:
+        await db.dispose()
+
+    cookies = storage_state.get("cookies") or []
+    names = sorted({c.get("name", "?") for c in cookies if isinstance(c, dict)})
+    print(f"Session for {service.value} stored for user {owner} ({len(cookies)} cookies).")
+    print(f"  cookie names: {', '.join(names) if names else '(none)'}")
+    print("  Delete the source file now — it contains live session cookies.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.cli.ai_backup",
@@ -125,16 +184,29 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--ingest",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Ingest a Playwright storage_state JSON file into the encrypted session "
+            "store for --service, then exit (no JWT/REST needed). Requires --service."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging level (default: INFO).",
     )
     args = parser.parse_args()
+    if args.ingest is not None and args.service is None:
+        parser.error("--ingest requires --service")
 
     logging.basicConfig(level=getattr(logging, args.log_level))
 
     try:
+        if args.ingest is not None:
+            return asyncio.run(ingest_session(args.service, args.ingest))
         return asyncio.run(run_backup(args.service))
     except KeyboardInterrupt:
         logger.info("ai_backup_cli_interrupted")

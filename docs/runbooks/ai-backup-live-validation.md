@@ -92,7 +92,23 @@ This requires a display; the sidecar runs headless by default. [CloakBrowser-Man
 
 ## 4. Ingest the session blob
 
-Post the blob to the backend over HTTPS using a valid Mobile-API JWT for the owner user. The blob never transits Telegram (the bot surfaces only status commands).
+The blob never transits Telegram (the bot surfaces only status commands). There are two ways to store it.
+
+### 4a. CLI ingest (recommended for single-tenant self-host — no JWT)
+
+Run inside the container; it validates the shape, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and lifts any `AUTH_EXPIRED` halt — no Mobile-API JWT needed:
+
+```bash
+docker cp chatgpt.json ratatoskr:/tmp/chatgpt.json
+docker exec -it ratatoskr python -m app.cli.ai_backup --ingest /tmp/chatgpt.json --service chatgpt
+docker exec -it ratatoskr rm -f /tmp/chatgpt.json   # the blob holds live cookies
+```
+
+It prints the cookie names found (never values). Exit code `0` on success, `2` on an unreadable/invalid blob or empty `ALLOWED_USER_IDS`.
+
+### 4b. REST ingest (when posting from a remote host)
+
+Post the blob over HTTPS with a valid Mobile-API JWT for the owner user:
 
 ```bash
 # Replace <token> with a valid JWT and <service> with chatgpt or claude.

@@ -6,6 +6,7 @@ replaced with fakes/mocks via monkeypatch on the cli module's namespace.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -265,3 +266,73 @@ def test_main_invalid_service_exits_nonzero(monkeypatch: pytest.MonkeyPatch) -> 
     with pytest.raises(SystemExit) as exc_info:
         ai_backup.main()
     assert exc_info.value.code != 0
+
+
+def test_main_ingest_without_service_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ai_backup.sys, "argv", ["ai_backup.py", "--ingest", "x.json"])
+    with pytest.raises(SystemExit) as exc_info:
+        ai_backup.main()
+    assert exc_info.value.code != 0
+
+
+# ---------------------------------------------------------------------------
+# ingest_session() behaviour tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ingest_valid_blob_saves_and_clears(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cfg = _fake_cfg()
+    fake_db = MagicMock()
+    fake_db.dispose = AsyncMock()
+    fake_store = MagicMock()
+    fake_store.save = AsyncMock()
+    fake_repo = MagicMock()
+    fake_repo.clear_auth_expired = AsyncMock()
+    monkeypatch.setattr(ai_backup, "load_config", lambda: cfg)
+    monkeypatch.setattr(ai_backup, "Database", lambda config: fake_db)
+    monkeypatch.setattr(ai_backup, "AiBackupSessionStore", lambda db: fake_store)
+    monkeypatch.setattr(ai_backup, "AiBackupRepository", lambda db: fake_repo)
+
+    blob = {"cookies": [{"name": "sessionKey", "value": "secret"}], "origins": []}
+    path = tmp_path / "claude.json"
+    path.write_text(json.dumps(blob))
+
+    result = await ai_backup.ingest_session("claude", str(path))
+
+    assert result == 0
+    fake_store.save.assert_awaited_once_with(42, AiBackupService.CLAUDE, blob)
+    fake_repo.clear_auth_expired.assert_awaited_once_with(42, AiBackupService.CLAUDE)
+    fake_db.dispose.assert_awaited_once()
+    out = capsys.readouterr().out
+    assert "sessionKey" in out  # cookie NAME surfaced
+    assert "secret" not in out  # cookie VALUE never printed
+
+
+@pytest.mark.asyncio
+async def test_ingest_bad_json_exits_2(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "x.json"
+    path.write_text("{not valid json")
+    result = await ai_backup.ingest_session("claude", str(path))
+    assert result == 2
+    assert "not valid JSON" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_ingest_bad_shape_exits_2(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "x.json"
+    path.write_text(json.dumps({"no_cookies": True}))
+    result = await ai_backup.ingest_session("claude", str(path))
+    assert result == 2
+    assert "invalid storage_state shape" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_ingest_missing_file_exits_2(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    result = await ai_backup.ingest_session("claude", str(tmp_path / "nope.json"))
+    assert result == 2
+    assert "cannot read" in capsys.readouterr().err
