@@ -16,7 +16,11 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from app.adapters.ai_backup.errors import AiBackupAuthExpiredError, classify_error
+from app.adapters.ai_backup.errors import (
+    AiBackupAuthExpiredError,
+    AiBackupMaxRequestsError,
+    classify_error,
+)
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -108,6 +112,7 @@ class AiBackupOrchestrationService:
         counts: dict[str, int] = {}
         requests_made = 0
         skipped = 0
+        fetcher: PlaywrightAuthedFetcher | None = None
 
         try:
             await self._notifier.on_start(service)
@@ -139,6 +144,34 @@ class AiBackupOrchestrationService:
                 extra={"service": service.value, "correlation_id": correlation_id},
             )
             return
+        except AiBackupMaxRequestsError as exc:
+            # Rate-limited (or per-run cap hit) mid-sweep. Conversations already
+            # written stay on disk; the next run resumes from them
+            # (load_saved_conversation) and fetches only what is missing, so the
+            # backup converges instead of re-fetching everything and re-tripping
+            # the limit. Persist a partial manifest so progress is recorded, then
+            # mark a retryable failure (the scheduler retries after backoff).
+            try:
+                writer.finalize_manifest(
+                    counts=writer.partial_counts(),
+                    requests_made=fetcher.requests_made if fetcher is not None else 0,
+                    skipped_incremental=0,
+                    incremental=ai_cfg.incremental,
+                )
+            except Exception:
+                logger.warning(
+                    "ai_backup_partial_manifest_failed",
+                    extra={"service": service.value, "correlation_id": correlation_id},
+                )
+            await self._repo.record_failure(
+                user_id, service, category=classify_error(exc), message=str(exc)
+            )
+            await self._notifier.on_failure(service, correlation_id)
+            logger.warning(
+                "ai_backup_rate_limited_partial",
+                extra={"service": service.value, "correlation_id": correlation_id},
+            )
+            raise
         except Exception as exc:
             await self._repo.record_failure(
                 user_id, service, category=classify_error(exc), message=str(exc)

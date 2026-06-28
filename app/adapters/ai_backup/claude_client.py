@@ -78,6 +78,7 @@ class ClaudeClient:
         self._since = last_backed_up_at
         self._org_id: str | None = None
         self.skipped = 0
+        self.resumed = 0
 
     # -- HTTP plumbing ------------------------------------------------------
 
@@ -138,6 +139,13 @@ class ClaudeClient:
             seen.add(uuid)
             if self._incremental and _should_skip(conv.get("updated_at"), self._since):
                 self.skipped += 1
+                continue
+            saved = self._writer.load_saved_conversation(uuid)
+            if saved is not None:
+                # Resume: already on disk from a prior interrupted run today.
+                counts["conversations"] += 1
+                counts["artifacts"] += self._write_artifacts(saved, uuid)
+                self.resumed += 1
                 continue
             detail = await self._get(
                 f"{_API}/api/organizations/{org}/chat_conversations/{quote(uuid, safe='')}"

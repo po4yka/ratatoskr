@@ -84,6 +84,7 @@ class ChatGptClient:
         self._incremental = incremental
         self._since = last_backed_up_at
         self.skipped = 0
+        self.resumed = 0
 
     # -- HTTP plumbing ------------------------------------------------------
 
@@ -173,6 +174,15 @@ class ChatGptClient:
         for conv_id, meta in conv_index.items():
             if self._incremental and _should_skip(meta.get("update_time"), self._since):
                 self.skipped += 1
+                continue
+            saved = self._writer.load_saved_conversation(conv_id)
+            if saved is not None:
+                # Already on disk from a prior (possibly interrupted) run today:
+                # skip the network fetch so an interrupted sweep resumes instead
+                # of re-fetching everything and re-tripping the rate limit.
+                counts["conversations"] += 1
+                self._collect_file_refs(saved, conv_id, file_refs)
+                self.resumed += 1
                 continue
             detail = await self._get_conversation(conv_id)
             self._writer.write_conversation(conv_id, detail)

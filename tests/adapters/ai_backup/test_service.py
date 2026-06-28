@@ -8,7 +8,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.adapters.ai_backup.errors import AiBackupAuthExpiredError, AiBackupErrorCategory
+from app.adapters.ai_backup.errors import (
+    AiBackupAuthExpiredError,
+    AiBackupErrorCategory,
+    AiBackupMaxRequestsError,
+)
 from app.adapters.ai_backup.service import AiBackupOrchestrationService
 from app.config.ai_backup import AiBackupConfig
 from app.db.models.ai_backup import AiBackupService
@@ -160,6 +164,31 @@ async def test_auth_expired_marks_and_persists_session(tmp_path, monkeypatch) ->
     assert [c[0] for c in repo.calls] == ["auth_expired"]
     assert notifier.events == ["start", "auth_expired"]
     assert store.saved == [{"cookies": [{"name": "refreshed"}]}]  # cookies still persisted
+
+
+async def test_rate_limited_writes_partial_manifest_and_reraises(tmp_path, monkeypatch) -> None:
+    class _RateLimitedClient:
+        skipped = 0
+
+        async def collect(self) -> dict[str, int]:
+            raise AiBackupMaxRequestsError("HTTP 429")
+
+    repo = _FakeRepo()
+    store = _FakeStore({"cookies": []})
+    notifier = _RecordingNotifier()
+    _patch_browser_layer(monkeypatch, _RateLimitedClient())
+    svc = AiBackupOrchestrationService(_cfg(tmp_path), repo, store, notifier)
+
+    with pytest.raises(AiBackupMaxRequestsError):
+        await svc.run(42, AiBackupService.CLAUDE)
+
+    # Retryable failure recorded so the scheduler retries (and resumes) after backoff.
+    assert repo.calls[0][0] == "failure"
+    assert "failure" in notifier.events
+    # A partial manifest is written so progress is recorded for the resume.
+    run_dirs = list((tmp_path / "claude").iterdir())
+    assert run_dirs and (run_dirs[0] / "manifest.json").exists()
+    assert store.saved == [{"cookies": [{"name": "refreshed"}]}]
 
 
 async def test_transient_error_records_failure_and_reraises(tmp_path, monkeypatch) -> None:

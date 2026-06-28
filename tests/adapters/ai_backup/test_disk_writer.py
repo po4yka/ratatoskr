@@ -51,6 +51,22 @@ def test_write_conversation_idempotent(tmp_path) -> None:
     assert json.loads(path.read_text())["a"] == 2
 
 
+def test_load_saved_conversation_resume(tmp_path) -> None:
+    w = _writer(tmp_path)
+    # Nothing saved yet.
+    assert w.load_saved_conversation("conv1") is None
+    # After a write it is readable back and registered in the manifest.
+    w.write_conversation("conv1", {"a": 1})
+    fresh = _writer(tmp_path)  # a new run object for the same run dir/date
+    loaded = fresh.load_saved_conversation("conv1")
+    assert loaded == {"a": 1}
+    # Resumed conversation is registered so a partial manifest stays complete.
+    assert fresh.partial_counts()["conversations"] == 1
+    # A non-dict / corrupt blob is treated as absent (caller re-fetches).
+    (w.run_dir / "conversations" / "conv1.json").write_text("not json")
+    assert _writer(tmp_path).load_saved_conversation("conv1") is None
+
+
 def test_write_file_idempotent_skips_existing(tmp_path) -> None:
     w = _writer(tmp_path)
     w.write_file("file1", "photo.png", b"abc")

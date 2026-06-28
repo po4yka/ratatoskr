@@ -182,6 +182,34 @@ class AiBackupDiskWriter:
         blob = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self._manifest["conversations"][sid] = self._write_idempotent(path, blob)
 
+    def load_saved_conversation(self, conv_id: str) -> dict | None:
+        """Return a conversation already saved in this run dir, or ``None``.
+
+        Lets a re-run after an interrupted sweep (e.g. a rate-limit 429) skip the
+        network fetch for conversations already on disk for this run date, so the
+        backup converges across retries instead of re-fetching everything and
+        re-tripping the limit. The on-disk blob's hash is registered in the
+        manifest so a resumed run's manifest stays complete. A symlink or
+        unparseable file is treated as absent so the caller re-fetches and
+        overwrites it through the path-safe write path.
+        """
+        sid = _sanitize_id(conv_id)
+        path = _safe_child(self._run_dir, "conversations", f"{sid}.json")
+        try:
+            data = _read_nofollow(path)
+        except OSError:
+            return None
+        if data is None:
+            return None
+        try:
+            parsed = json.loads(data)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        self._manifest["conversations"][sid] = _sha256_hex(data)
+        return parsed
+
     def write_project(self, project_id: str, project_data: dict) -> None:
         sid = _sanitize_id(project_id)
         path = _safe_child(self._run_dir, "projects", sid, "project.json")
@@ -229,6 +257,14 @@ class AiBackupDiskWriter:
                 f"Symlink detected at {path!r} — write_artifact refused to prevent escape"
             )
         self._manifest["artifacts"][key] = self._write_idempotent(path, data)
+
+    def partial_counts(self) -> dict[str, int]:
+        """Counts of what has actually been written so far this run.
+
+        Used to finalize a partial manifest after an interrupted sweep so the
+        recorded counts match what is on disk even when the run did not finish.
+        """
+        return {category: len(entries) for category, entries in self._manifest.items()}
 
     def finalize_manifest(
         self,

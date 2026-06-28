@@ -132,6 +132,32 @@ async def test_collect_incremental_skips_unchanged(tmp_path, fake_fetcher) -> No
     assert client.skipped == 1
 
 
+async def test_collect_resumes_already_saved_conversation(tmp_path, fake_fetcher) -> None:
+    """A conversation already on disk for this run is not re-fetched (resume)."""
+    token = _jwt({"https://api.openai.com/auth": {"chatgpt_plan_type": "pro"}})
+    writer = _writer(tmp_path)
+    # Simulate a prior interrupted run that already saved c1 to this run dir.
+    writer.write_conversation("c1", {"conversation_id": "c1", "mapping": {}})
+
+    def handler(url: str) -> object:
+        if "/api/auth/session" in url:
+            return _json({"accessToken": token})
+        if "/backend-api/conversations?" in url:
+            if "is_archived=true" in url:
+                return _json({"items": []})
+            return _json({"items": [{"id": "c1", "update_time": 1000.0}]})
+        if "/backend-api/gizmos/snorlax/sidebar" in url:
+            return _json({"items": [], "cursor": None})
+        if "/backend-api/conversation/c1" in url:
+            raise AssertionError("resumed conversation must not be re-fetched")
+        return None
+
+    client = ChatGptClient(fake_fetcher(handler), writer)
+    counts = await client.collect()
+    assert counts["conversations"] == 1
+    assert client.resumed == 1
+
+
 async def test_401_raises_auth_expired(tmp_path, fake_fetcher) -> None:
     fetcher = fake_fetcher(lambda url: FetchResponse(status=401, body_bytes=b"{}"))
     client = ChatGptClient(fetcher, _writer(tmp_path))
