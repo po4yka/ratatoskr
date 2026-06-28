@@ -1,7 +1,7 @@
 {
   "requirements.txt": 1622,
-  "docs/openapi/mobile_api.json": 27352,
-  "docs/openapi/mobile_api.yaml": 17127,
+  "docs/openapi/mobile_api.json": 27623,
+  "docs/openapi/mobile_api.yaml": 17300,
   "docs/reference/data-model.md": 1726,
   "docs/reference/troubleshooting.md": 1515,
   "ops/monitoring/grafana/provisioning/dashboards/ratatoskr-overview.json": 1666,
