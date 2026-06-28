@@ -82,8 +82,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help=(
-            "Output path for the storage_state JSON. "
-            "Defaults to ./<service>-storage_state.json."
+            "Output path for the storage_state JSON. Defaults to ./<service>-storage_state.json."
         ),
     )
     parser.add_argument(

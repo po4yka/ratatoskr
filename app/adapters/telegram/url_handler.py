@@ -66,6 +66,8 @@ def _document_file_name(message: Any) -> str:
         if isinstance(candidate, str) and candidate:
             return candidate
     return ""
+
+
 # Upper bound on the characters fed to the summarizer from an uploaded document.
 # A file is accepted up to SecureFileValidator.MAX_FILE_SIZE_BYTES (10 MB); that
 # much text would overflow every model context window, so it is truncated here.

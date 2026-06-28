@@ -32,6 +32,7 @@ def _cfg(*, schema="langgraph", dsn_override=None, strict_msgpack=True, pmin=1, 
             pool_max_size=pmax,
         ),
         database=SimpleNamespace(dsn="postgresql+asyncpg://u:p@h:5432/db"),
+        deployment=SimpleNamespace(is_production_mode=False),
     )
 
 

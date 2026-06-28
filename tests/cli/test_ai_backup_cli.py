@@ -15,7 +15,6 @@ import pytest
 from app.cli import ai_backup
 from app.db.models.ai_backup import AiBackupService, AiBackupStatus
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------

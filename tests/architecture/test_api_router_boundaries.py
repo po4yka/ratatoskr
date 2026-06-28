@@ -22,7 +22,11 @@ def test_api_router_layer_avoids_direct_persistence_imports() -> None:
         # git_mirrors.py imports GitMirror/GitMirrorSource and runs select(GitMirror)
         # queries inline; move the queries into GitMirrorRepository and relocate
         # the GitMirrorSource enum out of app.db.models to remove this ignore.
+        # ai_backups.py imports the AiBackupService enum from app.db.models so
+        # FastAPI can resolve it as a runtime path-param type; relocate the enum
+        # to the domain layer to remove this ignore.
         ignored_path_prefixes=(
+            "routers/ai_backups.py",
             "routers/auth/apple.py",
             "routers/auth/endpoints_sessions.py",
             "routers/auth/github.py",

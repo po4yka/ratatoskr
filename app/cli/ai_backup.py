@@ -178,10 +178,7 @@ def main() -> int:
         choices=_SERVICE_CHOICES,
         default=None,
         metavar="{" + ",".join(_SERVICE_CHOICES) + "}",
-        help=(
-            "Which service to back up. "
-            "Omit to run all enabled services (default: all enabled)."
-        ),
+        help=("Which service to back up. Omit to run all enabled services (default: all enabled)."),
     )
     parser.add_argument(
         "--ingest",

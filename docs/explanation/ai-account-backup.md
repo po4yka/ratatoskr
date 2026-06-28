@@ -111,6 +111,7 @@ A frozen pydantic `AiBackupConfig` with `validation_alias` env vars, validators 
 All calls go through `page.context.request.get(...)` inside the authenticated context; every URL host is validated against `AI_BACKUP_HOST_ALLOWLIST` before the request.
 
 **ChatGPT** (`access_token` read from `/api/auth/session`; `cf_clearance` already in the jar):
+
 - `GET /backend-api/conversations?offset=&limit=100` — paginate the full list.
 - `GET /backend-api/conversation/{id}` — full message tree (holds the Deep Research *report text*; structured citations are not here — a known gap).
 - `GET /backend-api/gizmos/snorlax/sidebar` — Projects (the `snorlax` codename can change; a 404 is a soft-fail, not a run failure).
@@ -118,6 +119,7 @@ All calls go through `page.context.request.get(...)` inside the authenticated co
 - `GET /backend-api/files/download/{file_id}` — attachments/images (gated by `AI_BACKUP_DOWNLOAD_FILES`).
 
 **Claude** (`sessionKey` cookie + org UUID from `/api/bootstrap` or `/api/organizations`):
+
 - `GET /api/organizations/{org}/chat_conversations` — list.
 - `GET /api/organizations/{org}/chat_conversations/{uuid}?tree=True&rendering_mode=raw` — full conversation, Artifacts inline.
 - `GET /api/organizations/{org}/projects` + project-docs endpoints — project knowledge (text; binaries via the project-files path).

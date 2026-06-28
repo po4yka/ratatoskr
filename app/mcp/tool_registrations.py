@@ -41,14 +41,11 @@ _MCP_EXPENSIVE_TOOLS = frozenset({"create_aggregation_bundle"})
 
 def _mcp_tool_rate_limited(tool_name: str) -> bool:
     limit = (
-        _MCP_EXPENSIVE_TOOL_LIMIT
-        if tool_name in _MCP_EXPENSIVE_TOOLS
-        else _MCP_TOOL_DEFAULT_LIMIT
+        _MCP_EXPENSIVE_TOOL_LIMIT if tool_name in _MCP_EXPENSIVE_TOOLS else _MCP_TOOL_DEFAULT_LIMIT
     )
-    allowed, _ = _MCP_TOOL_RATE_LIMITER.check(
-        tool_name, limit=limit, window=_MCP_TOOL_WINDOW_SEC
-    )
+    allowed, _ = _MCP_TOOL_RATE_LIMITER.check(tool_name, limit=limit, window=_MCP_TOOL_WINDOW_SEC)
     return not allowed
+
 
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService

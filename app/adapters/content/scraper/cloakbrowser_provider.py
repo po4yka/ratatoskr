@@ -28,9 +28,9 @@ import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.content.scraper.fingerprint import (
+from app.adapters.content.scraper.fingerprint import (  # noqa: F401 - backward-compat alias; imported by tests
     DESKTOP_UA as _DESKTOP_UA,
-    LOCALE_POOL as _LOCALE_POOL,  # noqa: F401 - backward-compat alias; imported by tests
+    LOCALE_POOL as _LOCALE_POOL,
     MOBILE_UA as _MOBILE_UA,
     build_cdp_url,
     locale_for_seed as _locale_for_seed,

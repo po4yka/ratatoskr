@@ -130,9 +130,7 @@ _password_hasher_holder: list[PasswordHasher | None] = [None]
 
 def _get_password_hasher() -> PasswordHasher:
     if _password_hasher_holder[0] is None:
-        _password_hasher_holder[0] = PasswordHasher(
-            time_cost=3, memory_cost=65536, parallelism=2
-        )
+        _password_hasher_holder[0] = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
     return _password_hasher_holder[0]
 
 

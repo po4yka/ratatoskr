@@ -44,10 +44,9 @@ def _make_client(*, authenticated: bool = True) -> TestClient:
     app.include_router(_ai_backups.router)
 
     if authenticated:
-        app.dependency_overrides[_ai_backups.get_current_user] = lambda: {
-            "user_id": _USER_ID
-        }
+        app.dependency_overrides[_ai_backups.get_current_user] = lambda: {"user_id": _USER_ID}
     else:
+
         def _raise_401() -> None:
             raise HTTPException(status_code=401, detail="Not authenticated")
 

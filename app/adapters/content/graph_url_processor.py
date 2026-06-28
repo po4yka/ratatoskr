@@ -431,9 +431,7 @@ class GraphURLProcessor:
             chunks=None,
         )
         summary_result = _SummaryResultStub(
-            summary=_summary_for_delivery(
-                result.summary_json, suppress_tldr_ru=suppress_tldr_ru
-            ),
+            summary=_summary_for_delivery(result.summary_json, suppress_tldr_ru=suppress_tldr_ru),
             llm_result=create_chunk_llm_stub(self.cfg),
             served_from_cache=False,
             model_used=getattr(self.cfg.openrouter, "model", None),
@@ -856,9 +854,7 @@ class GraphURLProcessor:
         from app.adapters.content.url_flow_models import create_chunk_llm_stub
 
         summary_result = _SummaryResultStub(
-            summary=_summary_for_delivery(
-                result.summary_json, suppress_tldr_ru=suppress_tldr_ru
-            ),
+            summary=_summary_for_delivery(result.summary_json, suppress_tldr_ru=suppress_tldr_ru),
             llm_result=create_chunk_llm_stub(self.cfg),
             served_from_cache=False,
             model_used=getattr(self.cfg.openrouter, "model", None),

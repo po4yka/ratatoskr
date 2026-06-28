@@ -143,8 +143,7 @@ def wrap_untrusted_source(content: str) -> str:
     pattern detector is advisory only; this structural boundary is the control.
     """
     return (
-        f"{_SOURCE_SECURITY_NOTICE}\n\n"
-        f"{UNTRUSTED_SOURCE_START}\n{content}\n{UNTRUSTED_SOURCE_END}"
+        f"{_SOURCE_SECURITY_NOTICE}\n\n{UNTRUSTED_SOURCE_START}\n{content}\n{UNTRUSTED_SOURCE_END}"
     )
 
 

@@ -202,7 +202,7 @@ jobs:
             --accept 200,204,301,302,429
             --timeout 10
             --max-retries 3
-            --exclude 'localhost|127\.0\.0\.1|example\.com|https://github\.com/.*/pull/|https://github\.com/.*/issues|https://github\.com/.*/releases|wakamaifondue\.com|webaim\.org'
+            --exclude 'localhost|127\.0\.0\.1|example\.com|https://github\.com/.*/pull/|https://github\.com/.*/issues|https://github\.com/.*/releases|https://github\.com/po4yka/gitout|wakamaifondue\.com|webaim\.org'
             --exclude-path .venv
             --exclude-path node_modules
             '**/*.md'

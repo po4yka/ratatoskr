@@ -6,7 +6,6 @@ from app.adapters.ai_backup.redaction import redact_urls
 from app.adapters.ai_backup.repository import AiBackupRepository
 from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
 
-
 # ---------------------------------------------------------------------------
 # redact_urls unit tests
 # ---------------------------------------------------------------------------
@@ -111,9 +110,7 @@ async def test_mark_auth_expired_persists_redacted_last_error() -> None:
         status=AiBackupStatus.OK,
     )
     repo = AiBackupRepository(_FakeDb(row))
-    raw_message = (
-        "Session expired: GET https://claude.ai/api/orgs/xyz/sessions?page=2 returned 401"
-    )
+    raw_message = "Session expired: GET https://claude.ai/api/orgs/xyz/sessions?page=2 returned 401"
     await repo.mark_auth_expired(1, AiBackupService.CLAUDE, raw_message)
     assert row.last_error is not None
     assert "xyz" not in row.last_error

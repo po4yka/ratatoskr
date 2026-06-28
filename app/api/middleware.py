@@ -158,9 +158,7 @@ _DEFAULT_FRAME_ANCESTORS = "'self' https://web.telegram.org https://*.telegram.o
 _DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment=()"
 
 
-async def security_headers_middleware(
-    request: Request, call_next: Callable[..., Any]
-) -> Response:
+async def security_headers_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
     """Attach baseline security response headers to every response.
 
     Uses ``setdefault`` so a handler that intentionally set its own value wins.
@@ -178,9 +176,7 @@ async def security_headers_middleware(
     )
     frame_ancestors = os.getenv("CSP_FRAME_ANCESTORS", _DEFAULT_FRAME_ANCESTORS)
     headers.setdefault("Content-Security-Policy", f"frame-ancestors {frame_ancestors}")
-    headers.setdefault(
-        "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
-    )
+    headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
     return response
 
 
