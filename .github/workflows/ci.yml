@@ -42,7 +42,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -232,7 +232,7 @@ jobs:
 
       - name: Cache Python environment
         id: cache-python-env
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/uv
@@ -242,7 +242,7 @@ jobs:
             python-lint-${{ runner.os }}-
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -325,7 +325,7 @@ jobs:
 
       - name: Cache Python environment
         id: cache-python-env
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/uv
@@ -335,7 +335,7 @@ jobs:
             python-type-${{ runner.os }}-
 
       - name: Cache mypy
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mypy_cache
           key: mypy-${{ runner.os }}-${{ hashFiles('**/*.py', 'pyproject.toml') }}
@@ -343,7 +343,7 @@ jobs:
             mypy-${{ runner.os }}-
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -379,7 +379,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -428,7 +428,7 @@ jobs:
 
       - name: Cache Python environment
         id: cache-python-env
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/uv
@@ -438,7 +438,7 @@ jobs:
             python-test-${{ runner.os }}-
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -561,7 +561,7 @@ jobs:
           python-version: '3.13'
 
       - name: Cache Python environment
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/uv
@@ -600,7 +600,7 @@ jobs:
           python-version: '3.13'
 
       - name: Cache Python environment
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/uv
@@ -658,7 +658,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -667,7 +667,7 @@ jobs:
             uv.lock
 
       - name: Cache Python environment
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/uv
@@ -1015,7 +1015,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -1150,7 +1150,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -1236,7 +1236,7 @@ jobs:
 
       - name: Install uv (fast Python package manager)
         if: steps.db-changes.outputs.run == 'true'
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
@@ -1300,7 +1300,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version: "0.8.17"
           enable-cache: true
