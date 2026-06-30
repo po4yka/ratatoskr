@@ -185,13 +185,13 @@ dependencies = [
   "tldextract>=5.1.1",
   "json-repair>=0.61.0",
   "tenacity>=8.2.0",
-  "openai>=2.42.0,<3",
-  "instructor>=1.15.3,<2",
+  "openai>=2.44.0,<3",
+  "instructor>=1.15.4,<2",
   "loguru>=0.7.3",
   "orjson>=3.11.9",
   "uvloop>=0.22.1",
   "redis>=8.0.0",
-  "alembic>=1.13.0",
+  "alembic>=1.18.5",
   "sqlalchemy[asyncio]>=2.0.51,<3.0",
   "asyncpg>=0.29",
   "greenlet>=3.5.2",
@@ -300,7 +300,7 @@ monitoring = [
 
 # MCP (Model Context Protocol) server for AI agent integrations
 mcp = [
-  "mcp>=1.28.0,<2",
+  "mcp>=1.28.1,<2",
 ]
 
 # OpenTelemetry distributed tracing (Tempo backend)
