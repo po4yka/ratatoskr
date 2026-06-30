@@ -4,7 +4,7 @@ Operating notes for Claude (and other AI assistants) working in this repo. Leads
 
 ## Workspace skills
 
-Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. For Codex, use `.codex/skills/` in this repo and copy or mirror any cross-repo skill into a Codex skill root before treating it as available. See `../CLAUDE.md` for the workspace overview and the cross-repo OpenAPI contract.
+Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. For Codex, use `.codex/skills/` in this repo; `.agents/skills` points at that mirror for import flows that expect the newer agent-skill path. Copy or mirror any cross-repo skill into a Codex skill root before treating it as available. See `../CLAUDE.md` for the workspace overview and the cross-repo OpenAPI contract.
 
 ## Project Overview
 
@@ -38,7 +38,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Channel digest ops | `docs/reference/digest-subsystem-ops.md` |
 | Common failure recipes | `docs/reference/troubleshooting.md` |
 | On-call incident runbooks | `docs/runbooks/` |
-| Claude Code safety hooks | `docs/reference/claude-code-hooks.md` |
+| Claude Code / Codex safety hooks | `docs/reference/claude-code-hooks.md` |
 
 ## Secrets
 
@@ -104,7 +104,7 @@ app/
 +-- tasks/              # Taskiq tasks (github_sync, reconcile_vector_index, digest, ...)
 ```
 
-Skill, doc, and ops trees: `.claude/skills/` (Claude project skills), `.codex/skills/` (Codex project skills), `.codex/commands/` (Codex command prompts), `docs/` (explanation + reference), `ops/` (Docker / monitoring / config), `tools/scripts/` (dev utilities).
+Skill, doc, and ops trees: `.claude/skills/` (Claude project skills), `.codex/skills/` (Codex project skills), `.agents/skills` (Codex import symlink), `.codex/commands/` (Codex command prompts), `.codex/hooks.json` and `.codex/hooks/` (Codex hooks), `docs/` (explanation + reference), `ops/` (Docker / monitoring / config), `tools/scripts/` (dev utilities).
 
 ## Operating Rules
 

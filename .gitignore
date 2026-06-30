@@ -142,7 +142,8 @@ app/static/digest/
 .claude/worktrees/
 .claude/skills/redeploy-raspi/
 .claude/scheduled_tasks.lock
-.agents/
+.agents/*
+!.agents/skills
 
 # --- oh-my-claudecode ---
 .omc/
