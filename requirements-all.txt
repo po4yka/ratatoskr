@@ -662,7 +662,7 @@ watchfiles==1.2.0
     # via uvicorn
 weasel==1.0.0
     # via spacy
-weasyprint==68.1
+weasyprint==69.0
     # via ratatoskr
 webencodings==0.5.1
     # via
