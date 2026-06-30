@@ -6,6 +6,9 @@ on:
     paths:
       - ".claude/skills/**"
       - ".codex/skills/**"
+      - ".agents/skills/**"
+      - ".claude/commands/**"
+      - ".codex/commands/**"
       - "tools/scripts/check_skills_sync.py"
       - ".github/workflows/skills-sync.yml"
   pull_request:
@@ -13,6 +16,9 @@ on:
     paths:
       - ".claude/skills/**"
       - ".codex/skills/**"
+      - ".agents/skills/**"
+      - ".claude/commands/**"
+      - ".codex/commands/**"
       - "tools/scripts/check_skills_sync.py"
       - ".github/workflows/skills-sync.yml"
 
@@ -25,7 +31,7 @@ permissions:
 
 jobs:
   check:
-    name: Check .claude/skills and .codex/skills are in sync
+    name: Check agent skill mirrors are in sync
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

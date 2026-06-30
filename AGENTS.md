@@ -8,7 +8,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 
 ## Codex compatibility
 
-Codex-native skills live in `.codex/skills/` and mirror the project skills from `.claude/skills/`, with Codex-specific trigger wording where needed. `.agents/skills` is a tracked symlink for Codex import flows that expect the newer agent-skill location. When updating a project skill, update both `.claude/skills/` and `.codex/skills/` unless the difference is host-specific and intentional.
+Codex-native skills live in `.codex/skills/` and mirror the project skills from `.claude/skills/`, with Codex-specific trigger wording where needed. The Codex app import mirror lives in `.agents/skills/` and should match `.codex/skills/` exactly. When updating a project skill, update `.claude/skills/` and `.codex/skills/` unless the difference is host-specific and intentional, then refresh `.agents/skills/` from `.codex/skills/`.
 
 Codex command prompts live in `.codex/commands/`; they adapt the Claude Code slash commands from `.claude/commands/` to Codex `@...` triggers. Codex hooks live in `.codex/hooks.json` with scripts in `.codex/hooks/`; they are the Codex adaptation of the useful Claude Code safety/session hooks. `.codex/plugins/README.md` documents the current plugin state: there are no repo-local Claude plugin manifests to translate, and Claude Code plugin marketplace flows do not run in Codex, so encode shared behavior as skills, prompt commands, or Codex hooks instead of assuming `/plugin` will be available.
 
