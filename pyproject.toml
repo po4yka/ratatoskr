@@ -201,7 +201,7 @@ dependencies = [
 # Attachment processing: image handling + PDF extraction + office documents
 attachment = [
   "Pillow>=11.0.0",
-  "pymupdf>=1.27.2.3",
+  "pymupdf>=1.28.0",
   "markitdown[docx,pptx,xlsx,outlook]>=0.1.5",
 ]
 
