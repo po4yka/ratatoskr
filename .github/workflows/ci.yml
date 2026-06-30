@@ -620,6 +620,11 @@ jobs:
             grep -v "ru-core-news-sm" | \
             # Torch does not yet publish Python 3.13 wheels to PyPI; skip it for auditing
             grep -v "^torch==" | \
+            # Torch's Linux CUDA/Triton transitive set is uv-resolved but plain pip (used by pip-audit) cannot resolve it together with sentence-transformers. OSV scans uv.lock directly, so these remain covered there.
+            grep -v "^cuda-" | \
+            grep -v "^nvidia-" | \
+            grep -v "^triton==" | \
+            grep -v "^sympy==" | \
             # protobuf is pinned via [tool.uv] override-dependencies and conflicts with
             # transitive resolvers under plain pip (used by pip-audit). Skip it here.
             grep -v "^protobuf==" | \
