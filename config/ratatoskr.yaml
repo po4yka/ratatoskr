@@ -111,14 +111,14 @@ vector_reconcile:
   batch_size: 25
 
 scraper:
-  profile: fast
-  browser_enabled: false
-  scrapling_stealth_fallback: false
-  crawl4ai_enabled: false
-  defuddle_enabled: false
-  cloakbrowser_enabled: false
-  playwright_enabled: false
-  crawlee_enabled: false
+  profile: balanced
+  browser_enabled: true
+  scrapling_stealth_fallback: true
+  crawl4ai_enabled: true
+  defuddle_enabled: true
+  cloakbrowser_enabled: true
+  playwright_enabled: true
+  crawlee_enabled: true
   # Self-hosted Firecrawl sidecar (firecrawl-api on the Pi) is the
   # browser-capable rung of the chain. Required for habr.com and other
   # JS-rendered SPAs where Scrapling fetches HTTP 200 but trafilatura

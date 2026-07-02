@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import httpx
 
@@ -172,14 +172,13 @@ class DefuddleProvider:
         )
 
     async def _fetch_raw(self, url: str, *, headers: dict[str, str] | None = None) -> str:
-        # Validate the caller-supplied target URL before interpolating it raw
-        # into the Defuddle endpoint path. Defuddle expects the raw URL appended
-        # (do not percent-encode), so this is the guard that rejects malformed
-        # or private-host targets / path-injection attempts at the input.
+        # Validate the caller-supplied target URL before embedding it in the
+        # Defuddle endpoint path, then percent-encode so query strings and path
+        # separators cannot reshape the sidecar request path.
         safe, reason = is_url_safe(url)
         if not safe:
             raise ValueError(f"SSRF blocked target URL: {reason}")
-        defuddle_url = f"{self._api_base_url}/{url}"
+        defuddle_url = f"{self._api_base_url}/{quote(url, safe='')}"
         request_headers = headers or self._build_headers()
         overall_timeout = self._timeout_sec + 5
         async with asyncio.timeout(overall_timeout):

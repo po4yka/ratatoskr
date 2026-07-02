@@ -114,7 +114,7 @@ async def test_defuddle_provider_blocks_redirect_to_private_ip() -> None:
         with pytest.raises(ValueError, match="SSRF blocked redirect target"):
             await provider._fetch_raw("https://example.com/article")
 
-    assert client.urls == ["https://defuddle.example/https://example.com/article"]
+    assert client.urls == ["https://defuddle.example/https%3A%2F%2Fexample.com%2Farticle"]
 
 
 @pytest.mark.asyncio
