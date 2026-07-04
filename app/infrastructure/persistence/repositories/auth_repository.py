@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
@@ -456,16 +456,38 @@ class AuthRepositoryAdapter:
     async def async_increment_failed_attempts(
         self, key_id: int, max_attempts: int, lockout_minutes: int
     ) -> dict[str, Any]:
-        """Increment failed attempts and potentially lock the secret."""
+        """Atomically increment failed_attempts; lock when threshold is reached.
+
+        Single SQL UPDATE ... RETURNING (Postgres MVCC handles concurrent
+        increments safely under row-level locking) -- avoids the
+        read-modify-write race that a pure-Python increment would hit.
+        """
         async with self._database.transaction() as session:
-            record = await session.get(ClientSecret, key_id)
-            if record is None:
-                return {}
-            record.failed_attempts = (record.failed_attempts or 0) + 1
-            if record.failed_attempts >= max_attempts:
-                record.status = "locked"
-                record.locked_until = _utcnow() + dt.timedelta(minutes=lockout_minutes)
-            await session.flush()
+            interval = func.make_interval(0, 0, 0, 0, 0, lockout_minutes, 0)
+            stmt = (
+                update(ClientSecret)
+                .where(ClientSecret.id == key_id)
+                .values(
+                    failed_attempts=ClientSecret.failed_attempts + 1,
+                    status=case(
+                        (
+                            ClientSecret.failed_attempts + 1 >= max_attempts,
+                            "locked",
+                        ),
+                        else_=ClientSecret.status,
+                    ),
+                    locked_until=case(
+                        (
+                            ClientSecret.failed_attempts + 1 >= max_attempts,
+                            func.now() + interval,
+                        ),
+                        else_=ClientSecret.locked_until,
+                    ),
+                )
+                .returning(ClientSecret)
+            )
+            result = await session.scalars(stmt)
+            record = result.one_or_none()
             return _secret_to_dict(record) or {}
 
     async def async_reset_failed_attempts(self, key_id: int) -> None:
