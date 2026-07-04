@@ -291,6 +291,7 @@ def build_command_dispatcher_deps(
         db=db,
         response_formatter=response_formatter,
         webwright_client=webwright_client,
+        host_allowlist=tuple(getattr(cfg.scraper, "webwright_host_allowlist", ())),
     )
 
     transcribe_handler: TranscribeHandler | None = None

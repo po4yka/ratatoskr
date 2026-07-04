@@ -45,10 +45,15 @@ class BrowseHandler:
         db: Database,
         response_formatter: ResponseFormatter,
         webwright_client: WebwrightClient,
+        host_allowlist: tuple[str, ...] = (),
     ) -> None:
         self._db = db
         self._formatter = response_formatter
         self._client = webwright_client
+        # Same allowlist source as the scraper-chain WebwrightProvider
+        # (WEBWRIGHT_HOST_ALLOWLIST) so `/browse` is gated identically. Empty
+        # means no host is allowed -- mirrors the provider's short-circuit.
+        self._host_allowlist = tuple(host_allowlist)
 
     @audit_command("command_browse", include_text=True)
     async def handle_browse(self, ctx: CommandExecutionContext) -> tuple[str | None, bool]:
@@ -61,6 +66,19 @@ class BrowseHandler:
                 "summarize the top 3 stories.",
             )
             return "browse_usage", False
+
+        if not self._host_allowlist:
+            logger.warning(
+                "browse_refused_empty_allowlist",
+                extra={"cid": ctx.correlation_id, "uid": ctx.uid},
+            )
+            await ctx.response_formatter.safe_reply(
+                ctx.message,
+                "Browser agent is not configured: WEBWRIGHT_HOST_ALLOWLIST is "
+                "empty, so /browse has no allowed hosts to browse.\n\n"
+                f"Error ID: {ctx.correlation_id}",
+            )
+            return "browse_refused_empty_allowlist", False
 
         run_id = await self._create_run(
             user_id=ctx.uid,
@@ -79,7 +97,7 @@ class BrowseHandler:
         result = await self._client.run_task(
             task=task_text,
             correlation_id=ctx.correlation_id,
-            allowed_domains=(),
+            allowed_domains=self._host_allowlist,
         )
 
         await self._finalize_run(
