@@ -278,8 +278,11 @@ async def test_gap2_cache_hit_returns_cached_summary_without_llm_call() -> None:
     cache.set.assert_not_awaited()
 
 
-async def test_gap2_cache_miss_calls_llm_then_writes_cache() -> None:
-    """Cache miss: calls LLM, writes result to cache."""
+async def test_gap2_cache_miss_calls_llm_without_writing_cache_from_summarize() -> None:
+    """Cache-poisoning fix: on a miss, summarize() calls the LLM but never writes
+    the cache itself -- the write moved to ``persist``, which only runs after
+    ``validate`` confirms the summary against the contract (see
+    ``test_gap2_persist_writes_validated_summary_to_cache`` below)."""
     cache = SimpleNamespace(
         get=AsyncMock(return_value=None),
         set=AsyncMock(),
@@ -299,11 +302,85 @@ async def test_gap2_cache_miss_calls_llm_then_writes_cache() -> None:
     out = await summarize(state, deps=deps)
     assert out["summary"]["summary_250"] == "a summary"
     cache.get.assert_awaited_once_with("abc123", "en")
-    cache.set.assert_awaited_once()
-    written_hash, written_lang, written_summary = cache.set.call_args.args
-    assert written_hash == "abc123"
-    assert written_lang == "en"
-    assert isinstance(written_summary, dict)
+    cache.set.assert_not_awaited()
+
+
+async def test_gap2_persist_writes_validated_summary_to_cache() -> None:
+    """persist() writes the validated summary to cache once validate has
+    succeeded (no validation_errors on state, non-streaming)."""
+    cache = SimpleNamespace(get=AsyncMock(), set=AsyncMock())
+    deps = _deps(summary_cache=cache)
+    state = _state(
+        request_id=None,
+        summary=dict(_VALID),
+        dedupe_hash="abc123",
+        lang="en",
+        validation_errors=[],
+    )
+    await persist(state, deps=deps)
+    cache.set.assert_awaited_once_with("abc123", "en", dict(_VALID))
+
+
+async def test_gap2_persist_does_not_cache_summary_with_validation_errors() -> None:
+    """Cache-poisoning fix: a summary still carrying validation_errors is never
+    cached (defense-in-depth; the graph topology already prevents this state
+    from reaching persist, since a failed validate routes to repair, not
+    enrich -> persist)."""
+    cache = SimpleNamespace(get=AsyncMock(), set=AsyncMock())
+    deps = _deps(summary_cache=cache)
+    state = _state(
+        request_id=None,
+        summary=dict(_VALID),
+        dedupe_hash="abc123",
+        lang="en",
+        validation_errors=["missing tldr"],
+    )
+    await persist(state, deps=deps)
+    cache.set.assert_not_awaited()
+
+
+async def test_gap2_persist_skips_cache_write_when_streaming() -> None:
+    """Streaming path never writes the cache (live-UX path, ADR-0017)."""
+    cache = SimpleNamespace(get=AsyncMock(), set=AsyncMock())
+    deps = _deps(summary_cache=cache)
+    state = _state(
+        request_id=None,
+        summary=dict(_VALID),
+        dedupe_hash="abc123",
+        lang="en",
+        validation_errors=[],
+        stream=True,
+    )
+    await persist(state, deps=deps)
+    cache.set.assert_not_awaited()
+
+
+async def test_gap2_persist_skips_cache_write_when_dedupe_hash_missing() -> None:
+    """No cache write when dedupe_hash is absent from state."""
+    cache = SimpleNamespace(get=AsyncMock(), set=AsyncMock())
+    deps = _deps(summary_cache=cache)
+    state = _state(
+        request_id=None,
+        summary=dict(_VALID),
+        lang="en",
+        validation_errors=[],
+    )
+    await persist(state, deps=deps)
+    cache.set.assert_not_awaited()
+
+
+async def test_gap2_persist_skips_cache_write_when_summary_cache_is_none() -> None:
+    """No cache interaction when deps.summary_cache is None."""
+    deps = _deps(summary_cache=None)
+    state = _state(
+        request_id=None,
+        summary=dict(_VALID),
+        dedupe_hash="abc123",
+        lang="en",
+        validation_errors=[],
+    )
+    # Must not raise even though there is no cache to write to.
+    await persist(state, deps=deps)
 
 
 async def test_gap2_no_cache_when_summary_cache_is_none() -> None:

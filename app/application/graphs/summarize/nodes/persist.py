@@ -42,9 +42,23 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     ``title`` / ``author`` / date fields from the crawl result and request URL are
     populated. The LLM-completion and RAG-enrichment sub-steps are deferred (see
     metadata_backfill module docstring).
+
+    GAP 2 fix (Redis cache-poisoning): the ``summary_cache`` write happens here,
+    not in ``summarize``, because ``persist`` only runs after ``validate`` (and
+    the optional ``repair`` loop) has confirmed the summary against the contract
+    -- the ``validate`` -> ``repair`` route never reaches ``persist``. Writing
+    the cache immediately after the LLM call (the old location) let a
+    malformed-but-truthy response poison the shared, content-hash-keyed cache for
+    every subsequent request to that URL, with ``repair`` never evicting it. The
+    write runs before the ``request_id is None`` short-circuit below (cache
+    lookup/write is not gated on a request row existing) but is otherwise
+    best-effort and never blocks completion.
     """
     summary = state.get("summary") or {}
     request_id = state.get("request_id")
+
+    await _write_summary_cache(state, deps, summary)
+
     # ``request_id is None`` is the content-only path (no request row): short-circuit
     # ALL DB writes -- finalize, llm_calls, and the index fast-path. INSERTing a
     # Summary / LLMCall against a non-existent ``requests.id`` (None, or the old ``0``
@@ -102,6 +116,42 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     await _publish_summary_created(state, deps, summary_id=summary_id)
 
     return {"summary_id": summary_id} if summary_id is not None else {}
+
+
+async def _write_summary_cache(
+    state: SummarizeState, deps: SummarizeDeps, summary: dict[str, Any]
+) -> None:
+    """Best-effort write of the validated summary to the Redis cache (GAP 2 fix).
+
+    Only writes when: the streaming mode flag is off (streaming is a live-UX path
+    and never touches the cache, mirroring the read-side check in ``summarize``,
+    ADR-0017); a ``dedupe_hash`` and ``deps.summary_cache`` are both available; the
+    summary is non-empty; and no ``validation_errors`` are recorded on state.
+    The ``validation_errors`` check is defense-in-depth -- the graph topology
+    already guarantees ``validate`` succeeded (routed to ``enrich``, not
+    ``repair``) before ``persist`` ever runs -- so a malformed summary can never
+    reach the shared, content-hash-keyed cache. A cache-write failure is logged
+    and swallowed; it must never block completion.
+    """
+    if state.get("stream"):
+        return
+    dedupe_hash = state.get("dedupe_hash") or ""
+    if not summary or not dedupe_hash or deps.summary_cache is None:
+        return
+    if state.get("validation_errors"):
+        return
+    lang = state.get("lang") or "en"
+    try:
+        await deps.summary_cache.set(dedupe_hash, lang, summary)
+    except Exception:  # best-effort: cache failures must never block completion
+        logger.warning(
+            "graph_persist_summary_cache_write_failed",
+            extra={
+                "correlation_id": state.get("correlation_id"),
+                "request_id": state.get("request_id"),
+            },
+            exc_info=True,
+        )
 
 
 async def _persist_llm_calls(state: SummarizeState, deps: SummarizeDeps) -> None:

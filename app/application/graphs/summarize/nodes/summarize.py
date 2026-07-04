@@ -38,10 +38,14 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
     GAP 2 (Redis LLM summary cache): when ``deps.summary_cache`` is set and
     ``state['dedupe_hash']`` is available, checks the cache before calling the LLM.
     A cache hit returns the cached summary with no ``llm_calls`` row (mirroring the
-    legacy ``interactive_summary_service`` behaviour at lines 220-238). On a
-    successful non-streaming LLM call the result is written back (lines 261-267).
-    The streaming path bypasses cache -- streaming is a live-UX path and cache hits
-    produce no token events.
+    legacy ``interactive_summary_service`` behaviour at lines 220-238). The cache
+    WRITE does NOT happen here -- it happens later, in the ``persist`` node, once
+    ``validate`` (and the optional ``repair`` loop) has confirmed the summary
+    against the contract. Writing here, pre-validation, let a malformed-but-truthy
+    LLM response poison the shared, content-hash-keyed cache for every subsequent
+    request to that URL, with no eviction on repair (cache-poisoning fix). The
+    streaming path bypasses cache reads -- streaming is a live-UX path and cache
+    hits produce no token events.
 
     GAP 3a (failure llm_calls persistence): when the LLM call fails, a FAILURE
     record is attached to the exception as ``llm_failure_records`` before re-raising.
@@ -110,10 +114,6 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
         "call_count": state.get("call_count", 0) + 1,
         "llm_calls": [_call_record(state, config, call_meta, status="ok", structured=not streamed)],
     }
-
-    # GAP 2: cache write on successful non-streaming call.
-    if not streamed and dedupe_hash and deps.summary_cache is not None:
-        await deps.summary_cache.set(dedupe_hash, lang, summary)
 
     return result
 
