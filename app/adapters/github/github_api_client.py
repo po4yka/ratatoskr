@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -361,7 +362,19 @@ class GitHubAPIClient:
         *,
         headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        """Execute a GET request to an absolute URL (pagination next links)."""
+        """Execute a GET request to an absolute URL (pagination next links).
+
+        The client carries the bearer token as a default header, so before
+        dereferencing an absolute Link-header URL we verify it still points at
+        the configured GitHub API host. Without this check a spoofed or
+        malformed ``Link`` response header could redirect pagination — and the
+        PAT — to an arbitrary host.
+        """
+        expected_host = urlparse(self.BASE_URL).hostname
+        if urlparse(url).hostname != expected_host:
+            raise GitHubServerError(
+                f"Refusing to follow pagination Link to non-GitHub host: {url}"
+            )
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             t0 = time.monotonic()

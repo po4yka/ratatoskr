@@ -354,6 +354,37 @@ async def test_list_starred_paginates_via_link_header() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 8b. list_starred refuses a next-link pointing at a non-GitHub host
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_starred_refuses_next_link_to_non_github_host() -> None:
+    starred_page1_url = f"{STARRED_URL}?sort=created&direction=desc&per_page=100"
+    evil_url = "https://evil.example.com/user/starred?page=2&per_page=100"
+
+    router = respx.MockRouter(assert_all_called=False)
+    router.get(starred_page1_url).mock(
+        return_value=httpx.Response(
+            200,
+            json=_starred_page1(),
+            headers={"Link": f'<{evil_url}>; rel="next"'},
+        )
+    )
+    evil_route = router.get(evil_url).mock(return_value=httpx.Response(200, json=[]))
+
+    async with router:
+        async with _make_client() as gh:
+            iterator = await gh.list_starred()
+            with pytest.raises(GitHubServerError, match="non-GitHub host"):
+                _ = [item async for item in iterator]
+
+    # The attacker-controlled host must never be dereferenced — the bearer
+    # token must never leave for a non-GitHub host.
+    assert evil_route.call_count == 0
+
+
+# ---------------------------------------------------------------------------
 # 9. list_starred since early-exits when cutoff hit
 # ---------------------------------------------------------------------------
 
