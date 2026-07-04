@@ -8,6 +8,7 @@ pionxzh/chatgpt-exporter); see TODO(live-validation).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import datetime as dt
@@ -185,7 +186,7 @@ class ChatGptClient:
                 self.resumed += 1
                 continue
             detail = await self._get_conversation(conv_id)
-            self._writer.write_conversation(conv_id, detail)
+            await asyncio.to_thread(self._writer.write_conversation, conv_id, detail)
             counts["conversations"] += 1
             self._collect_file_refs(detail, conv_id, file_refs)
 
@@ -247,7 +248,7 @@ class ChatGptClient:
                 gid = gizmo.get("id") if isinstance(gizmo, dict) else None
                 if not gid:
                     continue
-                self._writer.write_project(gid, gizmo)
+                await asyncio.to_thread(self._writer.write_project, gid, gizmo)
                 counts["projects"] += 1
                 await self._list_project_conversations(gid, conv_index)
             cursor = data.get("cursor") if isinstance(data, dict) else None
@@ -304,7 +305,9 @@ class ChatGptClient:
             # token -- do NOT forward Authorization to oaiusercontent.com.
             resp = await self._get(download_url, auth=False)
             if resp.status == 200:
-                self._writer.write_file(file_id, meta.get("file_name") or file_id, resp.bytes())
+                await asyncio.to_thread(
+                    self._writer.write_file, file_id, meta.get("file_name") or file_id, resp.bytes()
+                )
                 counts["files"] += 1
 
 

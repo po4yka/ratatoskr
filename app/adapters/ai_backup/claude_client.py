@@ -8,6 +8,7 @@ socketteer, twilligon); see TODO(live-validation).
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import re
@@ -123,7 +124,7 @@ class ClaudeClient:
             for project in await self._get(f"{_API}/api/organizations/{org}/projects"):
                 pid = self._uuid(project)
                 if pid:
-                    self._writer.write_project(pid, project)
+                    await asyncio.to_thread(self._writer.write_project, pid, project)
                     counts["projects"] += 1
         except (AiBackupAuthExpiredError, AiBackupMaxRequestsError):
             raise
@@ -144,16 +145,16 @@ class ClaudeClient:
             if saved is not None:
                 # Resume: already on disk from a prior interrupted run today.
                 counts["conversations"] += 1
-                counts["artifacts"] += self._write_artifacts(saved, uuid)
+                counts["artifacts"] += await self._write_artifacts(saved, uuid)
                 self.resumed += 1
                 continue
             detail = await self._get(
                 f"{_API}/api/organizations/{org}/chat_conversations/{quote(uuid, safe='')}"
                 "?tree=True&rendering_mode=messages&render_all_tools=true"
             )
-            self._writer.write_conversation(uuid, detail)
+            await asyncio.to_thread(self._writer.write_conversation, uuid, detail)
             counts["conversations"] += 1
-            counts["artifacts"] += self._write_artifacts(detail, uuid)
+            counts["artifacts"] += await self._write_artifacts(detail, uuid)
         return counts
 
     async def _get_org_id(self) -> str:
@@ -189,7 +190,7 @@ class ClaudeClient:
     def _uuid(obj: dict[str, Any]) -> str | None:
         return obj.get("uuid") or obj.get("project_uuid") or obj.get("projectUuid") or obj.get("id")
 
-    def _write_artifacts(self, detail: dict[str, Any], conv_id: str) -> int:
+    async def _write_artifacts(self, detail: dict[str, Any], conv_id: str) -> int:
         written = 0
         messages = detail.get("chat_messages", []) if isinstance(detail, dict) else []
         for message in messages:
@@ -197,7 +198,9 @@ class ClaudeClient:
                 ext = art.get("language") or _ext_for_content_type(art.get("content_type", ""))
                 code = art.get("code")
                 data = (code if isinstance(code, str) else "").encode("utf-8")
-                self._writer.write_artifact(conv_id, art["artifact_id"], ext, data)
+                await asyncio.to_thread(
+                    self._writer.write_artifact, conv_id, art["artifact_id"], ext, data
+                )
                 written += 1
         return written
 

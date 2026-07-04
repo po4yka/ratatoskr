@@ -153,7 +153,7 @@ class TranscriptionService:
         )
 
         await _emit_progress(progress_callback, "probing_audio", "running", 0.2, "Probing audio")
-        duration = probe_duration_sec(media_path)
+        duration = await asyncio.to_thread(probe_duration_sec, media_path)
         if duration is not None and duration > self._cfg.max_duration_sec:
             raise TranscriptionDurationExceededError(duration, self._cfg.max_duration_sec)
 
