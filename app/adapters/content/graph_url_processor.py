@@ -875,6 +875,35 @@ class GraphURLProcessor:
                 "graph_url_flow_delivery_failed",
                 extra={"cid": request.correlation_id, "req_id": req_id, "error": str(exc)},
             )
+            await self._notify_delivery_failure(request)
+
+    async def _notify_delivery_failure(self, request: URLFlowRequest) -> None:
+        """Best-effort fallback notice when delivery fails after COMPLETED persist.
+
+        The summary is already persisted (request stays ``COMPLETED``); without
+        this the user gets neither the summary card nor any error, since
+        ``deliver_summary`` already swallowed the exception. Points the user at
+        ``/history`` instead of re-raising, so the ``COMPLETED`` semantics hold.
+        Guarded so a failure here can never propagate.
+        """
+        if request.silent or request.batch_mode:
+            return
+        try:
+            await self.response_formatter.send_error_notification(
+                request.message,
+                "unexpected_error",
+                request.correlation_id or "unknown",
+                details=(
+                    "Your summary was generated and saved, but delivering it here "
+                    "failed. Use /history to view it."
+                ),
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "graph_url_flow_delivery_failure_notice_failed",
+                extra={"cid": request.correlation_id, "error": str(exc)},
+            )
 
     def _context_for_delivery(
         self, request: URLFlowRequest, req_id: int, result: URLProcessingFlowResult

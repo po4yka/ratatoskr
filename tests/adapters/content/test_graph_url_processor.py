@@ -801,3 +801,56 @@ async def test_mark_request_error_noop_when_no_request_id():
     facade = _facade()
     await facade._mark_request_error(_url_request(), None)
     facade.request_repo.async_update_request_status.assert_not_awaited()
+
+
+async def test_delivery_failure_triggers_fallback_notification():
+    """A ``deliver_summary`` failure must not be a silent black hole: the request
+    stays COMPLETED (summary already persisted) but the user gets a best-effort
+    fallback notice carrying the correlation id."""
+    facade = _facade(
+        summary_delivery=MagicMock(
+            deliver_summary=AsyncMock(side_effect=RuntimeError("telegram down")),
+        )
+    )
+    result = URLProcessingFlowResult.from_summary(_GOOD_SUMMARY, request_id=777)
+
+    await facade._persist_bot_reply(_url_request(), 777, result)
+
+    facade.response_formatter.send_error_notification.assert_awaited_once()
+    args, kwargs = facade.response_formatter.send_error_notification.await_args
+    assert args[2] == "cid-1"
+    assert "details" in kwargs
+    assert "/history" in kwargs["details"]
+
+
+async def test_delivery_failure_notification_skipped_when_silent():
+    """The fallback notice must respect silent/batch semantics like every other
+    user-facing notification path."""
+    facade = _facade(
+        summary_delivery=MagicMock(
+            deliver_summary=AsyncMock(side_effect=RuntimeError("telegram down")),
+        )
+    )
+    result = URLProcessingFlowResult.from_summary(_GOOD_SUMMARY, request_id=777)
+
+    await facade._persist_bot_reply(_url_request(silent=True), 777, result)
+
+    facade.response_formatter.send_error_notification.assert_not_awaited()
+
+
+async def test_delivery_failure_notification_itself_is_best_effort():
+    """If sending the fallback notice also raises, it must not propagate -- the
+    delivery-failure path must remain best-effort end to end."""
+    facade = _facade(
+        summary_delivery=MagicMock(
+            deliver_summary=AsyncMock(side_effect=RuntimeError("telegram down")),
+        ),
+        response_formatter=MagicMock(
+            send_error_notification=AsyncMock(side_effect=RuntimeError("also down")),
+        ),
+    )
+    result = URLProcessingFlowResult.from_summary(_GOOD_SUMMARY, request_id=777)
+
+    await facade._persist_bot_reply(_url_request(), 777, result)
+
+    facade.response_formatter.send_error_notification.assert_awaited_once()
