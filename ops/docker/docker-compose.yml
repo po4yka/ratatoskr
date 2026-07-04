@@ -1184,23 +1184,27 @@ services:
     # AOF persistence so Taskiq queue state and distributed-lock keys survive
     # a Redis restart. `appendfsync everysec` is the standard durability/perf
     # trade-off: at most ~1s of writes lost on a hard crash.
-    command:
-      [
-        "redis-server",
-        "--save",
-        "",
-        "--appendonly",
-        "yes",
-        "--appendfsync",
-        "everysec",
-      ]
+    # Auth is opt-in via REDIS_PASSWORD (see .env.example): an empty value
+    # (the default) keeps today's no-auth behavior so existing deployments
+    # are not broken; a non-empty value enables `requirepass`. Every consumer's
+    # REDIS_URL must then include the same password (redis://:PASSWORD@redis:6379/...).
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    command: >
+      sh -c '
+      if [ -n "$$REDIS_PASSWORD" ]; then
+        exec redis-server --save "" --appendonly yes --appendfsync everysec --requirepass "$$REDIS_PASSWORD";
+      else
+        exec redis-server --save "" --appendonly yes --appendfsync everysec;
+      fi
+      '
     volumes:
       - redis_data:/data
     # No host port binding: Redis is internal-only, accessed by other containers
     # via Docker DNS (redis:6379). Exposing the port to the host would allow any
     # process on the host to reach an unauthenticated Redis instance.
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping; else redis-cli ping; fi"]
       interval: 10s
       timeout: 5s
       retries: 5
