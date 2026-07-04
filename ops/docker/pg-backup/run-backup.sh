@@ -65,6 +65,23 @@ case "$retention_days" in
   ''|*[!0-9]*) fail "BACKUP_RETENTION_DAYS must be a non-negative integer" ;;
 esac
 
+if [ -z "${BACKUP_ENCRYPTION_KEY:-}" ]; then
+  if [ -n "${BACKUP_REQUIRE_ENCRYPTION:-}" ]; then
+    fail "BACKUP_ENCRYPTION_KEY unset and BACKUP_REQUIRE_ENCRYPTION is set -- refusing to write an unencrypted backup"
+  fi
+  {
+    printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
+    printf 'WARNING: BACKUP_ENCRYPTION_KEY unset -- writing UNENCRYPTED backup to disk'
+    if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+      printf ' and uploading it unencrypted to S3'
+    fi
+    printf '.\n'
+    printf 'The dump contains full user/Telegram/summary data. Set BACKUP_ENCRYPTION_KEY,\n'
+    printf 'or set BACKUP_REQUIRE_ENCRYPTION=true to fail instead of writing plaintext.\n'
+    printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
+  } >&2
+fi
+
 mkdir -p "$backup_dir" "$metrics_dir"
 
 if ! mkdir "$lock_dir" 2>/dev/null; then

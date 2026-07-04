@@ -1147,6 +1147,7 @@ services:
       - BACKUP_DIR=/backups
       - BACKUP_METRICS_DIR=/var/lib/node-exporter/textfile_collector
       - BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY:-}
+      - BACKUP_REQUIRE_ENCRYPTION=${BACKUP_REQUIRE_ENCRYPTION:-}
       - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
       - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-ratatoskr/postgres}
       - BACKUP_S3_REGION=${BACKUP_S3_REGION:-us-east-1}

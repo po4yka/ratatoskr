@@ -633,7 +633,8 @@ Email delivery is off by default. Set `EMAIL_PROVIDER=smtp` for a generic SMTP r
 | `BACKUP_CRON` | `0 3 * * *` | UTC 5-field cron expression for the `pg-backup` sidecar |
 | `BACKUP_RUN_ON_START` | `false` | When `true`, the sidecar runs one backup immediately before starting cron |
 | `BACKUP_RETENTION_DAYS` | `14` | Number of days to keep local automated PostgreSQL backup artifacts and metadata files |
-| `BACKUP_ENCRYPTION_KEY` | _(unset)_ | Optional passphrase for sidecar PostgreSQL dump encryption; encrypted artifacts use `.dump.enc` |
+| `BACKUP_ENCRYPTION_KEY` | _(unset)_ | Optional passphrase for sidecar PostgreSQL dump encryption; encrypted artifacts use `.dump.enc`. When unset, the sidecar writes a plaintext `.dump` and emits a stderr warning banner before any S3 upload |
+| `BACKUP_REQUIRE_ENCRYPTION` | _(unset)_ | When truthy, the `pg-backup` sidecar fails fast instead of writing a plaintext backup if `BACKUP_ENCRYPTION_KEY` is unset |
 | `BACKUP_S3_BUCKET` | _(unset)_ | Optional S3/Backblaze bucket for uploading each automated PostgreSQL dump and metadata file |
 | `BACKUP_S3_PREFIX` | `ratatoskr/postgres` | Object prefix inside `BACKUP_S3_BUCKET` |
 | `BACKUP_S3_REGION` | `us-east-1` | AWS region passed to the sidecar AWS CLI |
