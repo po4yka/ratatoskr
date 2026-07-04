@@ -20,6 +20,7 @@ from app.core.content_cleaner import (
     apply_prompt_injection_metadata,
     clean_content_for_llm,
     detect_prompt_injection_patterns,
+    neutralize_literal_delimiters,
 )
 from app.core.lang import LANG_RU
 from app.core.logging_utils import bounded_debug_preview, get_logger
@@ -62,7 +63,8 @@ def detect_content_type_hint(content: str) -> str:
 
 def build_untrusted_source_block(content: str) -> str:
     """Wrap source content in an explicit untrusted-data boundary."""
-    return f"{UNTRUSTED_SOURCE_START}\n{content}\n{UNTRUSTED_SOURCE_END}"
+    safe = neutralize_literal_delimiters(content, (UNTRUSTED_SOURCE_START, UNTRUSTED_SOURCE_END))
+    return f"{UNTRUSTED_SOURCE_START}\n{safe}\n{UNTRUSTED_SOURCE_END}"
 
 
 def build_source_security_notice(detection: PromptInjectionDetection) -> str:

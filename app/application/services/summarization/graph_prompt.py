@@ -23,6 +23,7 @@ from app.core.content_cleaner import (
     clean_content_for_llm,
     detect_prompt_injection_patterns,
     maybe_redact_pii,
+    neutralize_literal_delimiters,
 )
 from app.core.lang import LANG_RU
 from app.core.token_utils import count_tokens
@@ -224,6 +225,12 @@ def _build_source_security_notice(detection: object) -> str:
 
 
 def _build_untrusted_source_block(content: str) -> str:
+    # Neutralize any literal occurrence of the boundary tags inside the scraped
+    # content first, so untrusted text can never forge the closing tag and make
+    # attacker-controlled text after it look like it sits outside the boundary.
+    content = neutralize_literal_delimiters(
+        content, (_UNTRUSTED_SOURCE_START, _UNTRUSTED_SOURCE_END)
+    )
     return f"{_UNTRUSTED_SOURCE_START}\n{content}\n{_UNTRUSTED_SOURCE_END}"
 
 

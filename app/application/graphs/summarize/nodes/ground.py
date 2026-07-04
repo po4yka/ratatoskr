@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.dto.vector_search import EntityType, RetrievalScope
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.core.content_cleaner import neutralize_literal_delimiters
 
 if TYPE_CHECKING:
     from app.application.dto.vector_search import RetrievalHit
@@ -36,6 +37,11 @@ _WHITESPACE_RE = re.compile(r"\s+")
 def _sanitize_grounding_text(value: str, *, max_chars: int) -> str:
     cleaned = _CONTROL_CHARS_RE.sub(" ", value)
     cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
+    # A poisoned stored title/tldr can also contain the header/footer text
+    # verbatim, forging the block's boundary (second-order boundary injection).
+    cleaned = neutralize_literal_delimiters(
+        cleaned, (GROUNDING_BLOCK_HEADER, GROUNDING_BLOCK_FOOTER)
+    )
     return cleaned[:max_chars]
 
 
