@@ -13,7 +13,7 @@ from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_headers_for_logging
-from app.security.ssrf import is_url_safe, make_safe_async_client
+from app.security.ssrf import is_url_safe_async, make_safe_async_client
 
 logger = get_logger(__name__)
 
@@ -40,11 +40,13 @@ class DefuddleProvider:
         min_content_length: int = 400,
         api_base_url: str = _DEFAULT_API_BASE_URL,
         api_token: str = "",
+        max_response_mb: int = 10,
     ) -> None:
         self._timeout_sec = timeout_sec
         self._min_content_length = min_content_length
         self._api_base_url = api_base_url.rstrip("/")
         self._api_token = api_token
+        self._max_response_bytes = max_response_mb * 1024 * 1024
         if self._api_base_url.lower().rstrip("/") == "https://defuddle.md":
             logger.warning(
                 "defuddle_provider_cloud_url_deprecated",
@@ -175,7 +177,7 @@ class DefuddleProvider:
         # Validate the caller-supplied target URL before embedding it in the
         # Defuddle endpoint path, then percent-encode so query strings and path
         # separators cannot reshape the sidecar request path.
-        safe, reason = is_url_safe(url)
+        safe, reason = await is_url_safe_async(url)
         if not safe:
             raise ValueError(f"SSRF blocked target URL: {reason}")
         defuddle_url = f"{self._api_base_url}/{quote(url, safe='')}"
@@ -188,18 +190,51 @@ class DefuddleProvider:
             ) as client:
                 current_url = defuddle_url
                 for _ in range(5):
-                    safe, reason = is_url_safe(current_url)
+                    safe, reason = await is_url_safe_async(current_url)
                     if not safe:
                         raise ValueError(f"SSRF blocked redirect target: {reason}")
-                    resp = await client.get(current_url, headers=request_headers)
-                    if resp.status_code in {301, 302, 303, 307, 308}:
-                        location = resp.headers.get("location")
-                        if not location:
-                            resp.raise_for_status()
-                        current_url = urljoin(current_url, location)
-                        continue
-                    resp.raise_for_status()
-                    return resp.text
+                    async with client.stream("GET", current_url, headers=request_headers) as resp:
+                        if resp.status_code in {301, 302, 303, 307, 308}:
+                            location = resp.headers.get("location")
+                            await resp.aclose()
+                            if not location:
+                                resp.raise_for_status()
+                            current_url = urljoin(current_url, location)
+                            continue
+                        resp.raise_for_status()
+
+                        content_length = resp.headers.get("content-length")
+                        if content_length:
+                            try:
+                                declared_size = int(content_length)
+                            except ValueError:
+                                logger.debug(
+                                    "defuddle_invalid_content_length_header",
+                                    extra={
+                                        "url": current_url,
+                                        "content_length": content_length,
+                                    },
+                                )
+                            else:
+                                if declared_size > self._max_response_bytes:
+                                    raise ValueError(
+                                        f"Defuddle response exceeds "
+                                        f"{self._max_response_bytes} byte limit"
+                                    )
+
+                        chunks: list[bytes] = []
+                        total = 0
+                        async for chunk in resp.aiter_bytes():
+                            total += len(chunk)
+                            if total > self._max_response_bytes:
+                                raise ValueError(
+                                    f"Defuddle response exceeds "
+                                    f"{self._max_response_bytes} byte limit"
+                                )
+                            chunks.append(chunk)
+
+                        encoding = resp.encoding or "utf-8"
+                        return b"".join(chunks).decode(encoding, errors="replace")
                 raise ValueError("Too many redirects")
 
     async def aclose(self) -> None:

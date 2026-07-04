@@ -11,6 +11,7 @@ The body envelopes nested configs in {type, params} wrappers as required by the 
 
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
@@ -25,7 +26,7 @@ from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_headers_for_logging
-from app.security.ssrf import is_url_safe
+from app.security.ssrf import is_url_safe_async
 
 logger = get_logger(__name__)
 
@@ -51,6 +52,7 @@ class Crawl4AIProvider:
         js_heavy_hosts: tuple[str, ...] = (),
         cache_mode: str = "BYPASS",
         audit: Callable[[str, str, dict[str, Any]], None] | None = None,
+        max_response_mb: int = 10,
     ) -> None:
         self._url = url.rstrip("/")
         self._token = token
@@ -61,6 +63,7 @@ class Crawl4AIProvider:
         self._cache_mode = cache_mode
         self._audit = audit
         self._client: httpx.AsyncClient | None = None
+        self._max_response_bytes = max_response_mb * 1024 * 1024
 
     @property
     def provider_name(self) -> str:
@@ -131,23 +134,55 @@ class Crawl4AIProvider:
             data: dict[str, Any] | None = None
             for _ in range(5):
                 if current_endpoint != crawl_endpoint:
-                    safe, reason = is_url_safe(current_endpoint)
+                    safe, reason = await is_url_safe_async(current_endpoint)
                     if not safe:
                         raise ValueError(f"SSRF blocked redirect target: {reason}")
-                resp = await client.post(
+                async with client.stream(
+                    "POST",
                     current_endpoint,
                     json=payload,
                     headers=request_headers,
                     timeout=effective_timeout,
-                )
-                if resp.status_code in {301, 302, 303, 307, 308}:
-                    location = resp.headers.get("location")
-                    if not location:
-                        resp.raise_for_status()
-                    current_endpoint = urljoin(current_endpoint, location)
-                    continue
-                resp.raise_for_status()
-                data = resp.json()
+                ) as resp:
+                    if resp.status_code in {301, 302, 303, 307, 308}:
+                        location = resp.headers.get("location")
+                        await resp.aclose()
+                        if not location:
+                            resp.raise_for_status()
+                        current_endpoint = urljoin(current_endpoint, location)
+                        continue
+                    resp.raise_for_status()
+
+                    content_length = resp.headers.get("content-length")
+                    if content_length:
+                        try:
+                            declared_size = int(content_length)
+                        except ValueError:
+                            logger.debug(
+                                "crawl4ai_invalid_content_length_header",
+                                extra={
+                                    "url": current_endpoint,
+                                    "content_length": content_length,
+                                },
+                            )
+                        else:
+                            if declared_size > self._max_response_bytes:
+                                raise ValueError(
+                                    f"Crawl4AI response exceeds "
+                                    f"{self._max_response_bytes} byte limit"
+                                )
+
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in resp.aiter_bytes():
+                        total += len(chunk)
+                        if total > self._max_response_bytes:
+                            raise ValueError(
+                                f"Crawl4AI response exceeds {self._max_response_bytes} byte limit"
+                            )
+                        chunks.append(chunk)
+
+                    data = json.loads(b"".join(chunks))
                 break
             else:
                 raise ValueError("Too many redirects")
