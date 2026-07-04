@@ -32,6 +32,7 @@ from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
+from app.security.ssrf import is_url_safe
 
 logger = get_logger(__name__)
 
@@ -320,6 +321,18 @@ def _lazy_import_stealthy_fetcher() -> Any:
     return mod.StealthyFetcher
 
 
+# The preflight check in scrape_markdown() only validates the *initial* URL.
+# ``follow_redirects="safe"`` is passed explicitly (rather than relying on
+# Scrapling's implicit default of the same value) so a future Scrapling/
+# curl_cffi upgrade cannot silently widen this to unrestricted redirects.
+# curl-impersonate's CURLFOLLOW_SAFE mode rejects any redirect hop whose
+# *resolved* connect-time IP falls in a private/internal/link-local range,
+# enforced inside libcurl at actual connection time -- this is not a
+# preflight-only check and is not vulnerable to DNS-rebinding TOCTOU the way
+# a Python-side URL re-validation between hops would be.
+_SAFE_REDIRECTS: dict[str, Any] = {"follow_redirects": "safe"}
+
+
 async def _async_fetch_basic(url: str, session_or_cls: Any) -> tuple[str | None, str | None]:
     """Async basic fetch.
 
@@ -329,7 +342,7 @@ async def _async_fetch_basic(url: str, session_or_cls: Any) -> tuple[str | None,
 
     Both expose a ``get(url)`` awaitable with the same return shape.
     """
-    resp = await session_or_cls.get(url)
+    resp = await session_or_cls.get(url, **_SAFE_REDIRECTS)
     html = resp.text if resp.status == 200 else None
     text = _extract_text(html) if html else None
     return html, text
@@ -338,10 +351,41 @@ async def _async_fetch_basic(url: str, session_or_cls: Any) -> tuple[str | None,
 def _sync_fetch_basic(url: str) -> tuple[str | None, str | None]:
     """Basic fetch via Scrapling Fetcher (TLS impersonation, fastest)."""
     scrapling_fetcher = _lazy_import_fetcher()
-    resp = scrapling_fetcher.get(url)
+    resp = scrapling_fetcher.get(url, **_SAFE_REDIRECTS)
     html = resp.text if resp.status == 200 else None
     text = _extract_text(html) if html else None
     return html, text
+
+
+def _block_ssrf_route(route: Any) -> None:
+    """Abort any stealth-browser request (navigation or subresource) whose
+    URL is not SSRF-safe, mirroring the interceptor in playwright_provider.py.
+
+    Installed via Scrapling's ``page_setup`` hook, which -- per Scrapling's
+    own docs -- runs on the Playwright ``page`` object *before* navigation
+    starts, so it also covers the initial ``goto`` and any redirects it
+    triggers, not just post-load subresource requests.
+
+    LIMITATION -- DNS rebinding is not fully mitigated here: ``is_url_safe()``
+    resolves the hostname via Python's resolver, but Chromium performs its own
+    independent DNS resolution at TCP-connect time. See playwright_provider.py
+    for the full residual-risk writeup; the same caveat applies here.
+    """
+    req_url: str = route.request.url
+    safe, reason = is_url_safe(req_url)
+    if not safe:
+        logger.warning(
+            "scrapling_stealth_ssrf_blocked",
+            extra={"url": req_url, "reason": reason},
+        )
+        route.abort("accessdenied")
+        return
+    route.continue_()
+
+
+def _stealth_page_setup(page: Any) -> None:
+    """``page_setup`` callback: register the SSRF route guard before navigation."""
+    page.route("**/*", _block_ssrf_route)
 
 
 def _sync_fetch_stealth(url: str, stealth_cls: Any | None = None) -> tuple[str | None, str | None]:
@@ -352,7 +396,7 @@ def _sync_fetch_stealth(url: str, stealth_cls: Any | None = None) -> tuple[str |
     """
     if stealth_cls is None:
         stealth_cls = _lazy_import_stealthy_fetcher()
-    resp = stealth_cls.fetch(url, solve_cloudflare=True)
+    resp = stealth_cls.fetch(url, solve_cloudflare=True, page_setup=_stealth_page_setup)
     html = resp.text if resp.status == 200 else None
     text = _extract_text(html) if html else None
     return html, text

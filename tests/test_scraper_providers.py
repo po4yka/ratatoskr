@@ -123,6 +123,114 @@ class TestScraplingProvider:
         # cap is 2: five concurrent fallbacks never run more than two browsers at once.
         assert state["max_in_flight"] == 2
 
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_basic_fetch_requests_safe_redirects(self):
+        """The curl_cffi basic path must explicitly request SSRF-safe redirect
+        following rather than relying on Scrapling's implicit default."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        fake_resp = type("R", (), {"status": 200, "text": "<html>ok</html>"})()
+        session = AsyncMock()
+        session.get.return_value = fake_resp
+
+        with patch.object(sp, "_extract_text", return_value="x" * 500):
+            await sp._async_fetch_basic("https://example.com", session)
+
+        session.get.assert_awaited_once_with("https://example.com", follow_redirects="safe")
+
+    def test_sync_basic_fetch_requests_safe_redirects(self):
+        """Sync (non-session) basic fetch must also request safe redirects."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        fake_resp = type("R", (), {"status": 200, "text": "<html>ok</html>"})()
+        fake_fetcher = type("F", (), {"get": lambda self, url, **kw: None})()
+
+        with (
+            patch.object(sp, "_lazy_import_fetcher", return_value=fake_fetcher),
+            patch.object(fake_fetcher, "get", return_value=fake_resp) as mock_get,
+            patch.object(sp, "_extract_text", return_value="x" * 500),
+        ):
+            sp._sync_fetch_basic("https://example.com")
+
+        mock_get.assert_called_once_with("https://example.com", follow_redirects="safe")
+
+    def test_stealth_fetch_installs_page_setup_ssrf_guard(self):
+        """The stealth (Playwright-based) path must install a page_setup hook
+        that runs before navigation, since Scrapling doesn't route stealth
+        fetches through the SSRF-safe curl_cffi redirect path."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        fake_resp = type("R", (), {"status": 200, "text": "<html>ok</html>"})()
+        captured_kwargs: dict = {}
+
+        def fake_fetch(url, **kwargs):
+            captured_kwargs.update(kwargs)
+            return fake_resp
+
+        stealth_cls = type("StealthCls", (), {"fetch": staticmethod(fake_fetch)})
+
+        with patch.object(sp, "_extract_text", return_value="x" * 500):
+            sp._sync_fetch_stealth("https://example.com", stealth_cls)
+
+        assert captured_kwargs.get("page_setup") is sp._stealth_page_setup
+
+    def test_stealth_page_setup_registers_route_guard(self):
+        """page_setup(page) must register _block_ssrf_route on every request."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        page = type("Page", (), {"route": lambda self, pattern, handler: None})()
+        with patch.object(page, "route") as mock_route:
+            sp._stealth_page_setup(page)
+
+        mock_route.assert_called_once_with("**/*", sp._block_ssrf_route)
+
+    def test_block_ssrf_route_aborts_private_target(self):
+        """A request (initial navigation or redirect hop) targeting a private
+        IP must be aborted, not continued."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        route = type(
+            "Route",
+            (),
+            {
+                "request": type("Req", (), {"url": "http://169.254.169.254/latest/meta-data"})(),
+                "abort": lambda self, reason: None,
+                "continue_": lambda self: None,
+            },
+        )()
+
+        with (
+            patch.object(route, "abort") as mock_abort,
+            patch.object(route, "continue_") as mock_continue,
+        ):
+            sp._block_ssrf_route(route)
+
+        mock_abort.assert_called_once_with("accessdenied")
+        mock_continue.assert_not_called()
+
+    def test_block_ssrf_route_continues_public_target(self):
+        """A request to a public host must be allowed through."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        route = type(
+            "Route",
+            (),
+            {
+                "request": type("Req", (), {"url": "https://example.com/article"})(),
+                "abort": lambda self, reason: None,
+                "continue_": lambda self: None,
+            },
+        )()
+
+        with (
+            patch.object(route, "abort") as mock_abort,
+            patch.object(route, "continue_") as mock_continue,
+        ):
+            sp._block_ssrf_route(route)
+
+        mock_continue.assert_called_once()
+        mock_abort.assert_not_called()
+
 
 class TestCrawleeProvider:
     """Tests for the Crawlee hybrid fallback provider."""
