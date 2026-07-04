@@ -7,6 +7,7 @@ preserving the existing record_scheduler_chronic_failure Prometheus metric.
 
 from __future__ import annotations
 
+import re
 import traceback
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
@@ -18,13 +19,42 @@ if TYPE_CHECKING:
 
     from taskiq.message import TaskiqMessage
 
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import get_logger, redact_for_logging
 from app.observability.attributes import REQUEST_CORRELATION_ID, TASK_IS_ERR
 from app.observability.metrics import record_scheduler_chronic_failure, record_taskiq_retry_outcome
 
 logger = get_logger(__name__)
 
 _CHRONIC_FAILURE_THRESHOLD = 3
+
+# Dead-letter persistence writes raw task args/kwargs to `taskiq_failed_jobs` for
+# replay/debugging. Any kwarg whose name looks secret must never land there in
+# plaintext, even though no current task takes a literal secret kwarg -- this
+# guards against that becoming true in the future without anyone noticing.
+_DEAD_LETTER_SECRET_KEY_RE = re.compile(
+    r"(token|secret|password|passwd|api[-_]?key|authorization|cookie|credential|"
+    r"(?:^|[-_])key(?:$|[-_]))",
+    re.IGNORECASE,
+)
+_DEAD_LETTER_MAX_VALUE_CHARS = 2000
+_DEAD_LETTER_REDACTED = "***REDACTED***"
+
+
+def _redact_dead_letter_payload(value: Any, *, key: str | None = None) -> Any:
+    """Redact secret-looking kwargs and cap oversized values before dead-letter persistence."""
+    if key is not None and _DEAD_LETTER_SECRET_KEY_RE.search(key):
+        return _DEAD_LETTER_REDACTED
+    if isinstance(value, dict):
+        return {
+            str(item_key): _redact_dead_letter_payload(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_dead_letter_payload(item) for item in value]
+    redacted = redact_for_logging(value, key=key)
+    if isinstance(redacted, str) and len(redacted) > _DEAD_LETTER_MAX_VALUE_CHARS:
+        return redacted[:_DEAD_LETTER_MAX_VALUE_CHARS] + "... [truncated]"
+    return redacted
 
 
 class ChronicFailureMiddleware(TaskiqMiddleware):
@@ -98,8 +128,8 @@ class TaskiqDeadLetterMiddleware(TaskiqMiddleware):
             failed_job_id = await self._persist_terminal_failure(
                 task_name=message.task_name,
                 task_id=message.task_id,
-                args=list(message.args or []),
-                kwargs=dict(message.kwargs or {}),
+                args=_redact_dead_letter_payload(list(message.args or [])),
+                kwargs=_redact_dead_letter_payload(dict(message.kwargs or {})),
                 labels=labels,
                 traceback_text=traceback_text,
                 error_text=error_text,

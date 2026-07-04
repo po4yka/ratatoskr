@@ -143,6 +143,36 @@ async def test_terminal_failure_is_dead_lettered_with_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_terminal_failure_redacts_secret_looking_kwargs() -> None:
+    persisted: list[dict[str, Any]] = []
+
+    async def _persist(**payload: Any) -> int:
+        persisted.append(payload)
+        return 42
+
+    middleware = TaskiqDeadLetterMiddleware(persist_failed_job=_persist)
+    message = _FakeMessage(labels={"retry_on_error": True, "max_retries": 3, "_retries": 2})
+    message.kwargs = {
+        "user_id": 1,
+        "api_key": "sk-super-secret",
+        "auth_token": "abc123",
+        "password": "hunter2",
+        "nested": {"client_secret": "zzz", "chat_id": 5},
+    }
+
+    await middleware.on_error(message, _FakeResult(is_err=True), ValueError("permanent"))
+
+    assert len(persisted) == 1
+    kwargs = persisted[0]["kwargs"]
+    assert kwargs["user_id"] == 1
+    assert kwargs["api_key"] == "***REDACTED***"
+    assert kwargs["auth_token"] == "***REDACTED***"
+    assert kwargs["password"] == "***REDACTED***"
+    assert kwargs["nested"]["client_secret"] == "***REDACTED***"
+    assert kwargs["nested"]["chat_id"] == 5
+
+
+@pytest.mark.asyncio
 async def test_success_after_retry_metric_records_on_recovered_message() -> None:
     middleware = TaskiqDeadLetterMiddleware()
     message = _FakeMessage(labels={"_retries": 1})
