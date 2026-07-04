@@ -355,6 +355,10 @@ jobs:
         run: uv pip sync --system requirements-all.txt requirements-dev.txt
 
       - name: Type check (mypy)
+        # tests/ stays out of scope for now: `mypy app tests` currently reports
+        # 79 errors across 25 files (loose SimpleNamespace/Fake* stand-ins passed
+        # where app types are expected, plus a couple of genuine drift errors).
+        # TODO: clean up tests/ typing and switch this back to `mypy app tests`.
         run: mypy app --show-error-codes --pretty --cache-dir .mypy_cache
 
 
@@ -456,6 +460,32 @@ jobs:
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
+          # Remaining tests/ exclusions and why (checked 2026-07-04):
+          #
+          # tests/test_digest_api_service.py no longer exists at this path; its
+          # cases were split into tests/api/services/test_digest_api_service_background.py
+          # and test_digest_api_service_module.py, which already run unignored.
+          # TODO: delete this stale ignore entry.
+          #
+          # tests/test_pure_summary_service.py, tests/test_smart_collection_handler.py,
+          # and tests/test_user_digest_preference.py do not exist anywhere in the repo
+          # (no replacement files found either). TODO: confirm each removal was
+          # intentional, then delete these stale ignore entries.
+          #
+          # tests/test_runtime_di_architecture.py: 2 real failures --
+          # test_p2_runtime_modules_do_not_import_app_di and
+          # test_p2_runtime_modules_do_not_use_runtime_builder_shortcuts flag
+          # app/adapters/telegram/telegram_bot.py importing app.di.repositories and
+          # calling build_summary_repository(...) directly, violating the runtime/DI
+          # layering guard. TODO: fix telegram_bot.py to use its injected repository
+          # instead of the builder shortcut, then re-enable this file.
+          #
+          # tests/test_scraper_factory.py: 2 real failures --
+          # test_default_config_creates_chain_with_{eight,nine}_providers_when_firecrawl_
+          # {disabled,enabled} assert a stale provider-chain order (expects the chain to
+          # start with 'scrapling'; the factory now emits 'reddit'/'crawlee' first).
+          # TODO: update the expected provider order in tests/test_scraper_factory.py,
+          # then re-enable.
           pytest \
             -p pytest_cov \
             -p xdist \
@@ -470,17 +500,11 @@ jobs:
             --ignore=tests/api/test_background_processor.py \
             --ignore=tests/test_api_rate_limit_and_sync.py \
             --ignore=tests/test_digest_api_service.py \
-            --ignore=tests/test_llm_response_workflow.py \
-            --ignore=tests/test_mcp_tool_registrations.py \
-            --ignore=tests/test_model_validation.py \
-            --ignore=tests/test_openrouter_metrics.py \
             --ignore=tests/test_pure_summary_service.py \
             --ignore=tests/test_runtime_di_architecture.py \
             --ignore=tests/test_scraper_factory.py \
             --ignore=tests/test_smart_collection_handler.py \
-            --ignore=tests/test_twitter_article_link_resolver.py \
             --ignore=tests/test_user_digest_preference.py \
-            --ignore=tests/test_webapp_auth_middleware.py \
             --cov=app \
             --cov-report=term-missing:skip-covered \
             --cov-report=xml \
