@@ -33,7 +33,7 @@ from app.api.routers.auth.credential_auth import (
     validate_password,
     verify_password,
 )
-from app.api.routers.auth.dependencies import get_current_user
+from app.api.routers.auth.dependencies import get_auth_repository, get_current_user
 from app.api.routers.auth.tokens import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     create_access_token,
@@ -44,6 +44,7 @@ from app.api.routers.auth.tokens import (
 from app.config import load_config
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
+from app.security.token_family_policy import FamilyTokenRecord, TokenFamilyPolicy
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -52,6 +53,20 @@ router = APIRouter()
 def _generic_failure() -> AuthenticationError:
     """Single chokepoint for the canonical 401 -- callers MUST use this."""
     return AuthenticationError("Invalid credentials")
+
+
+def _to_family_record(row: dict[str, Any]) -> FamilyTokenRecord:
+    """Coerce an auth-repo dict row into the policy's FamilyTokenRecord.
+
+    Mirrors the identically-named helper in ``endpoints_sessions.py``.
+    """
+    return FamilyTokenRecord(
+        token_hash=row["token_hash"],
+        family_id=row["family_id"],
+        is_revoked=bool(row.get("is_revoked", False)),
+        expires_at=row["expires_at"],
+        parent_token_hash=row.get("parent_token_hash"),
+    )
 
 
 def _coerce_naive(dt_value: datetime | None) -> datetime | None:
@@ -205,8 +220,15 @@ async def credentials_login(
 async def change_password(
     payload: ChangePasswordRequest,
     user: dict[str, Any] = Depends(get_current_user),
+    auth_repo: Any = Depends(get_auth_repository),
 ) -> Any:
-    """Change the current user's password (requires the current one)."""
+    """Change the current user's password (requires the current one).
+
+    Revokes every active refresh-token family for the user after a
+    successful change -- mirrors ``POST /v1/auth/logout-all`` -- so a
+    refresh token that leaked before the change cannot keep surviving on
+    it (previously it could ride out its full TTL, up to 30 days).
+    """
     user_id = int(user["user_id"])
     ensure_user_allowed(user_id)
     validate_password(payload.new_password)
@@ -230,5 +252,21 @@ async def change_password(
     await cred_repo.async_update_password_hash(
         record["id"], password_hash=new_phc, pepper_version=new_version
     )
-    logger.info("credentials_password_changed", extra={"user_id": user_id})
+
+    active_rows = await auth_repo.async_list_active_family_records_for_user(user_id)
+    family_records = [_to_family_record(r) for r in active_rows]
+    family_ids = TokenFamilyPolicy.family_ids_for_user(family_records)
+    revoked_count = 0
+    for fid in family_ids:
+        hashes = await auth_repo.async_revoke_family(fid, owner_user_id=user_id)
+        revoked_count += len(hashes)
+
+    logger.info(
+        "credentials_password_changed",
+        extra={
+            "user_id": user_id,
+            "revoked_families": len(family_ids),
+            "revoked_tokens": revoked_count,
+        },
+    )
     return success_response({"message": "Password changed successfully"})

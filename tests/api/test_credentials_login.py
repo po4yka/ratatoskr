@@ -299,21 +299,26 @@ async def test_credentials_login_without_pepper_raises_configuration_error(
 async def test_change_password_requires_current_password(
     db: Database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from app.api.dependencies.database import get_auth_repository
+
     _configure_env(monkeypatch)
     _, cred = await _create_owner_with_credential(db)
 
     new_password = "an entirely new passphrase 9999"
     user_ctx = {"user_id": OWNER_ID, "client_id": "web-v1", "username": NICKNAME}
+    auth_repo = get_auth_repository()
 
     with pytest.raises(AuthenticationError):
         await auth_endpoints.change_password(
             ChangePasswordRequest(current_password="wrong", new_password=new_password),
             user=user_ctx,
+            auth_repo=auth_repo,
         )
 
     response = await auth_endpoints.change_password(
         ChangePasswordRequest(current_password=PASSWORD, new_password=new_password),
         user=user_ctx,
+        auth_repo=auth_repo,
     )
     assert response["data"]["message"]
 
@@ -324,6 +329,47 @@ async def test_change_password_requires_current_password(
         new_password, reloaded.password_hash, reloaded.pepper_version
     )
     assert matched
+
+
+async def test_change_password_revokes_existing_refresh_token_families(
+    db: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refresh token issued before a password change must not survive it.
+
+    Regression test for the audit finding: change_password previously only
+    verified the old password and stored the new hash, leaving any stolen
+    refresh token valid for up to its full 30-day TTL. It must now revoke
+    every active refresh-token family for the user, mirroring logout-all.
+    """
+    from app.api.dependencies.database import get_auth_repository
+    from app.api.routers.auth.tokens import create_refresh_token
+
+    _configure_env(monkeypatch)
+    await _create_owner_with_credential(db)
+
+    # Simulate a pre-existing session (e.g. a leaked refresh token) that
+    # should stop working once the password changes.
+    _token, session_id = await create_refresh_token(OWNER_ID, "web-v1", remember_me=True)
+    async with db.session() as session:
+        pre_change = await session.get(RefreshToken, session_id)
+    assert pre_change is not None
+    assert pre_change.is_revoked is False
+
+    user_ctx = {"user_id": OWNER_ID, "client_id": "web-v1", "username": NICKNAME}
+    auth_repo = get_auth_repository()
+    new_password = "an entirely new passphrase 9999"
+
+    response = await auth_endpoints.change_password(
+        ChangePasswordRequest(current_password=PASSWORD, new_password=new_password),
+        user=user_ctx,
+        auth_repo=auth_repo,
+    )
+    assert response["data"]["message"]
+
+    async with db.session() as session:
+        post_change = await session.get(RefreshToken, session_id)
+    assert post_change is not None
+    assert post_change.is_revoked is True
 
 
 # ----------------- Repository (atomic counter) -----------------
