@@ -19,6 +19,7 @@ from app.adapters.academic.platform_extractor import (
     AcademicPlatformExtractor,
     PDFDownloadError,
     _extract_abstract,
+    _extract_pdf_text_from_bytes,
     _extract_title,
     _harvest_pdf_anchor,
     _is_synthetic_title,
@@ -196,15 +197,63 @@ async def test_download_pdf_blocks_private_redirect_target(monkeypatch: pytest.M
         ),
     )
 
-    def fake_is_url_safe(url: str) -> tuple[bool, str | None]:
+    async def fake_is_url_safe_async(url: str) -> tuple[bool, str | None]:
         if url.startswith("http://127.0.0.1"):
             return False, "Private or reserved IP address: 127.0.0.1"
         return True, None
 
-    monkeypatch.setattr("app.adapters.academic.platform_extractor.is_url_safe", fake_is_url_safe)
+    monkeypatch.setattr(
+        "app.adapters.academic.platform_extractor.is_url_safe_async", fake_is_url_safe_async
+    )
 
     with pytest.raises(PDFDownloadError, match="ssrf_blocked"):
         await extractor._download_pdf("https://example.com/paper.pdf")
+
+
+# ---------------------------------------------------------------------------
+# _extract_pdf_text_from_bytes — decompression-bomb guard
+# ---------------------------------------------------------------------------
+
+
+def test_extract_pdf_text_aborts_when_aggregate_text_exceeds_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PDF whose decompressed text exceeds the aggregate cap must abort
+    with PDFDownloadError, not silently return an unbounded string.
+
+    The download-size cap (50 MB compressed) does not bound decompressed
+    text -- a crafted FlateDecode stream can still expand far beyond that,
+    so the extraction loop needs its own independent guard.
+    """
+    fitz = pytest.importorskip("fitz", reason="PyMuPDF (fitz) required")
+
+    monkeypatch.setattr(
+        "app.adapters.academic.platform_extractor._DEFAULT_PDF_MAX_TEXT_CHARS", 50
+    )
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "x" * 200)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    with pytest.raises(PDFDownloadError, match="pdf_text_too_large"):
+        _extract_pdf_text_from_bytes(pdf_bytes)
+
+
+def test_extract_pdf_text_within_cap_returns_full_text() -> None:
+    """Normal-sized PDFs are unaffected by the new aggregate cap."""
+    fitz = pytest.importorskip("fitz", reason="PyMuPDF (fitz) required")
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "hello world")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    text, pages = _extract_pdf_text_from_bytes(pdf_bytes)
+    assert "hello world" in text
+    assert pages == 1
 
 
 class _NullSem:
@@ -301,8 +350,11 @@ def _gated_extractor(
     agentic_pdf: Any | None = None,
 ) -> AcademicPlatformExtractor:
     """Extractor whose landing scrape is empty and whose SSRN PDF 403s -> gated."""
+    async def fake_is_url_safe_async(u: str) -> tuple[bool, str | None]:
+        return True, None
+
     monkeypatch.setattr(
-        "app.adapters.academic.platform_extractor.is_url_safe", lambda u: (True, None)
+        "app.adapters.academic.platform_extractor.is_url_safe_async", fake_is_url_safe_async
     )
     return AcademicPlatformExtractor(
         cfg=_Cfg(academic),

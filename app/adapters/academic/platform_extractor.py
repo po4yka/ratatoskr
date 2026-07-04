@@ -52,7 +52,7 @@ from app.core.call_status import CallStatus
 from app.core.lang import detect_language
 from app.core.logging_utils import get_logger
 from app.core.url_utils import compute_dedupe_hash
-from app.security.ssrf import is_url_safe, make_safe_async_client
+from app.security.ssrf import is_url_safe_async, make_safe_async_client
 
 if TYPE_CHECKING:
     from app.adapters.content.platform_extraction.lifecycle import PlatformRequestLifecycle
@@ -64,6 +64,13 @@ logger = get_logger(__name__)
 # We still cap absurdly long inputs (book-length reports, multi-paper
 # compilations) so one request can't exhaust pymupdf memory on the Pi.
 _DEFAULT_PDF_MAX_PAGES = 1000
+
+# Decompression-bomb guard: abort extraction once the aggregate decompressed
+# text extracted from the PDF exceeds this many characters. The 50 MB download
+# cap bounds compressed size, but a crafted FlateDecode stream can still expand
+# to an unbounded amount of decompressed text within that cap, so page count
+# alone isn't a sufficient guard on constrained hardware (the Pi).
+_DEFAULT_PDF_MAX_TEXT_CHARS = 50 * 1024 * 1024
 
 # Generous timeout for academic PDFs: arXiv preprints are ~1-5 MB,
 # SSRN papers up to ~15 MB, but Cloudflare-gated hosts can be slow.
@@ -428,7 +435,7 @@ class AcademicPlatformExtractor(PlatformExtractor):
         async with client_cm as client:
             current_url = pdf_url
             for _ in range(5):
-                safe, reason = is_url_safe(current_url)
+                safe, reason = await is_url_safe_async(current_url)
                 if not safe:
                     raise PDFDownloadError(f"ssrf_blocked:{reason}")
                 async with client.stream("GET", current_url, headers=_headers) as resp:
@@ -758,12 +765,16 @@ def _extract_pdf_text_from_bytes(pdf_bytes: bytes) -> tuple[str, int]:
         total_pages = len(doc)
         pages_to_process = min(total_pages, _DEFAULT_PDF_MAX_PAGES)
         text_parts: list[str] = []
+        text_chars = 0
         for page_idx in range(pages_to_process):
             page = doc[page_idx]
             blocks = page.get_text("blocks")
             blocks.sort(key=lambda b: (b[1], b[0]))
             page_text = "\n".join(b[4].strip() for b in blocks if b[4].strip())
             if page_text:
+                text_chars += len(page_text)
+                if text_chars > _DEFAULT_PDF_MAX_TEXT_CHARS:
+                    raise PDFDownloadError("pdf_text_too_large")
                 text_parts.append(f"--- Page {page_idx + 1} ---\n{page_text}")
         full_text = "\n\n".join(text_parts)
         return full_text, total_pages
