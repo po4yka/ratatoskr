@@ -5,8 +5,9 @@ CI-safe (no langgraph): nodes import only the OTel helpers + ports, never langgr
 
 from __future__ import annotations
 
+import importlib
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -96,3 +97,53 @@ async def test_repair_increments_attempts_under_budget() -> None:
 async def test_repair_raises_call_budget_exceeded_over_budget() -> None:
     with pytest.raises(CallBudgetExceeded):
         await nodes.repair(_state(repair_attempts=MAX_REPAIR_ATTEMPTS), deps=MagicMock())
+
+
+async def test_repair_prompt_includes_validation_errors_and_prior_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The repair node must feed validation_errors + the prior bad candidate back
+    to the LLM instead of blindly re-sending the original prompt (see
+    ``_build_repair_messages``)."""
+    # ``nodes/__init__.py`` shadows the ``nodes.repair`` package attribute with
+    # the ``repair`` function (``from .nodes.repair import repair``), so the
+    # submodule must be fetched via sys.modules (importlib), not attribute
+    # access, to patch its module-local ``summarize_with_instructor`` name.
+    repair_mod = importlib.import_module("app.application.graphs.summarize.nodes.repair")
+    captured: dict[str, object] = {}
+
+    async def _fake_summarize_with_instructor(*, messages, **kwargs):
+        captured["messages"] = messages
+        return {"summary_250": "fixed"}, {"model": "m", "tokens_prompt": 1}
+
+    monkeypatch.setattr(
+        repair_mod,
+        "summarize_with_instructor",
+        AsyncMock(side_effect=_fake_summarize_with_instructor),
+    )
+
+    original_messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "user"},
+    ]
+    state = _state(
+        repair_attempts=0,
+        messages=original_messages,
+        summary={"summary_250": "bad"},
+        validation_errors=["summary_250 too short", "missing tldr"],
+    )
+
+    out = await nodes.repair(state, deps=MagicMock())
+
+    assert out["summary"] == {"summary_250": "fixed"}
+    repair_messages = captured["messages"]
+    # Original messages are preserved, untouched, at the front.
+    assert repair_messages[:2] == original_messages
+    # An assistant turn carries the prior invalid candidate.
+    assert repair_messages[2]["role"] == "assistant"
+    assert "bad" in repair_messages[2]["content"]
+    # A trailing user turn enumerates exactly the validation errors.
+    correction = repair_messages[3]["content"]
+    assert repair_messages[3]["role"] == "user"
+    assert "summary_250 too short" in correction
+    assert "missing tldr" in correction

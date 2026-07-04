@@ -10,12 +10,48 @@ from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS
 from app.application.services.summarization.graph_llm import summarize_with_instructor
+from app.core.json_utils import dumps as json_dumps
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
     from app.application.graphs.summarize.state import SummarizeState
 
 logger = logging.getLogger(__name__)
+
+# Mirrors the legacy ``LLMRepairContext.default_prompt`` phrasing
+# (app/adapters/content/summary_request_factory.py) so the corrective
+# instruction reads the same across both the graph and legacy paths.
+_CORRECTION_PREFIX = (
+    "Your previous response did not satisfy the required schema. Fix exactly "
+    "the following issues while keeping everything else unchanged, then "
+    "respond with ONLY the corrected JSON object that matches the schema "
+    "exactly:"
+)
+
+
+def _build_repair_messages(
+    messages: list[dict[str, Any]],
+    *,
+    prior_summary: dict[str, Any] | None,
+    validation_errors: list[str],
+) -> list[dict[str, Any]]:
+    """Augment the original prompt with the prior candidate + targeted feedback.
+
+    Mirrors the legacy ``_attempt_json_repair`` shape: original messages + an
+    assistant turn carrying the prior (invalid) candidate + a user turn
+    enumerating exactly what was wrong, so the model self-corrects instead of
+    blindly re-answering the original prompt (ADR-0011/0015 follow-up).
+    """
+    repair_messages = list(messages)
+    if prior_summary:
+        repair_messages.append({"role": "assistant", "content": json_dumps(prior_summary)})
+    if validation_errors:
+        issues = "\n".join(f"- {error}" for error in validation_errors)
+        correction = f"{_CORRECTION_PREFIX}\n{issues}"
+    else:
+        correction = _CORRECTION_PREFIX
+    repair_messages.append({"role": "user", "content": correction})
+    return repair_messages
 
 
 @graph_node("repair")
@@ -28,10 +64,15 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     terminal-failure path (no parallel error path, ADR-0011).
 
     Each repair re-runs the structured summarize call (Instructor reasks against
-    the same contract); the result is re-checked by the validate node. The repair
-    LLM call is recorded into ``llm_calls`` (accumulated via the state reducer).
-    A repair LLM failure is swallowed here (budget + validate bound the loop) so a
-    transient model error does not short-circuit the remaining repair budget.
+    the same contract) against an *augmented* prompt: the original messages plus
+    an assistant turn carrying the prior (invalid) candidate from
+    ``state['summary']`` plus a user turn enumerating ``state['validation_errors']``
+    so the model targets exactly what was wrong instead of blindly re-answering
+    the original prompt (mirrors the legacy ``_attempt_json_repair``). The result
+    is re-checked by the validate node. The repair LLM call is recorded into
+    ``llm_calls`` (accumulated via the state reducer). A repair LLM failure is
+    swallowed here (budget + validate bound the loop) so a transient model error
+    does not short-circuit the remaining repair budget.
     """
     attempts = state.get("repair_attempts", 0) + 1
     if attempts > MAX_REPAIR_ATTEMPTS:
@@ -44,11 +85,16 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
 
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
     model_override = (state.get("model_override") or "").strip() or None
+    repair_messages = _build_repair_messages(
+        messages,
+        prior_summary=state.get("summary"),
+        validation_errors=state.get("validation_errors") or [],
+    )
 
     try:
         summary, call_meta = await summarize_with_instructor(
             llm_client=deps.llm_client,
-            messages=messages,
+            messages=repair_messages,
             source_content=state.get("content_for_summary") or "",
             max_tokens=state.get("max_tokens") or None,
             model_override=model_override,
