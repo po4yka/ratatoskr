@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 from app.adapters.content.article_media import extract_firecrawl_image_assets
 
 if TYPE_CHECKING:
+    import asyncio
+
     from app.adapters.content.scraper.protocol import ContentScraperProtocol
 from app.adapters.content.quality_filters import detect_low_value_content
 from app.adapters.twitter.article_quality import is_low_quality_article_content
@@ -39,6 +41,7 @@ class TwitterFirecrawlExtractor:
         self._firecrawl_sem = firecrawl_sem
         self._schedule_crawl_persistence = schedule_crawl_persistence
         self._request_repo = request_repo
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     async def extract(
         self,
@@ -56,7 +59,10 @@ class TwitterFirecrawlExtractor:
                 crawl = await self._firecrawl.scrape_markdown(url_text, request_id=req_id)
 
             if persist_result and req_id is not None:
-                self._schedule_crawl_persistence(req_id, crawl, correlation_id)
+                persist_task = self._schedule_crawl_persistence(req_id, crawl, correlation_id)
+                if persist_task is not None:
+                    self._background_tasks.add(persist_task)
+                    persist_task.add_done_callback(self._background_tasks.discard)
 
             quality_issue = detect_low_value_content(crawl)
             if quality_issue and self.can_accept_low_value_firecrawl_content(
