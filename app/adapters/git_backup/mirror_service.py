@@ -136,11 +136,20 @@ async def _default_git_runner(
     argv: list[str], cwd: Path, timeout_seconds: float
 ) -> tuple[int, str]:
     """Run git via asyncio subprocess, capturing combined stdout+stderr."""
+    # Defense-in-depth: restrict git itself to the transports assert_safe_git_url
+    # allows, so a URL that slips past validation (e.g. via a DB row written
+    # before this guard existed) still cannot invoke ext:: / fd:: / file://.
+    env = {
+        **os.environ,
+        "GIT_ALLOW_PROTOCOL": "https:http:git:ssh",
+        "GIT_PROTOCOL_FROM_USER": "0",
+    }
     process = await asyncio.create_subprocess_exec(
         *argv,
         cwd=str(cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        env=env,
     )
     try:
         stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)

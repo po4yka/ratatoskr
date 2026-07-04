@@ -22,6 +22,7 @@ Two layers are provided:
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 from urllib.parse import urlparse
 
@@ -36,6 +37,17 @@ __all__ = [
 _BLOCKED_HOSTNAMES = frozenset(
     {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
 )
+
+# Transports a legitimate clone_url may use. No legitimate clone target needs
+# anything else -- in particular this excludes git's remote-helper transports
+# (``ext::``, ``fd::``, ...) and the ``file`` scheme.
+_ALLOWED_SCHEMES = frozenset({"https", "http", "git", "ssh"})
+
+# Git's remote-helper transport syntax: ``<transport>::<address>`` at the very
+# start of the URL (e.g. ``ext::sh -c '...'``, ``fd::7``). Anchored to the
+# start so a bracketed IPv6 literal elsewhere in the URL (``http://[::1]/x``)
+# is never mistaken for this syntax.
+_REMOTE_HELPER_TRANSPORT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*::")
 
 # Exact hostnames for which a GitHub access token may be embedded in a clone
 # URL. Anything else -- lookalikes like ``github.com.evil.com`` or userinfo
@@ -95,10 +107,25 @@ def extract_git_host(url: str) -> str | None:
 def assert_safe_git_url(url: str) -> None:
     """Syntactic SSRF guard (no DNS). Raise ValueError for an unsafe literal host.
 
-    Rejects blocked hostnames and literal IPs in non-public ranges. Hostnames
-    that are not literal IPs are deferred to ``assert_resolved_public_host`` at
-    clone time. Safe to call on the event loop (no network I/O).
+    Enforces an explicit transport allowlist (https/http/git/ssh) before any
+    host check runs. Rejects git's remote-helper transport syntax
+    (``scheme::address``, e.g. ``ext::sh -c '...'`` or ``fd::...``), which git
+    interprets as a helper invocation regardless of host validation, and
+    rejects any ``scheme://`` URL whose scheme is outside the allowlist
+    (including ``file://``). Rejects blocked hostnames and literal IPs in
+    non-public ranges. Hostnames that are not literal IPs are deferred to
+    ``assert_resolved_public_host`` at clone time. Safe to call on the event
+    loop (no network I/O).
     """
+    stripped = url.strip()
+    if _REMOTE_HELPER_TRANSPORT_RE.match(stripped):
+        msg = "clone_url uses a disallowed git remote-helper transport"
+        raise ValueError(msg)
+    if "://" in stripped:
+        scheme = urlparse(stripped).scheme.lower()
+        if scheme not in _ALLOWED_SCHEMES:
+            msg = f"clone_url scheme {scheme!r} is not allowed"
+            raise ValueError(msg)
     host = extract_git_host(url)
     if host is None:
         msg = "clone_url has no parseable host"

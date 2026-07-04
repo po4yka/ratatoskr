@@ -37,9 +37,21 @@ class Maintenance:
 
 def _default_runner(timeout_seconds: float) -> GitCommandRunner:
     def run(argv: list[str], cwd: Path) -> None:
+        # Defense-in-depth: restrict git itself to the transports
+        # assert_safe_git_url allows (see app/core/git_url_safety.py).
+        env = {
+            **os.environ,
+            "GIT_ALLOW_PROTOCOL": "https:http:git:ssh",
+            "GIT_PROTOCOL_FROM_USER": "0",
+        }
         with contextlib.suppress(Exception):
             subprocess.run(
-                argv, cwd=str(cwd), capture_output=True, timeout=timeout_seconds, check=False
+                argv,
+                cwd=str(cwd),
+                capture_output=True,
+                timeout=timeout_seconds,
+                check=False,
+                env=env,
             )
 
     return run

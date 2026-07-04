@@ -85,10 +85,39 @@ def test_assert_safe_git_url_rejects_non_public_literals(url: str) -> None:
         "https://github.com/owner/repo.git",  # public hostname (no DNS at this layer)
         "https://8.8.8.8/x",  # public literal
         "git@github.com:owner/repo.git",
+        "ssh://git@github.com/owner/repo.git",
     ],
 )
 def test_assert_safe_git_url_allows_public(url: str) -> None:
     assert_safe_git_url(url)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ext::sh -c 'touch /tmp/pwned'",  # git remote-helper transport (RCE)
+        "fd::7",  # git remote-helper transport reading an inherited fd
+        "file:///etc/passwd",  # file scheme, no clone_url legitimately needs it
+        "file://localhost/etc/passwd",  # file scheme with an explicit host
+        "ext::sh -c 'evil' https://github.com/owner/repo.git",  # trailing decoy
+    ],
+)
+def test_assert_safe_git_url_rejects_disallowed_transports(url: str) -> None:
+    """audit finding: git transport-scheme injection (ext::/fd::/file://) must be
+    rejected before any host check runs -- previously the scp-like fallback in
+    extract_git_host returned the literal transport keyword as a 'host', which
+    is neither a blocked host nor an IP, so it slipped past assert_safe_git_url
+    and let git itself interpret the ``scheme::`` remote-helper prefix."""
+    with pytest.raises(ValueError):
+        assert_safe_git_url(url)
+
+
+def test_assert_safe_git_url_allows_bracketed_ipv6_literal_host() -> None:
+    """A bracketed IPv6 literal (``[::1]``) must not be mistaken for the
+    remote-helper ``scheme::`` syntax; it is still rejected here because
+    ::1 is loopback, but for the right reason (non-public address)."""
+    with pytest.raises(ValueError, match="non-public"):
+        assert_safe_git_url("http://[::1]/x")
 
 
 @pytest.mark.parametrize(

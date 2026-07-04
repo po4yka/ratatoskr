@@ -25,7 +25,14 @@ GitRunner = Callable[[list[str]], tuple[int, str]]
 
 def _default_runner(ssl_environment: Mapping[str, str], timeout_seconds: float) -> GitRunner:
     def run(argv: list[str]) -> tuple[int, str]:
-        env = {**os.environ, **ssl_environment} if ssl_environment else None
+        # Defense-in-depth: restrict git itself to the transports
+        # assert_safe_git_url allows (see app/core/git_url_safety.py).
+        env = {
+            **os.environ,
+            **ssl_environment,
+            "GIT_ALLOW_PROTOCOL": "https:http:git:ssh",
+            "GIT_PROTOCOL_FROM_USER": "0",
+        }
         try:
             proc = subprocess.run(
                 argv,
