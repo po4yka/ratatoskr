@@ -8,7 +8,7 @@ from typing import Literal
 from urllib.parse import urljoin, urlparse, urlunparse
 
 from app.core.urls.twitter import canonicalize_twitter_url, extract_twitter_article_id
-from app.security.ssrf import is_url_safe, make_safe_async_client
+from app.security.ssrf import is_url_safe_async, make_safe_async_client
 
 ResolutionReason = Literal[
     "path_match",
@@ -129,7 +129,7 @@ async def resolve_twitter_article_link(
         return _build_result(input_url=url, reason="not_article")
 
     # Preflight SSRF check before making any network request.
-    safe, _ = is_url_safe(normalized_input)
+    safe, _ = await is_url_safe_async(normalized_input)
     if not safe:
         return _build_result(input_url=url, reason="resolve_failed")
 
@@ -142,7 +142,7 @@ async def resolve_twitter_article_link(
             current_url = normalized_input
             head_resp = None
             for _ in range(5):
-                safe, _ = is_url_safe(current_url)
+                safe, _ = await is_url_safe_async(current_url)
                 if not safe:
                     return _build_result(input_url=url, reason="resolve_failed")
                 head_resp = await client.head(current_url)
@@ -163,7 +163,7 @@ async def resolve_twitter_article_link(
             if needs_get:
                 current_url = normalized_input
                 for _ in range(5):
-                    safe, _ = is_url_safe(current_url)
+                    safe, _ = await is_url_safe_async(current_url)
                     if not safe:
                         break
                     get_resp = await client.get(current_url)

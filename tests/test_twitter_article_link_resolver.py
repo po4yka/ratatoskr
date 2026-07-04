@@ -63,9 +63,12 @@ async def test_resolver_detects_article_via_head_redirect(monkeypatch) -> None:
     # The real is_url_safe rejects t.co / x.com in CI because their public
     # DNS records resolve to addresses inside ranges the SSRF allowlist treats
     # as private. Stub it for tests that exercise the post-preflight flow.
+    async def _fake_is_url_safe_async(_url: str) -> tuple[bool, str | None]:
+        return (True, None)
+
     monkeypatch.setattr(
-        "app.adapters.twitter.article_link_resolver.is_url_safe",
-        lambda _url: (True, None),
+        "app.adapters.twitter.article_link_resolver.is_url_safe_async",
+        _fake_is_url_safe_async,
     )
 
     result = await resolve_twitter_article_link("https://t.co/abc")
@@ -101,9 +104,12 @@ async def test_resolver_falls_back_to_get_and_uses_canonical_hint(monkeypatch) -
     # The real is_url_safe rejects t.co / x.com in CI because their public
     # DNS records resolve to addresses inside ranges the SSRF allowlist treats
     # as private. Stub it for tests that exercise the post-preflight flow.
+    async def _fake_is_url_safe_async(_url: str) -> tuple[bool, str | None]:
+        return (True, None)
+
     monkeypatch.setattr(
-        "app.adapters.twitter.article_link_resolver.is_url_safe",
-        lambda _url: (True, None),
+        "app.adapters.twitter.article_link_resolver.is_url_safe_async",
+        _fake_is_url_safe_async,
     )
 
     result = await resolve_twitter_article_link("https://t.co/needs-get")
@@ -142,9 +148,12 @@ async def test_resolver_returns_resolve_failed_on_http_error(monkeypatch) -> Non
     # The real is_url_safe rejects t.co / x.com in CI because their public
     # DNS records resolve to addresses inside ranges the SSRF allowlist treats
     # as private. Stub it for tests that exercise the post-preflight flow.
+    async def _fake_is_url_safe_async(_url: str) -> tuple[bool, str | None]:
+        return (True, None)
+
     monkeypatch.setattr(
-        "app.adapters.twitter.article_link_resolver.is_url_safe",
-        lambda _url: (True, None),
+        "app.adapters.twitter.article_link_resolver.is_url_safe_async",
+        _fake_is_url_safe_async,
     )
 
     result = await resolve_twitter_article_link("https://t.co/fail")

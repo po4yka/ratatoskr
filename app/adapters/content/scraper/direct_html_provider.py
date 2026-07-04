@@ -10,7 +10,7 @@ from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger, redact_url_for_logging
-from app.security.ssrf import is_url_safe, make_safe_async_client
+from app.security.ssrf import is_url_safe_async, make_safe_async_client
 
 logger = get_logger(__name__)
 
@@ -115,7 +115,7 @@ class DirectHTMLProvider:
             ) as client:
                 current_url = url
                 for _ in range(5):
-                    safe, reason = is_url_safe(current_url)
+                    safe, reason = await is_url_safe_async(current_url)
                     if not safe:
                         raise ValueError(f"SSRF blocked redirect target: {reason}")
                     async with client.stream("GET", current_url, headers=_HEADERS) as resp:
