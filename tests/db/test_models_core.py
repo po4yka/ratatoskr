@@ -227,3 +227,66 @@ async def test_server_version_before_update_is_monotonic_against_postgres() -> N
             await connection.run_sync(Base.metadata.drop_all, tables=_core_tables())
             await connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         await database.dispose()
+
+
+@pytest.mark.asyncio
+async def test_server_version_before_update_outpaces_stale_memory_and_clock() -> None:
+    """The before_update guard must never regress a concurrently-advanced row.
+
+    Simulates a session that loaded a row (capturing a now-stale in-memory
+    ``server_version``) while a second writer commits a far-future
+    ``server_version`` on the same row in between. The guard must read the
+    row's *current* committed value -- not the stale in-memory one -- so its
+    own update lands strictly past what the concurrent writer committed, even
+    though the wall-clock-derived candidate is far behind that value.
+    """
+    dsn = _test_dsn()
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL is required for Postgres model smoke test")
+
+    database = Database(DatabaseConfig(dsn=dsn, pool_size=1, max_overflow=1))
+    try:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.drop_all, tables=_core_tables())
+            await connection.run_sync(
+                Base.metadata.create_all, tables=list(reversed(_core_tables()))
+            )
+
+        async with database.transaction() as setup_session:
+            request = Request(type="url", status="pending")
+            setup_session.add(request)
+            await setup_session.flush()
+            request_id = request.id
+
+        async with database.session() as session_a:
+            loaded = await session_a.scalar(select(Request).where(Request.id == request_id))
+            assert loaded is not None
+            stale_version = loaded.server_version
+
+            # Far ahead of any wall-clock-derived candidate the guard could
+            # compute for "now", so the fix must take the current+1 branch.
+            far_future_version = stale_version + 10_000_000
+            async with database.transaction() as writer_session:
+                await writer_session.execute(
+                    text("UPDATE requests SET server_version = :v WHERE id = :id"),
+                    {"v": far_future_version, "id": request_id},
+                )
+
+            # session_a's in-memory copy is still the pre-race value.
+            assert loaded.server_version == stale_version
+
+            loaded.status = "done"
+            await session_a.commit()
+
+        async with database.session() as verify_session:
+            stored_request = await verify_session.scalar(
+                select(Request).where(Request.id == request_id)
+            )
+
+        assert stored_request is not None
+        assert stored_request.server_version > far_future_version
+    finally:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.drop_all, tables=_core_tables())
+            await connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        await database.dispose()
