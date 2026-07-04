@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -291,7 +292,7 @@ async def search_mirrors(
         from app.infrastructure.search.git_mirror_search_service import GitMirrorSearchService
 
         embedding_service = create_embedding_service(cfg.embedding)
-        qdrant_store = build_qdrant_vector_store(cfg)
+        qdrant_store = await asyncio.to_thread(build_qdrant_vector_store, cfg)
         service = GitMirrorSearchService(
             embedding_service=embedding_service,
             qdrant_store=qdrant_store,
@@ -385,15 +386,13 @@ async def delete_mirror(
     # Remove the Qdrant vector point best-effort (after DB row is deleted so a
     # failed Qdrant call does not leave an orphaned DB row).
     try:
-        import asyncio
-
         from qdrant_client.models import PointIdsList
 
         from app.di.shared import build_qdrant_vector_store
         from app.infrastructure.vector.point_ids import git_mirror_point_id, str_to_uuid
 
         cfg = _get_app_config(request)
-        qdrant_store = build_qdrant_vector_store(cfg)
+        qdrant_store = await asyncio.to_thread(build_qdrant_vector_store, cfg)
         if qdrant_store.available:
             point_id = git_mirror_point_id(
                 cfg.vector_store.environment,
@@ -417,7 +416,6 @@ async def delete_mirror(
     # inside cfg.git_backup.data_path to prevent path-traversal attacks.
     if mirror_path:
         try:
-            import asyncio
             import shutil
             from pathlib import Path
 
