@@ -289,7 +289,7 @@ gemini = [
 
 # Push notifications (Firebase Cloud Messaging / APNS)
 push = [
-  "firebase-admin>=7.4.0,<8",
+  "firebase-admin>=7.5.0,<8",
 ]
 
 # Monitoring and observability
