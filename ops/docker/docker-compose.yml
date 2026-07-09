@@ -876,6 +876,10 @@ services:
     # for human readability only — Docker uses the digest.
     image: ${CLOAKBROWSER_IMAGE:-cloakhq/cloakbrowser@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1}  # 0.3.30
     container_name: ratatoskr-cloakbrowser
+    # Chromium maps shared-memory renderer buffers into /dev/shm; Docker's 64 MB
+    # default makes cloakserve's per-seed Chrome processes crash into <defunct>
+    # zombies and the CDP endpoint never comes up (health probe 502/timeout).
+    shm_size: "1gb"
     command: ["cloakserve", "--host", "0.0.0.0", "--port", "9222"]
     environment:
       # Reproducible deploys: never let the binary self-update inside the
