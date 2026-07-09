@@ -188,6 +188,16 @@ services:
   postgres:
     platform: linux/arm64
 
+  # Pi 5 (16 GB) drives many distinct domains at once; the base 1.5 GB / 1 CPU
+  # floor thrashes Chrome-per-seed here (hung/502 CDP). Raise on the overlay, as
+  # the base compose note intends ("the Pi overlay uses more").
+  cloakbrowser:
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+          cpus: "2.0"
+
 networks:
   firecrawl_internal:
     external: true
