@@ -32,7 +32,7 @@ from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
-from app.security.ssrf import is_url_safe
+from app.security.ssrf import is_dns_failure_reason, is_url_safe
 
 logger = get_logger(__name__)
 
@@ -374,10 +374,15 @@ def _block_ssrf_route(route: Any) -> None:
     req_url: str = route.request.url
     safe, reason = is_url_safe(req_url)
     if not safe:
-        logger.warning(
-            "scrapling_stealth_ssrf_blocked",
-            extra={"url": req_url, "reason": reason},
+        # A transient resolver hiccup is not a policy block -- label it
+        # distinctly (mirrors target_safety.reject_unsafe_target_url) so DNS
+        # failures don't masquerade as SSRF rejections in the logs.
+        event = (
+            "scrapling_stealth_dns_failed"
+            if is_dns_failure_reason(reason)
+            else "scrapling_stealth_ssrf_blocked"
         )
+        logger.warning(event, extra={"url": req_url, "reason": reason})
         route.abort("accessdenied")
         return
     route.continue_()
