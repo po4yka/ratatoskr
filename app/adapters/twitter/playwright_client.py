@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import unquote, urlparse
-
-import httpx
+from urllib.parse import unquote, urljoin, urlparse
 
 from app.core.logging_utils import get_logger
+from app.security.ssrf import is_url_safe_async, make_safe_async_client
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -336,19 +335,28 @@ def _scrape_article_sync(
             browser.close()
 
 
-async def resolve_tco_url(short_url: str, timeout: int = 10) -> str | None:
-    """Follow a t.co redirect via HTTP and return the resolved URL.
+_TCO_REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
+_TCO_MAX_REDIRECTS = 5
 
-    First tries a HEAD request with redirect following.  If the final URL
-    is still on t.co (JavaScript/meta-refresh redirect), falls back to a
-    GET request and parses the destination from HTML.
+
+async def resolve_tco_url(short_url: str, timeout: int = 10) -> str | None:
+    """Follow a t.co redirect and return the resolved URL, SSRF-checked per hop.
+
+    t.co links are authored by untrusted third parties, so the redirect chain
+    is followed manually -- ``make_safe_async_client`` with redirect following
+    disabled, plus an ``is_url_safe_async`` check before every hop -- instead of
+    letting httpx follow redirects straight into an internal address (cloud
+    metadata endpoint, a compose-network service, loopback). Any destination
+    parsed from the HTML fallback is re-validated before it is returned and
+    spliced back into tweet text. Mirrors ``resolve_twitter_article_link``.
 
     Args:
         short_url: URL starting with https://t.co/
         timeout: HTTP request timeout in seconds
 
     Returns:
-        Resolved URL string, or None if not a t.co URL or resolution fails
+        Resolved (safe, non-t.co) URL string, or None if not a t.co URL,
+        resolution fails, or the destination is blocked by the SSRF policy.
     """
     parsed = urlparse(short_url)
     host = (parsed.hostname or "").lower()
@@ -356,19 +364,41 @@ async def resolve_tco_url(short_url: str, timeout: int = 10) -> str | None:
     if host != "t.co" or scheme not in {"http", "https"}:
         return None
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-            resp = await client.head(short_url)
-            resolved = str(resp.url)
-            if (urlparse(resolved).hostname or "").lower() != "t.co":
-                return resolved
+        async with make_safe_async_client(follow_redirects=False, timeout=timeout) as client:
+            current_url = short_url
+            last_resp = None
+            for _ in range(_TCO_MAX_REDIRECTS):
+                safe, _reason = await is_url_safe_async(current_url)
+                if not safe:
+                    return None
+                last_resp = await client.head(current_url)
+                if last_resp.status_code in _TCO_REDIRECT_STATUS:
+                    location = last_resp.headers.get("location")
+                    if not location:
+                        break
+                    current_url = urljoin(current_url, location)
+                    continue
+                break
 
-            # HEAD didn't escape t.co -- try GET and parse HTML fallbacks
-            get_resp = await client.get(short_url)
-            html = get_resp.text
-            url = _parse_tco_html_redirect(html)
-            if url:
-                return url
-            return resolved
+            if last_resp is None:
+                return None
+
+            if (urlparse(current_url).hostname or "").lower() != "t.co":
+                # Escaped t.co. Re-validate to also cover the hop-cap exit path,
+                # where current_url is the next (not-yet-fetched) hop.
+                safe, _reason = await is_url_safe_async(current_url)
+                return current_url if safe else None
+
+            # Still on t.co (JS/meta-refresh redirect): GET and parse the HTML.
+            safe, _reason = await is_url_safe_async(current_url)
+            if not safe:
+                return None
+            get_resp = await client.get(current_url)
+            destination = _parse_tco_html_redirect(get_resp.text)
+            if not destination:
+                return None
+            safe, _reason = await is_url_safe_async(destination)
+            return destination if safe else None
     except Exception:
         return None
 

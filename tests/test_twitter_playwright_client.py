@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -132,8 +133,27 @@ def test_load_cookies_netscape_keeps_httponly_entries(tmp_path) -> None:
     assert cookies[1]["httpOnly"] is False
 
 
+def _tco_response(
+    status: int = 200, *, location: str | None = None, text: str = ""
+) -> SimpleNamespace:
+    headers = {"location": location} if location else {}
+    return SimpleNamespace(status_code=status, headers=headers, text=text)
+
+
+def _patch_safe_client(monkeypatch, client_cls: type) -> None:
+    monkeypatch.setattr(
+        "app.adapters.twitter.playwright_client.make_safe_async_client",
+        lambda *args, **kwargs: client_cls(),
+    )
+
+
 @pytest.mark.asyncio
-async def test_resolve_tco_url_accepts_http_and_mixed_case_scheme(monkeypatch) -> None:
+async def test_resolve_tco_url_follows_redirect_with_per_hop_ssrf_check(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.adapters.twitter.playwright_client.is_url_safe_async",
+        AsyncMock(return_value=(True, None)),
+    )
+
     class _FakeAsyncClient:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -145,15 +165,50 @@ async def test_resolve_tco_url_accepts_http_and_mixed_case_scheme(monkeypatch) -
             return False
 
         async def head(self, url: str) -> SimpleNamespace:
-            return SimpleNamespace(url="https://resolved.example/final")
+            if "t.co" in url.lower():
+                return _tco_response(301, location="https://resolved.example/final")
+            return _tco_response(200)
 
-    monkeypatch.setattr(
-        "app.adapters.twitter.playwright_client.httpx.AsyncClient", _FakeAsyncClient
-    )
+    _patch_safe_client(monkeypatch, _FakeAsyncClient)
 
     assert await resolve_tco_url("http://t.co/abc123") == "https://resolved.example/final"
     assert await resolve_tco_url("HTTPS://t.co/abc123") == "https://resolved.example/final"
     assert await resolve_tco_url("https://example.com/nope") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_tco_url_blocks_redirect_to_internal_address(monkeypatch) -> None:
+    """A t.co link redirecting to an internal address is not followed."""
+
+    async def _fake_safe(url: str, **_kwargs) -> tuple[bool, str | None]:
+        blocked = any(marker in url for marker in ("169.254.", "127.0.0.1", "localhost"))
+        return (not blocked, "blocked private address" if blocked else None)
+
+    monkeypatch.setattr("app.adapters.twitter.playwright_client.is_url_safe_async", _fake_safe)
+
+    head_targets: list[str] = []
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> _FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def head(self, url: str) -> SimpleNamespace:
+            head_targets.append(url)
+            if "t.co" in url.lower():
+                return _tco_response(301, location="http://169.254.169.254/latest/meta-data/")
+            return _tco_response(200)
+
+    _patch_safe_client(monkeypatch, _FakeAsyncClient)
+
+    assert await resolve_tco_url("https://t.co/evil") is None
+    # The internal address must never have been requested.
+    assert not any("169.254." in target for target in head_targets)
 
 
 class TestParseTcoHtmlRedirect:
@@ -193,6 +248,10 @@ class TestParseTcoHtmlRedirect:
 @pytest.mark.asyncio
 async def test_resolve_tco_url_html_fallback(monkeypatch) -> None:
     """When HEAD stays on t.co, GET + HTML parsing should resolve."""
+    monkeypatch.setattr(
+        "app.adapters.twitter.playwright_client.is_url_safe_async",
+        AsyncMock(return_value=(True, None)),
+    )
 
     class _FakeAsyncClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -205,16 +264,49 @@ async def test_resolve_tco_url_html_fallback(monkeypatch) -> None:
             return False
 
         async def head(self, url: str) -> SimpleNamespace:
-            return SimpleNamespace(url="https://t.co/abc123")  # stays on t.co
+            return _tco_response(200)  # stays on t.co, no redirect
 
         async def get(self, url: str) -> SimpleNamespace:
-            return SimpleNamespace(
-                text='<script>location.replace("https://example.com/real")</script>'
+            return _tco_response(
+                200,
+                text='<script>location.replace("https://example.com/real")</script>',
             )
 
-    monkeypatch.setattr(
-        "app.adapters.twitter.playwright_client.httpx.AsyncClient", _FakeAsyncClient
-    )
+    _patch_safe_client(monkeypatch, _FakeAsyncClient)
 
     result = await resolve_tco_url("https://t.co/abc123")
     assert result == "https://example.com/real"
+
+
+@pytest.mark.asyncio
+async def test_resolve_tco_url_blocks_unsafe_html_destination(monkeypatch) -> None:
+    """A destination parsed from the t.co HTML fallback is SSRF-checked."""
+
+    async def _fake_safe(url: str, **_kwargs) -> tuple[bool, str | None]:
+        blocked = "169.254." in url
+        return (not blocked, "blocked private address" if blocked else None)
+
+    monkeypatch.setattr("app.adapters.twitter.playwright_client.is_url_safe_async", _fake_safe)
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> _FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def head(self, url: str) -> SimpleNamespace:
+            return _tco_response(200)  # stays on t.co
+
+        async def get(self, url: str) -> SimpleNamespace:
+            return _tco_response(
+                200,
+                text='<script>location.replace("http://169.254.169.254/")</script>',
+            )
+
+    _patch_safe_client(monkeypatch, _FakeAsyncClient)
+
+    assert await resolve_tco_url("https://t.co/abc123") is None
