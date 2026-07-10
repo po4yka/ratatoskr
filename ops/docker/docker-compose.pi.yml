@@ -90,9 +90,25 @@ services:
       firecrawl_internal: {}
       dns_net: {}
     depends_on:
+      # Ensure the caching resolver is created (and claims its static
+      # 10.224.0.2) before the bot, so the bot can never squat that IP and
+      # leave a dead DNS first-hop. service_started (not _healthy) keeps
+      # dnsmasq a pure enhancement -- the dns: list still falls back to
+      # 1.1.1.1/8.8.8.8 -- rather than a health-gated single point of failure.
+      dnsmasq:
+        condition: service_started
       qdrant:
         condition: service_started
         required: false
+    # OOM hardening: the base 1 GiB cap (docker-compose.yml) was hit exactly --
+    # memcg OOM, exit 137 -- when two concurrent scrapes (MAX_CONCURRENT_CALLS=2)
+    # each launched an in-container Chromium alongside the resident embedding
+    # model, orphaning the in-flight request. Raise the ceiling here; the Pi host
+    # has 15 GiB. Deep-merges over the base deploy block (keeps its cpus limit).
+    deploy:
+      resources:
+        limits:
+          memory: 3G
 
   worker:
     # Same Docker embedded-DNS concurrency mitigation as the bot (see above):
@@ -130,6 +146,9 @@ services:
       firecrawl_internal: {}
       dns_net: {}
     depends_on:
+      # Same dnsmasq ordering guarantee as the bot (see above).
+      dnsmasq:
+        condition: service_started
       qdrant:
         condition: service_started
         required: false
