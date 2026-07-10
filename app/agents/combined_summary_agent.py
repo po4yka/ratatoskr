@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ from app.adapter_models.batch_analysis import (
     RelationshipType,
 )
 from app.agents.base_agent import AgentResult, BaseAgent, _tracer
+from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.prompts.file_cache import read_prompt_text
@@ -21,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from app.adapters.llm import LLMClientProtocol
+    from app.application.ports.requests import LLMCallRecord, LLMRepositoryPort
 
 logger = get_logger(__name__)
 
@@ -58,11 +61,18 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
         correlation_id: str | None = None,
         stream: bool = False,
         on_stream_delta: Callable[[str], Awaitable[None] | None] | None = None,
+        *,
+        llm_repo: LLMRepositoryPort | None = None,
+        request_id: int | None = None,
     ):
         super().__init__(name="CombinedSummaryAgent", correlation_id=correlation_id)
         self._llm = llm_client
         self._stream = stream
         self._on_stream_delta = on_stream_delta
+        # DI supplies these so the synthesis LLM call is persisted to llm_calls
+        # against one of the batch's article requests (rule 3: persist everything).
+        self._llm_repo = llm_repo
+        self._request_id = request_id
 
     async def execute(self, input_data: CombinedSummaryInput) -> AgentResult[CombinedSummaryOutput]:
         """Generate combined summary for related articles."""
@@ -120,6 +130,8 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
             {"role": "user", "content": context},
         ]
 
+        model = getattr(self._llm, "_model", "unknown")
+        t0 = time.monotonic()
         try:
             result = await self._llm.chat_structured(
                 messages,
@@ -131,9 +143,63 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
             )
         except Exception as exc:
             self.log_warning(f"LLM combined summary failed: {exc}")
+            await self._persist_llm_call(
+                status="error",
+                model=model,
+                result=None,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                error=exc,
+            )
             return None
 
+        await self._persist_llm_call(
+            status="success",
+            model=model,
+            result=result,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+        )
         return self._parse_llm_response(result.parsed.model_dump(), input_data)
+
+    async def _persist_llm_call(
+        self,
+        *,
+        status: str,
+        model: str,
+        result: Any,
+        latency_ms: int,
+        error: Exception | None = None,
+    ) -> None:
+        """Best-effort persist of the synthesis LLM call to ``llm_calls``.
+
+        No-op unless the DI layer supplied both an ``llm_repo`` and a
+        ``request_id`` (one of the batch's article requests) to attach to.
+        ``endpoint="combined_summary"`` keeps it queryable/separable. Persistence
+        failures are logged, never propagated.
+        """
+        if self._llm_repo is None or self._request_id is None:
+            return
+        payload: LLMCallRecord = {
+            "request_id": self._request_id,
+            "provider": "openrouter",
+            "model": str(getattr(result, "model_used", None) or model),
+            "endpoint": "combined_summary",
+            "tokens_prompt": int(getattr(result, "tokens_prompt", None) or 0),
+            "tokens_completion": int(getattr(result, "tokens_completion", None) or 0),
+            "cost_usd": float(getattr(result, "cost_usd", None) or 0.0),
+            "latency_ms": latency_ms,
+            "status": status,
+            "structured_output_used": True,
+        }
+        if error is not None:
+            payload["error_text"] = str(error)[:2000]
+        try:
+            await self._llm_repo.async_insert_llm_call(payload)
+        except Exception as persist_exc:
+            raise_if_cancelled(persist_exc)
+            logger.warning(
+                "combined_summary_llm_call_persist_failed",
+                extra={"correlation_id": self.correlation_id, "error": str(persist_exc)},
+            )
 
     def _build_llm_context(self, input_data: CombinedSummaryInput) -> str:
         """Build the context string for the LLM."""

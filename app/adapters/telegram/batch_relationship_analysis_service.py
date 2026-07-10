@@ -50,12 +50,16 @@ class BatchRelationshipAnalysisService:
         llm_client: Any | None,
         batch_config: BatchAnalysisConfig | None,
         response_formatter: ResponseFormatter | None,
+        llm_repo: Any | None = None,
     ) -> None:
         self._summary_repo = summary_repo
         self._batch_session_repo = batch_session_repo
         self._llm_client = llm_client
         self._batch_config = batch_config
         self._response_formatter = response_formatter
+        # Persist the combined-summary agent's LLM call to llm_calls (rule 3);
+        # None in non-DI/test wiring disables persistence (best-effort).
+        self._llm_repo = llm_repo
 
     @property
     def is_configured(self) -> bool:
@@ -498,11 +502,17 @@ class BatchRelationshipAnalysisService:
         from app.adapter_models.batch_analysis import CombinedSummaryInput
         from app.agents.combined_summary_agent import CombinedSummaryAgent
 
+        # Attach the synthesis LLM call to one of the batch's article requests
+        # (llm_calls.request_id is a non-null FK; the combined summary spans them
+        # all, so the first successful article's request is a valid anchor).
+        anchor_request_id = getattr(articles[0], "request_id", None) if articles else None
         combined_agent = CombinedSummaryAgent(
             llm_client=self._llm_client,
             correlation_id=correlation_id,
             stream=stream,
             on_stream_delta=on_stream_delta,
+            llm_repo=self._llm_repo,
+            request_id=anchor_request_id,
         )
         combined_input = CombinedSummaryInput(
             articles=articles,

@@ -131,6 +131,10 @@ class GraphURLProcessor:
         # keep working when DI returns the facade in place of the legacy object.
         self.content_extractor = content_extractor
         self.summary_repo = summary_repo
+        # Re-exposed (like summary_repo) so reach-through consumers such as the
+        # batch relationship/combined-summary flow can persist their own
+        # llm_calls rows (rule 3) without threading DI bundles.
+        self.llm_repo = getattr(deps, "llm_repo", None)
         self.audit_func = audit_func
         # Shared follow-up runtime (article/insights generators feed
         # ``post_summary_tasks``). Retained only so the bot shutdown drain reaches

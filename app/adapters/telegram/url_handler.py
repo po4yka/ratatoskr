@@ -137,6 +137,7 @@ class URLHandler:
                 llm_client=llm_client,
                 batch_config=batch_config,
                 response_formatter=response_formatter,
+                llm_repo=getattr(url_processor, "llm_repo", None),
             )
         )
         self._batch_processor = batch_processor or URLBatchProcessor(
