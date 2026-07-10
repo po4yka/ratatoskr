@@ -38,6 +38,20 @@ class LeasedRequestJob:
     correlation_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class InterruptedRequest:
+    """A bot-synchronous request orphaned by a crash mid-flight.
+
+    Returned by ``recover_interrupted_synchronous_requests`` so the caller
+    can notify the owner's chat to resend the link.
+    """
+
+    request_id: int
+    chat_id: int
+    input_url: str | None
+    correlation_id: str | None
+
+
 class RequestProcessingJobRepository:
     """Durable request-processing job store with DB leases."""
 
@@ -427,6 +441,90 @@ class RequestProcessingJobRepository:
                 )
             )
             await session.execute(stmt)
+
+    async def recover_interrupted_synchronous_requests(self) -> list[InterruptedRequest]:
+        """Detect and terminally fail bot-synchronous requests orphaned by a crash.
+
+        Bot-originated URL requests run synchronously in-process and record
+        their lease via ``record_synchronous_start`` (``lease_owner="bot:sync"``,
+        ``attempt_count=1``, ``max_attempts=1``). If the bot process dies before
+        the flow completes, the job is left ``running`` with an expired lease
+        and ``attempt_count >= max_attempts`` blocks ``requeue_expired_leases``
+        from reclaiming it -- there is no worker path that can resume a
+        synchronous run. This method detects those orphans on bot startup,
+        marks both rows terminal (``requests.status='error'``, job
+        ``status='dead_letter'``), and returns lightweight records so the
+        caller can notify the owner to resend the link. Not auto-recoverable:
+        retrying would require re-running the same in-process flow, which is
+        exactly what crashed.
+        """
+        now = _utcnow()
+        async with self._database.transaction() as session:
+            rows = await session.execute(
+                select(
+                    Request.id,
+                    Request.chat_id,
+                    Request.input_url,
+                    Request.correlation_id,
+                    RequestProcessingJob.id,
+                )
+                .join(RequestProcessingJob, RequestProcessingJob.request_id == Request.id)
+                .outerjoin(Summary, Summary.request_id == Request.id)
+                .where(
+                    RequestProcessingJob.status == "running",
+                    RequestProcessingJob.lease_expires_at.is_not(None),
+                    RequestProcessingJob.lease_expires_at <= now,
+                    RequestProcessingJob.lease_owner.like("bot:%"),
+                    Summary.id.is_(None),
+                    Request.status.notin_(("ok", "error", "cancelled", "x_imported")),
+                )
+                .limit(100)
+            )
+            orphans = list(rows)
+            if not orphans:
+                return []
+
+            request_ids = [request_id for request_id, *_rest in orphans]
+            job_ids = [job_id for *_rest, job_id in orphans]
+
+            await session.execute(
+                update(Request)
+                .where(Request.id.in_(request_ids))
+                .values(
+                    status="error",
+                    error_type="processing_interrupted",
+                    error_message=(
+                        "Processing was interrupted by a bot restart before completion."
+                    ),
+                    error_timestamp=now,
+                    updated_at=now,
+                )
+            )
+            await session.execute(
+                update(RequestProcessingJob)
+                .where(RequestProcessingJob.id.in_(job_ids))
+                .values(
+                    status="dead_letter",
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    last_error_code="INTERRUPTED",
+                    last_error_message=(
+                        "Bot restarted mid-flight; not auto-recoverable (owner notified to resend)."
+                    ),
+                    updated_at=now,
+                )
+            )
+
+            return [
+                InterruptedRequest(
+                    request_id=request_id,
+                    chat_id=chat_id,
+                    input_url=input_url,
+                    correlation_id=correlation_id,
+                )
+                for request_id, chat_id, input_url, correlation_id, _job_id in orphans
+                if chat_id is not None
+            ]
 
     async def requeue_expired_leases(self) -> int:
         now = _utcnow()
