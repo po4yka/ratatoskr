@@ -85,7 +85,11 @@ class YouTubeDownloadPipeline:
         download_id: int,
     ) -> PlatformExtractionResult:
         output_dir: Path | None = None
-        download_succeeded = False
+        # True only once the WHOLE pipeline (download + packaging/extraction)
+        # has succeeded. Gates the finally-block cleanup: a failure anywhere
+        # before the return must leave this False so partial download files are
+        # removed rather than orphaned on disk.
+        pipeline_succeeded = False
         feedback_state = await self._feedback_service.start(request=request, video_id=video_id)
         try:
             await self._session_service.mark_download_started(download_id)
@@ -187,7 +191,6 @@ class YouTubeDownloadPipeline:
                     "cid": request.correlation_id,
                 },
             )
-            download_succeeded = True
             source_item = SourceItem.create(
                 kind=SourceKind.YOUTUBE_VIDEO,
                 original_value=request.url_text,
@@ -237,6 +240,9 @@ class YouTubeDownloadPipeline:
                     controls=build_video_controls_from_config(self._cfg),
                 )
             )
+            # Packaging/extraction succeeded: keep the downloaded files (now
+            # referenced by the media assets) and skip the finally cleanup.
+            pipeline_succeeded = True
             return PlatformExtractionResult(
                 platform="youtube",
                 request_id=req_id,
@@ -265,13 +271,13 @@ class YouTubeDownloadPipeline:
             )
             raise
         finally:
-            if output_dir is None and not download_succeeded:
+            if output_dir is None and not pipeline_succeeded:
                 candidate = self._session_service.storage_path / datetime.now(UTC).strftime(
                     "%Y%m%d"
                 )
                 if candidate.exists():
                     output_dir = candidate
-            if not download_succeeded and output_dir is not None:
+            if not pipeline_succeeded and output_dir is not None:
                 self._session_service.cleanup_partial_download_files(
                     output_dir=output_dir,
                     video_id=video_id,
