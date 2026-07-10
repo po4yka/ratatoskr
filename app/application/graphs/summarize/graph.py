@@ -144,6 +144,40 @@ def invocation_config(*, correlation_id: str, recursion_limit: int) -> dict[str,
     }
 
 
+async def recover_accumulated_llm_calls(graph: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Recover the ``llm_calls`` accumulated in the graph checkpoint after a failure.
+
+    The success-path writer of ``state['llm_calls']`` is the ``persist`` node, which
+    a terminal failure (``CallBudgetExceeded``, ``GraphRecursionError``, a node
+    exception) never reaches -- so every ``summarize`` / ``repair`` LLM call
+    accumulated in state would be dropped, violating persist-everything (rule 3).
+    The graph is ALWAYS compiled with a checkpointer (the Postgres saver, or the
+    ``InMemorySaver`` fallback), so the last committed super-step state is
+    recoverable here, in the langgraph-coupled layer -- ``lifecycle.py`` stays
+    framework-free and receives the plain list.
+
+    Best-effort: any failure to read the checkpoint yields ``[]`` so the terminal
+    path still marks the request ERROR. Disjoint from a node's
+    ``exc.llm_failure_records`` (a node commits to the checkpoint XOR attaches to
+    the raised exception), so the terminal handler persists the union without
+    double-counting.
+    """
+    try:
+        snapshot = await graph.aget_state(config)
+    except Exception:
+        logger.warning(
+            "summarize_graph_llm_calls_recovery_failed",
+            extra={"thread_id": config.get("configurable", {}).get("thread_id")},
+            exc_info=True,
+        )
+        return []
+    values = getattr(snapshot, "values", None)
+    if not isinstance(values, dict):
+        return []
+    records = values.get("llm_calls")
+    return list(records) if isinstance(records, list) else []
+
+
 def reason_code_for_exception(exc: BaseException) -> str:
     """Map a terminal exception to its failure reason code (single mapping)."""
     if isinstance(exc, CallBudgetExceeded):
@@ -236,10 +270,19 @@ async def run_summarize_graph(
             "summarize_graph_terminal_failure",
             extra={"correlation_id": correlation_id, "error_type": type(exc).__name__},
         )
-        # initial_state is used deliberately: correlation_id / request_id are
-        # invocation-fixed and sacred, so recovering (possibly partial) graph state
-        # is unnecessary for the Error ID + persistence target.
-        message = await route_terminal_failure(initial_state, deps, exc, reason_code=reason_code)
+        # initial_state carries the invocation-fixed, sacred correlation_id /
+        # request_id -- sufficient for the Error ID + failure snapshot. The
+        # accumulated llm_calls are NOT in it (initial_state seeds them empty), so
+        # recover them from the checkpoint and hand them to the terminal sink;
+        # otherwise every summarize/repair call on a failed run is dropped (rule 3).
+        recovered_llm_calls = await recover_accumulated_llm_calls(graph, config)
+        message = await route_terminal_failure(
+            initial_state,
+            deps,
+            exc,
+            reason_code=reason_code,
+            recovered_llm_calls=recovered_llm_calls,
+        )
         return {
             "error": message,
             "notification_type": notification_type_for_exception(exc),

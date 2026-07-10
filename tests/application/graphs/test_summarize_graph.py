@@ -99,6 +99,66 @@ async def test_run_maps_graph_recursion_error(monkeypatch) -> None:
     assert "Error ID: corr-3" in out["error"]
 
 
+# ── recovery of accumulated llm_calls on terminal failure (rule 3) ────────────
+
+
+async def test_recover_accumulated_llm_calls_reads_checkpoint_state() -> None:
+    from app.application.graphs.summarize.graph import recover_accumulated_llm_calls
+
+    records = [{"request_id": 5, "status": "ok"}, {"request_id": 5, "status": "error"}]
+    snapshot = MagicMock()
+    snapshot.values = {"llm_calls": records, "correlation_id": "c"}
+    graph = MagicMock()
+    graph.aget_state = AsyncMock(return_value=snapshot)
+
+    out = await recover_accumulated_llm_calls(graph, {"configurable": {"thread_id": "c"}})
+
+    assert out == records
+    assert out is not records  # a copy, so mutating state later cannot corrupt it
+
+
+async def test_recover_accumulated_llm_calls_swallows_checkpoint_error() -> None:
+    from app.application.graphs.summarize.graph import recover_accumulated_llm_calls
+
+    graph = MagicMock()
+    graph.aget_state = AsyncMock(side_effect=RuntimeError("no checkpoint"))
+
+    # Best-effort: an unreadable checkpoint must not raise a second error path.
+    assert await recover_accumulated_llm_calls(graph, {"configurable": {"thread_id": "c"}}) == []
+
+
+async def test_recover_accumulated_llm_calls_empty_when_key_absent() -> None:
+    from app.application.graphs.summarize.graph import recover_accumulated_llm_calls
+
+    snapshot = MagicMock()
+    snapshot.values = {"correlation_id": "c"}  # failed before any LLM call
+    graph = MagicMock()
+    graph.aget_state = AsyncMock(return_value=snapshot)
+
+    assert await recover_accumulated_llm_calls(graph, {}) == []
+
+
+async def test_run_recovers_and_forwards_accumulated_llm_calls_on_failure(monkeypatch) -> None:
+    """On a terminal failure the runner recovers checkpoint llm_calls and hands them
+    to the single terminal sink -- so no accumulated summarize/repair call is
+    dropped (rule 3)."""
+    recovered = [{"request_id": 9, "status": "ok"}]
+    monkeypatch.setattr(
+        graph_mod, "recover_accumulated_llm_calls", AsyncMock(return_value=recovered)
+    )
+    route = AsyncMock(return_value="Processing failed (Error ID: corr-x). Please try again.")
+    monkeypatch.setattr(graph_mod, "route_terminal_failure", route)
+    graph = MagicMock()
+    graph.ainvoke = AsyncMock(side_effect=CallBudgetExceeded("exhausted"))
+
+    await run_summarize_graph(
+        graph=graph, deps=MagicMock(), correlation_id="corr-x", request_id=9, lang="en"
+    )
+
+    route.assert_awaited_once()
+    assert route.await_args.kwargs["recovered_llm_calls"] is recovered
+
+
 # ── real langgraph: compile + end-to-end happy path ───────────────────────────
 
 
@@ -158,6 +218,86 @@ async def test_compiled_validate_repair_loop_terminates_via_budget(monkeypatch) 
 
     # Loop terminated (did not hang) via CallBudgetExceeded -> terminal path.
     assert "Error ID: corr-loop" in out["error"]
+
+
+async def test_terminal_failure_persists_accumulated_llm_calls_end_to_end(monkeypatch) -> None:
+    """Regression (rule 3): a run that fails via the repair budget must STILL persist
+    every summarize + repair llm_calls record accumulated in the checkpoint.
+
+    Before the fix the terminal path passed the empty ``initial_state`` to
+    ``route_terminal_failure``, so the entire repair loop's calls were silently
+    dropped. This drives the REAL compiled graph (with an InMemorySaver, matching
+    production's always-present checkpointer) through the budget loop and asserts
+    the injected ``llm_repo`` received all of them."""
+    pytest.importorskip("langgraph")
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    import app.application.graphs.summarize.lifecycle as lifecycle_mod
+    from app.application.graphs.summarize.deps import SummarizeDeps
+    from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS
+
+    async def fake_summarize(state, *, deps):
+        return {
+            "summary": {"x": 1},
+            "call_count": state.get("call_count", 0) + 1,
+            "llm_calls": [
+                {"request_id": state["request_id"], "status": "ok", "attempt_trigger": "graph_node"}
+            ],
+        }
+
+    async def always_invalid(state, *, deps):
+        return {"validation_errors": ["forced"]}
+
+    async def fake_repair(state, *, deps):
+        # Mirror the real repair node: advance the budget, accumulate one record per
+        # attempt, and raise CallBudgetExceeded once the budget is exhausted.
+        attempts = state.get("repair_attempts", 0) + 1
+        if attempts > MAX_REPAIR_ATTEMPTS:
+            raise CallBudgetExceeded("exhausted")
+        return {
+            "repair_attempts": attempts,
+            "llm_calls": [
+                {
+                    "request_id": state["request_id"],
+                    "status": "error",
+                    "attempt_trigger": "graph_node",
+                }
+            ],
+        }
+
+    patched = dict(graph_mod._NODES)
+    patched["summarize"] = fake_summarize
+    patched["validate"] = always_invalid
+    patched["repair"] = fake_repair
+    monkeypatch.setattr(graph_mod, "_NODES", patched)
+    monkeypatch.setattr(lifecycle_mod, "persist_request_failure", AsyncMock())
+
+    inserted: list[dict] = []
+    m = MagicMock()
+    llm_repo = MagicMock()
+    llm_repo.async_insert_llm_call = AsyncMock(side_effect=lambda record: inserted.append(record))
+    deps = SummarizeDeps(
+        llm_client=m,
+        retrieval=m,
+        extraction=m,
+        stream_sink=m,
+        summaries=m,
+        requests=m,
+        summary_index=m,
+        llm_repo=llm_repo,
+    )
+
+    graph = build_summarize_graph(deps=deps, checkpointer=InMemorySaver())
+    out = await run_summarize_graph(
+        graph=graph, deps=deps, correlation_id="corr-acc", request_id=99, lang="en"
+    )
+
+    assert "Error ID: corr-acc" in out["error"]
+    # 1 summarize(ok) + MAX_REPAIR_ATTEMPTS repair(error) rows all reached the DB.
+    assert len(inserted) == 1 + MAX_REPAIR_ATTEMPTS
+    assert inserted[0]["status"] == "ok"  # chronological: summarize first
+    assert all(r["request_id"] == 99 for r in inserted)
+    assert sum(1 for r in inserted if r["status"] == "error") == MAX_REPAIR_ATTEMPTS
 
 
 async def test_di_compiles_with_default_in_memory_checkpointer() -> None:

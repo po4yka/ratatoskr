@@ -25,6 +25,7 @@ from app.application.graphs.summarize.graph import (
     build_summarize_graph,
     invocation_config,
     reason_code_for_exception,
+    recover_accumulated_llm_calls,
 )
 from app.application.graphs.summarize.lifecycle import (
     notification_type_for_exception,
@@ -387,8 +388,16 @@ async def run_summarize_graph_streamed(
             "summarize_graph_streamed_terminal_failure",
             extra={"correlation_id": correlation_id, "error_type": type(exc).__name__},
         )
+        # Recover accumulated llm_calls from the checkpoint (persist-everything,
+        # rule 3): the streamed runner drives the same graph via astream_events, so
+        # a terminal failure skips the persist node identically to the ainvoke path.
+        recovered_llm_calls = await recover_accumulated_llm_calls(graph, config)
         message = await route_terminal_failure(
-            initial_state, deps, exc, reason_code=reason_code_for_exception(exc)
+            initial_state,
+            deps,
+            exc,
+            reason_code=reason_code_for_exception(exc),
+            recovered_llm_calls=recovered_llm_calls,
         )
         return {
             "error": message,

@@ -5,6 +5,7 @@ single terminal path, and never lets stream buffers reach checkpoint state
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, cast
 
 import app.di.graphs as graphs_mod
@@ -68,11 +69,27 @@ class RaisingGraph:
         raise RuntimeError("node boom")
         yield  # pragma: no cover -- makes this an async generator
 
+    async def aget_state(self, config: Any) -> Any:
+        # Failure before any LLM call: the checkpoint holds no llm_calls.
+        return SimpleNamespace(values={"llm_calls": []})
+
 
 class BudgetGraph:
     async def astream_events(self, state: Any, *, config: Any, version: str):
         raise CallBudgetExceeded("budget")
         yield  # pragma: no cover
+
+    async def aget_state(self, config: Any) -> Any:
+        # Repair-budget exhaustion: the checkpoint holds the accumulated
+        # summarize + repair llm_calls the terminal path must still persist (rule 3).
+        return SimpleNamespace(
+            values={
+                "llm_calls": [
+                    {"request_id": _RID, "status": "ok", "attempt_trigger": "graph_node"},
+                    {"request_id": _RID, "status": "error", "attempt_trigger": "graph_node"},
+                ]
+            }
+        )
 
 
 async def test_driver_streams_stages_sections_and_captures_final_state() -> None:
@@ -108,9 +125,17 @@ async def test_driver_streams_stages_sections_and_captures_final_state() -> None
 async def test_driver_routes_node_failure_to_terminal_path(monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
-    async def fake_route(state: Any, deps: Any, exc: BaseException, *, reason_code: str) -> str:
+    async def fake_route(
+        state: Any,
+        deps: Any,
+        exc: BaseException,
+        *,
+        reason_code: str,
+        recovered_llm_calls: Any = None,
+    ) -> str:
         captured["reason_code"] = reason_code
         captured["exc_type"] = type(exc).__name__
+        captured["recovered"] = recovered_llm_calls
         return "Error ID: corr-xyz"
 
     monkeypatch.setattr(graphs_mod, "route_terminal_failure", fake_route)
@@ -131,13 +156,22 @@ async def test_driver_routes_node_failure_to_terminal_path(monkeypatch) -> None:
     }
     assert captured["reason_code"] == "GRAPH_NODE_FAILURE"
     assert captured["exc_type"] == "RuntimeError"
+    assert captured["recovered"] == []  # no LLM call happened before the fault
 
 
 async def test_driver_maps_call_budget_exceeded_reason(monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
-    async def fake_route(state: Any, deps: Any, exc: BaseException, *, reason_code: str) -> str:
+    async def fake_route(
+        state: Any,
+        deps: Any,
+        exc: BaseException,
+        *,
+        reason_code: str,
+        recovered_llm_calls: Any = None,
+    ) -> str:
         captured["reason_code"] = reason_code
+        captured["recovered"] = recovered_llm_calls
         return "Error ID: x"
 
     monkeypatch.setattr(graphs_mod, "route_terminal_failure", fake_route)
@@ -150,6 +184,8 @@ async def test_driver_maps_call_budget_exceeded_reason(monkeypatch) -> None:
         lang="en",
     )
     assert captured["reason_code"] == "GRAPH_CALL_BUDGET_EXCEEDED"
+    # Budget exhaustion still recovers + forwards the accumulated repair-loop calls.
+    assert [r["status"] for r in captured["recovered"]] == ["ok", "error"]
 
 
 async def test_driver_ignores_nested_and_non_dict_chain_end() -> None:
