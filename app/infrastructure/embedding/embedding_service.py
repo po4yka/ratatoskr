@@ -62,6 +62,9 @@ class EmbeddingService(EmbeddingSerializationMixin):
         # the sentence-transformers import fails, re-attempting it per call is
         # both pointless and slow, so the failure is remembered and re-raised.
         self._dependency_error: EmbeddingDependencyUnavailableError | None = None
+        # Serializes the off-loop cold model load so concurrent first-use
+        # requests don't each pay the (seconds-long) weight load/download.
+        self._load_lock = asyncio.Lock()
 
     def _get_model_name_for_language(self, language: str | None) -> str:
         """Get the appropriate model name for a language."""
@@ -109,6 +112,26 @@ class EmbeddingService(EmbeddingSerializationMixin):
             )
         return self._models[model_name]
 
+    async def _ensure_model_async(self, model_name: str) -> SentenceTransformer:
+        """Load (or return the cached) model without blocking the event loop.
+
+        ``SentenceTransformer(model_name)`` loads weights from disk or downloads
+        them on a cold cache -- seconds to tens of seconds, worse on the ARM64
+        Pi -- so the load is offloaded to a worker thread and serialized by a
+        lock so concurrent first-use requests don't each pay the load.
+        """
+        if self._dependency_error is not None:
+            raise self._dependency_error
+        cached = self._models.get(model_name)
+        if cached is not None:
+            return cached
+        async with self._load_lock:
+            # Another coroutine may have finished the load while we waited.
+            cached = self._models.get(model_name)
+            if cached is not None:
+                return cached
+            return await asyncio.to_thread(self._ensure_model, model_name)
+
     async def generate_embedding(
         self, text: str, *, language: str | None = None, task_type: str | None = None
     ) -> Any:
@@ -122,7 +145,7 @@ class EmbeddingService(EmbeddingSerializationMixin):
             Numpy array embedding vector
         """
         model_name = self._get_model_name_for_language(language)
-        model = self._ensure_model(model_name)
+        model = await self._ensure_model_async(model_name)
         dims = self._dimensions.get(model_name, 0)
 
         with _get_tracer().start_as_current_span("embedding.encode") as span:
@@ -145,7 +168,7 @@ class EmbeddingService(EmbeddingSerializationMixin):
     ) -> list[Any]:
         """Generate embeddings for multiple texts using native batched encode."""
         model_name = self._get_model_name_for_language(language)
-        model = self._ensure_model(model_name)
+        model = await self._ensure_model_async(model_name)
         dims = self._dimensions.get(model_name, 0)
         batch_size = len(texts)
 
