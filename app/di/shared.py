@@ -157,6 +157,13 @@ def build_core_dependencies(
     sem_factory = semaphore_factory or LazySemaphoreFactory(cfg.runtime.max_concurrent_calls)
     firecrawl_client = _build_firecrawl_client(cfg, audit)
     llm_client = LLMClientFactory.create_from_config(cfg, audit=audit)
+    # When cfg is a hot-reloadable ConfigHolder (/setmodel) and the client froze
+    # its model at construction, re-apply the swapped config to the live client
+    # so a model change takes effect without a process restart.
+    register_listener = getattr(cfg, "register_listener", None)
+    apply_runtime_config = getattr(llm_client, "apply_runtime_config", None)
+    if callable(register_listener) and callable(apply_runtime_config):
+        register_listener(apply_runtime_config)
     scraper_chain = ContentScraperFactory.create_from_config(cfg, audit=audit)
 
     response_kwargs = dict(response_formatter_kwargs or {})

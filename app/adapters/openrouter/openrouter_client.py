@@ -239,6 +239,24 @@ class OpenRouterClient:
             circuit_breaker=circuit_breaker,
         )
 
+    def apply_runtime_config(self, cfg: Any) -> None:
+        """Re-read the primary + fallback models after a config hot-reload.
+
+        The model is frozen into ``self._model`` at construction, so a
+        ``/setmodel`` reload that swaps the ConfigHolder snapshot would never
+        reach live chat calls otherwise. Registered as a ConfigHolder listener
+        in ``build_core_dependencies``; a no-op when the openrouter section or
+        model is missing.
+        """
+        or_cfg = getattr(cfg, "openrouter", None)
+        if or_cfg is None:
+            return
+        new_model = getattr(or_cfg, "model", None)
+        if new_model:
+            self._model = new_model
+        self._fallback_models = self._validate_fallback_models(list(or_cfg.fallback_models))
+        logger.info("openrouter_model_hot_reloaded", extra={"model": self._model})
+
     def _set_core_configuration(
         self,
         *,

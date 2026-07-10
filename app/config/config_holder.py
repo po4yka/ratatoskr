@@ -104,6 +104,7 @@ class ConfigHolder:
     def __init__(self, initial: AppConfig) -> None:
         self._cfg: AppConfig = initial
         self._lock = threading.Lock()
+        self._listeners: list[Callable[[AppConfig], None]] = []
 
     @property
     def cfg(self) -> AppConfig:
@@ -112,12 +113,29 @@ class ConfigHolder:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._cfg, name)
 
+    def register_listener(self, listener: Callable[[AppConfig], None]) -> None:
+        """Register a callback invoked with the new config after every swap.
+
+        Runtime singletons that froze a config value at construction (e.g. the
+        OpenRouterClient's model) register here so a /setmodel hot-reload
+        actually reaches them instead of only updating this snapshot.
+        """
+        with self._lock:
+            self._listeners.append(listener)
+
     def swap(self, new_cfg: AppConfig) -> AppConfig:
-        """Atomically replace the config and return the old one."""
+        """Atomically replace the config, notify listeners, return the old one."""
         with self._lock:
             old = self._cfg
             self._cfg = new_cfg
-            return old
+            listeners = list(self._listeners)
+        # Notify outside the lock so a listener can't deadlock or stall the swap.
+        for listener in listeners:
+            try:
+                listener(new_cfg)
+            except Exception:
+                logger.exception("config_listener_failed")
+        return old
 
 
 class ConfigReloader:
