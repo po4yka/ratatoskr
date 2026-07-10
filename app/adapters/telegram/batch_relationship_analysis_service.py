@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import time
 from functools import partial
@@ -537,31 +538,37 @@ class BatchRelationshipAnalysisService:
         type_label = type_labels.get(relationship.relationship_type, ("Related", "Связано"))
         label = type_label[1] if language == "ru" else type_label[0]
 
+        # Sent with parse_mode="HTML" below; every value below is LLM-derived
+        # from summaries of untrusted third-party articles, so html.escape() each
+        # one to stop a crafted topic/entity/arc from injecting Telegram markup
+        # into the bot's own output. Labels/headers here are static and trusted.
         parts = [f"<b>{label}</b> ({relationship.confidence:.0%} confidence)"]
         if relationship.reasoning:
-            parts.append(f"\n{relationship.reasoning}")
+            parts.append(f"\n{html.escape(str(relationship.reasoning))}")
 
         if relationship.series_info:
             series_info = relationship.series_info
             if series_info.series_title:
-                parts.append(f"\n<b>Series:</b> {series_info.series_title}")
+                parts.append(f"\n<b>Series:</b> {html.escape(str(series_info.series_title))}")
             if series_info.numbering_pattern:
-                parts.append(f"<b>Pattern:</b> {series_info.numbering_pattern}")
+                parts.append(f"<b>Pattern:</b> {html.escape(str(series_info.numbering_pattern))}")
 
         if relationship.cluster_info:
             cluster_info = relationship.cluster_info
             if cluster_info.cluster_topic:
-                parts.append(f"\n<b>Topic:</b> {cluster_info.cluster_topic}")
+                parts.append(f"\n<b>Topic:</b> {html.escape(str(cluster_info.cluster_topic))}")
             if cluster_info.shared_entities:
-                parts.append(
-                    f"<b>Shared entities:</b> {', '.join(cluster_info.shared_entities[:5])}"
-                )
+                entities = ", ".join(html.escape(str(e)) for e in cluster_info.shared_entities[:5])
+                parts.append(f"<b>Shared entities:</b> {entities}")
             if cluster_info.shared_tags:
-                parts.append(f"<b>Shared tags:</b> {', '.join(cluster_info.shared_tags[:5])}")
+                tags = ", ".join(html.escape(str(tg)) for tg in cluster_info.shared_tags[:5])
+                parts.append(f"<b>Shared tags:</b> {tags}")
 
         if combined_summary:
             parts.append("\n---")
-            parts.append(f"\n<b>Thematic Arc:</b>\n{combined_summary.thematic_arc}")
+            parts.append(
+                f"\n<b>Thematic Arc:</b>\n{html.escape(str(combined_summary.thematic_arc))}"
+            )
 
             if combined_summary.synthesized_insights:
                 insights_header = (
@@ -569,17 +576,18 @@ class BatchRelationshipAnalysisService:
                 )
                 parts.append(f"\n<b>{insights_header}:</b>")
                 for insight in combined_summary.synthesized_insights[:5]:
-                    parts.append(f"- {insight}")
+                    parts.append(f"- {html.escape(str(insight))}")
 
             if combined_summary.contradictions:
                 contradictions_header = "Contradictions" if language != "ru" else "Противоречия"
                 parts.append(f"\n<b>{contradictions_header}:</b>")
                 for contradiction in combined_summary.contradictions[:3]:
-                    parts.append(f"- {contradiction}")
+                    parts.append(f"- {html.escape(str(contradiction))}")
 
             if combined_summary.reading_order_rationale:
                 order_header = "Reading Order" if language != "ru" else "Порядок чтения"
-                parts.append(f"\n<b>{order_header}:</b> {combined_summary.reading_order_rationale}")
+                rationale = html.escape(str(combined_summary.reading_order_rationale))
+                parts.append(f"\n<b>{order_header}:</b> {rationale}")
 
             if combined_summary.total_reading_time_min:
                 time_header = "Total Reading Time" if language != "ru" else "Общее время чтения"
