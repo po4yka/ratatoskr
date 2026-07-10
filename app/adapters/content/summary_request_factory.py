@@ -271,6 +271,7 @@ class SummaryRequestFactory:
             content_text=content_for_summary,
             chosen_lang=request.chosen_lang,
             correlation_id=request.correlation_id,
+            request_id=request.req_id,
         )
         user_content = self.build_summary_user_content(
             content_for_summary=content_for_summary,
