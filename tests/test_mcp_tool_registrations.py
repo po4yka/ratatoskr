@@ -98,6 +98,7 @@ async def test_mcp_tool_registration_records_success_metrics() -> None:
 
     register_tools(
         mcp,
+        context=McpServerContext(user_id=None),
         aggregation_service=cast("Any", aggregation_service),
         article_service=cast("Any", article_service),
         catalog_service=cast("Any", catalog_service),
@@ -163,6 +164,7 @@ async def test_mcp_tool_registration_records_error_metrics_for_service_errors() 
 
     register_tools(
         mcp,
+        context=McpServerContext(user_id=None),
         aggregation_service=cast("Any", aggregation_service),
         article_service=cast("Any", article_service),
         catalog_service=cast("Any", catalog_service),
@@ -275,6 +277,7 @@ def test_hosted_mcp_tool_uses_request_scoped_identity_and_client_id(
 
     register_tools(
         mcp,
+        context=context,
         aggregation_service=cast("Any", aggregation_service),
         article_service=cast("Any", article_service),
         catalog_service=cast("Any", catalog_service),

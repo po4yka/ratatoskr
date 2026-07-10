@@ -27,10 +27,15 @@ def _env_positive_int(name: str, default: int) -> int:
         return default
 
 
-# In-process per-tool rate limiting for MCP. The Telegram UserRateLimiter is not
-# wired to the MCP transport, so without this a single MCP session could drive
-# unbounded scrape + LLM cost via tools like create_aggregation_bundle
-# (CWE-770). Process-local (sufficient: MCP runs as a single scoped process).
+# In-process per-(tool, tenant) rate limiting for MCP. The Telegram
+# UserRateLimiter is not wired to the MCP transport, so without this a single
+# caller could drive unbounded scrape + LLM cost via tools like
+# create_aggregation_bundle (CWE-770). The bucket is keyed by tool AND the
+# effective request identity: in the hosted multi-tenant JWT mode
+# (MCP_AUTH_MODE=jwt over SSE, one process serving many authenticated users) a
+# tool-name-only key would let every tenant share one global budget, so one
+# caller could starve all others. Still process-local -- a horizontally-scaled
+# deployment needs a shared (Redis) limiter, tracked separately.
 _MCP_TOOL_RATE_LIMITER = LocalRateLimiter()
 _MCP_TOOL_WINDOW_SEC = _env_positive_int("MCP_TOOL_RATE_WINDOW_SEC", 60)
 _MCP_TOOL_DEFAULT_LIMIT = _env_positive_int("MCP_TOOL_RATE_LIMIT", 60)
@@ -39,11 +44,30 @@ _MCP_EXPENSIVE_TOOL_LIMIT = _env_positive_int("MCP_EXPENSIVE_TOOL_RATE_LIMIT", 5
 _MCP_EXPENSIVE_TOOLS = frozenset({"create_aggregation_bundle"})
 
 
-def _mcp_tool_rate_limited(tool_name: str) -> bool:
+def _mcp_identity_key(context: Any) -> str:
+    """Resolve a per-tenant rate-limit sub-key from the active request identity.
+
+    In hosted JWT mode this is the authenticated user (or client_id) resolved
+    per request; in stdio/local mode it collapses to a single stable key (one
+    user), so single-user behavior is unchanged.
+    """
+    user_id = getattr(context, "user_id", None)
+    if user_id is not None:
+        return f"u{user_id}"
+    client_id = getattr(context, "client_id", None)
+    if client_id:
+        return f"c{client_id}"
+    return "anon"
+
+
+def _mcp_tool_rate_limited(tool_name: str, identity_key: str) -> bool:
     limit = (
         _MCP_EXPENSIVE_TOOL_LIMIT if tool_name in _MCP_EXPENSIVE_TOOLS else _MCP_TOOL_DEFAULT_LIMIT
     )
-    allowed, _ = _MCP_TOOL_RATE_LIMITER.check(tool_name, limit=limit, window=_MCP_TOOL_WINDOW_SEC)
+    # LocalRateLimiter splits its internal key on ":" and reads the last segment
+    # as the window bucket, so extra ":"-separated identity components are safe.
+    bucket_key = f"{tool_name}:{identity_key}"
+    allowed, _ = _MCP_TOOL_RATE_LIMITER.check(bucket_key, limit=limit, window=_MCP_TOOL_WINDOW_SEC)
     return not allowed
 
 
@@ -51,6 +75,7 @@ if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
     from app.mcp.article_service import ArticleReadService
     from app.mcp.catalog_service import CatalogReadService
+    from app.mcp.context import McpServerContext
     from app.mcp.semantic_service import SemanticSearchService
     from app.mcp.signal_service import SignalMcpService
     from app.mcp.x_search_service import XSearchService
@@ -96,6 +121,7 @@ def _contribute_tool(
 def register_tools(
     mcp: Any,
     *,
+    context: McpServerContext,
     aggregation_service: AggregationMcpService,
     article_service: ArticleReadService,
     catalog_service: CatalogReadService,
@@ -130,7 +156,7 @@ def register_tools(
         }
 
     async def _call_async(tool_name: str, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
-        if _mcp_tool_rate_limited(tool_name):
+        if _mcp_tool_rate_limited(tool_name, _mcp_identity_key(context)):
             return _rate_limited_result(tool_name)
         started_at = time.perf_counter()
         try:
@@ -142,7 +168,7 @@ def register_tools(
         return result
 
     def _call_sync(tool_name: str, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
-        if _mcp_tool_rate_limited(tool_name):
+        if _mcp_tool_rate_limited(tool_name, _mcp_identity_key(context)):
             return _rate_limited_result(tool_name)
         started_at = time.perf_counter()
         try:
