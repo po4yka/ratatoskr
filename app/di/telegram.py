@@ -237,6 +237,7 @@ def build_summary_cli_runtime(
             aggregation_session_repo=_agg_session_repo_cli,
             relationship_agent=RelationshipAnalysisAgent(
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             )
             if core.llm_client is not None
             else None,
@@ -430,6 +431,7 @@ def _build_telegram_interface_stack(
             aggregation_session_repo=_agg_session_repo,
             relationship_agent=RelationshipAnalysisAgent(
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             )
             if core.llm_client is not None
             else None,

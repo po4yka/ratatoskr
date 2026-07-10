@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -19,11 +20,13 @@ from app.adapter_models.batch_analysis import (
     SeriesInfo,
 )
 from app.agents.base_agent import AgentResult, BaseAgent
+from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.application.ports.llm_client import LLMClientProtocol
+    from app.application.ports.requests import LLMCallRecord, LLMRepositoryPort
 
 logger = get_logger(__name__)
 
@@ -81,9 +84,14 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
         self,
         llm_client: LLMClientProtocol | None = None,
         correlation_id: str | None = None,
+        *,
+        llm_repo: LLMRepositoryPort | None = None,
     ):
         super().__init__(name="RelationshipAnalysisAgent", correlation_id=correlation_id)
         self._llm = llm_client
+        # DI supplies this so the ambiguous-case LLM call is persisted to
+        # llm_calls against one of the analysed article requests (rule 3).
+        self._llm_repo = llm_repo
 
     async def execute(
         self, input_data: RelationshipAnalysisInput
@@ -478,16 +486,81 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
             {"role": "user", "content": user_content},
         ]
 
-        result = await self._llm.chat_structured(
-            messages,
-            response_model=_RelationshipLLMResponse,
-            max_retries=3,
-            max_tokens=1000,
-            temperature=0.1,
-            request_id=None,
-        )
+        model = getattr(self._llm, "_model", "unknown")
+        request_id = articles[0].request_id if articles else None
+        t0 = time.monotonic()
+        try:
+            result = await self._llm.chat_structured(
+                messages,
+                response_model=_RelationshipLLMResponse,
+                max_retries=3,
+                max_tokens=1000,
+                temperature=0.1,
+                request_id=None,
+            )
+        except Exception as exc:
+            # Local error handling (previously absent): log, persist the error
+            # row, and degrade to None so execute()'s metadata fallback runs.
+            self.log_warning(f"LLM relationship analysis failed: {exc}")
+            await self._persist_llm_call(
+                request_id=request_id,
+                status="error",
+                model=model,
+                result=None,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                error=exc,
+            )
+            return None
 
+        await self._persist_llm_call(
+            request_id=request_id,
+            status="success",
+            model=model,
+            result=result,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+        )
         return self._parse_llm_response(result.parsed.model_dump(), articles)
+
+    async def _persist_llm_call(
+        self,
+        *,
+        request_id: int | None,
+        status: str,
+        model: str,
+        result: Any,
+        latency_ms: int,
+        error: Exception | None = None,
+    ) -> None:
+        """Best-effort persist of the analysis LLM call to ``llm_calls``.
+
+        No-op unless the DI layer supplied an ``llm_repo`` and the articles
+        carry a ``request_id`` to attach to. ``endpoint="relationship_analysis"``
+        keeps it queryable. Persistence failures are logged, never propagated.
+        """
+        if self._llm_repo is None or request_id is None:
+            return
+        payload: LLMCallRecord = {
+            "request_id": request_id,
+            "provider": "openrouter",
+            "model": str(getattr(result, "model_used", None) or model),
+            "endpoint": "relationship_analysis",
+            "tokens_prompt": int(getattr(result, "tokens_prompt", None) or 0),
+            "tokens_completion": int(getattr(result, "tokens_completion", None) or 0),
+            "cost_usd": float(getattr(result, "cost_usd", None) or 0.0),
+            "latency_ms": latency_ms,
+            "status": status,
+            "structured_output_used": True,
+        }
+        if error is not None:
+            payload["error_text"] = str(error)[:2000]
+        try:
+            await self._llm_repo.async_insert_llm_call(payload)
+        except Exception as persist_exc:
+            raise_if_cancelled(persist_exc)
+            logger.warning(
+                "relationship_analysis_llm_call_persist_failed",
+                extra={"correlation_id": self.correlation_id, "error": str(persist_exc)},
+            )
 
     def _parse_llm_response(
         self, parsed: dict[str, Any], articles: list[ArticleMetadata]

@@ -414,6 +414,7 @@ class BatchRelationshipAnalysisService:
         relationship_agent = RelationshipAnalysisAgent(
             llm_client=self._llm_client if self._batch_config.use_llm_for_analysis else None,
             correlation_id=correlation_id,
+            llm_repo=self._llm_repo,
         )
         analysis_input = RelationshipAnalysisInput(
             articles=articles,

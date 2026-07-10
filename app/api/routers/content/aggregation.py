@@ -37,7 +37,11 @@ from app.application.services.multi_source_aggregation_service import (
 from app.config import load_config
 from app.core.logging_utils import generate_correlation_id
 from app.di.api import resolve_api_runtime
-from app.di.repositories import build_aggregation_session_repository, build_user_repository
+from app.di.repositories import (
+    build_aggregation_session_repository,
+    build_llm_repository,
+    build_user_repository,
+)
 from app.di.shared import build_async_audit_sink
 from app.domain.models.source import AggregationSessionStatus  # noqa: TC001
 from app.observability.metrics import record_request
@@ -61,6 +65,7 @@ def _get_aggregation_workflow(request: Request) -> MultiSourceAggregationService
         aggregation_session_repo=repo,
         relationship_agent=RelationshipAnalysisAgent(
             llm_client=runtime.core.llm_client,
+            llm_repo=build_llm_repository(runtime.core.db),
         )
         if runtime.core.llm_client is not None
         else None,
