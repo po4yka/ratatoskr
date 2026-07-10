@@ -11,6 +11,7 @@ from app.adapters.content.summarization_runtime import SummarizationRuntime
 from app.adapters.telegram.forward_content_processor import ForwardContentProcessor
 from app.adapters.telegram.forward_summarizer import ForwardSummarizer
 from app.application.services.user_interaction_service import async_safe_update_user_interaction
+from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.domain.models.request import RequestStatus
 
@@ -73,6 +74,10 @@ class ForwardProcessor:
         self._db_write_queue = db_write_queue
         self._related_reads_service = related_reads_service
         self._summarization_runtime: SummarizationRuntime | None = None
+        # Strong references to in-flight fire-and-forget tasks (insights,
+        # related-reads). Without this set the event loop only holds a weak
+        # reference and may GC a task mid-run; drained on shutdown via aclose().
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
         # Enrich forwarded-post summaries with the content of embedded links,
         # when a content extractor is available to scrape them.
@@ -207,6 +212,8 @@ class ForwardProcessor:
 
         try:
             task: asyncio.Task[Any] = asyncio.create_task(_with_timeout())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         except RuntimeError as exc:
             logger.error(
                 "background_task_schedule_failed",
@@ -226,6 +233,23 @@ class ForwardProcessor:
 
         task.add_done_callback(_log_task_error)
         return task
+
+    async def aclose(self, timeout: float = 5.0) -> None:
+        """Drain in-flight forward-flow background tasks on shutdown."""
+        if not self._background_tasks:
+            return
+        tasks = list(self._background_tasks)
+        try:
+            async with asyncio.timeout(timeout):
+                await asyncio.gather(*tasks, return_exceptions=True)
+        except TimeoutError:
+            logger.warning(
+                "forward_processor_shutdown_timeout",
+                extra={"pending": len(self._background_tasks)},
+            )
+        except Exception as e:
+            raise_if_cancelled(e)
+            logger.error("forward_processor_shutdown_error", extra={"error": str(e)})
 
     async def _send_related_reads(
         self,

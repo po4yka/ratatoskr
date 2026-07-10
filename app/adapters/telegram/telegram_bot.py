@@ -195,6 +195,15 @@ class TelegramBot:
                 raise_if_cancelled(e)
                 logger.warning("shutdown_url_processor_close_failed", exc_info=True)
 
+        # 0b. Drain forward-flow background tasks (insights, related-reads)
+        forward_processor = getattr(self, "forward_processor", None)
+        if forward_processor is not None and hasattr(forward_processor, "aclose"):
+            try:
+                await forward_processor.aclose(timeout=drain_timeout)
+            except Exception as e:
+                raise_if_cancelled(e)
+                logger.warning("shutdown_forward_processor_close_failed", exc_info=True)
+
         # 1. Close the scraper chain (multi-provider; aclose propagates to all rungs)
         _core = getattr(getattr(self, "_runtime", None), "core", None)
         scraper_chain = getattr(_core, "scraper_chain", None)
