@@ -119,7 +119,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                     "sentry_sdk not installed; install monitoring extra to enable Sentry"
                 )
 
-        runtime = await build_api_runtime()
+        # Start the durable saver before graph construction so every URL processor
+        # compiled by the API runtime receives the same Postgres checkpointer.
+        if _cfg.langgraph_checkpoint.enabled:
+            try:
+                from app.infrastructure.checkpointing import CheckpointerRuntime
+
+                checkpointer_runtime = CheckpointerRuntime(cfg=_cfg)
+                await checkpointer_runtime.start()
+            except ImportError:
+                logger.warning("langgraph_checkpointer_not_installed")
+            except Exception:
+                logger.exception("langgraph_checkpointer_startup_failed")
+                checkpointer_runtime = None
+
+        runtime = await build_api_runtime(
+            _cfg,
+            checkpointer=checkpointer_runtime.saver if checkpointer_runtime is not None else None,
+        )
         setup_json_logging(runtime.cfg.runtime.log_level)
 
         from app.api.routers.auth.tokens import log_auth_posture_summary
@@ -157,24 +174,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         except ImportError:
             pass
 
-        # Start the LangGraph Postgres checkpointer when enabled (opt-in,
-        # failure-isolated; ADR-0004). Dedicated psycopg3 pool -- not Database.
-        if _cfg.langgraph_checkpoint.enabled:
-            try:
-                from app.infrastructure.checkpointing import CheckpointerRuntime
-
-                checkpointer_runtime = CheckpointerRuntime(cfg=_cfg)
-                await checkpointer_runtime.start()
-            except ImportError:
-                logger.warning("langgraph_checkpointer_not_installed")
-            except Exception:
-                logger.exception("langgraph_checkpointer_startup_failed")
-                checkpointer_runtime = None
-
         yield
     finally:
-        if checkpointer_runtime is not None:
-            await checkpointer_runtime.stop(timeout=10.0)
         if durable_worker is not None:
             await runtime.durable_request_queue.stop()
         if transcription_worker is not None:
@@ -185,7 +186,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         if runtime is not None:
             await close_api_runtime(runtime)
             clear_current_api_runtime()
-            logger.info("database_closed")
+        if checkpointer_runtime is not None:
+            await checkpointer_runtime.stop(timeout=10.0)
+        logger.info("database_closed")
 
 
 # FastAPI app instance

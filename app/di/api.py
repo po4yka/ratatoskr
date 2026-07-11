@@ -88,6 +88,7 @@ async def build_api_runtime(
     *,
     db: Database | None = None,
     redis_client: Any | None = None,
+    checkpointer: Any | None = None,
 ) -> ApiRuntime:
     """Build the shared API runtime graph."""
     app_cfg = cfg or load_config(allow_stub_telegram=True)
@@ -143,6 +144,7 @@ async def build_api_runtime(
         topic_search=search.topic_searcher if app_cfg.web_search.enabled else None,
         vector_store=search.vector_store,
         embedding_service=search.embedding_service,
+        checkpointer=checkpointer,
     )
 
     def url_processor_factory(runtime_db: Any) -> Any:
@@ -157,6 +159,7 @@ async def build_api_runtime(
             topic_search=search.topic_searcher if app_cfg.web_search.enabled else None,
             vector_store=search.vector_store,
             embedding_service=search.embedding_service,
+            checkpointer=checkpointer,
         )
 
     user_repository = build_user_repository(database)

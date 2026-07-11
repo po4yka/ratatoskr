@@ -105,6 +105,7 @@ def build_telegram_runtime(
     reply_json_func: Any,
     db_write_queue: DbWriteQueue | None = None,
     audit_task_registry: set[Any] | None = None,
+    checkpointer: Any | None = None,
 ) -> TelegramRuntime:
     """Build the full Telegram runtime graph from shared DI modules."""
     telegram_repositories = _build_telegram_repositories(db)
@@ -137,6 +138,7 @@ def build_telegram_runtime(
         search=search,
         repositories=telegram_repositories,
         db_write_queue=db_write_queue,
+        checkpointer=checkpointer,
     )
     application_services = build_application_services(
         db,
@@ -318,6 +320,7 @@ def _build_processing_stack(
     search: Any,
     repositories: TelegramRepositories,
     db_write_queue: DbWriteQueue | None,
+    checkpointer: Any | None = None,
 ) -> _TelegramProcessingStack:
     related_reads_service = _build_related_reads_service(cfg=cfg, db=db, search=search)
     url_processor = build_url_processor(
@@ -338,6 +341,7 @@ def _build_processing_stack(
         related_reads_service=related_reads_service,
         vector_store=search.vector_store,
         embedding_service=search.embedding_service,
+        checkpointer=checkpointer,
     )
     forward_processor = ForwardProcessor(
         cfg=cfg,
