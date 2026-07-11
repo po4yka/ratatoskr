@@ -497,8 +497,6 @@ jobs:
             --ignore=tests/chaos \
             --ignore=tests/integration \
             --ignore=tests/stress \
-            --ignore=tests/api/test_background_processor.py \
-            --ignore=tests/test_api_rate_limit_and_sync.py \
             --ignore=tests/test_digest_api_service.py \
             --ignore=tests/test_pure_summary_service.py \
             --ignore=tests/test_runtime_di_architecture.py \
@@ -1064,8 +1062,6 @@ jobs:
             -m "integration" \
             --ignore=tests/benchmarks \
             --ignore=tests/integration/test_batch_relationship_flow.py \
-            --ignore=tests/api/test_background_processor.py \
-            --ignore=tests/test_api_rate_limit_and_sync.py \
             --verbose \
             --maxfail=5 \
             --tb=short \
