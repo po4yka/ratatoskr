@@ -8,12 +8,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.digest_store import DigestStore
+from app.infrastructure.persistence.repositories.llm_repository import LLMRepositoryAdapter
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.adapters.llm.protocol import LLMClientProtocol
+    from app.application.ports.requests import LLMRepositoryPort
     from app.config import AppConfig
 
 logger = get_logger(__name__)
@@ -36,11 +39,17 @@ class _DigestPostAnalysis(BaseModel):
 class DigestAnalyzer:
     """Runs lightweight LLM analysis on channel posts with concurrency control."""
 
-    def __init__(self, cfg: AppConfig, llm_client: LLMClientProtocol) -> None:
+    def __init__(
+        self,
+        cfg: AppConfig,
+        llm_client: LLMClientProtocol,
+        llm_repo: LLMRepositoryPort | None = None,
+    ) -> None:
         self._cfg = cfg
         self._llm = llm_client
         self._semaphore = asyncio.Semaphore(cfg.digest.concurrency)
         self._store = DigestStore()
+        self._llm_repo = llm_repo
 
     async def analyze_posts(
         self,
@@ -138,6 +147,21 @@ class DigestAnalyzer:
         """Persist LLM analysis results to the DB for the given post."""
         await self._store.async_persist_analysis(post, fields)
 
+    def _llm_call_repo(self) -> LLMRepositoryPort | None:
+        """Resolve the LLM-call repository lazily from the store's database.
+
+        Explicitly injectable (tests); otherwise it reuses the same runtime
+        database the DigestStore persists analysis to. Returns None when no
+        database is available -- persist_agent_llm_call then no-ops, so analysis
+        never fails because call-metadata persistence could not be set up.
+        """
+        if self._llm_repo is None:
+            try:
+                self._llm_repo = LLMRepositoryAdapter(self._store._database())
+            except Exception:
+                return None
+        return self._llm_repo
+
     async def _analyze_single(
         self,
         post: dict[str, Any],
@@ -164,6 +188,7 @@ class DigestAnalyzer:
                 {"role": "user", "content": user_prompt},
             ]
 
+            model = getattr(self._llm, "_model", "unknown")
             try:
                 result = await self._llm.chat_structured(
                     messages,
@@ -177,7 +202,30 @@ class DigestAnalyzer:
                     "digest_llm_error",
                     extra={"cid": correlation_id, "error": str(exc)},
                 )
+                await persist_agent_llm_call(
+                    self._llm_call_repo(),
+                    request_id=None,
+                    endpoint="digest_analysis",
+                    model=model,
+                    status="error",
+                    error=exc,
+                    correlation_id=correlation_id,
+                    structured_output_used=True,
+                )
                 return _fallback_analysis(post, reason=ANALYSIS_FAILED_STATUS)
+
+            # Record the billed LLM call's cost/tokens/model even when the
+            # structured payload later fails validation -- the call already ran.
+            await persist_agent_llm_call(
+                self._llm_call_repo(),
+                request_id=None,
+                endpoint="digest_analysis",
+                model=model,
+                status="success",
+                result=result,
+                correlation_id=correlation_id,
+                structured_output_used=True,
+            )
 
             fields = self._parse_and_validate_llm_response(
                 result.parsed.model_dump(), correlation_id
