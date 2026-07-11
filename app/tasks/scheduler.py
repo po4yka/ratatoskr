@@ -83,6 +83,16 @@ class _AppConfigScheduleSource(ScheduleSource):
                     kwargs={},
                 )
             )
+        if signal_sources_enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.topic_change_watch.run",
+                    cron="15 * * * *",
+                    labels={"job": "topic_change_watch"},
+                    args=[],
+                    kwargs={},
+                )
+            )
 
         if cfg.github.sync_enabled:
             tasks.append(

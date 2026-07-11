@@ -150,7 +150,7 @@ services:
       - -c
       - |
         python -m app.cli.migrate_db --check
-        exec taskiq worker app.tasks.broker:broker app.tasks.digest app.tasks.rss app.tasks.github_sync app.tasks.reconcile_vector_index app.tasks.import_tasks app.tasks.x_bookmarks_sync app.tasks.x_wiki_sync app.tasks.url_processing app.tasks.langgraph_prune app.tasks.git_backup_sync app.tasks.ai_backup_sync app.tasks.purge_raw_data --workers "$${TASKIQ_WORKER_CONCURRENCY:-4}"
+        exec taskiq worker app.tasks.broker:broker app.tasks.digest app.tasks.rss app.tasks.github_sync app.tasks.reconcile_vector_index app.tasks.import_tasks app.tasks.x_bookmarks_sync app.tasks.x_wiki_sync app.tasks.url_processing app.tasks.langgraph_prune app.tasks.git_backup_sync app.tasks.ai_backup_sync app.tasks.purge_raw_data app.tasks.topic_change_watch --workers "$${TASKIQ_WORKER_CONCURRENCY:-4}"
     env_file:
       - path: ../../.env
         required: false
