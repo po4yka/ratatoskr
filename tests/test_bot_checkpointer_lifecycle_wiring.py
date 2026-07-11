@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
+import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -78,7 +79,8 @@ async def test_bot_main_starts_checkpointer_before_constructing_runtime(monkeypa
     monkeypatch.setattr(bot_module, "TelegramBot", FakeBot)
     monkeypatch.setattr("app.observability.otel.init_tracing", lambda _cfg: None)
     monkeypatch.setattr("app.infrastructure.checkpointing.CheckpointerRuntime", FakeCheckpointerRuntime)
-    monkeypatch.setattr("app.tasks.broker.broker", broker)
+    broker_module = importlib.import_module("app.tasks.broker")
+    monkeypatch.setattr(broker_module, "broker", broker)
 
     await bot_module.main()
 

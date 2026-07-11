@@ -359,7 +359,7 @@ paths:
       tags:
       - Authentication
       summary: Change Password
-      description: Change the current user's password (requires the current one).
+      description: Change the current user's password and revoke all active refresh-token families.
       operationId: change_password_v1_auth_credentials_change_password_post
       requestBody:
         content:

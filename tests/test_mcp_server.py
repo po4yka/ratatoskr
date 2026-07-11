@@ -366,6 +366,7 @@ def test_mcp_resource_contribution_is_schema_testable_and_registers_on_fake_mcp(
 
 
 def test_registered_tool_still_records_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.mcp.context import McpServerContext
     from app.mcp.tool_registrations import register_tools
 
     metric_calls: list[dict[str, Any]] = []
@@ -378,6 +379,7 @@ def test_registered_tool_still_records_metrics(monkeypatch: pytest.MonkeyPatch) 
     mcp = FakeFastMCP()
     register_tools(
         mcp,
+        context=McpServerContext(),
         aggregation_service=cast(
             "Any",
             SimpleNamespace(check_source_supported=lambda **_kwargs: {"supported": True}),

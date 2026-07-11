@@ -173,6 +173,7 @@ def build_telegram_runtime(
         forward_processor=processing.forward_processor,
         attachment_processor=processing.attachment_processor,
         message_handler=interface.message_handler,
+        summary_repository=telegram_repositories.summary_repository,
         durable_transcription_queue=interface.durable_transcription_queue,
         adaptive_timeout_service=interface.adaptive_timeout_service,
         verbosity_resolver=verbosity_resolver,

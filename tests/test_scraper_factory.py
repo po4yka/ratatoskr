@@ -34,10 +34,10 @@ class TestContentScraperFactory:
             if descriptor.requires_browser
         } == {"cloakbrowser", "playwright", "crawlee"}
 
-    def test_default_config_creates_chain_with_eight_providers_when_firecrawl_disabled(
+    def test_default_config_creates_chain_with_ten_providers_when_firecrawl_disabled(
         self,
     ):
-        """Default config (firecrawl self-hosted off) yields an 8-rung chain.
+        """Default config (firecrawl self-hosted off) yields a 10-rung chain.
 
         Firecrawl activates only when FIRECRAWL_SELF_HOSTED_ENABLED=true, and
         scrapegraph_ai activates only when SCRAPER_SCRAPEGRAPH_ENABLED=true.
@@ -71,6 +71,8 @@ class TestContentScraperFactory:
 
         names = [p.provider_name for p in chain.providers]
         assert names == [
+            "reddit",
+            "hn",
             "scrapling",
             "direct_pdf",
             "crawl4ai",
@@ -83,7 +85,7 @@ class TestContentScraperFactory:
         mock_firecrawl.assert_not_called()
         mock_scrapegraph.assert_not_called()
 
-    def test_default_config_creates_chain_with_nine_providers_when_firecrawl_enabled(
+    def test_default_config_creates_chain_with_eleven_providers_when_firecrawl_enabled(
         self,
     ):
         """When FIRECRAWL_SELF_HOSTED_ENABLED=true, firecrawl appears in the chain.
@@ -128,6 +130,8 @@ class TestContentScraperFactory:
 
         names = [p.provider_name for p in chain.providers]
         assert names == [
+            "reddit",
+            "hn",
             "scrapling",
             "direct_pdf",
             "crawl4ai",

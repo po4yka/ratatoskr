@@ -222,13 +222,7 @@ async def change_password(
     user: dict[str, Any] = Depends(get_current_user),
     auth_repo: Any = Depends(get_auth_repository),
 ) -> Any:
-    """Change the current user's password (requires the current one).
-
-    Revokes every active refresh-token family for the user after a
-    successful change -- mirrors ``POST /v1/auth/logout-all`` -- so a
-    refresh token that leaked before the change cannot keep surviving on
-    it (previously it could ride out its full TTL, up to 30 days).
-    """
+    """Change the current user's password and revoke all active refresh-token families."""
     user_id = int(user["user_id"])
     ensure_user_allowed(user_id)
     validate_password(payload.new_password)

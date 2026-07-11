@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -109,7 +110,8 @@ async def test_lifespan_starts_checkpointer_before_building_api_runtime(monkeypa
     )
 
     broker = SimpleNamespace(is_worker_process=True)
-    monkeypatch.setattr("app.tasks.broker.broker", broker)
+    broker_module = importlib.import_module("app.tasks.broker")
+    monkeypatch.setattr(broker_module, "broker", broker)
 
     async with main.lifespan(MagicMock()):
         assert events == ["checkpointer_started", "runtime_built"]

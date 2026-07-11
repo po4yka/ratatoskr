@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.lifecycle_manager import TelegramLifecycleManager
 from app.adapters.telegram.telethon_compat import normalize_parse_mode
@@ -150,12 +150,10 @@ class TelegramBot:
             return None
         from app.adapters.telegram.reaction_feedback import (
             ReactionFeedbackHandler,
-            SummaryFeedbackRepo,
         )
-        from app.di.repositories import build_summary_repository
 
         recorder = ReactionFeedbackHandler(
-            cast("SummaryFeedbackRepo", build_summary_repository(self.db)),
+            self._runtime.summary_repository,
             int(owner_ids[0]),
         )
         return recorder.handle
