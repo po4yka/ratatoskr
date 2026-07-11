@@ -88,6 +88,7 @@ if TYPE_CHECKING:
     from app.mcp.article_service import ArticleReadService
     from app.mcp.catalog_service import CatalogReadService
     from app.mcp.context import McpServerContext
+    from app.mcp.archive_research_service import ArchiveResearchMcpService
     from app.mcp.semantic_service import SemanticSearchService
     from app.mcp.signal_service import SignalMcpService
     from app.mcp.x_search_service import XSearchService
@@ -140,10 +141,16 @@ def register_tools(
     semantic_service: SemanticSearchService,
     signal_service: SignalMcpService | None = None,
     x_search_service_inst: XSearchService | None = None,
+    archive_research_service: ArchiveResearchMcpService | None = None,
 ) -> None:
     signal_runtime: Any = signal_service if signal_service is not None else _NullSignalService()
     x_search_runtime: Any = (
         x_search_service_inst if x_search_service_inst is not None else _NullXSearchService()
+    )
+    archive_research_runtime: Any = (
+        archive_research_service
+        if archive_research_service is not None
+        else _NullArchiveResearchService()
     )
     contributions: list[McpToolContribution] = []
     contribute_tool = _contribute_tool(contributions)
@@ -320,6 +327,18 @@ def register_tools(
                 query,
                 category,
                 limit,
+            )
+        )
+
+    @contribute_tool
+    async def ask_my_archive(query: str, max_sources: int = 12) -> str:
+        """Research a question from the scoped archive with verified citations."""
+        return to_json(
+            await _call_async(
+                "ask_my_archive",
+                archive_research_runtime.research,
+                query,
+                max_sources,
             )
         )
 
@@ -517,3 +536,8 @@ class _NullXSearchService:
         limit: int = 10,
     ) -> dict[str, Any]:
         return {"error": "X search service is not configured"}
+
+
+class _NullArchiveResearchService:
+    async def research(self, query: str, max_sources: int = 12) -> dict[str, Any]:
+        return {"error": "Archive research service is not configured"}

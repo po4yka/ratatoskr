@@ -254,7 +254,7 @@ Example mcporter config:
 }
 ```
 
-## Tools (25)
+## Tools (27)
 
 | Tool | Description |
 | ------ | ------------- |
@@ -268,6 +268,8 @@ Example mcporter config:
 | `get_article_content(summary_id)` | Original crawled content (markdown/text, capped at 50k chars) |
 | `get_stats()` | Database statistics: counts, languages, top tags, request types |
 | `find_by_entity(entity_name, entity_type, limit)` | Find articles mentioning a person, org, or location |
+| `x_search(query, category, limit)` | Full-text search across ingested X bookmarks |
+| `ask_my_archive(query, max_sources)` | Bounded citation-first research across summaries, repositories, X bookmarks, git mirrors, highlights, and notes |
 | `list_collections(limit, offset)` | List top-level article collections |
 | `get_collection(collection_id, include_items, limit)` | Collection details with articles |
 | `list_videos(limit, offset, status)` | List YouTube video downloads with metadata |

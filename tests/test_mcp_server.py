@@ -280,6 +280,7 @@ def test_create_mcp_server_registers_expected_tools_and_resources(
         "get_stats",
         "find_by_entity",
         "x_search",
+        "ask_my_archive",
         "list_collections",
         "get_collection",
         "list_videos",

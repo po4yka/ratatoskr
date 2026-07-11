@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from app.mcp.aggregation_service import AggregationMcpService
 from app.mcp.article_service import ArticleReadService
+from app.mcp.archive_research_service import ArchiveResearchMcpService
 from app.mcp.catalog_service import CatalogReadService
 from app.mcp.context import McpServerContext
 from app.mcp.http_auth import McpHttpAuthMiddleware
@@ -80,6 +81,11 @@ def create_mcp_server(context: McpServerContext | None = None) -> FastMCP:
     semantic_service = SemanticSearchService(server_context, article_service)
     signal_service = SignalMcpService(server_context)
     x_search_service_inst = XSearchService(server_context)
+    archive_research_service = ArchiveResearchMcpService(
+        server_context,
+        article_service,
+        x_search_service_inst,
+    )
 
     register_tools(
         mcp,
@@ -90,6 +96,7 @@ def create_mcp_server(context: McpServerContext | None = None) -> FastMCP:
         semantic_service=semantic_service,
         signal_service=signal_service,
         x_search_service_inst=x_search_service_inst,
+        archive_research_service=archive_research_service,
     )
     register_resources(
         mcp,
