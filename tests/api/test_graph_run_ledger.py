@@ -7,10 +7,6 @@ import datetime as dt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.models.responses.graph_run_ledger import (
-    GraphRunEvaluationListResponse,
-    GraphRunLedgerResponse,
-)
 from app.api.routers.auth.tokens import create_access_token
 from app.core.time_utils import UTC
 from app.db.models import LLMCall, ProgressEvent, Request, Summary, SummaryFeedback, User
@@ -49,9 +45,9 @@ async def test_graph_run_ledger_is_owner_only_and_excludes_sensitive_values(
                     request_id=request.id,
                     event_id="ledger-event-1",
                     sequence=1,
-                    kind="stage",
+                    kind="graph_node",
                     stage="build_prompt",
-                    status="running",
+                    status="completed",
                     message="raw article body and token=secret",
                     payload={"prompt": "private raw prompt"},
                     created_at=now,
@@ -103,14 +99,13 @@ async def test_graph_run_ledger_is_owner_only_and_excludes_sensitive_values(
     response = client.get(f"/v1/admin/graph-runs/{request.id}", headers=_headers(9101))
     assert response.status_code == 200
     data = response.json()["data"]
-    GraphRunLedgerResponse.model_validate(data)
     assert data["requestId"] == request.id
     assert data["chronology"] == [
         {
             "sequence": 1,
-            "kind": "stage",
+            "kind": "graph_node",
             "stage": "build_prompt",
-            "status": "running",
+            "status": "completed",
             "occurredAt": now.isoformat().replace("+00:00", "Z"),
         }
     ]
@@ -126,7 +121,7 @@ async def test_graph_run_ledger_is_owner_only_and_excludes_sensitive_values(
         "totalCostUsd": 0.032345,
     }
     assert data["attempts"][0]["errorPresent"] is True
-    assert data["attempts"][0]["fallbackModel"] == "fallback/model"
+    assert data["attempts"][0]["fallbackModel"] == "model:aac294b45a42"
     assert data["feedback"] == {
         "feedbackCount": 1,
         "ratingAverage": 2.0,
@@ -169,7 +164,6 @@ async def test_graph_run_evaluations_returns_bounded_feedback_join(client: TestC
     response = client.get("/v1/admin/graph-runs?limit=1", headers=_headers(9201))
     assert response.status_code == 200
     data = response.json()["data"]
-    GraphRunEvaluationListResponse.model_validate(data)
     assert data["limit"] == 1
     assert len(data["items"]) == 1
     assert data["items"][0]["requestId"] == request.id

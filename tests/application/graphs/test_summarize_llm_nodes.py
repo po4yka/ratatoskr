@@ -164,7 +164,7 @@ async def test_repair_node_reruns_and_records_call() -> None:
     out = await repair(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
     assert out["repair_attempts"] == 1
     assert out["summary"]["summary_250"] == "a summary"
-    assert out["llm_calls"][0]["attempt_trigger"] == "graph_node"
+    assert out["llm_calls"][0]["attempt_trigger"] == "repair_loop"
 
 
 async def test_repair_node_records_failure_call_and_advances_budget() -> None:
@@ -175,7 +175,7 @@ async def test_repair_node_records_failure_call_and_advances_budget() -> None:
     # persist-everything: the failed repair attempt is recorded as an llm_call
     failure = out["llm_calls"][0]
     assert failure["status"] == "error"
-    assert failure["attempt_trigger"] == "graph_node"
+    assert failure["attempt_trigger"] == "repair_loop"
     assert "boom" in failure["error_text"]
 
 

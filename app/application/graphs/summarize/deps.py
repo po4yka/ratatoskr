@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from app.application.ports.export_events import SummaryExportEventPublisherPort
     from app.application.ports.extraction import ExtractionPort
+    from app.application.ports.graph_run_ledger import GraphRunLedgerPort
     from app.application.ports.llm_client import LLMClientProtocol
     from app.application.ports.requests import (
         CrawlResultRepositoryPort,
@@ -131,3 +132,6 @@ class SummarizeDeps:
     # None means metadata backfill is skipped (conservative path).
     crawl_repo: CrawlResultRepositoryPort | None = None
     export_events: SummaryExportEventPublisherPort | None = None
+    # Durable structural node chronology. The adapter records only node/status
+    # labels, never state, prompts, responses, or error text.
+    graph_run_ledger: GraphRunLedgerPort | None = None

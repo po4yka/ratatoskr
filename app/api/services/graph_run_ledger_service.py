@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import defaultdict
+from hashlib import sha256
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
@@ -26,8 +27,34 @@ if TYPE_CHECKING:
     from app.db.session import Database
 
 
-_SAFE_LABEL = re.compile(r"[^a-zA-Z0-9_.:/@+-]+")
-_MAX_LABEL_LENGTH = 128
+_GRAPH_NODES = frozenset(
+    {
+        "ingest",
+        "extract",
+        "ground",
+        "build_prompt",
+        "summarize",
+        "validate",
+        "repair",
+        "enrich",
+        "persist",
+        "notify",
+    }
+)
+_NODE_STATUSES = frozenset({"started", "completed", "failed"})
+_ATTEMPT_TRIGGERS = frozenset(
+    {
+        "initial",
+        "user_retry",
+        "auto_backfill",
+        "repair_loop",
+        "stream_fallback_retry",
+        "webwright_tool",
+        "graph_node",
+        "ru_translation",
+    }
+)
+_ATTEMPT_STATUSES = frozenset({"ok", "success", "error", "failed"})
 
 
 class GraphRunLedgerService:
@@ -63,53 +90,78 @@ class GraphRunLedgerService:
         if not request_ids:
             return []
         async with self._database.session() as session:
-            requests = list(
-                (
-                    await session.scalars(
-                        select(Request).where(
-                            Request.id.in_(request_ids), Request.is_deleted.is_(False)
-                        )
-                    )
-                ).all()
+            requests = _rows(
+                await session.execute(
+                    select(
+                        Request.id,
+                        Request.status,
+                        Request.created_at,
+                        Request.processing_time_ms,
+                    ).where(Request.id.in_(request_ids), Request.is_deleted.is_(False))
+                )
             )
             if not requests:
                 return []
             actual_ids = [request.id for request in requests]
-            events = list(
-                (
-                    await session.scalars(
-                        select(ProgressEvent)
-                        .where(ProgressEvent.request_id.in_(actual_ids))
-                        .order_by(ProgressEvent.request_id, ProgressEvent.sequence)
+            events = _rows(
+                await session.execute(
+                    select(
+                        ProgressEvent.request_id,
+                        ProgressEvent.sequence,
+                        ProgressEvent.kind,
+                        ProgressEvent.stage,
+                        ProgressEvent.status,
+                        ProgressEvent.created_at,
                     )
-                ).all()
-            )
-            calls = list(
-                (
-                    await session.scalars(
-                        select(LLMCall)
-                        .where(LLMCall.request_id.in_(actual_ids), LLMCall.is_deleted.is_(False))
-                        .order_by(LLMCall.request_id, LLMCall.attempt_index)
+                    .where(
+                        ProgressEvent.request_id.in_(actual_ids),
+                        ProgressEvent.kind == "graph_node",
                     )
-                ).all()
+                    .order_by(ProgressEvent.request_id, ProgressEvent.sequence)
+                )
             )
-            summaries = list(
-                (
-                    await session.scalars(
-                        select(Summary).where(
-                            Summary.request_id.in_(actual_ids), Summary.is_deleted.is_(False)
-                        )
+            calls = _rows(
+                await session.execute(
+                    select(
+                        LLMCall.request_id,
+                        LLMCall.attempt_index,
+                        LLMCall.attempt_trigger,
+                        LLMCall.provider,
+                        LLMCall.model,
+                        LLMCall.status,
+                        LLMCall.latency_ms,
+                        LLMCall.total_latency_ms,
+                        LLMCall.tokens_prompt,
+                        LLMCall.tokens_completion,
+                        LLMCall.cost_usd,
+                        LLMCall.fallback_model_used,
+                        LLMCall.retry_exhausted,
+                        LLMCall.error_text.is_not(None).label("error_present"),
                     )
-                ).all()
+                    .where(LLMCall.request_id.in_(actual_ids), LLMCall.is_deleted.is_(False))
+                    .order_by(LLMCall.request_id, LLMCall.attempt_index)
+                )
             )
-            feedback = list(
-                (
-                    await session.scalars(
-                        select(SummaryFeedback).where(
+            summaries = _rows(
+                await session.execute(
+                    select(Summary.id, Summary.request_id).where(
+                        Summary.request_id.in_(actual_ids), Summary.is_deleted.is_(False)
+                    )
+                )
+            )
+            feedback = (
+                _rows(
+                    await session.execute(
+                        select(
+                            SummaryFeedback.summary_id,
+                            SummaryFeedback.rating,
+                            SummaryFeedback.issues,
+                            SummaryFeedback.updated_at,
+                        ).where(
                             SummaryFeedback.summary_id.in_([summary.id for summary in summaries])
                         )
                     )
-                ).all()
+                )
                 if summaries
                 else []
             )
@@ -148,9 +200,9 @@ def build_graph_run_ledger(
     chronology = [
         GraphRunLedgerChronologyEntry(
             sequence=int(event.sequence),
-            kind=_safe_label(event.kind),
-            stage=_safe_optional_label(event.stage),
-            status=_safe_optional_label(event.status),
+            kind="graph_node",
+            stage=_safe_node(event.stage),
+            status=_safe_node_status(event.status),
             occurred_at=event.created_at,
         )
         for event in events
@@ -170,7 +222,7 @@ def build_graph_run_ledger(
     )
     return GraphRunLedgerResponse(
         request_id=int(request.id),
-        request_status=_safe_label(request.status),
+        request_status=_safe_request_status(request.status),
         created_at=request.created_at,
         chronology=chronology,
         attempts=attempts,
@@ -182,18 +234,18 @@ def build_graph_run_ledger(
 def _attempt_from_call(call: Any) -> GraphRunLedgerAttempt:
     return GraphRunLedgerAttempt(
         attempt_index=int(call.attempt_index),
-        trigger=_safe_label(call.attempt_trigger),
-        provider=_safe_optional_label(call.provider),
-        model=_safe_optional_label(call.model),
-        status=_safe_optional_label(call.status),
+        trigger=_safe_attempt_trigger(call.attempt_trigger),
+        provider="openrouter" if call.provider == "openrouter" else "unknown",
+        model=_safe_model_id(call.model),
+        status=_safe_attempt_status(call.status),
         latency_ms=_safe_nonnegative_int(call.latency_ms),
         total_latency_ms=_safe_nonnegative_int(call.total_latency_ms),
         prompt_tokens=_safe_nonnegative_int(call.tokens_prompt),
         completion_tokens=_safe_nonnegative_int(call.tokens_completion),
         cost_usd=_safe_nonnegative_float(call.cost_usd),
-        fallback_model=_safe_optional_label(call.fallback_model_used),
+        fallback_model=_safe_model_id(call.fallback_model_used),
         retry_exhausted=bool(call.retry_exhausted),
-        error_present=bool(call.error_text),
+        error_present=bool(call.error_present),
     )
 
 
@@ -220,13 +272,38 @@ def _issue_count(value: object) -> int:
     return sum(isinstance(item, str) and bool(item) for item in parsed)
 
 
-def _safe_optional_label(value: object) -> str | None:
-    return _safe_label(value) if value else None
+def _rows(result: Any) -> list[SimpleNamespace]:
+    return [SimpleNamespace(**dict(row)) for row in result.mappings().all()]
 
 
-def _safe_label(value: object) -> str:
-    normalized = _SAFE_LABEL.sub("_", str(getattr(value, "value", value))).strip("_")
-    return normalized[:_MAX_LABEL_LENGTH] or "unknown"
+def _safe_node(value: object) -> str:
+    return str(value) if str(value) in _GRAPH_NODES else "unknown"
+
+
+def _safe_node_status(value: object) -> str:
+    return str(value) if str(value) in _NODE_STATUSES else "unknown"
+
+
+def _safe_attempt_trigger(value: object) -> str:
+    return str(value) if str(value) in _ATTEMPT_TRIGGERS else "unknown"
+
+
+def _safe_attempt_status(value: object) -> str | None:
+    return str(value) if str(value) in _ATTEMPT_STATUSES else None
+
+
+def _safe_request_status(value: object) -> str:
+    return (
+        str(value)
+        if str(value) in {"pending", "processing", "completed", "error", "failed"}
+        else "unknown"
+    )
+
+
+def _safe_model_id(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    return f"model:{sha256(value.encode()).hexdigest()[:12]}"
 
 
 def _safe_nonnegative_int(value: object) -> int | None:

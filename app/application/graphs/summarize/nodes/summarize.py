@@ -155,6 +155,7 @@ def _call_record(
         "tokens_completion": call_meta.get("tokens_completion"),
         "cost_usd": call_meta.get("cost_usd"),
         "latency_ms": call_meta.get("latency_ms"),
+        "fallback_model_used": _fallback_model(config, call_meta),
         "status": status,
         "structured_output_used": structured,
         "structured_output_mode": config.structured_output_mode if config else None,
@@ -163,6 +164,14 @@ def _call_record(
     if error_text is not None:
         rec["error_text"] = error_text
     return rec
+
+
+def _fallback_model(config: SummarizeConfig | None, call_meta: dict[str, Any]) -> str | None:
+    """Persist a selected fallback when the provider returned a non-primary model."""
+    model = call_meta.get("model")
+    if not isinstance(model, str) or not model:
+        return None
+    return model if config is not None and model != config.model else None
 
 
 def _tag_failure(

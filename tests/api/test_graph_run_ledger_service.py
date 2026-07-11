@@ -23,8 +23,8 @@ def test_graph_run_ledger_allowlists_operational_fields_and_feedback_labels() ->
         events=[
             SimpleNamespace(
                 sequence=1,
-                kind="stage",
-                stage="build_prompt",
+                kind="graph_node",
+                stage="privatePromptToken42",
                 status="running",
                 message="private raw prompt",
                 payload={"prompt": "private raw prompt"},
@@ -45,7 +45,7 @@ def test_graph_run_ledger_allowlists_operational_fields_and_feedback_labels() ->
                 cost_usd=0.01,
                 fallback_model_used="fallback/model",
                 retry_exhausted=True,
-                error_text="private provider error secret=raw-error",
+                error_present=True,
                 request_messages_json=[{"content": "private raw prompt"}],
                 response_text="private raw completion",
             ),
@@ -62,7 +62,7 @@ def test_graph_run_ledger_allowlists_operational_fields_and_feedback_labels() ->
                 cost_usd=0.02,
                 fallback_model_used=None,
                 retry_exhausted=False,
-                error_text=None,
+                error_present=False,
             ),
         ],
         feedback=[
@@ -83,7 +83,8 @@ def test_graph_run_ledger_allowlists_operational_fields_and_feedback_labels() ->
     assert ledger.feedback.rating_average == 1.0
     assert ledger.feedback.issue_count == 2
     assert ledger.attempts[0].error_present is True
-    assert ledger.chronology[0].stage == "build_prompt"
+    assert ledger.attempts[0].model == "model:bbae3530039b"
+    assert ledger.chronology[0].stage == "unknown"
 
     rendered = ledger.model_dump_json(by_alias=True)
     for secret in (
@@ -92,6 +93,7 @@ def test_graph_run_ledger_allowlists_operational_fields_and_feedback_labels() ->
         "private raw prompt",
         "private raw completion",
         "raw-error",
+        "privatePromptToken42",
         "private issue secret",
         "private free-form feedback",
     ):

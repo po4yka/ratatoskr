@@ -127,6 +127,7 @@ def build_summarize_deps(
     summary_cache: Any | None = None,
     crawl_repo: Any | None = None,
     export_events: Any | None = None,
+    graph_run_ledger: Any | None = None,
 ) -> SummarizeDeps:
     """Pack already-constructed ports + config snapshot into the node dependency bundle.
 
@@ -161,6 +162,7 @@ def build_summarize_deps(
         summary_cache=summary_cache,
         crawl_repo=crawl_repo,
         export_events=export_events,
+        graph_run_ledger=graph_run_ledger,
     )
 
 
@@ -465,6 +467,7 @@ def assemble_graph_url_processor(
     """
     from app.adapters.export.dispatcher import SummaryExportDispatcher
     from app.di.extraction import build_extraction_port
+    from app.infrastructure.persistence.graph_run_ledger import ProgressEventGraphRunLedger
     from app.infrastructure.persistence.repositories.embedding_repository import (
         EmbeddingRepositoryAdapter,
     )
@@ -500,6 +503,7 @@ def assemble_graph_url_processor(
         summary_cache=build_summary_cache_adapter(cfg, cache=redis_cache),
         crawl_repo=crawl_result_repo,
         export_events=SummaryExportDispatcher(db),
+        graph_run_ledger=ProgressEventGraphRunLedger(db),
     )
     graph = build_summarize_graph_app(deps=deps, checkpointer=checkpointer)
     return build_graph_url_processor(

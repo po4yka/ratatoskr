@@ -140,10 +140,11 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
             "tokens_completion": failure_meta["tokens_completion"],
             "cost_usd": failure_meta["cost_usd"],
             "latency_ms": failure_meta["latency_ms"],
+            "fallback_model_used": _fallback_model(config, failure_meta),
             "status": "error",
             "structured_output_used": True,
             "structured_output_mode": config.structured_output_mode if config else None,
-            "attempt_trigger": "graph_node",
+            "attempt_trigger": "repair_loop",
             "error_text": str(exc),
         }
         return {"repair_attempts": attempts, "llm_calls": [failure_record]}
@@ -160,10 +161,18 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
                 "tokens_completion": call_meta.get("tokens_completion"),
                 "cost_usd": call_meta.get("cost_usd"),
                 "latency_ms": call_meta.get("latency_ms"),
+                "fallback_model_used": _fallback_model(config, call_meta),
                 "status": "ok",
                 "structured_output_used": True,
                 "structured_output_mode": config.structured_output_mode if config else None,
-                "attempt_trigger": "graph_node",
+                "attempt_trigger": "repair_loop",
             }
         ],
     }
+
+
+def _fallback_model(config: SummarizeConfig | None, call_meta: dict[str, Any]) -> str | None:
+    model = call_meta.get("model")
+    if not isinstance(model, str) or not model:
+        return None
+    return model if config is not None and model != config.model else None
