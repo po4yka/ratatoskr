@@ -232,8 +232,10 @@ async def run_summarize_graph(
     request_id: int | None,
     lang: str,
     input_url: str = "",
+    source_text: str = "",
     user_scope: str | None = None,
     environment: str | None = None,
+    two_pass_eligible: bool = True,
     recursion_limit: int = DEFAULT_RECURSION_LIMIT,
 ) -> dict[str, Any]:
     """Invoke a compiled summarize graph for one request.
@@ -244,19 +246,27 @@ async def run_summarize_graph(
     ``Exception``) -- is routed to the single terminal-failure path; cancellation
     (``BaseException``) is never swallowed. On failure returns
     ``{"error": "<message>", ...}``; on success returns the final graph state.
+
+    ``source_text`` seeds pre-extracted content for callers that have a request row
+    but skip the extract node (voice transcripts / uploaded text via
+    ``summarize_text_request``): passed with an empty ``input_url`` so extract
+    no-ops and leaves the seed untouched. Defaults to ``""`` so the URL path (extract
+    fetches the content) is byte-identical.
+
+    ``two_pass_eligible`` gates the optional enrich node (AND-ed with
+    ``config.two_pass_enabled``, default False). Defaults ``True`` for the URL flow;
+    pre-extracted text callers pass ``False`` to keep enrichment scoped to the URL
+    path (audit #20).
     """
     initial_state = build_initial_state(
         correlation_id=correlation_id,
         request_id=request_id,
         lang=lang,
         input_url=input_url,
+        source_text=source_text,
         user_scope=user_scope,
         environment=environment,
-        # URL-flow runner: the optional two-pass enrich node is eligible here
-        # (still AND-gated by config.two_pass_enabled). The content-only
-        # ``summarize`` entrypoint invokes the graph directly and leaves this
-        # False, keeping enrichment off the pre-extracted callers (audit #20).
-        two_pass_eligible=True,
+        two_pass_eligible=two_pass_eligible,
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=recursion_limit)
     try:

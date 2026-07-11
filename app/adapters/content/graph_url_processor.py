@@ -338,35 +338,44 @@ class GraphURLProcessor:
             )
         lang = choose_language(getattr(self.cfg.runtime, "preferred_lang", None), detected_lang)
         user_scope, environment = self._retrieval_scope()
-        initial_state = build_initial_state(
-            correlation_id=correlation_id or "",
+
+        # Route through run_summarize_graph -- NOT a bare self._graph.ainvoke. A bare
+        # ainvoke skipped the single terminal-failure sink, so a node / repair-budget /
+        # recursion failure lost BOTH the accumulated summarize+repair llm_calls
+        # (persist-everything, rule 3) and the structured failure snapshot
+        # (stage/component/reason_code/retryable), writing only a degraded
+        # async_update_request_error status. run_summarize_graph catches the failure and
+        # route_terminal_failure persists the recovered llm_calls + the proper snapshot
+        # before returning {"error": ...}. ``source_text`` seeds the pre-extracted
+        # transcript/document (empty input_url -> extract no-ops); two_pass_eligible is
+        # False to keep enrichment scoped to the URL path (audit #20). An empty
+        # correlation_id falls back to a synthetic per-request thread_id so the
+        # checkpointer never collides distinct requests on "".
+        from app.application.graphs.summarize.graph import run_summarize_graph
+
+        final_state = await run_summarize_graph(
+            graph=self._graph,
+            deps=self._deps,
+            correlation_id=correlation_id or f"{request_type}-{request_id}",
             request_id=request_id,
             lang=lang,
             input_url="",
             source_text=content_text,
             user_scope=user_scope,
             environment=environment,
+            two_pass_eligible=False,
         )
-        config = invocation_config(
-            correlation_id=correlation_id or f"{request_type}-{request_id}",
-            recursion_limit=DEFAULT_RECURSION_LIMIT,
-        )
-        try:
-            final_state = await self._graph.ainvoke(initial_state, config=config)
-        except Exception as exc:
-            raise_if_cancelled(exc)
-            await self.request_repo.async_update_request_error(
-                request_id,
-                "error",
-                error_type=type(exc).__name__,
-                error_message=str(exc) or "<empty>",
-            )
-            raise
 
+        # Terminal graph failure: route_terminal_failure already marked the request
+        # ERROR with the structured snapshot AND persisted the accumulated llm_calls.
+        # Return failure (mirrors handle_url_flow); the caller sends the user notice.
         if isinstance(final_state, dict) and "error" in final_state:
             return URLProcessingFlowResult(success=False, request_id=request_id)
         summary_json = final_state.get("summary") if isinstance(final_state, dict) else None
         if not isinstance(summary_json, dict) or not summary_json:
+            # Graph completed but produced no summary -- no exception was raised, so the
+            # terminal sink did NOT run and the request is still 'processing'. Finalize
+            # it explicitly (a genuine no-summary, not a graph failure).
             await self.request_repo.async_update_request_error(
                 request_id,
                 "error",

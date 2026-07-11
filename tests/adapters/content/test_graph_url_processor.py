@@ -583,6 +583,125 @@ async def test_content_only_summarize_no_summary_returns_empty_dict_no_raise():
 
 
 # --------------------------------------------------------------------------- #
+# (f2) summarize_text_request routes pre-extracted text through run_summarize_graph
+#      so a terminal failure persists llm_calls + the structured snapshot, not a
+#      bare degraded async_update_request_error.
+# --------------------------------------------------------------------------- #
+def _text_message() -> Any:
+    return SimpleNamespace(
+        chat=SimpleNamespace(id=1, type="private", title=None, username=None),
+        from_user=SimpleNamespace(id=2, username="owner"),
+        id=3,
+    )
+
+
+def _text_request_repo() -> Any:
+    return MagicMock(
+        async_update_request_content_text=AsyncMock(),
+        async_update_request_lang_detected=AsyncMock(),
+        async_update_request_error=AsyncMock(),
+    )
+
+
+async def test_summarize_text_request_seeds_source_text_through_runner(monkeypatch):
+    """The pre-extracted transcript/document is seeded as ``source_text`` with an
+    empty ``input_url`` (extract no-ops) and two_pass_eligible=False (audit #20),
+    routed through run_summarize_graph -- NOT a bare self._graph.ainvoke."""
+    run_plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    facade = _facade(request_repo=_text_request_repo())
+
+    result = await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=321,
+        content_text="A transcript body worth summarizing.",
+        correlation_id="cid-txt",
+        request_type="telegram_voice",
+        silent=True,
+    )
+
+    assert result.success is True
+    facade._graph.ainvoke.assert_not_called()  # bare ainvoke bypass is gone
+    run_plain.assert_awaited_once()
+    kwargs = run_plain.await_args.kwargs
+    assert kwargs["request_id"] == 321
+    assert kwargs["source_text"] == "A transcript body worth summarizing."
+    assert kwargs["input_url"] == ""
+    assert kwargs["two_pass_eligible"] is False
+    assert kwargs["correlation_id"] == "cid-txt"
+    facade.post_summary_tasks.schedule_tasks.assert_awaited_once()
+
+
+async def test_summarize_text_request_terminal_failure_has_no_degraded_error_write(monkeypatch):
+    """A terminal graph failure returns success=False and does NOT write its own
+    async_update_request_error: run_summarize_graph -> route_terminal_failure already
+    persisted the accumulated llm_calls + the structured snapshot (the finding)."""
+    run_plain = AsyncMock(
+        return_value={"error": "Processing failed (Error ID: cid-t). Please try again."}
+    )
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    request_repo = _text_request_repo()
+    facade = _facade(request_repo=request_repo)
+
+    result = await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=321,
+        content_text="A transcript body worth summarizing.",
+        correlation_id="cid-t",
+        request_type="telegram_voice",
+        silent=True,
+    )
+
+    assert result.success is False
+    assert result.request_id == 321
+    run_plain.assert_awaited_once()
+    # The degraded, snapshot-less status write is gone -- the terminal sink owns it.
+    request_repo.async_update_request_error.assert_not_awaited()
+    facade.post_summary_tasks.schedule_tasks.assert_not_awaited()
+
+
+async def test_summarize_text_request_empty_summary_finalizes_processing_request(monkeypatch):
+    """No summary + no exception => the terminal sink did NOT run, so the request is
+    still 'processing'. summarize_text_request finalizes it itself (empty_summary)."""
+    run_plain = AsyncMock(return_value={"summary": {}, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    request_repo = _text_request_repo()
+    facade = _facade(request_repo=request_repo)
+
+    result = await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=99,
+        content_text="body",
+        correlation_id="cid-e",
+        request_type="text",
+        silent=True,
+    )
+
+    assert result.success is False
+    request_repo.async_update_request_error.assert_awaited_once()
+    assert request_repo.async_update_request_error.await_args.kwargs["error_type"] == "empty_summary"
+
+
+async def test_summarize_text_request_empty_correlation_id_falls_back(monkeypatch):
+    """An empty correlation_id becomes a synthetic per-request thread_id so the
+    checkpointer never collides distinct requests on \"\"."""
+    run_plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    facade = _facade(request_repo=_text_request_repo())
+
+    await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=55,
+        content_text="body",
+        correlation_id=None,
+        request_type="text",
+        silent=True,
+    )
+
+    assert run_plain.await_args.kwargs["correlation_id"] == "text-55"
+
+
+# --------------------------------------------------------------------------- #
 # (g) request row gets the owner user_id from a from_user-shaped message,
 #     a telegram_messages snapshot is written, content_text + route_version set
 # --------------------------------------------------------------------------- #
