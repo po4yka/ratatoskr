@@ -225,23 +225,27 @@ def _extract_tweet_sync(
         page = context.new_page()
         page.on("response", _on_response)
 
-        page_load_failed = False
         try:
-            page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-        except (PlaywrightTimeoutError, PlaywrightError):
-            page_load_failed = True
-            logger.debug("tweet_page_goto_failed_partial_capture_mode", exc_info=True)
+            page_load_failed = False
+            try:
+                page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+            except (PlaywrightTimeoutError, PlaywrightError):
+                page_load_failed = True
+                logger.debug("tweet_page_goto_failed_partial_capture_mode", exc_info=True)
 
-        # Scroll once to trigger thread loading (skip when initial load failed)
-        if not page_load_failed:
-            page.wait_for_timeout(2000)
-            page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
-            page.wait_for_timeout(2000)
-        else:
-            page.wait_for_timeout(1000)
-
-        page.close()
-        browser.close()
+            # Scroll once to trigger thread loading (skip when initial load failed)
+            if not page_load_failed:
+                page.wait_for_timeout(2000)
+                page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
+                page.wait_for_timeout(2000)
+            else:
+                page.wait_for_timeout(1000)
+        finally:
+            # Guarantee the launched browser is torn down even if a post-goto
+            # step (scroll/evaluate/wait) raises -- otherwise the Chromium
+            # process leaks. Mirrors _scrape_article_sync's cleanup.
+            page.close()
+            browser.close()
 
     all_tweets = _merge_captured_tweets(captured_responses)
 

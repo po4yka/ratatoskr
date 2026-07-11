@@ -2,18 +2,138 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.adapters.twitter.playwright_client import (
+    _extract_tweet_sync,
     _load_cookies_netscape,
     _merge_captured_tweets,
     _parse_tco_html_redirect,
     _response_matches_requested_tweet,
     resolve_tco_url,
 )
+
+
+class _FakePlaywrightError(Exception):
+    """Stand-in for playwright.sync_api.Error."""
+
+
+class _FakePlaywrightTimeoutError(_FakePlaywrightError):
+    """Stand-in for playwright.sync_api.TimeoutError."""
+
+
+class _FakePage:
+    """Minimal sync Playwright page whose post-goto step can be made to raise."""
+
+    def __init__(self, *, fail_on: str) -> None:
+        self._fail_on = fail_on
+        self.closed = False
+
+    def on(self, _event: str, _callback) -> None:
+        pass
+
+    def goto(self, _url: str, **_kwargs) -> None:
+        if self._fail_on == "goto":
+            raise RuntimeError("goto blew up")
+
+    def wait_for_timeout(self, _ms: int) -> None:
+        if self._fail_on == "wait_for_timeout":
+            raise RuntimeError("wait blew up")
+
+    def evaluate(self, *_args, **_kwargs):
+        if self._fail_on == "evaluate":
+            raise RuntimeError("evaluate blew up")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeContext:
+    def __init__(self, page: _FakePage) -> None:
+        self._page = page
+
+    def add_cookies(self, _cookies) -> None:
+        pass
+
+    def new_page(self) -> _FakePage:
+        return self._page
+
+
+class _FakeBrowser:
+    def __init__(self, context: _FakeContext) -> None:
+        self._context = context
+        self.closed = False
+
+    def new_context(self, **_kwargs) -> _FakeContext:
+        return self._context
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeChromium:
+    def __init__(self, browser: _FakeBrowser) -> None:
+        self._browser = browser
+
+    def launch(self, **_kwargs) -> _FakeBrowser:
+        return self._browser
+
+
+class _FakeSyncPlaywright:
+    def __init__(self, browser: _FakeBrowser) -> None:
+        self._browser = browser
+
+    def __enter__(self) -> SimpleNamespace:
+        return SimpleNamespace(chromium=_FakeChromium(self._browser))
+
+    def __exit__(self, *_exc) -> bool:
+        return False
+
+
+def _install_fake_playwright(monkeypatch, browser: _FakeBrowser) -> None:
+    """Register a fake ``playwright.sync_api`` so the local import inside
+    ``_extract_tweet_sync`` resolves to our stubs instead of real Chromium."""
+    module = types.ModuleType("playwright.sync_api")
+    module.Error = _FakePlaywrightError
+    module.TimeoutError = _FakePlaywrightTimeoutError
+    module.sync_playwright = lambda: _FakeSyncPlaywright(browser)
+    parent = types.ModuleType("playwright")
+    parent.sync_api = module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "playwright", parent)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", module)
+
+
+@pytest.mark.parametrize("fail_on", ["wait_for_timeout", "evaluate"])
+def test_extract_tweet_sync_closes_browser_when_post_goto_step_raises(monkeypatch, fail_on) -> None:
+    # Regression: a raise in any post-goto step (scroll/evaluate/wait) must not
+    # leak the launched browser -- the finally block tears it down.
+    page = _FakePage(fail_on=fail_on)
+    browser = _FakeBrowser(_FakeContext(page))
+    _install_fake_playwright(monkeypatch, browser)
+
+    with pytest.raises(RuntimeError):
+        _extract_tweet_sync("https://x.com/user/status/1")
+
+    assert browser.closed is True, "browser.close() must run even when a post-goto step raises"
+    assert page.closed is True
+
+
+def test_extract_tweet_sync_closes_browser_on_clean_run(monkeypatch) -> None:
+    # The happy path still closes the browser exactly once.
+    page = _FakePage(fail_on="")
+    browser = _FakeBrowser(_FakeContext(page))
+    _install_fake_playwright(monkeypatch, browser)
+
+    result = _extract_tweet_sync("https://x.com/user/status/1")
+
+    assert result.tweets == []
+    assert browser.closed is True
+    assert page.closed is True
 
 
 def _make_tweet_result(
