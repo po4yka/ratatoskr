@@ -140,9 +140,10 @@ class AuthConfig(BaseModel):
         description=(
             "Pepper applied as HMAC pre-hash before argon2id. Required to use "
             "credentials login; must be independent of JWT_SECRET_KEY and "
-            "SECRET_LOGIN_PEPPER. When unset, the credentials-login route "
-            "returns 503 Configuration error -- the pepper presence is the "
-            "only gate."
+            "SECRET_LOGIN_PEPPER (enforced at config load by "
+            "Settings._ensure_auth_secret_domain_separation). When unset, the "
+            "credentials-login route returns 503 Configuration error -- the "
+            "pepper presence is the only gate."
         ),
         json_schema_extra=SECRET_MARKER,
     )

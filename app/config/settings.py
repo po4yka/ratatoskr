@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -502,6 +503,40 @@ class Settings(BaseSettings):
                 "deployment-owned Fernet key before GitHub auth or sync can be used. Generate one "
                 "with: python tools/scripts/generate_github_encryption_key.py."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _ensure_auth_secret_domain_separation(self) -> Self:
+        """Enforce the documented pepper domain-separation invariant.
+
+        JWT_SECRET_KEY, SECRET_LOGIN_PEPPER, and CREDENTIALS_LOGIN_PEPPER each key
+        a distinct security domain (JWT signing, secret-key hashing, password
+        hashing). Reusing one value across two of them collapses that separation:
+        rotating one secret would then silently break the other's stored hashes,
+        and leaking one domain's secret would compromise the others. The field
+        docs on ``AuthConfig.credentials_pepper`` and
+        ``secret_auth._get_secret_pepper`` require independence, but nothing
+        enforced it until this check. Only set (non-empty) values are compared,
+        so deployments that leave a feature's secret unset are unaffected. The
+        error names the colliding variables only -- never their values.
+        """
+        named_secrets = (
+            ("JWT_SECRET_KEY", self.runtime.jwt_secret_key),
+            ("SECRET_LOGIN_PEPPER", self.auth.secret_pepper),
+            ("CREDENTIALS_LOGIN_PEPPER", self.auth.credentials_pepper),
+        )
+        present = [(name, value) for name, value in named_secrets if value]
+        for i in range(len(present)):
+            name_a, value_a = present[i]
+            for name_b, value_b in present[i + 1 :]:
+                if secrets.compare_digest(value_a.encode("utf-8"), value_b.encode("utf-8")):
+                    raise RuntimeError(
+                        f"{name_a} and {name_b} must be different values. These "
+                        "secrets key separate security domains and must stay "
+                        "independent; reusing one collapses that separation "
+                        "(rotating one would break the other's stored hashes). "
+                        "Generate distinct values with: openssl rand -hex 32."
+                    )
         return self
 
     def as_app_config(self) -> AppConfig:

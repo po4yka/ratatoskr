@@ -52,7 +52,9 @@ def _get_secret_pepper() -> str:
     in different places (env, CI runners, deploy secrets) than DB peppers
     should. The previous fallback to jwt_secret_key was removed for that
     reason — see docs/tasks/issues archive: decouple-secret-login-pepper-
-    from-jwt-key.
+    from-jwt-key. This independence is enforced at config load by
+    Settings._ensure_auth_secret_domain_separation, which rejects reusing one
+    value across JWT_SECRET_KEY / SECRET_LOGIN_PEPPER / CREDENTIALS_LOGIN_PEPPER.
 
     Raises RuntimeError when secret-login is enabled but the pepper is unset.
     """
