@@ -80,6 +80,9 @@ class AuthRepositoryAdapter:
                     expires_at=expires_at,
                     is_revoked=False,
                     token_id=token_id,
+                    remember_me=remember_me,
+                    family_id=family_id,
+                    parent_token_hash=parent_token_hash,
                 )
             except Exception as exc:
                 logger.warning(
@@ -201,6 +204,9 @@ class AuthRepositoryAdapter:
                     expires_at=result.get("expires_at"),
                     is_revoked=result.get("is_revoked", False),
                     token_id=result.get("id"),
+                    remember_me=result.get("remember_me", True),
+                    family_id=result.get("family_id"),
+                    parent_token_hash=result.get("parent_token_hash"),
                 )
             except Exception as exc:
                 logger.warning(

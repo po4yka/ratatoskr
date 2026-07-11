@@ -21,13 +21,17 @@ logger = get_logger(__name__)
 # cover any refresh-token lifetime race window.  A tombstone written here
 # prevents a later set_token call from re-caching the revoked hash as valid.
 _REVOCATION_TOMBSTONE_TTL_SECONDS = 3_600  # 1 hour
+_ROTATION_POLICY_CACHE_FIELDS = frozenset(
+    {"family_id", "parent_token_hash", "remember_me"}
+)
 
 
 class AuthTokenCache:
     """Cache refresh tokens in Redis for fast validation.
 
     Key pattern: ratatoskr:auth:token:{token_hash}
-    Value: {"user_id": int, "client_id": str | None, "expires_at": str, "is_revoked": bool}
+    Value: refresh-token validation and rotation metadata, including the family
+    chain and Remember Me lifetime policy.
     TTL: Aligned with token expiry (configurable via REDIS_AUTH_TOKEN_CACHE_TTL_SECONDS)
 
     Fallback: On cache miss, query PostgreSQL through the auth repository.
@@ -58,6 +62,23 @@ class AuthTokenCache:
             )
             return None
 
+        # Entries written before token-family rotation and Remember Me were
+        # cached lack fields that /refresh needs. Treat them as misses so the
+        # repository reloads the authoritative row and rewrites the cache.
+        # Revocation tombstones intentionally contain only is_revoked=True and
+        # must remain cache hits to prevent a revoked token from being served.
+        if not cached.get("is_revoked"):
+            missing_rotation_fields = _ROTATION_POLICY_CACHE_FIELDS - cached.keys()
+            if missing_rotation_fields:
+                logger.debug(
+                    "auth_token_cache_incomplete",
+                    extra={
+                        "token_hash_prefix": token_hash[:8],
+                        "missing_fields": sorted(missing_rotation_fields),
+                    },
+                )
+                return None
+
         logger.debug(
             "auth_token_cache_hit",
             extra={"token_hash_prefix": token_hash[:8]},
@@ -71,6 +92,9 @@ class AuthTokenCache:
         user_id: int,
         client_id: str | None,
         expires_at: datetime | str,
+        remember_me: bool,
+        family_id: str,
+        parent_token_hash: str | None = None,
         is_revoked: bool = False,
         token_id: int | None = None,
     ) -> bool:
@@ -83,6 +107,9 @@ class AuthTokenCache:
             expires_at: Token expiration time.
             is_revoked: Whether the token is revoked.
             token_id: Database ID of the token record.
+            remember_me: Whether rotation retains the long-lived token policy.
+            family_id: Refresh-token family used for rotation/replay policy.
+            parent_token_hash: Rotated predecessor within the token family.
 
         Returns:
             True if cached successfully, False otherwise.
@@ -100,6 +127,9 @@ class AuthTokenCache:
             "client_id": client_id,
             "expires_at": expires_at_str,
             "is_revoked": is_revoked,
+            "remember_me": remember_me,
+            "family_id": family_id,
+            "parent_token_hash": parent_token_hash,
         }
         if token_id is not None:
             value["id"] = token_id
