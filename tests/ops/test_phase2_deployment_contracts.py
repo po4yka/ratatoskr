@@ -227,13 +227,39 @@ def test_disaster_recovery_drill_template_collects_required_evidence() -> None:
         assert expected in template
 
 
+def _postgres_major(image: str) -> str:
+    """Extract the Postgres major version from a `postgres:<tag>` image ref.
+
+    Handles both plain (`postgres:17`) and variant (`postgres:17-alpine`) tags.
+    """
+    tag = image.split(":", 1)[1]
+    return tag.split("-", 1)[0]
+
+
+def test_postgres_ci_jobs_match_production_major_version() -> None:
+    # The migration/restore smoke tests and the Postgres-gated suite must run
+    # against the same Postgres major the production compose stack runs, or CI
+    # silently misses version-specific migration/restore breakage (prod moved to
+    # Postgres 17 while these jobs lagged on 16).
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    prod_major = _postgres_major(_compose()["services"]["postgres"]["image"])
+
+    for job_name in ("migration-smoke-test", "restore-smoke-test", "postgres-tests"):
+        image = workflow["jobs"][job_name]["services"]["postgres"]["image"]
+        assert _postgres_major(image) == prod_major, (
+            f"{job_name} runs {image!r} but production compose is Postgres {prod_major}"
+        )
+
+
 def test_restore_smoke_ci_job_loads_dump_and_gates_status() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
     restore_job = jobs["restore-smoke-test"]
     status_job = jobs["status-check"]
 
-    assert restore_job["services"]["postgres"]["image"] == "postgres:16"
+    assert _postgres_major(restore_job["services"]["postgres"]["image"]) == _postgres_major(
+        _compose()["services"]["postgres"]["image"]
+    )
     assert restore_job["needs"] == "prepare-environment"
     restore_steps = "\n".join(str(step) for step in restore_job["steps"])
     assert "app/db/" in restore_steps
