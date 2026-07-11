@@ -15,6 +15,7 @@ from app.adapter_models.batch_analysis import (
 )
 from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.core.async_utils import raise_if_cancelled
+from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.prompts.file_cache import read_prompt_text
@@ -127,7 +128,13 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
 
         messages = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": context},
+            {
+                "role": "user",
+                "content": (
+                    "Synthesize the article data inside the untrusted-source boundary.\n\n"
+                    + wrap_untrusted_source(context)
+                ),
+            },
         ]
 
         model = getattr(self._llm, "_model", "unknown")

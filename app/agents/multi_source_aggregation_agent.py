@@ -30,6 +30,7 @@ from app.agents._aggregation_utils import (
     _truncate,
 )
 from app.agents.base_agent import AgentResult, BaseAgent
+from app.core.content_cleaner import wrap_untrusted_source
 from app.application.dto.aggregation import (
     AggregatedClaim,
     AggregatedContradiction,
@@ -261,7 +262,13 @@ class MultiSourceAggregationAgent(
             result = await self._llm.chat_structured(
                 [
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": context},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Synthesize the source bundle inside the untrusted-source boundary.\n\n"
+                            + wrap_untrusted_source(context)
+                        ),
+                    },
                 ],
                 response_model=_AggregationLLMResponse,
                 max_retries=3,

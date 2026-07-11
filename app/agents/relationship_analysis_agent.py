@@ -21,6 +21,7 @@ from app.adapter_models.batch_analysis import (
 )
 from app.agents.base_agent import AgentResult, BaseAgent
 from app.core.async_utils import raise_if_cancelled
+from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
 from app.prompts.file_cache import read_prompt_text
 
@@ -478,8 +479,11 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
                 desc += f"  Summary: {article.summary_250}\n"
             article_descriptions.append(desc)
 
-        user_content = "Analyze the relationship between these articles:\n\n"
-        user_content += "\n".join(article_descriptions)
+        user_content = (
+            "Analyze the relationship between the article metadata inside the "
+            "untrusted-source boundary.\n\n"
+            + wrap_untrusted_source("\n".join(article_descriptions))
+        )
 
         messages = [
             {"role": "system", "content": prompt},

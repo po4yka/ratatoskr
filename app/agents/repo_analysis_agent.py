@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkabl
 
 from pydantic import ValidationError
 
+from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
 from app.core.repo_analysis_contract import parse_and_validate_repo_analysis
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
@@ -365,9 +366,9 @@ class RepoAnalysisAgent:
     @staticmethod
     def _build_user_prompt(input: RepoAnalysisInput) -> str:
         return (
-            "Analyse the following repository metadata and return a JSON object "
-            "that strictly matches the RepoAnalysis schema.\n\n"
-            + json.dumps(input.model_dump(), ensure_ascii=False, indent=2)
+            "Analyse the repository metadata inside the untrusted-source boundary and "
+            "return a JSON object that strictly matches the RepoAnalysis schema.\n\n"
+            + wrap_untrusted_source(json.dumps(input.model_dump(), ensure_ascii=False, indent=2))
         )
 
     @staticmethod
