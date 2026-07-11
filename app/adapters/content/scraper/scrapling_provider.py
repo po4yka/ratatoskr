@@ -36,6 +36,11 @@ from app.security.ssrf import is_dns_failure_reason, is_url_safe
 
 logger = get_logger(__name__)
 
+# Default response-size cap (10 MiB), matching the free-tier sibling providers
+# (defuddle / crawl4ai / direct_html). Bounds the body an oversized/hostile
+# endpoint can push through Scrapling into trafilatura extraction and the pipeline.
+_DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+
 
 def _stealth_max_concurrency() -> int:
     """Max number of concurrent stealth (Playwright/Chromium) browser launches."""
@@ -81,12 +86,19 @@ class ScraplingProvider:
         min_content_length: int = 400,
         profile: str = "balanced",
         js_heavy_hosts: tuple[str, ...] = (),
+        max_response_mb: int = 10,
     ) -> None:
         self._timeout_sec = timeout_sec
         self._stealth_fallback = stealth_fallback
         self._min_content_length = min_content_length
         self._profile = profile
         self._js_heavy_hosts = js_heavy_hosts
+        # Response-size cap (parity with defuddle / crawl4ai / direct_html). Scrapling
+        # (curl_cffi / Playwright) has no streaming API, so the body is loaded whole;
+        # the cap is enforced post-fetch (declared Content-Length + actual HTML bytes)
+        # BEFORE trafilatura extraction so an oversized/hostile page cannot drive the
+        # extractor + pipeline. See ``_response_too_large``.
+        self._max_response_bytes = max_response_mb * 1024 * 1024
 
         # Lazily initialised async session (FetcherSession context, held open).
         # None = not yet opened; set to the active _ASyncSessionLogic on first use.
@@ -240,11 +252,12 @@ class ScraplingProvider:
         """Fetch URL using Scrapling, with optional stealth fallback."""
         loop = asyncio.get_running_loop()
 
+        max_bytes = self._max_response_bytes
         session = await self._ensure_async_session()
         if session is not None:
-            html, text = await _async_fetch_basic(url, session)
+            html, text = await _async_fetch_basic(url, session, max_bytes)
         else:
-            html, text = await loop.run_in_executor(None, _sync_fetch_basic, url)
+            html, text = await loop.run_in_executor(None, _sync_fetch_basic, url, max_bytes)
 
         if text and len(text) >= self._min_content_length:
             return html, text
@@ -258,7 +271,9 @@ class ScraplingProvider:
             # Cap concurrent browser launches so a burst of fallbacks cannot
             # exhaust file descriptors / RAM / thread-pool workers.
             async with _stealth_launch_semaphore():
-                html, text = await loop.run_in_executor(None, _sync_fetch_stealth, url, stealth_cls)
+                html, text = await loop.run_in_executor(
+                    None, _sync_fetch_stealth, url, stealth_cls, max_bytes
+                )
 
         return html, text
 
@@ -333,7 +348,47 @@ def _lazy_import_stealthy_fetcher() -> Any:
 _SAFE_REDIRECTS: dict[str, Any] = {"follow_redirects": "safe"}
 
 
-async def _async_fetch_basic(url: str, session_or_cls: Any) -> tuple[str | None, str | None]:
+def _declared_content_length(resp: Any) -> int | None:
+    """Parse the ``Content-Length`` header from a Scrapling response, if present."""
+    headers = getattr(resp, "headers", None)
+    if headers is None:
+        return None
+    try:
+        raw = headers.get("content-length")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _response_too_large(resp: Any, html: str | None, max_response_bytes: int) -> bool:
+    """Whether ``resp`` / ``html`` exceeds ``max_response_bytes`` (declared or actual).
+
+    Scrapling's fetchers (curl_cffi / Playwright) have no streaming API, so the body
+    is already fully loaded; this post-fetch check still stops trafilatura extraction
+    -- and the downstream pipeline / LLM -- from processing an oversized document,
+    matching the free-tier sibling providers' cap. The char-count guard rejects a
+    clearly-oversized body before the exact ``encode()`` (which would copy it again).
+    """
+    declared = _declared_content_length(resp)
+    if declared is not None and declared > max_response_bytes:
+        return True
+    if html is None:
+        return False
+    # Char count is a lower bound on UTF-8 byte length: if it already exceeds the
+    # cap, reject without a full re-encode copy of a potentially huge string.
+    if len(html) > max_response_bytes:
+        return True
+    return len(html.encode("utf-8", "ignore")) > max_response_bytes
+
+
+async def _async_fetch_basic(
+    url: str, session_or_cls: Any, max_response_bytes: int = _DEFAULT_MAX_RESPONSE_BYTES
+) -> tuple[str | None, str | None]:
     """Async basic fetch.
 
     ``session_or_cls`` is either:
@@ -344,15 +399,21 @@ async def _async_fetch_basic(url: str, session_or_cls: Any) -> tuple[str | None,
     """
     resp = await session_or_cls.get(url, **_SAFE_REDIRECTS)
     html = resp.text if resp.status == 200 else None
+    if _response_too_large(resp, html, max_response_bytes):
+        raise ValueError(f"Scrapling response exceeds {max_response_bytes} byte limit")
     text = _extract_text(html) if html else None
     return html, text
 
 
-def _sync_fetch_basic(url: str) -> tuple[str | None, str | None]:
+def _sync_fetch_basic(
+    url: str, max_response_bytes: int = _DEFAULT_MAX_RESPONSE_BYTES
+) -> tuple[str | None, str | None]:
     """Basic fetch via Scrapling Fetcher (TLS impersonation, fastest)."""
     scrapling_fetcher = _lazy_import_fetcher()
     resp = scrapling_fetcher.get(url, **_SAFE_REDIRECTS)
     html = resp.text if resp.status == 200 else None
+    if _response_too_large(resp, html, max_response_bytes):
+        raise ValueError(f"Scrapling response exceeds {max_response_bytes} byte limit")
     text = _extract_text(html) if html else None
     return html, text
 
@@ -393,7 +454,11 @@ def _stealth_page_setup(page: Any) -> None:
     page.route("**/*", _block_ssrf_route)
 
 
-def _sync_fetch_stealth(url: str, stealth_cls: Any | None = None) -> tuple[str | None, str | None]:
+def _sync_fetch_stealth(
+    url: str,
+    stealth_cls: Any | None = None,
+    max_response_bytes: int = _DEFAULT_MAX_RESPONSE_BYTES,
+) -> tuple[str | None, str | None]:
     """Stealth fetch for JS-heavy sites via DynamicFetcher (Playwright-based).
 
     ``stealth_cls`` is the cached fetcher class (resolved once by the provider).
@@ -403,6 +468,8 @@ def _sync_fetch_stealth(url: str, stealth_cls: Any | None = None) -> tuple[str |
         stealth_cls = _lazy_import_stealthy_fetcher()
     resp = stealth_cls.fetch(url, solve_cloudflare=True, page_setup=_stealth_page_setup)
     html = resp.text if resp.status == 200 else None
+    if _response_too_large(resp, html, max_response_bytes):
+        raise ValueError(f"Scrapling response exceeds {max_response_bytes} byte limit")
     text = _extract_text(html) if html else None
     return html, text
 

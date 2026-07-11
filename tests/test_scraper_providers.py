@@ -93,7 +93,7 @@ class TestScraplingProvider:
         lock = threading.Lock()
         state = {"in_flight": 0, "max_in_flight": 0}
 
-        def _tracking_stealth(url, stealth_cls):
+        def _tracking_stealth(url, stealth_cls, *_ignore):
             with lock:
                 state["in_flight"] += 1
                 state["max_in_flight"] = max(state["max_in_flight"], state["in_flight"])
@@ -230,6 +230,87 @@ class TestScraplingProvider:
 
         mock_continue.assert_called_once()
         mock_abort.assert_not_called()
+
+    def test_default_max_response_bytes_matches_siblings(self):
+        """Parity with defuddle / crawl4ai / direct_html: default 10 MiB cap."""
+        from app.adapters.content.scraper.scrapling_provider import ScraplingProvider
+
+        assert ScraplingProvider()._max_response_bytes == 10 * 1024 * 1024
+        assert ScraplingProvider(max_response_mb=3)._max_response_bytes == 3 * 1024 * 1024
+
+    def test_basic_fetch_rejects_oversized_body(self):
+        """An actual body larger than the cap is rejected (not extracted/persisted)."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        big = "x" * (2 * 1024 * 1024)  # 2 MiB body
+        fake_resp = type("R", (), {"status": 200, "text": big})()
+        fake_fetcher = type("F", (), {"get": lambda self, url, **kw: fake_resp})()
+
+        with patch.object(sp, "_lazy_import_fetcher", return_value=fake_fetcher):
+            with pytest.raises(ValueError, match="exceeds"):
+                sp._sync_fetch_basic("https://example.com", max_response_bytes=1024 * 1024)
+
+    def test_basic_fetch_rejects_oversized_declared_content_length(self):
+        """A large declared Content-Length is rejected even when the sampled body is
+        small -- mirrors the sibling providers' header check."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        fake_resp = type(
+            "R",
+            (),
+            {
+                "status": 200,
+                "text": "<html>small</html>",
+                "headers": {"content-length": str(50 * 1024 * 1024)},
+            },
+        )()
+        fake_fetcher = type("F", (), {"get": lambda self, url, **kw: fake_resp})()
+
+        with patch.object(sp, "_lazy_import_fetcher", return_value=fake_fetcher):
+            with pytest.raises(ValueError, match="exceeds"):
+                sp._sync_fetch_basic("https://example.com", max_response_bytes=10 * 1024 * 1024)
+
+    def test_basic_fetch_within_cap_passes(self):
+        """A body under the cap is extracted normally (cap is not over-eager)."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+
+        fake_resp = type("R", (), {"status": 200, "text": "<html>ok</html>"})()
+        fake_fetcher = type("F", (), {"get": lambda self, url, **kw: fake_resp})()
+
+        with (
+            patch.object(sp, "_lazy_import_fetcher", return_value=fake_fetcher),
+            patch.object(sp, "_extract_text", return_value="x" * 500),
+        ):
+            html, text = sp._sync_fetch_basic(
+                "https://example.com", max_response_bytes=10 * 1024 * 1024
+            )
+
+        assert html == "<html>ok</html>"
+        assert text == "x" * 500
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_scrape_markdown_reports_error_on_oversized_response(self):
+        """End-to-end: an oversized response surfaces as an ERROR result, not a crash."""
+        from app.adapters.content.scraper import scrapling_provider as sp
+        from app.core.call_status import CallStatus
+
+        provider = sp.ScraplingProvider(timeout_sec=5, max_response_mb=1)
+        fake_resp = type("R", (), {"status": 200, "text": "y" * (2 * 1024 * 1024)})()
+        session = AsyncMock()
+        session.get.return_value = fake_resp
+
+        with (
+            patch.object(
+                sp, "reject_unsafe_target_url", new_callable=AsyncMock, return_value=None
+            ),
+            patch.object(
+                provider, "_ensure_async_session", new_callable=AsyncMock, return_value=session
+            ),
+        ):
+            result = await provider.scrape_markdown("https://example.com")
+
+        assert result.status == CallStatus.ERROR
+        assert "exceeds" in (result.error_text or "")
 
 
 class TestCrawleeProvider:
