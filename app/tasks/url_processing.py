@@ -11,6 +11,7 @@ Telegram edit is executed (idempotency guard).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 from taskiq import TaskiqDepends
@@ -22,6 +23,10 @@ from app.tasks.broker import broker
 from app.tasks.deps import get_app_config, get_db
 
 logger = get_logger(__name__)
+
+
+class LeaseLostError(RuntimeError):
+    """Raised when a worker can no longer prove it owns a durable-job lease."""
 
 
 # ── Runtime dataclass ─────────────────────────────────────────────────────────
@@ -118,7 +123,7 @@ async def _process_url_request_body(
     )
 
     try:
-        await _run_url_task(
+        await _run_url_task_with_lease_renewal(
             request_id=request_id,
             cid=cid,
             job_repo=job_repo,
@@ -127,6 +132,7 @@ async def _process_url_request_body(
             cfg=cfg,
             db=db,
             runtime=runtime,
+            lease_ttl_seconds=lease_ttl,
         )
     except asyncio.CancelledError:
         raise
@@ -224,6 +230,7 @@ async def _run_url_task(
         await job_repo.mark_succeeded(
             job.id,
             lease_owner=lease_owner,
+            lease_token=job.lease_token,
             request_id=request_id,
         )
         return
@@ -271,6 +278,7 @@ async def _run_url_task(
     await job_repo.mark_succeeded(
         job.id,
         lease_owner=lease_owner,
+        lease_token=job.lease_token,
         request_id=request_id,
     )
     logger.info(
@@ -279,6 +287,42 @@ async def _run_url_task(
     )
 
 
+async def _run_url_task_with_lease_renewal(
+    *,
+    job_repo: Any,
+    job: Any,
+    lease_owner: str,
+    lease_ttl_seconds: int,
+    **kwargs: Any,
+) -> None:
+    """Run URL processing while renewing its lease before it can expire."""
+    processing_task = asyncio.create_task(
+        _run_url_task(job_repo=job_repo, job=job, lease_owner=lease_owner, **kwargs)
+    )
+    renewal_interval = max(1.0, lease_ttl_seconds / 3)
+    try:
+        while True:
+            done, _ = await asyncio.wait({processing_task}, timeout=renewal_interval)
+            if done:
+                await processing_task
+                return
+            renewed = await job_repo.renew_lease(
+                job_id=job.id,
+                lease_owner=lease_owner,
+                lease_token=job.lease_token,
+                lease_ttl_seconds=lease_ttl_seconds,
+            )
+            if renewed:
+                continue
+            processing_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await processing_task
+            raise LeaseLostError(f"lease lost for request_id={job.request_id}")
+    except asyncio.CancelledError:
+        processing_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await processing_task
+        raise
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

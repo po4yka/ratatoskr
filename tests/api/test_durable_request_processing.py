@@ -66,6 +66,7 @@ class FakeJobRepository:
         job_id: int,
         *,
         lease_owner: str,
+        lease_token: int,
         request_id: int | None = None,
     ) -> None:
         self.succeeded.append(job_id)
@@ -414,12 +415,47 @@ async def test_repository_lease_next_sets_running_lease_fields() -> None:
 
     leased = await repository.lease_next(lease_owner="worker-1", lease_ttl_seconds=30)
 
-    assert leased == LeasedRequestJob(7, 42, 1, 3, "cid-lease")
+    assert leased == LeasedRequestJob(7, 42, 1, 3, "cid-lease", 1)
     assert job.status == "running"
     assert job.lease_owner == "worker-1"
     assert job.lease_expires_at is not None
     assert job.attempt_count == 1
     assert session.flush_count == 1
+
+
+@pytest.mark.asyncio
+async def test_repository_renew_lease_requires_current_fence_token() -> None:
+    session = FakeSession(execute_results=[SimpleNamespace(rowcount=1)])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    renewed = await repository.renew_lease(
+        job_id=7,
+        lease_owner="worker-1",
+        lease_token=4,
+        lease_ttl_seconds=30,
+    )
+
+    assert renewed is True
+    sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "lease_token" in sql
+    assert "lease_expires_at" in sql
+
+
+@pytest.mark.asyncio
+async def test_repository_completion_is_fenced_by_token_and_expiry() -> None:
+    session = FakeSession(execute_results=[SimpleNamespace(rowcount=0)])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    completed = await repository.mark_succeeded(
+        7,
+        lease_owner="stale-worker",
+        lease_token=3,
+    )
+
+    assert completed is False
+    sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "lease_token" in sql
+    assert "lease_expires_at" in sql
 
 
 @pytest.mark.asyncio
@@ -442,7 +478,7 @@ async def test_repository_lease_by_id_accepts_retryable_failed_job() -> None:
         by_id=43,
     )
 
-    assert leased == LeasedRequestJob(8, 43, 2, 3, "cid-retry")
+    assert leased == LeasedRequestJob(8, 43, 2, 3, "cid-retry", 1)
     assert job.status == "running"
     assert job.lease_owner == "worker-retry"
     assert job.lease_expires_at is not None
@@ -474,7 +510,7 @@ async def test_repository_lease_by_id_accepts_expired_running_job() -> None:
         by_id=44,
     )
 
-    assert leased == LeasedRequestJob(9, 44, 2, 3, "cid-expired")
+    assert leased == LeasedRequestJob(9, 44, 2, 3, "cid-expired", 1)
     assert job.status == "running"
     assert job.lease_owner == "worker-recovered"
     assert job.lease_expires_at is not None
@@ -694,6 +730,7 @@ def test_request_processing_job_model_contains_durable_state_columns() -> None:
         "attempt_count",
         "max_attempts",
         "lease_owner",
+        "lease_token",
         "lease_expires_at",
         "retry_after",
         "last_error_code",

@@ -36,6 +36,7 @@ class LeasedRequestJob:
     attempt_count: int
     max_attempts: int
     correlation_id: str | None
+    lease_token: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +73,7 @@ class RequestProcessingJobRepository:
             "attempt_count": 0,
             "max_attempts": max_attempts,
             "lease_owner": None,
+            "lease_token": 0,
             "lease_expires_at": None,
             "retry_after": now,
             "last_error_code": None,
@@ -187,6 +189,7 @@ class RequestProcessingJobRepository:
                 return None
             job.status = "running"
             job.lease_owner = lease_owner
+            job.lease_token = int(job.lease_token or 0) + 1
             job.lease_expires_at = lease_expires_at
             job.attempt_count += 1
             job.updated_at = now
@@ -197,22 +200,53 @@ class RequestProcessingJobRepository:
                 attempt_count=job.attempt_count,
                 max_attempts=job.max_attempts,
                 correlation_id=job.correlation_id,
+                lease_token=job.lease_token,
             )
+
+    async def renew_lease(
+        self,
+        *,
+        job_id: int,
+        lease_owner: str,
+        lease_token: int,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        """Extend a live lease only when this worker still holds its fence token."""
+        now = _utcnow()
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(RequestProcessingJob)
+                .where(
+                    RequestProcessingJob.id == job_id,
+                    RequestProcessingJob.status == "running",
+                    RequestProcessingJob.lease_owner == lease_owner,
+                    RequestProcessingJob.lease_token == lease_token,
+                    RequestProcessingJob.lease_expires_at > now,
+                )
+                .values(
+                    lease_expires_at=now + timedelta(seconds=lease_ttl_seconds),
+                    updated_at=now,
+                )
+            )
+            return bool(result.rowcount)
 
     async def mark_succeeded(
         self,
         job_id: int,
         *,
         lease_owner: str,
+        lease_token: int,
         request_id: int | None = None,
-    ) -> None:
+    ) -> bool:
         now = _utcnow()
         async with self._database.transaction() as session:
-            await session.execute(
+            result = await session.execute(
                 update(RequestProcessingJob)
                 .where(
                     RequestProcessingJob.id == job_id,
                     RequestProcessingJob.lease_owner == lease_owner,
+                    RequestProcessingJob.lease_token == lease_token,
+                    RequestProcessingJob.lease_expires_at > now,
                 )
                 .values(
                     status="succeeded",
@@ -224,6 +258,8 @@ class RequestProcessingJobRepository:
                     updated_at=now,
                 )
             )
+            if not result.rowcount:
+                return False
             if request_id is not None:
                 await session.execute(
                     update(Request)
@@ -236,6 +272,7 @@ class RequestProcessingJobRepository:
                         updated_at=now,
                     )
                 )
+        return True
 
     async def mark_failed(
         self,
@@ -252,11 +289,13 @@ class RequestProcessingJobRepository:
         message = error_message[:2000]
         retry_after = None if terminal else now + timedelta(seconds=retry_delay_seconds)
         async with self._database.transaction() as session:
-            await session.execute(
+            result = await session.execute(
                 update(RequestProcessingJob)
                 .where(
                     RequestProcessingJob.id == job.id,
                     RequestProcessingJob.lease_owner == lease_owner,
+                    RequestProcessingJob.lease_token == job.lease_token,
+                    RequestProcessingJob.lease_expires_at > now,
                 )
                 .values(
                     status=status,
@@ -268,6 +307,8 @@ class RequestProcessingJobRepository:
                     updated_at=now,
                 )
             )
+            if not result.rowcount:
+                return "fenced"
             await session.execute(
                 update(Request)
                 .where(Request.id == job.request_id)
@@ -305,6 +346,7 @@ class RequestProcessingJobRepository:
             "attempt_count": 0,
             "max_attempts": max_attempts,
             "lease_owner": None,
+            "lease_token": 0,
             "lease_expires_at": None,
             "retry_after": now,
             "last_error_code": None,
@@ -414,6 +456,7 @@ class RequestProcessingJobRepository:
             "attempt_count": 1,
             "max_attempts": 1,
             "lease_owner": None,
+            "lease_token": 0,
             "lease_expires_at": None,
             "retry_after": None,
             "last_error_code": error_code,
@@ -793,6 +836,7 @@ class DurableRequestProcessingQueue:
                 await self._repo.mark_succeeded(
                     job.id,
                     lease_owner=self._owner,
+                    lease_token=job.lease_token,
                     request_id=job.request_id,
                 )
                 return
@@ -804,12 +848,17 @@ class DurableRequestProcessingQueue:
                 await self._repo.mark_succeeded(
                     job.id,
                     lease_owner=self._owner,
+                    lease_token=job.lease_token,
                     request_id=job.request_id,
                 )
                 return
             request_status, error_message = await self._repo.get_request_status(job.request_id)
             if request_status in {"success", "complete", "completed", "ok"}:
-                await self._repo.mark_succeeded(job.id, lease_owner=self._owner)
+                await self._repo.mark_succeeded(
+                    job.id,
+                    lease_owner=self._owner,
+                    lease_token=job.lease_token,
+                )
                 return
             await self._repo.mark_failed(
                 job,

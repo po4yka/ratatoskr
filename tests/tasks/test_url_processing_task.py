@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from types import SimpleNamespace
@@ -87,6 +88,7 @@ def _make_leased_job(request_id: int = 1, cid: str = "test-cid"):
         attempt_count=1,
         max_attempts=3,
         correlation_id=cid,
+        lease_token=1,
     )
 
 
@@ -150,6 +152,50 @@ async def test_process_url_request_lease_not_acquired(monkeypatch):
         )
 
     runtime.url_processor.handle_url_flow.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_lease_renewal_cancels_processing_after_fence_loss(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks import url_processing
+
+    processing_cancelled = False
+
+    async def blocked_processing(**_kwargs):
+        nonlocal processing_cancelled
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            processing_cancelled = True
+            raise
+
+    monkeypatch.setattr(url_processing, "_run_url_task", blocked_processing)
+    job = _make_leased_job(request_id=42, cid="cid-fenced")
+    job_repo = MagicMock()
+    job_repo.renew_lease = AsyncMock(return_value=False)
+
+    with pytest.raises(url_processing.LeaseLostError, match="lease lost"):
+        await url_processing._run_url_task_with_lease_renewal(
+            request_id=42,
+            cid="cid-fenced",
+            job_repo=job_repo,
+            job=job,
+            lease_owner="worker:taskiq:42",
+            lease_ttl_seconds=1,
+            cfg=_build_cfg(),
+            db=MagicMock(),
+            runtime=_make_runtime(),
+        )
+
+    assert processing_cancelled is True
+    job_repo.renew_lease.assert_awaited_once_with(
+        job_id=10,
+        lease_owner="worker:taskiq:42",
+        lease_token=1,
+        lease_ttl_seconds=1,
+    )
 
 
 @pytest.mark.asyncio

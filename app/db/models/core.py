@@ -500,6 +500,7 @@ class RequestProcessingJob(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     lease_owner: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lease_token: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     lease_expires_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
