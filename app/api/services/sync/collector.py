@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from .adapters import SyncEntityAdapter, SyncEntityAdapterContext, default_sync_entity_adapters
@@ -13,6 +14,27 @@ if TYPE_CHECKING:
     from app.api.models.responses import SyncEntityEnvelope
 
     from .serializer import SyncEnvelopeSerializer
+
+
+def _created_at_ms(record: dict[str, Any]) -> int | None:
+    """Return a record's created_at as epoch-ms, matching server_version units.
+
+    server_version is ``int(created_at.timestamp() * 1000)`` at creation
+    (``app.db.types._next_server_version``), so the delta bucketer can compare a
+    created_at-ms against the ``since`` cursor (also a server_version) directly.
+    Returns ``None`` when the record has no parseable created_at.
+    """
+    raw = record.get("created_at")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if isinstance(raw, datetime):
+        return int(raw.timestamp() * 1000)
+    return None
 
 
 class SyncAuxReadPort(Protocol):
@@ -69,7 +91,11 @@ class SyncRecordCollector:
 
         for adapter in self._adapters:
             for record in await adapter.collect(context, user_id):
-                records.append(adapter.serialize(self._serializer, record))
+                envelope = adapter.serialize(self._serializer, record)
+                # Carry creation time so delta sync can tell a new row from an
+                # in-place edit; harmless for full sync, which ignores it.
+                envelope._created_at_ms = _created_at_ms(record)
+                records.append(envelope)
 
         records.sort(key=lambda r: (r.server_version, str(r.id)))
         return records

@@ -223,15 +223,33 @@ class SyncFacade:
         limit: int,
     ) -> DeltaSyncResponseData:
         _ = limit
-        created = [rec for rec in records if not rec.deleted_at]
-        deleted = [rec for rec in records if rec.deleted_at]
+        created: list[Any] = []
+        updated: list[Any] = []
+        deleted: list[Any] = []
+        for rec in records:
+            if rec.deleted_at:
+                deleted.append(rec)
+                continue
+            # server_version and created_at are both epoch-ms (see
+            # app.db.types._next_server_version), so the client cursor `since`
+            # (a server_version) compares directly against created_at-ms. A row
+            # created at/before the cursor was already seen by the client, so a
+            # later change is an update; one created after the cursor is new to
+            # the client (created). Unknown creation time -> created, preserving
+            # the pre-fix default without ever misrouting an edit that carries a
+            # created_at.
+            created_ms = getattr(rec, "_created_at_ms", None)
+            if created_ms is not None and created_ms <= since:
+                updated.append(rec)
+            else:
+                created.append(rec)
         return DeltaSyncResponseData(
             session_id=session_id,
             since=since,
             has_more=has_more,
             next_since=next_since,
             created=created,
-            updated=[],
+            updated=updated,
             deleted=deleted,
         )
 
