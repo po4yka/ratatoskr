@@ -176,6 +176,8 @@ dependencies = [
   "browserforge>=1.2.4",
   "curl_cffi>=0.15.0",
   "trafilatura>=2.1.0,<3",
+  # jusText installs this transitively. Version 0.4.5 fixes XSS through unsanitized javascript: URLs in xlink:href attributes and requires the already-pinned lxml>=6.1.1.
+  "lxml-html-clean>=0.4.5",
   # spacy: stays in base deps. The only usage is spacy.blank()+sentencizer in
   # app/core/html_utils.py:_get_spacy_sentencizer (deferred import, 1 call site).
   # The import is lazy but the runtime path is non-optional (sentence splitting
