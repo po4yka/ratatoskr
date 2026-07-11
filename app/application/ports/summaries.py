@@ -103,8 +103,10 @@ class SummaryRepositoryPort(Protocol):
     ) -> dict[int, dict[str, Any]]:
         """Return summaries mapped by request ID."""
 
-    async def async_get_all_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        """Return all summaries for sync operations."""
+    async def async_get_all_for_user(
+        self, user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]:
+        """Return summaries for sync operations (``since>0`` filters by cursor)."""
 
     async def async_get_summary_for_sync_apply(
         self, summary_id: int, user_id: int

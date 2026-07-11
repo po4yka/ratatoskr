@@ -22,6 +22,12 @@ class SyncEntityAdapterContext:
     llm_repository: Any
     aux_read_port: Any
     serializer: SyncEnvelopeSerializer
+    # Sync cursor for this collect pass. Carried on the context (not the collect
+    # signature) so third-party adapters keep their (context, user_id) callable
+    # shape. 0 => full read (first sync); >0 => only rows changed past the cursor,
+    # pushed into each repo/aux query so a poll never re-reads a user's entire
+    # lifetime history (audit #2).
+    since: int = 0
 
 
 CollectSyncRecords = Callable[[SyncEntityAdapterContext, int], Awaitable[Iterable[dict[str, Any]]]]
@@ -75,7 +81,7 @@ async def _collect_requests(
 ) -> Iterable[dict[str, Any]]:
     return cast(
         "Iterable[dict[str, Any]]",
-        await context.request_repository.async_get_all_for_user(user_id),
+        await context.request_repository.async_get_all_for_user(user_id, since=context.since),
     )
 
 
@@ -84,7 +90,7 @@ async def _collect_summaries(
 ) -> Iterable[dict[str, Any]]:
     return cast(
         "Iterable[dict[str, Any]]",
-        await context.summary_repository.async_get_all_for_user(user_id),
+        await context.summary_repository.async_get_all_for_user(user_id, since=context.since),
     )
 
 
@@ -93,7 +99,7 @@ async def _collect_crawl_results(
 ) -> Iterable[dict[str, Any]]:
     return cast(
         "Iterable[dict[str, Any]]",
-        await context.crawl_result_repository.async_get_all_for_user(user_id),
+        await context.crawl_result_repository.async_get_all_for_user(user_id, since=context.since),
     )
 
 
@@ -102,7 +108,7 @@ async def _collect_llm_calls(
 ) -> Iterable[dict[str, Any]]:
     return cast(
         "Iterable[dict[str, Any]]",
-        await context.llm_repository.async_get_all_for_user(user_id),
+        await context.llm_repository.async_get_all_for_user(user_id, since=context.since),
     )
 
 
@@ -111,7 +117,7 @@ async def _collect_highlights(
 ) -> Iterable[dict[str, Any]]:
     return cast(
         "Iterable[dict[str, Any]]",
-        await context.aux_read_port.get_highlights_for_user(user_id),
+        await context.aux_read_port.get_highlights_for_user(user_id, since=context.since),
     )
 
 
@@ -120,7 +126,7 @@ async def _collect_tags(
 ) -> Iterable[dict[str, Any]]:
     return cast(
         "Iterable[dict[str, Any]]",
-        await context.aux_read_port.get_tags_for_user(user_id),
+        await context.aux_read_port.get_tags_for_user(user_id, since=context.since),
     )
 
 
@@ -129,7 +135,7 @@ async def _collect_summary_tags(
 ) -> Iterable[dict[str, Any]]:
     return cast(
         "Iterable[dict[str, Any]]",
-        await context.aux_read_port.get_summary_tags_for_user(user_id),
+        await context.aux_read_port.get_summary_tags_for_user(user_id, since=context.since),
     )
 
 

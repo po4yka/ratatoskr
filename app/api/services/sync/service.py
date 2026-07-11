@@ -129,8 +129,10 @@ class SyncFacade:
     ) -> FullSyncResponseData:
         session = await self._load_session(session_id, user_id, client_id)
         resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
-        records = await self._collector.collect_records(user_id)
         since = int(session.get("next_since") or 0)
+        # Pass the cursor into collection so the DB only returns rows past it -- a
+        # full-sync chunk must not re-read the whole history each poll (audit #2).
+        records = await self._collector.collect_records(user_id, since=since)
         page, has_more, next_since = self._collector.paginate_records(
             records,
             since=since,
@@ -151,7 +153,9 @@ class SyncFacade:
     ) -> DeltaSyncResponseData:
         session = await self._load_session(session_id, user_id, client_id)
         resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
-        records = await self._collector.collect_records(user_id)
+        # Delta sync is inherently incremental: push the client's cursor into the
+        # query so only rows changed past it are read, not the whole history (audit #2).
+        records = await self._collector.collect_records(user_id, since=since)
         page, has_more, next_since = self._collector.paginate_records(
             records,
             since=since,

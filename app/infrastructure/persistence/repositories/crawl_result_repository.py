@@ -93,15 +93,22 @@ class CrawlResultRepositoryAdapter:
             )
             return int(value) if value is not None else None
 
-    async def async_get_all_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        """Get all crawl results for a user, with request_id flattened."""
+    async def async_get_all_for_user(
+        self, user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]:
+        """Get all crawl results for a user, with request_id flattened.
+
+        ``since`` pushes the sync cursor into the query so a poll only reads rows
+        changed past it, instead of the user's entire lifetime history (audit #2).
+        """
+        stmt = (
+            select(CrawlResult)
+            .join(Request, CrawlResult.request_id == Request.id)
+            .where(Request.user_id == user_id)
+        )
+        if since > 0:
+            stmt = stmt.where(CrawlResult.server_version > since)
+        stmt = stmt.order_by(CrawlResult.id)
         async with self._database.session() as session:
-            rows = (
-                await session.execute(
-                    select(CrawlResult)
-                    .join(Request, CrawlResult.request_id == Request.id)
-                    .where(Request.user_id == user_id)
-                    .order_by(CrawlResult.id)
-                )
-            ).scalars()
+            rows = (await session.execute(stmt)).scalars()
             return [model_to_dict(row) or {} for row in rows]

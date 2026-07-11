@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Protocol
 
 from .adapters import SyncEntityAdapter, SyncEntityAdapterContext, default_sync_entity_adapters
@@ -15,11 +16,15 @@ if TYPE_CHECKING:
 
 
 class SyncAuxReadPort(Protocol):
-    async def get_highlights_for_user(self, user_id: int) -> list[dict[str, Any]]: ...
+    async def get_highlights_for_user(
+        self, user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]: ...
 
-    async def get_tags_for_user(self, user_id: int) -> list[dict[str, Any]]: ...
+    async def get_tags_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]: ...
 
-    async def get_summary_tags_for_user(self, user_id: int) -> list[dict[str, Any]]: ...
+    async def get_summary_tags_for_user(
+        self, user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]: ...
 
 
 class SyncRecordCollector:
@@ -53,11 +58,17 @@ class SyncRecordCollector:
             serializer=self._serializer,
         )
 
-    async def collect_records(self, user_id: int) -> list[SyncEntityEnvelope]:
+    async def collect_records(self, user_id: int, since: int = 0) -> list[SyncEntityEnvelope]:
         records: list[SyncEntityEnvelope] = []
 
+        # Carry the sync cursor on a per-call context copy so each adapter's repo /
+        # aux query filters server_version > since at the DB (audit #2). since=0
+        # (first sync) keeps the full-read behavior. The base self._context is never
+        # mutated, so concurrent collects never see each other's cursor.
+        context = replace(self._context, since=since) if since else self._context
+
         for adapter in self._adapters:
-            for record in await adapter.collect(self._context, user_id):
+            for record in await adapter.collect(context, user_id):
                 records.append(adapter.serialize(self._serializer, record))
 
         records.sort(key=lambda r: (r.server_version, str(r.id)))

@@ -156,6 +156,47 @@ class TestCollectRecords:
         assert len(records) == 0
 
     @pytest.mark.asyncio
+    async def test_collect_records_pushes_since_into_repositories(self, sync_service):
+        """Incremental sync pushes the cursor into every repo/aux query so the DB
+        filters server_version > since instead of returning the whole history (audit #2)."""
+        sync_service._user_repo.async_get_user_by_telegram_id = AsyncMock(return_value=None)
+        sync_service._request_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._summary_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._crawl_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._llm_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        aux = sync_service._collector._aux_read_port
+        aux.get_highlights_for_user = AsyncMock(return_value=[])
+        aux.get_tags_for_user = AsyncMock(return_value=[])
+        aux.get_summary_tags_for_user = AsyncMock(return_value=[])
+
+        await sync_service._collector.collect_records(123, since=42)
+
+        sync_service._request_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        sync_service._summary_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        sync_service._crawl_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        sync_service._llm_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        aux.get_highlights_for_user.assert_awaited_once_with(123, since=42)
+        aux.get_tags_for_user.assert_awaited_once_with(123, since=42)
+        aux.get_summary_tags_for_user.assert_awaited_once_with(123, since=42)
+
+    @pytest.mark.asyncio
+    async def test_collect_records_since_zero_is_full_read(self, sync_service):
+        """The first sync (since=0) still issues a full read -- since=0 forwarded, no filter."""
+        sync_service._user_repo.async_get_user_by_telegram_id = AsyncMock(return_value=None)
+        sync_service._request_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._summary_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._crawl_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._llm_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        aux = sync_service._collector._aux_read_port
+        aux.get_highlights_for_user = AsyncMock(return_value=[])
+        aux.get_tags_for_user = AsyncMock(return_value=[])
+        aux.get_summary_tags_for_user = AsyncMock(return_value=[])
+
+        await sync_service._collector.collect_records(123)
+
+        sync_service._request_repo.async_get_all_for_user.assert_awaited_once_with(123, since=0)
+
+    @pytest.mark.asyncio
     async def test_fake_sync_entity_adapter_collects_and_serializes(
         self, mock_config, mock_session_manager
     ):
@@ -368,6 +409,34 @@ class TestGetFull:
                 assert result.next_since == 50
 
     @pytest.mark.asyncio
+    async def test_get_full_pushes_session_cursor_into_collection(self, sync_service):
+        """get_full forwards the session's next_since to collect_records so a
+        full-sync chunk reads only rows past the cursor (audit #2)."""
+        now = datetime.now(UTC)
+        session_payload = {
+            "session_id": "test-session",
+            "user_id": 123,
+            "client_id": "test-client",
+            "chunk_limit": 100,
+            "next_since": 9,
+            "expires_at": (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        }
+        with patch.object(
+            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+        ):
+            with patch.object(
+                sync_service._collector,
+                "collect_records",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as mock_collect:
+                await sync_service.get_full(
+                    session_id="test-session", user_id=123, client_id="test-client", limit=10
+                )
+
+        mock_collect.assert_awaited_once_with(123, since=9)
+
+    @pytest.mark.asyncio
     async def test_get_full_advances_session_cursor(self, sync_service):
         """Repeated full-sync chunks for one session must not replay the first page."""
         sync_service.cfg.sync.min_limit = 1
@@ -447,6 +516,37 @@ class TestGetDelta:
                 assert len(result.created) == 3
                 assert len(result.updated) == 0
                 assert len(result.deleted) == 0
+
+    @pytest.mark.asyncio
+    async def test_get_delta_pushes_since_into_collection(self, sync_service):
+        """get_delta forwards the client's cursor to collect_records so only rows
+        changed past it are read, not the whole history (audit #2)."""
+        now = datetime.now(UTC)
+        session_payload = {
+            "session_id": "test-session",
+            "user_id": 123,
+            "client_id": "test-client",
+            "chunk_limit": 100,
+            "expires_at": (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        }
+        with patch.object(
+            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+        ):
+            with patch.object(
+                sync_service._collector,
+                "collect_records",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as mock_collect:
+                await sync_service.get_delta(
+                    session_id="test-session",
+                    user_id=123,
+                    client_id="test-client",
+                    since=7,
+                    limit=10,
+                )
+
+        mock_collect.assert_awaited_once_with(123, since=7)
 
     @pytest.mark.asyncio
     async def test_get_delta_with_deletions(self, sync_service):

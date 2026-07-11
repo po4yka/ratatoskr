@@ -907,25 +907,34 @@ class SummaryRepositoryAdapter:
     # is bounded.
     _SYNC_PAGE_SIZE: int = 500
 
-    async def async_get_all_for_user(self, user_id: int) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(
+        self, user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]:
         """Get all summaries for a user for sync operations.
 
         Pages internally in _SYNC_PAGE_SIZE-row batches ordered by id so that
         the full result set is collected without holding an unbounded SQLAlchemy
-        cursor open. Output is identical to the previous single-shot load:
-        every non-deleted AND deleted row (sync clients need tombstones) is
-        returned, ordered by id ascending.
+        cursor open. Every non-deleted AND deleted row (sync clients need
+        tombstones) is returned, ordered by id ascending.
+
+        ``since`` pushes the sync cursor into each batch's WHERE so a poll only
+        reads rows changed past it, instead of the user's entire lifetime history
+        (audit #2); server_version is a global monotonic counter, so this matches
+        the caller's server_version > since pagination filter.
         """
         results: list[dict[str, Any]] = []
         last_id = 0
         async with self._database.session() as session:
             while True:
+                conditions = [Request.user_id == user_id, Summary.id > last_id]
+                if since > 0:
+                    conditions.append(Summary.server_version > since)
                 rows = list(
                     (
                         await session.execute(
                             select(Summary)
                             .join(Request, Summary.request_id == Request.id)
-                            .where(Request.user_id == user_id, Summary.id > last_id)
+                            .where(*conditions)
                             .order_by(Summary.id)
                             .limit(self._SYNC_PAGE_SIZE)
                         )
