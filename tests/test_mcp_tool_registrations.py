@@ -94,6 +94,9 @@ async def test_mcp_tool_registration_records_success_metrics() -> None:
         list_signals=AsyncMock(return_value={"signals": []}),
         update_signal_feedback=AsyncMock(return_value={"updated": True}),
         set_source_active=AsyncMock(return_value={"updated": True}),
+        promote_to_library=AsyncMock(
+            return_value={"promoted": True, "request_id": 73, "status": "queued"}
+        ),
     )
     archive_research_service = SimpleNamespace(
         research=AsyncMock(return_value={"answer": "Evidence [summary:1]", "citations": []})
@@ -110,12 +113,13 @@ async def test_mcp_tool_registration_records_success_metrics() -> None:
         archive_research_service=cast("Any", archive_research_service),
     )
 
-    assert len(mcp.tools) == 27
+    assert len(mcp.tools) == 28
     assert {
         "list_signal_sources",
         "list_user_signals",
         "update_signal_feedback",
         "set_signal_source_active",
+        "promote_to_library",
         "x_search",
         "ask_my_archive",
     } <= set(mcp.tools)
@@ -136,6 +140,10 @@ async def test_mcp_tool_registration_records_success_metrics() -> None:
     payload = await mcp.tools["ask_my_archive"]("What did I save?")
     assert json.loads(payload)["answer"] == "Evidence [summary:1]"
     archive_research_service.research.assert_awaited_once_with("What did I save?", 12)
+
+    payload = await mcp.tools["promote_to_library"]("signal", 9)
+    assert json.loads(payload) == {"promoted": True, "request_id": 73, "status": "queued"}
+    signal_service.promote_to_library.assert_awaited_once_with("signal", 9)
 
 
 @pytest.mark.asyncio

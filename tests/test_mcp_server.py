@@ -296,6 +296,7 @@ def test_create_mcp_server_registers_expected_tools_and_resources(
         "list_user_signals",
         "set_signal_source_active",
         "update_signal_feedback",
+        "promote_to_library",
     }
     assert set(mcp.registered_resources) == {
         "ratatoskr://aggregations/recent",

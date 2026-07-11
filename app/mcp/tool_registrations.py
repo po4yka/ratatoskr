@@ -41,7 +41,7 @@ _MCP_TOOL_WINDOW_SEC = _env_positive_int("MCP_TOOL_RATE_WINDOW_SEC", 60)
 _MCP_TOOL_DEFAULT_LIMIT = _env_positive_int("MCP_TOOL_RATE_LIMIT", 60)
 _MCP_EXPENSIVE_TOOL_LIMIT = _env_positive_int("MCP_EXPENSIVE_TOOL_RATE_LIMIT", 5)
 # Tools that fan out to scraping + LLM calls and must be capped tighter.
-_MCP_EXPENSIVE_TOOLS = frozenset({"create_aggregation_bundle"})
+_MCP_EXPENSIVE_TOOLS = frozenset({"create_aggregation_bundle", "promote_to_library"})
 
 
 def _mcp_identity_key(context: Any) -> str:
@@ -475,6 +475,18 @@ def register_tools(
         )
 
     @contribute_tool
+    async def promote_to_library(source_type: str, source_id: int) -> str:
+        """Promote one queued signal or X bookmark into a durable summary request."""
+        return to_json(
+            await _call_async(
+                "promote_to_library",
+                signal_runtime.promote_to_library,
+                source_type,
+                source_id,
+            )
+        )
+
+    @contribute_tool
     async def set_signal_source_active(source_id: int, is_active: bool) -> str:
         """Enable or disable one subscribed signal source for the scoped MCP user."""
         return to_json(
@@ -522,6 +534,9 @@ class _NullSignalService:
         return {"signals": []}
 
     async def update_signal_feedback(self, signal_id: int, action: str) -> dict[str, Any]:
+        return {"error": "Signal service is not configured"}
+
+    async def promote_to_library(self, source_type: str, source_id: int) -> dict[str, Any]:
         return {"error": "Signal service is not configured"}
 
     async def set_source_active(self, source_id: int, is_active: bool) -> dict[str, Any]:

@@ -106,6 +106,32 @@ async def test_create_url_request_detects_atomic_duplicate_race() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mark_enqueue_failed_records_a_terminal_error_for_the_owner() -> None:
+    request_repo = AsyncMock()
+    request_repo.async_get_request_by_id.return_value = {"id": 42, "user_id": 5001}
+    service = RequestService(
+        db=None,
+        request_repository=cast("RequestRepositoryPort", request_repo),
+        summary_repository=AsyncMock(),
+        crawl_result_repository=AsyncMock(),
+        llm_repository=AsyncMock(),
+    )
+
+    await service.mark_enqueue_failed(
+        user_id=5001,
+        request_id=42,
+        error_message="Unable to enqueue summary request. Error ID: promotion-42",
+    )
+
+    request_repo.async_update_request_error.assert_awaited_once_with(
+        42,
+        "error",
+        error_type="enqueue_failed",
+        error_message="Unable to enqueue summary request. Error ID: promotion-42",
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_forward_request_and_get_request_by_id_with_related_records(
     db,
     user_factory,
