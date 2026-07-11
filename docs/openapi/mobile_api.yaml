@@ -10730,15 +10730,15 @@ components:
           minLength: 1
           title: Client Id
         nonce:
-          anyOf:
-          - type: string
-            maxLength: 256
-          - type: 'null'
+          type: string
+          maxLength: 256
+          minLength: 1
           title: Nonce
       type: object
       required:
       - id_token
       - client_id
+      - nonce
       title: AppleSignInCallbackRequest
       description: Request body for Apple Sign-In callback token validation.
     AppleSignInStartRequest:

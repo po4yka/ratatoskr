@@ -200,7 +200,11 @@ class AppleSignInCallbackRequest(BaseModel):
 
     id_token: str = Field(..., min_length=1)
     client_id: str = Field(..., min_length=1, max_length=100)
-    nonce: str | None = Field(default=None, max_length=256)
+    # Required for replay protection: the callback must echo back the nonce from
+    # the matching /apple/start response so the server can bind the id_token to
+    # that specific authorization request. An optional nonce let a caller omit it
+    # and skip the replay check entirely.
+    nonce: str = Field(..., min_length=1, max_length=256)
 
 
 class MagicLinkRequest(BaseModel):
