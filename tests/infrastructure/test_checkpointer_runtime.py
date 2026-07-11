@@ -19,6 +19,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import app.infrastructure.checkpointing.runtime as checkpoint_runtime
+from app.infrastructure.checkpointing.cleanup import CheckpointPruneStats
 from app.infrastructure.checkpointing.runtime import CheckpointerRuntime, _psycopg_dsn
 
 
@@ -28,6 +30,7 @@ def _cfg(*, schema="langgraph", dsn_override=None, strict_msgpack=True, pmin=1, 
             schema_name=schema,
             dsn_override=dsn_override,
             strict_msgpack=strict_msgpack,
+            retention_days=90,
             pool_min_size=pmin,
             pool_max_size=pmax,
         ),
@@ -41,7 +44,13 @@ def _install_stubs(monkeypatch, *, guard_database=True, setup_error=None):
     pool.open = AsyncMock()
     pool.close = AsyncMock()
     schema_conn = MagicMock()
-    schema_conn.execute = AsyncMock()
+    cursor = MagicMock()
+    cursor.fetchall = AsyncMock(return_value=[])
+    schema_conn.execute = AsyncMock(return_value=cursor)
+    tx = MagicMock()
+    tx.__aenter__ = AsyncMock(return_value=None)
+    tx.__aexit__ = AsyncMock(return_value=False)
+    schema_conn.transaction = MagicMock(return_value=tx)
     conn_cm = MagicMock()
     conn_cm.__aenter__ = AsyncMock(return_value=schema_conn)
     conn_cm.__aexit__ = AsyncMock(return_value=False)
@@ -86,6 +95,7 @@ def _install_stubs(monkeypatch, *, guard_database=True, setup_error=None):
         pool=pool,
         pool_class=pool_class,
         schema_conn=schema_conn,
+        tx=tx,
         saver=saver,
         saver_class=saver_class,
         serde_class=serde_class,
@@ -123,11 +133,52 @@ async def test_start_builds_isolated_pool_and_runs_setup(monkeypatch):
     assert "row_factory" in kw["kwargs"]
     assert callable(kw["configure"])
     m.pool.open.assert_awaited_once()
-    schema_sql = m.schema_conn.execute.await_args.args[0]
+    schema_sql = m.schema_conn.execute.await_args_list[0].args[0]
     assert "CREATE SCHEMA IF NOT EXISTS" in schema_sql and "langgraph" in schema_sql
     assert m.serde_class.call_args.kwargs["pickle_fallback"] is False  # strict
     m.saver.setup.assert_awaited_once()
     assert rt.saver is m.saver
+
+
+async def test_start_cleans_checkpoints_before_exposing_saver(monkeypatch):
+    m = _install_stubs(monkeypatch)
+    rt = CheckpointerRuntime(cfg=_cfg())
+    events: list[str] = []
+
+    async def setup() -> None:
+        events.append("setup")
+
+    async def cleanup(*args, **kwargs) -> CheckpointPruneStats:
+        assert events == ["setup"]
+        with pytest.raises(RuntimeError):
+            _ = rt.saver
+        events.append("cleanup")
+        return CheckpointPruneStats()
+
+    m.saver.setup = AsyncMock(side_effect=setup)
+    monkeypatch.setattr(checkpoint_runtime, "prune_expired_checkpoints", cleanup)
+
+    await rt.start()
+
+    assert events == ["setup", "cleanup"]
+    assert rt.saver is m.saver
+
+
+async def test_start_closes_pool_when_startup_cleanup_fails(monkeypatch):
+    m = _install_stubs(monkeypatch)
+    rt = CheckpointerRuntime(cfg=_cfg())
+    monkeypatch.setattr(
+        checkpoint_runtime,
+        "prune_expired_checkpoints",
+        AsyncMock(side_effect=RuntimeError("cleanup boom")),
+    )
+
+    with pytest.raises(RuntimeError, match="cleanup boom"):
+        await rt.start()
+
+    m.pool.close.assert_awaited_once()
+    with pytest.raises(RuntimeError):
+        _ = rt.saver
 
 
 async def test_strict_msgpack_false_enables_pickle_fallback(monkeypatch):

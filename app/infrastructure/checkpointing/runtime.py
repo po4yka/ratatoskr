@@ -15,9 +15,11 @@ which does not install the optional ``graph`` extra.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
+from app.infrastructure.checkpointing.cleanup import prune_expired_checkpoints
 
 if TYPE_CHECKING:
     from app.config.langgraph import LangGraphCheckpointConfig
@@ -60,7 +62,7 @@ class CheckpointerRuntime:
         return self._saver
 
     async def start(self) -> None:
-        """Open the dedicated pool, create the schema, and run saver.setup()."""
+        """Open the pool and clean retained state before exposing a durable saver."""
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
         from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
         from psycopg.rows import dict_row
@@ -108,6 +110,15 @@ class CheckpointerRuntime:
             serde = JsonPlusSerializer(pickle_fallback=allow_pickle)
             saver = AsyncPostgresSaver(pool, serde=serde)
             await saver.setup()
+
+            # setup() bootstraps the checkpoint tables on a fresh deployment. Only publish the saver after pruning old runs, so production graph compilation cannot enable durable execution ahead of cleanup.
+            async with pool.connection() as conn, conn.transaction():
+                prune_stats = await prune_expired_checkpoints(
+                    conn,
+                    schema=schema,
+                    retention_days=cp_cfg.retention_days,
+                )
+            logger.info("langgraph_startup_checkpoint_cleanup_complete", extra=asdict(prune_stats))
             self._saver = saver
         except Exception:
             # Never leak the just-opened pool if schema creation / setup fails:

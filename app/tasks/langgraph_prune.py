@@ -16,13 +16,13 @@ image, which does not install the optional ``graph`` extra.
 
 from __future__ import annotations
 
-import datetime as dt
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 
 from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves at runtime
 from app.core.logging_utils import get_logger
+from app.infrastructure.checkpointing.cleanup import CheckpointPruneStats, prune_expired_checkpoints
 from app.infrastructure.checkpointing.runtime import _psycopg_dsn
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
@@ -35,15 +35,6 @@ _PRUNE_LOCK_KEY = "task_lock:langgraph_prune"
 # 10 minutes: a whole-run DELETE across 3 small checkpoint tables is fast; the
 # generous TTL guards against a slow Postgres without risking a stuck lock.
 _PRUNE_LOCK_TTL = 600
-
-
-@dataclass
-class CheckpointPruneStats:
-    """Rows deleted from each checkpoint table."""
-
-    checkpoints: int = 0
-    checkpoint_blobs: int = 0
-    checkpoint_writes: int = 0
 
 
 @broker.task(task_name="ratatoskr.langgraph.prune")
@@ -99,29 +90,14 @@ async def _prune_body(cfg: AppConfig) -> CheckpointPruneStats:
 
     schema = cp_cfg.schema_name  # validated [A-Za-z0-9_] at config time -> safe to interpolate
     dsn = _psycopg_dsn(cfg.database.dsn, cp_cfg.dsn_override)
-    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=cp_cfg.retention_days)
-
-    stats = CheckpointPruneStats()
     # OWN short-lived psycopg3 connection -- NOT app.db.session.Database (invariant 4).
     # No autocommit: the SELECT + three DELETEs share one transaction/snapshot.
     async with await psycopg.AsyncConnection.connect(dsn) as conn, conn.transaction():
-        cur = await conn.execute(
-            "SELECT correlation_id FROM public.requests "
-            "WHERE correlation_id IS NOT NULL AND created_at < %(cutoff)s",
-            {"cutoff": cutoff},
+        stats = await prune_expired_checkpoints(
+            conn,
+            schema=schema,
+            retention_days=cp_cfg.retention_days,
         )
-        thread_ids = [row[0] for row in await cur.fetchall()]
-        if not thread_ids:
-            return stats
-        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-            del_cur = await conn.execute(
-                # `schema` is validated [A-Za-z0-9_] at config time and `table` is a
-                # fixed literal from the tuple above, so this is not user-controlled
-                # SQL; the id set is parameterized.
-                f'DELETE FROM "{schema}".{table} WHERE thread_id = ANY(%(ids)s)',  # nosec B608
-                {"ids": thread_ids},
-            )
-            setattr(stats, table, del_cur.rowcount or 0)
 
     logger.info("langgraph_prune_complete", extra=asdict(stats))
     return stats
