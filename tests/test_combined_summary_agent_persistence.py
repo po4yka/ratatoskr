@@ -1,9 +1,8 @@
 """CombinedSummaryAgent must persist its synthesis LLM call to llm_calls (rule 3).
 
 The batch combined-summary chat_structured call previously wrote no llm_calls
-row, so its cost/tokens were unrecoverable. It now persists against one of the
-batch's article requests (endpoint=combined_summary), on success and failure,
-when the DI layer supplied an llm_repo + request_id.
+row, so its cost/tokens were unrecoverable. It now persists through the shared
+agent contract on success and failure whenever DI supplies an llm repository.
 """
 
 from __future__ import annotations
@@ -89,7 +88,7 @@ async def test_persists_error_row_on_failure_and_returns_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_persist_without_request_id() -> None:
+async def test_persists_without_request_id() -> None:
     llm = _success_llm()
     repo = MagicMock()
     repo.async_insert_llm_call = AsyncMock()
@@ -98,7 +97,8 @@ async def test_no_persist_without_request_id() -> None:
     out = await agent._generate_combined_summary(SimpleNamespace(language="en"))
 
     assert out is not None and out.ok is True
-    repo.async_insert_llm_call.assert_not_called()
+    repo.async_insert_llm_call.assert_awaited_once()
+    assert repo.async_insert_llm_call.await_args.args[0]["request_id"] is None
 
 
 @pytest.mark.asyncio

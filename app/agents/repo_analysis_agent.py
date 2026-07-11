@@ -11,14 +11,15 @@ from pydantic import ValidationError
 from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
 from app.core.repo_analysis_contract import parse_and_validate_repo_analysis
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
-from app.observability.metrics import record_llm_call_persisted
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from app.adapter_models.llm.llm_models import StructuredLLMResult
+    from app.application.ports.requests import LLMRepositoryPort
     from app.core.repo_analysis_schema import RepoAnalysis, RepoAnalysisInput
 
 logger = get_logger(__name__)
@@ -33,20 +34,6 @@ def _get_tracer() -> Any:
 
 
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
-
-
-def _provider_from_model(model_name: str | None) -> str:
-    """Derive a provider label from an OpenRouter-style model name.
-
-    Handles ``vendor/model-name`` patterns (e.g. ``openai/gpt-4o``,
-    ``anthropic/claude-3-5-sonnet``) and bare names.  Returns ``"unknown"``
-    when the name is empty or has no slash.
-    """
-    if not model_name:
-        return "unknown"
-    if "/" in model_name:
-        return model_name.split("/", 1)[0]
-    return "unknown"
 
 
 @runtime_checkable
@@ -84,15 +71,6 @@ class StructuredLLMServiceProtocol(Protocol):
         ...
 
 
-@runtime_checkable
-class LLMRepoProtocol(Protocol):
-    """Minimal persistence interface for LLMCall rows."""
-
-    async def async_insert_llm_call(self, payload: dict[str, Any]) -> int | None:
-        """Persist a single LLM call record and return its id (optional)."""
-        ...
-
-
 class RepoAnalysisAgent:
     """Analyse a GitHub repository via LLM with structured-output validation.
 
@@ -108,7 +86,7 @@ class RepoAnalysisAgent:
     def __init__(
         self,
         llm_service: LLMServiceProtocol | StructuredLLMServiceProtocol,
-        llm_repo: LLMRepoProtocol | None = None,
+        llm_repo: LLMRepositoryPort | None = None,
         request_id: int | None = None,
         model_name: str | None = None,
     ) -> None:
@@ -205,6 +183,7 @@ class RepoAnalysisAgent:
                 response_text="",
                 status="error",
                 error_text=str(exc),
+                structured_output_used=True,
             )
             return None
 
@@ -214,13 +193,14 @@ class RepoAnalysisAgent:
             attempt_index=max(1, result.retry_count + 1),
             attempt_trigger="structured",
             response_text=parsed.model_dump_json(),
-            status="ok",
+            status="success",
             error_text=None,
             model_name=result.model_used,
             tokens_prompt=result.tokens_prompt,
             tokens_completion=result.tokens_completion,
             cost_usd=result.cost_usd,
             latency_ms=result.latency_ms,
+            structured_output_used=True,
         )
         logger.info(
             "repo_analysis_structured_success",
@@ -301,7 +281,7 @@ class RepoAnalysisAgent:
                 attempt_index=attempt_index,
                 attempt_trigger=attempt_trigger,
                 response_text=raw_response,
-                status="ok",
+                status="success",
                 error_text=None,
             )
 
@@ -394,34 +374,24 @@ class RepoAnalysisAgent:
         tokens_completion: int | None = None,
         cost_usd: float | None = None,
         latency_ms: int | None = None,
+        structured_output_used: bool = False,
     ) -> None:
         if self._llm_repo is None:
             return
-        payload: dict[str, Any] = {
-            "request_id": self._request_id,
-            "provider": _provider_from_model(model_name or self._model_name),
-            "model": model_name or self._model_name,
-            "response_text": response_text,
-            "status": status,
-            "error_text": error_text,
-            "attempt_index": attempt_index,
-            "attempt_trigger": attempt_trigger,
-            "correlation_id": correlation_id,
-            "tokens_prompt": tokens_prompt,
-            "tokens_completion": tokens_completion,
-            "cost_usd": cost_usd,
-            "latency_ms": latency_ms,
-        }
-        try:
-            await self._llm_repo.async_insert_llm_call(payload)
-            record_llm_call_persisted(payload)
-        except Exception as exc:
-            logger.warning(
-                "repo_analysis_persist_failed",
-                extra={
-                    "event": "repo_analysis_persist_failed",
-                    "correlation_id": correlation_id,
-                    "attempt_index": attempt_index,
-                    "error": str(exc),
-                },
-            )
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=self._request_id,
+            endpoint="repo_analysis",
+            model=model_name or self._model_name,
+            status=status,
+            response_text=response_text,
+            latency_ms=latency_ms,
+            error=Exception(error_text) if error_text else None,
+            tokens_prompt=tokens_prompt,
+            tokens_completion=tokens_completion,
+            cost_usd=cost_usd,
+            attempt_index=attempt_index,
+            attempt_trigger=attempt_trigger,
+            correlation_id=correlation_id,
+            structured_output_used=structured_output_used,
+        )

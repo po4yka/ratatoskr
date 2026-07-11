@@ -137,6 +137,7 @@ class AggregationMcpService:
                 aggregation_agent=MultiSourceAggregationAgent(
                     aggregation_session_repo=repo,
                     llm_client=runtime.core.llm_client,
+                    llm_repo=build_llm_repository(runtime.core.db),
                 ),
                 aggregation_session_repo=repo,
                 relationship_agent=RelationshipAnalysisAgent(

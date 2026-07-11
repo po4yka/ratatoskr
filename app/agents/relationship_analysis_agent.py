@@ -20,14 +20,14 @@ from app.adapter_models.batch_analysis import (
     SeriesInfo,
 )
 from app.agents.base_agent import AgentResult, BaseAgent
-from app.core.async_utils import raise_if_cancelled
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.application.ports.llm_client import LLMClientProtocol
-    from app.application.ports.requests import LLMCallRecord, LLMRepositoryPort
+    from app.application.ports.requests import LLMRepositoryPort
 
 logger = get_logger(__name__)
 
@@ -537,34 +537,22 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
     ) -> None:
         """Best-effort persist of the analysis LLM call to ``llm_calls``.
 
-        No-op unless the DI layer supplied an ``llm_repo`` and the articles
-        carry a ``request_id`` to attach to. ``endpoint="relationship_analysis"``
-        keeps it queryable. Persistence failures are logged, never propagated.
+        ``endpoint="relationship_analysis"`` keeps it queryable. The article
+        request anchor is optional; persistence failures are logged and never
+        propagated.
         """
-        if self._llm_repo is None or request_id is None:
-            return
-        payload: LLMCallRecord = {
-            "request_id": request_id,
-            "provider": "openrouter",
-            "model": str(getattr(result, "model_used", None) or model),
-            "endpoint": "relationship_analysis",
-            "tokens_prompt": int(getattr(result, "tokens_prompt", None) or 0),
-            "tokens_completion": int(getattr(result, "tokens_completion", None) or 0),
-            "cost_usd": float(getattr(result, "cost_usd", None) or 0.0),
-            "latency_ms": latency_ms,
-            "status": status,
-            "structured_output_used": True,
-        }
-        if error is not None:
-            payload["error_text"] = str(error)[:2000]
-        try:
-            await self._llm_repo.async_insert_llm_call(payload)
-        except Exception as persist_exc:
-            raise_if_cancelled(persist_exc)
-            logger.warning(
-                "relationship_analysis_llm_call_persist_failed",
-                extra={"correlation_id": self.correlation_id, "error": str(persist_exc)},
-            )
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=request_id,
+            endpoint="relationship_analysis",
+            model=model,
+            status=status,
+            result=result,
+            latency_ms=latency_ms,
+            error=error,
+            correlation_id=self.correlation_id,
+            structured_output_used=True,
+        )
 
     def _parse_llm_response(
         self, parsed: dict[str, Any], articles: list[ArticleMetadata]

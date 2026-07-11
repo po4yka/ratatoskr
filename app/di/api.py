@@ -226,7 +226,7 @@ async def build_api_runtime(
     repository_analysis_repo = RepositoryAnalysisRepositoryAdapter(database)
     analyze_repository_use_case = AnalyzeRepositoryUseCase(
         repository_repo=repository_analysis_repo,
-        agent=RepoAnalysisAgent(llm_service=core.llm_client),
+        agent=RepoAnalysisAgent(llm_service=core.llm_client, llm_repo=llm_repository),
         embedding_gen=repository_embedding_gen,
     )
     github_platform_extractor = GitHubPlatformExtractor(

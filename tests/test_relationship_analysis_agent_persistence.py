@@ -98,7 +98,7 @@ async def test_handles_failure_locally_and_persists_error_row() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_persist_without_request_id() -> None:
+async def test_persists_without_request_id() -> None:
     llm = _success_llm()
     repo = MagicMock()
     repo.async_insert_llm_call = AsyncMock()
@@ -107,7 +107,8 @@ async def test_no_persist_without_request_id() -> None:
     out = await agent._analyze_with_llm([_article(None), _article(None)], "en")
 
     assert out is not None and out.ok is True
-    repo.async_insert_llm_call.assert_not_called()
+    repo.async_insert_llm_call.assert_awaited_once()
+    assert repo.async_insert_llm_call.await_args.args[0]["request_id"] is None
 
 
 @pytest.mark.asyncio

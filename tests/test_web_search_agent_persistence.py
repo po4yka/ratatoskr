@@ -60,7 +60,7 @@ async def test_persists_llm_call_on_success() -> None:
     assert payload["request_id"] == 42
     assert payload["endpoint"] == "web_search_analysis"
     assert payload["status"] == "success"
-    assert payload["provider"] == "openrouter"
+    assert payload["provider"] == "anthropic"
     assert payload["model"] == "anthropic/claude"
     assert payload["tokens_prompt"] == 120
     assert payload["tokens_completion"] == 30
@@ -88,17 +88,17 @@ async def test_persists_error_row_and_reraises_on_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_persist_when_request_id_missing() -> None:
+async def test_persists_when_request_id_missing() -> None:
     llm = _success_llm()
     repo = MagicMock()
     repo.async_insert_llm_call = AsyncMock()
-    # llm_repo present but no request_id -> cannot attach to a request, skip.
     agent = _agent(llm=llm, llm_repo=repo, request_id=None)
 
     out = await agent._analyze_content("a" * 200, "en", "cid")
 
     assert out is llm._success_result.parsed
-    repo.async_insert_llm_call.assert_not_called()
+    repo.async_insert_llm_call.assert_awaited_once()
+    assert repo.async_insert_llm_call.await_args.args[0]["request_id"] is None
 
 
 @pytest.mark.asyncio

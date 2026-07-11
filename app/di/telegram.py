@@ -236,6 +236,7 @@ def build_summary_cli_runtime(
             aggregation_agent=MultiSourceAggregationAgent(
                 aggregation_session_repo=_agg_session_repo_cli,
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             ),
             aggregation_session_repo=_agg_session_repo_cli,
             relationship_agent=RelationshipAnalysisAgent(
@@ -432,6 +433,7 @@ def _build_telegram_interface_stack(
             aggregation_agent=MultiSourceAggregationAgent(
                 aggregation_session_repo=_agg_session_repo,
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             ),
             aggregation_session_repo=_agg_session_repo,
             relationship_agent=RelationshipAnalysisAgent(

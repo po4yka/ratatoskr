@@ -51,13 +51,19 @@ def _document(
     )
 
 
-def _item(position: int, document: NormalizedSourceDocument) -> SourceExtractionItemResult:
+def _item(
+    position: int,
+    document: NormalizedSourceDocument,
+    *,
+    request_id: int | None = None,
+) -> SourceExtractionItemResult:
     return SourceExtractionItemResult(
         position=position,
         item_id=position,
         source_item_id=document.source_item_id,
         source_kind=document.source_kind,
         status=AggregationItemStatus.EXTRACTED.value,
+        request_id=request_id,
         normalized_document=document,
     )
 
@@ -176,11 +182,14 @@ async def test_aggregation_source_documents_are_wrapped_as_untrusted_source() ->
     )
     llm = MagicMock()
     llm.chat_structured = AsyncMock(side_effect=RuntimeError("stop after capture"))
+    llm_repo = MagicMock()
+    llm_repo.async_insert_llm_call = AsyncMock()
     agent = MultiSourceAggregationAgent(
         aggregation_session_repo=AsyncMock(),
         llm_client=llm,
+        llm_repo=llm_repo,
     )
-    item = _item(0, _document("source-1", malicious))
+    item = _item(0, _document("source-1", malicious), request_id=17)
     input_data = MultiSourceAggregationInput(
         session_id=7,
         correlation_id="cid-untrusted",
@@ -207,3 +216,8 @@ async def test_aggregation_source_documents_are_wrapped_as_untrusted_source() ->
     assert user_prompt.index("Synthesize the source bundle") < user_prompt.index(
         "<untrusted_source_content>"
     )
+    llm_repo.async_insert_llm_call.assert_awaited_once()
+    payload = llm_repo.async_insert_llm_call.await_args.args[0]
+    assert payload["request_id"] == 17
+    assert payload["endpoint"] == "multi_source_aggregation"
+    assert payload["status"] == "error"

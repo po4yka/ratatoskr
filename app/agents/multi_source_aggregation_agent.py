@@ -30,6 +30,7 @@ from app.agents._aggregation_utils import (
     _truncate,
 )
 from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.content_cleaner import wrap_untrusted_source
 from app.application.dto.aggregation import (
     AggregatedClaim,
@@ -53,6 +54,7 @@ if TYPE_CHECKING:
 
     from app.application.ports.aggregation_sessions import AggregationSessionRepositoryPort
     from app.application.ports.llm_client import LLMClientProtocol
+    from app.application.ports.requests import LLMRepositoryPort
 
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -136,10 +138,12 @@ class MultiSourceAggregationAgent(
         aggregation_session_repo: AggregationSessionRepositoryPort,
         llm_client: LLMClientProtocol | None = None,
         correlation_id: str | None = None,
+        llm_repo: LLMRepositoryPort | None = None,
     ) -> None:
         super().__init__(name="MultiSourceAggregationAgent", correlation_id=correlation_id)
         self._aggregation_session_repo = aggregation_session_repo
         self._llm = llm_client
+        self._llm_repo = llm_repo
 
     async def execute(
         self, input_data: MultiSourceAggregationInput
@@ -258,6 +262,8 @@ class MultiSourceAggregationAgent(
             duplicate_signals=duplicate_signals,
             contradiction_hints=contradiction_hints,
         )
+        request_id = next((item.request_id for item in extracted_items if item.request_id), None)
+        model = getattr(self._llm, "_model", "unknown")
         try:
             result = await self._llm.chat_structured(
                 [
@@ -278,7 +284,28 @@ class MultiSourceAggregationAgent(
             )
         except Exception as exc:
             self.log_warning("multi_source_aggregation_llm_failed", error=str(exc))
+            await persist_agent_llm_call(
+                self._llm_repo,
+                request_id=request_id,
+                endpoint="multi_source_aggregation",
+                model=model,
+                status="error",
+                error=exc,
+                correlation_id=input_data.correlation_id,
+                structured_output_used=True,
+            )
             return None, 0.0
+
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=request_id,
+            endpoint="multi_source_aggregation",
+            model=model,
+            status="success",
+            result=result,
+            correlation_id=input_data.correlation_id,
+            structured_output_used=True,
+        )
 
         try:
             return (

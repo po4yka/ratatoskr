@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.adapters.content.search_context_builder import SearchContextBuilder
 from app.agents.base_agent import AgentResult, BaseAgent, _tracer
-from app.core.async_utils import raise_if_cancelled
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.logging_utils import get_logger
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.observability.metrics import (
@@ -25,7 +25,7 @@ from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.adapters.llm import LLMClientProtocol
-    from app.application.ports.requests import LLMCallRecord, LLMRepositoryPort
+    from app.application.ports.requests import LLMRepositoryPort
     from app.application.services.topic_search import TopicArticle, TopicSearchService
     from app.config import WebSearchConfig
 
@@ -242,10 +242,8 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         ]
 
         # Make LLM call with latency tracking for Prometheus.
-        # request_id is int | None (DB foreign key); this agent has no DB-backed
-        # request row so it remains None.  correlation_id is the string tracer for
-        # log correlation and is emitted below so any failure is bracketed by a
-        # traceable log entry.
+        # request_id is optional: the shared persistence contract records this
+        # analysis even when no parent request row is available.
         model = getattr(self._llm, "_model", "unknown")
         logger.debug(
             "web_search_analysis_llm_start",
@@ -301,36 +299,22 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
     ) -> None:
         """Best-effort persist of the analysis LLM call to ``llm_calls``.
 
-        No-op unless the DI layer supplied both an ``llm_repo`` and the
-        summarize ``request_id`` this analysis belongs to. Endpoint
-        ``web_search_analysis`` keeps these queryable/separable from the
-        summarize-graph calls sharing the same request_id. Persistence failures
-        are logged, never propagated (they must not fail the enrichment).
+        Endpoint ``web_search_analysis`` keeps these queryable/separable from
+        summarize-graph calls. A request anchor is optional; persistence failures
+        are logged and never fail enrichment.
         """
-        if self._llm_repo is None or self._request_id is None:
-            return
-        payload: LLMCallRecord = {
-            "request_id": self._request_id,
-            "provider": "openrouter",
-            "model": str(getattr(result, "model_used", None) or model),
-            "endpoint": "web_search_analysis",
-            "tokens_prompt": int(getattr(result, "tokens_prompt", None) or 0),
-            "tokens_completion": int(getattr(result, "tokens_completion", None) or 0),
-            "cost_usd": float(getattr(result, "cost_usd", None) or 0.0),
-            "latency_ms": latency_ms,
-            "status": status,
-            "structured_output_used": True,
-        }
-        if error is not None:
-            payload["error_text"] = str(error)[:2000]
-        try:
-            await self._llm_repo.async_insert_llm_call(payload)
-        except Exception as persist_exc:
-            raise_if_cancelled(persist_exc)
-            logger.warning(
-                "web_search_llm_call_persist_failed",
-                extra={"correlation_id": self.correlation_id, "error": str(persist_exc)},
-            )
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=self._request_id,
+            endpoint="web_search_analysis",
+            model=model,
+            status=status,
+            result=result,
+            latency_ms=latency_ms,
+            error=error,
+            correlation_id=self.correlation_id,
+            structured_output_used=True,
+        )
 
     def _load_analysis_prompt(self, language: str) -> str:
         """Load the search analysis prompt for the given language.

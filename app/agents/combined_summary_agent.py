@@ -14,7 +14,7 @@ from app.adapter_models.batch_analysis import (
     RelationshipType,
 )
 from app.agents.base_agent import AgentResult, BaseAgent, _tracer
-from app.core.async_utils import raise_if_cancelled
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from app.adapters.llm import LLMClientProtocol
-    from app.application.ports.requests import LLMCallRecord, LLMRepositoryPort
+    from app.application.ports.requests import LLMRepositoryPort
 
 logger = get_logger(__name__)
 
@@ -178,35 +178,22 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
     ) -> None:
         """Best-effort persist of the synthesis LLM call to ``llm_calls``.
 
-        No-op unless the DI layer supplied both an ``llm_repo`` and a
-        ``request_id`` (one of the batch's article requests) to attach to.
-        ``endpoint="combined_summary"`` keeps it queryable/separable. Persistence
-        failures are logged, never propagated.
+        ``endpoint="combined_summary"`` keeps it queryable/separable. The request
+        anchor is optional so all agent calls remain auditable. Persistence failures
+        are logged, never propagated.
         """
-        if self._llm_repo is None or self._request_id is None:
-            return
-        payload: LLMCallRecord = {
-            "request_id": self._request_id,
-            "provider": "openrouter",
-            "model": str(getattr(result, "model_used", None) or model),
-            "endpoint": "combined_summary",
-            "tokens_prompt": int(getattr(result, "tokens_prompt", None) or 0),
-            "tokens_completion": int(getattr(result, "tokens_completion", None) or 0),
-            "cost_usd": float(getattr(result, "cost_usd", None) or 0.0),
-            "latency_ms": latency_ms,
-            "status": status,
-            "structured_output_used": True,
-        }
-        if error is not None:
-            payload["error_text"] = str(error)[:2000]
-        try:
-            await self._llm_repo.async_insert_llm_call(payload)
-        except Exception as persist_exc:
-            raise_if_cancelled(persist_exc)
-            logger.warning(
-                "combined_summary_llm_call_persist_failed",
-                extra={"correlation_id": self.correlation_id, "error": str(persist_exc)},
-            )
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=self._request_id,
+            endpoint="combined_summary",
+            model=model,
+            status=status,
+            result=result,
+            latency_ms=latency_ms,
+            error=error,
+            correlation_id=self.correlation_id,
+            structured_output_used=True,
+        )
 
     def _build_llm_context(self, input_data: CombinedSummaryInput) -> str:
         """Build the context string for the LLM."""
