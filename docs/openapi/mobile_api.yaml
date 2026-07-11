@@ -10084,6 +10084,79 @@ paths:
           $ref: '#/components/responses/ValidationError'
       security:
       - HTTPBearer: []
+  /v1/admin/graph-runs/{request_id}:
+    get:
+      tags:
+      - Admin
+      summary: Graph Run Ledger
+      description: Return a sanitized graph chronology, LLM attempts, and feedback signals.
+      operationId: graph_run_ledger_v1_admin_graph_runs__request_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphRunLedgerSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  /v1/admin/graph-runs:
+    get:
+      tags:
+      - Admin
+      summary: Graph Run Evaluations
+      description: List bounded privacy-safe run and feedback records for offline evaluation.
+      operationId: graph_run_evaluations_v1_admin_graph_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphRunEvaluationListSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
   /v1/admin/audit-log:
     get:
       tags:
@@ -12577,6 +12650,246 @@ components:
       - total
       - limit
       title: GitMirrorSearchResponse
+    GraphRunEvaluationListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GraphRunLedgerResponse'
+          type: array
+          title: Items
+        limit:
+          type: integer
+          title: Limit
+      type: object
+      required:
+      - limit
+      title: GraphRunEvaluationListResponse
+      description: Bounded, sanitized records suitable for offline prompt/model evaluation.
+    GraphRunEvaluationListSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/GraphRunEvaluationListResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: GraphRunEvaluationListSuccessResponse
+    GraphRunLedgerAttempt:
+      properties:
+        attemptIndex:
+          type: integer
+          title: Attemptindex
+        trigger:
+          type: string
+          title: Trigger
+        provider:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        latencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latencyms
+        totalLatencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Totallatencyms
+        promptTokens:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Prompttokens
+        completionTokens:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Completiontokens
+        costUsd:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Costusd
+        fallbackModel:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fallbackmodel
+        retryExhausted:
+          type: boolean
+          title: Retryexhausted
+        errorPresent:
+          type: boolean
+          title: Errorpresent
+      type: object
+      required:
+      - attemptIndex
+      - trigger
+      - retryExhausted
+      - errorPresent
+      title: GraphRunLedgerAttempt
+      description: Sanitized LLM attempt telemetry without prompt, response, or error text.
+    GraphRunLedgerChronologyEntry:
+      properties:
+        sequence:
+          type: integer
+          title: Sequence
+        kind:
+          type: string
+          title: Kind
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        occurredAt:
+          type: string
+          format: date-time
+          title: Occurredat
+      type: object
+      required:
+      - sequence
+      - kind
+      - occurredAt
+      title: GraphRunLedgerChronologyEntry
+      description: A structural graph event with user content deliberately removed.
+    GraphRunLedgerFeedback:
+      properties:
+        feedbackCount:
+          type: integer
+          title: Feedbackcount
+        ratingAverage:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Ratingaverage
+        issueCount:
+          type: integer
+          title: Issuecount
+        latestFeedbackAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Latestfeedbackat
+      type: object
+      required:
+      - feedbackCount
+      - issueCount
+      title: GraphRunLedgerFeedback
+      description: Aggregate feedback labels; free-form feedback text is never exposed.
+    GraphRunLedgerMetrics:
+      properties:
+        nodeCount:
+          type: integer
+          title: Nodecount
+        attemptCount:
+          type: integer
+          title: Attemptcount
+        repairCount:
+          type: integer
+          title: Repaircount
+        fallbackCount:
+          type: integer
+          title: Fallbackcount
+        graphLatencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Graphlatencyms
+        llmLatencyMs:
+          type: integer
+          title: Llmlatencyms
+        promptTokens:
+          type: integer
+          title: Prompttokens
+        completionTokens:
+          type: integer
+          title: Completiontokens
+        totalCostUsd:
+          type: number
+          title: Totalcostusd
+      type: object
+      required:
+      - nodeCount
+      - attemptCount
+      - repairCount
+      - fallbackCount
+      - llmLatencyMs
+      - promptTokens
+      - completionTokens
+      - totalCostUsd
+      title: GraphRunLedgerMetrics
+    GraphRunLedgerResponse:
+      properties:
+        requestId:
+          type: integer
+          title: Requestid
+        requestStatus:
+          type: string
+          title: Requeststatus
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        chronology:
+          items:
+            $ref: '#/components/schemas/GraphRunLedgerChronologyEntry'
+          type: array
+          title: Chronology
+        attempts:
+          items:
+            $ref: '#/components/schemas/GraphRunLedgerAttempt'
+          type: array
+          title: Attempts
+        metrics:
+          $ref: '#/components/schemas/GraphRunLedgerMetrics'
+        feedback:
+          $ref: '#/components/schemas/GraphRunLedgerFeedback'
+      type: object
+      required:
+      - requestId
+      - requestStatus
+      - createdAt
+      - metrics
+      - feedback
+      title: GraphRunLedgerResponse
+    GraphRunLedgerSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/GraphRunLedgerResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: GraphRunLedgerSuccessResponse
     HTTPValidationError:
       properties:
         detail:
