@@ -6,6 +6,7 @@ Covers:
 - When batch_mode=True, the inline path is taken regardless of the flag
 - Enqueue path: request row created, job row inserted, placeholder sent, task kicked
 - Enqueue path: on request_repo failure, falls back to inline processing
+- Enqueue failures terminally mark the persisted request instead of leaving it pending
 """
 
 from __future__ import annotations
@@ -82,6 +83,7 @@ def _make_request_repo(*, request_id: int = 1):
     repo.async_create_request = AsyncMock(return_value=request_id)
     repo.async_create_request_once = AsyncMock(return_value=(request_id, True))
     repo.async_update_bot_reply_message_id = AsyncMock()
+    repo.async_update_request_error = AsyncMock()
     return repo
 
 
@@ -331,6 +333,97 @@ async def test_enqueue_suppresses_duplicate_request_race(monkeypatch):
     request_repo.async_update_bot_reply_message_id.assert_not_awaited()
     kicker.return_value.kiq.assert_not_awaited()
     url_processor.handle_url_flow.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_marks_request_error_when_job_persistence_fails(monkeypatch):
+    """A request cannot remain pending when its worker job was not persisted."""
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    request_repo = _make_request_repo(request_id=7)
+    response_formatter = _make_response_formatter()
+    url_processor = _make_url_processor()
+    job_repo = _make_job_repo()
+    job_repo.record_pending_enqueue.side_effect = RuntimeError("database unavailable")
+
+    handler = URLHandler(
+        db=MagicMock(),
+        response_formatter=response_formatter,
+        url_processor=url_processor,
+        request_repo=request_repo,
+        cfg=_make_cfg(enqueue_enabled=True),
+    )
+
+    with (
+        patch(
+            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            new=MagicMock(return_value=job_repo),
+        ),
+        patch("app.observability.metrics.record_url_enqueue"),
+    ):
+        result = await handler.handle_single_url(
+            message=_make_message(),
+            url="https://example.com",
+            correlation_id="cid-job-write-failure",
+        )
+
+    assert result.success is False
+    request_repo.async_update_request_error.assert_awaited_once_with(
+        7,
+        "error",
+        error_type="enqueue_failed",
+        error_message="Unable to enqueue URL processing. Please retry.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_enqueue_marks_request_error_when_task_publish_fails(monkeypatch):
+    """A request cannot remain pending when Taskiq rejects its publish call."""
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    request_repo = _make_request_repo(request_id=7)
+    response_formatter = _make_response_formatter()
+    url_processor = _make_url_processor()
+    job_repo = _make_job_repo()
+    kicker = _make_kicker()
+    kicker.return_value.kiq.side_effect = RuntimeError("broker unavailable")
+
+    handler = URLHandler(
+        db=MagicMock(),
+        response_formatter=response_formatter,
+        url_processor=url_processor,
+        request_repo=request_repo,
+        cfg=_make_cfg(enqueue_enabled=True),
+    )
+    mock_task = MagicMock()
+    mock_task.kicker = kicker
+
+    import app.tasks.url_processing as _url_proc_mod
+
+    monkeypatch.setattr(_url_proc_mod, "process_url_request", mock_task)
+
+    with (
+        patch(
+            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            new=MagicMock(return_value=job_repo),
+        ),
+        patch("app.observability.metrics.record_url_enqueue"),
+    ):
+        result = await handler.handle_single_url(
+            message=_make_message(),
+            url="https://example.com",
+            correlation_id="cid-publish-failure",
+        )
+
+    assert result.success is False
+    request_repo.async_update_request_error.assert_awaited_once_with(
+        7,
+        "error",
+        error_type="enqueue_failed",
+        error_message="Unable to enqueue URL processing. Please retry.",
+    )
 
 
 @pytest.mark.asyncio
