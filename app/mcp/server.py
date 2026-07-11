@@ -93,6 +93,7 @@ def create_mcp_server(context: McpServerContext | None = None) -> FastMCP:
     )
     register_resources(
         mcp,
+        context=server_context,
         aggregation_service=aggregation_service,
         article_service=article_service,
         catalog_service=catalog_service,

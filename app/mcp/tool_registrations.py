@@ -71,6 +71,18 @@ def _mcp_tool_rate_limited(tool_name: str, identity_key: str) -> bool:
     return not allowed
 
 
+def mcp_rate_limit_exceeded(operation_name: str, context: Any) -> bool:
+    """Per-(operation, tenant) MCP rate-limit check shared by tools AND resources.
+
+    Resources register through this SAME limiter/buckets so they can no longer bypass
+    the tool-layer limiter (they previously routed straight to their service with no
+    cap, letting a caller drive unbounded DB / vector-scan reads -- CWE-770). Keyed
+    by the operation name plus the effective request identity, so a resource and a
+    tool never share a bucket and each tenant keeps an isolated budget.
+    """
+    return _mcp_tool_rate_limited(operation_name, _mcp_identity_key(context))
+
+
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
     from app.mcp.article_service import ArticleReadService
