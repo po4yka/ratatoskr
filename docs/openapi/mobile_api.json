@@ -17912,6 +17912,15 @@
               }
             ],
             "title": "Title"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "concatenated",
+              "synthesized"
+            ],
+            "title": "Mode",
+            "default": "concatenated"
           }
         },
         "type": "object",
