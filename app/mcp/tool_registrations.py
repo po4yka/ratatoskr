@@ -40,8 +40,23 @@ _MCP_TOOL_RATE_LIMITER = LocalRateLimiter()
 _MCP_TOOL_WINDOW_SEC = _env_positive_int("MCP_TOOL_RATE_WINDOW_SEC", 60)
 _MCP_TOOL_DEFAULT_LIMIT = _env_positive_int("MCP_TOOL_RATE_LIMIT", 60)
 _MCP_EXPENSIVE_TOOL_LIMIT = _env_positive_int("MCP_EXPENSIVE_TOOL_RATE_LIMIT", 5)
-# Tools that fan out to scraping + LLM calls and must be capped tighter.
-_MCP_EXPENSIVE_TOOLS = frozenset({"create_aggregation_bundle", "promote_to_library"})
+# Tools that trigger a billed external-provider call on every invocation and must
+# be capped tighter than the default read tier. Two cost shapes qualify:
+#   - scrape + LLM fan-out: create_aggregation_bundle, promote_to_library.
+#   - a per-call embedding-provider request: semantic_search, hybrid_search, and
+#     find_similar_articles all embed their query through the vector/local
+#     embedding service on every call (find_similar_articles re-embeds the source
+#     summary's seed text rather than reusing its stored vector), so at the default
+#     limit a single caller could drive unbounded embedding cost (CWE-770).
+_MCP_EXPENSIVE_TOOLS = frozenset(
+    {
+        "create_aggregation_bundle",
+        "promote_to_library",
+        "semantic_search",
+        "hybrid_search",
+        "find_similar_articles",
+    }
+)
 
 
 def _mcp_identity_key(context: Any) -> str:

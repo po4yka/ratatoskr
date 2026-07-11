@@ -87,6 +87,22 @@ async def _run_bundle(mcp: RecordingMCP) -> dict[str, Any]:
     return cast("dict[str, Any]", json.loads(payload))
 
 
+# The embedding-cost tools each embed their query through the vector/local
+# embedding provider on every invocation, so they carry the same tight budget as
+# the scrape+LLM tools. ``find_similar_articles`` needs a summary_id; the others
+# take a text query.
+_EMBEDDING_TOOL_CALLS: dict[str, dict[str, Any]] = {
+    "semantic_search": {"description": "an idea"},
+    "hybrid_search": {"query": "an idea"},
+    "find_similar_articles": {"summary_id": 1},
+}
+
+
+async def _run_tool(mcp: RecordingMCP, name: str, /, **kwargs: Any) -> dict[str, Any]:
+    payload = await mcp.tools[name](**kwargs)
+    return cast("dict[str, Any]", json.loads(payload))
+
+
 def test_identity_key_prefers_user_then_client_then_anon() -> None:
     assert _mcp_identity_key(SimpleNamespace(user_id=42, client_id="cid")) == "u42"
     assert _mcp_identity_key(SimpleNamespace(user_id=None, client_id="cid")) == "ccid"
@@ -117,5 +133,39 @@ async def test_expensive_tool_budget_is_isolated_per_tenant(
     assert "error" not in await _run_bundle(tenant_b)
     throttled_b = await _run_bundle(tenant_b)
     assert throttled_b.get("error") == "rate_limited"
+
+    tr._MCP_TOOL_RATE_LIMITER.reset()
+
+
+@pytest.mark.parametrize("tool_name", sorted(_EMBEDDING_TOOL_CALLS))
+@pytest.mark.asyncio
+async def test_embedding_tools_use_expensive_tier(
+    tool_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """semantic_search / hybrid_search / find_similar_articles each embed their
+    query on every call, so they belong to the tight expensive tier -- not the
+    default read tier -- otherwise a caller could drive unbounded billed
+    embedding cost (CWE-770). A limit of 1 on the expensive tier and a generous
+    default tier proves which bucket each tool lands in.
+    """
+    tr._MCP_TOOL_RATE_LIMITER.reset()
+    monkeypatch.setattr(tr, "_MCP_EXPENSIVE_TOOL_LIMIT", 1)
+    monkeypatch.setattr(tr, "_MCP_TOOL_DEFAULT_LIMIT", 50)
+
+    assert tool_name in tr._MCP_EXPENSIVE_TOOLS
+
+    mcp = _register_for(1)
+    kwargs = _EMBEDDING_TOOL_CALLS[tool_name]
+
+    # First call consumes the single-slot expensive budget; the second is throttled.
+    assert "error" not in await _run_tool(mcp, tool_name, **kwargs)
+    throttled = await _run_tool(mcp, tool_name, **kwargs)
+    assert throttled.get("error") == "rate_limited"
+
+    # A default-tier read tool is untouched by that budget -- confirms the
+    # embedding tools are not merely sharing the (now generous) default bucket.
+    assert "error" not in await _run_tool(mcp, "list_articles")
+    assert "error" not in await _run_tool(mcp, "list_articles")
 
     tr._MCP_TOOL_RATE_LIMITER.reset()
