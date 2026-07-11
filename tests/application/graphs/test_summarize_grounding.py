@@ -69,12 +69,26 @@ class _FakeSummaries:
 
 
 class _FakeLLMRepo:
-    def __init__(self) -> None:
+    def __init__(self, *, batch_error: Exception | None = None) -> None:
         self.records: list[dict[str, Any]] = []
+        self.single_calls = 0
+        self.batch_calls = 0
+        self._batch_error = batch_error
 
     async def async_insert_llm_call(self, record: dict[str, Any]) -> int:
+        self.single_calls += 1
         self.records.append(dict(record))
         return len(self.records)
+
+    async def async_insert_llm_calls_batch(self, calls: list[dict[str, Any]]) -> list[int]:
+        self.batch_calls += 1
+        if self._batch_error is not None:
+            raise self._batch_error
+        ids: list[int] = []
+        for record in calls:
+            self.records.append(dict(record))
+            ids.append(len(self.records))
+        return ids
 
 
 def _summary_hit(
@@ -297,9 +311,12 @@ async def test_persist_finalizes_summary_and_indexes_on_write() -> None:
     # Summary finalized (request -> COMPLETED).
     assert len(summaries.finalized) == 1
     assert summaries.finalized[0]["request_id"] == 42
-    # llm_calls persisted with the graph_node trigger (persist-everything).
+    # llm_calls persisted with the graph_node trigger (persist-everything) via the
+    # single-transaction batch insert -- NOT one transaction per row.
     assert len(llm_repo.records) == 1
     assert llm_repo.records[0]["attempt_trigger"] == "graph_node"
+    assert llm_repo.batch_calls == 1
+    assert llm_repo.single_calls == 0
     # Read-your-writes index fired with the resolved summary id.
     assert len(index.calls) == 1
     call = index.calls[0]
@@ -309,6 +326,59 @@ async def test_persist_finalizes_summary_and_indexes_on_write() -> None:
     assert call["lang"] == "en"
     assert call["scope"].user_scope == "public"
     assert call["correlation_id"] == "cid-1"
+
+
+async def test_persist_batches_all_llm_calls_in_one_transaction() -> None:
+    """All accumulated summarize + repair rows go out in ONE batch insert, not N."""
+    summaries = _FakeSummaries(summary_id=100)
+    llm_repo = _FakeLLMRepo()
+    state = _grounded_state(
+        summary={"tldr": "hi"},
+        llm_calls=[
+            {"request_id": 42, "provider": "openrouter", "attempt_trigger": "graph_node"},
+            {"request_id": 42, "provider": "openrouter", "attempt_trigger": "graph_node"},
+            {"request_id": 42, "provider": "openrouter", "attempt_trigger": "graph_node"},
+        ],
+    )
+
+    await persist(state, deps=_deps(summaries=summaries, llm_repo=llm_repo))
+
+    assert llm_repo.batch_calls == 1  # exactly one transaction for all three rows
+    assert llm_repo.single_calls == 0
+    assert len(llm_repo.records) == 3
+
+
+async def test_persist_falls_back_to_per_row_when_batch_fails() -> None:
+    """A batch is all-or-nothing; on batch failure the rows are retried individually
+    so one poison record cannot drop the rest, and completion is never blocked."""
+    summaries = _FakeSummaries(summary_id=100)
+    llm_repo = _FakeLLMRepo(batch_error=RuntimeError("batch insert failed"))
+    state = _grounded_state(
+        summary={"tldr": "hi"},
+        llm_calls=[
+            {"request_id": 42, "provider": "openrouter", "attempt_trigger": "graph_node"},
+            {"request_id": 42, "provider": "openrouter", "attempt_trigger": "graph_node"},
+        ],
+    )
+
+    out = await persist(state, deps=_deps(summaries=summaries, llm_repo=llm_repo))
+
+    assert out == {"summary_id": 100}  # completion not blocked
+    assert llm_repo.batch_calls == 1
+    assert llm_repo.single_calls == 2  # per-row fallback wrote both rows
+    assert len(llm_repo.records) == 2
+
+
+async def test_persist_no_llm_calls_touches_neither_insert_path() -> None:
+    """An empty llm_calls list issues no insert of either kind."""
+    summaries = _FakeSummaries(summary_id=100)
+    llm_repo = _FakeLLMRepo()
+    state = _grounded_state(summary={"tldr": "hi"}, llm_calls=[])
+
+    await persist(state, deps=_deps(summaries=summaries, llm_repo=llm_repo))
+
+    assert llm_repo.batch_calls == 0
+    assert llm_repo.single_calls == 0
 
 
 async def test_persist_skips_index_when_no_summary_id() -> None:

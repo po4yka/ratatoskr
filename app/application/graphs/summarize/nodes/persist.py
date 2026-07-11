@@ -12,7 +12,7 @@ from app.application.services.summarization.metadata_backfill import backfill_su
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
     from app.application.graphs.summarize.state import SummarizeState
-    from app.application.ports.requests import LLMCallRecord
+    from app.application.ports.requests import LLMCallRecord, LLMRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -155,15 +155,48 @@ async def _write_summary_cache(
 
 
 async def _persist_llm_calls(state: SummarizeState, deps: SummarizeDeps) -> None:
-    """Write the accumulated llm_calls (persist-everything); best-effort per row."""
+    """Write the accumulated llm_calls in ONE transaction (batch insert).
+
+    persist-everything: the summarize + repair node calls accumulate in
+    ``state['llm_calls']``; write them all in a single DB transaction via
+    ``async_insert_llm_calls_batch`` instead of one transaction per row. Best-effort:
+    a batch failure is logged and, because a batch is all-or-nothing, retried row by
+    row so a single malformed record cannot drop the rest -- neither path ever blocks
+    request completion.
+    """
     # No request row (content-only path) -> every llm_call record would FK-violate
     # against ``requests.id``; skip persistence (the ``persist`` entry guard already
     # short-circuits, this is defense-in-depth for direct callers).
-    if deps.llm_repo is None or state.get("request_id") is None:
+    llm_repo = deps.llm_repo
+    if llm_repo is None or state.get("request_id") is None:
         return
-    for record in state.get("llm_calls") or []:
+    records: list[dict[str, Any]] = list(state.get("llm_calls") or [])
+    if not records:
+        return
+    try:
+        await llm_repo.async_insert_llm_calls_batch(records)
+    except Exception:
+        logger.warning(
+            "graph_persist_llm_calls_batch_failed",
+            extra={
+                "correlation_id": state.get("correlation_id"),
+                "request_id": state.get("request_id"),
+                "count": len(records),
+            },
+            exc_info=True,
+        )
+        # A batch is all-or-nothing, so fall back to per-row inserts: one poison
+        # record must not drop the rest. Still best-effort -- never blocks completion.
+        await _persist_llm_calls_individually(records, llm_repo, state)
+
+
+async def _persist_llm_calls_individually(
+    records: list[dict[str, Any]], llm_repo: LLMRepositoryPort, state: SummarizeState
+) -> None:
+    """Per-row fallback for the batch insert (each row in its own transaction)."""
+    for record in records:
         try:
-            await deps.llm_repo.async_insert_llm_call(cast("LLMCallRecord", record))
+            await llm_repo.async_insert_llm_call(cast("LLMCallRecord", record))
         except Exception:  # one bad row must not block the rest / completion
             logger.warning(
                 "graph_persist_llm_call_failed",
