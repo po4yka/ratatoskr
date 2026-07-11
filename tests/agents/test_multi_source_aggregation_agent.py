@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.adapter_models.llm.llm_models import StructuredLLMResult
 from app.agents.multi_source_aggregation_agent import (
     MultiSourceAggregationAgent,
     MultiSourceAggregationInput,
+    _AggregationLLMResponse,
     _SentenceCache,
 )
 from app.application.dto.aggregation import (
@@ -221,3 +223,55 @@ async def test_aggregation_source_documents_are_wrapped_as_untrusted_source() ->
     assert payload["request_id"] == 17
     assert payload["endpoint"] == "multi_source_aggregation"
     assert payload["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_aggregation_structured_call_cost_and_tokens_are_not_discarded() -> None:
+    # Regression guard: the chat_structured result's cost/tokens must be
+    # persisted to the llm_calls table AND the cost returned to the caller --
+    # not silently dropped. Only the error path was covered before.
+    result = StructuredLLMResult[_AggregationLLMResponse](
+        parsed=_AggregationLLMResponse(overview="synthesized overview"),
+        tokens_prompt=1200,
+        tokens_completion=345,
+        cost_usd=0.0123,
+        latency_ms=42,
+        model_used="openrouter/test-model",
+    )
+    llm = MagicMock()
+    llm.chat_structured = AsyncMock(return_value=result)
+    llm_repo = MagicMock()
+    llm_repo.async_insert_llm_call = AsyncMock()
+    agent = MultiSourceAggregationAgent(
+        aggregation_session_repo=AsyncMock(),
+        llm_client=llm,
+        llm_repo=llm_repo,
+    )
+    item = _item(0, _document("source-1", "Alpha beta gamma. Delta epsilon."), request_id=17)
+    input_data = MultiSourceAggregationInput(
+        session_id=7,
+        correlation_id="cid-success",
+        items=[item],
+        language="en",
+    )
+
+    _output, cost = await agent._generate_with_llm(
+        input_data=input_data,
+        extracted_items=[item],
+        source_weights=[agent._build_source_weight(item)],
+        duplicate_signals=[],
+        contradiction_hints=[],
+        sentence_cache=_SentenceCache(),
+    )
+
+    # Cost flows back to the caller (drives the synthesis cost metric).
+    assert cost == pytest.approx(0.0123)
+
+    # The structured call's cost, tokens, and served model are persisted.
+    llm_repo.async_insert_llm_call.assert_awaited_once()
+    payload = llm_repo.async_insert_llm_call.await_args.args[0]
+    assert payload["status"] == "success"
+    assert payload["tokens_prompt"] == 1200
+    assert payload["tokens_completion"] == 345
+    assert payload["cost_usd"] == pytest.approx(0.0123)
+    assert payload["model"] == "openrouter/test-model"
