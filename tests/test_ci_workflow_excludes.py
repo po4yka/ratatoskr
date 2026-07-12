@@ -62,3 +62,69 @@ def test_di_layering_guard_is_not_excluded_from_ci() -> None:
         "The DI-layering guard must run in CI; fix any violation it catches "
         "rather than ignoring the file."
     )
+
+
+# ---------------------------------------------------------------------------
+# tests/integration/ marker gap
+#
+# CI runs integration tests in two disjoint jobs:
+#   * unit job:        pytest tests/ -m "not integration" --ignore=tests/integration
+#   * integration job: pytest tests/ -m "integration"
+# A file under tests/integration/ with no `integration` marker is therefore
+# collected by NEITHER job -- silently excluded from CI with zero signal. This is
+# exactly how the batch-relationship suite (test_batch_relationship_flow.py) was
+# lost until commit 97a338b3 re-marked it. These guards keep the whole directory
+# honest.
+# ---------------------------------------------------------------------------
+
+_INTEGRATION_DIR = Path(__file__).resolve().parents[1] / "tests" / "integration"
+
+# Files under tests/integration/ knowingly NOT selected by the integration job,
+# each with a documented reason. Anything else defining tests here MUST carry the
+# integration marker. "Silently excluded" is a bug; "explicitly excluded with a
+# reason" is a decision.
+_JUSTIFIED_UNMARKED: dict[str, str] = {
+    # Under-mocked: builds a real Redis client from a MagicMock URL and fails 15
+    # cases when run standalone. Marking it would break the integration CI job;
+    # it must be repaired (properly isolate Redis) before it can be collected.
+    "test_channel_digest_scheduler.py": (
+        "known-failing standalone (under-mocked Redis); repair before marking"
+    ),
+}
+
+_HAS_TESTS_RE = re.compile(r"^\s*(?:async\s+)?def test_|^\s*class Test", re.MULTILINE)
+
+
+def _integration_test_modules() -> list[Path]:
+    return [p for p in sorted(_INTEGRATION_DIR.glob("*.py")) if p.name != "__init__.py"]
+
+
+def test_every_integration_suite_is_marked_or_justified() -> None:
+    offenders = []
+    for path in _integration_test_modules():
+        text = path.read_text()
+        if not _HAS_TESTS_RE.search(text):
+            continue  # not a test module (no test functions/classes)
+        if "pytest.mark.integration" in text:
+            continue  # collected by the integration job
+        if path.name in _JUSTIFIED_UNMARKED:
+            continue  # excluded on purpose, with a recorded reason
+        offenders.append(path.name)
+    assert offenders == [], (
+        "These tests/integration/ suites define tests but carry no `integration` "
+        "marker, so they run in NEITHER CI job (the unit job --ignores the "
+        "directory; the integration job selects -m integration). Add "
+        "`pytestmark = pytest.mark.integration`, or record a reason in "
+        f"_JUSTIFIED_UNMARKED: {offenders}"
+    )
+
+
+def test_batch_relationship_suite_is_collected_by_ci() -> None:
+    # Regression lock for the original finding: the batch-relationship integration
+    # suite must stay marked so the integration job collects it.
+    suite = _INTEGRATION_DIR / "test_batch_relationship_flow.py"
+    assert suite.exists(), "batch-relationship integration suite is missing"
+    assert "pytest.mark.integration" in suite.read_text(), (
+        "test_batch_relationship_flow.py must stay marked `integration` or it is "
+        "silently excluded from CI again."
+    )
