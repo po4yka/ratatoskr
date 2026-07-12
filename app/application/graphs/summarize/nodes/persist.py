@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -102,9 +103,16 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     )
     summary_id = finalize_result.summary_id
 
-    await _persist_llm_calls(state, deps)
-    await _index_summary_for_freshness(state, deps, summary_id=summary_id)
-    await _publish_summary_created(state, deps, summary_id=summary_id)
+    # These three post-write steps are independent -- different targets (Postgres
+    # llm_calls, the Qdrant freshness index, the export-event channel), no shared
+    # state, none consumes another's output -- so run them concurrently instead of
+    # serially. Each is internally best-effort (swallows its own expected
+    # failures); gather still propagates cancellation.
+    await asyncio.gather(
+        _persist_llm_calls(state, deps),
+        _index_summary_for_freshness(state, deps, summary_id=summary_id),
+        _publish_summary_created(state, deps, summary_id=summary_id),
+    )
 
     return {"summary_id": summary_id} if summary_id is not None else {}
 
