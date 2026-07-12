@@ -193,11 +193,26 @@ class EmbeddingService(EmbeddingSerializationMixin):
     def get_dimensions(self, language: str | None = None) -> int:
         """Get embedding dimensions for a specific language.
 
-        Loads the model if not already loaded.
+        Loads the model if not already loaded. Synchronous: on a cold cache this
+        blocks on the weight load, so async callers must use
+        ``get_dimensions_async`` instead of calling this on the event loop.
         """
         model_name = self._get_model_name_for_language(language)
         if model_name not in self._dimensions:
             self._ensure_model(model_name)
+        return self._dimensions[model_name]
+
+    async def get_dimensions_async(self, language: str | None = None) -> int:
+        """Get embedding dimensions without blocking the event loop.
+
+        ``get_dimensions`` loads the model synchronously on a cold cache (seconds
+        on the ARM64 Pi); this variant offloads that load via
+        ``_ensure_model_async`` so async callers never stall the loop just to read
+        the vector dimension.
+        """
+        model_name = self._get_model_name_for_language(language)
+        if model_name not in self._dimensions:
+            await self._ensure_model_async(model_name)
         return self._dimensions[model_name]
 
     def close(self) -> None:

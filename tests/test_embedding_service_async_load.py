@@ -99,3 +99,37 @@ async def test_batch_also_loads_off_event_loop(monkeypatch: pytest.MonkeyPatch) 
 
     assert record["threads"][0] != threading.get_ident()
     assert len(out) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_async_loads_off_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Async callers that need the vector dimension on a cold cache (e.g.
+    # RepositoryEmbeddingGenerator.regenerate) must not trigger the blocking
+    # model load on the event-loop thread the way the sync get_dimensions does.
+    service = EmbeddingService()
+    fake_model = MagicMock()
+    record: dict[str, Any] = {}
+    monkeypatch.setattr(
+        service, "_ensure_model", _fake_loader(service, record=record, model=fake_model)
+    )
+
+    dims = await service.get_dimensions_async(language="en")
+
+    assert dims == 3
+    assert record["threads"][0] != threading.get_ident()
+
+
+@pytest.mark.asyncio
+async def test_get_dimensions_async_skips_load_when_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = EmbeddingService()
+    service._models["all-MiniLM-L6-v2"] = MagicMock()
+    service._dimensions["all-MiniLM-L6-v2"] = 7
+    record: dict[str, Any] = {}
+    monkeypatch.setattr(
+        service, "_ensure_model", _fake_loader(service, record=record, model=MagicMock())
+    )
+
+    dims = await service.get_dimensions_async(language="en")
+
+    assert dims == 7
+    assert record.get("calls", []) == []

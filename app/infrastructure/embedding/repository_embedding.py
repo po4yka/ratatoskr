@@ -114,7 +114,7 @@ class RepositoryEmbeddingGenerator:
         )
 
         model_name = self._embedding_service.get_model_name(None)
-        dimensions = self._embedding_service.get_dimensions(None)
+        dimensions = await self._embedding_service.get_dimensions_async(None)
 
         embedding = await self._embedding_service.generate_embedding(
             prepared.text,
@@ -171,7 +171,7 @@ class RepositoryEmbeddingGenerator:
 
         prepared = [self._prepare_embedding(item) for item in items]
         model_name = self._embedding_service.get_model_name(None)
-        dimensions = self._embedding_service.get_dimensions(None)
+        dimensions = await self._embedding_service.get_dimensions_async(None)
         model_version = "1.0"
 
         try:

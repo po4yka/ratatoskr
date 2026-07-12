@@ -79,6 +79,9 @@ class FakeEmbeddingService:
     def get_dimensions(self, language=None) -> int:
         return 2
 
+    async def get_dimensions_async(self, language=None) -> int:
+        return 2
+
 
 @pytest.mark.asyncio
 async def test_upsert_db_row_returns_insert_returning_row_without_extra_read() -> None:

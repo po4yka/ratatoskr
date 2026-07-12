@@ -89,6 +89,9 @@ class CachedEmbeddingService:
     def get_dimensions(self, language: str | None = None) -> int:
         return self._inner.get_dimensions(language)
 
+    async def get_dimensions_async(self, language: str | None = None) -> int:
+        return await self._inner.get_dimensions_async(language)
+
     def close(self) -> None:
         self._inner.close()
 
