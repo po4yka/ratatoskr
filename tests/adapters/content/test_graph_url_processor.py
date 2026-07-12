@@ -398,6 +398,35 @@ async def test_content_only_summarize_applies_quality_metadata():
     assert quality.get("extraction_confidence") == 0.9
 
 
+@pytest.mark.parametrize("falsy_correlation_id", ["", None])
+async def test_content_only_summarize_keeps_thread_id_equal_to_correlation_id(
+    falsy_correlation_id,
+):
+    # Sacred invariant (ADR-0011 / Operating Rule 1): the graph state's
+    # correlation_id and the langgraph thread_id must stay identical, even when the
+    # request's correlation_id is falsy. Applying the "content-only" fallback to the
+    # config alone diverged them (state kept "" while the checkpointer keyed on
+    # "content-only").
+    graph = MagicMock(ainvoke=AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)}))
+    facade = _facade(graph=graph)
+
+    await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id=falsy_correlation_id,
+        )
+    )
+
+    graph.ainvoke.assert_awaited_once()
+    init_state = graph.ainvoke.call_args.args[0]
+    config = graph.ainvoke.call_args.kwargs["config"]
+    thread_id = config["configurable"]["thread_id"]
+    assert init_state["correlation_id"] == thread_id
+    assert thread_id == "content-only"
+
+
 async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monkeypatch):
     """audit #1: facade.summarize() must pass request_id=None so the REAL persist
     node short-circuits every DB write (no FK violation against requests.id=0).

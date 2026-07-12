@@ -215,7 +215,12 @@ class GraphURLProcessor:
             raise ValueError("Content text is empty or contains only whitespace")
 
         lang = request.chosen_lang or "en"
-        correlation_id = request.correlation_id or ""
+        # Resolve the fallback ONCE so the graph state's correlation_id and the
+        # langgraph thread_id stay identical (sacred, ADR-0011 / Operating Rule 1).
+        # Applying "content-only" only to invocation_config (as before) diverged the
+        # two whenever request.correlation_id was falsy: state kept "" while the
+        # checkpointer keyed on "content-only".
+        correlation_id = request.correlation_id or "content-only"
         # No persistence target for the content-only path (no request row / silent
         # summarization); the graph persist node short-circuits every DB write when
         # request_id is None. ``0`` is NOT a usable sentinel -- it is a real FK value
@@ -229,7 +234,7 @@ class GraphURLProcessor:
             source_text=content_text,
         )
         config = invocation_config(
-            correlation_id=correlation_id or "content-only",
+            correlation_id=correlation_id,
             recursion_limit=DEFAULT_RECURSION_LIMIT,
         )
         try:
