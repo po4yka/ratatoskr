@@ -32,13 +32,23 @@ class GitMirrorRepository:
     # Reads
     # ------------------------------------------------------------------
 
-    async def list_due(self, user_id: int | None = None) -> list[GitMirror]:
+    async def list_due(
+        self, user_id: int | None = None, *, limit: int | None = None
+    ) -> list[GitMirror]:
         """Return mirrors that are ready to be synced in this run.
 
         Eligibility rules (matches GitBackupConfig semantics):
         - status is PENDING, OK, or FAILED
         - if auto_skip_failing and consecutive_failures >= max_consecutive_failures:
           skip mirrors whose backoff_until is still in the future
+
+        Result is capped at ``limit`` (defaults to ``config.max_mirrors_per_run``;
+        0 = unlimited) so a run never materializes an unbounded number of rows into
+        memory. Rows are ordered least-recently-attempted first
+        (``last_attempt_at`` ASC, NULLS FIRST) so the cap rotates the batch across
+        successive runs -- every mirror is eventually synced rather than the tail
+        being starved. ``record_success``/``record_failure``/``record_skip`` stamp
+        ``last_attempt_at`` on every processed row, which drives the rotation.
         """
         now = dt.datetime.now(tz=dt.UTC)
 
@@ -65,9 +75,17 @@ class GitMirrorRepository:
 
         eligibility = and_(base_filter, ~in_cooldown) if cfg.auto_skip_failing else base_filter
 
-        stmt = select(GitMirror).where(eligibility).order_by(GitMirror.id)
+        stmt = (
+            select(GitMirror)
+            .where(eligibility)
+            .order_by(GitMirror.last_attempt_at.asc().nulls_first(), GitMirror.id)
+        )
         if user_id is not None:
             stmt = stmt.where(GitMirror.user_id == user_id)
+
+        effective_limit = cfg.max_mirrors_per_run if limit is None else limit
+        if effective_limit and effective_limit > 0:
+            stmt = stmt.limit(effective_limit)
 
         async with self._db.session() as session:
             rows = (await session.scalars(stmt)).all()

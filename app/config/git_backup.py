@@ -87,6 +87,19 @@ class GitBackupConfig(BaseModel):
         validation_alias="GIT_BACKUP_WORKERS",
         description="Number of parallel git clone/fetch workers (1–32).",
     )
+    max_mirrors_per_run: int = Field(
+        default=1000,
+        ge=0,
+        validation_alias="GIT_BACKUP_MAX_MIRRORS_PER_RUN",
+        description=(
+            "Maximum number of due mirror rows loaded and processed in a single sync run. "
+            "Bounds memory and run duration when many mirrors are eligible (e.g. a large "
+            "starred-repo set across all users). Due rows are ordered least-recently-attempted "
+            "first (last_attempt_at ASC, NULLS FIRST), so the cap rotates the batch across "
+            "successive runs rather than starving the tail -- every mirror is eventually synced. "
+            "0 = unlimited (load every due row; restores the pre-cap behavior)."
+        ),
+    )
     repository_timeout_seconds: int = Field(
         default=3600,
         ge=1,

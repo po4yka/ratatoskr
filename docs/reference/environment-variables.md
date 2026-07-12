@@ -862,6 +862,7 @@ Periodic bare-clone mirroring of GitHub repositories (starred, owned, watched) a
 | `GIT_BACKUP_SYNC_CRON` | str | `"0 4 * * *"` | UTC 5-field cron expression for the mirror sync job (default: 04:00 UTC daily). |
 | `GIT_BACKUP_DATA_PATH` | str | `/data/git-mirrors` | Writable directory where bare git clones are stored; typically a bind-mounted or named Docker volume on the worker service. |
 | `GIT_BACKUP_WORKERS` | int (1–32) | `4` | Number of parallel git clone/fetch workers. |
+| `GIT_BACKUP_MAX_MIRRORS_PER_RUN` | int (≥0) | `1000` | Maximum number of due mirror rows loaded and processed in a single sync run, bounding memory and run duration when many mirrors are eligible. Due rows are ordered least-recently-attempted first (`last_attempt_at` ASC, NULLS FIRST), so the cap rotates the batch across successive runs rather than starving the tail — every mirror is eventually synced. `0` = unlimited (load every due row; restores the pre-cap behavior). |
 | `GIT_BACKUP_REPO_TIMEOUT_SECONDS` | int | `3600` | Per-repository operation timeout in seconds. |
 | `GIT_BACKUP_FETCH_LFS` | bool | `false` | Fetch Git LFS objects during mirror operations. |
 | `GIT_BACKUP_MAINTENANCE_STRATEGY` | str | `gc-auto` | Post-fetch maintenance strategy applied to each mirror. Accepted values: `gc-auto`, `geometric`, `none`. |
