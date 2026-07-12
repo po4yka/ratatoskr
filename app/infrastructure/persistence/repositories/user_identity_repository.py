@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.time_utils import utc_now
 from app.db.models import MagicLinkToken, User, UserCredential, UserIdentity, model_to_dict
@@ -143,18 +143,26 @@ class UserIdentityRepository:
     async def async_consume_magic_link(self, token: str) -> dict[str, Any] | None:
         token_hash = _hash_token(token)
         now = utc_now()
-        async with self._database.transaction() as session:
-            record = await session.scalar(
-                select(MagicLinkToken).where(
-                    MagicLinkToken.token_hash == token_hash,
-                    MagicLinkToken.consumed_at.is_(None),
-                    MagicLinkToken.expires_at > now,
-                )
+        # Atomic check-and-consume. The previous SELECT (consumed_at IS NULL)
+        # followed by a separate write was a TOCTOU race: two concurrent requests
+        # could both pass the SELECT before either wrote consumed_at and redeem
+        # the same token twice. A single conditional UPDATE gated on
+        # ``consumed_at IS NULL`` closes it -- Postgres row-locking plus
+        # READ COMMITTED re-evaluation guarantees exactly one concurrent
+        # transaction matches the predicate; the loser updates zero rows and the
+        # RETURNING yields nothing, so it gets None.
+        stmt = (
+            update(MagicLinkToken)
+            .where(
+                MagicLinkToken.token_hash == token_hash,
+                MagicLinkToken.consumed_at.is_(None),
+                MagicLinkToken.expires_at > now,
             )
-            if record is None:
-                return None
-            record.consumed_at = now
-            await session.flush()
+            .values(consumed_at=now)
+            .returning(MagicLinkToken)
+        )
+        async with self._database.transaction() as session:
+            record = (await session.execute(stmt)).scalar_one_or_none()
             return model_to_dict(record)
 
 
