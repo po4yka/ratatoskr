@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, runtime_checkable
 
 from app.domain.models.request import RequestStatus
 
@@ -11,6 +11,19 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from app.db.session import Database
+
+
+class SummaryFinalizeResult(NamedTuple):
+    """Outcome of a summary UPSERT: the row's id and its new version.
+
+    ``async_finalize_request_summary`` returns both from the single UPSERT so
+    callers that need the id (the graph ``persist`` node) do not issue a second
+    lookup round-trip, and callers that need the version (audit logging) keep
+    reading ``.version``.
+    """
+
+    summary_id: int
+    version: int
 
 
 @runtime_checkable
@@ -185,8 +198,8 @@ class SummaryRepositoryPort(Protocol):
         insights_json: dict[str, Any] | None = None,
         is_read: bool = False,
         request_status: RequestStatus = RequestStatus.COMPLETED,
-    ) -> int:
-        """Persist summary and update request status."""
+    ) -> SummaryFinalizeResult:
+        """Persist summary and update request status; return its id and version."""
 
     async def async_update_summary_insights(
         self,

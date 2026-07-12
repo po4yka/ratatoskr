@@ -91,25 +91,16 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     lang = state.get("lang") or "en"
     insights = summary.get("insights") if isinstance(summary.get("insights"), dict) else None
 
-    await deps.summaries.async_finalize_request_summary(
+    # The UPSERT returns the summary id (and version) directly, so there is no
+    # follow-up async_get_summary_id_by_request round-trip.
+    finalize_result = await deps.summaries.async_finalize_request_summary(
         request_id=request_id,
         lang=lang,
         json_payload=summary,
         insights_json=insights,
         is_read=False,
     )
-
-    summary_id = state.get("summary_id")
-    try:
-        fetched = await deps.summaries.async_get_summary_id_by_request(request_id)
-        if isinstance(fetched, int):
-            summary_id = fetched
-    except Exception:  # best-effort: id lookup must not block completion
-        logger.warning(
-            "graph_persist_summary_id_lookup_failed",
-            extra={"correlation_id": state.get("correlation_id"), "request_id": request_id},
-            exc_info=True,
-        )
+    summary_id = finalize_result.summary_id
 
     await _persist_llm_calls(state, deps)
     await _index_summary_for_freshness(state, deps, summary_id=summary_id)

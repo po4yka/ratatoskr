@@ -23,6 +23,7 @@ from app.application.graphs.summarize.nodes import (
     summarize,
 )
 from app.application.graphs.summarize.state import SummarizeState
+from app.application.ports.summaries import SummaryFinalizeResult
 from app.application.services.summarization.metadata_backfill import (
     _extract_heading_title,
     _flatten_crawl_metadata,
@@ -594,8 +595,9 @@ async def test_gap4_persist_backfills_canonical_url_from_request() -> None:
         )
     )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_finalize_request_summary=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
@@ -633,8 +635,9 @@ async def test_gap4_persist_backfills_domain_from_url() -> None:
         )
     )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_finalize_request_summary=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
@@ -662,8 +665,9 @@ async def test_gap4_persist_backfills_title_from_heading() -> None:
     crawl_repo = SimpleNamespace(async_get_crawl_result_by_request=AsyncMock(return_value=None))
     request_repo = SimpleNamespace(async_get_request_by_id=AsyncMock(return_value=None))
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_finalize_request_summary=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
@@ -694,8 +698,9 @@ async def test_gap4_persist_skipped_when_crawl_repo_none() -> None:
         "metadata": {},
     }
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_finalize_request_summary=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(

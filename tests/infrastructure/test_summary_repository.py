@@ -133,7 +133,8 @@ async def test_summary_repository_upserts_reads_and_finalizes(database: Database
         request_status=RequestStatus.COMPLETED,
     )
 
-    assert v2 == v1 + 1
+    assert v2.version == v1 + 1
+    assert isinstance(v2.summary_id, int)
     summary = await repo.async_get_summary_by_request(request_id)
     assert summary is not None
     assert summary["json_payload"]["summary_250"] == "second"

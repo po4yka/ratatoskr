@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
+from app.application.ports.summaries import SummaryFinalizeResult
 from app.application.services.topic_search_utils import ensure_mapping, tokenize
 from app.core.logging_utils import get_logger
 from app.core.time_utils import coerce_datetime
@@ -50,13 +51,14 @@ class SummaryRepositoryAdapter:
         is_read: bool = False,
     ) -> int:
         """Create or update a summary and return its version."""
-        return await self._upsert_summary_record(
+        result = await self._upsert_summary_record(
             request_id=request_id,
             lang=lang,
             json_payload=json_payload,
             insights_json=insights_json,
             is_read=is_read,
         )
+        return result.version
 
     async def async_finalize_request_summary(
         self,
@@ -66,10 +68,14 @@ class SummaryRepositoryAdapter:
         insights_json: dict[str, Any] | None = None,
         is_read: bool = False,
         request_status: RequestStatus = RequestStatus.COMPLETED,
-    ) -> int:
-        """Persist a summary and update request status in one transaction."""
+    ) -> SummaryFinalizeResult:
+        """Persist a summary and update request status in one transaction.
+
+        Returns the summary's id and new version from the same UPSERT (RETURNING),
+        so the graph persist node no longer needs a follow-up id lookup.
+        """
         async with self._database.transaction() as session:
-            version = await self._upsert_summary_record(
+            result = await self._upsert_summary_record(
                 request_id=request_id,
                 lang=lang,
                 json_payload=json_payload,
@@ -82,7 +88,7 @@ class SummaryRepositoryAdapter:
                 .where(Request.id == request_id)
                 .values(status=_status_value(request_status), updated_at=_utcnow())
             )
-            return version
+            return result
 
     async def async_update_summary_insights(
         self, request_id: int, insights_json: dict[str, Any]
@@ -1061,7 +1067,7 @@ class SummaryRepositoryAdapter:
         insights_json: dict[str, Any] | None = None,
         is_read: bool = False,
         session: Any | None = None,
-    ) -> int:
+    ) -> SummaryFinalizeResult:
         payload = prepare_json_payload(json_payload, default={})
         insights = prepare_json_payload(insights_json)
         # Extract denormalized metadata so list-view and smart-collection
@@ -1087,12 +1093,17 @@ class SummaryRepositoryAdapter:
                 "updated_at": _utcnow(),
                 **meta,
             },
-        ).returning(Summary.version)
+        ).returning(Summary.id, Summary.version)
 
+        # RETURNING id + version in the single UPSERT so callers never issue a
+        # second round-trip to look up the summary id (``version or 1`` preserves
+        # the legacy default when a stub session yields no counter).
         if session is not None:
-            return int(await session.scalar(stmt) or 1)
-        async with self._database.transaction() as new_session:
-            return int(await new_session.scalar(stmt) or 1)
+            row = (await session.execute(stmt)).one()
+        else:
+            async with self._database.transaction() as new_session:
+                row = (await new_session.execute(stmt)).one()
+        return SummaryFinalizeResult(summary_id=int(row[0] or 0), version=int(row[1] or 1))
 
     async def _set_summary_values(self, summary_id: int, **values: Any) -> None:
         values["updated_at"] = _utcnow()

@@ -448,10 +448,7 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
         retrieval=MagicMock(),
         extraction=MagicMock(),
         stream_sink=MagicMock(),
-        summaries=MagicMock(
-            async_finalize_request_summary=finalize,
-            async_get_summary_id_by_request=AsyncMock(return_value=123),
-        ),
+        summaries=MagicMock(async_finalize_request_summary=finalize),
         requests=MagicMock(),
         summary_index=MagicMock(index_summary=index),
         llm_repo=MagicMock(async_insert_llm_call=insert_llm),

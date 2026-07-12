@@ -84,15 +84,13 @@ async def test_summary_repository_empty_database_paths() -> None:
     repo = SummaryRepositoryAdapter(database)  # type: ignore[arg-type]
 
     assert await repo.async_upsert_summary(1, "en", {"tldr": "x"}) == 1
-    assert (
-        await repo.async_finalize_request_summary(
-            1,
-            "en",
-            {"tldr": "x"},
-            request_status=RequestStatus.COMPLETED,
-        )
-        == 1
+    finalize_result = await repo.async_finalize_request_summary(
+        1,
+        "en",
+        {"tldr": "x"},
+        request_status=RequestStatus.COMPLETED,
     )
+    assert finalize_result.version == 1
     await repo.async_update_summary_insights(1, {"facts": []})
     assert await repo.async_get_user_summaries(1, search="example") == ([], 0, 0)
     assert await repo.async_get_summary_by_request(1) is None
