@@ -25,6 +25,7 @@ from app.application.graphs.summarize.nodes.ground import (
     GROUNDING_BLOCK_FOOTER,
     GROUNDING_BLOCK_HEADER,
 )
+from app.application.ports.summaries import SummaryFinalizeResult
 
 
 class _FakeRetrieval:
@@ -60,9 +61,11 @@ class _FakeSummaries:
         self._summary_id = summary_id
         self.finalized: list[dict[str, Any]] = []
 
-    async def async_finalize_request_summary(self, **kwargs: Any) -> int:
+    async def async_finalize_request_summary(self, **kwargs: Any) -> SummaryFinalizeResult:
         self.finalized.append(kwargs)
-        return 1
+        # The UPSERT returns the id directly now (id lookup removed); ``_summary_id``
+        # models "no row resolved" via None to exercise the index skip guard.
+        return SummaryFinalizeResult(summary_id=self._summary_id, version=1)  # type: ignore[arg-type]
 
     async def async_get_summary_id_by_request(self, request_id: int) -> int | None:
         return self._summary_id
