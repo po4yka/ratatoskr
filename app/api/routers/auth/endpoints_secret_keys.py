@@ -39,6 +39,7 @@ from app.api.routers.auth.secret_auth import (
     handle_failed_attempt,
     hash_secret,
     reset_failed_attempts,
+    run_decoy_secret_verify,
     serialize_secret,
     utcnow_naive,
     validate_secret_value,
@@ -96,6 +97,9 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
     user_repo = get_user_repository()
     user = await user_repo.async_get_user_by_telegram_id(login_data.user_id)
     if not user:
+        # Timing parity: pay the argon2 cost even when the row is absent so the
+        # not-found path can't be distinguished from a wrong-secret verify.
+        run_decoy_secret_verify(login_data.secret)
         raise ResourceNotFoundError("User", login_data.user_id)
 
     auth_repo = get_auth_repository()
@@ -103,6 +107,10 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
         login_data.user_id, login_data.client_id
     )
     if not secret_record:
+        # Same generic "Invalid credentials" as a wrong secret below, so the
+        # decoy verify keeps the two responses timing-indistinguishable and an
+        # attacker can't enumerate which (user_id, client_id) pairs have a secret.
+        run_decoy_secret_verify(login_data.secret)
         raise AuthenticationError("Invalid credentials")
 
     if secret_record.get("status") == "revoked":

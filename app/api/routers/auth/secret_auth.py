@@ -180,6 +180,42 @@ def verify_secret(secret: str, salt: str, stored_hash: str) -> bool:
     return hmac.compare_digest(_legacy_hmac_hash(secret, salt), stored_hash)
 
 
+# Precomputed argon2id PHC used only for timing-parity decoy verifies. Hashed
+# once (lazily) with the same PasswordHasher as real secrets so a decoy verify
+# costs the same wall-clock as a real one.
+_decoy_phc_holder: list[str | None] = [None]
+
+# Fixed salt for the decoy path. Irrelevant to security (the result is
+# discarded); it only needs to be a stable, valid input to _peppered_input.
+_DECOY_SALT = "decoy-timing-parity"
+
+
+def _get_decoy_phc() -> str:
+    if _decoy_phc_holder[0] is None:
+        _decoy_phc_holder[0] = _get_password_hasher().hash(
+            _peppered_input("decoy-timing-parity-secret", _DECOY_SALT)
+        )
+    return _decoy_phc_holder[0]
+
+
+def run_decoy_secret_verify(secret: str) -> None:
+    """Run a throwaway argon2 verify to match ``verify_secret`` wall-clock.
+
+    ``secret_login`` must pay the argon2 cost even when the user or the
+    client-secret row is absent. Otherwise the not-found paths (which return the
+    same generic "Invalid credentials" as a wrong secret) answer measurably
+    faster than the real verify, letting an attacker enumerate which
+    (user_id, client_id) pairs actually have a registered secret. The verify
+    always mismatches; the result is intentionally discarded. ``_peppered_input``
+    HMACs ``secret`` to a fixed-length digest, so argon2 cost is independent of
+    the supplied secret's length.
+    """
+    try:
+        _get_password_hasher().verify(_get_decoy_phc(), _peppered_input(secret, _DECOY_SALT))
+    except (Argon2Error, InvalidHashError):
+        pass
+
+
 def generate_secret_value() -> str:
     """Generate a secure random secret value."""
     cfg = _get_auth_config()
