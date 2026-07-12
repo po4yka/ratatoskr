@@ -344,6 +344,21 @@ def _should_use_shallow_clone(mirror: GitMirror, cfg: GitBackupConfig) -> bool:
     return failures_ok and size_ok
 
 
+def _compute_tree_size_kb(dest: Path) -> int | None:
+    """Sum the on-disk size of every file under ``dest`` in KiB.
+
+    Blocking: a bare mirror clone (packs, loose objects, refs) can hold thousands
+    of files, each needing a ``stat()`` syscall. Callers MUST run this via
+    ``asyncio.to_thread`` so the full-tree walk never stalls the event loop.
+    Returns None if the tree can't be read (matches the prior best-effort
+    behaviour -- size is telemetry, not a sync gate).
+    """
+    try:
+        return sum(f.stat().st_size for f in dest.rglob("*") if f.is_file()) // 1024
+    except OSError:
+        return None
+
+
 class GitMirrorService:
     """Orchestrates git mirror sync.
 
@@ -1027,10 +1042,10 @@ class GitMirrorService:
             dest = task.destination if task else None
             size_kb: int | None = None
             if dest and dest.exists():
-                try:
-                    size_kb = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file()) // 1024
-                except OSError:
-                    size_kb = None
+                # Off the event loop: rglob + per-file stat() over a full bare
+                # clone can walk thousands of objects and would otherwise block
+                # every other coroutine after each successful sync.
+                size_kb = await asyncio.to_thread(_compute_tree_size_kb, dest)
 
             await self._mirror_repo.record_success(
                 mirror_id=mirror.id,

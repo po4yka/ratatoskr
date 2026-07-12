@@ -35,6 +35,7 @@ from app.adapters.git_backup.mirror_service import (
     MirrorOutcome,
     MirrorTask,
     _apply_priority_rules,
+    _compute_tree_size_kb,
     _default_git_runner,
     _is_ignored,
     _preflight_storage_check,
@@ -1063,6 +1064,61 @@ class TestPersistOutcome:
 
         assert len(fake_repo.success_calls) == 1
         assert fake_repo.success_calls[0]["size_kb"] is None
+
+    @pytest.mark.asyncio
+    async def test_ok_outcome_computes_real_size_kb(self, tmp_path: Path) -> None:
+        """The tree walk sums every file's on-disk size (in KiB)."""
+        mirror = _make_mirror(mirror_id=1)
+        dest = tmp_path / "repo.git"
+        (dest / "objects").mkdir(parents=True)
+        (dest / "objects" / "pack.idx").write_bytes(b"a" * 3072)  # 3 KiB
+        (dest / "HEAD").write_bytes(b"b" * 1024)  # 1 KiB
+
+        task = MirrorTask(
+            mirror=mirror,
+            effective_url="https://github.com/user/repo.git",
+            name="user/repo",
+            destination=dest,
+        )
+        outcome = MirrorOutcome(mirror=mirror, ok=True)
+        fake_repo = _FakeMirrorRepo([])
+        service = _make_service(fake_repo, _make_config())
+
+        await service._persist_outcome(outcome, [task])
+
+        assert fake_repo.success_calls[0]["size_kb"] == 4  # (3072 + 1024) // 1024
+
+    @pytest.mark.asyncio
+    async def test_ok_outcome_offloads_size_walk_off_event_loop(self, tmp_path: Path) -> None:
+        """Regression: the blocking rglob+stat walk must run via asyncio.to_thread,
+        never inline on the event loop, so a large mirror can't stall other coroutines."""
+        mirror = _make_mirror(mirror_id=1)
+        dest = tmp_path / "repo.git"
+        dest.mkdir()
+        (dest / "HEAD").write_bytes(b"x" * 2048)
+
+        task = MirrorTask(
+            mirror=mirror,
+            effective_url="https://github.com/user/repo.git",
+            name="user/repo",
+            destination=dest,
+        )
+        outcome = MirrorOutcome(mirror=mirror, ok=True)
+        fake_repo = _FakeMirrorRepo([])
+        service = _make_service(fake_repo, _make_config())
+
+        real_to_thread = asyncio.to_thread
+        offloaded: list[Any] = []
+
+        async def tracking_to_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
+            offloaded.append(fn)
+            return await real_to_thread(fn, *args, **kwargs)
+
+        with patch("asyncio.to_thread", side_effect=tracking_to_thread):
+            await service._persist_outcome(outcome, [task])
+
+        assert _compute_tree_size_kb in offloaded
+        assert fake_repo.success_calls[0]["size_kb"] == 2
 
     @pytest.mark.asyncio
     async def test_http1_flag_set_for_http2_error_category(self) -> None:
