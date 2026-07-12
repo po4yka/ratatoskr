@@ -128,3 +128,18 @@ def test_batch_relationship_suite_is_collected_by_ci() -> None:
         "test_batch_relationship_flow.py must stay marked `integration` or it is "
         "silently excluded from CI again."
     )
+
+
+def test_scraper_factory_suite_is_not_excluded_from_ci() -> None:
+    # Regression lock: the 22-test scraper-factory suite was once --ignored in CI
+    # over two stale provider-count assertions (the chain grew from 8/9 to 10/11
+    # rungs when rungs like CloakBrowser were added) instead of updating them. It
+    # lives at tests/ root, so the unit job collects it -- it must never be
+    # per-file --ignored again; fix the assertions instead.
+    joined = "\n".join(_ci_test_ignores())
+    assert "test_scraper_factory" not in joined, (
+        "The scraper-factory suite must run in CI; update its provider-count "
+        "assertions rather than ignoring the file."
+    )
+    suite = Path(__file__).resolve().parents[1] / "tests" / "test_scraper_factory.py"
+    assert suite.exists(), "scraper-factory suite is missing"
