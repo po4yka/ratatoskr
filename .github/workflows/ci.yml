@@ -1154,12 +1154,10 @@ jobs:
         run: uv pip sync --system requirements-all.txt requirements-dev.txt
 
       - name: Run migration round-trip
-        run: |
-          set -euo pipefail
-          python -m app.cli.migrate_db --apply
-          alembic downgrade -1
-          alembic upgrade head
-          alembic current 2>&1 | grep -q "(head)"
+        # Full head -> base -> head cycle against a seeded database, so every
+        # downgrade() (not just the latest) and any data-dependent rollback
+        # failure surface here instead of during a production rollback.
+        run: bash tools/scripts/migration_roundtrip.sh
 
   restore-smoke-test:
     name: Restore Smoke Test (pg_dump archive + Alembic)

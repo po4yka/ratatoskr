@@ -288,6 +288,40 @@ def test_restore_smoke_ci_job_loads_dump_and_gates_status() -> None:
     assert "needs.restore-smoke-test.result" in status_steps
 
 
+def test_migration_smoke_ci_job_runs_full_roundtrip_not_single_step() -> None:
+    # The migration smoke test must exercise EVERY downgrade() (head -> base ->
+    # head) via the round-trip script, not the shallow `alembic downgrade -1` on
+    # an empty DB that only touched the single latest migration.
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    migration_job = jobs["migration-smoke-test"]
+    status_job = jobs["status-check"]
+
+    steps = "\n".join(str(step) for step in migration_job["steps"])
+    assert "tools/scripts/migration_roundtrip.sh" in steps
+    assert "downgrade -1" not in steps, "single-step downgrade must not return"
+    assert "migration-smoke-test" in status_job["needs"]
+    status_steps = "\n".join(str(step) for step in status_job["steps"])
+    assert "needs.migration-smoke-test.result" in status_steps
+
+
+def test_migration_roundtrip_script_exercises_full_downgrade_with_data() -> None:
+    script = (ROOT / "tools/scripts/migration_roundtrip.sh").read_text(encoding="utf-8")
+    seed = (ROOT / "tools/scripts/seed_migration_roundtrip.py").read_text(encoding="utf-8")
+
+    # Full round-trip: apply, seed, downgrade all the way to base, re-upgrade.
+    assert "app.cli.migrate_db --apply" in script
+    assert "tools.scripts.seed_migration_roundtrip" in script
+    assert "alembic downgrade base" in script
+    assert "alembic upgrade head" in script
+    assert "downgrade -1" not in script
+
+    # The seed must cover the documented 0006 data-dependent hotspot: two users
+    # sharing a duplicate github_id across two repositories rows.
+    assert "Repository(" in seed
+    assert seed.count("_DUPLICATE_GITHUB_ID") >= 3  # constant def + both repo rows
+
+
 def test_restore_smoke_script_uses_real_pg_restore_archive() -> None:
     script = (ROOT / "tools/scripts/restore_smoke.sh").read_text(encoding="utf-8")
     fixture = ROOT / "tests/fixtures/restore_smoke.dump"

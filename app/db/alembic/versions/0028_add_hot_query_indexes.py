@@ -10,8 +10,6 @@ Indexes added
   Rule #1) was unindexed; trace lookups did sequential scans.
 - ``audit_logs (ts)`` and ``audit_logs (event)`` — the table had no indexes;
   the admin dashboard filters by ``event`` and paginates by ``ts DESC``.
-- ``refresh_tokens (family_id)`` — token-family revocation bulk-updates by
-  family_id.
 - ``summary_embeddings (index_status)`` — the reconciler counts pending rows by
   status.
 - ``summaries (is_favorited) WHERE is_favorited = true`` — partial index for the
@@ -50,7 +48,10 @@ _INDEXES: tuple[tuple[str, str], ...] = (
     ),
     ("ix_audit_logs_ts", "ON audit_logs (ts)"),
     ("ix_audit_logs_event", "ON audit_logs (event)"),
-    ("ix_refresh_tokens_family_id", "ON refresh_tokens (family_id)"),
+    # NOTE: ix_refresh_tokens_family_id is intentionally NOT here -- migration
+    # 0016 already creates and owns it. Re-adding it (even IF NOT EXISTS) made
+    # the downgrade path drop it twice (0028 then 0016), and 0016's non-idempotent
+    # drop_index raised UndefinedObject. See migration_roundtrip test.
     ("ix_summary_embeddings_index_status", "ON summary_embeddings (index_status)"),
     (
         "ix_summaries_is_favorited",
