@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +144,23 @@ def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
     assert env["BACKUP_ENCRYPTION_KEY"] == "${BACKUP_ENCRYPTION_KEY:-}"
     assert env["BACKUP_S3_BUCKET"] == "${BACKUP_S3_BUCKET:-}"
     assert env["BACKUP_S3_ENDPOINT_URL"] == "${BACKUP_S3_ENDPOINT_URL:-}"
+
+
+def test_pg_backup_image_matches_production_postgres_major() -> None:
+    # The pg-backup sidecar's pg_dump must match the server major: pg_dump
+    # refuses to dump a server newer than itself, so a lagging backup image
+    # silently breaks backups after a Postgres upgrade (prod moved to 17 while
+    # the sidecar stayed on 16).
+    dockerfile = (ROOT / "ops/docker/pg-backup/Dockerfile").read_text(encoding="utf-8")
+    match = re.search(r"^FROM\s+postgres:(\S+)", dockerfile, re.MULTILINE)
+    assert match is not None, "pg-backup Dockerfile must build FROM a postgres image"
+
+    backup_major = match.group(1).split("-", 1)[0]
+    prod_major = _postgres_major(_compose()["services"]["postgres"]["image"])
+    assert backup_major == prod_major, (
+        f"pg-backup builds FROM postgres:{match.group(1)} but production compose is "
+        f"Postgres {prod_major}; pg_dump must match the server major"
+    )
 
 
 def test_postgres_backup_metrics_are_scraped_by_node_exporter() -> None:

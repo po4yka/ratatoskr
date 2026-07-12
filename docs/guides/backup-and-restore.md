@@ -139,13 +139,13 @@ cat "${BACKUP_HOST_DIR:-data/postgres-backups}"/ratatoskr-postgres-*.json | tail
 Verify an unencrypted automated dump:
 
 ```bash
-docker run --rm -i --entrypoint pg_restore postgres:16 --list < "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump" | head
+docker run --rm -i --entrypoint pg_restore postgres:17 --list < "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump" | head
 ```
 
 Verify an encrypted automated dump with the same passphrase that created it:
 
 ```bash
-openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY -in "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump.enc" | docker run --rm -i --entrypoint pg_restore postgres:16 --list | head
+openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY -in "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump.enc" | docker run --rm -i --entrypoint pg_restore postgres:17 --list | head
 ```
 
 Set `BACKUP_S3_BUCKET` to upload each dump and metadata file after local creation. For S3-compatible storage such as Backblaze B2 or MinIO, also set `BACKUP_S3_ENDPOINT_URL`; credentials come from `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` or the corresponding AWS CLI environment variables inside the sidecar.
@@ -166,7 +166,7 @@ docker exec -t ratatoskr-postgres \
 Verify the dump is well-formed:
 
 ```bash
-docker run --rm -i --entrypoint pg_restore postgres:16 \
+docker run --rm -i --entrypoint pg_restore postgres:17 \
   --list < "$BACKUP_DIR/ratatoskr.dump" | head
 ```
 
@@ -256,7 +256,7 @@ Store the passphrase outside the host. Do not commit backup archives or copied `
 
 ```bash
 find "$BACKUP_DIR" -maxdepth 1 -type f -print -exec ls -lh {} \;
-docker run --rm -i --entrypoint pg_restore postgres:16 --list \
+docker run --rm -i --entrypoint pg_restore postgres:17 --list \
   < "$BACKUP_DIR/ratatoskr.dump" >/dev/null
 [ ! -f "$BACKUP_DIR/qdrant_data.tar.gz" ] || tar -tzf "$BACKUP_DIR/qdrant_data.tar.gz" >/dev/null
 [ ! -f "$BACKUP_DIR/config.tar.gz" ] || tar -tzf "$BACKUP_DIR/config.tar.gz" >/dev/null
