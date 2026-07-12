@@ -39,6 +39,7 @@ from .integrations import (
     VectorReconcileConfig,
     WebSearchConfig,
 )
+from .known_client_ids import KNOWN_CLIENT_IDS
 from .langgraph import LangGraphCheckpointConfig
 from .llm import (
     DirectAnthropicConfig,
@@ -491,6 +492,43 @@ class Settings(BaseSettings):
                 ),
             },
         )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_known_client_ids_not_allowlisted(self) -> Self:
+        """Surface official client_ids missing from an explicit ALLOWED_CLIENT_IDS.
+
+        KNOWN_CLIENT_IDS is the registry of client_ids shipped by the official
+        builds; the registry's own docstring states ALLOWED_CLIENT_IDS must be a
+        superset of it. Nothing enforced that until this check, so a typo or a
+        forgotten entry in the allowlist silently rejected an official client at
+        auth time with no startup signal.
+
+        This is a fail-safe misconfiguration (an over-restrictive allowlist
+        rejects clients; it never grants access), and a deployment may legitimately
+        choose not to serve a given official client -- so warn, do not crash.
+        Skipped when the allowlist is empty (fail-open; handled by
+        _ensure_production_client_allowlist) or AUTH_ALLOW_ANY_CLIENT_ID=true
+        (every valid client_id already accepted). The warning names only the
+        missing ids.
+        """
+        if self.auth.allow_any_client_id or not self.auth.allowed_client_ids:
+            return self
+        missing = sorted(KNOWN_CLIENT_IDS - set(self.auth.allowed_client_ids))
+        if missing:
+            logger.warning(
+                "auth_known_client_ids_not_allowlisted",
+                extra={
+                    "app_env": self.deployment.env,
+                    "missing_known_client_ids": missing,
+                    "warning": (
+                        "ALLOWED_CLIENT_IDS omits official client_ids listed in "
+                        "KNOWN_CLIENT_IDS; those clients will be rejected at auth. "
+                        "Add them to ALLOWED_CLIENT_IDS, or set "
+                        "AUTH_ALLOW_ANY_CLIENT_ID=true if the omission is intentional."
+                    ),
+                },
+            )
         return self
 
     @model_validator(mode="after")
