@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.adapters.ingestors._http import DEFAULT_MAX_RESPONSE_MB, fetch_json_capped
 from app.application.ports.source_ingestors import (
     IngestedFeedItem,
     IngestedSource,
@@ -52,6 +53,7 @@ class HackerNewsIngester:
         client: Any | None = None,
         base_url: str = "https://hacker-news.firebaseio.com/v0",
         max_concurrency: int = 5,
+        max_response_mb: int = DEFAULT_MAX_RESPONSE_MB,
     ) -> None:
         key = feed.strip().lower()
         if key not in _FEEDS:
@@ -63,6 +65,7 @@ class HackerNewsIngester:
         self.client = client or httpx.AsyncClient(timeout=20.0)
         self.base_url = base_url.rstrip("/")
         self.max_concurrency = max(1, int(max_concurrency))
+        self._max_response_bytes = max_response_mb * 1024 * 1024
         self.name = f"hacker_news:{self.feed}"
 
     def is_enabled(self) -> bool:
@@ -131,14 +134,22 @@ class HackerNewsIngester:
         )
 
     async def _get_json(self, url: str) -> Any:
-        response = await self.client.get(url)
+        return await fetch_json_capped(
+            self.client,
+            url,
+            max_bytes=self._max_response_bytes,
+            provider="Hacker News",
+            check_status=self._check_status,
+        )
+
+    @staticmethod
+    def _check_status(response: Any) -> None:
         if response.status_code == 429:
             raise RateLimitedSourceError("Hacker News API returned 429")
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise TransientSourceError(f"Hacker News API error: {response.status_code}") from exc
-        return response.json()
 
     @staticmethod
     def _normalize_item(raw: dict[str, Any]) -> IngestedFeedItem:
