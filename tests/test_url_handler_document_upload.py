@@ -234,7 +234,7 @@ class TestHandleDocumentArticlePath(unittest.IsolatedAsyncioTestCase):
 
 class TestHandleDocumentUrlListPath(unittest.IsolatedAsyncioTestCase):
     async def test_txt_url_list_routes_to_batch(self) -> None:
-        handler = _make_handler(lines=["https://a.com", "https://b.com"])
+        handler = _make_handler(lines=["https://example.com", "https://example.org"])
         message = _doc_message("links.txt")
 
         with (
