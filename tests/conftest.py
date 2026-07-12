@@ -4,6 +4,7 @@ This module provides common fixtures for all tests.
 """
 
 import os
+import socket
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -162,6 +163,70 @@ def fast_qdrant_retries(monkeypatch):
         original(self, max_attempts=1, base_delay=0)
 
     monkeypatch.setattr(qmod.QdrantVectorStore, "_connect_with_retry", fast)
+
+
+# Hosts a `no_network` test may still reach: loopback and the unspecified
+# address. Everything else is treated as live network egress.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0", ""})
+
+
+class BlockedNetworkError(RuntimeError):
+    """Raised when a ``no_network``-marked test attempts live network I/O."""
+
+
+def _connect_target_is_loopback(address: Any) -> bool:
+    # AF_INET/AF_INET6 addresses are ``(host, port[, ...])`` tuples; AF_UNIX
+    # addresses are str/bytes paths (never network egress -> always allowed).
+    if not isinstance(address, tuple) or not address:
+        return True
+    return str(address[0]) in _LOOPBACK_HOSTS
+
+
+@pytest.fixture(autouse=True)
+def enforce_no_network(request, monkeypatch):
+    """Actually block live network I/O for tests marked ``no_network``.
+
+    The marker was purely declarative -- registered in pyproject and applied to
+    ~27 suites, but enforced by nothing. A regression that started reaching the
+    real network would pass silently: slow, flaky, and a data-egress risk in CI.
+
+    This installs a socket guard for the duration of each marked test: any
+    outbound connection to a non-loopback address raises
+    :class:`BlockedNetworkError`. Loopback and UNIX-domain sockets stay allowed so
+    asyncio internals, local fixtures, and respx's mock transport keep working.
+    monkeypatch restores the real socket functions on teardown, so the guard
+    never leaks into unmarked tests.
+    """
+    if request.node.get_closest_marker("no_network") is None:
+        return
+
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+    real_create_connection = socket.create_connection
+
+    def _guard(address: Any, call: str) -> None:
+        if not _connect_target_is_loopback(address):
+            raise BlockedNetworkError(
+                f"{call} to {address!r} blocked: this test is marked "
+                "@pytest.mark.no_network and must not perform live network I/O. "
+                "Mock the client/transport, or remove the marker if the call is intended."
+            )
+
+    def guarded_connect(self, address, *args, **kwargs):
+        _guard(address, "socket.connect")
+        return real_connect(self, address, *args, **kwargs)
+
+    def guarded_connect_ex(self, address, *args, **kwargs):
+        _guard(address, "socket.connect_ex")
+        return real_connect_ex(self, address, *args, **kwargs)
+
+    def guarded_create_connection(address, *args, **kwargs):
+        _guard(address, "socket.create_connection")
+        return real_create_connection(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
+    monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
 
 
 @pytest.fixture(autouse=True)
