@@ -51,7 +51,9 @@ class _FakeLLM:
 
 
 def _deps(llm: _FakeLLM) -> Any:
-    return SimpleNamespace(llm_client=llm, config=None)
+    # graph_run_ledger mirrors the real SummarizeDeps default (None); the
+    # @graph_node span decorator reads it and skips ledger recording when None.
+    return SimpleNamespace(llm_client=llm, config=None, graph_run_ledger=None)
 
 
 async def test_stream_flag_routes_to_streaming_path() -> None:
