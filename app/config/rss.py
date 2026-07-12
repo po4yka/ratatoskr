@@ -37,6 +37,14 @@ class RSSConfig(BaseModel):
         le=100,
         description="Safety cap on items processed per poll cycle",
     )
+    max_feeds_per_poll: int = Field(
+        default=200,
+        validation_alias="RSS_MAX_FEEDS_PER_POLL",
+        ge=1,
+        le=5000,
+        description="Safety cap on active feeds loaded per poll cycle "
+        "(least-recently-fetched first, so feeds rotate across cycles)",
+    )
     concurrency: int = Field(
         default=2,
         validation_alias="RSS_CONCURRENCY",

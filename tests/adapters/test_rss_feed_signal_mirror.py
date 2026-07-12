@@ -18,9 +18,11 @@ class _FakeRSSRepo:
         self.items: list[dict] = []
         self.feed_errors: list[dict] = []
         self.delivery_target_queries: list[list[int]] = []
+        self.list_active_feeds_limits: list[int | None] = []
         _FakeRSSRepo.instance = self
 
-    async def async_list_active_feeds(self):
+    async def async_list_active_feeds(self, *, limit: int | None = None):
+        self.list_active_feeds_limits.append(limit)
         return [
             {
                 "id": 10,
@@ -144,6 +146,21 @@ async def test_rss_poll_mirrors_new_items_into_signal_sources(monkeypatch):
     assert signal_repo.bulk_subscriptions == [{"source_id": 200, "user_ids": [1001]}]
     assert signal_repo.subscriptions == [{"user_id": 1001, "source_id": 200}]
     assert signal_repo.successes == [200]
+
+
+@pytest.mark.asyncio
+async def test_rss_poll_passes_feed_limit_to_repository(monkeypatch):
+    from app.adapters.rss import feed_poller
+
+    monkeypatch.setattr(feed_poller, "RSSFeedRepositoryAdapter", _FakeRSSRepo)
+    monkeypatch.setattr(feed_poller, "SignalSourceRepositoryAdapter", _FakeSignalRepo)
+    monkeypatch.setattr(
+        feed_poller, "fetch_feed", lambda *_a, **_k: FeedResult(title="Example")
+    )
+
+    await feed_poller.poll_all_feeds(SimpleNamespace(), limit=25)
+
+    assert _FakeRSSRepo.instance.list_active_feeds_limits == [25]
 
 
 @pytest.mark.asyncio

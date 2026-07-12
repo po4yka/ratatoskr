@@ -180,11 +180,15 @@ async def _sync_signal_subscriptions(
                 )
 
 
-async def poll_all_feeds(db: Database) -> dict:
-    """Poll all active RSS feeds for new items."""
+async def poll_all_feeds(db: Database, *, limit: int | None = None) -> dict:
+    """Poll active RSS feeds for new items.
+
+    ``limit`` caps how many feeds one cycle loads (least-recently-fetched first),
+    bounding memory and work per poll; ``None`` loads every active feed.
+    """
     repo = RSSFeedRepositoryAdapter(db)
     signal_repo = SignalSourceRepositoryAdapter(db)
-    feeds = await repo.async_list_active_feeds()
+    feeds = await repo.async_list_active_feeds(limit=limit)
 
     new_item_ids: list[int] = []
     stats: dict = {"polled": 0, "new_items": 0, "errors": 0, "skipped": 0}

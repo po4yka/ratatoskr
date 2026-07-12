@@ -39,7 +39,11 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
     logger.info("rss_poll_starting", extra={"cid": correlation_id})
 
     try:
-        stats = await poll_all_feeds(db) if cfg.rss.enabled else {"new_item_ids": []}
+        stats = (
+            await poll_all_feeds(db, limit=cfg.rss.max_feeds_per_poll)
+            if cfg.rss.enabled
+            else {"new_item_ids": []}
+        )
         await _run_optional_source_ingestors(cfg, runtime, correlation_id)
         new_item_ids: list[int] = stats.get("new_item_ids", [])
         logger.info(
