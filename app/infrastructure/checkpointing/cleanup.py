@@ -9,6 +9,8 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Any
 
+from psycopg import sql
+
 
 @dataclass
 class CheckpointPruneStats:
@@ -42,12 +44,14 @@ async def prune_expired_checkpoints(
         return stats
 
     for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-        del_cur = await connection.execute(
-            # `schema` is validated [A-Za-z0-9_] at config time and `table` is a
-            # fixed literal, so neither identifier is user-controlled.
-            f'DELETE FROM "{schema}".{table} WHERE thread_id = ANY(%(ids)s)',  # nosec B608
-            {"ids": thread_ids},
+        # `schema` is validated [A-Za-z0-9_] at config time and `table` is a fixed
+        # literal, so neither identifier is user-controlled; compose them via
+        # psycopg.sql for defense in depth (this also keeps the query off bandit's
+        # B608 string-construction heuristic without a suppression comment).
+        query = sql.SQL("DELETE FROM {}.{} WHERE thread_id = ANY(%(ids)s)").format(
+            sql.Identifier(schema), sql.Identifier(table)
         )
+        del_cur = await connection.execute(query, {"ids": thread_ids})
         setattr(stats, table, del_cur.rowcount or 0)
 
     return stats

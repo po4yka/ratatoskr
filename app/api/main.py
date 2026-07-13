@@ -458,10 +458,13 @@ app.add_exception_handler(Exception, global_error_handler)
 if __name__ == "__main__":
     import uvicorn
 
-    # Development server - bind to all interfaces for Docker/container access
+    # Development server - bind to all interfaces for Docker/container access.
+    # 0.0.0.0 is intentional here; B104 is suppressed on the assignment itself
+    # so bandit anchors the nosec to the exact flagged line.
+    host = "0.0.0.0"  # nosec B104
     uvicorn.run(
         "app.api.main:app",
-        host="0.0.0.0",  # nosec B104 - intentional for Docker
+        host=host,
         port=8000,
         reload=True,
         log_level="info",
