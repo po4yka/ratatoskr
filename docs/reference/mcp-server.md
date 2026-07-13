@@ -26,8 +26,15 @@ This phase evolves the existing MCP server rather than adding a separate MCP gat
 | `MCP_FORWARDED_ACCESS_TOKEN_HEADER` | `X-Ratatoskr-Forwarded-Access-Token` | Trusted-gateway header for forwarding the original access token |
 | `MCP_FORWARDED_SECRET_HEADER` | `X-Ratatoskr-MCP-Forwarding-Secret` | Trusted-gateway header carrying the shared forwarding secret |
 | `MCP_FORWARDING_SECRET` | _(none)_ | Shared secret required before trusting forwarded access-token headers |
+| `MCP_TOOL_RATE_WINDOW_SEC` | `60` | Sliding-window length (seconds) for the per-(operation, tenant) rate limiter (see [Rate limiting](#rate-limiting)) |
+| `MCP_TOOL_RATE_LIMIT` | `60` | Max invocations per window for standard read-tier tools and resources |
+| `MCP_EXPENSIVE_TOOL_RATE_LIMIT` | `5` | Tighter per-window cap for the billed/expensive tool tier |
 
 See `docs/reference/environment-variables.md` for full config reference.
+
+### Rate limiting
+
+Every MCP tool and resource call passes through an in-process rate limiter keyed by `(operation, tenant)`, so one caller cannot drive unbounded scrape / LLM / embedding cost and, in hosted JWT mode, cannot starve other tenants of a shared budget. Two tiers apply within the `MCP_TOOL_RATE_WINDOW_SEC` window: standard read-tier operations use `MCP_TOOL_RATE_LIMIT`, while the expensive tier (`create_aggregation_bundle`, `promote_to_library`, `semantic_search`, `hybrid_search`, `find_similar_articles`) uses the tighter `MCP_EXPENSIVE_TOOL_RATE_LIMIT` because each triggers a scrape+LLM fan-out or a per-call embedding request. All three knobs are clamped to a minimum of 1, and a non-integer value falls back to its default. The limiter is process-local: a horizontally-scaled deployment needs a shared (Redis) limiter, tracked separately.
 
 ## Running
 

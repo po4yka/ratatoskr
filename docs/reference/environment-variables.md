@@ -534,6 +534,9 @@ See [`docs/vector-index-sync.md`](../vector-index-sync.md) for architecture, sum
 | `MCP_FORWARDED_ACCESS_TOKEN_HEADER` | `X-Ratatoskr-Forwarded-Access-Token` | Trusted-gateway header for the forwarded original bearer token |
 | `MCP_FORWARDED_SECRET_HEADER` | `X-Ratatoskr-MCP-Forwarding-Secret` | Trusted-gateway header for the shared forwarding secret |
 | `MCP_FORWARDING_SECRET` | _(none)_ | Shared secret required before trusting forwarded access-token headers |
+| `MCP_TOOL_RATE_WINDOW_SEC` | `60` | Sliding-window length in seconds for the in-process per-(operation, tenant) MCP rate limiter that gates every tool and resource. Non-integer or sub-1 values fall back to the default / are clamped to a minimum of 1. Read directly in `app/mcp/tool_registrations.py`, not part of `McpConfig`. |
+| `MCP_TOOL_RATE_LIMIT` | `60` | Max invocations per window for standard read-tier MCP tools and resources. Clamped to a minimum of 1. |
+| `MCP_EXPENSIVE_TOOL_RATE_LIMIT` | `5` | Tighter per-window cap for the billed/expensive tool tier (`create_aggregation_bundle`, `promote_to_library`, `semantic_search`, `hybrid_search`, `find_similar_articles`), which each trigger a scrape+LLM fan-out or a per-call embedding request. Clamped to a minimum of 1. |
 
 ## Mobile API and Auth
 
