@@ -656,8 +656,9 @@ def _create_adaptive_timeout_service(
     cfg: AppConfig,
     db: Database,
 ) -> AdaptiveTimeoutService | None:
-    if cfg.adaptive_timeout is None:
-        return None
+    # cfg.adaptive_timeout is a non-Optional AdaptiveTimeoutConfig (default_factory
+    # on Settings), so it is never None; the service is built unconditionally and
+    # only a construction failure yields None.
     try:
         service = AdaptiveTimeoutService(
             config=cfg.adaptive_timeout,
