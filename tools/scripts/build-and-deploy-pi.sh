@@ -265,10 +265,19 @@ run_remote_migrations() {
   else
     echo "==> Rendering database migration SQL dry-run on ${RASPI_HOST}"
   fi
+  # `compose run` has no `--no-build` flag before compose v2.27 (the Pi runs
+  # v2.24.6) and does not build without an explicit `--build` anyway, so the
+  # flag is both unsupported and redundant here -- the migrate image is streamed
+  # in by build_and_ship above. `up` does support `--no-build`, so it stays.
+  # Pass the full command explicitly. `docker compose run migrate --apply`
+  # REPLACES the service's `command:` with `--apply`, so tini tries to exec
+  # `--apply` as a program ("exec --apply failed: No such file or directory").
+  # Spelling out `python -m app.cli.migrate_db` keeps the entrypoint intact and
+  # appends the flag as an argument.
   ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
     ${COMPOSE_RUN[*]} up -d --no-build postgres && \
     ( ${COMPOSE_RUN[*]} rm -sf ${MIGRATE_SERVICE} >/dev/null 2>&1 || true ) && \
-    ${COMPOSE_RUN[*]} run --rm --no-build ${MIGRATE_SERVICE} ${migrate_args[*]}"
+    ${COMPOSE_RUN[*]} run --rm ${MIGRATE_SERVICE} python -m app.cli.migrate_db ${migrate_args[*]}"
 }
 
 tag_running_image_as_previous() {
