@@ -53,6 +53,10 @@ class LLMAttemptTrigger(enum.StrEnum):
       code path writes this value yet (the graph runs behind a feature flag).
     - ``ru_translation``: structured Russian translation of a finished summary,
       issued by the bilingual post-summary step (``SUMMARY_BILINGUAL_ENABLED``).
+    - ``agent``: LLM call issued by a standalone agent path with no parent
+      ``Request`` (repo analysis, multi-source aggregation, signal judge). These
+      rows carry ``request_id IS NULL`` and are persisted via
+      ``app/agents/llm_call_persistence.py::persist_agent_llm_call``.
     """
 
     initial = "initial"
@@ -63,6 +67,7 @@ class LLMAttemptTrigger(enum.StrEnum):
     webwright_tool = "webwright_tool"
     graph_node = "graph_node"
     ru_translation = "ru_translation"
+    agent = "agent"
 
 
 _llm_attempt_trigger_enum = Enum(
@@ -627,8 +632,10 @@ class LLMCall(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    request_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("requests.id", ondelete="CASCADE"), nullable=False
+    # Nullable: agent-originated calls (attempt_trigger='agent') have no parent
+    # Request. See migration 0051 and persist_agent_llm_call.
+    request_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("requests.id", ondelete="CASCADE"), nullable=True
     )
     attempt_index: Mapped[int] = mapped_column(
         Integer,

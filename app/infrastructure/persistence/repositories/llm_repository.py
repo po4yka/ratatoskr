@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from app.db.session import Database
 
 from app.db.json_utils import prepare_json_payload
-from app.db.models import LLMCall, Request, model_to_dict
+from app.db.models import LLMAttemptTrigger, LLMCall, Request, model_to_dict
 
 
 def _build_llm_call_payload(call_data: dict[str, Any] | Any) -> dict[str, Any]:
@@ -108,7 +108,8 @@ class LLMRepositoryAdapter:
         ``attempt_trigger`` defaults to the ``initial_attempt_trigger`` field
         stored on the parent ``Request`` row (set by retry flows) when this is
         the first call (attempt_index == 1) and no explicit trigger is given.
-        Falls back to ``"initial"`` when neither is set.
+        Agent-originated calls (``request_id`` is None) are tagged ``"agent"``;
+        otherwise it falls back to the model default ``"initial"``.
         """
         async with self._database.transaction() as session:
             payload = _build_llm_call_payload(record)
@@ -121,6 +122,11 @@ class LLMRepositoryAdapter:
                 inherited = await _resolve_initial_trigger(session, req_id)
                 if inherited:
                     payload["attempt_trigger"] = inherited
+            # Agent-originated calls have no parent request; tag them explicitly
+            # so they persist (request_id is nullable since migration 0051) and
+            # stay queryable instead of masquerading as summarize-path "initial".
+            if req_id is None and payload.get("attempt_trigger") is None:
+                payload["attempt_trigger"] = LLMAttemptTrigger.agent.value
             call = LLMCall(**payload)
             session.add(call)
             await session.flush()
@@ -231,9 +237,7 @@ class LLMRepositoryAdapter:
             )
             return int(value) if value is not None else None
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Get all LLM calls for a user, with request_id flattened.
 
         ``since`` pushes the sync cursor into the query so a poll only reads rows
