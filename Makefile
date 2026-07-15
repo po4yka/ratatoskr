@@ -50,17 +50,17 @@ test-fast:
 security: security-bandit security-deps
 
 security-bandit:
-	uv run --frozen bandit -r app -ll
+	uv run --frozen --no-default-groups --only-group ci-security-tools bandit -r app -ll
 
 security-deps:
-	bash tools/scripts/audit-deps.sh
+	PIP_AUDIT_CMD='uv run --frozen --no-default-groups --only-group ci-security-tools pip-audit' bash tools/scripts/audit-deps.sh
 
 # Runs custom Semgrep rules that catch patterns complementary to Ruff:
 # mutable-aliasing hazards and bare/broad exception handlers.
 # Also enforced in CI and as pre-push hooks.
 static-checks:
-	semgrep --config semgrep/python-mutability.yml --error app/ tests/
-	semgrep --config semgrep/python-bare-except.yml --error app/ tests/
+	uv run --frozen --no-default-groups --only-group ci-security-tools semgrep --config semgrep/python-mutability.yml --error app/ tests/
+	uv run --frozen --no-default-groups --only-group ci-security-tools semgrep --config semgrep/python-bare-except.yml --error app/ tests/
 
 # Note: `all` deliberately omits `security`; run `make security` separately.
 all: format lint type test

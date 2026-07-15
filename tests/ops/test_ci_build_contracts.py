@@ -185,6 +185,51 @@ def test_setup_uv_cache_is_not_duplicated_by_actions_cache() -> None:
             assert "~/.cache/pip" not in cached_paths, job_name
 
 
+def test_ci_dependency_installation_uses_lock_backed_groups() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    groups = project["dependency-groups"]
+    required_groups = {
+        "ci-lint",
+        "ci-type",
+        "ci-test",
+        "ci-db",
+        "ci-security-tools",
+    }
+    assert required_groups <= groups.keys()
+
+    dev_includes = {
+        item["include-group"]
+        for item in groups["dev"]
+        if isinstance(item, dict) and "include-group" in item
+    }
+    assert dev_includes == {"ci-lint", "ci-type", "ci-test"}
+
+    jobs = _workflow("ci.yml")["jobs"]
+    lock_backed_jobs = (
+        "lint-and-format",
+        "type-check",
+        "import-linter",
+        "test",
+        "integration-tests",
+        "migration-smoke-test",
+        "restore-smoke-test",
+        "postgres-tests",
+    )
+    for job_name in lock_backed_jobs:
+        commands = "\n".join(str(step.get("run", "")) for step in jobs[job_name]["steps"])
+        assert "uv sync --frozen --no-default-groups" in commands, job_name
+        assert "uv pip sync --system requirements-all.txt" not in commands, job_name
+
+    for job_name in ("bandit-scan", "pip-audit-scan", "safety-scan"):
+        commands = "\n".join(str(step.get("run", "")) for step in jobs[job_name]["steps"])
+        assert "--only-group ci-security-tools" in commands, job_name
+        assert "pip install --no-cache-dir" not in commands, job_name
+        assert "uv pip install --system" not in commands, job_name
+
+    workflow_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "uv pip sync --system requirements-all.txt requirements-dev.txt" not in workflow_text
+
+
 def test_integration_tests_start_after_environment_preparation() -> None:
     integration_job = _workflow("ci.yml")["jobs"]["integration-tests"]
 
@@ -203,12 +248,14 @@ def test_test_retries_require_explicit_quarantine() -> None:
         job = jobs[job_name]
         command = _step_named(job, step_name)["run"]
         assert "--reruns" not in command
-        install_commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
-        assert "pytest-rerunfailures" in install_commands
 
-    pytest_config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
-        "pytest"
-    ]["ini_options"]
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert any(
+        str(dependency).startswith("pytest-rerunfailures")
+        for dependency in project["dependency-groups"]["ci-test"]
+    )
+
+    pytest_config = project["tool"]["pytest"]["ini_options"]
     markers = pytest_config["markers"]
     assert any(marker.startswith("quarantined(") for marker in markers)
     assert any(marker.startswith("flaky(") for marker in markers)

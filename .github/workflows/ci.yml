@@ -240,32 +240,37 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra graph \
+            --group ci-lint \
+            --group ci-test
 
       - name: Validate OpenAPI spec
         run: |
-          uv run --frozen --extra api openapi-spec-validator docs/openapi/mobile_api.yaml
-          uv run --frozen --extra api openapi-spec-validator docs/openapi/mobile_api.json
+          uv run --no-sync openapi-spec-validator docs/openapi/mobile_api.yaml
+          uv run --no-sync openapi-spec-validator docs/openapi/mobile_api.json
 
       - name: Check generated OpenAPI drift
-        run: uv run --frozen --extra api python tools/scripts/generate_openapi.py --check
+        run: uv run --no-sync python tools/scripts/generate_openapi.py --check
 
       - name: Check OpenAPI spec sync with code
         run: |
-          uv run --frozen --extra api pytest tests/api/test_openapi_sync.py tests/api/test_openapi_security.py tests/api/test_runtime_openapi_drift.py tests/tools/test_generate_openapi.py \
+          uv run --no-sync pytest tests/api/test_openapi_sync.py tests/api/test_openapi_security.py tests/api/test_runtime_openapi_drift.py tests/tools/test_generate_openapi.py \
             -v --tb=short
 
       - name: Lint (ruff) - comprehensive
-        run: ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Format check (ruff)
-        run: ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: Import sort check (isort)
-        run: isort --check-only .
+        run: uv run --no-sync isort --check-only .
 
       - name: Enforce class size limit
-        run: python tools/scripts/check_class_size.py --max-loc 1000 --baseline tools/scripts/class_size_baseline.json
+        run: uv run --no-sync python tools/scripts/check_class_size.py --max-loc 1000 --baseline tools/scripts/class_size_baseline.json
 
       - name: Enforce file size limit
         env:
@@ -275,22 +280,19 @@ jobs:
           if [[ "$PR_ACTOR" == "dependabot[bot]" || "$PR_HEAD_REF" == dependabot/* ]]; then
             git checkout -- uv.lock requirements.txt requirements-all.txt requirements-dev.txt
           fi
-          python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
+          uv run --no-sync python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
       - name: Check code complexity
         run: |
           echo "Checking code complexity with radon..."
-          uv pip install --system radon
-          radon cc app --min B --show-complexity --no-assert
-          radon mi app --min B
+          uv run --no-sync radon cc app --min B --show-complexity --no-assert
+          uv run --no-sync radon mi app --min B
 
       - name: Semgrep (Python mutability rules)
-        run: |
-          uv pip install --system semgrep --quiet
-          semgrep --config semgrep/python-mutability.yml --error app/ tests/
+        run: uv run --frozen --no-default-groups --only-group ci-security-tools semgrep --config semgrep/python-mutability.yml --error app/ tests/
 
       - name: Semgrep (Python bare-except rules)
-        run: semgrep --config semgrep/python-bare-except.yml --error app/ tests/
+        run: uv run --no-sync semgrep --config semgrep/python-bare-except.yml --error app/ tests/
 
   type-check:
     name: Type Check (mypy)
@@ -330,14 +332,18 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra graph \
+            --group ci-type
 
       - name: Type check (mypy)
         # tests/ stays out of scope for now: `mypy app tests` currently reports
         # 79 errors across 25 files (loose SimpleNamespace/Fake* stand-ins passed
         # where app types are expected, plus a couple of genuine drift errors).
         # TODO: clean up tests/ typing and switch this back to `mypy app tests`.
-        run: mypy app --show-error-codes --pretty --cache-dir .mypy_cache
+        run: uv run --no-sync mypy app --show-error-codes --pretty --cache-dir .mypy_cache
 
 
   import-linter:
@@ -370,19 +376,14 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        # import-linter builds the import graph by importing app.*, so the full
-        # runtime deps must be present. It is a CI-only architecture gate, so it
-        # is installed ad-hoc here rather than pinned into the lockfile.
-        run: |
-          uv pip sync --system requirements-all.txt requirements-dev.txt
-          uv pip install --system import-linter
+        run: uv sync --frozen --no-default-groups --group ci-lint
 
       # GATING: all layering contracts are green (the restore-architecture-layering
       # epic closed every known violation), so the full suite gates the build and
       # fails on ANY regression. Contracts live in .importlinter; see
       # docs/explanation/architecture-overview.md#layering-contracts.
       - name: Enforce layering contracts (gating)
-        run: lint-imports
+        run: uv run --no-sync lint-imports
 
 
   test:
@@ -418,16 +419,19 @@ jobs:
             uv.lock
 
       - name: Install dependencies (all extras for comprehensive testing)
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
-
-      - name: Install additional test/coverage tools
-        run: uv pip install --system pytest-cov pytest-xdist pytest-rerunfailures pytest-asyncio coverage[toml]
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra graph \
+            --extra mcp \
+            --extra youtube \
+            --group ci-test
 
       - name: Run unit tests with coverage
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
-          pytest \
+          uv run --no-sync pytest \
             -p pytest_cov \
             -p xdist \
             -p pytest_rerunfailures \
@@ -451,7 +455,7 @@ jobs:
             -n auto
 
           # Run benchmarks separately without parallel execution
-          pytest \
+          uv run --no-sync pytest \
             tests/benchmarks/ \
             -p pytest_benchmark.plugin \
             --verbose \
@@ -490,13 +494,13 @@ jobs:
           # Threshold is set in pyproject.toml [tool.coverage.report] fail_under.
           # A below-threshold run fails this step and therefore fails CI.
           # To raise the bar: bump fail_under in pyproject.toml in a separate commit.
-          coverage report \
+          uv run --no-sync coverage report \
             --omit="app/db/alembic/*,app/static/*,app/cli/migrations/*" \
             --show-missing
 
       - name: API surface count (informational)
         continue-on-error: true
-        run: python3 tools/count_api_endpoints.py
+        run: uv run --no-sync python tools/count_api_endpoints.py
 
   bandit-scan:
     name: Security - Bandit (SAST)
@@ -515,21 +519,20 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Cache Python environment
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-bandit-${{ runner.os }}
-          restore-keys: |
-            python-bandit-${{ runner.os }}-
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
-      - name: Install bandit
-        run: pip install --no-cache-dir bandit
+      - name: Install security tools
+        run: uv sync --frozen --no-default-groups --only-group ci-security-tools
 
       - name: Run Bandit (SAST)
-        run: bandit -r app -ll
+        run: uv run --no-sync bandit -r app -ll
 
   pip-audit-scan:
     name: Security - pip-audit (Dependencies)
@@ -554,18 +557,17 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Cache Python environment
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-pip-audit-${{ runner.os }}
-          restore-keys: |
-            python-pip-audit-${{ runner.os }}-
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
-      - name: Install pip-audit
-        run: pip install --no-cache-dir pip-audit
+      - name: Install security tools
+        run: uv sync --frozen --no-default-groups --only-group ci-security-tools
 
       - name: Prepare audit requirements
         run: |
@@ -598,7 +600,7 @@ jobs:
       - name: Run pip-audit
         # torch CVE-2025-3000 has no upstream fix (ml extra only, not in the
         # request path); also suppressed for the OSV scanner via osv-scanner.toml.
-        run: pip-audit -r requirements-audit.txt --strict --ignore-vuln CVE-2025-3000
+        run: uv run --no-sync pip-audit -r requirements-audit.txt --strict --ignore-vuln CVE-2025-3000
 
   safety-scan:
     name: Security - Safety (Dependencies)
@@ -658,16 +660,14 @@ jobs:
           uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 \
             -o requirements-dev-safety.txt
 
-      - name: Install dependencies and safety (all extras for comprehensive scanning)
-        run: |
-          uv pip sync --system requirements-safety.txt requirements-dev-safety.txt
-          uv pip install --system safety
+      - name: Install security tools
+        run: uv sync --frozen --no-default-groups --only-group ci-security-tools
 
       # Secret must be added in GitHub repo settings → Secrets → SAFETY_API_KEY
       - name: Run Safety
         # torch CVE-2025-3000 (SFTY-20250331-30014): no upstream fix, ml extra
         # only; also accepted for OSV (osv-scanner.toml) and pip-audit.
-        run: safety check -r requirements-safety.txt -r requirements-dev-safety.txt --full-report --ignore SFTY-20250331-30014
+        run: uv run --no-sync safety check -r requirements-safety.txt -r requirements-dev-safety.txt --full-report --ignore SFTY-20250331-30014
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
 
@@ -952,16 +952,19 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies (all extras for integration tests)
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
-
-      - name: Install test tools
-        run: uv pip install --system pytest pytest-timeout pytest-xdist pytest-rerunfailures pytest-asyncio
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra graph \
+            --extra mcp \
+            --extra youtube \
+            --group ci-test
 
       - name: Run integration tests
         id: integration_tests
         run: |
           echo "::group::Running integration tests"
-          pytest \
+          uv run --no-sync pytest \
             tests/ \
             -m "integration and not postgres" \
             --ignore=tests/benchmarks \
@@ -1085,13 +1088,13 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
+        run: uv sync --frozen --no-default-groups
 
       - name: Run migration round-trip
         # Full head -> base -> head cycle against a seeded database, so every
         # downgrade() (not just the latest) and any data-dependent rollback
         # failure surface here instead of during a production rollback.
-        run: bash tools/scripts/migration_roundtrip.sh
+        run: uv run --no-sync bash tools/scripts/migration_roundtrip.sh
 
   restore-smoke-test:
     name: Restore Smoke Test (pg_dump archive + Alembic)
@@ -1173,11 +1176,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          uv pip sync --system requirements-all.txt requirements-dev.txt
+          uv sync --frozen --no-default-groups
 
       - name: Restore sample dump and run migrations
         if: steps.db-changes.outputs.run == 'true'
-        run: tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump
+        run: uv run --no-sync tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump
 
       - name: Skip restore smoke
         if: steps.db-changes.outputs.run != 'true'
@@ -1233,16 +1236,19 @@ jobs:
             uv.lock
 
       - name: Install dependencies (all extras for DB-backed tests)
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
-
-      - name: Install test tools
-        run: uv pip install --system pytest pytest-xdist pytest-rerunfailures pytest-asyncio
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra graph \
+            --extra mcp \
+            --extra youtube \
+            --group ci-db
 
       - name: Run all PostgreSQL tests
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
-          pytest \
+          uv run --no-sync pytest \
             -p xdist \
             -p pytest_rerunfailures \
             -p pytest_asyncio.plugin \

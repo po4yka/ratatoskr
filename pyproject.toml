@@ -340,36 +340,85 @@ graph = [
 # Install them manually via `python -m spacy download <model>` if ever needed.
 
 [dependency-groups]
-dev = [
-    # x_bookmarks ingestor imports aiosqlite unconditionally; pulled into dev so
-    # tests/tasks/test_x_bookmarks_sync.py and the ingestor tests collect/run on
-    # a fresh `uv sync` without a dedicated extra.
-    "aiosqlite>=0.20.0",
-    "bandit>=1.7.9",
-    "fakeredis>=2.36.2",
-    "hypothesis>=6.155.7",
+ci-lint = [
+    "import-linter>=2.8.0,<3",
     "isort>=7.0.0,<8",
-    "mypy>=2.1.0",
-    "openapi-spec-validator>=0.9.0",
-    "pip-audit>=2.10.1",
-    "pre-commit>=4.5.1",
-    "pytest>=9.1.1",
-    "pytest-asyncio>=1.4.0",
-    "pytest-benchmark>=5.0.0",
-    "respx>=0.22.0",
+    "radon>=6.0.1,<7",
     "ruff>=0.15.18",
-    # app.tasks.* (digest scheduler etc.) imports taskiq unconditionally; the
-    # `scheduler` extra is required to import those modules. Pulling the same
-    # pins into dev so unit/integration tests under tests/tasks/, tests/observability/,
-    # and tests/integration/test_channel_digest_scheduler.py collect on a
-    # fresh `uv sync` without needing `--extra scheduler`.
-    "taskiq>=0.12.4,<0.13.0",
-    "taskiq-redis>=1.0.0,<2.0.0",
+]
+ci-type = [
+    "mypy>=2.1.0",
     "types-python-dateutil>=2.9.0.20250822",
     "types-PyYAML>=6.0.12.20250915",
 ]
+ci-test = [
+    # x_bookmarks ingestor imports aiosqlite unconditionally; pulled into dev so
+    # tests/tasks/test_x_bookmarks_sync.py and the ingestor tests collect/run on
+    # a fresh CI test environment without a dedicated project extra.
+    "aiosqlite>=0.20.0",
+    "coverage[toml]>=7.10.6",
+    "fakeredis>=2.36.2",
+    "hypothesis>=6.155.7",
+    "openapi-spec-validator>=0.9.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-benchmark>=5.0.0",
+    "pytest-cov>=7.0.0",
+    "pytest-rerunfailures>=16.1",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "respx>=0.22.0",
+    # app.tasks.* (digest scheduler etc.) imports taskiq unconditionally; the
+    # `scheduler` extra is required to import those modules. Pulling the same
+    # pins into CI tests so unit/integration tests under tests/tasks/, tests/observability/,
+    # and tests/integration/test_channel_digest_scheduler.py collect on a
+    # focused `uv sync` without needing `--extra scheduler`.
+    "taskiq>=0.12.4,<0.13.0",
+    "taskiq-redis>=1.0.0,<2.0.0",
+]
+ci-db = [
+    { include-group = "ci-test" },
+]
+ci-security-tools = [
+    "bandit>=1.7.9",
+    "pip-audit>=2.10.1",
+    "safety>=3.6.2,<4",
+    "semgrep>=1.154.0,<2",
+]
+dev = [
+    { include-group = "ci-lint" },
+    { include-group = "ci-type" },
+    { include-group = "ci-test" },
+    "pre-commit>=4.5.1",
+]
 
 [tool.uv]
+# Semgrep currently pins an older MCP SDK than Ratatoskr's MCP server. The
+# security-tool environment never runs the application MCP extra, so declare
+# that intentional environment split instead of weakening either constraint.
+conflicts = [
+  [
+    { extra = "mcp" },
+    { group = "ci-security-tools" },
+  ],
+  [
+    { extra = "otel" },
+    { group = "ci-security-tools" },
+  ],
+  [
+    { group = "ci-test" },
+    { group = "ci-security-tools" },
+  ],
+  [
+    { group = "ci-db" },
+    { group = "ci-security-tools" },
+  ],
+  [
+    { group = "dev" },
+    { group = "ci-security-tools" },
+  ],
+]
+
 # Constrain torch's CUDA satellite deps to x86_64 Linux only.
 #
 # The torch 2.11.0 lockfile entry pins nvidia-* / triton / cuda-bindings /
