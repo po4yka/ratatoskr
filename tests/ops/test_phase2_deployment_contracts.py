@@ -393,6 +393,23 @@ def test_local_docker_deploy_builds_the_compose_image_it_starts() -> None:
     assert "docker-build" not in target
 
 
+def test_pi_deploy_waits_for_health_after_image_verification() -> None:
+    script = _pi_deploy_script()
+    restart_branch = script.split("elif [[ $RESTART -eq 1 ]]; then", maxsplit=1)[1]
+
+    assert "PI_HEALTH_TIMEOUT_SECONDS=${PI_HEALTH_TIMEOUT_SECONDS:-240}" in script
+    assert "PI_HEALTH_POLL_SECONDS=${PI_HEALTH_POLL_SECONDS:-5}" in script
+    assert "local deadline=$((SECONDS + PI_HEALTH_TIMEOUT_SECONDS))" in script
+    assert 'wait_for_service_health "$svc"' in restart_branch
+    assert restart_branch.index('restart_service_verified "$svc"') < restart_branch.index(
+        'wait_for_service_health "$svc"'
+    )
+    assert "{{.State.Health.Status}}" in script
+    assert "timed out after ${PI_HEALTH_TIMEOUT_SECONDS}s" in script
+    assert "docker inspect --format '{{json .State}}'" in script
+    assert "logs --no-color --tail=50 ${svc}" in script
+
+
 def test_pi_deploy_has_explicit_migrate_apply_and_rollback_paths() -> None:
     script = _pi_deploy_script()
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")

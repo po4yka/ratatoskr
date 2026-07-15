@@ -27,6 +27,8 @@
 #   RASPI_REMOTE_PATH   Repo path on the Pi              (default: ~/ratatoskr)
 #   COMPOSE_PROJECT     Compose project name on the Pi   (default: docker)
 #   COMPOSE_ENV_FILE    Env file passed to compose       (default: .env)
+#   PI_HEALTH_TIMEOUT_SECONDS  Post-restart health wait   (default: 240)
+#   PI_HEALTH_POLL_SECONDS     Health polling interval    (default: 5)
 #   WITH_PLAYWRIGHT     mobile-api chromium install      (default: 0)
 #                       — the Pi overlay sets SCRAPER_PLAYWRIGHT_ENABLED=false
 #                       for mobile-api, so chromium is unused at runtime and
@@ -58,6 +60,16 @@ COMPOSE_PROJECT=${COMPOSE_PROJECT:-docker}
 COMPOSE_ENV_FILE=${COMPOSE_ENV_FILE:-.env}
 PLATFORM=linux/arm64
 WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT:-0}
+PI_HEALTH_TIMEOUT_SECONDS=${PI_HEALTH_TIMEOUT_SECONDS:-240}
+PI_HEALTH_POLL_SECONDS=${PI_HEALTH_POLL_SECONDS:-5}
+
+for value_name in PI_HEALTH_TIMEOUT_SECONDS PI_HEALTH_POLL_SECONDS; do
+  value=${!value_name}
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "${value_name} must be a positive integer (got '${value}')" >&2
+    exit 2
+  fi
+done
 
 SHARED_DOCKERFILE=ops/docker/Dockerfile
 API_DOCKERFILE=ops/docker/Dockerfile.api
@@ -76,7 +88,7 @@ GIT_SHA=$(git rev-parse --short=12 HEAD 2>/dev/null || echo "unknown")
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 usage() {
-  sed -n '2,42p' "$0"
+  sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -335,6 +347,65 @@ restart_service_verified() {
   exit 1
 }
 
+diagnose_service_health() {
+  local svc=$1
+  echo "==> Diagnostic state for ${svc}" >&2
+  ssh -o BatchMode=yes "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+    CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null || true); \
+    if [ -z \"\$CID\" ]; then \
+      echo '    container not found' >&2; \
+    else \
+      docker inspect --format '{{json .State}}' \"\$CID\" 2>/dev/null || true; \
+      ${COMPOSE_RUN[*]} logs --no-color --tail=50 ${svc} 2>/dev/null || true; \
+    fi" >&2 || true
+}
+
+wait_for_service_health() {
+  local svc=$1
+  local deadline=$((SECONDS + PI_HEALTH_TIMEOUT_SECONDS))
+  local verdict=""
+
+  echo "==> Waiting up to ${PI_HEALTH_TIMEOUT_SECONDS}s for ${svc} health"
+  while (( SECONDS < deadline )); do
+    verdict=$(ssh -o BatchMode=yes "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+      CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null || true); \
+      [ -n \"\$CID\" ] || { echo 'missing none'; exit 0; }; \
+      STATE=\$(docker inspect --format '{{.State.Status}}' \"\$CID\" 2>/dev/null || true); \
+      HEALTH=\$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \"\$CID\" 2>/dev/null || true); \
+      echo \"\${STATE:-unknown} \${HEALTH:-unknown}\"" 2>/dev/null || true)
+
+    case "$verdict" in
+      "running healthy")
+        echo "    ${svc} is healthy"
+        return 0
+        ;;
+      "running starting"|"unknown unknown"|"")
+        ;;
+      "running unhealthy")
+        echo "ERROR: ${svc} reported unhealthy after restart" >&2
+        diagnose_service_health "$svc"
+        return 1
+        ;;
+      "running none")
+        echo "ERROR: ${svc} has no Docker healthcheck" >&2
+        diagnose_service_health "$svc"
+        return 1
+        ;;
+      *)
+        echo "ERROR: ${svc} stopped while waiting for health (state: ${verdict})" >&2
+        diagnose_service_health "$svc"
+        return 1
+        ;;
+    esac
+
+    sleep "$PI_HEALTH_POLL_SECONDS"
+  done
+
+  echo "ERROR: timed out after ${PI_HEALTH_TIMEOUT_SECONDS}s waiting for ${svc} health (last state: ${verdict:-unknown})" >&2
+  diagnose_service_health "$svc"
+  return 1
+}
+
 rollback_service_image() {
   local svc=$1
   local latest_tag="${COMPOSE_PROJECT}-${svc}:latest"
@@ -419,6 +490,7 @@ elif [[ $RESTART -eq 1 ]]; then
       docker network connect docker_default \"\$CID\" 2>/dev/null \
       && echo '    attached docker_default' \
       || echo '    docker_default already attached or not declared'"
+    wait_for_service_health "$svc"
     write_deploy_metrics "$svc"
   done
 else
