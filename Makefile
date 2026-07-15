@@ -57,7 +57,7 @@ security-deps:
 
 # Runs custom Semgrep rules that catch patterns complementary to Ruff:
 # mutable-aliasing hazards and bare/broad exception handlers.
-# Also enforced in the lint-and-format CI job and as pre-commit hooks.
+# Also enforced in CI and as pre-push hooks.
 static-checks:
 	semgrep --config semgrep/python-mutability.yml --error app/ tests/
 	semgrep --config semgrep/python-bare-except.yml --error app/ tests/

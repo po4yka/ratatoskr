@@ -24,7 +24,7 @@ make bootstrap
 `make bootstrap` performs the repository-owned setup:
 
 1. installs all Python extras and development tools with `uv sync`;
-2. installs the pre-commit hooks;
+2. installs the fast pre-commit hooks and the full Semgrep pre-push hooks;
 3. starts PostgreSQL, Redis, and Qdrant with the base and development Compose
    files;
 4. applies Alembic migrations;
@@ -57,6 +57,14 @@ make teardown-dev
 ```
 
 That command is intentionally destructive for the Compose development volumes.
+
+## Local quality hooks
+
+`make bootstrap`, `make setup-dev`, and `make pre-commit-install` install both
+repository hook types. Fast formatting and type checks run before each commit;
+mypy reuses `.mypy_cache/pre-commit` between runs. The full Semgrep scans of
+`app/` and `tests/` run before each push and remain available on demand through
+`make static-checks`.
 
 ## Configure a real runtime
 
