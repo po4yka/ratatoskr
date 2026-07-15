@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from types import SimpleNamespace
 
@@ -154,9 +155,7 @@ async def test_rss_poll_passes_feed_limit_to_repository(monkeypatch):
 
     monkeypatch.setattr(feed_poller, "RSSFeedRepositoryAdapter", _FakeRSSRepo)
     monkeypatch.setattr(feed_poller, "SignalSourceRepositoryAdapter", _FakeSignalRepo)
-    monkeypatch.setattr(
-        feed_poller, "fetch_feed", lambda *_a, **_k: FeedResult(title="Example")
-    )
+    monkeypatch.setattr(feed_poller, "fetch_feed", lambda *_a, **_k: FeedResult(title="Example"))
 
     await feed_poller.poll_all_feeds(SimpleNamespace(), limit=25)
 
@@ -212,3 +211,73 @@ async def test_rss_poll_records_signal_source_error_for_broken_feed(monkeypatch)
     assert signal_repo.sources[0]["kind"] == "rss"
     assert signal_repo.errors[0]["source_id"] == 200
     assert signal_repo.errors[0]["max_errors"] == feed_poller.MAX_FETCH_ERRORS
+
+
+@pytest.mark.asyncio
+async def test_rss_poll_bounds_global_concurrency_and_serializes_each_host(monkeypatch):
+    from app.adapters.rss import feed_poller
+
+    monkeypatch.setattr(feed_poller, "RSSFeedRepositoryAdapter", _FakeRSSRepo)
+    monkeypatch.setattr(feed_poller, "SignalSourceRepositoryAdapter", _FakeSignalRepo)
+    feeds = [
+        {
+            "id": index,
+            "url": url,
+            "title": f"Feed {index}",
+            "description": None,
+            "site_url": None,
+            "etag": None,
+            "last_modified": None,
+        }
+        for index, url in enumerate(
+            (
+                "https://same.example/feed-a.xml",
+                "https://same.example/feed-b.xml",
+                "https://other.example/feed.xml",
+                "https://third.example/feed.xml",
+            ),
+            start=1,
+        )
+    ]
+
+    async def _list_feeds(self, *, limit=None):
+        self.list_active_feeds_limits.append(limit)
+        return feeds
+
+    monkeypatch.setattr(_FakeRSSRepo, "async_list_active_feeds", _list_feeds)
+    original_ingester = feed_poller.RssSignalIngester
+    active = 0
+    max_active = 0
+    active_by_host: dict[str, int] = {}
+    max_by_host: dict[str, int] = {}
+
+    class _TrackingIngester:
+        def __init__(self, feed, *, fetcher) -> None:
+            self.feed = feed
+
+        async def fetch(self):
+            nonlocal active, max_active
+            host = feed_poller._feed_host(self.feed)
+            active += 1
+            max_active = max(max_active, active)
+            active_by_host[host] = active_by_host.get(host, 0) + 1
+            max_by_host[host] = max(max_by_host.get(host, 0), active_by_host[host])
+            try:
+                await asyncio.sleep(0.03)
+                return original_ingester(self.feed).normalize_result(
+                    FeedResult(title=self.feed["title"])
+                )
+            finally:
+                active -= 1
+                active_by_host[host] -= 1
+
+    monkeypatch.setattr(feed_poller, "RssSignalIngester", _TrackingIngester)
+
+    stats = await feed_poller.poll_all_feeds(
+        SimpleNamespace(),
+        concurrency=3,
+    )
+
+    assert stats["polled"] == 4
+    assert max_active == 3
+    assert max_by_host["same.example"] == 1

@@ -95,6 +95,7 @@ class _Cfg(AppConfig):
                 auto_summarize=auto_summarize,
                 max_items_per_poll=5,
                 max_feeds_per_poll=123,
+                poll_concurrency=7,
             ),
         )
         object.__setattr__(
@@ -142,8 +143,11 @@ async def test_rss_poll_body_delivers_new_items(monkeypatch: pytest.MonkeyPatch)
     runtime = _FakeRuntime()
     received: dict[str, object] = {}
 
-    async def fake_poll_all_feeds(db: object, *, limit: int | None = None) -> dict[str, object]:
+    async def fake_poll_all_feeds(
+        db: object, *, limit: int | None = None, concurrency: int = 8
+    ) -> dict[str, object]:
         received["limit"] = limit
+        received["concurrency"] = concurrency
         return {"new_item_ids": [1, 2], "polled": 1, "new_items": 2, "errors": 0}
 
     monkeypatch.setattr("app.adapters.rss.feed_poller.poll_all_feeds", fake_poll_all_feeds)
@@ -153,6 +157,7 @@ async def test_rss_poll_body_delivers_new_items(monkeypatch: pytest.MonkeyPatch)
 
     # The configured per-cycle feed cap is threaded into the poller.
     assert received["limit"] == 123
+    assert received["concurrency"] == 7
     assert runtime.worker.limits == [5]
     assert runtime.runner.called
     assert runtime.bot.sent == [(10, "items: [1, 2]")]
@@ -160,7 +165,9 @@ async def test_rss_poll_body_delivers_new_items(monkeypatch: pytest.MonkeyPatch)
 
 @pytest.mark.asyncio
 async def test_rss_poll_body_swallows_poll_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_poll_all_feeds(db: object, *, limit: int | None = None) -> dict[str, object]:
+    async def fake_poll_all_feeds(
+        db: object, *, limit: int | None = None, concurrency: int = 8
+    ) -> dict[str, object]:
         raise RuntimeError("down")
 
     monkeypatch.setattr("app.adapters.rss.feed_poller.poll_all_feeds", fake_poll_all_feeds)
