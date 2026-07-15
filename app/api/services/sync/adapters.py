@@ -28,6 +28,33 @@ class SyncEntityAdapterContext:
     # pushed into each repo/aux query so a poll never re-reads a user's entire
     # lifetime history (audit #2).
     since: int = 0
+    page_mode: bool = False
+    limit: int | None = None
+    through_version: int | None = None
+
+
+async def _collect_page_projection(
+    context: SyncEntityAdapterContext,
+    entity_type: str,
+    user_id: int,
+) -> Iterable[dict[str, Any]] | None:
+    """Read a bounded projection when the production page port is available."""
+    if not context.page_mode:
+        return None
+    getter = getattr(type(context.aux_read_port), "get_sync_page", None)
+    if getter is None:
+        return None
+    return cast(
+        "Iterable[dict[str, Any]]",
+        await getter(
+            context.aux_read_port,
+            entity_type,
+            user_id,
+            since=context.since,
+            limit=context.limit,
+            through_version=context.through_version,
+        ),
+    )
 
 
 CollectSyncRecords = Callable[[SyncEntityAdapterContext, int], Awaitable[Iterable[dict[str, Any]]]]
@@ -72,6 +99,9 @@ class SyncEntityAdapter:
 async def _collect_user(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "user", user_id)
+    if projected is not None:
+        return projected
     user = await context.user_repository.async_get_user_by_telegram_id(user_id)
     return (user,) if user else ()
 
@@ -79,6 +109,9 @@ async def _collect_user(
 async def _collect_requests(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "request", user_id)
+    if projected is not None:
+        return projected
     return cast(
         "Iterable[dict[str, Any]]",
         await context.request_repository.async_get_all_for_user(user_id, since=context.since),
@@ -88,6 +121,9 @@ async def _collect_requests(
 async def _collect_summaries(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "summary", user_id)
+    if projected is not None:
+        return projected
     return cast(
         "Iterable[dict[str, Any]]",
         await context.summary_repository.async_get_all_for_user(user_id, since=context.since),
@@ -97,6 +133,9 @@ async def _collect_summaries(
 async def _collect_crawl_results(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "crawl_result", user_id)
+    if projected is not None:
+        return projected
     return cast(
         "Iterable[dict[str, Any]]",
         await context.crawl_result_repository.async_get_all_for_user(user_id, since=context.since),
@@ -106,6 +145,9 @@ async def _collect_crawl_results(
 async def _collect_llm_calls(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "llm_call", user_id)
+    if projected is not None:
+        return projected
     return cast(
         "Iterable[dict[str, Any]]",
         await context.llm_repository.async_get_all_for_user(user_id, since=context.since),
@@ -115,6 +157,9 @@ async def _collect_llm_calls(
 async def _collect_highlights(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "highlight", user_id)
+    if projected is not None:
+        return projected
     return cast(
         "Iterable[dict[str, Any]]",
         await context.aux_read_port.get_highlights_for_user(user_id, since=context.since),
@@ -124,6 +169,9 @@ async def _collect_highlights(
 async def _collect_tags(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "tag", user_id)
+    if projected is not None:
+        return projected
     return cast(
         "Iterable[dict[str, Any]]",
         await context.aux_read_port.get_tags_for_user(user_id, since=context.since),
@@ -133,6 +181,9 @@ async def _collect_tags(
 async def _collect_summary_tags(
     context: SyncEntityAdapterContext, user_id: int
 ) -> Iterable[dict[str, Any]]:
+    projected = await _collect_page_projection(context, "summary_tag", user_id)
+    if projected is not None:
+        return projected
     return cast(
         "Iterable[dict[str, Any]]",
         await context.aux_read_port.get_summary_tags_for_user(user_id, since=context.since),

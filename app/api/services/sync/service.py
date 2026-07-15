@@ -132,12 +132,14 @@ class SyncFacade:
         since = int(session.get("next_since") or 0)
         # Pass the cursor into collection so the DB only returns rows past it -- a
         # full-sync chunk must not re-read the whole history each poll (audit #2).
-        records = await self._collector.collect_records(user_id, since=since)
-        page, has_more, next_since = self._collector.paginate_records(
-            records,
+        collected = await self._collector.collect_page(
+            user_id,
             since=since,
             limit=resolved_limit,
         )
+        page = collected.records
+        has_more = collected.has_more
+        next_since = collected.next_since
         session["next_since"] = next_since or since
         await self._store_session(session)
         return self._build_full(session_id, page, has_more, next_since, resolved_limit)
@@ -155,12 +157,14 @@ class SyncFacade:
         resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
         # Delta sync is inherently incremental: push the client's cursor into the
         # query so only rows changed past it are read, not the whole history (audit #2).
-        records = await self._collector.collect_records(user_id, since=since)
-        page, has_more, next_since = self._collector.paginate_records(
-            records,
+        collected = await self._collector.collect_page(
+            user_id,
             since=since,
             limit=resolved_limit,
         )
+        page = collected.records
+        has_more = collected.has_more
+        next_since = collected.next_since
         return self._build_delta(session_id, since, page, has_more, next_since, resolved_limit)
 
     async def apply_changes(

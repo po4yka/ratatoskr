@@ -392,6 +392,12 @@ class Request(Base):
         Index("ix_requests_status", "status"),
         Index("ix_requests_created_at", "created_at"),
         Index("ix_requests_user_id_created_at", "user_id", "created_at"),
+        Index(
+            "ix_requests_user_server_version_id",
+            "user_id",
+            "server_version",
+            "id",
+        ),
         # correlation_id is the cross-cutting trace key; index it for lookups.
         Index("ix_requests_correlation_id", "correlation_id"),
         Index(
@@ -577,7 +583,10 @@ class TelegramMessage(Base):
 
 class CrawlResult(Base):
     __tablename__ = "crawl_results"
-    __table_args__ = (Index("ix_crawl_results_correlation_id", "correlation_id"),)
+    __table_args__ = (
+        Index("ix_crawl_results_correlation_id", "correlation_id"),
+        Index("ix_crawl_results_server_version_id", "server_version", "id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[int] = mapped_column(
@@ -629,6 +638,7 @@ class LLMCall(Base):
             "attempt_index",
             name="uq_llm_calls_request_id_attempt_index",
         ),
+        Index("ix_llm_calls_server_version_id", "server_version", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -701,6 +711,7 @@ class Summary(Base):
         Index("ix_summaries_is_read", "is_read"),
         Index("ix_summaries_lang", "lang"),
         Index("ix_summaries_created_at", "created_at"),
+        Index("ix_summaries_server_version_id", "server_version", "id"),
         # Partial index for the reconciler's ORDER BY updated_at scan over
         # non-deleted rows. Added in migration 0010.
         Index(
