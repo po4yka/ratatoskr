@@ -1,6 +1,6 @@
 # Backlog — ratatoskr
 
-> Source of truth for `#status/backlog` tasks. Edit per-task detail in `issues/<slug>.md`.
+> Query view for `#status/backlog` tasks. Source-of-truth notes live in `issues/<slug>.md`.
 
 ```tasks
 not done

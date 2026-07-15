@@ -29,3 +29,13 @@ def test_pi_deploy_skills_require_explicit_migration_apply() -> None:
         assert "make pi-migrate APPLY=1" in deployment
         assert "make pi-rollback SERVICE=ratatoskr" in deployment
         assert "Migrations are not applied as an automatic restart side effect" in deployment
+
+
+def test_task_board_skill_uses_issue_notes_as_only_task_storage() -> None:
+    for host_root in SKILL_ROOTS:
+        task_board = _skill(host_root, "repo-task-board")
+
+        assert "Create `docs/tasks/issues/<kebab-case-slug>.md`" in task_board
+        assert "Complete or drop a task by deleting" in task_board
+        assert "Choose the right file: `backlog.md`" not in task_board
+        assert "docs/ROADMAP_PRIORITIES.md" not in task_board
