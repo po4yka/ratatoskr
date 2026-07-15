@@ -9,10 +9,51 @@ from app.core.summary_schema import SummaryModel
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILL_ROOTS = (".claude/skills", ".codex/skills", ".agents/skills")
+ROOT_AGENT_GUIDES = ("AGENTS.md", "CLAUDE.md")
 
 
 def _skill(host_root: str, name: str) -> str:
     return (ROOT / host_root / name / "SKILL.md").read_text()
+
+
+def _guide(name: str) -> str:
+    return (ROOT / name).read_text()
+
+
+def test_root_agent_guides_are_standalone_safe() -> None:
+    unavailable_parent_dependencies = (
+        "../AGENTS.md",
+        "../CLAUDE.md",
+        "../.claude/skills/",
+        "openapi-bump-cross-repo",
+        "local-stack-up",
+        "frost-token-mirror",
+        "workspace-status",
+    )
+
+    for guide_name in ROOT_AGENT_GUIDES:
+        guide = _guide(guide_name)
+
+        assert "self-contained for repository-local work" in guide
+        assert "its absence must not block work in this repository" in guide
+        assert all(item not in guide for item in unavailable_parent_dependencies)
+
+
+def test_codex_app_skill_tree_is_described_as_a_tracked_mirror() -> None:
+    agents = _guide("AGENTS.md")
+    claude = _guide("CLAUDE.md")
+
+    assert "regular tracked directory `.agents/skills/`" in agents
+    assert "checked-in Codex app import mirror" in claude
+    assert "Codex import symlink" not in claude
+
+
+def test_summarize_rag_flag_is_documented_as_active_until_t6() -> None:
+    claude = _guide("CLAUDE.md")
+
+    assert "active opt-in transitional flag" in claude
+    assert "scheduled for removal at the future T6 cutover" in claude
+    assert "retired at the T6 cutover" not in claude
 
 
 def test_migration_skills_distinguish_dry_run_from_apply() -> None:

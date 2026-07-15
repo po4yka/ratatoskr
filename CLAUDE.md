@@ -2,9 +2,9 @@
 
 Operating notes for Claude (and other AI assistants) working in this repo. Leads with non-obvious rules and gotchas; defers reference material to `docs/`, `.claude/skills/`, and the Codex mirror under `.codex/skills/`.
 
-## Workspace skills
+## Repository-local agent setup
 
-Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mirror`, `workspace-status`) live in the parent workspace at `../.claude/skills/`. To pick them up when working inside this repo, launch Claude with `claude --add-dir ..`. For Codex, use `.codex/skills/` in this repo; `.agents/skills` points at that mirror for import flows that expect the newer agent-skill path. Copy or mirror any cross-repo skill into a Codex skill root before treating it as available. See `../CLAUDE.md` for the workspace overview and the cross-repo OpenAPI contract.
+This checkout is self-contained for repository-local work: the root agent guides and checked-in project skills are sufficient. No parent workspace, parent instruction file, or cross-repo skill is required. In a larger workspace, discover and use optional parent guidance only when it is actually present; its absence must not block work in this repository.
 
 ## Project Overview
 
@@ -104,7 +104,7 @@ app/
 +-- tasks/              # Taskiq tasks (github_sync, reconcile_vector_index, digest, ...)
 ```
 
-Skill, doc, and ops trees: `.claude/skills/` (Claude project skills), `.codex/skills/` (Codex project skills), `.agents/skills` (Codex import symlink), `.codex/commands/` (Codex command prompts), `.codex/hooks.json` and `.codex/hooks/` (Codex hooks), `docs/` (explanation + reference), `ops/` (Docker / monitoring / config), `tools/scripts/` (dev utilities).
+Skill, doc, and ops trees: `.claude/skills/` (Claude project skills), `.codex/skills/` (Codex project skills), `.agents/skills/` (checked-in Codex app import mirror in a regular tracked directory), `.codex/commands/` (Codex command prompts), `.codex/hooks.json` and `.codex/hooks/` (Codex hooks), `docs/` (explanation + reference), `ops/` (Docker / monitoring / config), `tools/scripts/` (dev utilities).
 
 ## Operating Rules
 
@@ -252,7 +252,7 @@ Full reference: `docs/reference/environment-variables.md`. Load-bearing ones:
 | `GITHUB_TOKEN_ENCRYPTION_KEY` | Fernet key for at-rest GitHub PAT / OAuth tokens |
 | `EMBEDDING_PROVIDER` | `local` (sentence-transformers) or `gemini` -- switching invalidates all existing vectors |
 | `VECTOR_RECONCILE_ENABLED` | Taskiq reconciler for vector-index convergence/backfill (default `true`). The summarize graph's persist node writes a read-your-writes Qdrant point synchronously (byte-identical via `app/infrastructure/vector/summary_point.py`) so a new summary is retrievable immediately; the reconciler closes any gaps on its 30-minute cadence (ADR-0012). See `docs/vector-index-sync.md`. |
-| `SUMMARIZE_RAG_ENABLED`, `RAG_TOP_K` | RAG grounding in the summarize graph's `ground` node (default off): retrieve top-k scope-filtered prior summaries via the unified retrieval port + inject an anti-contamination "related prior summaries (reference only)" block into the system prompt (ADR-0005/0012/0016). Transitional flag, retired at the T6 cutover. Embedding models stay in `ratatoskr.yaml`. |
+| `SUMMARIZE_RAG_ENABLED`, `RAG_TOP_K` | RAG grounding in the summarize graph's `ground` node (default off): retrieve top-k scope-filtered prior summaries via the unified retrieval port + inject an anti-contamination "related prior summaries (reference only)" block into the system prompt (ADR-0005/0012/0016). `SUMMARIZE_RAG_ENABLED` is an active opt-in transitional flag scheduled for removal at the future T6 cutover, when grounding becomes the default. Embedding models stay in `ratatoskr.yaml`. |
 | `X_BOOKMARKS_SYNC_ENABLED`, `X_BOOKMARKS_SYNC_CRON`, `X_WIKI_SYNC_CRON` | Master switch + cron for the two x_bookmarks delta-scan Taskiq jobs (bookmark + wiki). Both jobs share the `enabled` flag. |
 | `X_BOOKMARKS_DB_PATH`, `X_WIKI_LIBRARY_PATH`, `X_IDEAS_PATH` | Container-side paths to the host-mounted `~/.fieldtheory/` subtrees (`bookmarks.db`, `library/`, `ideas/`). Defaults: `/x_bookmarks/...` — bind-mounted read-only by the operator. |
 | `WEBWRIGHT_ENABLED`, `WEBWRIGHT_HOST_ALLOWLIST`, `WEBWRIGHT_URL`, `WEBWRIGHT_MAX_STEPS`, `WEBWRIGHT_TIMEOUT_SEC`, `WEBWRIGHT_MODEL` | Microsoft Webwright sidecar (compose profile `with-webwright`). Heavy: each invocation ~10-30× a normal scrape. Default off; double-gated by feature flag + non-empty host allowlist. See `docs/explanation/webwright.md`. |
