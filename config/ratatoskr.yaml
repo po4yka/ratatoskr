@@ -41,6 +41,8 @@ runtime:
   # Submitted URLs would queue but never run. Re-enable once the
   # url_processing import is fixed.
   url_worker_enqueue_enabled: false
+  # Worker-wide Taskiq async/prefetch cap per process. Production defaults to
+  # one worker process because LLM semaphores and DB pools are process-local.
   url_worker_concurrency: 4
 
 openrouter:

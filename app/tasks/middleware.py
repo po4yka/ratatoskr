@@ -262,15 +262,14 @@ class TaskiqDeadLetterMiddleware(TaskiqMiddleware):
                 attempt_count=attempt_count,
             )
 
-        from app.config import load_config
-        from app.db.session import Database
         from app.infrastructure.persistence.repositories.taskiq_failed_job_repository import (
             TaskiqFailedJobRepository,
         )
+        from app.tasks.deps import get_app_config, get_db
 
         if self._database is None:
-            cfg = load_config(allow_stub_telegram=True)
-            self._database = Database(cfg.database)
+            cfg = await get_app_config()
+            self._database = await get_db(cfg)
         repo = TaskiqFailedJobRepository(self._database)
         return await repo.async_insert_failed_job(
             task_name=task_name,

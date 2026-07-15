@@ -71,8 +71,9 @@ __all__ = [
 @lru_cache(maxsize=1)
 def _cached_config() -> AppConfig:
     from app.config import load_config
+    from app.config.worker_capacity import apply_worker_process_overrides
 
-    return load_config()
+    return apply_worker_process_overrides(load_config())
 
 
 async def get_app_config() -> AppConfig:

@@ -738,7 +738,12 @@ Configures scheduled nulling of raw artifact columns and cleanup of orphaned loc
 | `SUMMARY_BILINGUAL_ENABLED` | `true` | For non-Russian, interactive summaries, deliver the full summary in Russian (every field) as a second block after the primary-language summary, not only the TL;DR. The Russian version is produced by translating the finished summary via `chat_structured` (cheaper flash model when configured). On translation failure it falls back to the legacy prose Russian translation. No effect on Russian-source content or silent/batch flows. |
 | `DEBUG_PAYLOADS` | `0` | Enable bounded debug payload previews. Keep disabled in production; tokens, prompts, raw content, and private URLs are redacted by default. |
 | `LOG_PRIVACY_REDACT_URLS` | `1` | Redact URL path/query/fragment fields in logs and traces by default; set to `0` only for controlled local debugging. |
-| `MAX_CONCURRENT_CALLS` | `4` | Max concurrent Firecrawl/OpenRouter calls |
+| `MAX_CONCURRENT_CALLS` | `4` | Max concurrent Firecrawl/OpenRouter calls per process |
+| `TASKIQ_WORKER_PROCESSES` | `1` | Taskiq child processes in the worker container. Each process creates its own LLM semaphore and database pool. The legacy `TASKIQ_WORKER_CONCURRENCY` name is still accepted. |
+| `TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS` | `4` | Worker-wide async-task and prefetch cap per Taskiq process. The legacy `URL_WORKER_CONCURRENCY` name is still accepted. |
+| `TASKIQ_MAX_CONCURRENT_CALLS_PER_PROCESS` | `MAX_CONCURRENT_CALLS` | Worker-only override for each process-local Firecrawl/OpenRouter semaphore. |
+| `TASKIQ_DATABASE_POOL_SIZE_PER_PROCESS` | `DATABASE_POOL_SIZE` | Worker-only override for each process-local SQLAlchemy pool. |
+| `TASKIQ_DATABASE_MAX_OVERFLOW_PER_PROCESS` | `DATABASE_MAX_OVERFLOW` | Worker-only override for each process-local SQLAlchemy overflow allowance. |
 | `TEXTACY_ENABLED` | `false` | Enable the optional text-normalization pass (historical env var name) |
 | `CHUNKING_ENABLED` | `true` | Enable content chunking for long articles |
 | `CHUNK_MAX_CHARS` | `200000` | Max chars per content chunk |

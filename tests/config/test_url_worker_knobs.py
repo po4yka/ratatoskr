@@ -46,6 +46,15 @@ class TestUrlWorkerConcurrency:
         cfg = RuntimeConfig.model_validate({"URL_WORKER_CONCURRENCY": "8"})
         assert cfg.url_worker_concurrency == 8
 
+    def test_taskiq_per_process_name_takes_precedence_over_legacy_alias(self) -> None:
+        cfg = RuntimeConfig.model_validate(
+            {
+                "TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS": "3",
+                "URL_WORKER_CONCURRENCY": "8",
+            }
+        )
+        assert cfg.url_worker_concurrency == 3
+
     def test_minimum_boundary_accepted(self) -> None:
         cfg = RuntimeConfig.model_validate({"URL_WORKER_CONCURRENCY": "1"})
         assert cfg.url_worker_concurrency == 1
