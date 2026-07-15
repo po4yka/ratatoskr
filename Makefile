@@ -213,7 +213,10 @@ docker-size:
 	@echo "=== Layer Analysis ==="
 	@docker history ratatoskr:latest --human --format "table {{.Size}}\t{{.CreatedBy}}" | head -15
 
-docker-deploy: docker-build docker-stop docker-run
+docker-deploy:
+	docker compose -f $(COMPOSE_FILE) build ratatoskr
+	docker compose -f $(COMPOSE_FILE) down
+	docker compose -f $(COMPOSE_FILE) up -d
 	@echo "=== Deployment complete ==="
 	@echo "Check logs with: make docker-logs"
 

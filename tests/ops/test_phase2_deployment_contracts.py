@@ -379,6 +379,20 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     assert "run_remote_migrations" not in restart_branch
 
 
+def test_local_docker_deploy_builds_the_compose_image_it_starts() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.split("docker-deploy:", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
+
+    compose_build = "docker compose -f $(COMPOSE_FILE) build ratatoskr"
+    compose_down = "docker compose -f $(COMPOSE_FILE) down"
+    compose_up = "docker compose -f $(COMPOSE_FILE) up -d"
+    assert compose_build in target
+    assert compose_down in target
+    assert compose_up in target
+    assert target.index(compose_build) < target.index(compose_down) < target.index(compose_up)
+    assert "docker-build" not in target
+
+
 def test_pi_deploy_has_explicit_migrate_apply_and_rollback_paths() -> None:
     script = _pi_deploy_script()
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
