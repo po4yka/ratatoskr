@@ -1,121 +1,141 @@
-# Optional YAML Configuration
+# Configuration File
 
-`ratatoskr.yaml` is the Phase 1 home for power-user settings. Keep first-run secrets in `.env`; use YAML for scraper tuning, OpenRouter model choices, YouTube, Twitter/X, MCP, monitoring-adjacent settings, and other optional behavior.
+`ratatoskr.yaml` owns non-secret operational settings. `.env` owns secrets,
+credentials, PII, and deployment connection strings. The maintained templates
+are:
 
-## Search Order
+- `config/ratatoskr.yaml` — configuration baked into the repository/container;
+- `config/ratatoskr.yaml.example` — operator-oriented example;
+- `.env.example` — first-run secret/deployment template.
 
-Ratatoskr loads the first file found:
+Do not copy model names or complete setting catalogs into other documents. The
+Pydantic models in `app/config/` remain the executable source of types, defaults,
+required fields, and validators.
 
-1. `RATATOSKR_CONFIG`, when set
-2. `./ratatoskr.yaml`
-3. `./config/ratatoskr.yaml`
-4. `/app/config/ratatoskr.yaml`
+## Search order
 
-Merge precedence is:
+The loader reads the first existing path:
 
+1. `RATATOSKR_CONFIG`, when set;
+2. `./ratatoskr.yaml`;
+3. `./config/ratatoskr.yaml`;
+4. `/app/config/ratatoskr.yaml`.
+
+An explicit `RATATOSKR_CONFIG` path does not fall through to the remaining
+locations when the file is missing.
+
+## Precedence
+
+```text
+non-secret YAML  >  process environment  >  .env / constructor input  >  field default
+secret environment                         >  field default
 ```
-non-secret YAML  >  os.environ  >  .env / ctor args  >  defaults
-secret env       >  defaults    (YAML secret keys are dropped and logged)
-```
 
-`config/ratatoskr.yaml` is the operator's authoritative on-disk config; `.env` carries secrets only. Fields marked as secrets in `app/config/_secret_marker.py` are stripped from YAML at load time and logged as `yaml_secret_keys_ignored` — place those in `.env` instead. Deprecated env vars fail startup with an actionable message.
+Fields marked with `SECRET_MARKER` in `app/config/_secret_marker.py` are removed
+from YAML input and logged as `yaml_secret_keys_ignored`. Place API keys, tokens,
+database/JWT secrets, encryption keys, OAuth secrets, and user allowlists in a
+secret environment source.
 
-## Minimal `.env`
+## YAML mapping
 
-Only these values are required for the Telegram bot plus default OpenRouter LLM path:
-
-```env
-API_ID=123456
-API_HASH=replace_with_telegram_api_hash
-BOT_TOKEN=1234567890:replace_with_botfather_token_secret
-ALLOWED_USER_IDS=123456789
-OPENROUTER_API_KEY=sk-or-replace_with_openrouter_key
-```
-
-`JWT_SECRET_KEY` is required only when web/API/browser-extension JWT auth is enabled. Generate it with `openssl rand -hex 32`. If you set `LLM_PROVIDER=openai`, `anthropic`, or `ollama`, replace the OpenRouter secret with the matching direct provider key and model settings; see [Configure LLM Provider](../guides/configure-llm-provider.md).
-
-## Example `ratatoskr.yaml`
+Top-level YAML names match `Settings` attributes. Nested names match Pydantic
+field names, while uppercase environment aliases come from each field's
+`validation_alias`.
 
 ```yaml
 runtime:
   log_level: INFO
-  request_timeout_sec: 60
   preferred_lang: auto
-  max_concurrent_calls: 4
-  llm_provider: openrouter
-
-openrouter:
-  model: deepseek/deepseek-v4-flash
-  fallback_models:
-    - qwen/qwen3.5-plus-02-15
-    - moonshotai/kimi-k2-0905
-  flash_model: qwen/qwen3.5-flash-02-23
 
 scraper:
   profile: balanced
+  browser_enabled: true
   provider_order:
+    - reddit
+    - hn
     - scrapling
+    - direct_pdf
     - crawl4ai
     - firecrawl
     - defuddle
+    - cloakbrowser
     - playwright
     - crawlee
     - direct_html
     - scrapegraph_ai
-  defuddle_enabled: true
-  firecrawl_self_hosted_enabled: false
-
-firecrawl:
-  api_key: ""
-  timeout_sec: 90
-  wait_for_ms: 3000
+    - webwright
 
 youtube:
   enabled: true
   storage_path: /data/videos
-  preferred_quality: 1080p
-  subtitle_languages:
-    - en
-    - ru
-
-twitter:
-  enabled: false
-  prefer_firecrawl: true
-  playwright_enabled: false
-
-signal_ingestion:
-  enabled: true
-  max_items_per_source: 30
-  hn_enabled: true
-  hn_feeds:
-    - top
-    - best
-  reddit_enabled: true
-  reddit_subreddits:
-    - selfhosted
-    - python
-  reddit_listing: hot
-  reddit_requests_per_minute: 60
-  twitter_enabled: false
-  twitter_ack_cost: false
-  social_x_ingestion_enabled: false
-  social_x_timeline_mode: user_posts
-  social_threads_ingestion_enabled: false
-
-mcp:
-  enabled: false
-  transport: stdio
 ```
 
-## Notes
+Lists may be expressed as YAML lists. Dictionary-valued fields remain native
+YAML mappings. Scalar values are passed through the same field validators used
+for environment overrides.
 
-- Supported summarization backends are `openrouter`, `openai`, `anthropic`, and `ollama`; `openrouter` remains the default and most feature-complete runtime path. See [LLM Providers](llm-providers.md) for the feature matrix.
-- Use OpenRouter model IDs such as `openai/...`, `anthropic/...`, `google/...`, or `deepseek/...` in the `openrouter` section when `LLM_PROVIDER=openrouter`. Use direct provider model names in the `openai`, `anthropic`, or `ollama` sections when selecting those adapters.
-- The `with-cloud-ollama` Compose profile is a reachability/experimentation helper for Ollama-compatible deployments; production summarization uses it only when `LLM_PROVIDER=ollama` and `ollama.base_url` points at the reachable endpoint.
-- The default scraper chain order is Reddit API → Hacker News Algolia → Scrapling → direct PDF → Crawl4AI → Firecrawl → Defuddle → CloakBrowser → Playwright → Crawlee → direct HTML → Scrapegraph-AI → Webwright. Reddit and Hacker News are URL-scoped and skipped before attempts for unrelated hosts. Each provider is skipped when its sidecar is unavailable or its enabled flag is false. See [`docs/explanation/scraper-chain.md`](../explanation/scraper-chain.md) for the full chain reference.
-- The `firecrawl` provider slot activates only when `scraper.firecrawl_self_hosted_enabled: true`; cloud Firecrawl is not used for article scraping. `FIRECRAWL_API_KEY` is only consumed by the web-search enrichment path (`TopicSearchService`), not by the scraper chain.
-- SSRF redirect enforcement is strongest for backend-controlled HTTP fetchers that use the centralized safe httpx transport and manual redirect loops: proxy image fetches, direct HTML, Defuddle, and Crawl4AI sidecar requests re-check each redirect target and block private, link-local, localhost, and metadata IP ranges. Third-party/browser-controlled providers have limits: Scrapling, Playwright, Crawlee, Firecrawl sidecars, and ScrapeGraphAI may resolve or follow redirects inside external runtimes where this process cannot pin DNS at connect time, so keep those runtimes isolated from internal networks and treat their URL filters as preflight/best-effort controls.
-- Defuddle defaults to enabled (`scraper.defuddle_enabled: true`) but requires a reachable `defuddle-api` sidecar (default: `http://defuddle-api:3003`). The sidecar can be replaced by the public `https://defuddle.md` API for development by setting `SCRAPER_DEFUDDLE_API_BASE_URL=https://defuddle.md`.
-- The `with-scrapers` Docker Compose profile starts an in-compose self-hosted Firecrawl stack at `http://firecrawl-api:3002`. Set `scraper.firecrawl_self_hosted_enabled: true` to use it; self-hosted Firecrawl takes precedence when both self-hosted and cloud Firecrawl are configured.
-- Signal ingestion optional sources are disabled unless `signal_ingestion.enabled` and the per-source flag are both true. Hacker News uses the official Firebase API and has no credentials. Reddit uses public subreddit JSON with a default 60 requests/minute guard, below the free-tier 100 requests/minute ceiling. Substack is handled as RSS via `/feed`; use existing RSS subscription flows. Authenticated X and Threads social feed ingestion additionally requires active connected accounts and `social_x_ingestion_enabled` / `social_threads_ingestion_enabled`.
-- Twitter/X extraction is optional and should stay disabled unless explicitly needed. The legacy generic X/Twitter proactive placeholder remains disabled by default and requires explicit `twitter_ack_cost: true` / `TWITTER_INGESTION_ACK_COST=true`; authenticated connected-account X ingestion is separately gated by `social_x_ingestion_enabled` and uses existing OAuth connections rather than a raw token setting.
+Model and attachment settings that have no code default must remain present in
+YAML or be supplied by environment. Removing the file is therefore not a safe
+way to “reset to defaults” for every deployment.
+
+## Common sections
+
+| Section | Owning model |
+| --- | --- |
+| `runtime` | `RuntimeConfig` |
+| `openrouter`, `openai`, `anthropic`, `ollama`, `llm_budget` | `app/config/llm.py` |
+| `telegram`, `telegram_limits`, `batch_processing` | `app/config/telegram.py` |
+| `database` | `DatabaseConfig` |
+| `redis` | `RedisConfig` |
+| `api_limits`, `auth`, `sync` | `app/config/api.py` |
+| `scraper` | `ScraperConfig` |
+| `firecrawl` | `FirecrawlConfig` |
+| `youtube`, `attachment` | `app/config/media.py` |
+| `transcription` | `TranscriptionConfig` |
+| `web_search`, `mcp`, `batch_analysis`, `embedding`, `qdrant` | `app/config/integrations.py` |
+| `twitter`, `social`, `signal_ingestion`, `rss` | matching files in `app/config/` |
+| `digest`, `email`, `elevenlabs`, `push` | matching files in `app/config/` |
+| `github`, `git_backup`, `x_bookmarks`, `ai_backup` | matching files in `app/config/` |
+| `retention`, `backup`, `import_export` | matching files in `app/config/` |
+| `otel`, `sentry`, `langgraph_checkpoint` | matching files in `app/config/` |
+
+See [Environment Variables](environment-variables.md) for secret/deployment
+inputs and ownership of less common sections.
+
+## Per-role differences
+
+Compose may override the same field differently for bot, worker, API, scheduler,
+or MCP roles. Examples include Redis requirements, process-role telemetry, and
+worker capacity. Keep those differences in `ops/docker/docker-compose.yml` or an
+explicit override file rather than broadcasting one YAML value to every role.
+
+Inspect the final Compose environment with:
+
+```bash
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml config
+```
+
+## Runtime updates
+
+`/setmodel` updates supported model keys through the config loader's
+`SECTION_MAP`. `ConfigReloader` watches the same active YAML path for model
+changes. This is not a general-purpose hot-reload mechanism: restart affected
+roles after other configuration changes unless the owning subsystem explicitly
+documents reload behavior.
+
+## Validate
+
+Use the same environment and working directory as the target process:
+
+```bash
+uv run python -c \
+  'from app.config import load_config; load_config(); print("configuration valid")'
+```
+
+Validation only proves that settings parse. Follow it with connectivity checks
+for PostgreSQL, Redis, Qdrant, enabled sidecars, and the selected LLM provider.
+
+When startup reports a missing or invalid value, fix the owning source instead
+of weakening its validator. Deprecated scraper and migration-shadow environment
+names are rejected with migration guidance.

@@ -18,7 +18,13 @@ cd ratatoskr
 cp .env.example .env
 $EDITOR .env
 
-docker compose -f ops/docker/docker-compose.yml up -d --build
+docker compose -f ops/docker/docker-compose.yml build
+docker compose -f ops/docker/docker-compose.yml up -d postgres redis qdrant
+
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
+  python -m app.cli.migrate_db --apply
+
+docker compose -f ops/docker/docker-compose.yml up -d
 
 docker compose -f ops/docker/docker-compose.yml ps
 docker compose -f ops/docker/docker-compose.yml logs --tail=80 ratatoskr

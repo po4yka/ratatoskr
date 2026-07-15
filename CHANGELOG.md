@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Breaking — Project renamed to Ratatoskr
 
-The project has been renamed from `bite-size-reader` to `ratatoskr`. The rename touches Docker image / container names, the default DB filename, the MCP protocol surface (`bsr://` URIs and `X-BSR-*` headers), the CLI package and config directory, the Carbon web storage keys and refresh cookie, all `bsr_*` Prometheus metric names, and the Loki / Promtail labels. The Karakeep integration is retired in the same release.
+The project has been renamed from `bite-size-reader` to `ratatoskr`. The rename touches Docker image/container names, the MCP protocol surface (`bsr://` URIs and `X-BSR-*` headers), the CLI package/config directory, legacy web storage keys and refresh cookies, `bsr_*` Prometheus metric names, and Loki/Promtail labels. The Karakeep integration is retired in the same release.
 
 **For the full breaking-change inventory and the operator checklist, see [docs/guides/migrate-from-bite-size-reader.md](docs/guides/migrate-from-bite-size-reader.md).** The migration page is the canonical source — historical-record discipline keeps this entry short so the breaking-change list does not drift from the operational guide.
 
@@ -23,11 +23,10 @@ Ratatoskr now uses Telethon for both the BotFather-token bot adapter and the cha
   - **Voice / audio / video_note auto-handler** — when a previously-unhandled voice or audio message arrives, the bot replies with its transcript. Gated by `TRANSCRIPTION_AUTO_VOICE=true` (default `true` when transcription is enabled). Not persisted as a Summary in v1; durable archiving is a planned follow-up.
   - **YouTube pipeline auto-fill** — when both `youtube-transcript-api` and VTT subtitles return empty, the downloaded video is transcribed locally and the result populates `VideoSourceRequest.audio_transcript_text`. Opt-in via `TRANSCRIPTION_AUTO_URL_PIPELINE=true` (default `false`). Failures are logged and downgraded so the existing "no transcript available" error still fires when every path is exhausted.
   - **Optional diarization** (`TRANSCRIPTION_DIARIZATION_ENABLED=true`) adds `SPEAKER_xx` labels via pyannote-3.0 segmentation (CC-BY-4.0 default) or reverb-v1 (`TRANSCRIPTION_DIARIZATION_MODEL=reverb`; non-commercial license — license notice logged on first download).
-  - Full reference: [`docs/explanation/transcription.md`](docs/explanation/transcription.md) and the new [Transcription section](docs/reference/environment-variables.md#transcription-cpu-only-asr) in the env-vars guide.
+  - Full reference: [`docs/explanation/transcription.md`](docs/explanation/transcription.md) and the [media and transcription section](docs/reference/environment-variables.md#media-and-transcription) in the env-vars guide.
 - Vector-index sync subsystem keeping Qdrant converged with the Postgres `summaries` table: two-writer design — synchronous fast path in the `persist` graph node (read-your-writes freshness) and the Taskiq reconciler `ratatoskr.vector.reconcile` (default cron `*/30 * * * *`) that re-embeds summaries whose `summary_embeddings.last_indexed_at` lags `summaries.updated_at`. Runs in the worker process; configurable via `VECTOR_RECONCILE_ENABLED` / `VECTOR_RECONCILE_CRON` / `VECTOR_RECONCILE_BATCH_SIZE`. - `summary_embeddings` now stamps `content_hash` (SHA256 of the prepared text), `last_indexed_at`, and `index_status` on every write, so re-runs short-circuit when the input text is unchanged.
 - Channel digest subsystem with userbot, scheduler, and commands (`/digest`, `/channels`, `/subscribe`, `/unsubscribe`)
 - Bot-mediated userbot session initialization via `/init_session` with Telegram Mini App OTP/2FA flow
-- gRPC service implementation with comprehensive Python client library and integration tests
 - Quality assessment and web verification in summary output
 - Critical analysis and caveats sections in summaries
 - Embedded image analysis support in PDFs and web articles
@@ -38,7 +37,7 @@ Ratatoskr now uses Telethon for both the BotFather-token bot adapter and the cha
 - Typing indicators for long-running operations in Telegram bot
 - Full logging and dynamic status updates for batch processing
 - Redirect-aware X article link resolver with structured reason codes (`path_match`, `redirect_match`, `canonical_match`, `not_article`, `resolve_failed`)
-- Optional manual live smoke script for X article links (`scripts/twitter_article_live_smoke.py`) with per-link JSON diagnostics
+- Optional manual live smoke script for X article links (`tools/scripts/twitter_article_live_smoke.py`) with per-link JSON diagnostics
 - Real-time streaming summary progress: `GET /v1/requests/{id}/stream` SSE endpoint emits `phase` / `section` / `done` / `error` events sourced from a process-wide `StreamHub`. The Telegram URL flow now streams section snapshots via the existing draft coordinator; the web SubmitPage consumes the SSE stream via `useRequestStream` (with polling fallback after two consecutive fatal closes). Gated by `URL_FLOW_STREAMING_ENABLED` (default `true`)
 
 ### Removed
@@ -48,7 +47,7 @@ Ratatoskr now uses Telethon for both the BotFather-token bot adapter and the cha
 - `lock-piptools` Makefile target -- `lock-uv` is the canonical dependency locking path
 - `PROMPT.md` -- referenced non-existent migration docs
 - `app/grpc/` module, `app/protos/`, and `grpc` optional extra -- aspirational gRPC layer never wired into production
-- Duplicate versioned migration modules under `app/db/migrations/`; `app/cli/migrations/` is now the sole canonical migration directory used by runtime startup.
+- Legacy migration modules outside Alembic; `app/db/alembic/versions/` is the canonical revision directory and `app.cli.migrate_db` is the runtime interface.
 
 ### Security
 - Update pyjwt 2.11.0 to 2.12.1 (CVE-2026-32597)
@@ -56,14 +55,14 @@ Ratatoskr now uses Telethon for both the BotFather-token bot adapter and the cha
 ### Changed
 - Add Docker Compose profiles for self-hosted scrapers, remote cloud Ollama, monitoring, and MCP; default compose config now works without a local `.env` file.
 - Publish GHCR `:stable` on non-prerelease semver tags and keep `:latest` disabled.
-- Reduce `.env.example` to the five first-run Telegram/OpenRouter values and move optional power-user settings to `ratatoskr.yaml`.
+- Reduce `.env.example` to first-run secrets/connection values and move optional power-user settings to `ratatoskr.yaml`.
 - Add optional `RATATOSKR_CONFIG` / `ratatoskr.yaml` loading with precedence below `.env` and process environment.
 - Add OpenAI-compatible cloud Ollama configuration (`LLM_PROVIDER=ollama`) while keeping OpenRouter as the default provider.
 - Reject deprecated migration shadow-mode environment variables at startup instead of silently accepting them.
 - Rename the active web client ID from `web-carbon-v1` to `web-v1`; existing web/browser sessions may need to sign in again.
 - Rename Prometheus alert rule names from the historical `BSR*` prefix to `Ratatoskr*`.
-- Clarify that current Docker Compose points at an externally managed self-hosted Firecrawl API via `firecrawl-api:host-gateway`; the in-compose Firecrawl profile is planned separately.
-- Add `python -m app.cli.migrate_db --status [/path/to/db.sqlite]` for canonical migration status reporting.
+- Run the self-hosted Firecrawl stack through the `with-scrapers` Compose profile; cloud Firecrawl is not part of article extraction.
+- Add `python -m app.cli.migrate_db --status [DATABASE_URL]` for canonical Alembic status reporting; schema changes require explicit `--apply`.
 - Replace `uv pip compile --extra dev` with `uv export --only-group dev` across CI workflows, Makefile, and scripts (PEP 735 dependency groups)
 - Add retry wrapper around `uv lock --check` in CI to handle transient GitHub CDN failures
 - Prune stale paths from coverage_includes.txt and file_size_baseline.json
@@ -81,7 +80,7 @@ Ratatoskr now uses Telethon for both the BotFather-token bot adapter and the cha
 - Mobile API digest/system routers now delegate orchestration to dedicated services (`DigestFacade`, `SystemMaintenanceService`) instead of in-router DB/Redis/file workflows.
 - Formatter component boundaries now enforce protocol interfaces at constructor/public seams rather than concrete `*Impl` coupling.
 - Project docs refreshed to reflect current architecture boundaries and service decomposition across Telegram/API/formatting flows.
-- Project documentation refreshed for dual frontend setup, including a new Carbon web frontend guide (`FRONTEND.md`) and updated deployment/local-dev/quickstart/spec/API docs.
+- Document the FastAPI serving contract for the externally maintained `ratatoskr-web` frontend.
 - Project documentation refreshed for mixed-source aggregation coverage, rollout flags, bundle observability, and FastAPI aggregation endpoints.
 
 ### Fixed

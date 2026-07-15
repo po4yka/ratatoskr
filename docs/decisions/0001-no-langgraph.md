@@ -42,7 +42,7 @@ They are complementary, not duplicative. LangGraph is **not** adopted as a task 
 
 ### Implementation status
 
-Decision accepted 2026-06-15. Implementation is **planned but not yet merged**; it will land behind the feature flags above, phased with per-phase verification. Until it lands, the `banned-api` guard and the absence of the dependencies remain in place.
+The reversal was implemented through the phased graph cutover. LangGraph now powers the sole summary path; its use remains scoped to graph assembly and checkpointing, with external work accessed through application ports. The old `banned-api` prohibition no longer applies to this scoped implementation.
 
 ## Original rationale & consequences (retained for history)
 

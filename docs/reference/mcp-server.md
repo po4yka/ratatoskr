@@ -80,7 +80,7 @@ Aggregation safety defaults:
 
 - Aggregation MCP tools require an effective scoped user, either from startup scope or hosted request auth.
 - Aggregation bundle creation now reuses the request-scoped `client_id` when hosted auth is enabled.
-- If the MCP process only has read-only database access, aggregation creation will fail even though read tools still work.
+- Aggregation requires PostgreSQL write permission and may require writable `/data` for extraction artifacts. Database permission comes from `DATABASE_URL` and PostgreSQL grants; a read-only host-data mount does not make PostgreSQL read-only.
 
 User scoping modes:
 
@@ -175,39 +175,18 @@ Useful fields on session reads:
 
 The `ops/docker/docker-compose.yml` file includes three opt-in MCP profiles so the SSE server is not started by a plain `docker compose up`.
 
-### Read-Only Local SSE Profile
+### Local SSE Profile with Read-Only Host Data
 
-Start the read-only local/trusted profile explicitly:
+Start the local/trusted profile explicitly:
 
 ```bash
 MCP_USER_ID=12345 docker compose -f ops/docker/docker-compose.yml --profile mcp up -d mcp
 ```
 
-Service definition:
-
-```yaml
-mcp:
-  profiles: ["mcp"]
-  build: {context: ../.., dockerfile: ops/docker/Dockerfile}
-  container_name: ratatoskr-mcp
-  command: ["python", "-m", "app.cli.mcp_server"]
-  environment:
-    - MCP_ENABLED=true
-    - MCP_TRANSPORT=sse
-    - MCP_HOST=0.0.0.0
-    - MCP_PORT=8200
-    - MCP_USER_ID=${MCP_USER_ID:-}
-    - MCP_ALLOW_REMOTE_SSE=true
-  volumes:
-    - ../../data:/data:ro      # read-only DB access
-  ports:
-    - "127.0.0.1:8200:8200"   # loopback only from host
-```
-
 Key design decisions:
 
 - **Opt-in profile** (`profiles: ["mcp"]`) -- keeps MCP disabled during the default compose startup path.
-- **Read-only data mount** (`./data:/data:ro`) -- this Docker profile is for read tools/resources only; aggregation write tools need a writable database path in a trusted deployment.
+- **Read-only host-data mount** (`../../data:/data:ro`) -- prevents writes to local sessions/media/export paths. PostgreSQL access still follows `DATABASE_URL` and its grants. Use `mcp-write` when a trusted workflow needs durable files as well as database writes.
 - **Explicit user scoping** (`MCP_USER_ID`) -- required for SSE unless you also opt into `MCP_ALLOW_UNSCOPED_SSE=true`.
 - **Production unscoped gate** (`MCP_ALLOW_UNSCOPED_PRODUCTION=true`) -- required in addition to `MCP_ALLOW_UNSCOPED_SSE=true` when `APP_ENV=production`. Without this production gate, startup exits non-zero; outside production, unscoped SSE is forced to `127.0.0.1`.
 - **`MCP_ALLOW_REMOTE_SSE=true`** -- required because `0.0.0.0` is non-loopback inside Docker. This also disables the MCP SDK's DNS rebinding protection so that Docker-internal hostnames (`ratatoskr-mcp`, `ratatoskr-mcp:8200`) are accepted in the `Host` header.
@@ -261,7 +240,7 @@ Example mcporter config:
 }
 ```
 
-## Tools (27)
+## Tools (28)
 
 | Tool | Description |
 | ------ | ------------- |
@@ -282,12 +261,13 @@ Example mcporter config:
 | `list_videos(limit, offset, status)` | List YouTube video downloads with metadata |
 | `get_video_transcript(video_id)` | Video transcript text (capped at 50k chars) |
 | `check_url(url)` | Check if a URL has already been processed (uses SHA-256 dedup) |
-| `semantic_search(description, limit, language)` | Vector similarity search via Qdrant (falls back to keyword) |
+| `semantic_search(description, limit, language, min_similarity, rerank, include_chunks)` | Vector similarity search via Qdrant (falls back to keyword) |
 | `hybrid_search(query, limit, language, min_similarity, rerank)` | Combined keyword + semantic retrieval into a single ranked list |
-| `find_similar_articles(summary_id, limit, min_similarity, rerank)` | Find articles semantically similar to an existing summary |
+| `find_similar_articles(summary_id, limit, min_similarity, rerank, include_chunks)` | Find articles semantically similar to an existing summary |
 | `list_signal_sources(limit)` | List signal sources visible to the scoped MCP user |
 | `list_user_signals(limit, status)` | List scored signal candidates visible to the scoped MCP user |
 | `update_signal_feedback(signal_id, action)` | Write feedback for a signal candidate (`like`, `dislike`, `skip`, `queue`, `hide_source`, `boost_topic`) |
+| `promote_to_library(source_type, source_id)` | Promote a queued signal or X bookmark into a durable summary request |
 | `set_signal_source_active(source_id, is_active)` | Enable or disable a subscribed signal source for the scoped MCP user |
 | `vector_health()` | Check Qdrant availability and fallback readiness |
 | `vector_index_stats(scan_limit)` | Index coverage stats between Postgres summaries and Qdrant |

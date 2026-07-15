@@ -13,12 +13,16 @@ A self-hosted Telegram bot that turns the things you read, watch, and forward in
 - **Built for triage, not bookmarking.** Each summary is a strict 35+ field JSON contract — TLDR, key ideas, entities, key stats, topics, reading time — bound through an explicit default contract descriptor so prompts, schemas, and validation stay in sync as providers evolve.
 - **Multi-source aggregation.** Bundle a YouTube clip with two web articles and a forwarded post, get one synthesized output with per-source provenance.
 
-## 30-second install
+## Quick install
 
 ```sh
 git clone https://github.com/po4yka/ratatoskr.git
 cd ratatoskr
 cp .env.example .env                  # set the 7 required values
+docker compose -f ops/docker/docker-compose.yml build
+docker compose -f ops/docker/docker-compose.yml up -d postgres redis qdrant
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
+  python -m app.cli.migrate_db --apply
 docker compose -f ops/docker/docker-compose.yml up -d
 ```
 
@@ -47,7 +51,7 @@ Optional scraper, YouTube, Twitter/X, MCP, and provider tuning now live in `rata
 Compose profiles:
 
 - `with-scrapers` starts the full self-hosted scraper sidecar stack: `firecrawl-api` (port 3002), `crawl4ai` (port 11235), `defuddle-api` (port 3003), and `cloakbrowser` plus their dependencies. Cloud Firecrawl is not used for article extraction; there is no `FIRECRAWL_API_KEY` requirement. Set `FIRECRAWL_SELF_HOSTED_ENABLED=true` to activate the Firecrawl rung in the scraper chain.
-- `with-webwright` starts the Microsoft Webwright browser-agent sidecar (port 8090) — heavyweight LLM-driven Playwright agent. Opt-in only; see [Webwright Integration](docs/explanation/webwright.md) for cost gating and the three integration paths (scraper rung, `/browse` Telegram command, content enrichment).
+- `with-webwright` starts the Microsoft Webwright browser-agent sidecar (port 8090) — heavyweight LLM-driven Playwright agent. Opt-in only; see [Webwright Integration](docs/explanation/webwright.md) for cost gating and the two active integration paths (scraper rung and `/browse` Telegram command).
 - `with-cloud-ollama` adds a remote OpenAI-compatible Ollama reachability check for experiments and sidecar validation. Use it for summarization only when `LLM_PROVIDER=ollama` and `ollama.base_url` points at that endpoint.
 - `with-monitoring` starts Prometheus, Grafana, Loki, Promtail, node-exporter, and OpenTelemetry / Tempo.
 - `mcp`, `mcp-write`, and `mcp-public` start the optional MCP server variants.
@@ -56,7 +60,7 @@ For the guided walkthrough, see the [5-minute Quickstart Tutorial](docs/guides/q
 
 ## What it does
 
-**Web articles.** A multi-provider scraper chain — Scrapling → direct PDF → Crawl4AI → Firecrawl (self-hosted only) → Defuddle → CloakBrowser → Playwright → Crawlee → direct HTML → ScrapeGraphAI → Webwright — extracts clean content, then OpenRouter generates a summary against the strict JSON contract. The default order is overridable via `SCRAPER_PROVIDER_ORDER`. Cloud Firecrawl is not used; all sidecars (Firecrawl, Crawl4AI, Defuddle, CloakBrowser, Webwright) run via Docker Compose profiles. JS-heavy hosts can be configured to skip straight to a browser-based provider. The final rung ([Microsoft Webwright](https://github.com/microsoft/Webwright)) is a heavyweight LLM-driven browser agent reserved for paywalled or SPA URLs the rest of the chain cannot crack — default off, gated by `WEBWRIGHT_ENABLED` and a non-empty `WEBWRIGHT_HOST_ALLOWLIST`. See [Webwright Integration](docs/explanation/webwright.md).
+**Web articles.** A 13-provider chain — Reddit → Hacker News → Scrapling → direct PDF → Crawl4AI → Firecrawl (self-hosted only) → Defuddle → CloakBrowser → Playwright → Crawlee → direct HTML → ScrapeGraphAI → Webwright — extracts clean content, then the configured LLM provider generates a summary against the strict JSON contract. The first two rungs are URL-specific and skip unsupported hosts. The default order is overridable via `SCRAPER_PROVIDER_ORDER`. Cloud Firecrawl is not used; all sidecars (Firecrawl, Crawl4AI, Defuddle, CloakBrowser, Webwright) run via Docker Compose profiles. JS-heavy hosts can be configured to skip straight to a browser-based provider. The final rung ([Microsoft Webwright](https://github.com/microsoft/Webwright)) is reserved for paywalled or SPA URLs the rest of the chain cannot crack — default off, gated by `WEBWRIGHT_ENABLED` and a non-empty `WEBWRIGHT_HOST_ALLOWLIST`. See [Webwright Integration](docs/explanation/webwright.md).
 
 **YouTube videos.** Detects every common URL form (watch, shorts, live, embed, music, mobile). Pulls transcripts via `youtube-transcript-api` (manual subtitles preferred), downloads the video at 1080p with `yt-dlp` for archival, then summarizes from the transcript. Storage is capped per-video and in total, with optional auto-cleanup. See [Configure YouTube Download](docs/guides/configure-youtube-download.md).
 
@@ -70,9 +74,9 @@ For the guided walkthrough, see the [5-minute Quickstart Tutorial](docs/guides/q
 - **Mobile REST API** — JWT-authenticated REST API with device sync, collections, and aggregations. See [Mobile API Reference](docs/reference/mobile-api.md).
 - **Real-time progress streaming** — `GET /v1/requests/{id}/stream` is a Server-Sent Events stream of phase + section events for in-flight summaries. Consumed by the web SubmitPage and by the Telegram URL flow's progressive draft-message updates.
 - **MCP server** — Expose summaries and search to external AI agents via the Model Context Protocol. See [MCP Server](docs/reference/mcp-server.md).
-- **Multi-agent pipeline** — ContentExtraction, Summarization, Validation, and WebSearch agents coordinate via the classic orchestrator; LangGraph backs the summarize/validate retry graph and LangChain structured output is used where models support it. See [Multi-Agent Architecture](docs/explanation/multi-agent-architecture.md).
+- **Graph workflow and focused agents** — LangGraph is the sole URL-summary path, including bounded validation/repair. Separate focused agents handle web search, multi-source aggregation, relationship analysis, and repository analysis. See [Graph and Agent Architecture](docs/explanation/multi-agent-architecture.md).
 - **Semantic search** — Qdrant vector store with local (sentence-transformers) or Gemini embedding providers. Summary and repository vectors are kept in sync via deterministic point IDs, synchronous fast-path writes, and the Taskiq reconciler.
-- **GitHub repositories** — Index your starred GitHub repos as a searchable knowledge base. Paste a `github.com/<owner>/<repo>` URL for immediate ingestion, or connect a PAT / OAuth Device Flow token and let the daily sync import and LLM-analyze your entire stars list automatically. Repo analysis prefers LangChain structured output and analyzed repos are exported to Qdrant by the repository fast path with reconciler-based backfill. See [Setup: GitHub integration](#setup-github-integration-optional) below.
+- **GitHub repositories** — Index your starred GitHub repos as a searchable knowledge base. Paste a `github.com/<owner>/<repo>` URL for immediate ingestion, or connect a PAT / OAuth Device Flow token and let the daily sync import and LLM-analyze your entire stars list automatically. Repo analysis uses structured LLM output; analyzed repos reach Qdrant through the repository fast path with reconciler-based backfill. See [Setup: GitHub integration](#setup-github-integration-optional) below.
 - **Channel digests** — Subscribe to Telegram channels and receive periodic structured recaps.
 - **RSS feeds** — Ingest RSS feed items as summarization sources.
 - **Text-to-speech** — Optional ElevenLabs TTS audio generation for summaries.

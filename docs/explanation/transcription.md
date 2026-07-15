@@ -2,7 +2,7 @@
 
 How ratatoskr turns voice messages, audio URLs, and captionless videos into text without leaving the host.
 
-**Audience:** Operators choosing whether to enable transcription, and contributors debugging the ASR adapter. **Type:** Explanation. **Related:** [`docs/reference/environment-variables.md#transcription-cpu-only-asr`](../reference/environment-variables.md#transcription-cpu-only-asr). **Source:** [`app/adapters/transcription/`](../../app/adapters/transcription/), [`app/config/transcription.py`](../../app/config/transcription.py), [`app/adapters/telegram/command_handlers/transcribe_handler.py`](../../app/adapters/telegram/command_handlers/transcribe_handler.py), [`app/adapters/telegram/routing/voice_message_processor.py`](../../app/adapters/telegram/routing/voice_message_processor.py).
+**Audience:** Operators choosing whether to enable transcription, and contributors debugging the ASR adapter. **Type:** Explanation. **Related:** [`docs/reference/environment-variables.md#media-and-transcription`](../reference/environment-variables.md#media-and-transcription). **Source:** [`app/adapters/transcription/`](../../app/adapters/transcription/), [`app/config/transcription.py`](../../app/config/transcription.py), [`app/adapters/telegram/command_handlers/transcribe_handler.py`](../../app/adapters/telegram/command_handlers/transcribe_handler.py), [`app/adapters/telegram/routing/voice_message_processor.py`](../../app/adapters/telegram/routing/voice_message_processor.py).
 
 ## Why it exists
 

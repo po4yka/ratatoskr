@@ -1,134 +1,84 @@
-# Migrate from `bite-size-reader` to Ratatoskr
+# Migrate from `bite-size-reader`
 
-This page is the operational guide for self-hosters upgrading across the project rename. The rename is mechanical (no behavioural change), but it touches several stable contracts (Docker image tags, MCP URIs, HTTP cookies, Prometheus metric names) so most upgrades require a short checklist of follow-up actions.
+This guide covers the remaining operator-visible rename boundaries for installations that still use the former project name. Current Ratatoskr releases use PostgreSQL and Alembic; they do not contain an automatic importer for an old application SQLite database.
 
-**Audience:** Operators upgrading an existing deployment. **Difficulty:** Beginner if you run the default `docker-compose.yml`, intermediate if you operate Grafana / Prometheus dashboards or have external MCP / webhook integrations. **Estimated Time:** 5–15 minutes depending on integrations. **Related:** [DEPLOYMENT.md](deploy-production.md), [Migrate Versions (general)](migrate-versions.md), [`CHANGELOG.md`](../../CHANGELOG.md) for the canonical breaking-change list.
+## Before changing anything
 
----
+1. Back up the old database, media/session files, secrets, and monitoring configuration.
+2. Record the exact old image tag or commit so rollback remains possible.
+3. Review [Migrate Versions](migrate-versions.md) for any intermediate release requirements.
+4. Test the migration against a copy before replacing a production instance.
 
-## TL;DR
+## Rename checklist
 
-You're upgrading; here are the four things you must touch yourself — everything else either auto-migrates or has a sensible default:
+### Repository, images, and services
 
-1. **Docker image / compose service names.** `bite-size-reader` → `ratatoskr`.
-2. **`.env` file** — small set of default values changed; the Karakeep block goes away entirely (the integration has been retired).
-3. **MCP client configs** — `bsr://` URIs and `X-BSR-*` headers → `ratatoskr` / `X-Ratatoskr-*`.
-4. **Web bookmarks / browser sessions** — storage keys were renamed, so anyone with an open web session will be logged out and need to sign in again.
+Replace downstream references to `bite-size-reader` with `ratatoskr`, then recreate the Compose stack from the current file:
 
-The rest of this page expands those four into a numbered checklist.
-
----
-
-## Auto-migrated for you
-
-Don't lose sleep over these — the code or the build handles them:
-
-- **Database filename.** When `DB_PATH` ends in `ratatoskr.db` and `app.db` exists in the same directory, `DatabaseSessionManager` renames the file on first start. The default config triggers this; custom paths that don't end in `ratatoskr.db` are left alone (rename manually if you want consistency).
-- **Telethon bot session.** Bot sessions are keyed by `BOT_TOKEN`, not username, so a bot-handle change (`bite_size_reader_bot` → `ratatoskr_tldr_bot`) only requires updating `BOT_TOKEN` and `VITE_TELEGRAM_BOT_USERNAME` in `.env` and rebuilding the web bundle.
-- **Lock files.** `uv.lock`, `requirements.txt`, `requirements-dev.txt`, and `ratatoskr-web/package-lock.json` are regenerated as part of the rename PR — your build will pull the right artifact.
-- **Container labels (Loki / Promtail).** Compose recreates containers with their new names on `up`; old log labels stop appearing as soon as the previous containers are removed.
-
----
-
-## You must do this yourself
-
-### 1. Update Docker image references
-
-```sh
-cd /path/to/your/checkout
-git pull
-docker compose -f ops/docker/docker-compose.yml down
+```bash
+git pull --ff-only
 docker compose -f ops/docker/docker-compose.yml build
 docker compose -f ops/docker/docker-compose.yml up -d
 ```
 
-If you pin `ghcr.io/po4yka/bite-size-reader:*` in any downstream pipeline (CI, Watchtower, Argo CD, etc.), switch the image path to `ghcr.io/po4yka/ratatoskr:*`. GitHub redirects from the old path do work for `docker pull`, but the redirect can break authenticated login flows; pin the new path explicitly.
+Use the service names declared in `ops/docker/docker-compose.yml`; do not rely on historical standalone-container names.
 
-### 2. Update your `.env`
+### Configuration
 
-The shipped `.env.example` is updated. If you copied it once and hand-edited since, only a handful of values changed defaults:
+Start from the current `.env.example` and `config/ratatoskr.yaml`, then copy values deliberately:
 
-| Variable | Old default | New default |
-| --- | --- | --- |
-| `FIRECRAWL_SELF_HOSTED_API_KEY` | `fc-bsr-local` | `fc-ratatoskr-local` |
-| `REDIS_PREFIX` | `bsr` | `ratatoskr` |
-| `DB_PATH` | `/data/app.db` | `/data/ratatoskr.db` |
-| `OPENROUTER_HTTP_REFERER` | `https://github.com/po4yka/bite-size-reader` | `https://github.com/po4yka/ratatoskr` |
-| `OPENROUTER_X_TITLE` | `Bite-Size Reader` | `Ratatoskr` |
-| `*_RUST_BIN` example paths (commented) | `…/bsr-*` | `…/ratatoskr-*` |
+- update old repository URLs and display titles;
+- use the `ratatoskr` Redis prefix where configured;
+- remove retired `KARAKEEP_*` variables;
+- set `DATABASE_URL` and `POSTGRES_PASSWORD` for PostgreSQL;
+- keep secrets in `.env` or the deployment secret manager, not YAML.
 
-**Drop any `KARAKEEP_*` lines from your `.env`** — the Karakeep integration has been retired and those variables are no longer read.
+There is no committed environment-rewrite helper. Edit and review the configuration directly.
 
-The repo ships an idempotent helper script that applies these changes in place; it is not committed but lives at `tools/scripts/migrate-env-example.sh` after running once. Or just edit by hand with the table above as a guide.
+### Database
 
-### 3. Update MCP client configs
+Apply the current PostgreSQL schema through Alembic:
 
-If any external AI agent connects via MCP (OpenClaw, Claude Desktop, hosted SSE):
-
-- **Resource URIs:** `bsr://*` → `ratatoskr://*` (15 paths, e.g. `bsr://articles/recent` → `ratatoskr://articles/recent`).
-- **MCP server registration name:** if you pinned it as `"bite-size-reader"` in the client, change to `"ratatoskr"`.
-- **Trusted-gateway forwarded headers:** `X-BSR-Forwarded-Access-Token` and `X-BSR-MCP-Forwarding-Secret` → `X-Ratatoskr-Forwarded-Access-Token` and `X-Ratatoskr-MCP-Forwarding-Secret`. Set them via the `MCP_FORWARDED_ACCESS_TOKEN_HEADER` and `MCP_FORWARDED_SECRET_HEADER` env vars if you need to keep the old header names temporarily for rolling deployments.
-
-The full MCP surface (22 tools, 16 resources) is enumerated in [`docs/reference/mcp-server.md`](../reference/mcp-server.md).
-
-### 4. Update webhook receivers
-
-If you subscribe to outgoing webhooks, update the signature / event header names:
-
-- `X-BSR-Signature` → `X-Ratatoskr-Signature`
-- `X-BSR-Event` → `X-Ratatoskr-Event`
-
-There is no compatibility shim. If you need a brief overlap period, deploy a small reverse proxy that copies the new headers back into the old names while you cut over.
-
-### 5. Update Grafana / Prometheus dashboards
-
-The repo ships updated dashboards (`ratatoskr-overview.json`, `ratatoskr-aggregation.json`) and updated alerting rules; Compose provisioning will pick them up automatically. The follow-up work on your side:
-
-- **Bookmarks.** Dashboard UIDs are renamed (`bsr-overview` → `ratatoskr-overview`, `bsr-aggregation` → `ratatoskr-aggregation`), so any saved Grafana URLs you keep will 404 — re-bookmark from the new dashboards.
-- **Old time-series.** Existing `bsr_*` metric series remain in TSDB but stop collecting from this release. If you need historical continuity in queries, add a recording rule that aliases the old metric name to the new one (Prometheus has no built-in metric rename).
-- **Loki labels.** `tenant_id`, `job`, and the log path under `/var/log/bsr/` switch to `ratatoskr`. Update any LogQL queries you rely on.
-
-### 6. Reissue CLI logins (if you use the packaged CLI)
-
-The `ratatoskr-cli` package replaces `bsr-cli` and writes its config to `~/.config/ratatoskr/` instead of `~/.config/bsr/`. Existing tokens under the old path are not migrated:
-
-```sh
-pip install --upgrade ratatoskr-cli  # or pipx reinstall ratatoskr-cli
-ratatoskr login --server https://your-server.example.com ...
+```bash
+python -m app.cli.migrate_db --apply
 ```
 
-If your scripts read `BSR_SERVER_URL`, switch to `RATATOSKR_SERVER_URL`. The console script renamed from `bsr` to `ratatoskr`.
+If the old installation still stores application data in SQLite, preserve that file and plan a separate, verified export/import. Ratatoskr does not currently ship `migrate_sqlite_to_postgres` or an automatic filename-rename path. Telethon session files remain separate integration state and may be copied only when compatible with the current session configuration.
 
-### 7. Reissue web sessions
+### MCP clients
 
-The web frontend's localStorage key changed (`bsr_web_auth_tokens` → `ratatoskr_web_auth_tokens`) and the refresh cookie changed (`bsr_refresh_token` → `ratatoskr_refresh_token`). Anyone with an existing browser session will be effectively logged out on first reload after the upgrade — they sign back in via the normal flow. No server-side action required.
+Update client registrations and any legacy namespace/header overrides:
 
-### 8. Flush old Redis keys (optional)
+- resource URIs: `bsr://...` → `ratatoskr://...`;
+- server registration name: `bite-size-reader` → `ratatoskr`;
+- forwarded headers: `X-BSR-*` → the configured `X-Ratatoskr-*` equivalents.
 
-Existing `bsr:batch:*`, `bsr:query:*`, `bsr:embed:*`, `bsr:auth:*` keys remain in Redis but are no longer read or written; they expire on their own TTL. If you want to reclaim memory immediately, flush by prefix:
+The current surface is enumerated in [MCP Server](../reference/mcp-server.md): 28 tools and 17 resources.
 
-```sh
-redis-cli --scan --pattern 'bsr:*' | xargs -L 100 redis-cli del
+### Webhooks and clients
+
+Update webhook receivers from `X-BSR-Signature` / `X-BSR-Event` to `X-Ratatoskr-Signature` / `X-Ratatoskr-Event` where those historical headers are still pinned. Reissue browser/mobile/CLI sessions after changing client IDs, cookie names, or token storage namespaces; do not copy refresh tokens between incompatible deployments.
+
+### Monitoring
+
+Replace `bsr_*` metric names, old dashboard UIDs, Loki labels, and log paths in operator-owned dashboards and alerts. Old time series may remain in Prometheus until retention removes them, but current services emit the Ratatoskr names declared in the code and bundled dashboards.
+
+## Verify
+
+```bash
+docker compose -f ops/docker/docker-compose.yml ps
+docker compose -f ops/docker/docker-compose.yml logs --tail=100 ratatoskr mobile-api worker scheduler
+python -m app.cli.migrate_db --check
 ```
 
----
+Then verify:
 
-## Grace periods and known gaps
-
-- **Old Prometheus metric names** retain their last samples in TSDB but do not collect new data; there is no recording-rule shim shipped.
-- **GHCR image redirect** from `po4yka/bite-size-reader` to `po4yka/ratatoskr` is best-effort GitHub behaviour — pin the new path in CI to avoid auth-flow breakage.
-- **Karakeep integration** is removed in the same release. The canonical runtime migration path is now Alembic via `python -m app.cli.migrate_db`; if an older local database still contains a `karakeep_sync` table, drop it manually after confirming you no longer need that data. Re-running the rename does not re-create the table.
-- **The digest mini-app's built JS asset** in `app/static/digest/assets/` may still encode the old `bsr_library_filter` localStorage key in its bundled output until you rebuild the mini-app.
-- **`OpenAPI` server URLs** advertise `https://ratatoskrapi.po4yka.com`, but the DNS record itself is not part of the rename PR — update DNS separately if you publish a hosted instance.
-
----
+- a whitelisted Telegram user can create a summary;
+- `/healthz` succeeds on the API;
+- a current MCP client can list tools/resources;
+- PostgreSQL contains the expected users and summaries;
+- configured Qdrant retrieval works or can be repaired with `python -m app.cli.reconcile_vector_index --repair`.
 
 ## Rollback
 
-If something in your deployment depends on the old name in a way the checklist above didn't anticipate:
-
-1. **Pin the last pre-rename image.** Use the most recent tag of `ghcr.io/po4yka/bite-size-reader:*` from before the rename (or your own previously-built image). The image redirects at GHCR should make this work for `docker pull`.
-2. **Restore your DB if the auto-rename did the wrong thing.** Pre-rename backups are in your usual backup location with the old prefix `bite_size_reader_backup_*` (sqlite) or `bsr-backup-*` (zip). Restore by stopping the bot, copying the backup back to `/data/app.db`, and pinning the old image.
-3. **Old Redis keys are still readable** because Ratatoskr never deleted them — just point the old binary at the same Redis and it will pick up where it left off.
-
-If rollback is required, please [open an issue](https://github.com/po4yka/ratatoskr/issues) so the gap can be fixed forward in the next release rather than leaving everyone on the old name.
+Stop the new stack, restore the complete pre-migration backup, and run the recorded old image/config together. Do not point an older binary at a schema that newer Alembic revisions have changed unless that release explicitly documents downgrade compatibility.

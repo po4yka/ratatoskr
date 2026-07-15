@@ -13,7 +13,7 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 - Summarizes web articles, YouTube videos, Twitter/X posts, GitHub repos, and academic papers via a multi-provider scraper chain + OpenRouter by default, with direct `openai`, `anthropic`, and `ollama` LLM adapters available through `LLM_PROVIDER`.
 - Returns structured JSON summaries against a strict contract.
 - Persists every artifact -- Telegram messages, scraper responses, LLM calls (success and failure), summaries, embeddings -- in PostgreSQL via SQLAlchemy 2.0 + asyncpg.
-- Ships as a single Docker container with an owner-only access whitelist.
+- Runs as a Docker Compose service set with owner-first access controls.
 
 **Core stack:** Python 3.13, Telethon, SQLAlchemy 2.0 + asyncpg, OpenRouter/direct LLM adapters, Qdrant (with sentence-transformers or Gemini Embedding 2), FastAPI + JWT (Mobile API), React + TypeScript + Vite (web frontend). Full dependency list lives in `pyproject.toml`.
 
@@ -24,15 +24,15 @@ Cross-repo skills (`openapi-bump-cross-repo`, `local-stack-up`, `frost-token-mir
 | Need | Doc |
 |---|---|
 | Bird's-eye view, request lifecycle | `docs/explanation/architecture-overview.md` |
-| Multi-agent architecture | `docs/explanation/multi-agent-architecture.md` |
+| Summary graph and focused agents | `docs/explanation/multi-agent-architecture.md` |
 | Scraper-chain fallback design | `docs/explanation/scraper-chain.md` |
-| Webwright browser-agent integration (sidecar, `/browse`, enricher) | `docs/explanation/webwright.md` |
+| Webwright browser-agent integration (scraper rung and `/browse`) | `docs/explanation/webwright.md` |
 | Why the summary contract is shaped that way | `docs/explanation/summary-contract-design.md` |
 | GitHub repo ingestion subsystem | `docs/explanation/github-repository-ingestion.md` |
 | On-disk git mirroring (git backup) | `docs/explanation/git-mirroring.md` |
 | fieldtheory-cli integration (bookmarks, wiki, MCP search, Telegram) | `docs/explanation/x-bookmarks-integration.md` |
 | Vector index sync | `docs/vector-index-sync.md` |
-| Authoritative env-var reference (820 lines) | `docs/reference/environment-variables.md` |
+| Authoritative env-var reference | `docs/reference/environment-variables.md` |
 | Authoritative DB schema | `docs/reference/data-model.md` |
 | Summary JSON contract spec | `docs/reference/summary-contract.md` |
 | Channel digest ops | `docs/reference/digest-subsystem-ops.md` |
@@ -48,7 +48,7 @@ Secret rotation and drill procedures live in `docs/runbooks/secret-rotation.md`.
 
 | Need | Implementation map |
 |---|---|
-| Auth/session failure | Backend auth is split across `app/api/routers/auth/` transport handlers, `app/api/routers/auth/tokens.py` token creation/validation, `app/api/routers/auth/cookies.py` refresh-cookie policy, `app/infrastructure/persistence/repositories/auth_repository.py` persistence, and `app/db/models/core.py::RefreshToken`; token TTL/storage behavior is documented in `docs/reference/mobile-api.md#authentication-modes` and failure triage starts at `docs/reference/troubleshooting.md#refresh-token-stops-working`. |
+| Auth/session failure | Backend auth is split across `app/api/routers/auth/` transport handlers, `app/api/routers/auth/tokens.py` token creation/validation, `app/api/routers/auth/cookies.py` refresh-cookie policy, `app/infrastructure/persistence/repositories/auth_repository.py` persistence, and `app/db/models/core.py::RefreshToken`; token behavior is documented in `docs/reference/mobile-api.md#authentication` and failure triage starts at `docs/reference/troubleshooting.md#refresh-token-stops-working`. |
 | API contract drift | FastAPI source is `app.api.main:app`; request/response models live under `app/api/models/`, routers under `app/api/routers/`, generated artifacts under `docs/openapi/mobile_api.yaml` and `.json`; never patch generated OpenAPI by hand. Run `make generate-openapi`, `make check-openapi-drift`, `make check-openapi-validate`, and `make check-openapi`. |
 | Sync drift | Sync v2 entrypoints are `app/api/routers/sync.py`, service collaborators are under `app/api/services/sync/`, DB reads for sync live in `app/infrastructure/persistence/sync_aux_read_adapter.py`, and the contract map is `docs/reference/sync-protocol.md`. |
 | Request stuck in processing | The summarize graph is the sole path: start with the URL-flow facade `app/adapters/content/graph_url_processor.py` (`GraphURLProcessor.handle_url_flow`), the graph spine `app/application/graphs/summarize/` (`graph.py` + `nodes/`, especially `ingest`/`extract`/`persist`/`notify`), `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob`, and `docs/reference/troubleshooting.md#request-stuck-in-processing`; keep correlation IDs intact across any repair (`thread_id == correlation_id`). |
@@ -159,7 +159,7 @@ Task-oriented skills under `.claude/skills/` and `.codex/skills/`. Each carries 
 | `scraper-chain-debugging` | content-scraper fallback chain failures (now includes the Webwright rung) |
 | `digest-subsystem-ops` | channel digest userbot, `/init_session` flow, scheduling |
 | `pi-deploy` | building and shipping the image to the Raspberry Pi |
-| `web-frontend-dev` | React + TypeScript + Vite work under `web/` |
+| `web-frontend-dev` | Backend web integration or coordinated work with the external `ratatoskr-web` repository |
 | `testing-workflows` | CLI runner, message simulation, pytest patterns |
 | `repo-task-board` | task creation / status transitions in `docs/tasks/` |
 
@@ -196,7 +196,7 @@ python -m app.cli.summary --accept-multiple --json-path out.json --log-level DEB
 
 # DB inspection
 docker exec -it ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr
-python -m app.cli.migrate_db          # apply Alembic migrations
+python -m app.cli.migrate_db --apply  # apply Alembic migrations
 ```
 
 ## Code Standards & CI
@@ -205,7 +205,7 @@ python -m app.cli.migrate_db          # apply Alembic migrations
 - **Linting:** ruff (see `pyproject.toml`); B006 and B023 enforced (see Operating Rules). `pyproject.toml` ignores `ASYNC240` (added in ruff 0.7+); **the project requires ruff ≥0.15.13** (pinned in `requirements-dev.txt`). Older globally-installed ruff binaries (e.g. `~/.local/bin/ruff` from a stale pipx install) will fail with `Unknown rule selector: ASYNC240`. Upgrade with `pipx upgrade ruff` or always invoke ruff from the project venv.
 - **Types:** mypy, `python_version = "3.13"`.
 - **Testing:** pytest + pytest-asyncio, hypothesis, pytest-benchmark. Use `tests/db_helpers_async.py` (`create_request`, `insert_summary`, ...) instead of writing fresh fixtures or calling ORM models directly. E2E tests gated by `E2E=1`.
-- **CI** (`.github/workflows/ci.yml`): lockfile freshness, lint+format+type, unit tests with a 65% coverage floor (80% target; enforced via `fail_under` in `pyproject.toml`), OpenAPI validation, radon complexity, security (Bandit, pip-audit, Safety, Gitleaks), frontend (`web-build`, `web-test`, `web-static-check`), Docker image build. Optional GHCR publish on `PUBLISH_DOCKER=true`.
+- **CI** (`.github/workflows/ci.yml`): lockfile freshness, lint+format+type, unit tests with the configured coverage floor, OpenAPI validation, complexity and security checks, documentation checks, and Docker image build. Optional image publication is controlled by repository configuration.
 
 ## Key File References
 
@@ -230,24 +230,7 @@ python -m app.cli.migrate_db          # apply Alembic migrations
 
 ## Database Models
 
-SQLAlchemy 2.0 typed declarative models registered in `ALL_MODELS` (`app/db/models/__init__.py`), grouped by area:
-
-| Module | Models |
-|---|---|
-| `core.py` | `User`, `Chat`, `Request`, `TelegramMessage`, `CrawlResult`, `LLMCall`, `Summary`, `UserInteraction`, `AuditLog`, `SummaryEmbedding`, `VideoDownload`, `AudioGeneration`, `AttachmentProcessing`, `UserDevice`, `RefreshToken`, `ClientSecret` |
-| `aggregation.py` | `AggregationSession`, `AggregationSessionItem` |
-| `batch.py` | `BatchSession`, `BatchSessionItem` |
-| `collections.py` | `Collection`, `CollectionItem`, `CollectionCollaborator`, `CollectionInvite` |
-| `digest.py` | `Channel`, `ChannelCategory`, `ChannelSubscription`, `ChannelPost`, `ChannelPostAnalysis`, `DigestDelivery`, `UserDigestPreference` |
-| `repository.py` | `Repository`, `RepositoryEmbedding`, `UserGitHubIntegration` |
-| `rss.py` | `RSSFeed`, `RSSFeedSubscription`, `RSSFeedItem`, `RSSItemDelivery` |
-| `rules.py` | `WebhookSubscription`, `WebhookDelivery`, `AutomationRule`, `RuleExecutionLog`, `ImportJob`, `UserBackup` |
-| `signal.py` | `Source`, `Subscription`, `FeedItem`, `Topic`, `UserSignal` |
-| `topic_search.py` | `TopicSearchIndex` (Postgres TSVECTOR + GIN) |
-| `user_content.py` | `SummaryFeedback`, `CustomDigest`, `SummaryHighlight`, `UserGoal`, `Tag`, `SummaryTag` |
-| `webwright.py` | `WebwrightRun`, `UserBrowserSession` (Fernet-encrypted per-domain cookies; reuses `GITHUB_TOKEN_ENCRYPTION_KEY`) |
-| `git_backup.py` | `GitMirror` (bare clone state: URL, source kind, last sync, mirror path); enums `GitMirrorSource`, `GitMirrorStatus` |
-| `ai_backup.py` | `AiAccountBackup` (per-user, per-service backup lifecycle row: service, status, last run, data path); enums `AiBackupService`, `AiBackupStatus` |
+SQLAlchemy 2.0 typed declarative models are registered in `ALL_MODELS` (`app/db/models/__init__.py`). The maintained 81-table module catalog and core relationship diagram live in `docs/reference/data-model.md`; use the model modules and Alembic revisions for field-level truth.
 
 `LLMCall` rows carry `attempt_index` (1-based, monotonic per `request_id`) and `attempt_trigger` (Postgres enum: `initial`, `user_retry`, `auto_backfill`, `repair_loop`, `stream_fallback_retry`, `webwright_tool`, `graph_node`, `ru_translation`, `agent`) so retries, the repair loop, and graph-node LLM calls are queryable without timestamp inference. Since the T9 cutover the summarize graph is the sole summarize path, so its summarize + repair node calls are written with `attempt_trigger='graph_node'` (the active value); `webwright_tool` and `stream_fallback_retry` remain reserved. Agent-originated calls with no parent request (repo analysis, aggregation, signal judge) are written with `attempt_trigger='agent'` and `request_id IS NULL` (nullable since migration 0051) via `app/agents/llm_call_persistence.py`.
 
@@ -255,7 +238,7 @@ Schema and migration workflow: `alembic-migrations` skill + `docs/reference/data
 
 ## Environment Variables
 
-Full reference (820 lines): `docs/reference/environment-variables.md`. Load-bearing ones:
+Full reference: `docs/reference/environment-variables.md`. Load-bearing ones:
 
 | Var | Purpose |
 |---|---|
@@ -289,6 +272,6 @@ When implementing a task, also update any CLAUDE.md or skill content that the ch
 
 ---
 
-**Last Updated:** 2026-06-18
+**Last Updated:** 2026-07-15
 
 Reading order for orientation: this file → `docs/SPEC.md` → relevant `docs/explanation/*.md` or `docs/reference/*.md` → matching `.claude/skills/<name>/SKILL.md` or `.codex/skills/<name>/SKILL.md` for Codex sessions.

@@ -2,7 +2,7 @@
 
 Claude Code hooks live in `.claude/settings.json` for local Claude sessions. Codex uses the checked-in `.codex/hooks.json` plus scripts under `.codex/hooks/`.
 
-The Codex hook set is the maintained repo adaptation. It preserves the useful Claude behavior, but removes stale SQLite-era checks and points prompts at the current PostgreSQL, Telethon, FastAPI, and Vite stack.
+The Codex hook set is the maintained repo adaptation. It preserves the useful Claude behavior, removes stale SQLite-era checks, and points prompts at the current PostgreSQL, Telethon, FastAPI, and external-web-client boundaries.
 
 ## PreToolUse Hooks
 
@@ -54,7 +54,7 @@ Automatically injects helpful context based on prompt keywords:
 - **summary validate**: Links to `app/core/summary_contract.py`
 - **firecrawl / openrouter / api**: Points to adapter files and the `debugging-apis` skill
 - **test / cli**: Links to the CLI runner and `testing-workflows` skill
-- **frontend / web / react / vite**: Points to `web/src`, FastAPI `/web`, and the `web-frontend-dev` skill
+- **frontend / web / react / vite**: Points to the external `ratatoskr-web` source, local FastAPI `/web` serving, and the `web-frontend-dev` skill
 
 ## Customizing
 

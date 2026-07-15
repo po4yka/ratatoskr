@@ -14,7 +14,7 @@ Codex command prompts live in `.codex/commands/`; they adapt the Claude Code sla
 
 ## Project Overview
 
-Async Telegram bot that summarizes web articles, YouTube videos, and forwarded channel posts. Returns structured JSON summaries with a strict contract. Single Docker container, owner-only access.
+Async Telegram bot that summarizes web articles, YouTube videos, and forwarded channel posts. Returns structured JSON summaries with a strict contract. Runs as a Docker Compose service set with owner-first access controls.
 
 **Stack:** Python 3.13+, Telethon, Scrapling/Firecrawl/Playwright (scraper chain), OpenRouter (LLM), PostgreSQL 16 via SQLAlchemy 2.0 + asyncpg (Alembic migrations), Qdrant (vector store), Taskiq (Redis-backed worker), FastAPI, React 18 + TypeScript + Vite (Frost web frontend).
 
@@ -29,12 +29,12 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 | Layer | Location | Purpose |
 |-------|----------|---------|
 | Telegram | `app/adapters/telegram/` | Bot orchestration, routing, commands |
-| Content | `app/adapters/content/` | Scraper chain (Scrapling -> Defuddle -> Firecrawl -> Playwright -> Crawlee -> direct HTTP) |
+| Content | `app/adapters/content/` | Platform extraction and the ordered 13-provider scraper chain documented in `docs/explanation/scraper-chain.md` |
 | YouTube | `app/adapters/youtube/` | yt-dlp download, transcript extraction |
 | Twitter/X | `app/adapters/twitter/` | Firecrawl + Playwright extraction |
 | GitHub | `app/adapters/github/`, `app/tasks/github_sync.py`, `app/api/routers/repositories.py`, `app/api/routers/auth/github.py` | GitHub repo ingestion, daily stars sync (cron `0 2 * * *` UTC), structured-output repo analysis, semantic search via `repository_embeddings` + Qdrant. Tokens encrypted at rest with Fernet (`cryptography`). See `docs/explanation/github-repository-ingestion.md`. |
 | Git backup | `app/adapters/git_backup/`, `app/config/git_backup.py`, `app/db/models/git_backup.py`, `app/tasks/git_backup_sync.py`, `app/api/routers/git_mirrors.py`, `app/adapters/telegram/command_handlers/git_mirror_handler.py` | On-disk `git clone --mirror` backup of full git history for GitHub-linked and arbitrary git repos. Distinct from the GitHub API metadata path above (which never clones to disk). Bare clones stored under `GIT_BACKUP_DATA_PATH`; Taskiq cron job `ratatoskr.git_backup.sync`; `/mirror` and `/mirrors` Telegram commands; `/v1/git-mirrors` REST endpoints. |
-| LLM | `app/adapters/llm/`, `app/adapters/openrouter/` | LLM interface (OpenRouter); summary workflow uses the `SummaryContractDescriptor` default contract bundle for schema/prompt/repair response formats |
+| LLM | `app/adapters/llm/`, `app/adapters/openrouter/` | LLM protocol and OpenRouter/OpenAI/Anthropic/Ollama adapters; the summary workflow uses the `SummaryContractDescriptor` default bundle |
 | Agents | `app/agents/` | Classic agent wrappers (web search, repo analysis, multi-source aggregation) |
 | Domain | `app/domain/` | Business models and domain services |
 | Application | `app/application/` | DTOs, ports, use cases, and application services |
@@ -67,8 +67,8 @@ Telegram/API -> MessageRouter -> URL/Forward Handler -> ScraperChain -> LLM -> S
 
 | Need | Start here | Contract / failure doc |
 |------|------------|------------------------|
-| Auth and sessions | `app/api/routers/auth/`, `app/api/routers/auth/tokens.py`, `app/api/routers/auth/cookies.py`, `app/infrastructure/persistence/repositories/auth_repository.py`, `app/db/models/core.py::RefreshToken` | `docs/reference/mobile-api.md#authentication-modes`, `docs/reference/troubleshooting.md#refresh-token-stops-working` |
-| API contracts | `app/api/main.py`, `app/api/models/`, `app/api/routers/`, `tools/scripts/generate_openapi.py`, `docs/openapi/mobile_api.yaml` | `docs/reference/openapi-contract-workflow.md`, `docs/reference/mobile-api.md#api-surface-freeze-policy` |
+| Auth and sessions | `app/api/routers/auth/`, `app/api/routers/auth/tokens.py`, `app/api/routers/auth/cookies.py`, `app/infrastructure/persistence/repositories/auth_repository.py`, `app/db/models/core.py::RefreshToken` | `docs/reference/mobile-api.md#authentication`, `docs/reference/troubleshooting.md#refresh-token-stops-working` |
+| API contracts | `app/api/main.py`, `app/api/models/`, `app/api/routers/`, `tools/scripts/generate_openapi.py`, `docs/openapi/mobile_api.yaml` | `docs/reference/openapi-contract-workflow.md`, `docs/reference/mobile-api.md` |
 | Sync v2 | `app/api/routers/sync.py`, `app/api/services/sync/`, `app/infrastructure/persistence/sync_aux_read_adapter.py` | `docs/reference/sync-protocol.md`, `docs/reference/troubleshooting.md#sync-conflicts` |
 | Request processing stuck | Sole path is the summarize graph: `app/adapters/content/graph_url_processor.py` (`GraphURLProcessor.handle_url_flow`), graph spine `app/application/graphs/summarize/` (`graph.py` + `nodes/`, especially `ingest`/`extract`/`persist`/`notify`), `app/adapters/content/platform_extraction/lifecycle.py`, `app/db/models/core.py::RequestProcessingJob` | `docs/reference/troubleshooting.md#request-stuck-in-processing` |
 | LLM parse / repair | Validation + repair are graph nodes: `app/application/graphs/summarize/nodes/validate.py` and `repair.py`, backed by `app/application/services/summarization/llm_response_workflow_attempts.py` + `llm_response_workflow_repair.py` + `graph_llm.py`, and `app/core/summary_contract.py`; `app/prompts/manager.py` for prompt binding | `docs/reference/troubleshooting.md#json-parsing-failures`, `docs/reference/summary-contract.md` |
@@ -103,7 +103,7 @@ bash tools/scripts/build-and-deploy-pi.sh --help
 - **Linting:** Ruff (see `pyproject.toml`)
 - **Type checking:** mypy (`python_version = "3.13"`)
 - **Pre-commit hooks:** ruff -> isort -> mypy
-- **Testing:** pytest + pytest-asyncio. Test DB helpers in `tests/db_helpers.py`
+- **Testing:** pytest + pytest-asyncio. Test DB helpers in `tests/db_helpers_async.py`
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`)
 
 ## Key Rules
@@ -116,14 +116,14 @@ bash tools/scripts/build-and-deploy-pi.sh --help
 6. Validate summary JSON with `app/core/summary_contract.py`
 7. Database changes require migration via `app/cli/migrate_db.py` + docs/SPEC.md update
 8. State scope explicitly when giving an instruction; don't expect silent generalization across items
-9. Tell the agent what to do, not what to avoid (e.g., "use `tests/db_helpers.py`" vs. "don't write new fixtures")
+9. Tell the agent what to do, not what to avoid (e.g., "use `tests/db_helpers_async.py`" vs. "don't write new fixtures")
 10. Front-load the full task spec on the first turn; iterative refinement loses context against multi-step plans
 11. Make independent tool calls in parallel; sequence only when one result determines the next call's parameters
 12. Read code before asserting its behavior; cite `file:line` for non-obvious claims
 
 ## Database
 
-PostgreSQL via SQLAlchemy 2.0 + asyncpg. Typed declarative models live under `app/db/models/` (split by area: `core.py`, `aggregation.py`, `batch.py`, `collections.py`, `digest.py`, `repository.py`, `rss.py`, `rules.py`, `signal.py`, `topic_search.py`, `user_content.py`) and are aggregated through `app/db/models/__init__.py::ALL_MODELS`. `Database` (`app/db/session.py`) is the sole DB entry point and exposes async sessions/transactions; full-text search runs on a Postgres `TSVECTOR` + GIN column. Schema migrations are managed by Alembic (`app/db/alembic/versions/`) and applied with `python -m app.cli.migrate_db`.
+PostgreSQL uses SQLAlchemy 2.0 + asyncpg. Typed declarative models live under `app/db/models/` and are aggregated through `app/db/models/__init__.py::ALL_MODELS`; the complete current catalog is in `docs/reference/data-model.md`. `Database` (`app/db/session.py`) is the sole DB entry point and exposes async sessions/transactions; full-text search uses PostgreSQL `TSVECTOR` + GIN indexes. Alembic migrations live in `app/db/alembic/versions/` and are applied with `python -m app.cli.migrate_db --apply`.
 
 ## Summary JSON Contract
 

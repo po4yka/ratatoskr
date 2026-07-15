@@ -42,7 +42,7 @@ def main() -> None:
 
     if any(term in prompt for term in ("frontend", "web", "react", "vite", "/web")):
         context.append(
-            "CONTEXT: The React + TypeScript + Vite frontend is under `web/src` and served by FastAPI at `/web`; use the web-frontend-dev skill."
+            "CONTEXT: Editable React + TypeScript + Vite source lives in the external `ratatoskr-web` repository; this repo owns FastAPI `/web` serving and compiled `app/static/web/` assets. Use the web-frontend-dev skill."
         )
 
     if any(term in prompt for term in ("test", "cli")):

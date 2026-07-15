@@ -6,8 +6,8 @@ Welcome to the Ratatoskr documentation. This guide helps you find the right docu
 
 ## Documentation freshness
 
-- Last documentation refresh: **2026-05-23**
-- This refresh aligns docs with the current summary-contract descriptor registry, paired prompt/schema loading, owner diagnostics service split, vector reconciliation adapter seam, repository-analysis persistence port, Taskiq runtime bundles, LLM provider protocol/factory behavior, social observability/privacy guardrails, and the existing LangGraph / GitHub ingestion docs.
+- Last documentation audit: **2026-07-15**
+- This audit reconciles the docs with current routes, 81 SQLAlchemy tables, the sole LangGraph summary path, the 13-provider scraper chain, Taskiq scheduling, the external web-client repository, and the generated API/MCP surfaces.
 
 ## Documentation by Audience
 
@@ -39,14 +39,14 @@ You want to contribute code, customize the bot, or understand the architecture.
 
 1. [Architecture Overview](explanation/architecture-overview.md) - Component diagram, request lifecycle, subsystem index
 2. [Local Development Tutorial](guides/local-development.md) - Set up dev environment
-3. [Frontend Web Guide](reference/frontend-web.md) - web app architecture and workflows
+3. [Frontend Web Integration](reference/frontend-web.md) - backend serving and API contract
 4. [Architecture Overview § Layering quick reference](explanation/architecture-overview.md#layering-quick-reference) - Why ports and adapters
 5. [SPEC.md](SPEC.md) - Technical specification
 6. [CLAUDE.md](../CLAUDE.md) - AI assistant guide (comprehensive codebase overview)
 
 **Next steps**:
 
-- [Multi-Agent Architecture](explanation/multi-agent-architecture.md) - LLM pipeline design
+- [Graph and Agent Architecture](explanation/multi-agent-architecture.md) - summary workflow and focused agents
 - [Explanation docs](README.md#explanation-understanding-oriented) - Design rationale
 
 ### 🔧 I'm an Operator
@@ -74,14 +74,14 @@ You want to submit pull requests or improve the project.
 **Start here**:
 
 1. [Local Development Tutorial](guides/local-development.md)
-2. Code standards: See [CLAUDE.md § Code Standards](../CLAUDE.md#code-standards)
+2. Code standards: See [CLAUDE.md § Code Standards & CI](../CLAUDE.md#code-standards--ci)
 
 **Next steps**:
 
 - [SPEC.md](SPEC.md) - Technical specification
 - [Architecture Overview § Layering quick reference](explanation/architecture-overview.md#layering-quick-reference) - Code organization
 - [Scraper chain explainer](explanation/scraper-chain.md) - Provider taxonomy, fallback logic, and deployment topology
-- [Frontend Web Guide](reference/frontend-web.md) - web app architecture and design shim notes
+- [Frontend Web Integration](reference/frontend-web.md) - backend serving contract and external source ownership
 
 ### 🔌 I'm an Integrator
 
@@ -146,7 +146,7 @@ You want to integrate Ratatoskr with other tools or build a client.
 
 - **Get the high-level picture** → [Architecture Overview](explanation/architecture-overview.md)
 - **Understand the layer rationale** → [Architecture Overview § Layering quick reference](explanation/architecture-overview.md#layering-quick-reference)
-- **Understand the multi-agent pipeline** → [Multi-Agent Architecture](explanation/multi-agent-architecture.md)
+- **Understand the summary graph and focused agents** → [Graph and Agent Architecture](explanation/multi-agent-architecture.md)
 - **Understand design decisions** → [Design Philosophy](explanation/design-philosophy.md)
 - **See the full technical spec** → [SPEC.md](SPEC.md)
 
@@ -155,10 +155,10 @@ You want to integrate Ratatoskr with other tools or build a client.
 **I want to...**
 
 - **Set up local dev environment** → [Local Development Tutorial](guides/local-development.md)
-- **Run web app locally** → [Frontend Web Guide](reference/frontend-web.md#local-development)
-- **Run tests** → [Local Development Tutorial § Running Tests](guides/local-development.md)
-- **Run web static checks** → [Frontend Web Guide](reference/frontend-web.md#quality-checks)
-- **Add a new feature** → [CLAUDE.md § Adding a New Feature](../CLAUDE.md#common-tasks)
+- **Work on the web client** → [Frontend Web Integration](reference/frontend-web.md)
+- **Run tests** → [Local Development Tutorial § Validation](guides/local-development.md#validation)
+- **Validate a web release** → Run the checks in the external `ratatoskr-web` repository, then follow [Frontend Web Integration](reference/frontend-web.md)
+- **Add a new feature** → [CLAUDE.md § Operating Rules](../CLAUDE.md#operating-rules)
 - **Understand the codebase** → [CLAUDE.md](../CLAUDE.md) (AI assistant guide, comprehensive)
 
 ### 🔌 Integrating
@@ -212,7 +212,7 @@ Technical facts, API specs, and complete references.
 | [SPEC.md](SPEC.md) | Complete technical specification | Developers, Integrators |
 | [Environment Variables](reference/environment-variables.md) | Full configuration reference (250+ vars) | All |
 | [Mobile API Reference](reference/mobile-api.md) | REST API specification | Integrators |
-| [Frontend Web Guide](reference/frontend-web.md) | web app architecture, auth, and workflows | Developers, Integrators |
+| [Frontend Web Integration](reference/frontend-web.md) | FastAPI serving contract and external frontend ownership | Developers, Integrators |
 | [OpenAPI Schema](openapi/) | Machine-readable API spec | Integrators |
 | [Summary Contract](reference/summary-contract.md) | JSON output format (35+ fields) | Developers, Integrators |
 | [Database Schema](SPEC.md#database-schema) | Database tables and relationships | Developers, Integrators |
@@ -222,7 +222,6 @@ Technical facts, API specs, and complete references.
 | [Optional YAML Config](reference/config-file.md) | Optional YAML configuration reference | Operators |
 | [Data Model](reference/data-model.md) | PostgreSQL schema and SQLAlchemy 2.0 model reference | Developers |
 | [Digest Subsystem Ops](reference/digest-subsystem-ops.md) | Channel digest operations reference | Operators |
-| [Visual Regression](reference/visual-regression.md) | Visual regression testing reference | Developers |
 
 ### Explanation (Understanding-Oriented)
 
@@ -232,7 +231,7 @@ Background, context, and "why" discussions.
 | ------------- | ------------- | ---------- |
 | [Architecture Overview](explanation/architecture-overview.md) | Component diagram, request lifecycle, subsystem index | Operators, Developers, Integrators |
 | [Hexagonal Architecture](explanation/architecture-overview.md#layering-quick-reference) | Why ports and adapters (see Architecture Overview) | Developers |
-| [Multi-Agent Architecture](explanation/multi-agent-architecture.md) | Why specialized agents | Developers |
+| [Graph and Agent Architecture](explanation/multi-agent-architecture.md) | Deterministic summary graph and focused agents | Developers |
 | [GitHub Repository Ingestion](explanation/github-repository-ingestion.md) | GitHub stars sync, LLM analysis, semantic search | Developers, Integrators |
 | [FAQ](explanation/faq.md) | Frequently asked questions | All |
 | [Observability Strategy](explanation/observability-strategy.md) | Observability and telemetry strategy | Operators, Developers |
@@ -241,11 +240,11 @@ Background, context, and "why" discussions.
 
 ### Tasks (Planning-Oriented)
 
-Project planning, roadmap, and task tracking.
+Current repository task tracking.
 
 | Document | Description | Audience |
 | ---------- | ------------- | ---------- |
-| [Roadmap Priorities](tasks/roadmap-priorities.md) | Project roadmap and priorities | Developers, Operators |
+| [Task Board](tasks/README.md) | Canonical issue-note workflow and query views | Developers, Operators |
 
 ---
 
@@ -269,9 +268,9 @@ Project planning, roadmap, and task tracking.
 | File | Description | When to Read |
 | ------ | ------------- | -------------- |
 | [Mobile API Reference](reference/mobile-api.md) | REST API spec, including aggregation endpoints | Building mobile client |
-| [Frontend Web Guide](reference/frontend-web.md) | Web routes/auth/build details | Building or debugging web UI |
+| [Frontend Web Integration](reference/frontend-web.md) | Serving/API boundary with the external web client | Building or releasing web UI |
 | [Architecture Overview § Layering](explanation/architecture-overview.md#layering-quick-reference) | Architecture guide (layering section) | Understanding code structure |
-| [multi-agent-architecture.md](explanation/multi-agent-architecture.md) | Multi-agent LLM | Understanding summarization pipeline |
+| [multi-agent-architecture.md](explanation/multi-agent-architecture.md) | Summary graph and focused agents | Understanding LLM workflows |
 | [mcp-server.md](reference/mcp-server.md) | MCP integration | Integrating with AI agents |
 | [claude-code-hooks.md](reference/claude-code-hooks.md) | Safety hooks | Understanding dev workflow |
 
@@ -283,15 +282,15 @@ Project planning, roadmap, and task tracking.
 
 - **Correlation ID**: Unique identifier (`UUID`) tying together Telegram messages, database requests, API calls, and logs
 - **Summary Contract**: Strict JSON schema (35+ fields) that all LLM summaries must follow
-- **Firecrawl**: Managed web scraping API used for content extraction
+- **Firecrawl**: Self-hosted scraper sidecar used as one extraction rung
 - **OpenRouter**: Multi-model LLM routing service (supports DeepSeek, Qwen, Kimi, GPT-4, Claude, etc.)
 - **Hexagonal Architecture**: Design pattern separating core logic from adapters (Telegram, Firecrawl, database)
-- **Multi-Agent Pipeline**: LLM architecture with specialized agents (extraction, summarization, validation, web search)
+- **Summary Graph**: Deterministic LangGraph workflow for extraction, summarization, validation/repair, persistence, and notification
 - **MCP Server**: Model Context Protocol server exposing Ratatoskr to AI agents (Claude Desktop, etc.)
 - **Qdrant**: Vector database for semantic search
 - **Deduplication Hash**: SHA256 of normalized URL to prevent re-processing same article
 
-See the [Architecture Overview](explanation/architecture-overview.md) for an annotated component diagram, the [SPEC.md](SPEC.md) data-model and API contracts, and the [Multi-Agent Architecture](explanation/multi-agent-architecture.md) explanation for the LLM pipeline-specific terms.
+See the [Architecture Overview](explanation/architecture-overview.md) for the component map, [SPEC.md](SPEC.md) for system invariants, and [Graph and Agent Architecture](explanation/multi-agent-architecture.md) for LLM workflow terms.
 
 ---
 
@@ -305,30 +304,30 @@ See the [Architecture Overview](explanation/architecture-overview.md) for an ann
 | **Architecture** | [Architecture Overview](explanation/architecture-overview.md), [Layering quick reference](explanation/architecture-overview.md#layering-quick-reference) |
 | **Backup** | [How to backup and restore](guides/backup-and-restore.md), [Troubleshooting § Database](reference/troubleshooting.md#database-issues) |
 | **Qdrant** | [How to setup Qdrant](guides/setup-qdrant-vector-search.md), [Troubleshooting § Qdrant](reference/troubleshooting.md#qdrant-issues) |
-| **Configuration** | [Environment Variables](reference/environment-variables.md), [FAQ § Configuration](explanation/faq.md#configuration) |
-| **Cost optimization** | [FAQ § Cost Optimization](explanation/faq.md#cost-optimization) |
+| **Configuration** | [Environment Variables](reference/environment-variables.md), [FAQ](explanation/faq.md) |
+| **Cost optimization** | [Optimize Performance](guides/optimize-performance.md) |
 | **Database** | [SPEC.md § Database Schema](SPEC.md#database-schema), [Troubleshooting § Database](reference/troubleshooting.md#database-issues) |
 | **Debugging** | [Troubleshooting](reference/troubleshooting.md), [SPEC.md § Correlation IDs](SPEC.md#correlation-ids) |
 | **Deployment** | [Deploy to Production](guides/deploy-production.md), [Quickstart Tutorial](guides/quickstart.md) |
-| **Docker** | [Deploy to Production](guides/deploy-production.md), [FAQ § Installation](explanation/faq.md#installation) |
+| **Docker** | [Deploy to Production](guides/deploy-production.md), [FAQ](explanation/faq.md) |
 | **Firecrawl** | [Scraper chain explainer](explanation/scraper-chain.md), [Troubleshooting](reference/troubleshooting.md) |
-| **Installation** | [Deploy to Production](guides/deploy-production.md), [FAQ § Installation](explanation/faq.md#installation) |
-| **LLM providers and models** | [Environment Variables](reference/environment-variables.md), [Optional YAML Configuration](reference/config-file.md), [FAQ § Configuration](explanation/faq.md#can-i-use-openai-instead-of-openrouter), [FAQ § Cost](explanation/faq.md#what-are-the-cheapest-models-that-work-well) |
+| **Installation** | [Deploy to Production](guides/deploy-production.md), [FAQ](explanation/faq.md) |
+| **LLM providers and models** | [LLM Providers](reference/llm-providers.md), [Optional YAML Configuration](reference/config-file.md), [Optimize Performance](guides/optimize-performance.md) |
 | **MCP Server** | [reference/mcp-server.md](reference/mcp-server.md), [Troubleshooting § MCP](reference/troubleshooting.md#mcp-server-issues) |
 | **Mobile API** | [Mobile API Reference](reference/mobile-api.md), [First Mobile API Client Tutorial](guides/first-mobile-api-client.md) |
 | **Mixed-source aggregation** | [SPEC.md](SPEC.md), [Mobile API Reference](reference/mobile-api.md), [Environment Variables](reference/environment-variables.md) |
-| **Multi-agent** | [multi-agent-architecture.md](explanation/multi-agent-architecture.md) |
+| **Graph and agents** | [multi-agent-architecture.md](explanation/multi-agent-architecture.md) |
 | **OpenRouter** | [Environment Variables](reference/environment-variables.md), [Troubleshooting § OpenRouter](reference/troubleshooting.md#openrouter-issues) |
 | **Performance** | [How to optimize performance](guides/optimize-performance.md), [Troubleshooting § Performance](reference/troubleshooting.md#performance-issues) |
 | **Redis** | [How to setup Redis](guides/setup-redis-caching.md), [Troubleshooting § Redis](reference/troubleshooting.md#redis-issues) |
 | **Search** | [SPEC.md § Search](SPEC.md#search), [How to setup Qdrant](guides/setup-qdrant-vector-search.md) |
-| **Security** | [FAQ § Security](explanation/faq.md#security) |
-| **Social integrations** | [Social Integrations](reference/social-integrations.md), [Environment Variables](reference/environment-variables.md#social-integrations), [Observability Strategy](explanation/observability-strategy.md#social-integration-metrics) |
+| **Security** | [FAQ](explanation/faq.md), [Secret Rotation](runbooks/secret-rotation.md) |
+| **Social integrations** | [Social Integrations](reference/social-integrations.md), [Environment Variables](reference/environment-variables.md#optional-integrations), [Observability Strategy](explanation/observability-strategy.md) |
 | **Summary contract** | [Summary Contract](reference/summary-contract.md), [Summary Contract Design](explanation/summary-contract-design.md) |
-| **Testing** | [Local Development Tutorial § Testing](guides/local-development.md), [CLAUDE.md § Testing](../CLAUDE.md#testing) |
+| **Testing** | [Local Development Tutorial § Validation](guides/local-development.md#validation), [CLAUDE.md § Code Standards & CI](../CLAUDE.md#code-standards--ci) |
 | **Troubleshooting** | [Troubleshooting](reference/troubleshooting.md), [FAQ](explanation/faq.md) |
 | **Web interface** | [Frontend Web Guide](reference/frontend-web.md), [README.md](../README.md) |
-| **Web search** | [How to enable web search](guides/enable-web-search.md), [FAQ § Web Search](explanation/faq.md#web-search) |
+| **Web search** | [How to enable web search](guides/enable-web-search.md), [FAQ](explanation/faq.md) |
 | **YouTube** | [How to configure YouTube](guides/configure-youtube-download.md), [Troubleshooting § YouTube](reference/troubleshooting.md#youtube-issues) |
 
 ---
@@ -343,6 +342,6 @@ Found a typo? Documentation unclear? Want to add a tutorial?
 
 ---
 
-**Last Updated**: 2026-05-23
+**Last Updated**: 2026-07-15
 
 **Questions?** Check [FAQ](explanation/faq.md) or open an [issue](https://github.com/po4yka/ratatoskr/issues).
