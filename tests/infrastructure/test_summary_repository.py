@@ -282,10 +282,15 @@ async def test_summary_repository_bulk_delete_skips_cross_user_ids(database: Dat
         database, repo, user_id=7302, url="https://bulk.example/delete-other"
     )
 
-    assert (
-        await repo.async_bulk_soft_delete_summaries(user_id=7301, summary_ids=[owned, other]) == 1
-    )
-    assert await repo.async_bulk_soft_delete_summaries(user_id=7301, summary_ids=[other]) == 0
+    result = await repo.async_bulk_soft_delete_summaries(user_id=7301, summary_ids=[owned, other])
+    assert result.deleted_count == 1
+    owned_summary = await repo.async_get_summary_by_id(owned)
+    assert owned_summary is not None
+    assert result.request_ids == (owned_summary["request_id"],)
+
+    missing_result = await repo.async_bulk_soft_delete_summaries(user_id=7301, summary_ids=[other])
+    assert missing_result.deleted_count == 0
+    assert missing_result.request_ids == ()
 
     async with database.session() as session:
         rows = await session.execute(

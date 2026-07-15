@@ -26,6 +26,17 @@ class SummaryFinalizeResult(NamedTuple):
     version: int
 
 
+class BulkSummaryDeleteResult(NamedTuple):
+    """Owned rows soft-deleted by one repository transaction.
+
+    Returning the request IDs found by the ownership query lets callers remove
+    the matching vector points without re-reading every summary individually.
+    """
+
+    deleted_count: int
+    request_ids: tuple[int, ...]
+
+
 @runtime_checkable
 class SummaryRepositoryPort(Protocol):
     """Port for summary query/update operations used in application use cases."""
@@ -116,9 +127,7 @@ class SummaryRepositoryPort(Protocol):
     ) -> dict[int, dict[str, Any]]:
         """Return summaries mapped by request ID."""
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Return summaries for sync operations (``since>0`` filters by cursor)."""
 
     async def async_get_summary_for_sync_apply(
@@ -162,8 +171,8 @@ class SummaryRepositoryPort(Protocol):
 
     async def async_bulk_soft_delete_summaries(
         self, *, user_id: int, summary_ids: list[int]
-    ) -> int:
-        """Bulk soft-delete summaries; return rows updated. User-scoped."""
+    ) -> BulkSummaryDeleteResult:
+        """Bulk soft-delete summaries and return owned request IDs. User-scoped."""
 
     async def async_mark_summary_as_unread(self, summary_id: int) -> None:
         """Mark summary as unread."""

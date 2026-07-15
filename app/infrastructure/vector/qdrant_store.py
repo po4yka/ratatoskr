@@ -15,6 +15,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     FilterSelector,
+    MatchAny,
     MatchValue,
     PayloadSchemaType,
     PointIdsList,
@@ -46,6 +47,7 @@ def _get_tracer() -> Any:
 # Upsert points are chunked into bounded batches so a large backfill does not
 # build one oversized request body (Qdrant streams each chunk independently).
 _UPSERT_CHUNK_SIZE = 256
+_DELETE_FILTER_CHUNK_SIZE = 100
 
 
 def _write_acknowledged(result: Any, *, wait: bool) -> bool:
@@ -842,31 +844,42 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 return VectorQueryResult.empty()
 
     def delete_by_request_id(self, request_id: int | str) -> None:
+        self.delete_by_request_ids([request_id])
+
+    def delete_by_request_ids(self, request_ids: Sequence[int | str]) -> None:
+        """Delete vectors for request IDs using bounded ``MatchAny`` filters."""
+        deduped_ids = list(dict.fromkeys(int(request_id) for request_id in request_ids))
+        if not deduped_ids:
+            return
         if not self._available:
             self.ensure_available()
         if not self._available:
             logger.warning(
-                "vector_delete_skipped", extra={"reason": "not_available", "request_id": request_id}
+                "vector_delete_skipped",
+                extra={"reason": "not_available", "request_count": len(deduped_ids)},
             )
             return
         try:
-            self._client.delete(
-                collection_name=self._collection_name,
-                points_selector=FilterSelector(
-                    filter=Filter(
-                        must=[
-                            FieldCondition(
-                                key="request_id",
-                                match=MatchValue(value=int(request_id)),
-                            )
-                        ]
-                    )
-                ),
-                wait=True,
-            )
+            for start in range(0, len(deduped_ids), _DELETE_FILTER_CHUNK_SIZE):
+                chunk = deduped_ids[start : start + _DELETE_FILTER_CHUNK_SIZE]
+                self._client.delete(
+                    collection_name=self._collection_name,
+                    points_selector=FilterSelector(
+                        filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="request_id",
+                                    match=MatchAny(any=chunk),
+                                )
+                            ]
+                        )
+                    ),
+                    wait=True,
+                )
         except Exception as exc:
             logger.error(
-                "vector_delete_failed", extra={"request_id": request_id, "error": str(exc)}
+                "vector_delete_failed",
+                extra={"request_count": len(deduped_ids), "error": str(exc)},
             )
             record_vector_write(operation="delete", status="failed")
             if self._required:

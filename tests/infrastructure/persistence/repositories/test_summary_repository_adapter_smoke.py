@@ -122,8 +122,12 @@ async def test_summary_repository_empty_database_paths() -> None:
         )
         == 0
     )
-    assert await repo.async_bulk_soft_delete_summaries(user_id=1, summary_ids=[]) == 0
-    assert await repo.async_bulk_soft_delete_summaries(user_id=1, summary_ids=[1]) == 0
+    empty_delete = await repo.async_bulk_soft_delete_summaries(user_id=1, summary_ids=[])
+    assert empty_delete.deleted_count == 0
+    assert empty_delete.request_ids == ()
+    missing_delete = await repo.async_bulk_soft_delete_summaries(user_id=1, summary_ids=[1])
+    assert missing_delete.deleted_count == 0
+    assert missing_delete.request_ids == ()
     await repo.async_mark_summary_as_read(1)
     await repo.async_mark_summary_as_unread(1)
     await repo.async_mark_summary_as_read_by_request(1)

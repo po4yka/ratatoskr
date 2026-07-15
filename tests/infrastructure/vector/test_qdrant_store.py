@@ -209,6 +209,7 @@ def test_qdrant_store_validates_inputs_and_handles_unavailable() -> None:
     assert store.replace_request_notes(1, [[0.1]], [{"request_id": 1}]) is False
     assert store.query([0.1], None, 1).hits == []
     store.delete_by_request_id(1)
+    store.delete_by_request_ids([])
     assert store.get_indexed_summary_ids() == set()
     assert store.get_indexed_repository_ids() == set()
     assert store.get_indexed_x_wiki_paths() == set()
@@ -224,6 +225,19 @@ def test_qdrant_store_validates_inputs_and_handles_unavailable() -> None:
         available_store.upsert_notes([[0.1]], [{"request_id": 1}], ids=["a", "b"])
     with pytest.raises(ValueError, match="top_k"):
         available_store.query([0.1], None, 0)
+
+
+def test_delete_by_request_ids_chunks_match_any_filters() -> None:
+    client = _Client()
+    store = _store(client)
+
+    store.delete_by_request_ids([*range(205), 0])
+
+    assert len(client.deletes) == 3
+    chunks = [call["points_selector"].filter.must[0].match.any for call in client.deletes]
+    assert [len(chunk) for chunk in chunks] == [100, 100, 5]
+    assert [request_id for chunk in chunks for request_id in chunk] == list(range(205))
+    assert all(call["wait"] is True for call in client.deletes)
 
 
 def test_qdrant_store_failure_paths_respect_required_flag() -> None:

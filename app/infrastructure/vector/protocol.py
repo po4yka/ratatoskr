@@ -107,6 +107,8 @@ class VectorStore(Protocol):
 
     def delete_by_request_id(self, request_id: int | str) -> None: ...
 
+    def delete_by_request_ids(self, request_ids: Sequence[int | str]) -> None: ...
+
     def get_indexed_summary_ids(
         self,
         *,

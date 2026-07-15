@@ -166,15 +166,12 @@ class SummaryReadModelUseCase:
                 raise ValueError(
                     f"bulk_delete accepts at most {self._BULK_MAX_IDS} ids; got {len(deduped)}"
                 )
-            request_ids = await self._request_ids_for_owned_summaries(
+            result = await self._summary_repo.async_bulk_soft_delete_summaries(
                 user_id=user_id, summary_ids=deduped
             )
-            deleted = await self._summary_repo.async_bulk_soft_delete_summaries(
-                user_id=user_id, summary_ids=deduped
-            )
-            if deleted:
-                await self._delete_vectors_by_request_ids(request_ids)
-            return deleted
+            if result.deleted_count:
+                await self._delete_vectors_by_request_ids(list(result.request_ids))
+            return result.deleted_count
 
     async def get_summary_by_id_for_user(
         self, user_id: int, summary_id: int
@@ -358,32 +355,15 @@ class SummaryReadModelUseCase:
                 comment=comment,
             )
 
-    async def _request_ids_for_owned_summaries(
-        self, *, user_id: int, summary_ids: list[int]
-    ) -> list[int]:
-        request_ids: list[int] = []
-        seen: set[int] = set()
-        for summary_id in summary_ids:
-            summary = await self.get_summary_by_id_for_user(user_id=user_id, summary_id=summary_id)
-            request_id = summary.get("request_id") if summary else None
-            if request_id is None:
-                continue
-            request_id_int = int(request_id)
-            if request_id_int not in seen:
-                seen.add(request_id_int)
-                request_ids.append(request_id_int)
-        return request_ids
-
     async def _delete_vectors_by_request_ids(self, request_ids: list[int]) -> None:
         vector_store = self._vector_store
-        if vector_store is None:
+        if vector_store is None or not request_ids:
             return
-        for request_id in request_ids:
-            try:
-                await asyncio.to_thread(vector_store.delete_by_request_id, request_id)
-            except Exception:
-                logger.warning(
-                    "summary_vector_delete_failed",
-                    extra={"request_id": request_id},
-                    exc_info=True,
-                )
+        try:
+            await asyncio.to_thread(vector_store.delete_by_request_ids, request_ids)
+        except Exception:
+            logger.warning(
+                "summary_vector_delete_failed",
+                extra={"request_count": len(request_ids)},
+                exc_info=True,
+            )
