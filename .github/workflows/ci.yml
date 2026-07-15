@@ -744,9 +744,9 @@ jobs:
             --lockfile=uv.lock
 
   docker-build:
-    name: Docker - Build smoke test
+    name: Docker - Pi ARM64 build smoke test
     needs: prepare-environment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     permissions:
       contents: read
@@ -782,6 +782,7 @@ jobs:
         with:
           context: .
           file: ops/docker/Dockerfile
+          platforms: linux/arm64
           push: false
           load: false
           cache-from: type=gha,scope=bot-${{ runner.arch }},timeout=5m

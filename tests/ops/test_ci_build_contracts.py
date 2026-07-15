@@ -36,7 +36,7 @@ def test_buildkit_cache_exports_are_scoped_small_and_time_bounded() -> None:
     builds = {
         "bot-${{ runner.arch }}": _docker_build_step(ci_jobs["docker-build"]),
         "api-${{ runner.arch }}": _docker_build_step(ci_jobs["docker-api-browser-smoke"]),
-        "release-multiarch": _docker_build_step(release_jobs["push-docker-tag"]),
+        "release-${{ matrix.arch }}": _docker_build_step(release_jobs["build-docker-platform"]),
     }
 
     for scope, step in builds.items():
@@ -45,6 +45,42 @@ def test_buildkit_cache_exports_are_scoped_small_and_time_bounded() -> None:
         assert inputs["cache-to"] == (
             f"type=gha,scope={scope},mode=min,timeout=5m,ignore-error=true"
         )
+
+
+def test_pi_smoke_and_release_build_on_native_architectures() -> None:
+    ci_jobs = _workflow("ci.yml")["jobs"]
+    pi_smoke = ci_jobs["docker-build"]
+    assert pi_smoke["runs-on"] == "ubuntu-24.04-arm"
+    assert _docker_build_step(pi_smoke)["with"]["platforms"] == "linux/arm64"
+
+    release_jobs = _workflow("release.yml")["jobs"]
+    platform_build = release_jobs["build-docker-platform"]
+    assert platform_build["strategy"]["matrix"]["include"] == [
+        {
+            "arch": "amd64",
+            "platform": "linux/amd64",
+            "runner": "ubuntu-24.04",
+        },
+        {
+            "arch": "arm64",
+            "platform": "linux/arm64",
+            "runner": "ubuntu-24.04-arm",
+        },
+    ]
+    assert platform_build["runs-on"] == "${{ matrix.runner }}"
+
+    build_inputs = _docker_build_step(platform_build)["with"]
+    assert build_inputs["platforms"] == "${{ matrix.platform }}"
+    assert "push-by-digest=true" in build_inputs["outputs"]
+
+    publish = release_jobs["push-docker-tag"]
+    assert publish["needs"] == "build-docker-platform"
+    publish_commands = "\n".join(str(step.get("run", "")) for step in publish["steps"])
+    assert "docker buildx imagetools create" in publish_commands
+    assert "DOCKER_METADATA_OUTPUT_JSON" in publish_commands
+
+    workflow_text = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "docker/setup-qemu-action" not in workflow_text
 
 
 def test_docker_builds_are_path_aware_and_browser_smoke_stays_in_buildkit() -> None:
