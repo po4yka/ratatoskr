@@ -178,14 +178,23 @@ def test_bundled_summary_validators_enforce_their_documented_modes(tmp_path: Pat
         strict = scripts / "validate-summary.py"
         compatibility = scripts / "validate-with-project.py"
 
-        assert subprocess.run(
-            [sys.executable, str(strict), str(complete)], cwd=ROOT, check=False
-        ).returncode == 0
-        assert subprocess.run(
-            [sys.executable, str(strict), str(incomplete)], cwd=ROOT, check=False
-        ).returncode == 1
-        assert subprocess.run(
-            [sys.executable, str(compatibility), str(incomplete)],
-            cwd=ROOT,
-            check=False,
-        ).returncode == 0
+        assert (
+            subprocess.run(
+                [sys.executable, str(strict), str(complete)], cwd=ROOT, check=False
+            ).returncode
+            == 0
+        )
+        assert (
+            subprocess.run(
+                [sys.executable, str(strict), str(incomplete)], cwd=ROOT, check=False
+            ).returncode
+            == 1
+        )
+        assert (
+            subprocess.run(
+                [sys.executable, str(compatibility), str(incomplete)],
+                cwd=ROOT,
+                check=False,
+            ).returncode
+            == 0
+        )

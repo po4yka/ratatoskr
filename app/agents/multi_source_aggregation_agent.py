@@ -31,7 +31,6 @@ from app.agents._aggregation_utils import (
 )
 from app.agents.base_agent import AgentResult, BaseAgent
 from app.agents.llm_call_persistence import persist_agent_llm_call
-from app.core.content_cleaner import wrap_untrusted_source
 from app.application.dto.aggregation import (
     AggregatedClaim,
     AggregatedContradiction,
@@ -46,6 +45,7 @@ from app.application.dto.aggregation import (
     SourceCoverageEntry,
     SourceExtractionItemResult,
 )
+from app.core.content_cleaner import wrap_untrusted_source
 from app.domain.models.source import AggregationItemStatus, AggregationSessionStatus
 from app.prompts.file_cache import read_prompt_text
 

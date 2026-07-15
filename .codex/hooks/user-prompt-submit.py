@@ -30,7 +30,9 @@ def main() -> None:
             "CONTEXT: Ratatoskr uses PostgreSQL through `app/db/session.py`; use the inspecting-database skill for query patterns."
         )
 
-    if "summary" in prompt and any(term in prompt for term in ("validate", "validation", "check", "contract")):
+    if "summary" in prompt and any(
+        term in prompt for term in ("validate", "validation", "check", "contract")
+    ):
         context.append(
             "CONTEXT: Summary contracts live in `app/core/summary_contract.py`; use the validating-summaries skill."
         )

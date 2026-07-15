@@ -33,7 +33,9 @@ def main() -> None:
     )
     if not file_path.endswith(".py"):
         return
-    if not os.path.exists(file_path) or any(part in file_path for part in ("venv", ".venv", "build", "dist")):
+    if not os.path.exists(file_path) or any(
+        part in file_path for part in ("venv", ".venv", "build", "dist")
+    ):
         return
 
     root = Path(__file__).resolve().parents[2]

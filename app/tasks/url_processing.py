@@ -323,6 +323,8 @@ async def _run_url_task_with_lease_renewal(
         with contextlib.suppress(asyncio.CancelledError):
             await processing_task
         raise
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

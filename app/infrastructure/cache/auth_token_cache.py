@@ -21,9 +21,7 @@ logger = get_logger(__name__)
 # cover any refresh-token lifetime race window.  A tombstone written here
 # prevents a later set_token call from re-caching the revoked hash as valid.
 _REVOCATION_TOMBSTONE_TTL_SECONDS = 3_600  # 1 hour
-_ROTATION_POLICY_CACHE_FIELDS = frozenset(
-    {"family_id", "parent_token_hash", "remember_me"}
-)
+_ROTATION_POLICY_CACHE_FIELDS = frozenset({"family_id", "parent_token_hash", "remember_me"})
 
 
 class AuthTokenCache:

@@ -63,6 +63,7 @@ from .diagnostics import (
     DiagnosticsSyncFailure,
     DiagnosticsVectorIndexLag,
 )
+from .digest import CustomDigestResponse
 from .graph_run_ledger import (
     GraphRunEvaluationListResponse,
     GraphRunEvaluationListSuccessResponse,
@@ -73,7 +74,6 @@ from .graph_run_ledger import (
     GraphRunLedgerResponse,
     GraphRunLedgerSuccessResponse,
 )
-from .digest import CustomDigestResponse
 from .requests import (
     DuplicateCheckData,
     DuplicateDetectionResponse,

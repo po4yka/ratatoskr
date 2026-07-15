@@ -88,9 +88,7 @@ def main() -> None:
 
     if file_path.endswith(".py"):
         content = "\n".join(
-            value
-            for key in ("new_string", "content")
-            if isinstance((value := args.get(key)), str)
+            value for key in ("new_string", "content") if isinstance((value := args.get(key)), str)
         )
         for pattern, reason in DANGEROUS_PYTHON_PATTERNS:
             if pattern in content:
@@ -108,7 +106,10 @@ def main() -> None:
             return
     for pattern, reason in WARNING_SHELL_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
-            print(f"WARNING: Potentially risky operation: {reason}. Command: {command}", file=sys.stderr)
+            print(
+                f"WARNING: Potentially risky operation: {reason}. Command: {command}",
+                file=sys.stderr,
+            )
 
 
 if __name__ == "__main__":

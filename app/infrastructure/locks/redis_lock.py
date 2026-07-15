@@ -125,9 +125,7 @@ class RedisDistributedLock:
         while True:
             await asyncio.sleep(interval)
             try:
-                result = self._client.eval(
-                    _REFRESH_SCRIPT, 1, self._key, self._token, ttl_ms
-                )
+                result = self._client.eval(_REFRESH_SCRIPT, 1, self._key, self._token, ttl_ms)
                 if inspect.isawaitable(result):
                     result = await result
             except Exception as exc:

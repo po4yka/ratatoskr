@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkabl
 
 from pydantic import ValidationError
 
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
 from app.core.repo_analysis_contract import parse_and_validate_repo_analysis
-from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.prompts.file_cache import read_prompt_text
 

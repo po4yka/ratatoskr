@@ -56,7 +56,9 @@ async def persist_agent_llm_call(
         "model": resolved_model,
         "endpoint": endpoint,
         "response_text": response_text,
-        "tokens_prompt": tokens_prompt if tokens_prompt is not None else getattr(result, "tokens_prompt", None),
+        "tokens_prompt": tokens_prompt
+        if tokens_prompt is not None
+        else getattr(result, "tokens_prompt", None),
         "tokens_completion": (
             tokens_completion
             if tokens_completion is not None

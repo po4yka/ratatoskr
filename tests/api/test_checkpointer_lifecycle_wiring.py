@@ -53,7 +53,9 @@ async def test_api_runtime_threads_checkpointer_to_url_processor(monkeypatch) ->
     monkeypatch.setattr(api_di, "build_url_processor", capture_url_processor)
 
     with pytest.raises(StopAfterUrlProcessor):
-        await api_di.build_api_runtime(config, db=database, redis_client=MagicMock(), checkpointer=saver)
+        await api_di.build_api_runtime(
+            config, db=database, redis_client=MagicMock(), checkpointer=saver
+        )
 
     assert captured["checkpointer"] is saver
 
@@ -97,7 +99,9 @@ async def test_lifespan_starts_checkpointer_before_building_api_runtime(monkeypa
         return runtime
 
     monkeypatch.setattr("app.config.load_config", lambda **_kwargs: config)
-    monkeypatch.setattr("app.infrastructure.checkpointing.CheckpointerRuntime", FakeCheckpointerRuntime)
+    monkeypatch.setattr(
+        "app.infrastructure.checkpointing.CheckpointerRuntime", FakeCheckpointerRuntime
+    )
     monkeypatch.setattr(main, "build_api_runtime", build_runtime)
     monkeypatch.setattr(main, "setup_json_logging", lambda _level: None)
     monkeypatch.setattr(main, "set_current_api_runtime", lambda _runtime: None)
