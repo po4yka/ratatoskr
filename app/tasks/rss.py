@@ -49,7 +49,6 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
             else {"new_item_ids": []}
         )
         await _run_optional_source_ingestors(cfg, runtime, correlation_id)
-        new_item_ids: list[int] = stats.get("new_item_ids", [])
         logger.info(
             "rss_poll_fetched",
             extra={
@@ -62,7 +61,7 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
 
         await _run_signal_ingestion(cfg, runtime, correlation_id)
 
-        if not new_item_ids or not cfg.rss.auto_summarize:
+        if not cfg.rss.enabled or not cfg.rss.auto_summarize:
             return
 
         delivery_service = runtime.create_delivery_service()
@@ -75,7 +74,10 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
 
             delivery_stats = await delivery_service.deliver_new_items(
                 send_message,
-                new_item_ids=new_item_ids,
+                # Query the complete undelivered ledger, not only rows inserted by
+                # this poll. A prior send failure therefore remains retryable even
+                # when the next fetch returns the item as a duplicate.
+                new_item_ids=None,
             )
             logger.info(
                 "rss_poll_delivery_complete",
@@ -87,6 +89,7 @@ async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
             "rss_poll_failed",
             extra={"cid": correlation_id, "error": str(exc)},
         )
+        raise
 
 
 async def _run_signal_ingestion(cfg: AppConfig, runtime: Any, correlation_id: str) -> None:

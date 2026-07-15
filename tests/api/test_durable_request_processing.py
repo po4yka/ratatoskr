@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -36,6 +37,8 @@ class FakeJobRepository:
         self.requeue_count = 0
         self.dead_letter_count = 0
         self.stuck_count = 0
+        self.renewed: list[dict[str, Any]] = []
+        self.renew_result = True
 
     async def enqueue(
         self,
@@ -72,6 +75,24 @@ class FakeJobRepository:
         self.succeeded.append(job_id)
         if request_id is not None:
             self.finalized_requests.append(request_id)
+
+    async def renew_lease(
+        self,
+        *,
+        job_id: int,
+        lease_owner: str,
+        lease_token: int,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        self.renewed.append(
+            {
+                "job_id": job_id,
+                "lease_owner": lease_owner,
+                "lease_token": lease_token,
+                "lease_ttl_seconds": lease_ttl_seconds,
+            }
+        )
+        return self.renew_result
 
     async def mark_failed(
         self,
@@ -532,6 +553,57 @@ async def test_worker_processes_job_successfully() -> None:
 
     assert processor.calls == [{"request_id": 42, "correlation_id": "cid-worker"}]
     assert repo.succeeded == [1]
+    assert repo.failed == []
+
+
+@pytest.mark.asyncio
+async def test_worker_renews_lease_during_long_processing() -> None:
+    repo = FakeJobRepository()
+    repo.leased.append(LeasedRequestJob(1, 42, 1, 3, "cid-renew", 7))
+
+    class SlowProcessor(FakeProcessor):
+        async def execute_request(
+            self, request_id: int, *, correlation_id: str | None = None
+        ) -> None:
+            self.calls.append({"request_id": request_id, "correlation_id": correlation_id})
+            await asyncio.sleep(0.03)
+            self._repo.summary_exists = True
+
+    queue = _queue(repo, SlowProcessor(repo))
+    queue._lease_renewal_interval_seconds = 0.01
+
+    assert await queue.run_once() is True
+
+    assert len(repo.renewed) >= 1
+    assert repo.renewed[0]["lease_token"] == 7
+    assert repo.succeeded == [1]
+
+
+@pytest.mark.asyncio
+async def test_worker_cancels_processing_when_lease_is_lost() -> None:
+    repo = FakeJobRepository()
+    repo.renew_result = False
+    repo.leased.append(LeasedRequestJob(1, 42, 1, 3, "cid-lost", 8))
+    cancelled = asyncio.Event()
+
+    class BlockingProcessor(FakeProcessor):
+        async def execute_request(
+            self, request_id: int, *, correlation_id: str | None = None
+        ) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+    queue = _queue(repo, BlockingProcessor(repo))
+    queue._lease_renewal_interval_seconds = 0.01
+
+    assert await queue.run_once() is True
+
+    assert cancelled.is_set()
+    assert len(repo.renewed) == 1
+    assert repo.succeeded == []
     assert repo.failed == []
 
 

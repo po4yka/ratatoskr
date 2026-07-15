@@ -31,10 +31,10 @@ class _FakeDeliveryService:
         self.messages: list[tuple[int, str]] = []
 
     async def deliver_new_items(
-        self, send_message: _SendMessage, *, new_item_ids: list[int]
+        self, send_message: _SendMessage, *, new_item_ids: list[int] | None
     ) -> dict[str, int]:
         await send_message(10, f"items: {new_item_ids}")
-        return {"delivered": len(new_item_ids)}
+        return {"delivered": len(new_item_ids or [])}
 
 
 class _FakeWorker:
@@ -160,11 +160,13 @@ async def test_rss_poll_body_delivers_new_items(monkeypatch: pytest.MonkeyPatch)
     assert received["concurrency"] == 7
     assert runtime.worker.limits == [5]
     assert runtime.runner.called
-    assert runtime.bot.sent == [(10, "items: [1, 2]")]
+    assert runtime.bot.sent == [(10, "items: None")]
 
 
 @pytest.mark.asyncio
-async def test_rss_poll_body_swallows_poll_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rss_poll_body_reraises_poll_errors_for_taskiq_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def fake_poll_all_feeds(
         db: object, *, limit: int | None = None, concurrency: int = 8
     ) -> dict[str, object]:
@@ -173,4 +175,24 @@ async def test_rss_poll_body_swallows_poll_errors(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("app.adapters.rss.feed_poller.poll_all_feeds", fake_poll_all_feeds)
     monkeypatch.setattr(rss, "build_rss_poll_task_runtime", lambda cfg, db: _FakeRuntime())
 
+    with pytest.raises(RuntimeError, match="down"):
+        await rss._rss_poll_body(_cfg(), Database.__new__(Database))
+
+
+@pytest.mark.asyncio
+async def test_rss_poll_body_retries_undelivered_backlog_without_new_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _FakeRuntime()
+
+    async def fake_poll_all_feeds(
+        db: object, *, limit: int | None = None, concurrency: int | None = None
+    ) -> dict[str, object]:
+        return {"new_item_ids": [], "polled": 1, "new_items": 0, "errors": 0}
+
+    monkeypatch.setattr("app.adapters.rss.feed_poller.poll_all_feeds", fake_poll_all_feeds)
+    monkeypatch.setattr(rss, "build_rss_poll_task_runtime", lambda cfg, db: runtime)
+
     await rss._rss_poll_body(_cfg(), Database.__new__(Database))
+
+    assert runtime.bot.sent == [(10, "items: None")]

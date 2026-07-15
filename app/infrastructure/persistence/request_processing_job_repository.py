@@ -29,6 +29,10 @@ logger = get_logger(__name__)
 TERMINAL_JOB_STATUSES = {"succeeded", "dead_letter"}
 
 
+class LeaseLostError(RuntimeError):
+    """Raised when a worker no longer owns the fenced processing lease."""
+
+
 @dataclass(frozen=True, slots=True)
 class LeasedRequestJob:
     id: int
@@ -762,6 +766,7 @@ class DurableRequestProcessingQueue:
         self._processor = processor
         self._max_attempts = max_attempts
         self._lease_ttl_seconds = lease_ttl_seconds
+        self._lease_renewal_interval_seconds = max(1.0, lease_ttl_seconds / 3)
         self._retry_delay_seconds = retry_delay_seconds
         self._poll_interval_seconds = poll_interval_seconds
         self._stale_processing_seconds = stale_processing_seconds
@@ -840,10 +845,7 @@ class DurableRequestProcessingQueue:
                     request_id=job.request_id,
                 )
                 return
-            await self._processor.execute_request(
-                job.request_id,
-                correlation_id=job.correlation_id,
-            )
+            await self._execute_request_with_lease_renewal(job)
             if await self._repo.has_summary(job.request_id):
                 await self._repo.mark_succeeded(
                     job.id,
@@ -869,6 +871,11 @@ class DurableRequestProcessingQueue:
             )
         except asyncio.CancelledError:
             raise
+        except LeaseLostError:
+            logger.warning(
+                "durable_request_processing_lease_lost",
+                extra={"request_id": job.request_id, "job_id": job.id},
+            )
         except Exception as exc:
             await self._repo.mark_failed(
                 job,
@@ -884,3 +891,40 @@ class DurableRequestProcessingQueue:
                 request_id=job.request_id,
                 job_id=job.id,
             )
+
+    async def _execute_request_with_lease_renewal(self, job: LeasedRequestJob) -> None:
+        processing_task = asyncio.create_task(
+            self._processor.execute_request(
+                job.request_id,
+                correlation_id=job.correlation_id,
+            )
+        )
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {processing_task}, timeout=self._lease_renewal_interval_seconds
+                )
+                if done:
+                    await processing_task
+                    return
+                renewed = await self._repo.renew_lease(
+                    job_id=job.id,
+                    lease_owner=self._owner,
+                    lease_token=job.lease_token,
+                    lease_ttl_seconds=self._lease_ttl_seconds,
+                )
+                if renewed:
+                    continue
+                processing_task.cancel()
+                try:
+                    await processing_task
+                except asyncio.CancelledError:
+                    pass
+                raise LeaseLostError(f"lease lost for request_id={job.request_id}")
+        except asyncio.CancelledError:
+            processing_task.cancel()
+            try:
+                await processing_task
+            except asyncio.CancelledError:
+                pass
+            raise
