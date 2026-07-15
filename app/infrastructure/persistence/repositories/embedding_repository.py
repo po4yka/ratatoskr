@@ -128,18 +128,33 @@ class EmbeddingRepositoryAdapter:
 
     async def async_mark_summary_embeddings_indexed(
         self,
-        summary_ids: list[int],
-    ) -> None:
-        """Mark summary embeddings as synced to Qdrant after a successful vector write."""
-        if not summary_ids:
-            return
+        expected_content_hashes: dict[int, str | None],
+    ) -> list[int]:
+        """CAS-mark embeddings synced only when their content version still matches."""
+        if not expected_content_hashes:
+            return []
         now = _utcnow()
+        indexed: list[int] = []
         async with self._database.transaction() as session:
-            await session.execute(
-                update(SummaryEmbedding)
-                .where(SummaryEmbedding.summary_id.in_(summary_ids))
-                .values(last_indexed_at=now, index_status="indexed")
-            )
+            for summary_id, expected_hash in expected_content_hashes.items():
+                hash_predicate = (
+                    SummaryEmbedding.content_hash.is_(None)
+                    if expected_hash is None
+                    else SummaryEmbedding.content_hash == expected_hash
+                )
+                result = await session.execute(
+                    update(SummaryEmbedding)
+                    .where(
+                        SummaryEmbedding.summary_id == summary_id,
+                        hash_predicate,
+                    )
+                    .values(last_indexed_at=now, index_status="indexed")
+                    .returning(SummaryEmbedding.summary_id)
+                )
+                updated_summary_id = result.scalar_one_or_none()
+                if updated_summary_id is not None:
+                    indexed.append(updated_summary_id)
+        return indexed
 
     async def async_get_summary_embedding(self, summary_id: int) -> dict[str, Any] | None:
         """Retrieve embedding for a summary."""

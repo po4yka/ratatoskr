@@ -112,6 +112,34 @@ async def test_embedding_repository_upserts_and_reads(database: Database) -> Non
 
 
 @pytest.mark.asyncio
+async def test_mark_indexed_uses_content_hash_compare_and_swap(database: Database) -> None:
+    repo = EmbeddingRepositoryAdapter(database)
+    _request, summary = await _summary(database, suffix="cas")
+    await repo.async_create_or_update_summary_embedding(
+        summary.id,
+        b"vector-v1",
+        "model-a",
+        "v1",
+        1,
+        content_hash="content-v1",
+    )
+
+    assert await repo.async_mark_summary_embeddings_indexed({summary.id: "content-v0"}) == []
+    pending = await repo.async_get_summary_embedding(summary.id)
+    assert pending is not None
+    assert pending["index_status"] == "pending"
+    assert pending["last_indexed_at"] is None
+
+    assert await repo.async_mark_summary_embeddings_indexed({summary.id: "content-v1"}) == [
+        summary.id
+    ]
+    indexed = await repo.async_get_summary_embedding(summary.id)
+    assert indexed is not None
+    assert indexed["index_status"] == "indexed"
+    assert indexed["last_indexed_at"] is not None
+
+
+@pytest.mark.asyncio
 async def test_embedding_repository_lists_all_and_recent(database: Database) -> None:
     repo = EmbeddingRepositoryAdapter(database)
     first_request, first_summary = await _summary(database, suffix="one")

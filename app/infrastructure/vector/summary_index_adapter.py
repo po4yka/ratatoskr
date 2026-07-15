@@ -12,6 +12,7 @@ the reconciler = convergence/backfill.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
@@ -97,7 +98,10 @@ class QdrantSummaryIndexAdapter:
             )
             return
         if self._embedding_repository is not None:
-            await self._embedding_repository.async_mark_summary_embeddings_indexed([summary_id])
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            await self._embedding_repository.async_mark_summary_embeddings_indexed(
+                {summary_id: content_hash}
+            )
         logger.info(
             "summary_indexed_fastpath",
             extra={

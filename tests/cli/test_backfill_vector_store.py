@@ -154,7 +154,7 @@ async def test_backfill_vector_store_batches_chunk_window_embeddings(
         async_get_summary_embeddings=AsyncMock(
             return_value=[{"summary_id": 101, "embedding_blob": b"exists"}]
         ),
-        async_mark_summary_embeddings_indexed=AsyncMock(),
+        async_mark_summary_embeddings_indexed=AsyncMock(return_value=[101]),
         async_get_summary_embedding=AsyncMock(
             side_effect=AssertionError("backfill should use bulk embedding lookup")
         ),
@@ -186,7 +186,7 @@ async def test_backfill_vector_store_batches_chunk_window_embeddings(
     ]
     assert vector_store.deleted == []
     assert len(vector_store.replaced) == 1
-    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with([101])
+    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with({101: None})
     request_id, vectors, metadata = vector_store.replaced[0]
     assert request_id == 201
     assert vectors == [[1.0], [2.0], [3.0]]
@@ -233,7 +233,7 @@ async def test_backfill_vector_store_refetches_generated_embeddings_in_bulk(
                 [{"summary_id": 101, "embedding_blob": b"new"}],
             ]
         ),
-        async_mark_summary_embeddings_indexed=AsyncMock(),
+        async_mark_summary_embeddings_indexed=AsyncMock(return_value=[101]),
         async_get_summary_embedding=AsyncMock(
             side_effect=AssertionError("backfill should refetch generated embeddings in bulk")
         ),
@@ -260,7 +260,7 @@ async def test_backfill_vector_store_refetches_generated_embeddings_in_bulk(
         (([101],), {}),
         (([101],), {}),
     ]
-    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with([101])
+    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with({101: None})
     generator.generate_embedding_for_summary.assert_awaited_once_with(
         summary_id=101,
         payload={"summary_250": "summary"},

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -111,6 +112,9 @@ async def test_index_adapter_marks_indexed_only_after_qdrant_ack(acknowledged: b
     )
 
     if acknowledged:
-        embedding_repository.async_mark_summary_embeddings_indexed.assert_awaited_once_with([2])
+        expected_hash = hashlib.sha256(b"summary").hexdigest()
+        embedding_repository.async_mark_summary_embeddings_indexed.assert_awaited_once_with(
+            {2: expected_hash}
+        )
     else:
         embedding_repository.async_mark_summary_embeddings_indexed.assert_not_awaited()
