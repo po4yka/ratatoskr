@@ -18,6 +18,14 @@ def _run_hook(relative_path: str, payload: dict[str, object]) -> subprocess.Comp
     )
 
 
+def test_claude_project_settings_deny_env_access() -> None:
+    settings = json.loads((ROOT / ".claude/settings.json").read_text())
+
+    permissions = settings["permissions"]
+    assert permissions.get("allow", []) == []
+    assert set(permissions["deny"]) == {"Read(.env)", "Edit(.env)"}
+
+
 def test_claude_pre_tool_hook_blocks_protected_file() -> None:
     result = _run_hook(
         ".claude/hooks/pre-tool-use.py",

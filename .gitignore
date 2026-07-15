@@ -136,8 +136,7 @@ app/static/web/
 app/static/digest/
 
 # --- Claude Code ---
-# Local Claude Code settings (user-specific)
-.claude/settings.json
+# Claude Code local overrides and transient state
 .claude/settings.local.json
 .claude/worktrees/
 .claude/skills/redeploy-raspi/
