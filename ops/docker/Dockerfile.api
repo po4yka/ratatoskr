@@ -26,14 +26,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 COPY pyproject.toml uv.lock ./
 
-# Build virtual environment with API dependencies
+# Build virtual environment with API and production monitoring dependencies
 # (includes sentence-transformers for /search/semantic)
 # --compile-bytecode: pre-build .pyc at image-build time. Without it (uv's
 # default, unlike pip) every container boot recompiles all imports from source,
 # which under the API's 0.3-CPU limit + PYTHONDONTWRITEBYTECODE never finishes
 # before uvicorn startup is killed (build_api_runtime hangs importing asyncpg).
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --compile-bytecode --frozen --no-dev --extra api --extra otel --extra scheduler --extra graph
+    uv sync --compile-bytecode --frozen --no-dev --extra api --extra monitoring --extra otel --extra scheduler --extra graph
 
 # Stage 2: Runtime base - Minimal runtime environment (no build tools)
 FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS runtime-base

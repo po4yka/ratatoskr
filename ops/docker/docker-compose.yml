@@ -73,6 +73,7 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - METRICS_BEARER_TOKEN=${METRICS_BEARER_TOKEN:-}
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       # Operator-side PostgreSQL backups are owned by the pg-backup sidecar
       # below. Keep the legacy bot-local loop opt-in to avoid duplicate dumps.
@@ -928,6 +929,8 @@ services:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../monitoring/alerting_rules.yml:/etc/prometheus/alerting_rules.yml:ro
       - prometheus_data:/prometheus
+    secrets:
+      - metrics_bearer_token
     ports:
       - "127.0.0.1:9090:9090"
     depends_on:
@@ -1233,3 +1236,6 @@ volumes:
   grafana_data:
   loki_data:
   git_mirrors_data:
+secrets:
+  metrics_bearer_token:
+    environment: METRICS_BEARER_TOKEN

@@ -190,6 +190,7 @@ See [YouTube](../guides/configure-youtube-download.md) and
 | `JWT_SECRET_PREVIOUS_KEYS` | Decode-only keys during signing-key rotation. |
 | `SECRET_LOGIN_ENABLED` | Client-secret login surface. |
 | `AUTH_ARGON2_MAX_CONCURRENCY` | Per-API-process Argon2 admission limit; defaults to `2` to bound memory-hard password/client-secret work. |
+| `METRICS_BEARER_TOKEN` | Dedicated 32+ character bearer token shared by mobile-api and Prometheus for `/internal/metrics`; required when the monitoring profile is enabled. |
 | `API_RATE_LIMIT_DEFAULT` | Default API rate-limit policy. |
 | `API_RATE_LIMIT_AUTH` | Authentication endpoint limit. |
 

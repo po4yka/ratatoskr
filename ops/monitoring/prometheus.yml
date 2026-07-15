@@ -24,7 +24,10 @@ scrape_configs:
 
   # Ratatoskr Mobile API
   - job_name: 'ratatoskr-mobile-api'
-    metrics_path: '/metrics'
+    metrics_path: '/internal/metrics'
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/metrics_bearer_token
     static_configs:
       - targets: ['mobile-api:8000']
     relabel_configs:

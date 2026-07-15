@@ -29,6 +29,7 @@ from app.api.error_handlers import (
     validation_exception_handler,
 )
 from app.api.exceptions import APIException
+from app.api.metrics_auth import require_metrics_bearer
 from app.api.middleware import (
     correlation_id_middleware,
     rate_limit_middleware,
@@ -433,6 +434,16 @@ async def metrics(user: dict[str, Any] = Depends(get_current_user)) -> Any:
         content=get_metrics(),
         media_type=get_metrics_content_type(),
     )
+
+
+@app.get("/internal/metrics", include_in_schema=False)
+async def internal_metrics(_authorized: None = Depends(require_metrics_bearer)) -> Any:
+    """Prometheus scrape endpoint protected by a dedicated service token."""
+    from fastapi.responses import Response
+
+    from app.observability.metrics import get_metrics, get_metrics_content_type
+
+    return Response(content=get_metrics(), media_type=get_metrics_content_type())
 
 
 # SPA catch-all — MUST be registered last so explicit API routes win.
