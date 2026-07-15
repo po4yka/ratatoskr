@@ -85,10 +85,11 @@ COPY config ./config
 
 # Web assets are built by ratatoskr-web and deployed into app/static/web/ via CI/CD.
 
-# Create non-root user and data directory
+# Create the non-root runtime user and its writable data directory.  Keep the
+# application and virtualenv root-owned/read-only so source-only rebuilds do
+# not duplicate the virtualenv in a recursive ownership-change layer.
 RUN useradd -r -u 1000 -m -d /home/appuser -s /sbin/nologin appuser \
-    && mkdir -p /data \
-    && chown -R appuser:appuser /app /data
+    && install -d -o appuser -g appuser /data
 
 USER appuser
 

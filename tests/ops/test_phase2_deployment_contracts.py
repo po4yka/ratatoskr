@@ -8,6 +8,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 PI_DEPLOY_SCRIPT = ROOT / "tools/scripts/build-and-deploy-pi.sh"
+RUNTIME_DOCKERFILES = (
+    ROOT / "ops/docker/Dockerfile",
+    ROOT / "ops/docker/Dockerfile.api",
+)
 
 
 def _compose() -> dict[str, Any]:
@@ -27,6 +31,15 @@ def _env_map(service: dict[str, Any]) -> dict[str, str]:
         key, _, value = str(item).partition("=")
         result[key] = value
     return result
+
+
+def test_runtime_dockerfiles_do_not_duplicate_venv_for_app_ownership() -> None:
+    for path in RUNTIME_DOCKERFILES:
+        dockerfile = path.read_text(encoding="utf-8")
+
+        assert "COPY --from=builder /app/.venv /app/.venv" in dockerfile
+        assert "chown -R appuser:appuser /app" not in dockerfile
+        assert "install -d -o appuser -g appuser /data" in dockerfile
 
 
 def test_default_compose_stack_contains_core_services_without_profiles() -> None:
