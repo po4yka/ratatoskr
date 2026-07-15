@@ -837,15 +837,18 @@ class SummaryRepositoryAdapter:
             topic_rows = (
                 await session.execute(
                     text(
-                        "SELECT lower(tag) AS tag, count(*) AS cnt "
+                        "SELECT lower(tags.value #>> '{}') AS tag, count(*) AS cnt "
                         "FROM summaries s "
-                        "JOIN requests r ON r.id = s.request_id, "
-                        "jsonb_array_elements_text(s.topic_tags) AS tag "
+                        "JOIN requests r ON r.id = s.request_id "
+                        "CROSS JOIN LATERAL jsonb_array_elements("
+                        "  CASE WHEN jsonb_typeof(s.topic_tags) = 'array' "
+                        "       THEN s.topic_tags ELSE '[]'::jsonb END"
+                        ") AS tags(value) "
                         "WHERE r.user_id = :user_id "
                         "  AND s.is_deleted = false "
-                        "  AND s.topic_tags IS NOT NULL "
-                        "  AND jsonb_typeof(s.topic_tags) = 'array' "
-                        "GROUP BY lower(tag) "
+                        "  AND jsonb_typeof(tags.value) = 'string' "
+                        "  AND btrim(tags.value #>> '{}') <> '' "
+                        "GROUP BY lower(tags.value #>> '{}') "
                         "ORDER BY cnt DESC "
                         "LIMIT 10"
                     ),
@@ -913,9 +916,7 @@ class SummaryRepositoryAdapter:
     # is bounded.
     _SYNC_PAGE_SIZE: int = 500
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Get all summaries for a user for sync operations.
 
         Pages internally in _SYNC_PAGE_SIZE-row batches ordered by id so that

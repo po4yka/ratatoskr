@@ -143,6 +143,26 @@ else:
     )
 
 
+_POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "session"})
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Mark every test whose fixture closure requires the live Postgres service.
+
+    The marker is attached before pytest evaluates ``-m`` expressions. This
+    keeps mixed test modules split correctly: pure unit tests stay in the fast
+    job, while tests using the shared ``database``/``session`` fixtures or the
+    API ``db`` fixture move to the single Postgres job.
+
+    Tests that open Postgres directly without a shared fixture must declare
+    ``@pytest.mark.postgres`` explicitly.
+    """
+    for item in items:
+        if _POSTGRES_FIXTURE_NAMES.intersection(item.fixturenames):
+            item.add_marker(pytest.mark.postgres)
+
+
 @pytest.fixture(autouse=True)
 def fast_qdrant_retries(monkeypatch):
     """Skip Qdrant connect-retry sleeps so bot tests don't pay 6s/test.

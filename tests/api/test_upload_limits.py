@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routers.auth.tokens import create_access_token
-from app.db.models import User
-
-
-def _make_user(telegram_id: int, username: str) -> Any:
-    return User.create(  # type: ignore[attr-defined]
-        telegram_user_id=telegram_id,
-        username=username,
-        is_owner=False,
-    )
+from app.config import Config
 
 
 def _auth(telegram_id: int) -> dict[str, str]:
@@ -29,8 +21,10 @@ def _auth(telegram_id: int) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_import_file_too_large(client: TestClient, db):
-    user = _make_user(300001, "upload_limit_import_size")
+@pytest.mark.asyncio
+async def test_import_file_too_large(client: TestClient, db, user_factory):
+    user_id = int(Config.get_allowed_user_ids()[0])
+    user = await user_factory(telegram_user_id=user_id, username="upload_limit_import_size")
     headers = _auth(user.telegram_user_id)
 
     mock_cfg = MagicMock()
@@ -53,8 +47,10 @@ def test_import_file_too_large(client: TestClient, db):
 # ---------------------------------------------------------------------------
 
 
-def test_restore_file_too_large(client: TestClient, db):
-    user = _make_user(300002, "upload_limit_restore_size")
+@pytest.mark.asyncio
+async def test_restore_file_too_large(client: TestClient, db, user_factory):
+    user_id = int(Config.get_allowed_user_ids()[0])
+    user = await user_factory(telegram_user_id=user_id, username="upload_limit_restore_size")
     headers = _auth(user.telegram_user_id)
 
     mock_backup_cfg = MagicMock()
@@ -75,8 +71,10 @@ def test_restore_file_too_large(client: TestClient, db):
 # ---------------------------------------------------------------------------
 
 
-def test_import_too_many_bookmarks(client: TestClient, db):
-    user = _make_user(300003, "upload_limit_import_items")
+@pytest.mark.asyncio
+async def test_import_too_many_bookmarks(client: TestClient, db, user_factory):
+    user_id = int(Config.get_allowed_user_ids()[0])
+    user = await user_factory(telegram_user_id=user_id, username="upload_limit_import_items")
     headers = _auth(user.telegram_user_id)
 
     mock_cfg = MagicMock()
@@ -110,12 +108,14 @@ def test_import_too_many_bookmarks(client: TestClient, db):
 # ---------------------------------------------------------------------------
 
 
-def test_import_success(client: TestClient, db):
+@pytest.mark.asyncio
+async def test_import_success(client: TestClient, db, user_factory):
     from unittest.mock import patch as _patch
 
     from app.tasks.import_tasks import process_import_job
 
-    user = _make_user(300004, "upload_limit_import_ok")
+    user_id = int(Config.get_allowed_user_ids()[0])
+    user = await user_factory(telegram_user_id=user_id, username="upload_limit_import_ok")
     headers = _auth(user.telegram_user_id)
 
     mock_cfg = MagicMock()

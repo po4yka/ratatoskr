@@ -61,6 +61,7 @@ async def test_webhook_repository_subscription_lifecycle(database: Database) -> 
     )
     updated = await repo.async_update_subscription(
         sub["id"],
+        user_id=14001,
         name="updated",
         events=["summary.created", "summary.failed"],
         enabled=False,
@@ -69,7 +70,7 @@ async def test_webhook_repository_subscription_lifecycle(database: Database) -> 
     assert updated["events_json"] == ["summary.created", "summary.failed"]
     assert updated["enabled"] is False
 
-    await repo.async_rotate_secret(sub["id"], "new")
+    await repo.async_rotate_secret(sub["id"], "new", user_id=14001)
     await repo.async_disable_subscription(sub["id"])
     loaded = await repo.async_get_subscription_by_id(sub["id"])
     assert loaded is not None
@@ -81,7 +82,7 @@ async def test_webhook_repository_subscription_lifecycle(database: Database) -> 
         sub["id"]
     ]
 
-    await repo.async_delete_subscription(sub["id"])
+    await repo.async_delete_subscription(sub["id"], user_id=14001)
     assert await repo.async_get_user_subscriptions(14001, False) == []
 
 

@@ -7,28 +7,13 @@ import pytest
 from app.api.exceptions import ResourceNotFoundError
 from app.api.models.requests import CreateHighlightRequest, UpdateHighlightRequest
 from app.api.services.highlight_service import SummaryHighlightService
-from app.db.models import Request, Summary, SummaryHighlight, User
-
-
-def _create_summary(*, user_id: int, url_suffix: str = "summary") -> Summary:
-    request = Request.create(  # type: ignore[attr-defined]
-        user_id=user_id,
-        input_url=f"https://example.com/{url_suffix}",
-        normalized_url=f"https://example.com/{url_suffix}",
-        status="completed",
-        type="url",
-    )
-    return Summary.create(  # type: ignore[attr-defined]
-        request=request.id,
-        lang="en",
-        json_payload={"summary_250": "Short", "tldr": "TLDR", "key_ideas": ["idea"]},
-    )
+from app.db.models import SummaryHighlight
 
 
 @pytest.mark.asyncio
-async def test_highlight_service_crud_round_trip(db) -> None:
-    user = User.create(telegram_user_id=7001, username="highlight-user")  # type: ignore[attr-defined]
-    summary = _create_summary(user_id=user.telegram_user_id)
+async def test_highlight_service_crud_round_trip(db, user_factory, summary_factory) -> None:
+    user = await user_factory(telegram_user_id=7001, username="highlight-user")
+    summary = await summary_factory(user=user)
     service = SummaryHighlightService(db)
 
     created = await service.create_highlight(
@@ -60,21 +45,26 @@ async def test_highlight_service_crud_round_trip(db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_highlight_service_rejects_unowned_summary_and_missing_highlight(db) -> None:
-    owner = User.create(telegram_user_id=7002, username="owner")  # type: ignore[attr-defined]
-    other = User.create(telegram_user_id=7003, username="other")  # type: ignore[attr-defined]
-    summary = _create_summary(user_id=owner.telegram_user_id, url_suffix="owner-summary")
+async def test_highlight_service_rejects_unowned_summary_and_missing_highlight(
+    db, user_factory, summary_factory
+) -> None:
+    owner = await user_factory(telegram_user_id=7002, username="owner")
+    other = await user_factory(telegram_user_id=7003, username="other")
+    summary = await summary_factory(user=owner)
     service = SummaryHighlightService(db)
 
     with pytest.raises(ResourceNotFoundError):
         await service.list_highlights(user_id=other.telegram_user_id, summary_id=summary.id)
 
-    SummaryHighlight.create(  # type: ignore[attr-defined]
-        id=uuid.uuid4(),
-        user=owner.telegram_user_id,
-        summary=summary.id,
-        text="Owned highlight",
-    )
+    async with db.transaction() as session:
+        session.add(
+            SummaryHighlight(
+                id=uuid.uuid4(),
+                user_id=owner.telegram_user_id,
+                summary_id=summary.id,
+                text="Owned highlight",
+            )
+        )
 
     with pytest.raises(ResourceNotFoundError):
         await service.update_highlight(

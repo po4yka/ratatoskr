@@ -86,7 +86,7 @@ async def _verify_ownership(repo: Any, backup_id: int, user_id: int) -> dict[str
     backup = await repo.async_get_backup(backup_id)
     if backup is None:
         raise ResourceNotFoundError("Backup", backup_id)
-    if backup["user"] != user_id:
+    if backup.get("user_id", backup.get("user")) != user_id:
         raise ResourceNotFoundError("Backup", backup_id)
     return cast("dict[str, Any]", backup)
 

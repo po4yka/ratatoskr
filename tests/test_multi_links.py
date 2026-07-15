@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
@@ -43,9 +45,12 @@ class SpyBot(TelegramBot):
 
         if hasattr(self, "url_processor"):
 
-            async def mock_handle_url_flow(message: Any, url_text: str, **_: object) -> None:
-                self.seen_urls.append(url_text)
-                await self._safe_reply(message, f"OK {url_text}")
+            async def mock_handle_url_flow(flow_request: Any) -> None:
+                self.seen_urls.append(flow_request.url_text)
+                await self._safe_reply(
+                    flow_request.message,
+                    f"OK {flow_request.url_text}",
+                )
 
             self.url_processor.handle_url_flow = mock_handle_url_flow
 
@@ -65,6 +70,8 @@ def _make_bot(database: Database) -> SpyBot:
             preferred_lang="en",
             debug_payloads=False,
             aggregation_bundle_enabled=False,
+            aggregate_coalesce_enabled=False,
+            url_worker_enqueue_enabled=False,
         ),
     )
     from app.adapters import telegram_bot as tbmod
@@ -81,16 +88,17 @@ def _make_bot(database: Database) -> SpyBot:
 
 async def test_direct_process_multi_links(database: Database) -> None:
     bot = _make_bot(database)
-    text = "Here are two links:\nhttps://a.example/a\nhttps://b.example/b"
-    await bot._on_message(FakeMessage(text, uid=55))
-    assert "https://a.example/a" in bot.seen_urls
-    assert "https://b.example/b" in bot.seen_urls
+    text = "Here are two links:\nhttps://example.com/a\nhttps://example.com/b"
+    message = FakeMessage(text, uid=55)
+    await bot._on_message(message)
+    assert "https://example.com/a" in bot.seen_urls, message._replies
+    assert "https://example.com/b" in bot.seen_urls, message._replies
 
 
 async def test_cancel_after_direct_multi_links(database: Database) -> None:
     bot = _make_bot(database)
     bot.response_formatter.MIN_MESSAGE_INTERVAL_MS = 0
-    text = "https://a.example/a\nhttps://b.example/b\nhttps://a.example/a"  # duplicate
+    text = "https://example.com/a\nhttps://example.com/b\nhttps://example.com/a"  # duplicate
     uid = 66
     await bot._on_message(FakeMessage(text, uid=uid))
     assert len(bot.seen_urls) > 0
@@ -103,9 +111,9 @@ async def test_cancel_after_direct_multi_links(database: Database) -> None:
 async def test_document_file_processing(database: Database) -> None:
     bot = _make_bot(database)
     test_urls = [
-        "https://example1.com/article1",
-        "https://example2.com/article2",
-        "https://example3.com/article3",
+        "https://example.com/article1",
+        "https://example.com/article2",
+        "https://example.com/article3",
     ]
 
     class MockDocument:
@@ -117,13 +125,13 @@ async def test_document_file_processing(database: Database) -> None:
             super().__init__("", uid)
             self.document = MockDocument(file_name)
 
-        async def download(self) -> str:
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-                for url in test_urls:
-                    f.write(f"{url}\n")
-                return f.name
+        async def download(self, *, file_name: str) -> str:
+            await asyncio.to_thread(
+                Path(file_name).write_text,
+                "\n".join(test_urls),
+                encoding="utf-8",
+            )
+            return file_name
 
     msg = MockDocumentMessage("urls.txt", uid=77)
     await bot._on_message(msg)

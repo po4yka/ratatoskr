@@ -1,12 +1,13 @@
 import pytest
+from sqlalchemy import select
 
 from app.api.routers.auth.tokens import create_access_token
 from app.db.models import UserDevice
 
 
 @pytest.mark.asyncio
-async def test_register_new_device(client, user_factory):
-    user = user_factory(username="notif_user", telegram_user_id=123456789)
+async def test_register_new_device(client, db, user_factory):
+    user = await user_factory(username="notif_user", telegram_user_id=123456789)
     token = create_access_token(
         user_id=user.telegram_user_id, username=user.username, client_id="test_client"
     )
@@ -18,17 +19,17 @@ async def test_register_new_device(client, user_factory):
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "ok"
 
-    # Check DB
-    assert UserDevice.select().where(UserDevice.token == "fcm_token_123").exists()
-    device = UserDevice.get(UserDevice.token == "fcm_token_123")
-    assert device.user.telegram_user_id == user.telegram_user_id
+    async with db.session() as session:
+        device = await session.scalar(select(UserDevice).where(UserDevice.token == "fcm_token_123"))
+    assert device is not None
+    assert device.user_id == user.telegram_user_id
     assert device.platform == "android"
     assert device.is_active is True
 
 
 @pytest.mark.asyncio
-async def test_update_existing_device(client, user_factory):
-    user = user_factory(username="notif_user_2", telegram_user_id=987654321)
+async def test_update_existing_device(client, db, user_factory):
+    user = await user_factory(username="notif_user_2", telegram_user_id=987654321)
     token = create_access_token(
         user_id=user.telegram_user_id, username=user.username, client_id="test_client"
     )
@@ -47,13 +48,15 @@ async def test_update_existing_device(client, user_factory):
     response = client.post("/v1/notifications/device", json=payload_update, headers=headers)
     assert response.status_code == 200
 
-    device = UserDevice.get(UserDevice.token == "fcm_token_456")
+    async with db.session() as session:
+        device = await session.scalar(select(UserDevice).where(UserDevice.token == "fcm_token_456"))
+    assert device is not None
     assert device.device_id == "device_456_updated"
 
 
 @pytest.mark.asyncio
 async def test_register_device_invalid_payload(client, user_factory):
-    user = user_factory(username="notif_user_3", telegram_user_id=123456789)
+    user = await user_factory(username="notif_user_3", telegram_user_id=123456789)
     token = create_access_token(
         user_id=user.telegram_user_id, username=user.username, client_id="test_client"
     )

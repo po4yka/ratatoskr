@@ -285,7 +285,8 @@ def _safe_node_status(value: object) -> str:
 
 
 def _safe_attempt_trigger(value: object) -> str:
-    return str(value) if str(value) in _ATTEMPT_TRIGGERS else "unknown"
+    normalized = str(getattr(value, "value", value))
+    return normalized if normalized in _ATTEMPT_TRIGGERS else "unknown"
 
 
 def _safe_attempt_status(value: object) -> str | None:

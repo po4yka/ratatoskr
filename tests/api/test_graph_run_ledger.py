@@ -6,8 +6,10 @@ import datetime as dt
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
 from app.api.routers.auth.tokens import create_access_token
+from app.config import Config
 from app.core.time_utils import UTC
 from app.db.models import LLMCall, ProgressEvent, Request, Summary, SummaryFeedback, User
 
@@ -21,8 +23,9 @@ async def test_graph_run_ledger_is_owner_only_and_excludes_sensitive_values(
     client: TestClient, db
 ) -> None:
     now = dt.datetime.now(UTC)
+    owner_id = int(Config.get_allowed_user_ids()[0])
     async with db.transaction() as session:
-        owner = User(telegram_user_id=9101, username="ledger-owner", is_owner=True)
+        owner = User(telegram_user_id=owner_id, username="ledger-owner", is_owner=False)
         regular_user = User(telegram_user_id=9102, username="ledger-user", is_owner=False)
         session.add_all([owner, regular_user])
         request = Request(
@@ -93,10 +96,15 @@ async def test_graph_run_ledger_is_owner_only_and_excludes_sensitive_values(
             ]
         )
 
-    forbidden = client.get(f"/v1/admin/graph-runs/{request.id}", headers=_headers(9102))
+    forbidden = client.get(f"/v1/admin/graph-runs/{request.id}", headers=_headers(owner_id))
     assert forbidden.status_code == 403
 
-    response = client.get(f"/v1/admin/graph-runs/{request.id}", headers=_headers(9101))
+    async with db.transaction() as session:
+        await session.execute(
+            update(User).where(User.telegram_user_id == owner_id).values(is_owner=True)
+        )
+
+    response = client.get(f"/v1/admin/graph-runs/{request.id}", headers=_headers(owner_id))
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["requestId"] == request.id
@@ -142,8 +150,9 @@ async def test_graph_run_ledger_is_owner_only_and_excludes_sensitive_values(
 
 @pytest.mark.asyncio
 async def test_graph_run_evaluations_returns_bounded_feedback_join(client: TestClient, db) -> None:
+    owner_id = int(Config.get_allowed_user_ids()[0])
     async with db.transaction() as session:
-        owner = User(telegram_user_id=9201, username="evaluation-owner", is_owner=True)
+        owner = User(telegram_user_id=owner_id, username="evaluation-owner", is_owner=True)
         session.add(owner)
         request = Request(type="url", status="completed", user_id=owner.telegram_user_id)
         session.add(request)
@@ -161,7 +170,7 @@ async def test_graph_run_evaluations_returns_bounded_feedback_join(client: TestC
             )
         )
 
-    response = client.get("/v1/admin/graph-runs?limit=1", headers=_headers(9201))
+    response = client.get("/v1/admin/graph-runs?limit=1", headers=_headers(owner_id))
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["limit"] == 1

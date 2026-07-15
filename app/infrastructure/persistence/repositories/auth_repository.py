@@ -217,11 +217,18 @@ class AuthRepositoryAdapter:
         return result
 
     async def async_revoke_refresh_token(self, token_hash: str) -> bool:
-        """Revoke a refresh token by hash."""
+        """Atomically revoke an active refresh token by hash.
+
+        Returning ``False`` for an already-revoked token lets refresh rotation
+        distinguish the winner of a concurrent compare-and-set from a replay.
+        """
         async with self._database.transaction() as session:
             revoked_id = await session.scalar(
                 update(RefreshToken)
-                .where(RefreshToken.token_hash == token_hash)
+                .where(
+                    RefreshToken.token_hash == token_hash,
+                    RefreshToken.is_revoked.is_(False),
+                )
                 .values(is_revoked=True)
                 .returning(RefreshToken.id)
             )

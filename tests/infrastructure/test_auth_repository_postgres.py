@@ -150,6 +150,7 @@ async def test_auth_repository_refresh_token_sessions_and_cache(database: Databa
     assert [session["id"] for session in sessions] == [first_id]
 
     assert await repo.async_revoke_refresh_token("token-a") is True
+    assert await repo.async_revoke_refresh_token("token-a") is False
     assert await repo.async_revoke_refresh_token("missing") is False
     assert set(cache.revoked) >= {"token-a", "token-b"}
 

@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.context import correlation_id_ctx
 from app.api.exceptions import ErrorType
@@ -79,12 +79,14 @@ class RequestStatus(StrEnum):
 
 
 class PaginationInfo(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     """Pagination metadata."""
 
     total: int
     limit: int
     offset: int
-    has_more: bool = Field(serialization_alias="hasMore")
+    has_more: bool = Field(validation_alias="hasMore", serialization_alias="hasMore")
 
 
 API_CONTRACT_VERSION = "1.0.0"

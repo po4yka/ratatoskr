@@ -466,7 +466,7 @@ jobs:
             -p pytest_rerunfailures \
             -p pytest_asyncio.plugin \
             tests/ \
-            -m "not integration" \
+            -m "not integration and not postgres" \
             --ignore=tests/benchmarks \
             --ignore=tests/chaos \
             --ignore=tests/integration \
@@ -1008,7 +1008,7 @@ jobs:
           echo "::group::Running integration tests"
           pytest \
             tests/ \
-            -m "integration" \
+            -m "integration and not postgres" \
             --ignore=tests/benchmarks \
             --verbose \
             --maxfail=5 \
@@ -1231,7 +1231,7 @@ jobs:
         run: echo "No app/db or migration-related files changed; restore smoke not required."
 
   postgres-tests:
-    name: Postgres-gated Tests (parity + persistence)
+    name: PostgreSQL Tests
     needs: prepare-environment
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1285,7 +1285,7 @@ jobs:
       - name: Install test tools
         run: uv pip install --system pytest pytest-xdist pytest-rerunfailures pytest-asyncio
 
-      - name: Run Postgres-gated parity + persistence suites
+      - name: Run all PostgreSQL tests
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
@@ -1293,8 +1293,8 @@ jobs:
             -p xdist \
             -p pytest_rerunfailures \
             -p pytest_asyncio.plugin \
-            tests/parity \
-            -m "not integration" \
+            tests/ \
+            -m "postgres" \
             --verbose \
             --maxfail=10 \
             --tb=short \

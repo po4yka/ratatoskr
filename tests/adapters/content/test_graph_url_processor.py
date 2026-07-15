@@ -76,7 +76,10 @@ def _message_persistence(**over: Any) -> Any:
     written (persist-everything + IDOR rule 12).
     """
     mp = MagicMock(
-        request_repo=MagicMock(async_create_request=AsyncMock(return_value=777)),
+        request_repo=MagicMock(
+            async_create_request_once=AsyncMock(return_value=(777, True)),
+            async_update_request_correlation_id=AsyncMock(),
+        ),
         persist_message_snapshot=AsyncMock(),
     )
     for key, val in over.items():
@@ -105,7 +108,7 @@ def _facade(**over: Any) -> GraphURLProcessor:
             send_cover_message=AsyncMock(),
         ),
         "request_repo": MagicMock(
-            async_create_request=AsyncMock(return_value=777),
+            async_create_request_once=AsyncMock(return_value=(777, True)),
             async_update_request_status=AsyncMock(),
         ),
         "message_persistence": _message_persistence(),
@@ -188,7 +191,7 @@ async def test_cache_hit_short_circuits_graph(monkeypatch):
     assert result.cached is True
     run_streamed.assert_not_awaited()
     run_plain.assert_not_awaited()
-    facade.message_persistence.request_repo.async_create_request.assert_not_awaited()
+    facade.message_persistence.request_repo.async_create_request_once.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #
@@ -232,7 +235,7 @@ async def test_existing_request_mode_skips_create_snapshot_and_sync_lease(monkey
     )
 
     assert result.request_id == 123
-    message_persistence.request_repo.async_create_request.assert_not_awaited()
+    message_persistence.request_repo.async_create_request_once.assert_not_awaited()
     message_persistence.persist_message_snapshot.assert_not_awaited()
     lease_repo.record_synchronous_start.assert_not_awaited()
     lease_repo.record_synchronous_outcome.assert_not_awaited()
@@ -705,7 +708,9 @@ async def test_summarize_text_request_empty_summary_finalizes_processing_request
 
     assert result.success is False
     request_repo.async_update_request_error.assert_awaited_once()
-    assert request_repo.async_update_request_error.await_args.kwargs["error_type"] == "empty_summary"
+    assert (
+        request_repo.async_update_request_error.await_args.kwargs["error_type"] == "empty_summary"
+    )
 
 
 async def test_summarize_text_request_empty_correlation_id_falls_back(monkeypatch):
@@ -748,8 +753,8 @@ async def test_create_request_row_owner_id_snapshot_content_and_route_version(mo
     # The request row carries the owner user_id from ``from_user.id`` (NOT NULL) so
     # the IDOR ownership filter (rule 12) holds; chat_id from ``chat.id``; the input
     # message id from ``id``; content_text = the URL; route_version = the URL path's.
-    mp.request_repo.async_create_request.assert_awaited_once()
-    _, kwargs = mp.request_repo.async_create_request.call_args
+    mp.request_repo.async_create_request_once.assert_awaited_once()
+    _, kwargs = mp.request_repo.async_create_request_once.call_args
     assert kwargs["user_id"] == 30
     assert kwargs["chat_id"] == 10
     assert kwargs["input_message_id"] == 20
@@ -761,6 +766,26 @@ async def test_create_request_row_owner_id_snapshot_content_and_route_version(mo
     mp.persist_message_snapshot.assert_awaited_once()
     snap_args, _ = mp.persist_message_snapshot.call_args
     assert snap_args[0] == 777
+
+
+async def test_create_request_row_refreshes_correlation_on_dedupe_hit(monkeypatch):
+    _patch_lease(monkeypatch)
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+        plain=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+    )
+
+    repo = MagicMock(
+        async_create_request_once=AsyncMock(return_value=(777, False)),
+        async_update_request_correlation_id=AsyncMock(),
+    )
+    mp = _message_persistence(request_repo=repo)
+    facade = _facade(message_persistence=mp)
+
+    await facade.handle_url_flow(_url_request(correlation_id="cid-repeat"))
+
+    repo.async_update_request_correlation_id.assert_awaited_once_with(777, "cid-repeat")
 
 
 async def test_create_request_row_null_owner_when_no_from_user(monkeypatch):
@@ -779,7 +804,7 @@ async def test_create_request_row_null_owner_when_no_from_user(monkeypatch):
     bad_msg = SimpleNamespace(chat_id=10, id=20, sender=SimpleNamespace(id=30), sender_id=30)
     await facade.handle_url_flow(_url_request(message=bad_msg))
 
-    _, kwargs = mp.request_repo.async_create_request.call_args
+    _, kwargs = mp.request_repo.async_create_request_once.call_args
     assert kwargs["user_id"] is None
     assert kwargs["chat_id"] is None  # read from ``chat.id``, not ``chat_id``
 

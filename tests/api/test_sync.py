@@ -683,7 +683,7 @@ async def test_delta_expired_session_with_matching_etag_does_not_return_304(
     assert isinstance(first, dict)
     etag = first_response.headers["ETag"]
 
-    svc._fallback_store._sessions[session_id]["expires_at"] = "2000-01-01T00:00:00Z"
+    svc._sync_sessions[session_id]["expires_at"] = "2000-01-01T00:00:00Z"
 
     with pytest.raises(SyncSessionExpiredError):
         await delta_sync(

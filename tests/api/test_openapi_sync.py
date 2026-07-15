@@ -71,12 +71,20 @@ def _extract_app_routes(app: Any) -> set[tuple[str, str]]:
     """Return {(METHOD, path)} from the running FastAPI app."""
     routes: set[tuple[str, str]] = set()
     for route in app.routes:
-        if not (hasattr(route, "methods") and hasattr(route, "path")):
-            continue
-        for method in route.methods:
-            method_upper = method.upper()
-            if method_upper in RELEVANT_METHODS:
-                routes.add((method_upper, route.path))
+        # FastAPI 0.138+ keeps included routers lazy. Its effective contexts
+        # expose the same methods and fully-prefixed paths as eager APIRoutes.
+        effective_routes = (
+            route.effective_route_contexts()
+            if hasattr(route, "effective_route_contexts")
+            else (route,)
+        )
+        for effective_route in effective_routes:
+            if not (hasattr(effective_route, "methods") and hasattr(effective_route, "path")):
+                continue
+            for method in effective_route.methods:
+                method_upper = method.upper()
+                if method_upper in RELEVANT_METHODS:
+                    routes.add((method_upper, effective_route.path))
     return routes - IGNORED_APP_ROUTES
 
 
@@ -174,9 +182,7 @@ def spec_schemas(spec: dict[str, Any]) -> dict[str, Any]:
 def app_instance(client):  # client triggers app init side-effects
     """Return the FastAPI app after it has been properly initialised via the
     ``client`` fixture (env vars, DB, module reload)."""
-    from app.api.main import app
-
-    return app
+    return client.app
 
 
 # ---------------------------------------------------------------------------

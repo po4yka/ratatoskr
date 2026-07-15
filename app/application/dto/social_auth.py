@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
+from app.core.time_utils import format_iso_z
+
 if TYPE_CHECKING:
     from app.application.ports.social_connections import SocialConnectionRecord
 
@@ -143,4 +145,4 @@ def connection_record_to_dto(
 def _iso_or_none(value: Any) -> str | None:
     if value is None:
         return None
-    return value.isoformat()
+    return format_iso_z(value)

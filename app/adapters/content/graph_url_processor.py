@@ -755,11 +755,11 @@ class GraphURLProcessor:
         """Create/resolve the request row (idempotent on dedupe_hash) for the flow.
 
         Mirrors the legacy ``PlatformRequestLifecycle.create_request`` seam without
-        running extraction: ``async_create_request`` upserts on ``dedupe_hash`` so a
-        repeat URL resolves the existing row id, and ``persist_message_snapshot``
-        writes the ``telegram_messages`` row + User/Chat upserts (persist-everything).
-        The graph's extract node attaches its crawl results / failures to this
-        request_id.
+        running extraction: ``async_create_request_once`` resolves a repeat URL to
+        its existing row and reports the dedupe hit atomically. A hit refreshes the
+        correlation id for the active flow, while ``persist_message_snapshot`` writes
+        the ``telegram_messages`` row + User/Chat upserts (persist-everything). The
+        graph's extract node attaches its crawl results / failures to this request_id.
 
         ``chat_id`` / ``user_id`` / ``input_message_id`` are extracted at the
         Telegram boundary via ``safe_telegram_*`` exactly like the legacy lifecycle
@@ -774,7 +774,7 @@ class GraphURLProcessor:
         dedupe_hash = compute_dedupe_hash(request.url_text)
         normalized = normalize_url(request.url_text)
         chat_id, user_id, input_message_id = _message_identity(request.message)
-        req_id = await self.message_persistence.request_repo.async_create_request(
+        req_id, created = await self.message_persistence.request_repo.async_create_request_once(
             type_="url",
             correlation_id=request.correlation_id,
             chat_id=chat_id,
@@ -787,6 +787,10 @@ class GraphURLProcessor:
             route_version=URL_ROUTE_VERSION,
             initial_attempt_trigger="initial",
         )
+        if not created and request.correlation_id:
+            await self.message_persistence.request_repo.async_update_request_correlation_id(
+                req_id, request.correlation_id
+            )
         # persist-everything: snapshot the originating Telegram message (and upsert
         # the sending User / Chat) so the graph path is row-for-row identical to the
         # legacy lifecycle. Best-effort, mirroring legacy: a snapshot failure must

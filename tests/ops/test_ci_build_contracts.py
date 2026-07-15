@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import tarfile
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -145,3 +146,25 @@ def test_frontend_bundle_generation_is_deterministic(tmp_path: Path) -> None:
 
     assert first_digest == second_digest
     assert first.read_bytes() == second.read_bytes()
+
+
+def test_postgres_tests_have_one_marker_driven_ci_job() -> None:
+    pytest_config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
+        "pytest"
+    ]["ini_options"]
+    assert any(marker.startswith("postgres:") for marker in pytest_config["markers"])
+
+    jobs = _workflow("ci.yml")["jobs"]
+    unit_command = _step_named(jobs["test"], "Run unit tests with coverage")["run"]
+    integration_command = _step_named(jobs["integration-tests"], "Run integration tests")["run"]
+    postgres_command = _step_named(jobs["postgres-tests"], "Run all PostgreSQL tests")["run"]
+
+    assert '-m "not integration and not postgres"' in unit_command
+    assert '-m "integration and not postgres"' in integration_command
+    assert "tests/" in postgres_command
+    assert '-m "postgres"' in postgres_command
+    assert "tests/parity" not in postgres_command
+
+    conftest = (ROOT / "tests/conftest.py").read_text(encoding="utf-8")
+    assert "@pytest.hookimpl(tryfirst=True)" in conftest
+    assert '_POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "session"})' in conftest

@@ -43,6 +43,21 @@ Long-running request processing exposes progress as server-sent events. Request-
 
 This table is an ownership map, not an endpoint inventory. Use generated OpenAPI for paths, methods, schemas, security requirements, and status codes.
 
+## Release-critical client operations
+
+Bulk summary mutations accept `summary_ids`; mark-read and favorite operations also require a boolean `value`. Their response reports the number of `updated` records:
+
+- `POST /v1/summaries/bulk/mark-read`
+- `POST /v1/summaries/bulk/favorite`
+- `POST /v1/summaries/bulk/delete`
+- `POST /v1/articles/bulk/mark-read`
+- `POST /v1/articles/bulk/favorite`
+- `POST /v1/articles/bulk/delete`
+
+Import clients create jobs through `POST /v1/import` and list those jobs through `GET /v1/import`. Request and response schemas remain defined by generated OpenAPI.
+
+GitHub authentication clients must handle the published error codes `oauth_state_invalid`, `github_token_exchange_failed`, `github_token_invalid`, and `github_oauth_rate_limited`.
+
 ## Compatibility workflow
 
 ```bash
