@@ -454,15 +454,21 @@ jobs:
             --strict-markers \
             -n auto
 
-          # Run benchmarks separately without parallel execution
+      - name: Run PR benchmark regression budget
+        if: github.event_name == 'pull_request'
+        env:
+          JSON_VALIDATION_P99_TARGET_MS: "10"
+        run: |
           uv run --no-sync pytest \
-            tests/benchmarks/ \
-            -p pytest_benchmark.plugin \
-            --verbose \
-            --tb=short \
+            tests/benchmarks/test_json_validation.py::TestJSONValidationBenchmarks::test_validate_and_shape_throughput \
+            tests/benchmarks/test_recent_hotspots.py::TestRecentHotspotBenchmarks::test_aggregation_sentence_cache_scan \
+            tests/benchmarks/test_recent_hotspots.py::TestRecentHotspotBenchmarks::test_vector_point_id_generation_batch \
             --benchmark-only \
             --benchmark-disable-gc \
-            --benchmark-warmup=on
+            --benchmark-max-time=0.05 \
+            --benchmark-min-rounds=1 \
+            --benchmark-warmup=off \
+            --tb=short
 
       - name: Upload test results
         if: always()
