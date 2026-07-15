@@ -83,5 +83,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=release-multiarch,timeout=5m
+          cache-to: type=gha,scope=release-multiarch,mode=min,timeout=5m,ignore-error=true

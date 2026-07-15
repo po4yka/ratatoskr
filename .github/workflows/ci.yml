@@ -781,8 +781,8 @@ jobs:
           file: ops/docker/Dockerfile
           push: false
           load: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=bot-${{ runner.arch }},timeout=5m
+          cache-to: type=gha,scope=bot-${{ runner.arch }},mode=min,timeout=5m,ignore-error=true
 
   docker-api-browser-smoke:
     name: Docker API - Playwright browser smoke test
@@ -820,8 +820,8 @@ jobs:
           load: true
           tags: ratatoskr-api:smoke
           build-args: WITH_PLAYWRIGHT=1
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=api-${{ runner.arch }},timeout=5m
+          cache-to: type=gha,scope=api-${{ runner.arch }},mode=min,timeout=5m,ignore-error=true
 
       - name: Verify Chromium resolves as appuser (UID 1000)
         if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
