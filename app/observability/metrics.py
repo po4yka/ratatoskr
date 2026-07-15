@@ -27,6 +27,7 @@ Sub-module layout
 - ``metrics_scraper``         — Firecrawl + scraper chain
 - ``metrics_llm``             — OpenRouter + LLM retry budget, per-model circuit breaker
 - ``metrics_auth``            — auth/session security decisions
+- ``metrics_cache``           — shared Redis JSON cache outcomes and latency
 - ``metrics_mcp``             — MCP exposure posture
 - ``metrics_circuit_breaker`` — service-level circuit breaker gauge
 - ``metrics_twitter``         — Twitter/X extraction + generic extraction pipeline
@@ -104,6 +105,16 @@ from app.observability.metrics_auth import (
     TOKEN_FAMILY_DECISIONS_TOTAL,
     record_rate_limit_hit,
     record_token_family_decision,
+)
+
+# ---------------------------------------------------------------------------
+# Shared Redis cache
+# ---------------------------------------------------------------------------
+from app.observability.metrics_cache import (
+    REDIS_CACHE_OPERATION_LATENCY_SECONDS,
+    REDIS_CACHE_OPERATIONS_TOTAL,
+    cache_namespace_family,
+    record_redis_cache_operation,
 )
 
 # ---------------------------------------------------------------------------
@@ -441,6 +452,11 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "TOKEN_FAMILY_DECISIONS_TOTAL",
     "record_rate_limit_hit",
     "record_token_family_decision",
+    # Shared Redis cache
+    "REDIS_CACHE_OPERATIONS_TOTAL",
+    "REDIS_CACHE_OPERATION_LATENCY_SECONDS",
+    "cache_namespace_family",
+    "record_redis_cache_operation",
     # MCP
     "MCP_UNSCOPED_ENABLED",
     "set_mcp_unscoped_enabled",

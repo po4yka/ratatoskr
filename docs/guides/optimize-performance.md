@@ -55,6 +55,20 @@ python -m app.cli.reconcile_vector_index --repair
 
 Use `--dry-run` and `--limit=N` when bounding a repair. See [Vector Index Synchronization](../vector-index-sync.md).
 
+## Redis caches
+
+Tune only settings implemented by `RedisConfig`. `REDIS_ENABLED` controls the shared client and `REDIS_CACHE_ENABLED` controls the generic JSON cache. Keep `REDIS_CACHE_TIMEOUT_SEC` below the request latency budget, and adjust the cache-specific TTLs only after measuring reuse:
+
+- `REDIS_FIRECRAWL_TTL_SECONDS` and `REDIS_LLM_TTL_SECONDS` for extraction and summary results;
+- `REDIS_TRENDING_CACHE_TTL_SECONDS` for trending topics;
+- `REDIS_AUTH_TOKEN_CACHE_TTL_SECONDS` for cached authentication decisions;
+- `REDIS_BATCH_PROGRESS_TTL_SECONDS` for batch progress;
+- `REDIS_EMBEDDING_CACHE_TTL_SECONDS` for embeddings.
+
+Connection location and retry behavior are controlled by `REDIS_URL` (or `REDIS_HOST`, `REDIS_PORT`, and `REDIS_DB`), `REDIS_SOCKET_TIMEOUT`, and `REDIS_RECONNECT_INTERVAL_SEC`. `REDIS_REQUIRED` sets the deployment availability policy; generic JSON cache reads and writes remain fail-open. Token usage comes from persisted provider responses; it has no independent cache-tuning mode.
+
+Use the Redis Cache row on the provisioned Ratatoskr Overview dashboard to compare hit ratio, errors, and p95 operation latency by bounded cache namespace. The exported `ratatoskr_redis_cache_operations_total` and `ratatoskr_redis_cache_operation_latency_seconds` metrics never include Redis keys or user identifiers.
+
 ## Storage and retention
 
 Downloaded videos, attachments, raw crawl/LLM payloads, browser trajectories, backups, and vectors have different retention value. Configure subsystem retention and backup policies; do not delete authoritative PostgreSQL data to save cache space. Redis is ephemeral in the default deployment.
