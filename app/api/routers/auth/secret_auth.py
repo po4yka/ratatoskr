@@ -19,6 +19,7 @@ from app.api.exceptions import (
     ValidationError,
 )
 from app.api.models.auth import ClientSecretInfo
+from app.api.routers.auth.argon2_offload import run_argon2
 from app.config import AppConfig, Config, load_config
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
@@ -322,7 +323,7 @@ async def build_secret_record(
         else generate_secret_value()
     )
     salt = secrets.token_hex(16)
-    secret_hash = hash_secret(secret_value, salt)
+    secret_hash = await run_argon2(hash_secret, secret_value, salt)
 
     auth_repo = get_auth_repository()
     record_id = await auth_repo.async_replace_active_client_secret(

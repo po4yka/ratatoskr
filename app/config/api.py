@@ -196,6 +196,14 @@ class AuthConfig(BaseModel):
         validation_alias="CREDENTIALS_LOGIN_ARGON2_PARALLELISM",
         description="argon2id parallelism (lanes)",
     )
+    argon2_max_concurrency: int = Field(
+        default=2,
+        validation_alias="AUTH_ARGON2_MAX_CONCURRENCY",
+        description=(
+            "Maximum concurrent Argon2 operations per API process. Bounds the "
+            "memory used by password and client-secret authentication."
+        ),
+    )
     apple_client_id: str | None = Field(
         default=None,
         validation_alias="APPLE_SIGNIN_CLIENT_ID",
@@ -382,6 +390,18 @@ class AuthConfig(BaseModel):
         if parsed <= 0:
             msg = f"{info.field_name.replace('_', ' ')} must be positive"
             raise ValueError(msg)
+        return parsed
+
+    @field_validator("argon2_max_concurrency", mode="before")
+    @classmethod
+    def _validate_argon2_max_concurrency(cls, value: Any) -> int:
+        default = cls.model_fields["argon2_max_concurrency"].default
+        try:
+            parsed = int(str(value if value not in (None, "") else default))
+        except ValueError as exc:
+            raise ValueError("argon2 max concurrency must be a valid integer") from exc
+        if parsed < 1 or parsed > 8:
+            raise ValueError("argon2 max concurrency must be between 1 and 8")
         return parsed
 
 
