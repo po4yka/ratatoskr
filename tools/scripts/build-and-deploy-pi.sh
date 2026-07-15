@@ -219,25 +219,33 @@ build_and_ship() {
   set -e
   [[ $stream_exit -ne 0 ]] && echo "    (ssh exited $stream_exit -- verifying tag presence on Pi)"
 
-  # Verify each tag exists on the Pi. Cross-host SHA comparison is
-  # unreliable (buildx --load on Apple Silicon reports the manifest-list
-  # digest locally; the Pi's docker load creates a single-platform image
-  # with a different config digest), so we only assert presence here.
+  # Verify each tag resolves to THIS build on the Pi. Mere presence is not
+  # enough: while a multi-GB `docker load` is still settling (or when ssh exits
+  # 255 before the load finalizes) the tag can briefly still point at the
+  # PREVIOUS image, which then gets picked up by the recreate below (observed
+  # 2026-07-14: mobile-api recreated on the old image and crash-looped its
+  # schema-at-head gate). Cross-host image-ID comparison is unreliable (buildx
+  # --load on Apple Silicon reports the manifest-list digest locally vs a
+  # single-platform config digest on the Pi), so match the immutable
+  # `org.opencontainers.image.created` label (unique per deploy) baked in at
+  # build time instead.
   for s in "${services[@]}"; do
     local tag="${COMPOSE_PROJECT}-${s}:latest"
-    local remote_id=""
-    for attempt in 1 2 3 4 5; do
-      remote_id=$(ssh -o BatchMode=yes "$RASPI_HOST" \
-        "docker image inspect ${tag} --format '{{.Id}}'" 2>/dev/null || true)
-      [[ -n "$remote_id" ]] && break
-      echo "    ${tag} probe ${attempt}/5 empty; retrying in 3s..." >&2
+    local remote_created="" remote_id=""
+    for attempt in 1 2 3 4 5 6 7 8; do
+      remote_created=$(ssh -o BatchMode=yes "$RASPI_HOST" \
+        "docker image inspect ${tag} --format '{{ index .Config.Labels \"org.opencontainers.image.created\" }}'" 2>/dev/null || true)
+      [[ "$remote_created" == "$DEPLOYED_AT" ]] && break
+      echo "    ${tag} not yet this build (created='${remote_created:-<none>}', want '${DEPLOYED_AT}'); retry ${attempt}/8 in 3s..." >&2
       sleep 3
     done
-    if [[ -z "$remote_id" ]]; then
-      echo "ERROR: ${tag} not found on Pi after streaming" >&2
+    if [[ "$remote_created" != "$DEPLOYED_AT" ]]; then
+      echo "ERROR: ${tag} on Pi is not this build (created='${remote_created:-<none>}', want '${DEPLOYED_AT}') -- docker load may have failed or stalled" >&2
       exit 1
     fi
-    echo "    ${tag} -> ${remote_id}"
+    remote_id=$(ssh -o BatchMode=yes "$RASPI_HOST" \
+      "docker image inspect ${tag} --format '{{.Id}}'" 2>/dev/null || true)
+    echo "    ${tag} -> ${remote_id} (created ${remote_created})"
   done
 }
 
@@ -293,6 +301,38 @@ tag_running_image_as_previous() {
     else \
       echo '    no running container; previous tag unchanged'; \
     fi"
+}
+
+restart_service_verified() {
+  # `compose up --force-recreate` can land on a STALE image if the :latest tag
+  # was not yet settled when it ran (see the build_and_ship note). That verify
+  # already blocks until the tag is this build, but confirm here too and retry:
+  # after recreate the running container's image must equal the current :latest.
+  # Same-host image-ID comparison is reliable (unlike the cross-host case), so
+  # compare the container's .Image to the :latest .Id directly.
+  local svc=$1
+  local latest_tag="${COMPOSE_PROJECT}-${svc}:latest"
+  local attempt verdict
+  for attempt in 1 2 3; do
+    # `|| true`: a transient ssh drop during recreate must not abort under
+    # `set -e`; the verify below (NO_CONTAINER / MISMATCH) drives the retry.
+    ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}" || true
+    verdict=$(ssh -o BatchMode=yes "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+      CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null); \
+      [ -n \"\$CID\" ] || { echo NO_CONTAINER; exit 0; }; \
+      RUN_IMG=\$(docker inspect --format '{{.Image}}' \"\$CID\" 2>/dev/null); \
+      LATEST_IMG=\$(docker image inspect '${latest_tag}' --format '{{.Id}}' 2>/dev/null); \
+      if [ -n \"\$RUN_IMG\" ] && [ \"\$RUN_IMG\" = \"\$LATEST_IMG\" ]; then echo MATCH; \
+      else echo \"MISMATCH run=\${RUN_IMG:-none} latest=\${LATEST_IMG:-none}\"; fi" 2>/dev/null || true)
+    if [[ "$verdict" == MATCH ]]; then
+      echo "    ${svc} confirmed running on current ${latest_tag}"
+      return 0
+    fi
+    echo "    ${svc} recreate landed on stale/no image (${verdict}); retry ${attempt}/3 in 4s..." >&2
+    sleep 4
+  done
+  echo "ERROR: ${svc} did not come up on ${latest_tag} after 3 recreate attempts" >&2
+  exit 1
 }
 
 rollback_service_image() {
@@ -364,7 +404,7 @@ elif [[ $RESTART -eq 1 ]]; then
       tag_running_image_as_previous "$svc"
     fi
     echo "==> Restarting ${svc} on ${RASPI_HOST} (project: ${COMPOSE_PROJECT})"
-    ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}"
+    restart_service_verified "$svc"
 
     # Workaround for a `compose up --no-deps --force-recreate` quirk observed
     # 2026-05-24: mobile-api ended up attached to only the external
