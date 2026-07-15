@@ -448,8 +448,6 @@ jobs:
             --maxfail=10 \
             --tb=short \
             --strict-markers \
-            --reruns=3 \
-            --reruns-delay=1 \
             -n auto
 
           # Run benchmarks separately without parallel execution
@@ -971,9 +969,7 @@ jobs:
             --maxfail=5 \
             --tb=short \
             --strict-markers \
-            --timeout=60 \
-            --reruns=2 \
-            --reruns-delay=2 || EXIT_CODE=$?
+            --timeout=60 || EXIT_CODE=$?
 
           # Exit code 5 means no tests collected (no integration tests marked)
           # This is acceptable - treat as success
@@ -1255,9 +1251,7 @@ jobs:
             --verbose \
             --maxfail=10 \
             --tb=short \
-            --strict-markers \
-            --reruns=2 \
-            --reruns-delay=1
+            --strict-markers
 
   status-check:
     name: CI Status Check

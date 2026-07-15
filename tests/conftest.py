@@ -5,7 +5,7 @@ This module provides common fixtures for all tests.
 
 import os
 import socket
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -144,11 +144,79 @@ else:
 
 
 _POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "session"})
+_QUARANTINE_REQUIRED_FIELDS = frozenset({"issue", "owner", "expires"})
+_QUARANTINE_RERUNS = 2
+_QUARANTINE_RERUN_DELAY_SECONDS = 1
+
+
+def _apply_quarantine_policy(item: pytest.Item, *, today: date | None = None) -> None:
+    """Validate explicit flaky-test quarantine metadata and bound its retries."""
+    quarantines = list(item.iter_markers(name="quarantined"))
+    flaky_markers = list(item.iter_markers(name="flaky"))
+
+    if flaky_markers:
+        raise pytest.UsageError(
+            f"{item.nodeid}: @pytest.mark.flaky is managed by the test quarantine "
+            "policy; use @pytest.mark.quarantined(issue=..., owner=..., "
+            "expires='YYYY-MM-DD') instead"
+        )
+    if not quarantines:
+        return
+    if len(quarantines) != 1:
+        raise pytest.UsageError(
+            f"{item.nodeid}: exactly one @pytest.mark.quarantined marker is allowed"
+        )
+
+    quarantine = quarantines[0]
+    if quarantine.args:
+        raise pytest.UsageError(
+            f"{item.nodeid}: @pytest.mark.quarantined accepts keyword metadata only"
+        )
+
+    missing = _QUARANTINE_REQUIRED_FIELDS.difference(quarantine.kwargs)
+    if missing:
+        fields = ", ".join(sorted(missing))
+        raise pytest.UsageError(
+            f"{item.nodeid}: @pytest.mark.quarantined is missing required metadata: {fields}"
+        )
+
+    for field in ("issue", "owner"):
+        value = quarantine.kwargs[field]
+        if not isinstance(value, str) or not value.strip():
+            raise pytest.UsageError(f"{item.nodeid}: quarantine {field} must be a non-empty string")
+
+    expiry = quarantine.kwargs["expires"]
+    if not isinstance(expiry, str):
+        raise pytest.UsageError(f"{item.nodeid}: quarantine expires must use YYYY-MM-DD")
+    try:
+        expiry_date = date.fromisoformat(expiry)
+    except ValueError as error:
+        raise pytest.UsageError(
+            f"{item.nodeid}: invalid quarantine expiry {expiry!r}; expected YYYY-MM-DD"
+        ) from error
+    if expiry_date.isoformat() != expiry:
+        raise pytest.UsageError(
+            f"{item.nodeid}: invalid quarantine expiry {expiry!r}; expected YYYY-MM-DD"
+        )
+
+    current_date = today or datetime.now(timezone.utc).date()
+    if expiry_date < current_date:
+        raise pytest.UsageError(
+            f"{item.nodeid}: quarantine expired on {expiry}; either fix the test or "
+            "renew the quarantine with an issue, owner, and future expiry"
+        )
+
+    item.add_marker(
+        pytest.mark.flaky(
+            reruns=_QUARANTINE_RERUNS,
+            reruns_delay=_QUARANTINE_RERUN_DELAY_SECONDS,
+        )
+    )
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Mark every test whose fixture closure requires the live Postgres service.
+    """Apply collection policies for PostgreSQL and quarantined tests.
 
     The marker is attached before pytest evaluates ``-m`` expressions. This
     keeps mixed test modules split correctly: pure unit tests stay in the fast
@@ -159,6 +227,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     ``@pytest.mark.postgres`` explicitly.
     """
     for item in items:
+        _apply_quarantine_policy(item)
         if _POSTGRES_FIXTURE_NAMES.intersection(item.fixturenames):
             item.add_marker(pytest.mark.postgres)
 

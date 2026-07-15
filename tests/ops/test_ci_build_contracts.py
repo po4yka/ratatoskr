@@ -189,3 +189,26 @@ def test_integration_tests_start_after_environment_preparation() -> None:
     integration_job = _workflow("ci.yml")["jobs"]["integration-tests"]
 
     assert integration_job["needs"] == "prepare-environment"
+
+
+def test_test_retries_require_explicit_quarantine() -> None:
+    jobs = _workflow("ci.yml")["jobs"]
+    test_steps = (
+        ("test", "Run unit tests with coverage"),
+        ("integration-tests", "Run integration tests"),
+        ("postgres-tests", "Run all PostgreSQL tests"),
+    )
+
+    for job_name, step_name in test_steps:
+        job = jobs[job_name]
+        command = _step_named(job, step_name)["run"]
+        assert "--reruns" not in command
+        install_commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
+        assert "pytest-rerunfailures" in install_commands
+
+    pytest_config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
+        "pytest"
+    ]["ini_options"]
+    markers = pytest_config["markers"]
+    assert any(marker.startswith("quarantined(") for marker in markers)
+    assert any(marker.startswith("flaky(") for marker in markers)

@@ -441,6 +441,8 @@ markers = [
     "stress: marks stress/load tests",
     "benchmark: marks performance benchmark tests",
     "postgres: marks tests that require the live PostgreSQL service",
+    "quarantined(issue, owner, expires): temporarily retries a known flaky test with mandatory tracking metadata and a bounded expiry",
+    "flaky(reruns, reruns_delay): managed by the quarantine policy; do not apply directly",
     "contracts: marks API and schema contract consistency tests",
     "no_network: marks tests that must never perform live network I/O (enforced by the enforce_no_network fixture in tests/conftest.py, which blocks non-loopback socket connects)",
     "uses_real_yaml: opts out of the autouse stub that disables ratatoskr.yaml loading",
