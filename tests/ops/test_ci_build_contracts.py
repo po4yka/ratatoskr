@@ -206,7 +206,8 @@ def test_ci_dependency_installation_uses_lock_backed_groups() -> None:
 
     jobs = _workflow("ci.yml")["jobs"]
     lock_backed_jobs = (
-        "lint-and-format",
+        "fast-lint",
+        "openapi-contract",
         "type-check",
         "import-linter",
         "test",
@@ -220,7 +221,7 @@ def test_ci_dependency_installation_uses_lock_backed_groups() -> None:
         assert "uv sync --frozen --no-default-groups" in commands, job_name
         assert "uv pip sync --system requirements-all.txt" not in commands, job_name
 
-    for job_name in ("bandit-scan", "pip-audit-scan", "safety-scan"):
+    for job_name in ("semgrep-scan", "bandit-scan", "pip-audit-scan", "safety-scan"):
         commands = "\n".join(str(step.get("run", "")) for step in jobs[job_name]["steps"])
         assert "--only-group ci-security-tools" in commands, job_name
         assert "pip install --no-cache-dir" not in commands, job_name
@@ -228,6 +229,45 @@ def test_ci_dependency_installation_uses_lock_backed_groups() -> None:
 
     workflow_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "uv pip sync --system requirements-all.txt requirements-dev.txt" not in workflow_text
+
+
+def test_fast_lint_is_independent_from_openapi_and_semgrep() -> None:
+    jobs = _workflow("ci.yml")["jobs"]
+    assert "lint-and-format" not in jobs
+
+    fast_lint = jobs["fast-lint"]
+    assert "needs" not in fast_lint
+    fast_commands = "\n".join(str(step.get("run", "")) for step in fast_lint["steps"])
+    assert fast_commands.count("uv sync ") == 1
+    assert "uv sync --frozen --no-default-groups --only-group ci-lint" in fast_commands
+    assert "ruff check ." in fast_commands
+    assert "ruff format --check ." in fast_commands
+    assert "isort --check-only ." in fast_commands
+    assert "openapi" not in fast_commands.lower()
+    assert "semgrep" not in fast_commands.lower()
+    assert all("download-artifact" not in str(step.get("uses", "")) for step in fast_lint["steps"])
+
+    openapi = jobs["openapi-contract"]
+    assert openapi["needs"] == "prepare-environment"
+    openapi_commands = "\n".join(str(step.get("run", "")) for step in openapi["steps"])
+    assert openapi_commands.count("uv sync ") == 1
+    assert "--group ci-test" in openapi_commands
+    assert "generate_openapi.py --check" in openapi_commands
+    assert "ruff format" not in openapi_commands
+
+    semgrep = jobs["semgrep-scan"]
+    assert "needs" not in semgrep
+    semgrep_commands = "\n".join(str(step.get("run", "")) for step in semgrep["steps"])
+    assert semgrep_commands.count("uv sync ") == 1
+    assert "--only-group ci-security-tools" in semgrep_commands
+    assert "semgrep/python-mutability.yml --error app/ tests/" in semgrep_commands
+    assert "semgrep/python-bare-except.yml --error app/ tests/" in semgrep_commands
+
+    expected_jobs = {"fast-lint", "openapi-contract", "semgrep-scan"}
+    for aggregate_name in ("pr-summary", "status-check"):
+        aggregate = jobs[aggregate_name]
+        assert expected_jobs <= set(aggregate["needs"])
+        assert "lint-and-format" not in aggregate["needs"]
 
 
 def test_integration_tests_start_after_environment_preparation() -> None:

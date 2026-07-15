@@ -20727,8 +20727,7 @@
           "offset",
           "hasMore"
         ],
-        "title": "PaginationInfo",
-        "description": "Pagination metadata."
+        "title": "PaginationInfo"
       },
       "ProcessingStage": {
         "type": "string",
@@ -26938,7 +26937,6 @@
         ]
       },
       "Pagination": {
-        "description": "Pagination metadata.",
         "properties": {
           "total": {
             "title": "Total",

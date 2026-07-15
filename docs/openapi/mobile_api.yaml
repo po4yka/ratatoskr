@@ -13064,7 +13064,6 @@ components:
       - offset
       - hasMore
       title: PaginationInfo
-      description: Pagination metadata.
     ProcessingStage:
       type: string
       enum:
@@ -16889,7 +16888,6 @@ components:
       required:
       - api_version
     Pagination:
-      description: Pagination metadata.
       properties:
         total:
           title: Total
