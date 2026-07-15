@@ -758,6 +758,8 @@ jobs:
           filters: |
             docker:
               - 'ops/docker/Dockerfile'
+              - 'ops/docker/ratatoskr-web.commit'
+              - 'ops/docker/ratatoskr-web.bundle.tar.gz'
               - '.dockerignore'
               - 'app/**'
               - 'bot.py'
@@ -799,6 +801,8 @@ jobs:
           filters: |
             docker:
               - 'ops/docker/Dockerfile.api'
+              - 'ops/docker/ratatoskr-web.commit'
+              - 'ops/docker/ratatoskr-web.bundle.tar.gz'
               - '.dockerignore'
               - 'app/**'
               - 'alembic.ini'

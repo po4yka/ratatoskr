@@ -95,13 +95,18 @@ COPY alembic.ini ./
 # app/config/_secret_marker.py.
 COPY config ./config
 
-# Web assets are built by ratatoskr-web and deployed into app/static/web/ via CI/CD.
+# Extract the reviewed frontend artifact last. app/static/web is excluded from
+# the build context, so stale local assets can neither leak into nor mutate the
+# image. The archive includes .source-commit for provenance.
+ADD ops/docker/ratatoskr-web.bundle.tar.gz ./app/static/web/
 
 # Create the non-root runtime user and its writable data directory.  Keep the
 # application and virtualenv root-owned/read-only: recursively changing /app
 # would duplicate the multi-gigabyte virtualenv in a new image layer whenever
 # application sources change.
-RUN useradd -r -u 1000 -m -d /home/appuser -s /sbin/nologin appuser \
+RUN test -s /app/app/static/web/index.html \
+    && test -s /app/app/static/web/.source-commit \
+    && useradd -r -u 1000 -m -d /home/appuser -s /sbin/nologin appuser \
     && install -d -o appuser -g appuser /data
 
 # Runtime configuration

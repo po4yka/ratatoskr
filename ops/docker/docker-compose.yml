@@ -3,8 +3,6 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile
-      args:
-        VITE_TELEGRAM_BOT_USERNAME: ${VITE_TELEGRAM_BOT_USERNAME:-}
     container_name: ratatoskr-migrate
     init: true
     command: ["python", "-m", "app.cli.migrate_db"]
@@ -31,8 +29,6 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile
-      args:
-        VITE_TELEGRAM_BOT_USERNAME: ${VITE_TELEGRAM_BOT_USERNAME:-}
     container_name: ratatoskr-bot
     init: true
     env_file:
@@ -141,8 +137,6 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile
-      args:
-        VITE_TELEGRAM_BOT_USERNAME: ${VITE_TELEGRAM_BOT_USERNAME:-}
     container_name: ratatoskr-worker
     init: true
     command:
@@ -231,8 +225,6 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile
-      args:
-        VITE_TELEGRAM_BOT_USERNAME: ${VITE_TELEGRAM_BOT_USERNAME:-}
     container_name: ratatoskr-scheduler
     init: true
     command:
@@ -302,8 +294,6 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.api
-      args:
-        VITE_TELEGRAM_BOT_USERNAME: ${VITE_TELEGRAM_BOT_USERNAME:-}
     container_name: ratatoskr-mobile-api
     init: true
     tmpfs:

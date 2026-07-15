@@ -217,12 +217,11 @@ docker-deploy: docker-build docker-stop docker-run
 	@echo "=== Deployment complete ==="
 	@echo "Check logs with: make docker-logs"
 
-# Build the SPA in the sibling ratatoskr-web/ checkout and stage it into
-# app/static/web/ so the next image build bakes it via `COPY app ./app`.
-# Without this step, the mobile-api image ships an empty /web/ -- a silent
-# regression that's only caught by hitting the browser. `--delete` clears
-# stale assets that no longer ship.
-.PHONY: stage-web
+# Local-development helper: build the SPA in the sibling ratatoskr-web/
+# checkout and stage it for a directly launched FastAPI process. Docker images
+# ignore this directory and use the reviewed archive produced by `web-bundle`,
+# so release contents never depend on local ignored files.
+.PHONY: stage-web web-bundle
 WEB_REPO ?= ../ratatoskr-web
 
 stage-web:
@@ -232,6 +231,12 @@ stage-web:
 	mkdir -p app/static/web
 	rsync -a --delete "$(WEB_REPO)/dist/" app/static/web/
 	@echo "==> staged $$(du -sh app/static/web | cut -f1) into app/static/web"
+
+# Update the immutable Docker artifact from the exact frontend SHA recorded in
+# ops/docker/ratatoskr-web.commit. The script runs frontend static checks,
+# tests, and the production build before writing a deterministic archive.
+web-bundle:
+	python tools/scripts/build_web_bundle.py --web-repo "$(WEB_REPO)"
 
 # Build the arm64 image locally (Mac) and stream it to the Pi over SSH so the
 # Pi never has to run the heavy build. Override SERVICE=mobile-api to ship
@@ -258,12 +263,10 @@ pi-migrate:
 pi-rollback:
 	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE) --rollback
 
-# End-to-end: stage the freshly-built SPA into app/static/web/, then
-# build+ship+restart the four ratatoskr services (bot/worker/scheduler/
-# mobile-api) in one pass with single-build dedup for the shared Dockerfile,
-# then HTTP-smoke /web/ and /healthz from the Pi host. Fails loudly on any
-# step. Run from `ratatoskr/`; expects ratatoskr-web/ as a sibling repo.
-pi-deploy-all: stage-web
+# End-to-end: build+ship+restart the four ratatoskr services (bot/worker/
+# scheduler/mobile-api) in one pass. The image includes the reviewed SPA
+# archive, then the smoke check verifies /web/ and /healthz from the Pi host.
+pi-deploy-all:
 	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api"
 	$(MAKE) pi-smoke
 
