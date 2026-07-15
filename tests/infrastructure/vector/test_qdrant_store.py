@@ -313,3 +313,67 @@ def test_replace_summary_requires_delete_and_upsert_acknowledgements() -> None:
     unacknowledged_store = _store(unacknowledged_client)
     assert unacknowledged_store.replace_summary_point(1, "1:2", [0.1], {"request_id": 1}) is False
     assert unacknowledged_client.upserts == []
+
+
+def test_replace_summary_points_uses_bounded_delete_and_upsert_batches() -> None:
+    client = _Client()
+    store = _store(client)
+    count = 205
+    request_ids = list(range(count))
+    raw_ids = [f"{request_id}:{request_id + 1000}" for request_id in request_ids]
+    vectors = [[0.1, 0.2, 0.3] for _ in request_ids]
+    payloads = [
+        {"request_id": request_id, "summary_id": request_id + 1000, "topic_tags": []}
+        for request_id in request_ids
+    ]
+
+    assert store.replace_summary_points(request_ids, raw_ids, vectors, payloads) is True
+
+    assert len(client.deletes) == 3
+    delete_chunks = [call["points_selector"].filter.must[0].match.any for call in client.deletes]
+    assert [len(chunk) for chunk in delete_chunks] == [100, 100, 5]
+    assert [request_id for chunk in delete_chunks for request_id in chunk] == request_ids
+    assert all(call["wait"] is True for call in client.deletes)
+    assert [len(call["points"]) for call in client.upserts] == [100, 100, 5]
+    assert all(call["wait"] is True for call in client.upserts)
+    assert client.upserts[0]["points"][0].payload == payloads[0]
+
+
+def test_replace_summary_points_rejects_partial_or_unacknowledged_batch() -> None:
+    delete_failed_client = _Client()
+    delete_failed_client.delete = lambda **_kwargs: None  # type: ignore[method-assign]
+    delete_failed_store = _store(delete_failed_client)
+
+    assert (
+        delete_failed_store.replace_summary_points(
+            [1], ["1:2"], [[0.1]], [{"request_id": 1, "summary_id": 2}]
+        )
+        is False
+    )
+    assert delete_failed_client.upserts == []
+
+    partial_client = _Client()
+    completed_upserts = 0
+
+    def _partially_acknowledged_upsert(**kwargs: Any) -> Any:
+        nonlocal completed_upserts
+        partial_client.upserts.append(kwargs)
+        completed_upserts += 1
+        status = "completed" if completed_upserts == 1 else "acknowledged"
+        return SimpleNamespace(status=status)
+
+    partial_client.upsert = _partially_acknowledged_upsert  # type: ignore[method-assign]
+    partial_store = _store(partial_client)
+    request_ids = list(range(101))
+
+    assert (
+        partial_store.replace_summary_points(
+            request_ids,
+            [f"{request_id}:{request_id}" for request_id in request_ids],
+            [[0.1] for _ in request_ids],
+            [{"request_id": request_id, "summary_id": request_id} for request_id in request_ids],
+        )
+        is False
+    )
+    assert len(partial_client.deletes) == 2
+    assert len(partial_client.upserts) == 2

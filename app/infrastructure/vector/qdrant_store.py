@@ -48,6 +48,7 @@ def _get_tracer() -> Any:
 # build one oversized request body (Qdrant streams each chunk independently).
 _UPSERT_CHUNK_SIZE = 256
 _DELETE_FILTER_CHUNK_SIZE = 100
+_SUMMARY_REPLACE_CHUNK_SIZE = 100
 
 
 def _write_acknowledged(result: Any, *, wait: bool) -> bool:
@@ -650,6 +651,109 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                     extra={"request_id": request_id, "error": str(exc)},
                 )
                 record_vector_write(operation="replace", status="failed")
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
+                return False
+
+    def replace_summary_points(
+        self,
+        request_ids: Sequence[int | str],
+        raw_ids: Sequence[str],
+        vectors: Sequence[Sequence[float]],
+        payloads: Sequence[dict[str, Any]],
+    ) -> bool:
+        """Replace summary points using bounded, fully completed write batches.
+
+        Each chunk removes existing points for all included requests with one
+        ``MatchAny`` filter, then upserts the replacement points in one request.
+        The method returns ``True`` only after every delete and upsert reports
+        ``completed``. A caller persisting an indexing cursor can therefore use
+        the return value as an all-or-nothing acknowledgement contract: a
+        partial write is safe to retry, but must not advance durable state.
+
+        Summary rows have a unique ``request_id``. Enforcing that invariant at
+        this boundary prevents two chunks from deleting each other's points.
+        """
+        lengths = {len(request_ids), len(raw_ids), len(vectors), len(payloads)}
+        if len(lengths) != 1:
+            msg = "request_ids, raw_ids, vectors and payloads must have the same length"
+            raise ValueError(msg)
+        if not request_ids:
+            return True
+
+        normalized_request_ids = [int(request_id) for request_id in request_ids]
+        if len(set(normalized_request_ids)) != len(normalized_request_ids):
+            msg = "request_ids must be unique for summary replacement"
+            raise ValueError(msg)
+
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            logger.warning(
+                "vector_replace_summaries_skipped",
+                extra={"reason": "not_available", "count": len(request_ids)},
+            )
+            return False
+
+        points = [
+            PointStruct(id=_str_to_uuid(raw_id), vector=list(vector), payload=dict(payload))
+            for raw_id, vector, payload in zip(raw_ids, vectors, payloads, strict=True)
+        ]
+
+        client = self._client
+        with _get_tracer().start_as_current_span("vector.replace_batch") as span:
+            span.set_attribute(VECTOR_OPERATION, "replace_batch")
+            t0 = time.perf_counter()
+            try:
+                for start in range(0, len(points), _SUMMARY_REPLACE_CHUNK_SIZE):
+                    request_id_chunk = normalized_request_ids[
+                        start : start + _SUMMARY_REPLACE_CHUNK_SIZE
+                    ]
+                    point_chunk = points[start : start + _SUMMARY_REPLACE_CHUNK_SIZE]
+                    delete_result = client.delete(
+                        collection_name=self._collection_name,
+                        points_selector=FilterSelector(
+                            filter=Filter(
+                                must=[
+                                    FieldCondition(
+                                        key="request_id",
+                                        match=MatchAny(any=request_id_chunk),
+                                    )
+                                ]
+                            )
+                        ),
+                        wait=True,
+                    )
+                    _require_write_acknowledgement(
+                        delete_result,
+                        wait=True,
+                        operation="summary batch replace delete",
+                    )
+                    upsert_result = client.upsert(
+                        collection_name=self._collection_name,
+                        points=point_chunk,
+                        wait=True,
+                    )
+                    _require_write_acknowledgement(
+                        upsert_result,
+                        wait=True,
+                        operation="summary batch replace upsert",
+                    )
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace_batch", elapsed)
+                record_vector_write(operation="replace_batch", status="success")
+                span.set_attribute(VECTOR_STATUS, "success")
+                return True
+            except Exception as exc:
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace_batch", elapsed)
+                logger.error(
+                    "vector_replace_summaries_failed",
+                    extra={"count": len(points), "error": str(exc)},
+                )
+                record_vector_write(operation="replace_batch", status="failed")
                 span.set_attribute(VECTOR_STATUS, "error")
                 if self._required:
                     raise VectorStoreError(str(exc)) from exc

@@ -80,6 +80,16 @@ class VectorStore(Protocol):
         wait: bool = True,
     ) -> bool: ...
 
+    def replace_summary_points(
+        self,
+        request_ids: Sequence[int | str],
+        raw_ids: Sequence[str],
+        vectors: Sequence[Sequence[float]],
+        payloads: Sequence[dict[str, Any]],
+    ) -> bool:
+        """Replace summary points as one acknowledged reconciliation batch."""
+        ...
+
     def query(
         self,
         query_vector: Sequence[float],

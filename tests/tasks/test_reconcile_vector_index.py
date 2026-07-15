@@ -311,8 +311,8 @@ async def test_sync_summary_vectors_upserts_qdrant_and_marks_indexed(monkeypatch
         def __init__(self):
             self.replaced = []
 
-        def replace_summary_point(self, request_id, raw_id, vector, payload):
-            self.replaced.append((request_id, raw_id, vector, payload))
+        def replace_summary_points(self, request_ids, raw_ids, vectors, payloads):
+            self.replaced.append((request_ids, raw_ids, vectors, payloads))
             return True
 
     vector_store = FakeVectorStore()
@@ -326,7 +326,7 @@ async def test_sync_summary_vectors_upserts_qdrant_and_marks_indexed(monkeypatch
                 }
             ]
         ),
-        async_mark_summary_embeddings_indexed=AsyncMock(),
+        async_mark_summary_embeddings_indexed=AsyncMock(return_value=[11]),
     )
     embedding_service = SimpleNamespace(deserialize_embedding=lambda _blob: [0.5, 0.6])
     runtime = SimpleNamespace(
@@ -352,23 +352,122 @@ async def test_sync_summary_vectors_upserts_qdrant_and_marks_indexed(monkeypatch
     assert indexed == 1
     assert vector_store.replaced == [
         (
-            22,
-            "22:11",
-            [0.5, 0.6],
-            {
-                "entity_type": "summary",
-                "summary_id": 11,
-                "request_id": 22,
-                "language": "en",
-                "user_scope": "owner",
-                "environment": "test",
-                "title": "",
-                "url": "",
-                "source_type": "",
-                "tldr": "",
-                "topic_tags": ["ai"],
-                "summary_250": "summary",
-            },
+            [22],
+            ["22:11"],
+            [[0.5, 0.6]],
+            [
+                {
+                    "entity_type": "summary",
+                    "summary_id": 11,
+                    "request_id": 22,
+                    "language": "en",
+                    "user_scope": "owner",
+                    "environment": "test",
+                    "title": "",
+                    "url": "",
+                    "source_type": "",
+                    "tldr": "",
+                    "topic_tags": ["ai"],
+                    "summary_250": "summary",
+                }
+            ],
         )
     ]
-    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with([11])
+    expected_hash = hashlib.sha256(b"summary ai").hexdigest()
+    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with(
+        {11: expected_hash}
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_summary_vectors_leaves_concurrent_embedding_pending_on_cas_miss(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.tasks.reconcile_vector_index import _sync_summary_vectors
+
+    class FakeVectorStore:
+        available = True
+
+        def replace_summary_points(self, *_args):
+            return True
+
+    content_hash = hashlib.sha256(b"summary ai").hexdigest()
+    embedding_repo = SimpleNamespace(
+        async_get_summary_embeddings=AsyncMock(
+            return_value=[{"summary_id": 11, "embedding_blob": b"v1", "content_hash": content_hash}]
+        ),
+        # Simulates v2 replacing the row between the Qdrant write and DB mark.
+        async_mark_summary_embeddings_indexed=AsyncMock(return_value=[]),
+    )
+    runtime = SimpleNamespace(
+        vector_store=FakeVectorStore(),
+        embedding_repository=embedding_repo,
+        embedding_generator=SimpleNamespace(
+            embedding_service=SimpleNamespace(deserialize_embedding=lambda _blob: [0.1])
+        ),
+    )
+
+    indexed = await _sync_summary_vectors(
+        _build_cfg(),
+        runtime,
+        [
+            {
+                "summary_id": 11,
+                "request_id": 22,
+                "json_payload": {"summary_250": "summary", "topic_tags": ["ai"]},
+                "lang": "en",
+            }
+        ],
+    )
+
+    assert indexed == 0
+    embedding_repo.async_mark_summary_embeddings_indexed.assert_awaited_once_with(
+        {11: content_hash}
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_summary_vectors_leaves_unacknowledged_batch_pending(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.tasks.reconcile_vector_index import _sync_summary_vectors
+
+    content_hash = hashlib.sha256(b"summary ai").hexdigest()
+    vector_store = SimpleNamespace(
+        available=True,
+        replace_summary_points=MagicMock(return_value=False),
+    )
+    embedding_repo = SimpleNamespace(
+        async_get_summary_embeddings=AsyncMock(
+            return_value=[{"summary_id": 11, "embedding_blob": b"v1", "content_hash": content_hash}]
+        ),
+        async_mark_summary_embeddings_indexed=AsyncMock(return_value=[11]),
+    )
+    runtime = SimpleNamespace(
+        vector_store=vector_store,
+        embedding_repository=embedding_repo,
+        embedding_generator=SimpleNamespace(
+            embedding_service=SimpleNamespace(deserialize_embedding=lambda _blob: [0.1])
+        ),
+    )
+
+    indexed = await _sync_summary_vectors(
+        _build_cfg(),
+        runtime,
+        [
+            {
+                "summary_id": 11,
+                "request_id": 22,
+                "json_payload": {"summary_250": "summary", "topic_tags": ["ai"]},
+                "lang": "en",
+            }
+        ],
+    )
+
+    assert indexed == 0
+    vector_store.replace_summary_points.assert_called_once()
+    embedding_repo.async_mark_summary_embeddings_indexed.assert_not_awaited()
