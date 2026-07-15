@@ -750,10 +750,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      # paths-filter scopes the actual build to commits that touched Docker
-      # inputs. PRs always build; pushes to main only build when Dockerfile,
-      # app sources, lockfiles, or pyproject change. Catches Dockerfile and
-      # dependency-pin regressions before release.yml does.
+      # Build only when an input copied or consumed by this Dockerfile changes.
       - name: Detect Docker-relevant changes
         id: filter
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
@@ -761,20 +758,20 @@ jobs:
           filters: |
             docker:
               - 'ops/docker/Dockerfile'
-              - 'ops/docker/Dockerfile.api'
+              - '.dockerignore'
               - 'app/**'
               - 'bot.py'
+              - 'alembic.ini'
+              - 'config/**'
               - 'pyproject.toml'
-              - 'requirements.txt'
-              - 'requirements-dev.txt'
               - 'uv.lock'
 
       - name: Set up Docker Buildx
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Build (no push)
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
@@ -802,49 +799,29 @@ jobs:
           filters: |
             docker:
               - 'ops/docker/Dockerfile.api'
+              - '.dockerignore'
               - 'app/**'
+              - 'alembic.ini'
+              - 'config/**'
               - 'pyproject.toml'
               - 'uv.lock'
 
       - name: Set up Docker Buildx
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Build API image
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: ops/docker/Dockerfile.api
+          target: browser-smoke
           push: false
-          load: true
-          tags: ratatoskr-api:smoke
+          load: false
           build-args: WITH_PLAYWRIGHT=1
           cache-from: type=gha,scope=api-${{ runner.arch }},timeout=5m
           cache-to: type=gha,scope=api-${{ runner.arch }},mode=min,timeout=5m,ignore-error=true
-
-      - name: Verify Chromium resolves as appuser (UID 1000)
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
-        run: |
-          docker run --rm \
-            --user 1000 \
-            ratatoskr-api:smoke \
-            python -c "
-          import os, sys
-          browsers_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
-          print(f'PLAYWRIGHT_BROWSERS_PATH={browsers_path}')
-          assert browsers_path == '/ms-playwright', f'Wrong path: {browsers_path!r}'
-
-          from playwright.sync_api import sync_playwright
-          with sync_playwright() as p:
-              exe = p.chromium.executable_path
-              print(f'Chromium executable: {exe}')
-              assert exe.startswith('/ms-playwright'), f'Executable not under /ms-playwright: {exe!r}'
-              assert os.path.isfile(exe), f'Executable does not exist: {exe!r}'
-              assert os.access(exe, os.X_OK), f'Executable not executable by current user: {exe!r}'
-
-          print('Browser smoke test passed.')
-          "
 
   compose-config-check:
     name: Docker Compose - Config smoke test

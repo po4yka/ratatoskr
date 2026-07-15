@@ -35,9 +35,8 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --compile-bytecode --frozen --no-dev --extra api --extra otel --extra scheduler --extra graph
 
-# Stage 1.5: Web - Build Carbon Web App assets
-# Stage 2: Runtime - Minimal runtime environment (no build tools)
-FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS runtime
+# Stage 2: Runtime base - Minimal runtime environment (no build tools)
+FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS runtime-base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -108,3 +107,27 @@ EXPOSE 8000
 # Migration application is an explicit operator step (`make pi-migrate APPLY=1`)
 # instead of an automatic startup side effect.
 CMD ["sh", "-c", "exec uvicorn app.api.main:app --host \"${API_HOST:-0.0.0.0}\" --port \"${API_PORT:-8000}\" --workers \"${API_WORKERS:-1}\""]
+
+# CI-only target: resolve the browser while the image is still inside BuildKit.
+# This runs as appuser (inherited from runtime-base) and avoids exporting and
+# loading the multi-gigabyte runtime image merely to execute this assertion.
+FROM runtime-base AS browser-smoke
+RUN python - <<'PY'
+import os
+
+from playwright.sync_api import sync_playwright
+
+browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+assert browsers_path == "/ms-playwright", f"Wrong path: {browsers_path!r}"
+
+with sync_playwright() as playwright:
+    executable = playwright.chromium.executable_path
+    assert executable.startswith("/ms-playwright"), executable
+    assert os.path.isfile(executable), executable
+    assert os.access(executable, os.X_OK), executable
+
+print(f"Browser smoke passed as uid={os.getuid()}: {executable}")
+PY
+
+# Keep the production runtime as the Dockerfile's default final target.
+FROM runtime-base AS runtime
