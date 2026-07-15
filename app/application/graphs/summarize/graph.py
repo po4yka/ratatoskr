@@ -20,6 +20,7 @@ Contract:
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -178,6 +179,34 @@ async def recover_accumulated_llm_calls(graph: Any, config: dict[str, Any]) -> l
     return list(records) if isinstance(records, list) else []
 
 
+async def cleanup_checkpoint_thread(graph: Any, config: dict[str, Any]) -> None:
+    """Best-effort delete of one terminal graph thread's checkpoint state.
+
+    Callers invoke this only after a successful run or after terminal-failure
+    recovery and persistence. Cancellation deliberately bypasses cleanup so an
+    interrupted in-flight run remains resumable.
+    """
+    thread_id = config.get("configurable", {}).get("thread_id")
+    checkpointer = getattr(graph, "checkpointer", None)
+    if not isinstance(thread_id, str) or not thread_id or checkpointer is None:
+        return
+    try:
+        delete = getattr(checkpointer, "adelete_thread", None)
+        if not callable(delete):
+            delete = getattr(checkpointer, "delete_thread", None)
+        if not callable(delete):
+            return
+        result = delete(thread_id)
+        if inspect.isawaitable(result):
+            await result
+    except Exception:
+        logger.warning(
+            "summarize_graph_checkpoint_cleanup_failed",
+            extra={"thread_id": thread_id},
+            exc_info=True,
+        )
+
+
 def reason_code_for_exception(exc: BaseException) -> str:
     """Map a terminal exception to its failure reason code (single mapping)."""
     if isinstance(exc, CallBudgetExceeded):
@@ -270,7 +299,7 @@ async def run_summarize_graph(
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=recursion_limit)
     try:
-        return await graph.ainvoke(initial_state, config=config)
+        final_state = await graph.ainvoke(initial_state, config=config)
     except Exception as exc:
         # Single terminal sink (ADR-0011): a node exception, GraphRecursionError,
         # and CallBudgetExceeded all route here. BaseException (e.g. cancellation)
@@ -286,16 +315,21 @@ async def run_summarize_graph(
         # recover them from the checkpoint and hand them to the terminal sink;
         # otherwise every summarize/repair call on a failed run is dropped (rule 3).
         recovered_llm_calls = await recover_accumulated_llm_calls(graph, config)
-        message = await route_terminal_failure(
-            initial_state,
-            deps,
-            exc,
-            reason_code=reason_code,
-            recovered_llm_calls=recovered_llm_calls,
-        )
+        try:
+            message = await route_terminal_failure(
+                initial_state,
+                deps,
+                exc,
+                reason_code=reason_code,
+                recovered_llm_calls=recovered_llm_calls,
+            )
+        finally:
+            await cleanup_checkpoint_thread(graph, config)
         return {
             "error": message,
             "notification_type": notification_type_for_exception(exc),
             "correlation_id": correlation_id,
             "request_id": request_id,
         }
+    await cleanup_checkpoint_thread(graph, config)
+    return final_state

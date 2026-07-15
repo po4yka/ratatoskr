@@ -61,6 +61,10 @@ def _cfg() -> Any:
             url_flow_lease_ttl_sec=900,
             llm_request_slow_threshold_sec=300.0,
             summary_prompt_version="v1",
+            llm_provider="openrouter",
+            summary_streaming_enabled=True,
+            summary_streaming_mode="section",
+            summary_streaming_provider_scope="openrouter",
         ),
         openrouter=SimpleNamespace(model="base-model", structured_output_mode="json_schema"),
         vector_store=SimpleNamespace(user_scope="owner", environment="prod"),
@@ -337,6 +341,36 @@ async def test_interactive_streams_when_flag_enabled(monkeypatch):
     cfg.runtime.summary_streaming_enabled = True
     facade = _facade(cfg=cfg)
     await facade.handle_url_flow(_url_request(silent=False, batch_mode=False))
+
+    streamed.assert_awaited_once()
+    plain.assert_not_awaited()
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "ollama"])
+async def test_interactive_direct_provider_respects_openrouter_stream_scope(monkeypatch, provider):
+    _patch_lease(monkeypatch)
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=streamed, plain=plain)
+    cfg = _cfg()
+    cfg.runtime.llm_provider = provider
+
+    await _facade(cfg=cfg).handle_url_flow(_url_request())
+
+    plain.assert_awaited_once()
+    streamed.assert_not_awaited()
+
+
+async def test_interactive_direct_provider_streams_when_scope_is_all(monkeypatch):
+    _patch_lease(monkeypatch)
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=streamed, plain=plain)
+    cfg = _cfg()
+    cfg.runtime.llm_provider = "openai"
+    cfg.runtime.summary_streaming_provider_scope = "all"
+
+    await _facade(cfg=cfg).handle_url_flow(_url_request())
 
     streamed.assert_awaited_once()
     plain.assert_not_awaited()

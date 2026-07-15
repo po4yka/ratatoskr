@@ -6,6 +6,7 @@ ainvoke tests use an in-memory checkpointer and skip where ``graph`` is absent.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -59,6 +60,20 @@ async def test_run_sets_thread_id_to_correlation_id_per_invocation() -> None:
     config = graph.ainvoke.await_args.kwargs["config"]
     assert config["configurable"]["thread_id"] == "corr-1"  # sacred
     assert config["recursion_limit"] == DEFAULT_RECURSION_LIMIT
+
+
+async def test_run_deletes_checkpoint_after_success() -> None:
+    checkpointer = MagicMock(adelete_thread=AsyncMock())
+    graph = MagicMock(
+        ainvoke=AsyncMock(return_value={"summary": {"tldr": "ok"}}),
+        checkpointer=checkpointer,
+    )
+
+    await run_summarize_graph(
+        graph=graph, deps=MagicMock(), correlation_id="corr-clean", request_id=5, lang="en"
+    )
+
+    checkpointer.adelete_thread.assert_awaited_once_with("corr-clean")
 
 
 # ── runner: every failure mode routes to the single terminal helper ───────────
@@ -157,6 +172,49 @@ async def test_run_recovers_and_forwards_accumulated_llm_calls_on_failure(monkey
 
     route.assert_awaited_once()
     assert route.await_args.kwargs["recovered_llm_calls"] is recovered
+
+
+async def test_run_deletes_checkpoint_only_after_terminal_recovery(monkeypatch) -> None:
+    events: list[str] = []
+    checkpointer = MagicMock(
+        adelete_thread=AsyncMock(side_effect=lambda _thread_id: events.append("cleanup"))
+    )
+    graph = MagicMock(
+        ainvoke=AsyncMock(side_effect=RuntimeError("boom")),
+        checkpointer=checkpointer,
+    )
+
+    async def recover(_graph, _config):
+        events.append("recover")
+        return [{"status": "ok"}]
+
+    async def route(*_args, **_kwargs):
+        events.append("persist-terminal")
+        return "Error ID: corr-fail"
+
+    monkeypatch.setattr(graph_mod, "recover_accumulated_llm_calls", recover)
+    monkeypatch.setattr(graph_mod, "route_terminal_failure", route)
+
+    await run_summarize_graph(
+        graph=graph, deps=MagicMock(), correlation_id="corr-fail", request_id=9, lang="en"
+    )
+
+    assert events == ["recover", "persist-terminal", "cleanup"]
+
+
+async def test_run_preserves_checkpoint_on_cancellation() -> None:
+    checkpointer = MagicMock(adelete_thread=AsyncMock())
+    graph = MagicMock(
+        ainvoke=AsyncMock(side_effect=asyncio.CancelledError()),
+        checkpointer=checkpointer,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_summarize_graph(
+            graph=graph, deps=MagicMock(), correlation_id="corr-cancel", request_id=9, lang="en"
+        )
+
+    checkpointer.adelete_thread.assert_not_awaited()
 
 
 # ── real langgraph: compile + end-to-end happy path ───────────────────────────

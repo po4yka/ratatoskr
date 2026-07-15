@@ -23,6 +23,7 @@ from app.application.graphs.summarize.graph import (
     DEFAULT_RECURSION_LIMIT,
     build_initial_state,
     build_summarize_graph,
+    cleanup_checkpoint_thread,
     invocation_config,
     reason_code_for_exception,
     recover_accumulated_llm_calls,
@@ -80,31 +81,51 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
     """
     from app.application.graphs.summarize.deps import SummarizeConfig
 
+    runtime = cfg.runtime
+    provider = str(runtime.llm_provider).lower()
     routing = cfg.model_routing
     openrouter = cfg.openrouter
-    runtime = cfg.runtime
     attachment = cfg.attachment
-    long_context_model = (
-        routing.long_context_model if routing.enabled else openrouter.long_context_model
-    )
-    threshold = routing.long_context_threshold_tokens if routing.enabled else 80000
+
+    if provider == "openrouter":
+        provider_config = openrouter
+        routing_enabled = bool(routing.enabled)
+        long_context_model = (
+            routing.long_context_model if routing_enabled else openrouter.long_context_model
+        )
+        threshold = routing.long_context_threshold_tokens if routing_enabled else 80000
+        structured_output_mode = openrouter.structured_output_mode
+    else:
+        provider_config = getattr(cfg, provider)
+        routing_enabled = False
+        long_context_model = None
+        threshold = routing.long_context_threshold_tokens
+        structured_output_mode = "json_object" if provider in {"openai", "ollama"} else None
+
+    model = getattr(provider_config, "model", None)
+    if not model:
+        raise ValueError(f"{provider.upper()}_MODEL is required for summarize graph wiring")
+
     return SummarizeConfig(
-        model=openrouter.model,
-        llm_provider=cfg.runtime.llm_provider,
-        temperature=openrouter.temperature,
-        structured_output_mode=openrouter.structured_output_mode,
+        model=str(model),
+        llm_provider=provider,
+        temperature=float(provider_config.temperature),
+        structured_output_mode=structured_output_mode,
         long_context_threshold_tokens=threshold,
         long_context_model=long_context_model,
-        configured_max_tokens=openrouter.max_tokens,
-        top_p=openrouter.top_p,
+        configured_max_tokens=provider_config.max_tokens,
+        top_p=openrouter.top_p if provider == "openrouter" else None,
         summarization_max_retries=int(getattr(runtime, "summarization_max_retries", 3)),
         sticky_fallback_enabled=bool(getattr(runtime, "llm_sticky_failure_force_fallback", True)),
         two_pass_enabled=bool(getattr(runtime, "summary_two_pass_enabled", False)),
-        routing_enabled=bool(routing.enabled),
+        routing_enabled=routing_enabled,
         preferred_lang=str(getattr(runtime, "preferred_lang", None) or "auto"),
-        article_vision_enabled=bool(getattr(attachment, "article_vision_enabled", False)),
+        article_vision_enabled=provider == "openrouter"
+        and bool(getattr(attachment, "article_vision_enabled", False)),
         article_vision_min_images=int(getattr(attachment, "article_vision_min_images", 1)),
-        vision_model=getattr(attachment, "vision_model", None),
+        vision_model=getattr(attachment, "vision_model", None)
+        if provider == "openrouter"
+        else None,
         enrichment_content_max_chars=int(getattr(runtime, "enrichment_content_max_chars", 30000)),
     )
 
@@ -213,7 +234,7 @@ def build_model_router(cfg: AppConfig) -> Any:
     router is consulted ``model_override`` is already pinned when vision applies. The
     router therefore never needs to re-derive the vision model.
     """
-    if not cfg.model_routing.enabled:
+    if cfg.runtime.llm_provider != "openrouter" or not cfg.model_routing.enabled:
         return None
     from app.core.model_router import resolve_model_for_content
 
@@ -381,6 +402,7 @@ async def run_summarize_graph_streamed(
             captured = _final_state_from_event(event)
             if captured is not None:
                 final_state = captured
+        await cleanup_checkpoint_thread(graph, config)
         return final_state
     except Exception as exc:
         # Single terminal sink (ADR-0011), mirroring run_summarize_graph: a node
@@ -394,13 +416,16 @@ async def run_summarize_graph_streamed(
         # rule 3): the streamed runner drives the same graph via astream_events, so
         # a terminal failure skips the persist node identically to the ainvoke path.
         recovered_llm_calls = await recover_accumulated_llm_calls(graph, config)
-        message = await route_terminal_failure(
-            initial_state,
-            deps,
-            exc,
-            reason_code=reason_code_for_exception(exc),
-            recovered_llm_calls=recovered_llm_calls,
-        )
+        try:
+            message = await route_terminal_failure(
+                initial_state,
+                deps,
+                exc,
+                reason_code=reason_code_for_exception(exc),
+                recovered_llm_calls=recovered_llm_calls,
+            )
+        finally:
+            await cleanup_checkpoint_thread(graph, config)
         return {
             "error": message,
             "notification_type": notification_type_for_exception(exc),

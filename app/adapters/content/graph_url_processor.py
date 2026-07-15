@@ -41,6 +41,7 @@ from app.adapters.content.url_flow_models import (
 from app.application.graphs.summarize.graph import (
     DEFAULT_RECURSION_LIMIT,
     build_initial_state,
+    cleanup_checkpoint_thread,
     invocation_config,
 )
 from app.core.async_utils import raise_if_cancelled
@@ -249,7 +250,9 @@ class GraphURLProcessor:
                 "graph_content_only_summarize_failed",
                 extra={"cid": correlation_id, "error": str(exc)},
             )
+            await cleanup_checkpoint_thread(self._graph, config)
             raise
+        await cleanup_checkpoint_thread(self._graph, config)
 
         # Terminal graph failure: the graph's route_terminal_failure node populated
         # ``state['error']`` and exited without a summary. Re-raise as ValueError so
@@ -717,7 +720,18 @@ class GraphURLProcessor:
         """
         if request.effective_silent:
             return False
-        return bool(getattr(self.cfg.runtime, "summary_streaming_enabled", True))
+        runtime = self.cfg.runtime
+        if not bool(getattr(runtime, "summary_streaming_enabled", True)):
+            return False
+        if str(getattr(runtime, "summary_streaming_mode", "section")).lower() != "section":
+            return False
+        scope = str(getattr(runtime, "summary_streaming_provider_scope", "openrouter")).lower()
+        if scope == "disabled":
+            return False
+        if scope == "all":
+            return True
+        provider = str(getattr(runtime, "llm_provider", "openrouter")).lower()
+        return provider == scope
 
     async def _run_graph(
         self, *, request: URLFlowRequest, req_id: int, lang: str

@@ -56,6 +56,11 @@ class FakeGraph:
 
     def __init__(self, events: list[dict[str, Any]]) -> None:
         self._events = events
+        self.checkpointer = SimpleNamespace(adelete_thread=self._delete_thread)
+        self.deleted_threads: list[str] = []
+
+    async def _delete_thread(self, thread_id: str) -> None:
+        self.deleted_threads.append(thread_id)
 
     async def astream_events(self, state: Any, *, config: Any, version: str):
         assert version == "v2"
@@ -118,6 +123,7 @@ async def test_driver_streams_stages_sections_and_captures_final_state() -> None
         graph=graph, deps=_deps(), sink=sink, correlation_id=_CID, request_id=_RID, lang="en"
     )
     assert result == {"request_id": _RID, "summary": {"x": 1}}
+    assert graph.deleted_threads == [_CID]
     assert [c[0] for c in sink.calls] == ["stage", "stage", "section"]
     assert sink.calls[-1] == ("section", {"section": "summary_250", "content": "Hi"})
 

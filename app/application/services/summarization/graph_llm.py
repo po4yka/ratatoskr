@@ -229,16 +229,22 @@ async def summarize_streaming(
         err.__llm_result__ = result  # type: ignore[attr-defined]
         raise err
 
-    # Prefer the provider-parsed JSON (json_object mode); fall back to tolerant
-    # extraction from the accumulated text the deltas built.
-    parsed: Any = result.response_json
-    if not isinstance(parsed, dict):
+    # Provider adapters expose their full transport envelope in ``response_json``
+    # (choices/usage for OpenAI/OpenRouter, content/usage for Anthropic). The actual
+    # summary JSON is the assistant text, so parse that first. Test doubles and
+    # future adapters may still return an already-unwrapped summary dict.
+    parsed: Any = None
+    parse_error: Exception | None = None
+    if result.response_text:
         try:
-            parsed = extract_json(result.response_text or "")
+            parsed = extract_json(result.response_text)
         except Exception as exc:
-            raise ValueError(f"Streaming summary produced no parseable JSON: {exc}") from exc
+            parse_error = exc
+    if not isinstance(parsed, dict) and _is_unwrapped_summary_json(result.response_json):
+        parsed = result.response_json
     if not isinstance(parsed, dict):
-        raise ValueError("Streaming summary produced no JSON object")
+        detail = f": {parse_error}" if parse_error is not None else ""
+        raise ValueError(f"Streaming summary produced no parseable JSON object{detail}")
 
     summary = mark_prompt_injection_metadata(parsed, source_content)
     quality = summary.get("quality")
@@ -258,6 +264,13 @@ async def summarize_streaming(
         "latency_ms": result.latency_ms,
     }
     return summary, call_meta
+
+
+def _is_unwrapped_summary_json(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    provider_envelope_keys = {"choices", "usage", "content", "object", "id"}
+    return not provider_envelope_keys.intersection(value)
 
 
 def mark_prompt_injection_metadata(summary: dict[str, Any], source_content: str) -> dict[str, Any]:
