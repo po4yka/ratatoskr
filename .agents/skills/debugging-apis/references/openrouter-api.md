@@ -59,20 +59,18 @@ EOF
 
 ```bash
 # Get request messages
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr "
-  SELECT request_messages_json
-  FROM llm_calls
-  WHERE request_id = '<correlation_id>'
-  LIMIT 1;
-" | python -m json.tool
+docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
+  "SELECT request_messages_json
+     FROM llm_calls
+    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>')
+    LIMIT 1;" | python -m json.tool
 
 # Get response
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr "
-  SELECT response_json
-  FROM llm_calls
-  WHERE request_id = '<correlation_id>'
-  LIMIT 1;
-" | python -m json.tool
+docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
+  "SELECT response_json
+     FROM llm_calls
+    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>')
+    LIMIT 1;" | python -m json.tool
 ```
 
 ## Common Error Codes

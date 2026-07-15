@@ -1,113 +1,76 @@
 ---
 name: web-frontend-dev
-description: Develop and verify the Ratatoskr React + TypeScript + Vite web frontend served by FastAPI at /web. Trigger keywords -- web, frontend, React, Vite, TypeScript, npm run check, web/src, app/static/web, Frost, UI change.
-version: 1.0.0
+description: Coordinate Ratatoskr backend web integration with the external React + TypeScript + Vite frontend. Trigger keywords -- web, frontend, React, Vite, TypeScript, ratatoskr-web, app/static/web, Frost, UI change.
+version: 2.0.0
 allowed-tools: Bash, Read, Write, Edit, Grep
 ---
 
 # Web Frontend Development
 
-The Ratatoskr web frontend (codename Frost) is a React 18 + TypeScript + Vite app under `web/`. The built bundle is served by FastAPI at `/web` from `app/static/web/`.
+Editable frontend source lives in the separate sibling repository `../ratatoskr-web`. This repository owns the FastAPI `/web` serving contract, generated OpenAPI artifacts, a pinned frontend revision, and the reviewed release bundle.
 
-## Layout
+## Repository boundaries
 
-```
-web/
-+-- src/                 # React app source
-+-- public/              # Static assets
-+-- package.json
-+-- vite.config.ts
-+-- tsconfig.json
-```
+| Concern | Location |
+| --- | --- |
+| React/TypeScript source, npm checks, browser tests | `../ratatoskr-web/` |
+| Backend API and auth | `app/api/` |
+| Local staged SPA output | `app/static/web/` (ignored) |
+| Pinned frontend revision | `ops/docker/ratatoskr-web.commit` |
+| Reviewed release archive | `ops/docker/ratatoskr-web.bundle.tar.gz` |
+| Integration contract | `docs/reference/frontend-web.md` |
 
-The build artifact (`web/dist/`) is copied into `app/static/web/` by the deploy pipeline. `web/dist/`, `app/static/web/`, and `app/static/digest/` are all gitignored.
+Do not create or edit a local `web/` source tree in this repository.
 
-## Required Checks Before Reporting Done
+## Frontend checks
 
-Per CLAUDE.md, UI changes are NOT complete until you have:
-
-1. Run the static check
-2. Run the unit tests
-3. Verified the change in a browser (golden path + edge cases)
-
-### Static check (lint + typecheck)
+Run the client repository's own scripts from its checkout and inspect its `package.json` before assuming script names:
 
 ```bash
-cd web && npm run check:static
+cd ../ratatoskr-web
+npm ci
+npm run check:static
+npm run test
+npm run build
 ```
 
-This is the fastest signal -- run it after every meaningful edit.
+Render and inspect UI changes in that repository. If browser verification cannot run, report the gap explicitly.
 
-### Unit tests
+## Backend integration workflow
 
-```bash
-cd web && npm run test
-```
+1. Change FastAPI routers/models in this repository.
+2. Regenerate and validate the API contract:
 
-### Browser verification
+   ```bash
+   make generate-openapi
+   make check-openapi-drift
+   make check-openapi-validate
+   make check-openapi
+   ```
 
-```bash
-cd web && npm run dev
-```
+3. Update or regenerate the client in `ratatoskr-web`.
+4. Run client static checks, tests, build, and browser verification there.
+5. Stage a local build for directly launched FastAPI only when needed:
 
-Opens the dev server (usually `http://localhost:5173`). Vite proxies API calls to the FastAPI backend if configured -- check `web/vite.config.ts` for the proxy target.
+   ```bash
+   make stage-web WEB_REPO=../ratatoskr-web
+   ```
 
-If you cannot test in a browser, **say so explicitly** instead of claiming the UI works. Static checks verify code correctness, not feature correctness.
+6. For a release, update the reviewed revision and rebuild the deterministic archive:
 
-## Production Bundle
+   ```bash
+   make web-bundle WEB_REPO=../ratatoskr-web
+   ```
 
-```bash
-cd web && npm run build
-# Output: web/dist/
-```
+Docker release images consume the reviewed archive, not whatever happens to be in ignored `app/static/web/`.
 
-The CI/CD pipeline copies `web/dist/` into `app/static/web/` inside the image. Locally, FastAPI serves whatever is already in `app/static/web/`.
+## Key files
 
-## Dependency Management
+- Integration guide: `docs/reference/frontend-web.md`
+- FastAPI app and routers: `app/api/main.py`, `app/api/routers/`
+- Static serving: `app/api/main.py` (`/web` routes and `app/static/web/index.html`)
+- Bundle builder: `tools/scripts/build_web_bundle.py`
+- Revision pin: `ops/docker/ratatoskr-web.commit`
+- OpenAPI workflow: `docs/reference/openapi-contract-workflow.md`
 
-```bash
-cd web && npm install        # install/update lockfile
-cd web && npm ci             # clean install from lockfile (CI mode)
-cd web && npm outdated       # check for updates
-```
-
-Commit both `package.json` and `package-lock.json` together.
-
-## Talking to the Backend
-
-The web frontend consumes the Mobile API (`app/api/`). Endpoints are documented via FastAPI's OpenAPI schema:
-
-```bash
-# Local API + docs
-uvicorn app.api.main:app --reload
-# Then: http://localhost:8000/docs
-```
-
-Auth uses JWT (see `app/api/routers/auth/`); the frontend stores tokens in localStorage (check existing implementation, don't reinvent).
-
-## CI Jobs
-
-GitHub Actions runs these jobs for the web app on every PR:
-
-- `web-build` -- `npm run build`
-- `web-test` -- `npm run test`
-- `web-static-check` -- `npm run check:static`
-
-Match them locally before pushing -- it's the cheapest way to avoid red CI.
-
-## Key Files
-
-- **Entry**: `web/src/main.tsx` (or equivalent)
-- **Vite config**: `web/vite.config.ts`
-- **TS config**: `web/tsconfig.json`
-- **Backend API**: `app/api/main.py`, `app/api/routers/`
-- **Static serve**: FastAPI mounts `app/static/web/` at `/web`
-- **Built bundle target**: `app/static/web/` (gitignored)
-
-## Important Notes
-
-- `web/`, `app/static/web/`, `app/static/digest/` are all in `.gitignore` -- don't commit build artifacts.
-- The mobile API and the web frontend share auth (`app/api/routers/auth/`); changes to JWT flow affect both surfaces.
-- For SSE/streaming endpoints, check `app/api/routers/streams.py` and `app/adapters/content/streaming/` (in-process StreamHub).
-- If you add a new API endpoint, run `make` targets or check that the OpenAPI spec validation in CI still passes.
-- For canonical frontend docs, look under `docs/` (e.g., `docs/explanation/`) -- CLAUDE.md previously referenced a top-level `FRONTEND.md` that no longer exists in the tree.
+Changes to auth, cookies, sync, or streaming contracts must be coordinated with the external client even when no frontend files exist in this repository.
