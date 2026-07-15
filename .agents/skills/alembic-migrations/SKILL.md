@@ -62,13 +62,17 @@ Autogenerate is good but not perfect. Always check:
 - **Renames**: Autogenerate treats renames as drop+add. Manually rewrite to `op.alter_column(..., new_column_name=...)` to preserve data.
 - **Foreign keys**: Check `ondelete` cascade semantics.
 
-### 4. Apply locally
+### 4. Inspect, then apply locally
 
 ```bash
+# Default: render pending SQL without changing the database
 python -m app.cli.migrate_db
+
+# Explicitly apply pending migrations
+python -m app.cli.migrate_db --apply
 ```
 
-This runs `alembic upgrade head` against `DATABASE_URL`. Run it twice to confirm it's idempotent.
+The default command is a dry-run. Only `--apply` runs `alembic upgrade head` against `DATABASE_URL`. After applying, run `python -m app.cli.migrate_db --check` to confirm the database is at Alembic head.
 
 ### 5. Verify against the live schema
 
@@ -125,5 +129,5 @@ def upgrade() -> None:
 - Never edit a committed revision file -- write a new one.
 - Postgres MVCC handles write concurrency -- no application-level locking needed.
 - `Database` (`app/db/session.py`) is the sole DB entry point -- don't open ad-hoc sessions in adapters.
-- Migrations run inside the Docker image at boot via `app/cli/migrate_db.py` -- the prod path is the same as the dev path.
+- App containers run `python -m app.cli.migrate_db --check` at startup and fail if the schema is behind. Migration application is a separate explicit operator step.
 - For multi-step destructive changes (column drop, type change), prefer a sequence: add new -> backfill -> swap -> drop old, each as its own revision.
