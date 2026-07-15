@@ -67,8 +67,5 @@
         ]
       }
     ]
-  },
-  "enabledPlugins": {
-    "ponytail@ponytail": true
   }
 }

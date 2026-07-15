@@ -19,7 +19,7 @@ write flag files, or persist anything.
 | **Full** | `@ponytail` | The ladder enforced: YAGNI → stdlib → native → one line → minimum. Default. |
 | **Ultra** | `@ponytail ultra` | YAGNI extremist. Deletion before addition. Challenges requirements before building. |
 
-Level sticks until changed or session end.
+The selected level applies only to the request that invoked Ponytail.
 
 ## Skills
 
@@ -27,35 +27,17 @@ Level sticks until changed or session end.
 |-------|---------|--------------|
 | **ponytail** | `@ponytail` | Lazy mode itself. Simplest solution that works. |
 | **ponytail-review** | `@ponytail-review` | Over-engineering review: `L42: yagni: factory, one product. Inline.` |
+| **ponytail-audit** | `@ponytail-audit` | Whole-repository audit for over-engineering and removable code. |
+| **ponytail-debt** | `@ponytail-debt` | Inventory `ponytail:` comments and their upgrade triggers. |
 | **ponytail-help** | `@ponytail-help` | This card. |
 
 Use the trigger form shown above for this host.
 
-## Deactivate
+## Scope
 
-Say "stop ponytail" or "normal mode". Resume anytime with `@ponytail`.
-`@ponytail off` also works.
-
-## Configure Default Mode
-
-Default mode = `full`, auto-active every session. Change it:
-
-**Environment variable** (highest priority):
-
-```bash
-export PONYTAIL_DEFAULT_MODE=ultra
-```
-
-**Config file** (`~/.config/ponytail/config.json`, Windows: `%APPDATA%\ponytail\config.json`):
-
-```json
-{ "defaultMode": "lite" }
-```
-
-Set `"off"` to disable auto-activation on session start, activate manually
-with `@ponytail` when wanted.
-
-Resolution: env var > config file > `full`.
+No persistent mode or flag is stored. Invoke Ponytail again for another
+request. `@ponytail off` and "normal mode" leave the current request in normal
+mode.
 
 ## More
 

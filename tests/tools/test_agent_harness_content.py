@@ -56,6 +56,30 @@ def test_summarize_rag_flag_is_documented_as_active_until_t6() -> None:
     assert "retired at the T6 cutover" not in claude
 
 
+def test_ponytail_uses_repo_local_request_scoped_skills() -> None:
+    settings = json.loads((ROOT / ".claude/settings.json").read_text())
+
+    assert "ponytail@ponytail" not in settings.get("enabledPlugins", {})
+
+    for host_root in SKILL_ROOTS:
+        ponytail = _skill(host_root, "ponytail")
+        help_card = _skill(host_root, "ponytail-help")
+
+        assert "Apply Ponytail only to the request that triggered this skill" in ponytail
+        assert "later requests use normal behavior" in ponytail
+        assert "ACTIVE EVERY RESPONSE" not in ponytail
+        assert "Level persists until changed or session end" not in ponytail
+        assert "No persistent mode or flag is stored" in help_card
+        assert "ponytail-audit" in help_card
+        assert "ponytail-debt" in help_card
+        assert "PONYTAIL_DEFAULT_MODE" not in help_card
+        assert "/plugin" not in help_card
+
+    for command_root in (".claude/commands", ".codex/commands"):
+        command = (ROOT / command_root / "ponytail.md").read_text()
+        assert "current request only" in command
+
+
 def test_migration_skills_distinguish_dry_run_from_apply() -> None:
     for host_root in SKILL_ROOTS:
         migration = _skill(host_root, "alembic-migrations")

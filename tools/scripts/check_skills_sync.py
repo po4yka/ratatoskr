@@ -14,11 +14,6 @@ AGENTS_SKILLS = ROOT / ".agents" / "skills"
 CLAUDE_COMMANDS = ROOT / ".claude" / "commands"
 CODEX_COMMANDS = ROOT / ".codex" / "commands"
 
-HOST_ONLY_MARKDOWN_SECTIONS = {
-    Path("ponytail-help/SKILL.md"): ("Update",),
-}
-
-
 def _skill_names(root: Path) -> set[str]:
     if not root.is_dir():
         return set()
@@ -31,27 +26,16 @@ def _relative_files(root: Path) -> set[Path]:
     return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
 
 
-def _remove_markdown_section(text: str, heading: str) -> str:
-    pattern = re.compile(
-        rf"^## {re.escape(heading)}\s*\n.*?(?=^## |\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    return pattern.sub("", text)
-
-
-def _normalize_host_text(text: str, relative_path: Path) -> str:
+def _normalize_host_text(text: str) -> str:
     normalized = text.replace(".claude/skills/", ".host/skills/")
     normalized = normalized.replace(".codex/skills/", ".host/skills/")
-    normalized = re.sub(r"(?<!\w)[/@](ponytail(?:-[a-z-]+)?)", r"<command>\1", normalized)
-    for heading in HOST_ONLY_MARKDOWN_SECTIONS.get(relative_path, ()):
-        normalized = _remove_markdown_section(normalized, heading)
-    return normalized
+    return re.sub(r"(?<!\w)[/@](ponytail(?:-[a-z-]+)?)", r"<command>\1", normalized)
 
 
-def _normalized_file(path: Path, relative_path: Path) -> str | bytes:
+def _normalized_file(path: Path) -> str | bytes:
     content = path.read_bytes()
     try:
-        return _normalize_host_text(content.decode(), relative_path)
+        return _normalize_host_text(content.decode())
     except UnicodeDecodeError:
         return content
 
@@ -66,8 +50,8 @@ def _semantic_tree_differences(
     changed = sorted(
         relative_path
         for relative_path in claude_files & codex_files
-        if _normalized_file(claude_root / relative_path, relative_path)
-        != _normalized_file(codex_root / relative_path, relative_path)
+        if _normalized_file(claude_root / relative_path)
+        != _normalized_file(codex_root / relative_path)
     )
     return only_claude, only_codex, changed
 
