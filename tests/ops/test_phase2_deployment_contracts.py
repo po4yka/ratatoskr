@@ -384,12 +384,11 @@ def test_local_docker_deploy_builds_the_compose_image_it_starts() -> None:
     target = makefile.split("docker-deploy:", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
 
     compose_build = "docker compose -f $(COMPOSE_FILE) build ratatoskr"
-    compose_down = "docker compose -f $(COMPOSE_FILE) down"
-    compose_up = "docker compose -f $(COMPOSE_FILE) up -d"
+    compose_up = "docker compose -f $(COMPOSE_FILE) up -d --no-deps --force-recreate ratatoskr"
     assert compose_build in target
-    assert compose_down in target
     assert compose_up in target
-    assert target.index(compose_build) < target.index(compose_down) < target.index(compose_up)
+    assert "docker compose -f $(COMPOSE_FILE) down" not in target
+    assert target.index(compose_build) < target.index(compose_up)
     assert "docker-build" not in target
 
 
@@ -418,7 +417,9 @@ def test_pi_deploy_has_explicit_migrate_apply_and_rollback_paths() -> None:
     assert "--migrate-only" in script
     assert "--apply" in script
     assert "run_remote_migrations" in script
-    assert "run --rm --no-build ${MIGRATE_SERVICE} ${migrate_args[*]}" in script
+    migrate_command = "run --rm ${MIGRATE_SERVICE} python -m app.cli.migrate_db ${migrate_args[*]}"
+    assert migrate_command in script
+    assert "run --rm --no-build ${MIGRATE_SERVICE}" not in script
     assert "--rollback" in script
     assert "rollback_service_image" in script
     assert "docker tag \\\"\\$PREVIOUS_ID\\\" '${latest_tag}'" in script

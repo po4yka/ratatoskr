@@ -13,15 +13,15 @@ REDIS_HOST_PORT ?= 6379
 QDRANT_HOST_PORT ?= 6333
 
 format:
-	ruff format .
-	isort .
+	uv run --frozen ruff format .
+	uv run --frozen isort .
 
 lint:
-	ruff check .
-	python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
+	uv run --frozen ruff check .
+	uv run --frozen python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
 check-file-loc:
-	python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
+	uv run --frozen python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
 type:
 	uv run --frozen mypy app --show-error-codes --pretty --cache-dir .mypy_cache
@@ -30,19 +30,19 @@ type-all:
 	uv run --frozen mypy app tests
 
 test:
-	pytest tests/ -v
+	uv run --frozen pytest tests/ -v
 
 test-unit:
-	pytest tests/ -m "not slow and not integration" -v
+	uv run --frozen pytest tests/ -m "not slow and not integration" -v
 
 test-integration:
-	pytest tests/ -m "integration" -v
+	uv run --frozen pytest tests/ -m "integration" -v
 
 test-all:
-	pytest tests/ -v --cov=app --cov-report=term-missing
+	uv run --frozen pytest tests/ -v --cov=app --cov-report=term-missing
 
 test-fast:
-	pytest tests/ -m "not slow and not integration" -v -x
+	uv run --frozen pytest tests/ -m "not slow and not integration" -v -x
 
 # Mirrors the bandit-scan and pip-audit-scan jobs in .github/workflows/ci.yml so
 # devs can reproduce CI security checks locally before pushing. Not part of
@@ -90,13 +90,13 @@ teardown-dev:
 	POSTGRES_PASSWORD="$(DEV_POSTGRES_PASSWORD)" POSTGRES_HOST_PORT="$(POSTGRES_HOST_PORT)" REDIS_HOST_PORT="$(REDIS_HOST_PORT)" QDRANT_HOST_PORT="$(QDRANT_HOST_PORT)" $(DEV_COMPOSE) down -v --remove-orphans
 
 extension-zip:
-	uv run python tools/scripts/build_extension_zip.py
+	uv run --frozen python tools/scripts/build_extension_zip.py
 
 venv:
 	bash tools/scripts/create_venv.sh
 
 check-layout:
-	python tools/scripts/check_root_hygiene.py
+	uv run --frozen python tools/scripts/check_root_hygiene.py
 
 clean-generated:
 	rm -rf htmlcov
@@ -105,12 +105,12 @@ clean-generated:
 
 .PHONY: pre-commit-install
 pre-commit-install:
-	pre-commit install --install-hooks
-	pre-commit autoupdate || true
+	uv run --frozen pre-commit install --install-hooks
+	uv run --frozen pre-commit autoupdate || true
 
 .PHONY: pre-commit-run
 pre-commit-run:
-	pre-commit run --all-files
+	uv run --frozen pre-commit run --all-files
 
 .PHONY: lock-uv
 lock-uv:
@@ -215,8 +215,7 @@ docker-size:
 
 docker-deploy:
 	docker compose -f $(COMPOSE_FILE) build ratatoskr
-	docker compose -f $(COMPOSE_FILE) down
-	docker compose -f $(COMPOSE_FILE) up -d
+	docker compose -f $(COMPOSE_FILE) up -d --no-deps --force-recreate ratatoskr
 	@echo "=== Deployment complete ==="
 	@echo "Check logs with: make docker-logs"
 
