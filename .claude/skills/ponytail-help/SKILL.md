@@ -29,9 +29,7 @@ Level sticks until changed or session end.
 | **ponytail-review** | `/ponytail-review` | Over-engineering review: `L42: yagni: factory, one product. Inline.` |
 | **ponytail-help** | `/ponytail-help` | This card. |
 
-Codex uses `@ponytail`, `@ponytail-review`, and `@ponytail-help`; Claude Code
-and OpenCode use the slash-command forms above (OpenCode ships `/ponytail` and
-`/ponytail-review`).
+Use the trigger form shown above for this host.
 
 ## Deactivate
 
