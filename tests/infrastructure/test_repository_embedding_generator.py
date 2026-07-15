@@ -147,7 +147,11 @@ async def test_upsert_db_row_returns_insert_returning_row_without_extra_read() -
 
 
 @pytest.mark.asyncio
-async def test_regenerate_batch_uses_single_provider_db_and_qdrant_calls() -> None:
+@pytest.mark.parametrize(("qdrant_ack", "expected_transactions"), [(True, 2), (False, 1)])
+async def test_regenerate_batch_marks_indexed_only_after_qdrant_ack(
+    qdrant_ack: bool,
+    expected_transactions: int,
+) -> None:
     repos = [_make_repo(1), _make_repo(2)]
     returned_rows = []
     for repo in repos:
@@ -161,6 +165,7 @@ async def test_regenerate_batch_uses_single_provider_db_and_qdrant_calls() -> No
 
     qdrant = MagicMock()
     qdrant.available = True
+    qdrant.upsert_notes.return_value = qdrant_ack
 
     generator = RepositoryEmbeddingGenerator(
         embedding_service=cast("Any", embedding_service),
@@ -189,8 +194,8 @@ async def test_regenerate_batch_uses_single_provider_db_and_qdrant_calls() -> No
     assert result.failures == []
     embedding_service.generate_embeddings_batch.assert_awaited_once()
     embedding_service.generate_embedding.assert_not_awaited()
-    assert db.transaction.call_count == 2
-    assert len(executed_statements) == 2
+    assert db.transaction.call_count == expected_transactions
+    assert len(executed_statements) == expected_transactions
     qdrant.upsert_notes.assert_called_once()
 
     vectors, metadatas, point_ids = qdrant.upsert_notes.call_args.args

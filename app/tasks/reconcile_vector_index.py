@@ -328,13 +328,19 @@ async def _sync_summary_vectors(
             cfg.vector_store.environment,
         )
         raw_id = f"{request_id}:{summary_id}"
-        await asyncio.to_thread(
+        acknowledged = await asyncio.to_thread(
             vector_store.replace_summary_point,
             request_id,
             raw_id,
             vector_list,
             point_payload,
         )
+        if acknowledged is not True:
+            logger.warning(
+                "vector_reconcile_summary_point_unacknowledged",
+                extra={"summary_id": summary_id, "request_id": request_id},
+            )
+            continue
         indexed_summary_ids.append(summary_id)
         logger.debug(
             "vector_reconcile_summary_point_upserted",

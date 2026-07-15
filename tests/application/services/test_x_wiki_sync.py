@@ -43,7 +43,7 @@ class _FakeVectorStore:
         vectors: Sequence[Sequence[float]],
         metadatas: Sequence[dict[str, object]],
         ids: Sequence[str] | None = None,
-    ) -> None:
+    ) -> bool:
         self.upsert_calls.append(
             {
                 "vectors": [list(v) for v in vectors],
@@ -52,11 +52,12 @@ class _FakeVectorStore:
             }
         )
         if ids is None:
-            return
+            return True
         for raw_id, metadata in zip(ids, metadatas, strict=True):
             content_hash = metadata.get("content_hash")
             if isinstance(content_hash, str):
                 self.indexed[raw_id] = content_hash
+        return True
 
     def delete_x_wiki_paths(self, wiki_paths: Sequence[str]) -> None:
         paths = list(wiki_paths)

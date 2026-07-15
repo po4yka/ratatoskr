@@ -58,7 +58,7 @@ class VectorStore(Protocol):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None: ...
+    ) -> bool: ...
 
     def replace_request_notes(
         self,
@@ -68,7 +68,7 @@ class VectorStore(Protocol):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None: ...
+    ) -> bool: ...
 
     def replace_summary_point(
         self,
@@ -78,7 +78,7 @@ class VectorStore(Protocol):
         payload: dict[str, Any],
         *,
         wait: bool = True,
-    ) -> None: ...
+    ) -> bool: ...
 
     def query(
         self,

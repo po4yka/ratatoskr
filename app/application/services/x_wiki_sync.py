@@ -63,7 +63,7 @@ class _WikiVectorStorePort(Protocol):
         vectors: Sequence[Sequence[float]],
         metadatas: Sequence[dict[str, object]],
         ids: Sequence[str] | None = ...,
-    ) -> None: ...
+    ) -> bool: ...
 
     def delete_x_wiki_paths(self, wiki_paths: Sequence[str]) -> None: ...
 
@@ -143,11 +143,17 @@ class XWikiSyncService:
                 "wiki_path": absolute,
                 "content_hash": content_hash,
             }
-            self._vector_store.upsert_notes(
+            acknowledged = self._vector_store.upsert_notes(
                 vectors=[embedding],
                 metadatas=[payload],
                 ids=[absolute],
             )
+            if acknowledged is not True:
+                logger.warning(
+                    "x_wiki_sync_file_upsert_unacknowledged",
+                    extra={"wiki_path": absolute},
+                )
+                continue
             files_changed += 1
             logger.info(
                 "x_wiki_sync_file_indexed",

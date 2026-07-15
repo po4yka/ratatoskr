@@ -194,18 +194,24 @@ async def backfill_vector_store(
                 request_vectors,
                 request_metadata,
             ) in pending_requests:
-                # Backfill is operator-rerunnable, so skip the per-request disk
-                # flush; a lost write is recovered by re-running the backfill.
                 # replace_request_notes is synchronous (Qdrant sync client); wrap
                 # it so the event loop is not blocked.
-                await asyncio.to_thread(
+                acknowledged = await asyncio.to_thread(
                     vector_store.replace_request_notes,
                     pending_request_id,
                     request_vectors,
                     request_metadata,
-                    wait=False,
                 )
-                indexed_summary_ids.append(pending_summary_id)
+                if acknowledged is True:
+                    indexed_summary_ids.append(pending_summary_id)
+                else:
+                    logger.warning(
+                        "vector_backfill_qdrant_unacknowledged",
+                        extra={
+                            "request_id": pending_request_id,
+                            "summary_id": pending_summary_id,
+                        },
+                    )
             await embedding_repo.async_mark_summary_embeddings_indexed(indexed_summary_ids)
             pending_requests.clear()
             pending_vector_count = 0

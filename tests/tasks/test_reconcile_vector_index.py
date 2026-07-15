@@ -313,6 +313,7 @@ async def test_sync_summary_vectors_upserts_qdrant_and_marks_indexed(monkeypatch
 
         def replace_summary_point(self, request_id, raw_id, vector, payload):
             self.replaced.append((request_id, raw_id, vector, payload))
+            return True
 
     vector_store = FakeVectorStore()
     embedding_repo = SimpleNamespace(

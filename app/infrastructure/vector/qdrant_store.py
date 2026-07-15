@@ -48,6 +48,21 @@ def _get_tracer() -> Any:
 _UPSERT_CHUNK_SIZE = 256
 
 
+def _write_acknowledged(result: Any, *, wait: bool) -> bool:
+    """Return whether Qdrant acknowledged/completed a write operation."""
+    status = getattr(result, "status", None)
+    status_value = getattr(status, "value", status)
+    if status_value == "completed":
+        return True
+    return not wait and status_value == "acknowledged"
+
+
+def _require_write_acknowledgement(result: Any, *, wait: bool, operation: str) -> None:
+    if not _write_acknowledged(result, wait=wait):
+        status = getattr(getattr(result, "status", None), "value", None)
+        raise VectorStoreError(f"Qdrant {operation} was not acknowledged (status={status!r})")
+
+
 class QdrantVectorStore(QdrantIndexedEntityMixin):
     """Synchronous vector store wrapper around Qdrant.
 
@@ -419,14 +434,13 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         """Upsert vectors with metadata, chunked into bounded batches.
 
-        ``wait=True`` (default) blocks until Qdrant has flushed each chunk to
-        disk -- callers that must read-after-write rely on it. Bulk/backfill
-        callers pass ``wait=False`` to avoid blocking on the disk flush; the
-        vector reconciler re-indexes anything a non-waited write loses, so
-        at-least-once semantics hold.
+        ``wait=True`` (default) requires Qdrant to return ``completed`` for
+        every chunk. With ``wait=False``, ``acknowledged`` is sufficient, so
+        callers must not advance a durable SQL index cursor from that weaker
+        result.
         """
         if not self._available:
             self.ensure_available()
@@ -434,7 +448,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             logger.warning(
                 "vector_upsert_skipped", extra={"reason": "not_available", "count": len(vectors)}
             )
-            return
+            return False
 
         if len(vectors) != len(metadatas):
             msg = "vectors and metadatas must have the same length"
@@ -451,15 +465,17 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             t0 = time.perf_counter()
             try:
                 for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
-                    self._client.upsert(
+                    result = self._client.upsert(
                         collection_name=self._collection_name,
                         points=points[start : start + _UPSERT_CHUNK_SIZE],
                         wait=wait,
                     )
+                    _require_write_acknowledgement(result, wait=wait, operation="upsert")
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_upsert", elapsed)
                 record_vector_write(operation="upsert", status="success")
                 span.set_attribute(VECTOR_STATUS, "success")
+                return True
             except Exception as exc:
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_upsert", elapsed)
@@ -471,6 +487,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 if self._required:
                     raise VectorStoreError(str(exc)) from exc
                 self._available = False
+                return False
 
     def replace_request_notes(
         self,
@@ -480,11 +497,12 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         """Replace a request's points (upsert new, delete stale).
 
-        ``wait=False`` is for operator-rerunnable batch backfills that do not
-        need read-after-write; live paths keep the default ``wait=True``.
+        ``wait=False`` accepts Qdrant's ``acknowledged`` status; callers that
+        persist an indexed timestamp keep the default ``wait=True`` and require
+        ``completed``.
         """
         if not self._available:
             self.ensure_available()
@@ -493,7 +511,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 "vector_replace_skipped",
                 extra={"reason": "not_available", "request_id": request_id, "count": len(vectors)},
             )
-            return
+            return False
 
         if len(vectors) != len(metadatas):
             msg = "vectors and metadatas must have the same length"
@@ -513,22 +531,25 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             try:
                 existing_uuid_strs = self._fetch_request_point_ids(request_id)
                 for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
-                    client.upsert(
+                    result = client.upsert(
                         collection_name=self._collection_name,
                         points=points[start : start + _UPSERT_CHUNK_SIZE],
                         wait=wait,
                     )
+                    _require_write_acknowledgement(result, wait=wait, operation="replace upsert")
                 stale = existing_uuid_strs - new_uuid_strs
                 if stale:
-                    client.delete(
+                    result = client.delete(
                         collection_name=self._collection_name,
                         points_selector=PointIdsList(points=list(stale)),
                         wait=wait,
                     )
+                    _require_write_acknowledgement(result, wait=wait, operation="replace delete")
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
                 record_vector_write(operation="replace", status="success")
                 span.set_attribute(VECTOR_STATUS, "success")
+                return True
             except Exception as exc:
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
@@ -541,6 +562,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 if self._required:
                     raise VectorStoreError(str(exc)) from exc
                 self._available = False
+                return False
 
     def replace_summary_point(
         self,
@@ -550,7 +572,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         payload: dict[str, Any],
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         """Replace a request's single summary point, writing ``payload`` VERBATIM.
 
         The read-your-writes fast-path (ADR-0012) uses this instead of
@@ -574,7 +596,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 "vector_replace_skipped",
                 extra={"reason": "not_available", "request_id": request_id, "count": 1},
             )
-            return
+            return False
 
         point_uuid = _str_to_uuid(raw_id)
         point = PointStruct(id=point_uuid, vector=list(vector), payload=dict(payload))
@@ -588,7 +610,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 # that a re-summarization (new summary_id) leaves no orphan.
                 # Filter-delete avoids the fetch-then-delete TOCTOU; the
                 # subsequent upsert writes the new point.
-                client.delete(
+                delete_result = client.delete(
                     collection_name=self._collection_name,
                     points_selector=FilterSelector(
                         filter=Filter(
@@ -602,15 +624,22 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                     ),
                     wait=wait,
                 )
-                client.upsert(
+                _require_write_acknowledgement(
+                    delete_result, wait=wait, operation="summary replace delete"
+                )
+                upsert_result = client.upsert(
                     collection_name=self._collection_name,
                     points=[point],
                     wait=wait,
+                )
+                _require_write_acknowledgement(
+                    upsert_result, wait=wait, operation="summary replace upsert"
                 )
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
                 record_vector_write(operation="replace", status="success")
                 span.set_attribute(VECTOR_STATUS, "success")
+                return True
             except Exception as exc:
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
@@ -623,6 +652,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 if self._required:
                     raise VectorStoreError(str(exc)) from exc
                 self._available = False
+                return False
 
     # ------------------------------------------------------------------
     # Read operations

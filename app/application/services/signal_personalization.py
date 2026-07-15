@@ -57,7 +57,7 @@ class SignalPersonalizationService:
             "local_summary": description,
         }
         try:
-            await asyncio.to_thread(
+            acknowledged = await asyncio.to_thread(
                 self._vector_store.upsert_notes,
                 [list(embedding)],
                 [metadata],
@@ -68,6 +68,12 @@ class SignalPersonalizationService:
                 "signal_topic_embedding_upsert_failed",
                 extra={"user_id": user_id, "topic_id": topic_id},
                 exc_info=True,
+            )
+            return None
+        if acknowledged is not True:
+            logger.warning(
+                "signal_topic_embedding_upsert_unacknowledged",
+                extra={"user_id": user_id, "topic_id": topic_id},
             )
             return None
         return embedding_ref
@@ -108,7 +114,7 @@ class SignalPersonalizationService:
             "local_summary": content_text[:500] if content_text else None,
         }
         try:
-            await asyncio.to_thread(
+            acknowledged = await asyncio.to_thread(
                 self._vector_store.upsert_notes,
                 [list(embedding)],
                 [metadata],
@@ -119,6 +125,12 @@ class SignalPersonalizationService:
                 "signal_liked_item_embedding_upsert_failed",
                 extra={"user_id": user_id, "feed_item_id": feed_item_id},
                 exc_info=True,
+            )
+            return None
+        if acknowledged is not True:
+            logger.warning(
+                "signal_liked_item_embedding_upsert_unacknowledged",
+                extra={"user_id": user_id, "feed_item_id": feed_item_id},
             )
             return None
         return embedding_ref

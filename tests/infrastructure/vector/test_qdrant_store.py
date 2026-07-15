@@ -38,10 +38,11 @@ class _Client:
             ),
         ]
 
-    def upsert(self, **kwargs: Any) -> None:
+    def upsert(self, **kwargs: Any) -> Any:
         if self.fail_upsert:
             raise RuntimeError("upsert failed")
         self.upserts.append(kwargs)
+        return SimpleNamespace(status="completed")
 
     def query_points(self, **_kwargs: Any) -> Any:
         if self.fail_query:
@@ -56,8 +57,9 @@ class _Client:
             ]
         )
 
-    def delete(self, **kwargs: Any) -> None:
+    def delete(self, **kwargs: Any) -> Any:
         self.deletes.append(kwargs)
+        return SimpleNamespace(status="completed")
 
     def scroll(self, **_kwargs: Any) -> tuple[list[Any], None]:
         return self.records, None
@@ -168,10 +170,10 @@ def test_qdrant_store_upsert_replace_query_and_read_indexes() -> None:
     client = _Client()
     store = _store(client)
 
-    store.upsert_notes([[0.1, 0.2, 0.3]], [{"request_id": 1, "summary_id": 10}])
+    assert store.upsert_notes([[0.1, 0.2, 0.3]], [{"request_id": 1, "summary_id": 10}])
     assert len(client.upserts) == 1
 
-    store.replace_request_notes(
+    assert store.replace_request_notes(
         1,
         [[0.1, 0.2, 0.3]],
         [{"request_id": 1, "summary_id": 10}],
@@ -203,8 +205,8 @@ def test_qdrant_store_validates_inputs_and_handles_unavailable() -> None:
     store = _store(None)
     store.ensure_available = lambda: False  # type: ignore[method-assign]
 
-    store.upsert_notes([[0.1]], [{"request_id": 1}])
-    store.replace_request_notes(1, [[0.1]], [{"request_id": 1}])
+    assert store.upsert_notes([[0.1]], [{"request_id": 1}]) is False
+    assert store.replace_request_notes(1, [[0.1]], [{"request_id": 1}]) is False
     assert store.query([0.1], None, 1).hits == []
     store.delete_by_request_id(1)
     assert store.get_indexed_summary_ids() == set()
@@ -229,7 +231,7 @@ def test_qdrant_store_failure_paths_respect_required_flag() -> None:
     client.fail_upsert = True
     store = _store(client)
 
-    store.upsert_notes([[0.1]], [{"request_id": 1}], ids=["1"])
+    assert store.upsert_notes([[0.1]], [{"request_id": 1}], ids=["1"]) is False
     assert store.available is False
 
     required_store = _store(client, required=True)
@@ -267,3 +269,33 @@ def test_upsert_notes_defaults_to_wait_true() -> None:
     store = _store(client)
     store.upsert_notes([[0.1, 0.2, 0.3]], [{"request_id": 1, "summary_id": 1}])
     assert client.upserts[0]["wait"] is True
+
+
+def test_upsert_rejects_missing_or_timed_out_acknowledgement() -> None:
+    client = _Client()
+    client.upsert = lambda **_kwargs: None  # type: ignore[method-assign]
+    store = _store(client)
+
+    assert store.upsert_notes([[0.1]], [{"request_id": 1}]) is False
+    assert store.available is False
+
+    timeout_client = _Client()
+    timeout_client.upsert = lambda **_kwargs: SimpleNamespace(  # type: ignore[method-assign]
+        status="wait_timeout"
+    )
+    required_store = _store(timeout_client, required=True)
+    with pytest.raises(VectorStoreError, match="not acknowledged"):
+        required_store.upsert_notes([[0.1]], [{"request_id": 1}])
+
+
+def test_replace_summary_requires_delete_and_upsert_acknowledgements() -> None:
+    client = _Client()
+    store = _store(client)
+
+    assert store.replace_summary_point(1, "1:2", [0.1], {"request_id": 1}) is True
+
+    unacknowledged_client = _Client()
+    unacknowledged_client.delete = lambda **_kwargs: None  # type: ignore[method-assign]
+    unacknowledged_store = _store(unacknowledged_client)
+    assert unacknowledged_store.replace_summary_point(1, "1:2", [0.1], {"request_id": 1}) is False
+    assert unacknowledged_client.upserts == []
