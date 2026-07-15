@@ -230,17 +230,6 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Cache Python environment
-        id: cache-python-env
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-lint-${{ runner.os }}-${{ hashFiles('requirements-all.txt', 'requirements-dev.txt') }}
-          restore-keys: |
-            python-lint-${{ runner.os }}-
-
       - name: Install uv (fast Python package manager)
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -322,17 +311,6 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-
-      - name: Cache Python environment
-        id: cache-python-env
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-type-${{ runner.os }}-${{ hashFiles('requirements-all.txt', 'requirements-dev.txt') }}
-          restore-keys: |
-            python-type-${{ runner.os }}-
 
       - name: Cache mypy
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -429,17 +407,6 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Cache Python environment
-        id: cache-python-env
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-test-${{ runner.os }}-${{ hashFiles('requirements-all.txt', 'requirements-dev.txt') }}
-          restore-keys: |
-            python-test-${{ runner.os }}-
 
       - name: Install uv (fast Python package manager)
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -660,16 +627,6 @@ jobs:
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
-
-      - name: Cache Python environment
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-safety-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-          restore-keys: |
-            python-safety-${{ runner.os }}-
 
       # Export ALL extras so Safety sees the complete dependency surface.
       # The prepare-environment artifact only includes api, ml, youtube, export,

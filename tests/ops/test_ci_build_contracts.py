@@ -168,3 +168,18 @@ def test_postgres_tests_have_one_marker_driven_ci_job() -> None:
     conftest = (ROOT / "tests/conftest.py").read_text(encoding="utf-8")
     assert "@pytest.hookimpl(tryfirst=True)" in conftest
     assert '_POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "session"})' in conftest
+
+
+def test_setup_uv_cache_is_not_duplicated_by_actions_cache() -> None:
+    jobs = _workflow("ci.yml")["jobs"]
+
+    for job_name, job in jobs.items():
+        steps = job.get("steps", [])
+        if not any("astral-sh/setup-uv" in str(step.get("uses", "")) for step in steps):
+            continue
+        for step in steps:
+            if "actions/cache" not in str(step.get("uses", "")):
+                continue
+            cached_paths = str(step.get("with", {}).get("path", ""))
+            assert "~/.cache/uv" not in cached_paths, job_name
+            assert "~/.cache/pip" not in cached_paths, job_name
