@@ -1,8 +1,8 @@
 # Claude Code and Codex Hooks
 
-Claude Code hooks live in `.claude/settings.json` for local Claude sessions. Codex uses the checked-in `.codex/hooks.json` plus scripts under `.codex/hooks/`.
+Claude Code hooks are registered in `.claude/settings.json` and implemented by scripts under `.claude/hooks/`. Codex uses the checked-in `.codex/hooks.json` plus scripts under `.codex/hooks/`.
 
-The Codex hook set is the maintained repo adaptation. It preserves the useful Claude behavior, removes stale SQLite-era checks, and points prompts at the current PostgreSQL, Telethon, FastAPI, and external-web-client boundaries.
+Both hook sets read the host event JSON from stdin, accept the current `tool_input` shape, and point prompts at the current PostgreSQL, Telethon, FastAPI, and external-web-client boundaries.
 
 ## PreToolUse Hooks
 
@@ -58,4 +58,4 @@ Automatically injects helpful context based on prompt keywords:
 
 ## Customizing
 
-Edit `.codex/hooks.json` and `.codex/hooks/*` for Codex behavior. Edit `.claude/settings.json` only for Claude Code behavior. Each hook has a `matcher` (tool name pattern) and a command script.
+Edit `.codex/hooks.json` and `.codex/hooks/*` for Codex behavior. Edit `.claude/settings.json` and `.claude/hooks/*` for Claude Code behavior. Each hook has a `matcher` (tool name pattern) and a command script.
