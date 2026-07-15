@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from pathlib import Path
+
+from app.core.summary_schema import SummaryModel
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILL_ROOTS = (".claude/skills", ".codex/skills", ".agents/skills")
@@ -65,3 +70,57 @@ def test_operational_skills_reference_current_architecture() -> None:
         assert "QdrantSummaryIndexAdapter" in vector
         assert "app/application/services/summary_embedding_generator.py" in vector
         assert "EMBEDDING_PROVIDER=voyage" in vector
+
+
+def test_summary_validation_skills_distinguish_strict_and_compat_modes() -> None:
+    for host_root in SKILL_ROOTS:
+        validation = _skill(host_root, "validating-summaries")
+        testing = _skill(host_root, "testing-workflows")
+
+        assert "Strict provider-schema validation" in validation
+        assert "Compatibility shaping" in validation
+        assert "get_summary_json_schema()" in validation
+        assert "validate_and_shape_summary()" in validation
+        assert "validate_summary_json" not in validation
+        assert "strict provider schema" in testing
+        assert "tolerant compatibility mapper" in testing
+
+
+def test_bundled_summary_validators_enforce_their_documented_modes(tmp_path: Path) -> None:
+    complete = tmp_path / "complete.json"
+    incomplete = tmp_path / "incomplete.json"
+    complete.write_text(
+        json.dumps(
+            SummaryModel(
+                summary_250="Short summary.",
+                summary_1000="Longer summary with details.",
+                tldr="TLDR version.",
+            ).model_dump(mode="json")
+        )
+    )
+    incomplete.write_text(
+        json.dumps(
+            {
+                "summary_250": "Short summary.",
+                "summary_1000": "Longer summary with details.",
+                "tldr": "TLDR version.",
+            }
+        )
+    )
+
+    for host_root in SKILL_ROOTS:
+        scripts = ROOT / host_root / "validating-summaries" / "scripts"
+        strict = scripts / "validate-summary.py"
+        compatibility = scripts / "validate-with-project.py"
+
+        assert subprocess.run(
+            [sys.executable, str(strict), str(complete)], cwd=ROOT, check=False
+        ).returncode == 0
+        assert subprocess.run(
+            [sys.executable, str(strict), str(incomplete)], cwd=ROOT, check=False
+        ).returncode == 1
+        assert subprocess.run(
+            [sys.executable, str(compatibility), str(incomplete)],
+            cwd=ROOT,
+            check=False,
+        ).returncode == 0
