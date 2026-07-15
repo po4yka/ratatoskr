@@ -496,7 +496,7 @@ rich==14.3.4
     #   curl-cffi
     #   instructor
     #   typer
-rpds-py==0.30.0
+rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
