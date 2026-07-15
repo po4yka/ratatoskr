@@ -6,7 +6,7 @@ Both hook sets read the host event JSON from stdin, accept the current `tool_inp
 
 ## PreToolUse Hooks
 
-### File Protection (Write | Edit)
+### File Protection (Write | Edit | apply_patch)
 
 Blocks modifications to protected files:
 
@@ -32,16 +32,16 @@ Warns on risky operations: installing packages outside requirements, force-pushi
 
 Runs at session start to validate the development environment:
 
-- Python version and virtual environment status
+- Python version from the project `.venv` when available, plus virtual environment status
 - Core dependencies installed
-- `.env` file exists with required API keys
+- `.env` file presence without reading secret names or values
 - Git branch and uncommitted changes
 
 Displays quick command reference (`make format`, `make lint`, etc.).
 
-## PostToolUse Hook (Edit | Write)
+## PostToolUse Hook (Edit | Write | apply_patch)
 
-After modifying Python files, runs `ruff check --select F,E` for quick lint feedback. Shows issues immediately and suggests `make format` for auto-fix.
+After modifying Python files, extracts every edited path (including paths embedded in an `apply_patch` payload) and runs the project `.venv/bin/ruff check --select F,E` for quick lint feedback. Shows issues immediately and suggests `make format` for auto-fix.
 
 Skips non-Python files and files in `venv`/`build`/`dist` directories.
 

@@ -59,3 +59,53 @@ def test_claude_prompt_hook_emits_current_database_and_frontend_context() -> Non
     assert "PostgreSQL" in result.stdout
     assert "ratatoskr-web" in result.stdout
     assert "ratatoskr.db" not in result.stdout
+
+
+def test_codex_pre_tool_hook_extracts_protected_path_from_apply_patch() -> None:
+    result = _run_hook(
+        ".codex/hooks/pre-tool-use.py",
+        {
+            "tool_input": {
+                "patch": "*** Begin Patch\n*** Update File: requirements.txt\n@@\n-old\n+new\n*** End Patch"
+            }
+        },
+    )
+
+    output = json.loads(result.stdout)
+    assert result.returncode == 0
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_codex_pre_tool_hook_checks_python_content_from_apply_patch() -> None:
+    result = _run_hook(
+        ".codex/hooks/pre-tool-use.py",
+        {
+            "tool_input": {
+                "patch": "*** Begin Patch\n*** Update File: app/example.py\n@@\n-old\n+eval(value)\n*** End Patch"
+            }
+        },
+    )
+
+    assert result.returncode == 0
+    assert "Arbitrary code evaluation" in result.stderr
+
+
+def test_codex_post_tool_hook_lints_python_path_from_apply_patch() -> None:
+    result = _run_hook(
+        ".codex/hooks/post-tool-use.py",
+        {
+            "tool_input": "*** Begin Patch\n*** Update File: tests/tools/test_agent_hooks.py\n*** End Patch"
+        },
+    )
+
+    assert result.returncode == 0
+    assert "Running quick lint on tests/tools/test_agent_hooks.py" in result.stdout
+
+
+def test_codex_session_hook_uses_project_venv_without_reading_env() -> None:
+    session_hook = (ROOT / ".codex/hooks/session-start.sh").read_text()
+
+    assert 'python_command=".venv/bin/python"' in session_hook
+    assert "contents not inspected" in session_hook
+    assert "OPENROUTER_API_KEY" not in session_hook
+    assert 'grep -q "^${key}=" .env' not in session_hook
