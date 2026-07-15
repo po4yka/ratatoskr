@@ -183,3 +183,9 @@ def test_setup_uv_cache_is_not_duplicated_by_actions_cache() -> None:
             cached_paths = str(step.get("with", {}).get("path", ""))
             assert "~/.cache/uv" not in cached_paths, job_name
             assert "~/.cache/pip" not in cached_paths, job_name
+
+
+def test_integration_tests_start_after_environment_preparation() -> None:
+    integration_job = _workflow("ci.yml")["jobs"]["integration-tests"]
+
+    assert integration_job["needs"] == "prepare-environment"
