@@ -438,6 +438,45 @@ async def test_session_service_uses_request_id_override_in_pure_mode(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_session_service_persists_download_paths_for_retention(tmp_path: Path) -> None:
+    repos = _youtube_repo_kwargs()
+    repos["video_repo"].async_update_video_download = AsyncMock()
+    repos["request_repo"].async_update_request_status = AsyncMock()
+    repos["request_repo"].async_update_request_lang_detected = AsyncMock()
+    session = YouTubeDownloadSessionService(
+        cfg=_make_cfg(tmp_path),
+        db=MagicMock(),
+        response_formatter=_make_response_formatter(),
+        audit_func=lambda *_args, **_kwargs: None,
+        lifecycle=_make_lifecycle(),
+        **repos,
+    )
+    paths = {
+        "video_file_path": str(tmp_path / "video.mp4"),
+        "subtitle_file_path": str(tmp_path / "captions.vtt"),
+        "metadata_file_path": str(tmp_path / "metadata.json"),
+        "thumbnail_file_path": str(tmp_path / "thumb.jpg"),
+    }
+
+    await session.persist_success(
+        req_id=10,
+        download_id=20,
+        video_metadata={"title": "Video", **paths},
+        transcript_text="body",
+        transcript_lang="en",
+        auto_generated=False,
+        transcript_source="vtt",
+        detected_lang="en",
+    )
+
+    persisted = repos["video_repo"].async_update_video_download.await_args.kwargs
+    assert {key: persisted[key] for key in paths} == paths
+    assert persisted["status"] == "completed"
+    assert persisted["download_completed_at"] is not None
+    repos["video_repo"].async_update_video_download_status.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_feedback_service_uses_progress_tracker_when_present(tmp_path: Path) -> None:
     feedback = YouTubeFeedbackService(response_formatter=_make_response_formatter())
     request = _make_request(progress_tracker=MagicMock(), silent=False)
