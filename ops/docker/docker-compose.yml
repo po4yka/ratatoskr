@@ -34,6 +34,9 @@ services:
     env_file:
       - path: ../../.env
         required: false
+    # Telethon's bot session is a relative SQLite path. Run from the persistent,
+    # appuser-writable data mount instead of the root-owned image directory.
+    working_dir: /data
     volumes:
       # App code, alembic.ini, and config/ are baked into the image. Do NOT
       # bind-mount ../../app, ../../bot.py, ../../alembic.ini, or ../../config
@@ -317,6 +320,9 @@ services:
       - API_PORT=8000
       - API_WORKERS=${API_WORKERS:-1}
       - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api
+      # Prometheus reaches the API through its Compose DNS name. Keep the
+      # internal host in the allowlist without weakening Host-header checks.
+      - TRUSTED_HOSTS=${TRUSTED_HOSTS:-localhost,127.0.0.1,testserver,mobile-api,ratatoskrapi.po4yka.com,staging-ratatoskrapi.po4yka.com}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
