@@ -44,9 +44,9 @@
 #
 # The app-service restart uses `--no-deps --force-recreate ${SERVICE}` so we
 # never disturb postgres/redis/qdrant during recreation. A post-recreate
-# `docker network connect docker_default` works around a compose quirk that
-# occasionally drops the default-network attachment for mobile-api under
-# --no-deps.
+# `docker network connect --alias <service> docker_default` works around a
+# compose quirk that occasionally drops the default-network attachment under
+# --no-deps while preserving Compose service-name discovery.
 
 set -euo pipefail
 
@@ -479,15 +479,16 @@ elif [[ $RESTART -eq 1 ]]; then
 
     # Workaround for a `compose up --no-deps --force-recreate` quirk observed
     # 2026-05-24: mobile-api ended up attached to only the external
-    # `firecrawl_internal` network, with `docker_default` dropped. Bot didn't
-    # reproduce. `docker network connect` errors with "already exists" when
-    # correctly attached, so `|| true` keeps this idempotent across services
-    # that may or may not need docker_default.
+    # `firecrawl_internal` network, with `docker_default` dropped. A network
+    # connect errors with "already exists" when correctly attached, so `|| true`
+    # keeps this idempotent across services that may or may not need the default
+    # network. The explicit service alias is essential: Prometheus and status
+    # probes address exporters by Compose service name.
     echo "==> Ensuring ${svc} is attached to docker_default"
     ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
       CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null) && \
       [ -n \"\$CID\" ] && \
-      docker network connect docker_default \"\$CID\" 2>/dev/null \
+      docker network connect --alias '${svc}' docker_default \"\$CID\" 2>/dev/null \
       && echo '    attached docker_default' \
       || echo '    docker_default already attached or not declared'"
     wait_for_service_health "$svc"

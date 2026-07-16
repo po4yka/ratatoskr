@@ -428,6 +428,12 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     assert "run_remote_migrations" not in restart_branch
 
 
+def test_pi_deploy_preserves_service_dns_alias_when_restoring_default_network() -> None:
+    script = _pi_deploy_script()
+
+    assert "docker network connect --alias '${svc}' docker_default" in script
+
+
 def test_local_docker_deploy_builds_the_compose_image_it_starts() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     target = makefile.split("docker-deploy:", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
