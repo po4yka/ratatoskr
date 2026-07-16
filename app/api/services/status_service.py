@@ -170,7 +170,7 @@ class PublicStatusService:
             done, pending = await asyncio.wait(
                 tasks.values(), timeout=self._deployment.status_total_timeout_seconds
             )
-        except BaseException:
+        except asyncio.CancelledError:
             for task in tasks.values():
                 if not task.done():
                     task.cancel()
@@ -187,11 +187,11 @@ class PublicStatusService:
         components: dict[str, PublicStatusComponent] = {}
         for spec in _COMPONENTS:
             task = tasks[spec.id]
-            if task in done_set:
+            if task in done_set and not task.cancelled():
                 try:
                     components[spec.id] = task.result()
                     continue
-                except BaseException:
+                except Exception:
                     pass
             components[spec.id] = self._component(
                 spec,

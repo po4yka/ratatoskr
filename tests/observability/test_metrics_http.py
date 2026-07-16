@@ -14,8 +14,8 @@ from prometheus_client import generate_latest
 
 from app.observability.metrics_http import (
     build_multiprocess_registry,
-    configured_multiprocess_directory,
     configured_metrics_port,
+    configured_multiprocess_directory,
     mark_process_dead,
     prepare_multiprocess_directory,
     start_metrics_http_server_from_env,

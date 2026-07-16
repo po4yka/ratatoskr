@@ -156,6 +156,19 @@ from app.observability.metrics_digest import (
 )
 
 # ---------------------------------------------------------------------------
+# HTTP RED
+# ---------------------------------------------------------------------------
+from app.observability.metrics_http_requests import (
+    HTTP_REQUEST_DURATION_SECONDS,
+    HTTP_REQUESTS_IN_FLIGHT,
+    HTTP_REQUESTS_TOTAL,
+    bucket_http_method,
+    bucket_status_class,
+    change_http_in_flight,
+    record_http_request,
+)
+
+# ---------------------------------------------------------------------------
 # LLM / OpenRouter
 # ---------------------------------------------------------------------------
 from app.observability.metrics_llm import (
@@ -213,19 +226,6 @@ from app.observability.metrics_request import (
 )
 
 # ---------------------------------------------------------------------------
-# HTTP RED
-# ---------------------------------------------------------------------------
-from app.observability.metrics_http_requests import (
-    HTTP_REQUEST_DURATION_SECONDS,
-    HTTP_REQUESTS_IN_FLIGHT,
-    HTTP_REQUESTS_TOTAL,
-    bucket_http_method,
-    bucket_status_class,
-    change_http_in_flight,
-    record_http_request,
-)
-
-# ---------------------------------------------------------------------------
 # Scheduler / queue depth
 # ---------------------------------------------------------------------------
 from app.observability.metrics_scheduler import (
@@ -235,28 +235,6 @@ from app.observability.metrics_scheduler import (
     record_scheduler_chronic_failure,
     record_taskiq_retry_outcome,
     set_scheduler_queue_depth,
-)
-
-# ---------------------------------------------------------------------------
-# Public status checks
-# ---------------------------------------------------------------------------
-from app.observability.metrics_status import (
-    STATUS_CHECK_DURATION_SECONDS,
-    STATUS_CHECKS_TOTAL,
-    STATUS_COMPONENT_STATE,
-    record_status_check,
-)
-
-# ---------------------------------------------------------------------------
-# Taskiq RED
-# ---------------------------------------------------------------------------
-from app.observability.metrics_taskiq import (
-    TASKIQ_EXECUTION_DURATION_SECONDS,
-    TASKIQ_EXECUTIONS_TOTAL,
-    TASKIQ_IN_FLIGHT,
-    bucket_taskiq_task,
-    change_taskiq_in_flight,
-    record_taskiq_execution,
 )
 
 # ---------------------------------------------------------------------------
@@ -297,6 +275,16 @@ from app.observability.metrics_social import (
 )
 
 # ---------------------------------------------------------------------------
+# Public status checks
+# ---------------------------------------------------------------------------
+from app.observability.metrics_status import (
+    STATUS_CHECK_DURATION_SECONDS,
+    STATUS_CHECKS_TOTAL,
+    STATUS_COMPONENT_STATE,
+    record_status_check,
+)
+
+# ---------------------------------------------------------------------------
 # Streaming
 # ---------------------------------------------------------------------------
 from app.observability.metrics_streaming import (
@@ -314,6 +302,18 @@ from app.observability.metrics_stt import (
     STT_REQUESTS_TOTAL,
     record_stt_audio_seconds,
     record_stt_request,
+)
+
+# ---------------------------------------------------------------------------
+# Taskiq RED
+# ---------------------------------------------------------------------------
+from app.observability.metrics_taskiq import (
+    TASKIQ_EXECUTION_DURATION_SECONDS,
+    TASKIQ_EXECUTIONS_TOTAL,
+    TASKIQ_IN_FLIGHT,
+    bucket_taskiq_task,
+    change_taskiq_in_flight,
+    record_taskiq_execution,
 )
 
 # ---------------------------------------------------------------------------

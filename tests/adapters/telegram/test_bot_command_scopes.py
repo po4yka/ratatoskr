@@ -70,7 +70,7 @@ def _make_client(allowed_user_ids: tuple[int, ...]) -> TelegramClient:
     return tc
 
 
-def test_bot_session_is_persisted_under_data_mount(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bot_session_uses_configured_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: dict[str, Any] = {}
 
     class _ClientStub:
@@ -81,7 +81,14 @@ def test_bot_session_is_persisted_under_data_mount(monkeypatch: pytest.MonkeyPat
         "app.adapters.telegram.telegram_client.TelethonBotClient",
         _ClientStub,
     )
-    cfg = SimpleNamespace(telegram=SimpleNamespace(api_id=1, api_hash="hash", bot_token="1:token"))
+    cfg = SimpleNamespace(
+        telegram=SimpleNamespace(
+            api_id=1,
+            api_hash="hash",
+            bot_token="1:token",
+            session_dir="/data",
+        )
+    )
 
     TelegramClient(cfg)
 

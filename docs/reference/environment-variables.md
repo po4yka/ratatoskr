@@ -185,6 +185,7 @@ See [YouTube](../guides/configure-youtube-download.md) and
 | Variable | Purpose |
 | --- | --- |
 | `ALLOWED_USER_IDS` | User allowlist; behavior differs by transport when empty. |
+| `TELEGRAM_SESSION_DIR` | Persistent Telethon bot-session directory; Compose defaults it to `/data`. |
 | `ALLOWED_CLIENT_IDS` | Client identifier allowlist. |
 | `AUTH_ALLOW_ANY_CLIENT_ID` | Explicit empty-allowlist override. |
 | `JWT_SECRET_KEY` | Current JWT signing secret. |

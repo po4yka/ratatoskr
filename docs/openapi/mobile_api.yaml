@@ -10247,14 +10247,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicStatusSuccessResponse'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
         '422':
           $ref: '#/components/responses/ValidationError'
-      security:
-      - HTTPBearer: []
   /health/detailed:
     get:
       tags:

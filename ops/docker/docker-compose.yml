@@ -75,6 +75,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - METRICS_HTTP_PORT=9101
       - METRICS_BEARER_TOKEN=${METRICS_BEARER_TOKEN:-}
+      - TELEGRAM_SESSION_DIR=${TELEGRAM_SESSION_DIR:-/data}
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       # Operator-side PostgreSQL backups are owned by the pg-backup sidecar
       # below. Keep the legacy bot-local loop opt-in to avoid duplicate dumps.

@@ -301,6 +301,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         ("GET", "/health/live"),
         ("GET", "/health/ready"),
         ("GET", "/v1/meta"),
+        ("GET", "/v1/status"),
         ("POST", "/v1/auth/credentials-login"),
         ("POST", "/v1/auth/refresh"),
         ("POST", "/v1/auth/secret-login"),
