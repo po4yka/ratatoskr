@@ -16341,7 +16341,7 @@
           "Health"
         ],
         "summary": "Detailed Health Check",
-        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nComprehensive health check with component status.\n\nReturns detailed status of all system components:\n- Database connectivity and size\n- Redis availability\n- Circuit breaker states\n- Overall health score",
+        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nOwner-only comprehensive health check with component status.\n\nReturns detailed status of all system components:\n- Database connectivity and size\n- Redis availability\n- Circuit breaker states\n- Overall health score",
         "operationId": "detailed_health_check_health_detailed_get",
         "responses": {
           "200": {
@@ -16359,6 +16359,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"

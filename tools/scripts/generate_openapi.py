@@ -309,6 +309,7 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
         ("GET", "/v1/users/me/feed.xml"),
     }
     owner_prefixes = ("/v1/admin/", "/v1/system/")
+    owner_routes = {("GET", "/health/detailed")}
 
     for path, methods in spec.get("paths", {}).items():
         for method, operation in methods.items():
@@ -324,7 +325,10 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
                 responses_for_operation.setdefault(
                     "500", {"$ref": "#/components/responses/InternalServerError"}
                 )
-            if any(path.startswith(prefix) for prefix in owner_prefixes):
+            if any(path.startswith(prefix) for prefix in owner_prefixes) or (
+                method_upper,
+                path,
+            ) in owner_routes:
                 responses_for_operation.setdefault(
                     "403", {"$ref": "#/components/responses/ForbiddenError"}
                 )

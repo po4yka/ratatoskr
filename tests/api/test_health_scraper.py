@@ -1,9 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.api.exceptions import AuthorizationError
 from app.api.routers.auth.tokens import create_access_token
+from app.api.services.auth_service import AuthService
 
 
 def _auth_headers() -> dict[str, str]:
@@ -27,7 +30,40 @@ def test_unknown_health_path_does_not_fall_through_to_spa(
     assert response.status_code == 404
 
 
-def test_health_detailed_includes_scraper_component(client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_health_detailed_authorizes_before_running_probes(monkeypatch) -> None:
+    from app.api.routers import health
+
+    require_owner = AsyncMock(side_effect=AuthorizationError("Owner permissions required"))
+    database_probe = AsyncMock()
+    monkeypatch.setattr(AuthService, "require_owner", require_owner)
+    monkeypatch.setattr(health, "_check_database", database_probe)
+
+    with pytest.raises(AuthorizationError):
+        await health.detailed_health_check(
+            SimpleNamespace(),
+            {"user_id": 123456789, "username": "health_test_user", "client_id": "test"},
+        )
+
+    require_owner.assert_awaited_once()
+    database_probe.assert_not_awaited()
+
+
+def test_health_detailed_requires_owner(client: TestClient, monkeypatch) -> None:
+    require_owner = AsyncMock(side_effect=AuthorizationError("Owner permissions required"))
+    monkeypatch.setattr(AuthService, "require_owner", require_owner)
+
+    response = client.get("/health/detailed", headers=_auth_headers())
+
+    assert response.status_code == 403
+    require_owner.assert_awaited_once()
+
+
+def test_health_detailed_includes_scraper_component(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(AuthService, "require_owner", AsyncMock(return_value={}))
+
     response = client.get("/health/detailed", headers=_auth_headers())
     assert response.status_code == 200
 
@@ -42,6 +78,8 @@ def test_health_detailed_includes_scraper_component(client: TestClient) -> None:
 
 def test_health_detailed_reuses_cached_database_details(client: TestClient, monkeypatch) -> None:
     from app.api.routers import health
+
+    monkeypatch.setattr(AuthService, "require_owner", AsyncMock(return_value={}))
 
     class _Inspection:
         def __init__(self) -> None:

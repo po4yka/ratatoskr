@@ -10242,7 +10242,7 @@ paths:
         failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.
 
 
-        Comprehensive health check with component status.
+        Owner-only comprehensive health check with component status.
 
 
         Returns detailed status of all system components:
@@ -10266,6 +10266,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '422':
           $ref: '#/components/responses/ValidationError'
       security:
