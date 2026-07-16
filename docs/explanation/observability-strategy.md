@@ -32,7 +32,7 @@ Logging helpers live in `app/core/logging_utils.py`. Services attach compact con
 
 ## Metrics
 
-Prometheus instruments application behavior through `app/observability/metrics.py` and subsystem-specific metric helpers. Metrics cover request outcomes/latency, extraction providers, LLM attempts and costs, Taskiq retries/failures, vector reconciliation, social integrations, and operational maintenance.
+Prometheus instruments application behavior through `app/observability/metrics.py` and subsystem-specific metric helpers. Metrics cover request outcomes/latency, extraction providers, LLM attempts and costs, Taskiq retries/failures, vector reconciliation, social integrations, and operational maintenance. The monitoring profile scrapes the API, Telegram bot, Taskiq worker, and scheduler separately. The worker endpoint aggregates every Taskiq child through a container-local Prometheus multiprocess registry, so scheduled-task metrics are not lost in another process.
 
 Use metrics to detect rates and trends; use correlation-linked records to explain one failure. Avoid labels containing raw URLs, prompts, user text, tokens, or unbounded IDs.
 

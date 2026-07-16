@@ -104,6 +104,46 @@ def test_monitoring_profile_is_in_primary_compose_file() -> None:
         assert services[name]["profiles"] == ["with-monitoring"]
 
 
+def test_prometheus_scrapes_every_application_process() -> None:
+    services = _compose()["services"]
+    prometheus_config = yaml.safe_load(
+        (ROOT / "ops/monitoring/prometheus.yml").read_text(encoding="utf-8")
+    )
+    jobs = {
+        job["job_name"]: job["static_configs"][0]["targets"]
+        for job in prometheus_config["scrape_configs"]
+    }
+
+    assert jobs["ratatoskr-mobile-api"] == ["mobile-api:8000"]
+    assert jobs["ratatoskr-bot"] == ["ratatoskr:9101"]
+    assert jobs["ratatoskr-worker"] == ["worker:9102"]
+    assert jobs["ratatoskr-scheduler"] == ["scheduler:9103"]
+
+    assert _env_map(services["ratatoskr"])["METRICS_HTTP_PORT"] == "9101"
+    assert services["ratatoskr"]["expose"] == ["9101"]
+    assert "ports" not in services["ratatoskr"]
+    worker_env = _env_map(services["worker"])
+    assert worker_env["METRICS_HTTP_PORT"] == "9102"
+    assert worker_env["PROMETHEUS_MULTIPROC_DIR"] == "/tmp/prometheus-worker"
+    assert services["worker"]["expose"] == ["9102"]
+    assert "ports" not in services["worker"]
+    assert _env_map(services["scheduler"])["METRICS_HTTP_PORT"] == "9103"
+    assert services["scheduler"]["expose"] == ["9103"]
+    assert "ports" not in services["scheduler"]
+
+    alerting = yaml.safe_load(
+        (ROOT / "ops/monitoring/alerting_rules.yml").read_text(encoding="utf-8")
+    )
+    rules = [rule for group in alerting["groups"] for rule in group["rules"]]
+    process_alert = next(
+        rule for rule in rules if rule.get("alert") == "RatatoskrApplicationProcessDown"
+    )
+    assert (
+        'up{job=~"ratatoskr-(mobile-api|bot|worker|scheduler)"} == 0'
+        in process_alert["expr"]
+    )
+
+
 def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
     services = _compose()["services"]
     prometheus = services["prometheus"]

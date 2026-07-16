@@ -73,12 +73,15 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - METRICS_HTTP_PORT=9101
       - METRICS_BEARER_TOKEN=${METRICS_BEARER_TOKEN:-}
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       # Operator-side PostgreSQL backups are owned by the pg-backup sidecar
       # below. Keep the legacy bot-local loop opt-in to avoid duplicate dumps.
       - DB_BACKUP_ENABLED=${DB_BACKUP_ENABLED:-0}
       - RATATOSKR_PROCESS_ROLE=bot
+    expose:
+      - "9101"
     command:
       - sh
       - -c
@@ -174,7 +177,11 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - METRICS_HTTP_PORT=9102
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-worker
       - RATATOSKR_PROCESS_ROLE=worker
+    expose:
+      - "9102"
     volumes:
       - ${X_HOST_DATA_DIR:-/var/lib/x_bookmarks_stub}:/x_bookmarks:ro
       - ../../data:/data
@@ -200,7 +207,7 @@ services:
         required: false
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('redis', 6379), 5); s.close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9102/metrics', timeout=5).read(1)"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -259,7 +266,10 @@ services:
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - METRICS_HTTP_PORT=9103
       - RATATOSKR_PROCESS_ROLE=scheduler
+    expose:
+      - "9103"
     volumes:
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
@@ -269,7 +279,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('redis', 6379), 5); s.close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9103/metrics', timeout=5).read(1)"]
       interval: 30s
       timeout: 10s
       retries: 5

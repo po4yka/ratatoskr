@@ -9,6 +9,15 @@
 groups:
   - name: ratatoskr_availability
     rules:
+      - alert: RatatoskrApplicationProcessDown
+        expr: up{job=~"ratatoskr-(mobile-api|bot|worker|scheduler)"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} metrics endpoint is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}; check the container and process logs"
+
       # High error rate alert
       - alert: RatatoskrHighErrorRate
         expr: |

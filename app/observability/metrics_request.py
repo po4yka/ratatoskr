@@ -44,14 +44,16 @@ if PROMETHEUS_AVAILABLE:
     URL_PROCESSING_QUEUE_DEPTH = Gauge(
         "ratatoskr_url_processing_queue_depth",
         "Number of URL processing jobs waiting in the queue",
+        multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
 
     # Incremented when URLProcessor begins processing a request; decremented
-    # in the finally-block.  Single-process gauge (one Docker container).
+    # in the finally-block. Multiprocess mode sums concurrent Taskiq workers.
     URL_PROCESSOR_IN_FLIGHT = Gauge(
         "ratatoskr_url_processor_in_flight",
         "Number of URL processing requests currently active",
+        multiprocess_mode="livesum",
         registry=REGISTRY,
     )
 

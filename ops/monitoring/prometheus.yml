@@ -35,6 +35,33 @@ scrape_configs:
         target_label: instance
         replacement: 'ratatoskr-mobile-api'
 
+  # Process-local metrics from the Telegram bot.
+  - job_name: 'ratatoskr-bot'
+    static_configs:
+      - targets: ['ratatoskr:9101']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-bot'
+
+  # Aggregated metrics from every Taskiq worker child process.
+  - job_name: 'ratatoskr-worker'
+    static_configs:
+      - targets: ['worker:9102']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-worker'
+
+  # Scheduler process availability; task execution metrics come from the worker.
+  - job_name: 'ratatoskr-scheduler'
+    static_configs:
+      - targets: ['scheduler:9103']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-scheduler'
+
   # Host metrics via node-exporter sidecar
   - job_name: 'node'
     static_configs:

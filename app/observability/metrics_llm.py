@@ -159,6 +159,7 @@ if PROMETHEUS_AVAILABLE:
         "openrouter_circuit_breaker_state",
         "Per-model circuit breaker state: 0=closed, 1=half_open, 2=open.",
         ["model"],
+        multiprocess_mode="livemax",
         registry=REGISTRY,
     )
 
