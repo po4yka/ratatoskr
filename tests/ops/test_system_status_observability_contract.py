@@ -98,10 +98,9 @@ def test_api_production_surfaces_use_metrics_aware_launcher() -> None:
     )
 
 
-def test_production_runtime_paths_allow_bot_session_and_internal_metrics() -> None:
+def test_production_runtime_allows_internal_metrics_host() -> None:
     services = _compose()["services"]
 
-    assert services["ratatoskr"]["working_dir"] == "/data"
     trusted_hosts = _environment(services["mobile-api"])["TRUSTED_HOSTS"]
     assert "mobile-api" in trusted_hosts.split(",")
 

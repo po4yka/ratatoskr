@@ -43,6 +43,7 @@ class TelegramClient:
                 api_id=self.cfg.telegram.api_id,
                 api_hash=self.cfg.telegram.api_hash,
                 bot_token=self.cfg.telegram.bot_token,
+                session_dir="/data",
             )
 
     async def start(

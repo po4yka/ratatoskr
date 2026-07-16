@@ -34,9 +34,6 @@ services:
     env_file:
       - path: ../../.env
         required: false
-    # Telethon's bot session is a relative SQLite path. Run from the persistent,
-    # appuser-writable data mount instead of the root-owned image directory.
-    working_dir: /data
     volumes:
       # App code, alembic.ini, and config/ are baked into the image. Do NOT
       # bind-mount ../../app, ../../bot.py, ../../alembic.ini, or ../../config
