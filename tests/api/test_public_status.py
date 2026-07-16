@@ -1,0 +1,353 @@
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Iterable
+from datetime import datetime
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api.main import app
+from app.api.models.responses.status import (
+    PublicStatusComponent,
+    PublicStatusGroup,
+    PublicStatusLevel,
+    PublicStatusResponse,
+    PublicStatusSummary,
+)
+from app.api.services.status_service import (
+    PublicStatusService,
+    clear_status_cache,
+    get_public_status_service,
+)
+from app.config.deployment import DeploymentConfig
+from app.core.time_utils import UTC
+
+_COMPONENT_IDS = (
+    "api",
+    "web_application",
+    "telegram_bot",
+    "postgresql",
+    "redis",
+    "vector_search",
+    "extraction",
+    "ai_summarization",
+    "taskiq_worker",
+    "scheduler",
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache() -> Iterable[None]:
+    clear_status_cache()
+    yield
+    clear_status_cache()
+
+
+def _probe(value: PublicStatusLevel | dict[str, Any]):
+    async def _run() -> PublicStatusLevel | dict[str, Any]:
+        return value
+
+    return _run
+
+
+def _probes(default: PublicStatusLevel = PublicStatusLevel.OPERATIONAL):
+    return {component_id: _probe(default) for component_id in _COMPONENT_IDS}
+
+
+def _components(result: PublicStatusResponse) -> dict[str, PublicStatusComponent]:
+    return {
+        component.id: component
+        for group in result.groups
+        for component in group.components
+    }
+
+
+@pytest.mark.asyncio
+async def test_status_aggregation_and_exact_summary() -> None:
+    probes = _probes()
+    probes["redis"] = _probe(PublicStatusLevel.DISABLED)
+    probes["vector_search"] = _probe(PublicStatusLevel.OUTAGE)
+    service = PublicStatusService(
+        deployment=DeploymentConfig(), component_probes=probes, cache_enabled=False
+    )
+
+    result = await service.get_status()
+
+    assert result.status is PublicStatusLevel.DEGRADED
+    assert result.summary.model_dump() == {
+        "total": 10,
+        "operational": 8,
+        "degraded": 0,
+        "outage": 1,
+        "unknown": 0,
+        "disabled": 1,
+    }
+    assert sum(result.summary.model_dump()[level.value] for level in PublicStatusLevel) == 10
+
+
+@pytest.mark.asyncio
+async def test_all_healthy_signals_are_operational() -> None:
+    service = PublicStatusService(
+        deployment=DeploymentConfig(),
+        component_probes=_probes(),
+        cache_enabled=False,
+    )
+
+    result = await service.get_status()
+
+    assert result.status is PublicStatusLevel.OPERATIONAL
+    assert result.summary.operational == result.summary.total == 10
+
+
+@pytest.mark.parametrize(
+    ("sample", "expected"),
+    [
+        (
+            b'openrouter_circuit_breaker_state{model="primary"} 0\n',
+            PublicStatusLevel.OPERATIONAL,
+        ),
+        (
+            b'openrouter_circuit_breaker_state{model="primary"} 1\n',
+            PublicStatusLevel.DEGRADED,
+        ),
+        (
+            b'openrouter_circuit_breaker_state{model="primary"} 2\n',
+            PublicStatusLevel.OUTAGE,
+        ),
+        (
+            b'openrouter_circuit_breaker_state{model="primary"} 0\n'
+            b'openrouter_circuit_breaker_state{model="fallback"} 2\n',
+            PublicStatusLevel.DEGRADED,
+        ),
+        (b"unrelated_metric 1\n", PublicStatusLevel.UNKNOWN),
+    ],
+)
+def test_ai_status_uses_only_bounded_openrouter_circuit_metric(
+    sample: bytes, expected: PublicStatusLevel
+) -> None:
+    assert PublicStatusService._parse_openrouter_status(sample) is expected
+
+
+@pytest.mark.asyncio
+async def test_worker_and_ai_share_one_metrics_scrape(monkeypatch: pytest.MonkeyPatch) -> None:
+    probes = _probes()
+    probes.pop("ai_summarization")
+    probes.pop("taskiq_worker")
+    service = PublicStatusService(
+        deployment=DeploymentConfig(
+            STATUS_WORKER_METRICS_URL="http://worker:9102/metrics"
+        ),
+        component_probes=probes,
+        cache_enabled=False,
+    )
+    calls = 0
+
+    async def _fetch(_url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return (
+            PublicStatusLevel.OPERATIONAL,
+            b'openrouter_circuit_breaker_state{model="primary"} 0\n',
+        )
+
+    monkeypatch.setattr(service, "_fetch_metrics", _fetch)
+
+    result = await service.get_status()
+
+    assert result.status is PublicStatusLevel.OPERATIONAL
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_degrades_overall_and_critical_outage_causes_outage() -> None:
+    probes = _probes()
+    probes["ai_summarization"] = _probe(PublicStatusLevel.UNKNOWN)
+    service = PublicStatusService(
+        deployment=DeploymentConfig(), component_probes=probes, cache_enabled=False
+    )
+    assert (await service.get_status()).status is PublicStatusLevel.DEGRADED
+
+    probes["postgresql"] = _probe(PublicStatusLevel.OUTAGE)
+    service = PublicStatusService(
+        deployment=DeploymentConfig(), component_probes=probes, cache_enabled=False
+    )
+    assert (await service.get_status()).status is PublicStatusLevel.OUTAGE
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_process_is_unknown_and_unreachable_process_is_outage() -> None:
+    service = PublicStatusService(deployment=DeploymentConfig(), cache_enabled=False)
+    assert await service._probe_process(None) is PublicStatusLevel.UNKNOWN
+
+    unreachable = PublicStatusService(
+        deployment=DeploymentConfig(
+            STATUS_BOT_METRICS_URL="http://127.0.0.1:1/metrics",
+            STATUS_PROBE_TIMEOUT_SECONDS=0.2,
+            STATUS_TOTAL_TIMEOUT_SECONDS=1,
+        ),
+        cache_enabled=False,
+    )
+    assert (
+        await unreachable._probe_process("http://127.0.0.1:1/metrics")
+        is PublicStatusLevel.OUTAGE
+    )
+
+
+@pytest.mark.asyncio
+async def test_slow_probe_is_bounded_and_reported_as_outage() -> None:
+    async def _slow() -> PublicStatusLevel:
+        await asyncio.sleep(1)
+        return PublicStatusLevel.OPERATIONAL
+
+    probes = _probes()
+    probes["telegram_bot"] = _slow
+    service = PublicStatusService(
+        deployment=DeploymentConfig(
+            STATUS_PROBE_TIMEOUT_SECONDS=0.05,
+            STATUS_TOTAL_TIMEOUT_SECONDS=0.1,
+        ),
+        component_probes=probes,
+        cache_enabled=False,
+    )
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+
+    result = await service.get_status()
+
+    assert loop.time() - started < 0.5
+    assert _components(result)["telegram_bot"].status is PublicStatusLevel.OUTAGE
+
+
+@pytest.mark.asyncio
+async def test_cancelling_collection_cancels_all_component_probes() -> None:
+    started = 0
+    cancelled = 0
+    all_started = asyncio.Event()
+
+    async def _blocked() -> PublicStatusLevel:
+        nonlocal started, cancelled
+        started += 1
+        if started == len(_COMPONENT_IDS):
+            all_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled += 1
+
+    service = PublicStatusService(
+        deployment=DeploymentConfig(),
+        component_probes=dict.fromkeys(_COMPONENT_IDS, _blocked),
+        cache_enabled=False,
+    )
+    task = asyncio.create_task(service.get_status())
+    await asyncio.wait_for(all_started.wait(), timeout=0.5)
+
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled == len(_COMPONENT_IDS)
+
+
+@pytest.mark.asyncio
+async def test_health_details_are_never_exposed() -> None:
+    probes = _probes()
+    probes["postgresql"] = _probe(
+        {
+            "status": "unhealthy",
+            "error": "postgresql://admin:secret@private-db/internal",
+            "url": "http://private-host:6333",
+            "provider_key": "sk-secret",
+        }
+    )
+    service = PublicStatusService(
+        deployment=DeploymentConfig(), component_probes=probes, cache_enabled=False
+    )
+
+    serialized = (await service.get_status()).model_dump_json()
+
+    assert "secret" not in serialized
+    assert "private" not in serialized
+    assert "postgresql://" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_status_response_is_cached() -> None:
+    calls = 0
+
+    async def _counted() -> PublicStatusLevel:
+        nonlocal calls
+        calls += 1
+        return PublicStatusLevel.OPERATIONAL
+
+    probes = _probes()
+    probes["api"] = _counted
+    service = PublicStatusService(
+        deployment=DeploymentConfig(), component_probes=probes
+    )
+
+    first = await service.get_status()
+    second = await service.get_status()
+
+    assert calls == 1
+    assert second.generated_at == first.generated_at
+
+
+def _stub_response() -> PublicStatusResponse:
+    now = datetime.now(UTC)
+    component = PublicStatusComponent(
+        id="api",
+        name="API",
+        status=PublicStatusLevel.OPERATIONAL,
+        message="Operational",
+        checked_at=now,
+        latency_ms=0,
+    )
+    return PublicStatusResponse(
+        status=PublicStatusLevel.OPERATIONAL,
+        message="All systems operational",
+        generated_at=now,
+        refresh_after_seconds=30,
+        summary=PublicStatusSummary(
+            total=1,
+            operational=1,
+            degraded=0,
+            outage=0,
+            unknown=0,
+            disabled=0,
+        ),
+        groups=[
+            PublicStatusGroup(
+                id="interfaces",
+                name="Interfaces",
+                status=PublicStatusLevel.OPERATIONAL,
+                components=[component],
+            )
+        ],
+    )
+
+
+def test_status_endpoint_is_public_and_uses_success_envelope() -> None:
+    class _StubService:
+        async def get_status(self, _request: Any) -> PublicStatusResponse:
+            return _stub_response()
+
+    app.dependency_overrides[get_public_status_service] = _StubService
+    try:
+        response = TestClient(app).get("/v1/status")
+    finally:
+        app.dependency_overrides.pop(get_public_status_service, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["status"] == "operational"
+    assert "security" not in app.openapi()["paths"]["/v1/status"]["get"]
+    assert (
+        app.openapi()["paths"]["/v1/status"]["get"]["responses"]["200"]["content"]
+        ["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/PublicStatusSuccessResponse"
+    )

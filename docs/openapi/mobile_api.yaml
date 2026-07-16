@@ -10233,6 +10233,28 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+  /v1/status:
+    get:
+      tags:
+      - Status
+      summary: Get public system status
+      description: Return aggregate component health without exposing infrastructure details.
+      operationId: public_status_v1_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicStatusSuccessResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
   /health/detailed:
     get:
       tags:
@@ -13155,6 +13177,159 @@ components:
       required:
       - data
       title: PublicCollectionSuccessResponse
+    PublicStatusComponent:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        status:
+          $ref: '#/components/schemas/PublicStatusLevel'
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+        checked_at:
+          type: string
+          format: date-time
+          title: Checked At
+        latency_ms:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Latency Ms
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - name
+      - status
+      - checked_at
+      title: PublicStatusComponent
+      description: One sanitized public component check.
+    PublicStatusGroup:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        status:
+          $ref: '#/components/schemas/PublicStatusLevel'
+        components:
+          items:
+            $ref: '#/components/schemas/PublicStatusComponent'
+          type: array
+          title: Components
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - name
+      - status
+      - components
+      title: PublicStatusGroup
+      description: A stable group of related components.
+    PublicStatusLevel:
+      type: string
+      enum:
+      - operational
+      - degraded
+      - outage
+      - unknown
+      - disabled
+      title: PublicStatusLevel
+      description: Stable public component and aggregate status values.
+    PublicStatusResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/PublicStatusLevel'
+        message:
+          type: string
+          title: Message
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        refresh_after_seconds:
+          type: integer
+          minimum: 1.0
+          title: Refresh After Seconds
+        summary:
+          $ref: '#/components/schemas/PublicStatusSummary'
+        groups:
+          items:
+            $ref: '#/components/schemas/PublicStatusGroup'
+          type: array
+          title: Groups
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - message
+      - generated_at
+      - refresh_after_seconds
+      - summary
+      - groups
+      title: PublicStatusResponse
+      description: Public status page payload.
+    PublicStatusSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/PublicStatusResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: PublicStatusSuccessResponse
+      description: Standard success envelope for the public status endpoint.
+    PublicStatusSummary:
+      properties:
+        total:
+          type: integer
+          minimum: 0.0
+          title: Total
+        operational:
+          type: integer
+          minimum: 0.0
+          title: Operational
+        degraded:
+          type: integer
+          minimum: 0.0
+          title: Degraded
+        outage:
+          type: integer
+          minimum: 0.0
+          title: Outage
+        unknown:
+          type: integer
+          minimum: 0.0
+          title: Unknown
+        disabled:
+          type: integer
+          minimum: 0.0
+          title: Disabled
+      additionalProperties: false
+      type: object
+      required:
+      - total
+      - operational
+      - degraded
+      - outage
+      - unknown
+      - disabled
+      title: PublicStatusSummary
+      description: Exact component counts by public status.
     QuickSaveRequest:
       properties:
         url:

@@ -88,7 +88,7 @@ The bot, API, worker, and scheduler are separate containers built from the proje
 |---|---|
 | `with-scrapers` | Self-hosted Firecrawl and dependencies, Crawl4AI, Defuddle, and CloakBrowser. |
 | `with-webwright` | Microsoft Webwright browser-agent sidecar. |
-| `with-monitoring` | Prometheus, Alertmanager, Grafana, Loki, Promtail, node-exporter, and tracing services. |
+| `with-monitoring` | Prometheus, Alertmanager, Grafana, Loki, Promtail, node-exporter, PostgreSQL/Redis exporters, and tracing services. |
 | `with-cloud-ollama` | Reachability check for a remote OpenAI-compatible Ollama endpoint. |
 | `mcp`, `mcp-write`, `mcp-public` | MCP server variants with distinct exposure/write policies. |
 

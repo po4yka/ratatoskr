@@ -18,6 +18,51 @@ groups:
           summary: "{{ $labels.job }} metrics endpoint is down"
           description: "Prometheus cannot scrape {{ $labels.instance }}; check the container and process logs"
 
+      - alert: RatatoskrDependencyMetricsDown
+        expr: up{job=~"postgres|redis|qdrant|node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} dependency telemetry is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}. For PostgreSQL/Redis, check the exporter and then the dependency; for Qdrant/node this is a direct availability signal."
+
+      - alert: RatatoskrPostgresUnavailable
+        expr: pg_up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is unreachable"
+          description: "The PostgreSQL exporter is alive but cannot connect to the Ratatoskr database. Check postgres health, credentials, connection limits, and storage."
+
+      - alert: RatatoskrRedisUnavailable
+        expr: redis_up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unreachable"
+          description: "The Redis exporter is alive but cannot execute INFO against the Ratatoskr Redis instance. Taskiq scheduling, locks, rate limits, and caches are affected."
+
+      - alert: RatatoskrStatusComponentOutage
+        expr: ratatoskr_status_component_state == 3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Status component {{ $labels.component }} is in outage"
+          description: "The bounded public status evaluator has reported an outage for {{ $labels.component }} for more than two minutes."
+
+      - alert: RatatoskrStatusComponentDegraded
+        expr: ratatoskr_status_component_state == 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Status component {{ $labels.component }} is degraded"
+          description: "The bounded public status evaluator has reported degraded service for {{ $labels.component }} for more than ten minutes."
+
       # High error rate alert
       - alert: RatatoskrHighErrorRate
         expr: |
@@ -47,6 +92,22 @@ groups:
         annotations:
           summary: "Critical error rate detected"
           description: "Error rate is {{ $value | humanizePercentage }} - immediate attention required"
+
+      - alert: RatatoskrAPIHigh5xxRate
+        expr: |
+          (
+            sum(rate(ratatoskr_http_requests_total{status_class="5xx"}[5m]))
+            /
+            clamp_min(sum(rate(ratatoskr_http_requests_total[5m])), 0.001)
+          ) > 0.05
+          and
+          sum(increase(ratatoskr_http_requests_total[5m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FastAPI 5xx rate exceeds 5%"
+          description: "More than 5% of FastAPI requests returned 5xx over five minutes with enough traffic to avoid a low-volume false positive."
 
   - name: ratatoskr_circuit_breakers
     rules:
@@ -147,6 +208,65 @@ groups:
         annotations:
           summary: "Automated PostgreSQL backup is stale"
           description: "No successful PostgreSQL backup has been recorded for more than 36 hours. Check the ratatoskr-pg-backup container logs and the configured BACKUP_HOST_DIR."
+
+      - alert: RatatoskrPostgresConnectionsHigh
+        expr: |
+          (
+            sum(pg_stat_database_numbackends{datname="ratatoskr"})
+            /
+            clamp_min(max(pg_settings_max_connections), 1)
+          ) > 0.80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL connection usage exceeds 80%"
+          description: "Ratatoskr is using {{ $value | humanizePercentage }} of PostgreSQL max_connections. Check API/worker pool sizing and long-running sessions."
+
+      - alert: RatatoskrRedisEvictionsDetected
+        expr: increase(redis_evicted_keys_total{job="redis"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis is evicting keys"
+          description: "Redis evicted keys during the last 15 minutes. Queue/lock correctness may be affected if a maxmemory policy is enabled; inspect memory usage and configuration."
+
+  - name: ratatoskr_host_resources
+    rules:
+      - alert: RatatoskrHostCPUHigh
+        expr: (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU usage exceeds 90%"
+          description: "Sustained CPU saturation on {{ $labels.instance }} can delay scraping, Taskiq work, browser extraction, and API responses."
+
+      - alert: RatatoskrHostMemoryLow
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host available memory is below 10%"
+          description: "Memory pressure on {{ $labels.instance }} risks container OOM kills, especially during concurrent browser extraction."
+
+      - alert: RatatoskrHostDiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            /
+            node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+          ) < 0.10
+          and on (instance, device, mountpoint)
+          node_filesystem_readonly{fstype!~"tmpfs|overlay|squashfs"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host filesystem {{ $labels.mountpoint }} has less than 10% free"
+          description: "Low disk space on {{ $labels.instance }} risks PostgreSQL, Qdrant, Redis AOF, Docker logs, and backup failures."
 
   - name: ratatoskr_mcp_security
     rules:
@@ -351,6 +471,22 @@ groups:
 
   - name: ratatoskr_taskiq_retries
     rules:
+      - alert: RatatoskrTaskiqExecutionErrorRateHigh
+        expr: |
+          (
+            sum by (task) (rate(ratatoskr_taskiq_executions_total{outcome="error"}[15m]))
+            /
+            clamp_min(sum by (task) (rate(ratatoskr_taskiq_executions_total[15m])), 0.001)
+          ) > 0.10
+          and on (task)
+          sum by (task) (increase(ratatoskr_taskiq_executions_total[15m])) >= 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taskiq task {{ $labels.task }} error rate exceeds 10%"
+          description: "Generic Taskiq RED telemetry reports a sustained execution error rate above 10% for {{ $labels.task }}. Check the task-specific runbook and dead-letter records."
+
       - alert: RatatoskrTaskiqDeadLettersHigh
         expr: sum(increase(ratatoskr_taskiq_retries_total{outcome="dead_letter"}[15m])) > 0
         for: 5m

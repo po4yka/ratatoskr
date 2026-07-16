@@ -91,6 +91,7 @@ validator, and whether the field is secret. YAML section names match the
 | OpenTelemetry and Sentry | `app/config/otel.py` |
 | LangGraph checkpointing | `app/config/langgraph.py` |
 | Worker/background capacity | `app/config/background.py`, `worker_capacity.py` |
+| Deployment safety and public status probes | `app/config/deployment.py` |
 
 When adding or renaming a setting, update the Pydantic field, checked-in YAML,
 Compose role overrides, `.env.example` if it is first-run critical, and the
@@ -197,6 +198,22 @@ See [YouTube](../guides/configure-youtube-download.md) and
 See [Mobile API](mobile-api.md#authentication) and
 [Secret Rotation](../runbooks/secret-rotation.md).
 
+### Public status
+
+| Variable | Purpose |
+| --- | --- |
+| `STATUS_BOT_METRICS_URL` | Internal Telegram bot exporter URL. |
+| `STATUS_WORKER_METRICS_URL` | Internal aggregated Taskiq worker exporter URL. |
+| `STATUS_SCHEDULER_METRICS_URL` | Internal scheduler exporter URL. |
+| `STATUS_PROBE_TIMEOUT_SECONDS` | Per-component probe ceiling, at most five seconds. |
+| `STATUS_TOTAL_TIMEOUT_SECONDS` | Aggregate status collection ceiling, at most five seconds. |
+| `STATUS_CACHE_TTL_SECONDS` | Process-local public status cache, 15–30 seconds. |
+| `STATUS_REFRESH_AFTER_SECONDS` | Suggested client refresh interval, 15–300 seconds. |
+
+The primary Compose file supplies the three exporter URLs to `mobile-api`.
+They are credential-free internal HTTP URLs and are never returned by the
+public API. See [Status page and system metrics](status-page.md).
+
 ### Optional integrations
 
 Each optional integration has its own feature gate and credentials. Common
@@ -218,6 +235,8 @@ Some values are consumed by Compose or sidecars rather than `Settings`:
 | `BACKUP_HOST_DIR`, `BACKUP_CRON`, `BACKUP_RUN_ON_START` | PostgreSQL backup sidecar. |
 | `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. |
 | `GRAFANA_ADMIN_PASSWORD` | Monitoring profile. |
+| `RATATOSKR_DOCKER_NETWORK` | Existing core network joined by the standalone monitoring Compose file; defaults to `docker_default`. |
+| `RATATOSKR_PG_BACKUP_METRICS_VOLUME` | Existing core backup textfile volume mounted by standalone node-exporter; defaults to `docker_pg_backup_metrics`. |
 | `COMPOSE_PROFILES` | Optional scraper, monitoring, MCP, and related service groups. |
 
 Inspect the effective deployment after substitution:

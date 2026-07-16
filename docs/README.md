@@ -66,6 +66,7 @@ You want to deploy, monitor, and maintain Ratatoskr in production.
 - [Vector index sync](vector-index-sync.md)
 - [How to backup and restore](guides/backup-and-restore.md)
 - [How to optimize performance](guides/optimize-performance.md)
+- [Status page and system metrics](reference/status-page.md)
 
 ### 🤝 I'm a Contributor
 
@@ -213,6 +214,7 @@ Technical facts, API specs, and complete references.
 | [Environment Variables](reference/environment-variables.md) | Full configuration reference (250+ vars) | All |
 | [Mobile API Reference](reference/mobile-api.md) | REST API specification | Integrators |
 | [Frontend Web Integration](reference/frontend-web.md) | FastAPI serving contract and external frontend ownership | Developers, Integrators |
+| [Status Page and System Metrics](reference/status-page.md) | Public status contract and internal monitoring topology | Operators, Integrators |
 | [OpenAPI Schema](openapi/) | Machine-readable API spec | Integrators |
 | [Summary Contract](reference/summary-contract.md) | JSON output format (35+ fields) | Developers, Integrators |
 | [Database Schema](SPEC.md#database-schema) | Database tables and relationships | Developers, Integrators |

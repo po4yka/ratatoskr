@@ -2,7 +2,11 @@
 # Optimized for Raspberry Pi 5 (16GB RAM)
 #
 # Usage:
+#   export POSTGRES_PASSWORD='<application-postgres-password>'
 #   export GRAFANA_ADMIN_PASSWORD='<strong-password>'
+#   # If the core stack used `-p NAME`, also export
+#   # RATATOSKR_DOCKER_NETWORK=NAME_default.
+#   # RATATOSKR_PG_BACKUP_METRICS_VOLUME=NAME_pg_backup_metrics.
 #   docker compose -f ops/docker/docker-compose.monitoring.yml up -d
 #
 # This creates a lightweight monitoring stack with:
@@ -12,10 +16,12 @@
 # - Loki: Log aggregation (256MB limit, 7-day retention)
 # - Promtail: Log shipping
 # - Node Exporter: Host-level metrics for Prometheus
+# - PostgreSQL / Redis exporters: internal dependency health and saturation
 #
-# Note: Prometheus needs to reach `mobile-api:8000`; either run both stacks
-# under the same Compose project or attach Prometheus to the main app's
-# network via an `external: true` entry in this file.
+# This separate stack requires the existing core Compose network. The default
+# is `docker_default`; set RATATOSKR_DOCKER_NETWORK when the core stack used a
+# different project name. Prometheus and both dependency exporters join that
+# external network, and Compose fails fast when it does not exist.
 
 services:
   alertmanager:
@@ -73,8 +79,13 @@ services:
       - "127.0.0.1:9090:9090"
     networks:
       - monitoring
+      - app
     depends_on:
       alertmanager:
+        condition: service_healthy
+      postgres-exporter:
+        condition: service_healthy
+      redis-exporter:
         condition: service_healthy
     deploy:
       resources:
@@ -175,10 +186,12 @@ services:
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/host/root'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run/credentials)($|/)'
+      - '--collector.textfile.directory=/textfile'
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro
+      - pg-backup-metrics:/textfile:ro
     networks:
       - monitoring
     deploy:
@@ -187,6 +200,71 @@ services:
           memory: 128M
         reservations:
           memory: 64M
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    container_name: ratatoskr-postgres-exporter
+    restart: unless-stopped
+    environment:
+      - DATA_SOURCE_URI=postgres:5432/ratatoskr?sslmode=disable
+      - DATA_SOURCE_USER=ratatoskr_app
+      - DATA_SOURCE_PASS=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in environment}
+    expose:
+      - "9187"
+    networks:
+      - monitoring
+      - app
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.10"
+        reservations:
+          memory: 16M
+          cpus: "0.02"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9187/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.87.0-alpine@sha256:1a286dba9547b0aa3ebd4e4106fa52ad67c754dcd7cb744eb745e41d48b252ad
+    container_name: ratatoskr-redis-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    expose:
+      - "9121"
+    networks:
+      - monitoring
+      - app
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.10"
+        reservations:
+          memory: 16M
+          cpus: "0.02"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9121/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   tempo:
     image: grafana/tempo:2.6.1
@@ -218,6 +296,9 @@ services:
 networks:
   monitoring:
     driver: bridge
+  app:
+    external: true
+    name: ${RATATOSKR_DOCKER_NETWORK:-docker_default}
 
 volumes:
   alertmanager-data:
@@ -230,6 +311,9 @@ volumes:
     driver: local
   tempo-data:
     driver: local
+  pg-backup-metrics:
+    external: true
+    name: ${RATATOSKR_PG_BACKUP_METRICS_VOLUME:-docker_pg_backup_metrics}
 
 secrets:
   metrics_bearer_token:

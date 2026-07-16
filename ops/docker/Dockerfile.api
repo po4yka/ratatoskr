@@ -103,14 +103,17 @@ ENV DB_PATH=/data/ratatoskr.db \
     API_HOST=0.0.0.0 \
     API_PORT=8000 \
     API_WORKERS=1 \
+    PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api \
     RATATOSKR_PROCESS_ROLE=api
 
 EXPOSE 8000
 
-# Compose overrides the image CMD with a schema-head guard followed by uvicorn.
+# Compose overrides the image CMD with a schema-head guard followed by the same
+# API launcher. The launcher prepares the Prometheus multiprocess registry once
+# in the parent process before Uvicorn imports the application or forks workers.
 # Migration application is an explicit operator step (`make pi-migrate APPLY=1`)
 # instead of an automatic startup side effect.
-CMD ["sh", "-c", "exec uvicorn app.api.main:app --host \"${API_HOST:-0.0.0.0}\" --port \"${API_PORT:-8000}\" --workers \"${API_WORKERS:-1}\""]
+CMD ["python", "-m", "app.cli.api_server"]
 
 # CI-only target: resolve the browser while the image is still inside BuildKit.
 # This runs as appuser (inherited from runtime-base) and avoids exporting and

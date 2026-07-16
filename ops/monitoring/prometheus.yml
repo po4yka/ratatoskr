@@ -62,6 +62,37 @@ scrape_configs:
         target_label: instance
         replacement: 'ratatoskr-scheduler'
 
+  # PostgreSQL exporter. `pg_up` distinguishes an exporter process that can be
+  # scraped from a database connection that is actually usable.
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-postgres'
+
+  # Redis exporter. Credentials stay on the exporter container; Prometheus
+  # only reaches this internal, unauthenticated metrics endpoint.
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-redis'
+
+  # Qdrant exposes Prometheus text directly. The Pi overlay maps this hostname
+  # to the host-native Qdrant service; regular Compose resolves the container.
+  - job_name: 'qdrant'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['qdrant:6333']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-qdrant'
+
   # Host metrics via node-exporter sidecar
   - job_name: 'node'
     static_configs:

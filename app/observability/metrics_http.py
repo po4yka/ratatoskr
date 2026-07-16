@@ -55,9 +55,25 @@ def prepare_multiprocess_directory(
         raise ValueError("PROMETHEUS_MULTIPROC_DIR is required for worker metrics")
 
     directory = Path(raw)
+    if not directory.is_absolute():
+        raise ValueError("PROMETHEUS_MULTIPROC_DIR must be an absolute path")
     directory.mkdir(parents=True, exist_ok=True)
     for metric_file in directory.glob("*.db"):
         metric_file.unlink()
+    return directory
+
+
+def configured_multiprocess_directory(
+    environ: Mapping[str, str] | None = None,
+) -> Path | None:
+    """Return the configured multiprocess directory without mutating it."""
+    source = os.environ if environ is None else environ
+    raw = source.get("PROMETHEUS_MULTIPROC_DIR", "").strip()
+    if not raw:
+        return None
+    directory = Path(raw)
+    if not directory.is_absolute():
+        raise ValueError("PROMETHEUS_MULTIPROC_DIR must be an absolute path")
     return directory
 
 
@@ -97,6 +113,19 @@ def build_multiprocess_registry(directory: Path) -> Any:
     registry.register(_DeadWorkerGaugeCollector(directory))
     multiprocess.MultiProcessCollector(registry, path=str(directory))
     return registry
+
+
+def mark_process_dead(
+    *,
+    pid: int | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    """Mark one gracefully exiting child dead for live-gauge cleanup."""
+    directory = configured_multiprocess_directory(environ)
+    if directory is None or not PROMETHEUS_AVAILABLE:
+        return False
+    multiprocess.mark_process_dead(pid or os.getpid(), path=str(directory))
+    return True
 
 
 def start_metrics_http_server_from_env(

@@ -160,7 +160,11 @@ services:
       - MALLOC_ARENA_MAX=2
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - API_WORKERS=${API_WORKERS:-1}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
+      - STATUS_BOT_METRICS_URL=http://ratatoskr:9101/metrics
+      - STATUS_WORKER_METRICS_URL=http://worker:9102/metrics
+      - STATUS_SCHEDULER_METRICS_URL=http://scheduler:9103/metrics
       - SCRAPER_PROFILE=${SCRAPER_PROFILE:-balanced}
       - SCRAPER_BROWSER_ENABLED=${SCRAPER_BROWSER_ENABLED:-true}
       - SCRAPER_SCRAPLING_STEALTH_FALLBACK=${SCRAPER_SCRAPLING_STEALTH_FALLBACK:-true}
@@ -179,6 +183,13 @@ services:
       qdrant:
         condition: service_started
         required: false
+
+  prometheus:
+    # The Pi runs Qdrant as a native systemd service rather than a Compose
+    # container. Preserve the normal `qdrant:6333` Prometheus target by mapping
+    # that name to Docker's host gateway only in this overlay.
+    extra_hosts:
+      - "qdrant:host-gateway"
 
   mcp:
     environment:
