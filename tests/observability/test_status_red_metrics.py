@@ -79,9 +79,7 @@ def test_http_red_records_unhandled_exception_as_5xx() -> None:
         status_class="5xx",
     )
 
-    response = TestClient(test_app, raise_server_exceptions=False).get(
-        "/metrics-test/failure"
-    )
+    response = TestClient(test_app, raise_server_exceptions=False).get("/metrics-test/failure")
 
     assert response.status_code == 500
     assert (

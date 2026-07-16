@@ -60,9 +60,7 @@ def record_http_request(
         return
     method_label = bucket_http_method(method)
     status_class = bucket_status_class(status_code)
-    HTTP_REQUESTS_TOTAL.labels(
-        route=route, method=method_label, status_class=status_class
-    ).inc()
+    HTTP_REQUESTS_TOTAL.labels(route=route, method=method_label, status_class=status_class).inc()
     HTTP_REQUEST_DURATION_SECONDS.labels(route=route, method=method_label).observe(
         max(0.0, duration_seconds)
     )

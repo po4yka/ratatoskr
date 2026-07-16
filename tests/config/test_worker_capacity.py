@@ -85,9 +85,7 @@ def test_taskiq_command_bounds_async_tasks_and_prefetch() -> None:
     assert "async_tasks=3/process (6 total)" in capacity_summary(config, 2)  # type: ignore[arg-type]
 
 
-def test_metrics_supervisor_starts_taskiq_in_its_own_process_group(
-    monkeypatch, tmp_path
-) -> None:
+def test_metrics_supervisor_starts_taskiq_in_its_own_process_group(monkeypatch, tmp_path) -> None:
     from app.observability import metrics_http
 
     class _Child:
@@ -122,9 +120,7 @@ def test_metrics_supervisor_starts_taskiq_in_its_own_process_group(
     status = run_worker_with_metrics(["taskiq", "worker", "broker"])
 
     assert status == 0
-    assert popen_calls == [
-        (["taskiq", "worker", "broker"], {"start_new_session": True})
-    ]
+    assert popen_calls == [(["taskiq", "worker", "broker"], {"start_new_session": True})]
     assert server_calls == [{"multiprocess_directory": tmp_path}]
 
 

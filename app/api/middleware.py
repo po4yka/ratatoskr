@@ -40,9 +40,7 @@ def _route_template(request: Request) -> str:
     return template
 
 
-async def http_red_metrics_middleware(
-    request: Request, call_next: Callable[..., Any]
-) -> Response:
+async def http_red_metrics_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
     """Record bounded FastAPI request rate, errors, duration, and in-flight work."""
     method = request.method
     started = time.perf_counter()
@@ -60,6 +58,7 @@ async def http_red_metrics_middleware(
             duration_seconds=time.perf_counter() - started,
         )
         change_http_in_flight(method, -1)
+
 
 # Cached config for middleware usage. Lazy-initialized on the first
 # request rather than at startup because (1) middleware is loaded

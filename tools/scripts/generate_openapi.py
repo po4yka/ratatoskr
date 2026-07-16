@@ -325,10 +325,14 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
                 responses_for_operation.setdefault(
                     "500", {"$ref": "#/components/responses/InternalServerError"}
                 )
-            if any(path.startswith(prefix) for prefix in owner_prefixes) or (
-                method_upper,
-                path,
-            ) in owner_routes:
+            if (
+                any(path.startswith(prefix) for prefix in owner_prefixes)
+                or (
+                    method_upper,
+                    path,
+                )
+                in owner_routes
+            ):
                 responses_for_operation.setdefault(
                     "403", {"$ref": "#/components/responses/ForbiddenError"}
                 )

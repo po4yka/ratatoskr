@@ -41,9 +41,7 @@ def run_api_server(
     workers = _bounded_int(source, "API_WORKERS", 1, minimum=1, maximum=32)
     multiprocess_directory = source.get("PROMETHEUS_MULTIPROC_DIR", "").strip()
     if workers > 1 and not multiprocess_directory:
-        raise ValueError(
-            "PROMETHEUS_MULTIPROC_DIR is required when API_WORKERS is greater than 1"
-        )
+        raise ValueError("PROMETHEUS_MULTIPROC_DIR is required when API_WORKERS is greater than 1")
     if multiprocess_directory:
         # Imported only after the deployment has set PROMETHEUS_MULTIPROC_DIR.
         # Clearing here happens once in Uvicorn's parent, before it imports the

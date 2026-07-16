@@ -15,9 +15,7 @@ def _auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_unknown_health_path_does_not_fall_through_to_spa(
-    client: TestClient, monkeypatch
-) -> None:
+def test_unknown_health_path_does_not_fall_through_to_spa(client: TestClient, monkeypatch) -> None:
     from app.api import main
 
     def _unexpected_spa_response():
@@ -59,9 +57,7 @@ def test_health_detailed_requires_owner(client: TestClient, monkeypatch) -> None
     require_owner.assert_awaited_once()
 
 
-def test_health_detailed_includes_scraper_component(
-    client: TestClient, monkeypatch
-) -> None:
+def test_health_detailed_includes_scraper_component(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(AuthService, "require_owner", AsyncMock(return_value={}))
 
     response = client.get("/health/detailed", headers=_auth_headers())

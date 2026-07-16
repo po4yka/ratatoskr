@@ -38,9 +38,7 @@ def test_prepare_multiprocess_directory_only_clears_metric_files(tmp_path: Path)
     stale_metric.write_text("stale", encoding="utf-8")
     unrelated.write_text("keep", encoding="utf-8")
 
-    result = prepare_multiprocess_directory(
-        {"PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}
-    )
+    result = prepare_multiprocess_directory({"PROMETHEUS_MULTIPROC_DIR": str(tmp_path)})
 
     assert result == tmp_path
     assert not stale_metric.exists()
@@ -49,9 +47,9 @@ def test_prepare_multiprocess_directory_only_clears_metric_files(tmp_path: Path)
 
 def test_multiprocess_directory_is_optional_and_must_be_absolute(tmp_path: Path) -> None:
     assert configured_multiprocess_directory({}) is None
-    assert configured_multiprocess_directory(
-        {"PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}
-    ) == tmp_path
+    assert (
+        configured_multiprocess_directory({"PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}) == tmp_path
+    )
 
     with pytest.raises(ValueError, match="absolute path"):
         configured_multiprocess_directory({"PROMETHEUS_MULTIPROC_DIR": "relative"})
@@ -136,8 +134,7 @@ change_http_in_flight("GET", 1)
     second = get_metrics().decode("utf-8")
 
     expected = (
-        'ratatoskr_http_requests_total{method="GET",route="/v1/status",'
-        'status_class="2xx"} 2.0'
+        'ratatoskr_http_requests_total{method="GET",route="/v1/status",status_class="2xx"} 2.0'
     )
     assert expected in first
     assert expected in second

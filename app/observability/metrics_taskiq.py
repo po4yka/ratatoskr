@@ -61,9 +61,7 @@ def change_taskiq_in_flight(task_name: str, amount: int) -> None:
     TASKIQ_IN_FLIGHT.labels(task=bucket_taskiq_task(task_name)).inc(amount)
 
 
-def record_taskiq_execution(
-    *, task_name: str, is_error: bool, duration_seconds: float
-) -> None:
+def record_taskiq_execution(*, task_name: str, is_error: bool, duration_seconds: float) -> None:
     if not PROMETHEUS_AVAILABLE:
         return
     task = bucket_taskiq_task(task_name)

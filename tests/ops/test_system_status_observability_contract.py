@@ -53,13 +53,11 @@ def _dashboard_expressions() -> list[str]:
 
 def test_grafana_provisions_dashboard_prometheus_uid() -> None:
     datasources = yaml.safe_load(
-        (
-            ROOT / "ops/monitoring/grafana/provisioning/datasources/datasources.yml"
-        ).read_text(encoding="utf-8")
+        (ROOT / "ops/monitoring/grafana/provisioning/datasources/datasources.yml").read_text(
+            encoding="utf-8"
+        )
     )
-    prometheus = next(
-        item for item in datasources["datasources"] if item["type"] == "prometheus"
-    )
+    prometheus = next(item for item in datasources["datasources"] if item["type"] == "prometheus")
 
     assert prometheus["uid"] == "prometheus"
 
@@ -216,9 +214,7 @@ def test_system_status_dashboard_covers_real_operational_families() -> None:
         "sum by (le, route, method) "
         "(rate(ratatoskr_http_request_duration_seconds_bucket[5m]))" in expressions
     )
-    assert (
-        "sum by (task, outcome) (rate(ratatoskr_taskiq_executions_total[15m]))" in expressions
-    )
+    assert "sum by (task, outcome) (rate(ratatoskr_taskiq_executions_total[15m]))" in expressions
     assert "sum by (task) (ratatoskr_taskiq_in_flight)" in expressions
     assert (
         "sum by (le, task) (rate(ratatoskr_taskiq_execution_duration_seconds_bucket[15m]))"

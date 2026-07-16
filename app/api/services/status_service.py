@@ -242,9 +242,7 @@ class PublicStatusService:
         )
 
     def _build_probes(self, request: Request | None) -> dict[str, StatusProbe]:
-        worker_metrics_task: asyncio.Task[
-            tuple[PublicStatusLevel, bytes | None]
-        ] | None = None
+        worker_metrics_task: asyncio.Task[tuple[PublicStatusLevel, bytes | None]] | None = None
 
         async def _worker_metrics() -> tuple[PublicStatusLevel, bytes | None]:
             nonlocal worker_metrics_task
@@ -259,12 +257,12 @@ class PublicStatusService:
 
         async def _web_application() -> PublicStatusLevel:
             try:
-                available = self._web_index_path.is_file() and self._web_index_path.stat().st_size > 0
+                available = (
+                    self._web_index_path.is_file() and self._web_index_path.stat().st_size > 0
+                )
             except OSError:
                 available = False
-            return (
-                PublicStatusLevel.OPERATIONAL if available else PublicStatusLevel.UNKNOWN
-            )
+            return PublicStatusLevel.OPERATIONAL if available else PublicStatusLevel.UNKNOWN
 
         async def _ai_summarization() -> PublicStatusLevel:
             if self._llm_provider != "openrouter":
@@ -287,18 +285,14 @@ class PublicStatusService:
         probes: dict[str, StatusProbe] = {
             "api": _api,
             "web_application": _web_application,
-            "telegram_bot": lambda: self._probe_process(
-                self._deployment.status_bot_metrics_url
-            ),
+            "telegram_bot": lambda: self._probe_process(self._deployment.status_bot_metrics_url),
             "postgresql": _database,
             "redis": _check_redis,
             "vector_search": _vector,
             "extraction": _check_scraper,
             "ai_summarization": _ai_summarization,
             "taskiq_worker": _worker,
-            "scheduler": lambda: self._probe_process(
-                self._deployment.status_scheduler_metrics_url
-            ),
+            "scheduler": lambda: self._probe_process(self._deployment.status_scheduler_metrics_url),
         }
         probes.update(self._component_probes)
         return probes
@@ -307,9 +301,7 @@ class PublicStatusService:
         level, _payload = await self._fetch_metrics(url)
         return level
 
-    async def _fetch_metrics(
-        self, url: str | None
-    ) -> tuple[PublicStatusLevel, bytes | None]:
+    async def _fetch_metrics(self, url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
         if url is None:
             return PublicStatusLevel.UNKNOWN, None
         try:

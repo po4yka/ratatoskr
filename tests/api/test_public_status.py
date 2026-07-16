@@ -57,11 +57,7 @@ def _probes(default: PublicStatusLevel = PublicStatusLevel.OPERATIONAL):
 
 
 def _components(result: PublicStatusResponse) -> dict[str, PublicStatusComponent]:
-    return {
-        component.id: component
-        for group in result.groups
-        for component in group.components
-    }
+    return {component.id: component for group in result.groups for component in group.components}
 
 
 @pytest.mark.asyncio
@@ -136,9 +132,7 @@ async def test_worker_and_ai_share_one_metrics_scrape(monkeypatch: pytest.Monkey
     probes.pop("ai_summarization")
     probes.pop("taskiq_worker")
     service = PublicStatusService(
-        deployment=DeploymentConfig(
-            STATUS_WORKER_METRICS_URL="http://worker:9102/metrics"
-        ),
+        deployment=DeploymentConfig(STATUS_WORKER_METRICS_URL="http://worker:9102/metrics"),
         component_probes=probes,
         cache_enabled=False,
     )
@@ -191,8 +185,7 @@ async def test_unconfigured_process_is_unknown_and_unreachable_process_is_outage
         cache_enabled=False,
     )
     assert (
-        await unreachable._probe_process("http://127.0.0.1:1/metrics")
-        is PublicStatusLevel.OUTAGE
+        await unreachable._probe_process("http://127.0.0.1:1/metrics") is PublicStatusLevel.OUTAGE
     )
 
 
@@ -285,9 +278,7 @@ async def test_status_response_is_cached() -> None:
 
     probes = _probes()
     probes["api"] = _counted
-    service = PublicStatusService(
-        deployment=DeploymentConfig(), component_probes=probes
-    )
+    service = PublicStatusService(deployment=DeploymentConfig(), component_probes=probes)
 
     first = await service.get_status()
     second = await service.get_status()
@@ -347,7 +338,8 @@ def test_status_endpoint_is_public_and_uses_success_envelope() -> None:
     assert body["data"]["status"] == "operational"
     assert "security" not in app.openapi()["paths"]["/v1/status"]["get"]
     assert (
-        app.openapi()["paths"]["/v1/status"]["get"]["responses"]["200"]["content"]
-        ["application/json"]["schema"]["$ref"]
+        app.openapi()["paths"]["/v1/status"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
         == "#/components/schemas/PublicStatusSuccessResponse"
     )

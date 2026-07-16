@@ -142,10 +142,7 @@ def test_prometheus_scrapes_every_application_process() -> None:
     process_alert = next(
         rule for rule in rules if rule.get("alert") == "RatatoskrApplicationProcessDown"
     )
-    assert (
-        'up{job=~"ratatoskr-(mobile-api|bot|worker|scheduler)"} == 0'
-        in process_alert["expr"]
-    )
+    assert 'up{job=~"ratatoskr-(mobile-api|bot|worker|scheduler)"} == 0' in process_alert["expr"]
 
 
 def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
