@@ -157,7 +157,7 @@ async def correlation_id_middleware(request: Request, call_next: Callable[..., A
 _DEFAULT_FRAME_ANCESTORS = "'self' https://web.telegram.org https://*.telegram.org"
 _DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment=()"
 
-# CSP for the SPA (/web/*, /static/web/*) and the JSON API. ``frame-ancestors``
+# CSP for root SPA routes, compiled assets (/static/web/*), and the JSON API. ``frame-ancestors``
 # is appended separately below since it is env-overridable independently of
 # the rest of the policy.
 #

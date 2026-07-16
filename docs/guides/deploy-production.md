@@ -104,7 +104,7 @@ The default generic chain has 13 positions: Reddit, Hacker News, Scrapling, dire
 
 ## HTTP exposure
 
-Keep `mobile-api` bound to loopback and terminate TLS at a reverse proxy. Proxy the required `/v1`, `/web`, `/static`, SSE, and auth callback routes without stripping correlation or authorization headers. Configure the externally reachable base/callback URLs for enabled OAuth and digest features.
+Keep `mobile-api` bound to loopback and terminate TLS at a reverse proxy. Proxy the application origin, including `/v1`, `/static`, SSE, auth callbacks, and root SPA routes, without stripping correlation or authorization headers. Configure the externally reachable base/callback URLs for enabled OAuth and digest features.
 
 Do not expose PostgreSQL, Redis, Qdrant, scraper sidecars, or Webwright directly to the public network.
 

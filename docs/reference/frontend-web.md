@@ -7,9 +7,9 @@ The editable React/TypeScript frontend is maintained in the separate `ratatoskr-
 `app/api/main.py`:
 
 - mounts compiled assets under `/static/web`;
-- serves `app/static/web/index.html` for the `/web` application routes;
+- serves `app/static/web/index.html` at `/` and for supported client-side routes;
 - falls back to the single-page application entry point for supported client-side routes;
-- keeps REST endpoints under `/v1` and API documentation routes separate from the SPA.
+- keeps `/v1`, `/health`, `/internal`, metrics, and API documentation routes separate from the SPA.
 
 For a directly launched FastAPI process, `make stage-web` builds a sibling `ratatoskr-web` checkout and copies `dist/` into `app/static/web/`. That directory is ignored by Docker builds so stale local assets cannot enter a release image.
 

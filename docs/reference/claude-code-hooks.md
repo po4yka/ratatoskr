@@ -54,7 +54,7 @@ Automatically injects helpful context based on prompt keywords:
 - **summary validate**: Links to `app/core/summary_contract.py`
 - **firecrawl / openrouter / api**: Points to adapter files and the `debugging-apis` skill
 - **test / cli**: Links to the CLI runner and `testing-workflows` skill
-- **frontend / web / react / vite**: Points to the external `ratatoskr-web` source, local FastAPI `/web` serving, and the `web-frontend-dev` skill
+- **frontend / web / react / vite**: Points to the external `ratatoskr-web` source, local FastAPI root SPA serving, and the `web-frontend-dev` skill
 
 ## Customizing
 

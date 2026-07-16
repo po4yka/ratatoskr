@@ -267,13 +267,13 @@ pi-rollback:
 
 # End-to-end: build+ship+restart the four ratatoskr services (bot/worker/
 # scheduler/mobile-api) in one pass. The image includes the reviewed SPA
-# archive, then the smoke check verifies /web/ and /health/ready from the Pi host.
+# archive, then the smoke check verifies / and /health/ready from the Pi host.
 pi-deploy-all:
 	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api"
 	$(MAKE) pi-smoke
 
 # Smoke-test mobile-api on the Pi via its mapped host port. /health/ready exercises
-# the DB; /web/ confirms the SPA bundle is present. Retries briefly because
+# the DB; / confirms the SPA bundle is present. Retries briefly because
 # uvicorn binds a few seconds after the container reports healthy.
 pi-smoke:
 	@echo "==> Smoke-testing http://${RASPI_HOST}:${PI_SMOKE_PORT}"
@@ -284,9 +284,9 @@ pi-smoke:
 	  [ $$i -eq 8 ] && { echo "ERROR: /health/ready never returned 200" >&2; exit 1; }; \
 	  sleep 4; \
 	done
-	@out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/web/ 2>/dev/null || echo "000"); \
-	  echo "    /web/    -> $$out"; \
-	  [ "$$out" = "200" ] || { echo "ERROR: /web/ returned $$out" >&2; exit 1; }
+	@out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/ 2>/dev/null || echo "000"); \
+	  echo "    /             -> $$out"; \
+	  [ "$$out" = "200" ] || { echo "ERROR: / returned $$out" >&2; exit 1; }
 	@echo "==> Smoke OK"
 
 docker-health:

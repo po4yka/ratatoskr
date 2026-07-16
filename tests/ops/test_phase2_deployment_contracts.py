@@ -59,6 +59,10 @@ def test_mobile_api_healthcheck_uses_real_readiness_route() -> None:
     assert "/health/ready" in command
     assert "/healthz" not in command
 
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "$(PI_SMOKE_PORT)/web/" not in makefile
+    assert "$(PI_SMOKE_PORT)/ 2>/dev/null" in makefile
+
 
 def test_scrapers_profile_uses_internal_services_not_host_gateway() -> None:
     services = _compose()["services"]
