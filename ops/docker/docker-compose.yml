@@ -359,12 +359,12 @@ services:
         required: false
     restart: unless-stopped
     healthcheck:
-      # HTTP probe against the live FastAPI app -- `/healthz` already calls
+      # HTTP probe against the live FastAPI app -- `/health/ready` calls
       # `db.healthcheck()` via `_check_database`, so this is strictly stronger
       # than the previous `python -m app.cli.healthcheck` (which was DB-only
       # and reported "healthy" while uvicorn was still warming up and refusing
       # TCP connections). curl is already in the runtime image.
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/healthz"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/health/ready"]
       interval: 30s
       timeout: 10s
       retries: 5

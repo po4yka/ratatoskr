@@ -52,6 +52,14 @@ def test_default_compose_stack_contains_core_services_without_profiles() -> None
     assert services["mobile-api"]["ports"] == ["127.0.0.1:18000:8000"]
 
 
+def test_mobile_api_healthcheck_uses_real_readiness_route() -> None:
+    healthcheck = _compose()["services"]["mobile-api"]["healthcheck"]
+    command = " ".join(healthcheck["test"])
+
+    assert "/health/ready" in command
+    assert "/healthz" not in command
+
+
 def test_scrapers_profile_uses_internal_services_not_host_gateway() -> None:
     services = _compose()["services"]
 

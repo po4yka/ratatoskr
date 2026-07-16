@@ -12,6 +12,21 @@ def _auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_unknown_health_path_does_not_fall_through_to_spa(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.api import main
+
+    def _unexpected_spa_response():
+        raise AssertionError("reserved health routes must not be served by the SPA")
+
+    monkeypatch.setattr(main, "_serve_web_index", _unexpected_spa_response)
+
+    response = client.get("/healthz")
+
+    assert response.status_code == 404
+
+
 def test_health_detailed_includes_scraper_component(client: TestClient) -> None:
     response = client.get("/health/detailed", headers=_auth_headers())
     assert response.status_code == 200

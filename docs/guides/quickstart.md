@@ -47,7 +47,7 @@ Check the core services:
 ```bash
 docker compose -f ops/docker/docker-compose.yml ps
 docker compose -f ops/docker/docker-compose.yml logs --tail=80 ratatoskr worker scheduler mobile-api
-curl -fsS http://127.0.0.1:18000/healthz
+curl -fsS http://127.0.0.1:18000/health/ready
 ```
 
 ## 3. Send a URL

@@ -113,7 +113,7 @@ Do not expose PostgreSQL, Redis, Qdrant, scraper sidecars, or Webwright directly
 ```bash
 docker compose -f ops/docker/docker-compose.yml ps
 docker compose -f ops/docker/docker-compose.yml logs --tail=100 ratatoskr worker scheduler mobile-api
-curl -fsS http://127.0.0.1:18000/healthz
+curl -fsS http://127.0.0.1:18000/health/ready
 ```
 
 Then send a URL from an allowed Telegram account and confirm:

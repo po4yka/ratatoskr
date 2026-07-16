@@ -357,6 +357,19 @@ if _static_dir.is_dir():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 _web_index = _static_dir / "web" / "index.html"
+_RESERVED_ROUTE_ROOTS = frozenset(
+    {
+        "api",
+        "docs",
+        "health",
+        "healthz",
+        "internal",
+        "metrics",
+        "openapi.json",
+        "redoc",
+        "v1",
+    }
+)
 
 
 def _serve_web_index() -> FileResponse:
@@ -451,7 +464,9 @@ async def internal_metrics(_authorized: None = Depends(require_metrics_bearer)) 
 @app.get("/{path:path}", include_in_schema=False)
 def web_interface(path: str = "") -> FileResponse:
     """Serve web SPA entrypoint for any non-API path."""
-    del path
+    route_root = path.partition("/")[0]
+    if route_root in _RESERVED_ROUTE_ROOTS:
+        raise HTTPException(status_code=404, detail="Not found")
     return _serve_web_index()
 
 
