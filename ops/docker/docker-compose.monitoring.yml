@@ -4,6 +4,8 @@
 # Usage:
 #   export POSTGRES_PASSWORD='<application-postgres-password>'
 #   export GRAFANA_ADMIN_PASSWORD='<strong-password>'
+#   export RATATOSKR_ENV=production
+#   export ALERT_WEBHOOK_URL='<real-receiver-url>'
 #   # If the core stack used `-p NAME`, also export
 #   # RATATOSKR_DOCKER_NETWORK=NAME_default.
 #   # RATATOSKR_PG_BACKUP_METRICS_VOLUME=NAME_pg_backup_metrics.

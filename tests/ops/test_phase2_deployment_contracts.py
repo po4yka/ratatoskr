@@ -181,10 +181,18 @@ def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
     targets = prometheus_config["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"]
     assert targets == ["alertmanager:9093"]
     assert loki_config["ruler"]["alertmanager_url"] == "http://alertmanager:9093"
-    assert alertmanager_config["route"]["receiver"] == "webhook"
-    assert (
-        alertmanager_config["receivers"][0]["webhook_configs"][0]["url"] == "${ALERT_WEBHOOK_URL}"
-    )
+    assert alertmanager_config["route"]["receiver"] == "configured"
+    assert alertmanager_config["receivers"] == [{"name": "configured"}]
+
+    alertmanager_env = _env_map(alertmanager)
+    assert set(
+        {
+            "ALERT_WEBHOOK_URL",
+            "ALERT_SLACK_API_URL",
+            "ALERT_TELEGRAM_WEBHOOK_URL",
+            "ALERT_PAGERDUTY_ROUTING_KEY",
+        }
+    ).issubset(alertmanager_env)
 
 
 def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:

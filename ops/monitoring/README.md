@@ -12,10 +12,21 @@ The production path is the `with-monitoring` profile in the primary Compose
 file:
 
 ```bash
+export RATATOSKR_ENV=production
+export ALERT_WEBHOOK_URL='<receiver-from-secret-store>'
 POSTGRES_PASSWORD=... GRAFANA_ADMIN_PASSWORD=... \
 docker compose -f ops/docker/docker-compose.yml \
   --profile with-monitoring up -d
 ```
+
+Instead of `ALERT_WEBHOOK_URL`, or in addition to it, the renderer supports
+`ALERT_SLACK_API_URL`, `ALERT_TELEGRAM_WEBHOOK_URL`, and
+`ALERT_PAGERDUTY_ROUTING_KEY`. Slack and Telegram URLs must use HTTPS. Every
+configured integration is active; receiver credentials are rendered into a
+mode-`0600` container-private file and are never printed. A production
+Alertmanager without a valid receiver exits before becoming healthy, so
+Prometheus and Loki cannot silently depend on a discard endpoint. Inject these
+values from the host's secret environment and never commit or log them.
 
 `ops/docker/docker-compose.monitoring.yml` remains available for operators who
 run monitoring as a separate Compose project. It joins the application network
@@ -122,6 +133,18 @@ curl -fsS 'http://127.0.0.1:9090/api/v1/query?query=up'
 curl -fsS 'http://127.0.0.1:9090/api/v1/query?query=pg_up'
 curl -fsS 'http://127.0.0.1:9090/api/v1/query?query=redis_up'
 ```
+
+Then post a synthetic alert and confirm it reaches every configured receiver:
+
+```bash
+curl -fsS -H 'Content-Type: application/json' \
+  -d '[{"labels":{"alertname":"RatatoskrReceiverSmokeTest","severity":"warning"},"annotations":{"summary":"Alert delivery smoke test"}}]' \
+  http://127.0.0.1:9093/api/v2/alerts
+```
+
+Do not consider the monitoring rollout complete until the external delivery is
+observed. The smoke-test alert resolves automatically after Alertmanager's
+configured timeout.
 
 Expected current values are `1` for the four application jobs, `postgres`,
 `redis`, `qdrant`, and `node`, and for both `pg_up` and `redis_up`. Then open

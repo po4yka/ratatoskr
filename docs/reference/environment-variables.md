@@ -237,9 +237,18 @@ Some values are consumed by Compose or sidecars rather than `Settings`:
 | `BACKUP_HOST_DIR`, `BACKUP_CRON`, `BACKUP_RUN_ON_START` | PostgreSQL backup sidecar. |
 | `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. |
 | `GRAFANA_ADMIN_PASSWORD` | Monitoring profile. |
+| `ALERT_WEBHOOK_URL` | Generic Alertmanager webhook receiver. HTTP is supported for trusted internal delivery; use HTTPS for external delivery. |
+| `ALERT_SLACK_API_URL` | HTTPS Slack incoming-webhook URL rendered into the active Alertmanager receiver. |
+| `ALERT_TELEGRAM_WEBHOOK_URL` | HTTPS endpoint that accepts Alertmanager webhook payloads and delivers them to Telegram. |
+| `ALERT_PAGERDUTY_ROUTING_KEY` | PagerDuty Events API v2 integration routing key rendered into the active Alertmanager receiver. |
 | `RATATOSKR_DOCKER_NETWORK` | Existing core network joined by the standalone monitoring Compose file; defaults to `docker_default`. |
 | `RATATOSKR_PG_BACKUP_METRICS_VOLUME` | Existing core backup textfile volume mounted by standalone node-exporter; defaults to `docker_pg_backup_metrics`. |
 | `COMPOSE_PROFILES` | Optional scraper, monitoring, MCP, and related service groups. |
+
+When `RATATOSKR_ENV=production`, Alertmanager fails startup unless at least one
+of the four receiver variables is valid. Multiple configured variables fan out
+the same alert to every configured integration. Receiver values are written
+only to the container-private rendered config and must not be logged.
 
 Inspect the effective deployment after substitution:
 
