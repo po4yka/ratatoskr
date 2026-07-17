@@ -543,6 +543,19 @@ class GitBackupConfig(BaseModel):
             return None
         return str(value).strip() or None
 
+    @field_validator("extra_repos")
+    @classmethod
+    def _validate_extra_repo_urls(cls, value: dict[str, str]) -> dict[str, str]:
+        from app.core.git_url_safety import assert_safe_git_url
+
+        for name, url in value.items():
+            try:
+                assert_safe_git_url(url)
+            except ValueError as exc:
+                msg = f"GIT_BACKUP_EXTRA_REPOS entry {name!r} has an unsafe clone URL: {exc}"
+                raise ValueError(msg) from exc
+        return value
+
     @model_validator(mode="after")
     def _validate_metrics_export_path_within_data_path(self) -> GitBackupConfig:
         """Ensure metrics_export_path is absolute and resolves inside data_path.

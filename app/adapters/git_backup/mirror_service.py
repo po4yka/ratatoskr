@@ -54,6 +54,7 @@ from app.adapters.git_backup.maintenance import Maintenance, RepositoryMaintenan
 from app.adapters.git_backup.retry import RetryContext, RetryPolicy, SyncFailureException
 from app.core.git_url_safety import (
     assert_resolved_public_host,
+    assert_safe_git_url,
     extract_git_host,
     is_github_host,
 )
@@ -574,12 +575,12 @@ class GitMirrorService:
         tasks: list[MirrorTask] = []
 
         for mirror in due:
-            name = mirror.name or mirror.clone_url
+            name = mirror.name or _redact_url(mirror.clone_url)
             if ignore_patterns and _is_ignored(name, mirror.clone_url, ignore_patterns):
                 logger.debug(
                     "git_mirror_ignored name=%s url=%s (matches ignore list)",
-                    name,
-                    mirror.clone_url,
+                    _redact_url(name),
+                    _redact_url(mirror.clone_url),
                 )
                 continue
             effective_url, credentials_token = await self._resolve_url(mirror)
@@ -823,6 +824,20 @@ class GitMirrorService:
             task.name,
             safe_url,
         )
+
+        # Re-apply the syntactic guard at execution time so legacy DB rows and
+        # config created before validation cannot pass credentials to git argv.
+        try:
+            assert_safe_git_url(task.effective_url)
+        except ValueError as exc:
+            logger.warning("git_mirror_blocked name=%s reason=%s", task.name, exc)
+            return MirrorOutcome(
+                mirror=task.mirror,
+                ok=False,
+                error=str(exc),
+                error_category=classify(str(exc)),
+                attempts=0,
+            )
 
         # SSRF guard (authoritative, clone time): resolve the target host and
         # refuse to clone from private / loopback / link-local / reserved

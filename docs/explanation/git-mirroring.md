@@ -77,7 +77,7 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 | `user_id` | bigint FK | no | References `users.telegram_user_id` ON DELETE CASCADE |
 | `repository_id` | integer FK | yes | References `repositories.id` ON DELETE SET NULL; populated for GitHub-linked mirrors, null for manual |
 | `source` | `git_mirror_source` enum | no | `github` or `manual` |
-| `clone_url` | varchar(1000) | no | Canonical https:// clone URL stored without credentials |
+| `clone_url` | varchar(1000) | no | Canonical clone URL stored without credentials |
 | `name` | varchar(320) | yes | Human-readable label (owner/repo for GitHub mirrors, user-supplied for manual) |
 | `mirror_path` | varchar(1000) | yes | Absolute path to the bare clone on disk; null until first successful sync |
 | `status` | `git_mirror_status` enum | no | `pending`, `ok`, `failed`, `skipped`, or `excluded` |
@@ -117,11 +117,19 @@ A tombstoned mirror can be revived by the user re-adding the same URL via `/mirr
 
 ## Credentials
 
-Credentials for GitHub-linked mirrors are sourced from `UserGitHubIntegration.encrypted_token`, which is encrypted at rest with Fernet using `GITHUB_TOKEN_ENCRYPTION_KEY` — the same key used by the GitHub repository ingestion subsystem. `decrypt_secret` (`app/security/secret_crypto.py`) decrypts the token at sync time. The plaintext token is then embedded in the clone URL as `x-access-token:<percent-encoded-token>@github.com/...` via `_inject_token_into_url`, which is the only form git accepts without interactive prompting. The raw token is never logged; `_redact_url` replaces the credential segment with `***@` before any log output.
+Registration and static configuration reject URL userinfo, password fields,
+and credential-like query parameters. Private GitHub access uses the encrypted
+GitHub integration token and a short-lived credential helper; tokens must never
+be placed in a clone URL. Legacy rows containing credentials are blocked by the
+worker and redacted from API and Telegram output. Rotate any credential that
+was previously embedded in a stored URL.
+
+Credentials for GitHub-linked mirrors are sourced from `UserGitHubIntegration.encrypted_token`, which is encrypted at rest with Fernet using `GITHUB_TOKEN_ENCRYPTION_KEY` — the same key used by the GitHub repository ingestion subsystem. `decrypt_secret` (`app/security/secret_crypto.py`) decrypts the token at sync time. The plaintext token is written only to a mode-`0600` temporary git credential-store file, passed through `credential.helper`, and removed after the git operation. The raw token is never placed in argv or logged; `_redact_url` remains a defense-in-depth filter for free-form git output.
 
 If the `UserGitHubIntegration` row is missing or decryption fails (e.g. key rotation not yet completed), the mirror falls back to the unauthenticated clone URL and continues rather than aborting the run. This allows public repos to succeed while private repos will produce an `AUTH_ERROR` that is categorized, logged, and recorded in `last_error_category`.
 
-Manual and `extra_repos` mirrors are cloned unauthenticated. The clone URL is used exactly as registered.
+Manual and `extra_repos` mirrors are cloned unauthenticated after the same
+credential and network-target guards are applied.
 
 ---
 

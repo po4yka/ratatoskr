@@ -264,6 +264,20 @@ def test_mirror_to_compact_with_plain_string_status_source() -> None:
     assert compact.source == "github"
 
 
+def test_mirror_formatters_redact_legacy_clone_url_credentials() -> None:
+    row = _make_mirror_row(
+        mirror_id=3,
+        clone_url="https://user:super-secret@example.com/repo.git?token=query-secret",
+    )
+
+    compact = _gm._mirror_to_compact(row)
+    detail = _gm._mirror_to_detail(row)
+
+    assert "super-secret" not in compact.clone_url
+    assert "query-secret" not in compact.clone_url
+    assert detail.clone_url == compact.clone_url
+
+
 def test_mirror_to_detail_all_fields() -> None:
     """_mirror_to_detail includes all detail-only fields."""
     row = _make_mirror_row(mirror_id=5)

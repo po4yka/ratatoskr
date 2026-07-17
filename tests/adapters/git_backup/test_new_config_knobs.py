@@ -39,6 +39,15 @@ def _make_config(**overrides: object) -> GitBackupConfig:
     return GitBackupConfig.model_validate(base)
 
 
+def test_extra_repos_rejects_credential_bearing_clone_url() -> None:
+    with pytest.raises(ValidationError, match="embedded credentials"):
+        _make_config(
+            GIT_BACKUP_EXTRA_REPOS={
+                "private": "https://user:super-secret@example.com/private.git"
+            }
+        )
+
+
 # ---------------------------------------------------------------------------
 # 1. ssl_ca_info -> build_git_command
 # ---------------------------------------------------------------------------

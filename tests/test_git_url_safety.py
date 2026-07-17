@@ -12,6 +12,7 @@ from app.core.git_url_safety import (
     assert_safe_git_url,
     extract_git_host,
     is_github_host,
+    redact_git_url,
 )
 
 
@@ -90,6 +91,38 @@ def test_assert_safe_git_url_rejects_non_public_literals(url: str) -> None:
 )
 def test_assert_safe_git_url_allows_public(url: str) -> None:
     assert_safe_git_url(url)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:secret@example.com/repo.git",
+        "https://user@example.com/repo.git",
+        "git://token@example.com/repo.git",
+        "ssh://git:password@example.com/repo.git",
+        "https://example.com/repo.git?access_token=secret",
+        "https://example.com/repo.git?api_key=secret",
+    ],
+)
+def test_assert_safe_git_url_rejects_embedded_credentials(url: str) -> None:
+    with pytest.raises(ValueError, match="credential"):
+        assert_safe_git_url(url)
+
+
+def test_redact_git_url_hides_legacy_credentials() -> None:
+    redacted = redact_git_url(
+        "https://user:super-secret@example.com/repo.git?access_token=query-secret&depth=1"
+    )
+
+    assert "super-secret" not in redacted
+    assert "query-secret" not in redacted
+    assert redacted == "https://***@example.com/repo.git?access_token=%2A%2A%2A&depth=1"
+
+
+def test_redact_git_url_preserves_ssh_username_and_clean_query_encoding() -> None:
+    clean = "ssh://git@example.com/repo.git?ref=a%20b"
+
+    assert redact_git_url(clean) == clean
 
 
 @pytest.mark.parametrize(
