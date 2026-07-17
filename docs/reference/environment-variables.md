@@ -207,12 +207,14 @@ See [Mobile API](mobile-api.md#authentication) and
 | `STATUS_WORKER_METRICS_URL` | Internal aggregated Taskiq worker exporter URL. |
 | `STATUS_SCHEDULER_METRICS_URL` | Internal scheduler exporter URL. |
 | `STATUS_NODE_METRICS_URL` | Internal node-exporter URL used for PostgreSQL backup freshness. |
+| `STATUS_QDRANT_READY_URL` | Internal Qdrant `/readyz` URL used for a live vector-search readiness check. |
 | `STATUS_PROBE_TIMEOUT_SECONDS` | Per-component probe ceiling, at most five seconds. |
 | `STATUS_TOTAL_TIMEOUT_SECONDS` | Aggregate status collection ceiling, at most five seconds. |
 | `STATUS_CACHE_TTL_SECONDS` | Process-local public status cache, 15–30 seconds. |
 | `STATUS_REFRESH_AFTER_SECONDS` | Suggested client refresh interval, 15–300 seconds. |
 
-The primary Compose file supplies the four exporter URLs to `mobile-api`.
+The primary Compose file supplies the four exporter URLs and the Qdrant
+readiness URL to `mobile-api`.
 They are credential-free internal HTTP URLs and are never returned by the
 public API. See [Status page and system metrics](status-page.md).
 

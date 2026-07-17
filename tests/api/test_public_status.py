@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -268,6 +269,35 @@ async def test_unconfigured_process_is_unknown_and_unreachable_process_is_outage
     assert (
         await unreachable._probe_process("http://127.0.0.1:1/metrics") is PublicStatusLevel.OUTAGE
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [
+        (200, PublicStatusLevel.OPERATIONAL),
+        (503, PublicStatusLevel.OUTAGE),
+    ],
+)
+async def test_qdrant_status_uses_live_ready_endpoint(
+    respx_mock, status_code: int, expected: PublicStatusLevel
+) -> None:
+    url = "http://qdrant:6333/readyz"
+    route = respx_mock.get(url).mock(return_value=httpx.Response(status_code))
+    service = PublicStatusService(
+        deployment=DeploymentConfig(STATUS_QDRANT_READY_URL=url),
+        cache_enabled=False,
+    )
+
+    assert await service._probe_http_ready(url) is expected
+    assert route.called
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_qdrant_readiness_is_unknown() -> None:
+    service = PublicStatusService(deployment=DeploymentConfig(), cache_enabled=False)
+
+    assert await service._probe_http_ready(None) is PublicStatusLevel.UNKNOWN
 
 
 @pytest.mark.asyncio

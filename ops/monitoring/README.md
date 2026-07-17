@@ -100,11 +100,13 @@ STATUS_BOT_METRICS_URL=http://ratatoskr:9101/metrics
 STATUS_WORKER_METRICS_URL=http://worker:9102/metrics
 STATUS_SCHEDULER_METRICS_URL=http://scheduler:9103/metrics
 STATUS_NODE_METRICS_URL=http://node-exporter:9100/metrics
+STATUS_QDRANT_READY_URL=http://qdrant:6333/readyz
 ```
 
-The exporter ports and dependency ports have no host bindings. PostgreSQL and
-Redis credentials stay on their exporter containers; Prometheus scrapes only
-the exporters' internal HTTP endpoints.
+The status evaluator performs a bounded live Qdrant `/readyz` request and does
+not expose the configured URL or response body. The exporter ports and dependency
+ports have no host bindings. PostgreSQL and Redis credentials stay on their
+exporter containers; Prometheus scrapes only the exporters' internal HTTP endpoints.
 
 Production starts the API through `python -m app.cli.api_server` with
 `PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api`. The launcher validates worker

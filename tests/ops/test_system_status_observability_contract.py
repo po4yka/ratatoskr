@@ -76,6 +76,18 @@ def test_status_process_metric_urls_belong_only_to_mobile_api() -> None:
                 assert not set(expected) & _environment(services[name]).keys()
 
 
+def test_status_qdrant_probe_uses_internal_ready_endpoint() -> None:
+    assert _environment(_compose()["services"]["mobile-api"])["STATUS_QDRANT_READY_URL"] == (
+        "http://qdrant:6333/readyz"
+    )
+    assert (
+        _environment(_compose("docker-compose.pi.yml")["services"]["mobile-api"])[
+            "STATUS_QDRANT_READY_URL"
+        ]
+        == "http://host-gateway:6333/readyz"
+    )
+
+
 def test_api_production_surfaces_use_metrics_aware_launcher() -> None:
     services = _compose()["services"]
     api = services["mobile-api"]

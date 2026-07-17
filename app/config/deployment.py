@@ -56,6 +56,11 @@ class DeploymentConfig(BaseModel):
         validation_alias="STATUS_NODE_METRICS_URL",
         description="Internal node-exporter endpoint used to probe PostgreSQL backup freshness.",
     )
+    status_qdrant_ready_url: str | None = Field(
+        default=None,
+        validation_alias="STATUS_QDRANT_READY_URL",
+        description="Internal Qdrant readiness endpoint used by the public status evaluator.",
+    )
     status_probe_timeout_seconds: float = Field(
         default=1.5,
         validation_alias="STATUS_PROBE_TIMEOUT_SECONDS",
@@ -98,6 +103,7 @@ class DeploymentConfig(BaseModel):
         "status_worker_metrics_url",
         "status_scheduler_metrics_url",
         "status_node_metrics_url",
+        "status_qdrant_ready_url",
         mode="before",
     )
     @classmethod

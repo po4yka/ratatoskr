@@ -26,7 +26,6 @@ from app.api.routers.health import (
     _check_database,
     _check_redis,
     _check_scraper,
-    _check_vector_store,
 )
 from app.config import load_config
 from app.core.time_utils import UTC
@@ -380,16 +379,15 @@ class PublicStatusService:
         async def _database() -> dict[str, Any]:
             return await _check_database(include_details=False, request=request)
 
-        async def _vector() -> dict[str, Any]:
-            return await _check_vector_store(request)
-
         probes: dict[str, StatusProbe] = {
             "api": _api,
             "web_application": _web_application,
             "telegram_bot": lambda: self._probe_process(self._deployment.status_bot_metrics_url),
             "postgresql": _database,
             "redis": _check_redis,
-            "vector_search": _vector,
+            "vector_search": lambda: self._probe_http_ready(
+                self._deployment.status_qdrant_ready_url
+            ),
             "extraction": _check_scraper,
             "ai_summarization": _ai_summarization,
             "taskiq_worker": _worker,
@@ -410,6 +408,24 @@ class PublicStatusService:
     async def _probe_process(self, url: str | None) -> PublicStatusLevel:
         level, _payload = await self._fetch_metrics(url)
         return level
+
+    async def _probe_http_ready(self, url: str | None) -> PublicStatusLevel:
+        """Probe an operator-configured internal readiness URL without reading its body."""
+        if url is None:
+            return PublicStatusLevel.UNKNOWN
+        try:
+            timeout = httpx.Timeout(self._deployment.status_probe_timeout_seconds)
+            async with (
+                httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client,
+                client.stream("GET", url, headers={"Accept": "text/plain"}) as response,
+            ):
+                return (
+                    PublicStatusLevel.OPERATIONAL
+                    if response.is_success
+                    else PublicStatusLevel.OUTAGE
+                )
+        except (httpx.HTTPError, TimeoutError):
+            return PublicStatusLevel.OUTAGE
 
     async def _fetch_metrics(self, url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
         if url is None:

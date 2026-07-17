@@ -98,11 +98,14 @@ STATUS_BOT_METRICS_URL=http://ratatoskr:9101/metrics
 STATUS_WORKER_METRICS_URL=http://worker:9102/metrics
 STATUS_SCHEDULER_METRICS_URL=http://scheduler:9103/metrics
 STATUS_NODE_METRICS_URL=http://node-exporter:9100/metrics
+STATUS_QDRANT_READY_URL=http://qdrant:6333/readyz
 ```
 
 `DeploymentConfig` validates these as credential-free HTTP URLs and bounds the
 per-probe timeout, total timeout, cache TTL, and client refresh interval. The
-exporter ports use Compose `expose`, not host `ports`.
+Qdrant component status comes from a live, bounded `/readyz` request; no response
+body or endpoint detail is exposed publicly. Exporter ports use Compose `expose`,
+not host `ports`.
 
 Start the complete operator stack with:
 
