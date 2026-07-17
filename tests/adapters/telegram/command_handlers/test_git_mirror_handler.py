@@ -357,6 +357,31 @@ async def test_handle_mirror_rejects_credentials_without_echoing_them() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "clone_url",
+    [
+        "https://example.com/repo.git?private_token=secret",
+        "https://example.com/repo.git?X-Amz-Signature=secret",
+        "https://example.com/repo.git#oauth_token=secret",
+    ],
+)
+async def test_handle_mirror_rejects_queries_and_fragments_without_persisting(
+    clone_url: str,
+) -> None:
+    fake_repo = AsyncMock()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
+    raw = _unwrap_mirror(handler)
+    ctx = _make_ctx(text=f"/mirror {clone_url}")
+
+    await raw(handler, ctx)
+
+    _, reply_text = ctx.response_formatter.safe_reply.await_args.args
+    assert "secret" not in reply_text
+    assert "not allowed" in reply_text
+    fake_repo.upsert_target.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_handle_mirror_queued_status_note_for_pending_mirror() -> None:
     pending_mirror = _make_mirror(status="pending", last_mirrored_at=None)
     fake_repo = AsyncMock()

@@ -57,6 +57,7 @@ from app.core.git_url_safety import (
     assert_safe_git_url,
     extract_git_host,
     is_github_host,
+    redact_git_url,
 )
 from app.db.models.git_backup import GitMirror, GitMirrorSource
 from app.security.secret_crypto import decrypt_secret
@@ -71,12 +72,10 @@ logger = logging.getLogger(__name__)
 # Type alias: (argv, cwd, timeout_seconds) -> (exit_code, combined_output)
 GitRunner = Callable[[list[str], Path, float], Awaitable[tuple[int, str]]]
 
-# Regex to strip embedded credentials from any URL-shaped substring for safe
-# logging. Matches "<scheme>://<userinfo>@" for any scheme (https, http, git,
-# ssh, ...) and collapses the userinfo to "***". Applied to free-form text
-# (git stderr, exception messages) so an injected x-access-token never lands in
-# a log line or a persisted error.
-_CREDENTIAL_RE = re.compile(r"([a-z][a-z0-9+.\-]*://)([^/@\s]+@)", re.IGNORECASE)
+# URL-shaped substrings in free-form git output. Each match is passed through
+# the shared legacy-row redactor so userinfo, query strings, and fragments are
+# scrubbed before logging or persistence.
+_URL_RE = re.compile(r"[a-z][a-z0-9+.\-]*://[^\s'\"<>]+", re.IGNORECASE)
 
 
 class _Unset:
@@ -91,12 +90,12 @@ _UNSET = _Unset()
 
 
 def _redact_url(text: str) -> str:
-    """Replace any 'scheme://user:token@' segment with 'scheme://***@'.
+    """Scrub credentials from every scheme URL embedded in arbitrary text.
 
     Operates on arbitrary text and scrubs every match, so it is safe to pass git
     output or exception strings that may embed authenticated clone URLs.
     """
-    return _CREDENTIAL_RE.sub(r"\1***@", text)
+    return _URL_RE.sub(lambda match: redact_git_url(match.group(0)), text)
 
 
 def _credential_store_line(clone_url: str, token: str) -> str:

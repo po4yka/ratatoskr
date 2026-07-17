@@ -24,7 +24,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
-from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 __all__ = [
     "assert_resolved_public_host",
@@ -58,32 +58,6 @@ _REMOTE_HELPER_TRANSPORT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*::")
 # form ``https://gist.github.com/<id>.git``.
 _GITHUB_HOSTS = frozenset({"github.com", "www.github.com", "gist.github.com"})
 
-# Query parameters that commonly carry credentials. Git clone URLs do not need
-# these; private GitHub authentication is supplied through the encrypted
-# integration token and a short-lived credential helper instead.
-_CREDENTIAL_QUERY_KEYS = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "apikey",
-        "auth",
-        "authorization",
-        "key",
-        "password",
-        "passwd",
-        "secret",
-        "token",
-    }
-)
-
-
-def _has_credential_query(url: str) -> bool:
-    try:
-        query = urlsplit(url).query
-        return any(key.casefold() in _CREDENTIAL_QUERY_KEYS for key, _ in parse_qsl(query))
-    except ValueError:
-        return False
-
 
 def redact_git_url(url: str) -> str:
     """Return a display-safe clone URL with embedded credentials hidden.
@@ -107,17 +81,14 @@ def redact_git_url(url: str) -> str:
                 host = f"{host}:{parsed.port}"
             netloc = f"***@{host}"
 
-        safe_query = parsed.query
-        if _has_credential_query(url):
-            query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
-            safe_query = urlencode(
-                [
-                    (key, "***" if key.casefold() in _CREDENTIAL_QUERY_KEYS else value)
-                    for key, value in query_pairs
-                ],
-                doseq=True,
-            )
-        return urlunsplit((parsed.scheme, netloc, parsed.path, safe_query, parsed.fragment))
+        # Query strings and fragments are forbidden for newly registered clone
+        # URLs because their key space is open-ended (for example GitLab's
+        # ``private_token`` and AWS ``X-Amz-*`` signatures). Scrub the complete
+        # components for legacy rows instead of trying to maintain a credential
+        # key blacklist.
+        safe_query = "redacted" if parsed.query else ""
+        safe_fragment = "redacted" if parsed.fragment else ""
+        return urlunsplit((parsed.scheme, netloc, parsed.path, safe_query, safe_fragment))
     except ValueError:
         # Malformed ports and similar invalid URL syntax must not make a status
         # endpoint fail or echo a possibly sensitive legacy value.
@@ -196,9 +167,12 @@ def assert_safe_git_url(url: str) -> None:
         if parsed.password is not None or (scheme != "ssh" and parsed.username is not None):
             msg = "clone_url must not contain embedded credentials"
             raise ValueError(msg)
-        if _has_credential_query(stripped):
-            msg = "clone_url must not contain credential query parameters"
-            raise ValueError(msg)
+    # Clone URLs do not need query strings or fragments. Reject the delimiters
+    # themselves (including empty components and scp-like syntax) so an
+    # unrecognized credential name can never be persisted or returned.
+    if "?" in stripped or "#" in stripped:
+        msg = "clone_url must not contain a query string or fragment"
+        raise ValueError(msg)
     host = extract_git_host(url)
     if host is None:
         msg = "clone_url has no parseable host"

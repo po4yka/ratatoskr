@@ -33,6 +33,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 # Load the module directly, not via the package __init__.
 _gm = importlib.import_module("app.api.routers.git_mirrors")
@@ -457,6 +458,35 @@ async def test_list_mirrors_empty_result() -> None:
 # ===========================================================================
 # register_mirror endpoint tests
 # ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "clone_url",
+    [
+        "https://example.com/repo.git?private_token=secret",
+        "https://example.com/repo.git?X-Amz-Signature=secret",
+        "https://example.com/repo.git#oauth_token=secret",
+    ],
+)
+def test_register_mirror_request_rejects_queries_and_fragments(clone_url: str) -> None:
+    from app.api.models.requests import RegisterMirrorRequest
+
+    with pytest.raises(ValidationError, match="query string or fragment"):
+        RegisterMirrorRequest(clone_url=clone_url)
+
+
+@pytest.mark.parametrize(
+    "clone_url",
+    [
+        "https://example.com/owner/repo.git",
+        "ssh://git@example.com/owner/repo.git",
+        "git@example.com:owner/repo.git",
+    ],
+)
+def test_register_mirror_request_preserves_supported_clone_urls(clone_url: str) -> None:
+    from app.api.models.requests import RegisterMirrorRequest
+
+    assert RegisterMirrorRequest(clone_url=clone_url).clone_url == clone_url
 
 
 @pytest.mark.asyncio

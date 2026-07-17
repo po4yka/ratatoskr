@@ -100,8 +100,6 @@ def test_assert_safe_git_url_allows_public(url: str) -> None:
         "https://user@example.com/repo.git",
         "git://token@example.com/repo.git",
         "ssh://git:password@example.com/repo.git",
-        "https://example.com/repo.git?access_token=secret",
-        "https://example.com/repo.git?api_key=secret",
     ],
 )
 def test_assert_safe_git_url_rejects_embedded_credentials(url: str) -> None:
@@ -109,18 +107,36 @@ def test_assert_safe_git_url_rejects_embedded_credentials(url: str) -> None:
         assert_safe_git_url(url)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/repo.git?private_token=secret",
+        "https://example.com/repo.git?oauth_token=secret",
+        "https://example.com/repo.git?X-Amz-Credential=test&X-Amz-Signature=secret",
+        "https://example.com/repo.git?depth=1",
+        "https://example.com/repo.git#oauth_token=secret",
+        "git@example.com:owner/repo.git?private_token=secret",
+    ],
+)
+def test_assert_safe_git_url_rejects_all_queries_and_fragments(url: str) -> None:
+    with pytest.raises(ValueError, match="query string or fragment"):
+        assert_safe_git_url(url)
+
+
 def test_redact_git_url_hides_legacy_credentials() -> None:
     redacted = redact_git_url(
-        "https://user:super-secret@example.com/repo.git?access_token=query-secret&depth=1"
+        "https://user:super-secret@example.com/repo.git?private_token=query-secret"
+        "&depth=1#oauth_token=fragment-secret"
     )
 
     assert "super-secret" not in redacted
     assert "query-secret" not in redacted
-    assert redacted == "https://***@example.com/repo.git?access_token=%2A%2A%2A&depth=1"
+    assert "fragment-secret" not in redacted
+    assert redacted == "https://***@example.com/repo.git?redacted#redacted"
 
 
-def test_redact_git_url_preserves_ssh_username_and_clean_query_encoding() -> None:
-    clean = "ssh://git@example.com/repo.git?ref=a%20b"
+def test_redact_git_url_preserves_clean_ssh_url() -> None:
+    clean = "ssh://git@example.com/repo.git"
 
     assert redact_git_url(clean) == clean
 

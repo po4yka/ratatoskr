@@ -118,11 +118,15 @@ A tombstoned mirror can be revived by the user re-adding the same URL via `/mirr
 ## Credentials
 
 Registration and static configuration reject URL userinfo, password fields,
-and credential-like query parameters. Private GitHub access uses the encrypted
-GitHub integration token and a short-lived credential helper; tokens must never
-be placed in a clone URL. Legacy rows containing credentials are blocked by the
-worker and redacted from API and Telegram output. Rotate any credential that
-was previously embedded in a stored URL.
+and all query strings and fragments. Clone authentication belongs in the
+encrypted GitHub integration token and short-lived credential helper; tokens
+must never be placed in a clone URL. This deny-by-default policy covers
+provider-specific names such as `private_token`, `oauth_token`, and AWS
+`X-Amz-*` signed parameters without a credential-key blacklist. Legitimate
+HTTPS, SSH, and scp-style clone URLs remain supported. Legacy rows containing
+credentials are blocked by the worker, while API, Telegram, logs, and persisted
+errors redact complete query and fragment components. Rotate any credential
+that was previously embedded in a stored URL.
 
 Credentials for GitHub-linked mirrors are sourced from `UserGitHubIntegration.encrypted_token`, which is encrypted at rest with Fernet using `GITHUB_TOKEN_ENCRYPTION_KEY` — the same key used by the GitHub repository ingestion subsystem. `decrypt_secret` (`app/security/secret_crypto.py`) decrypts the token at sync time. The plaintext token is written only to a mode-`0600` temporary git credential-store file, passed through `credential.helper`, and removed after the git operation. The raw token is never placed in argv or logged; `_redact_url` remains a defense-in-depth filter for free-form git output.
 
