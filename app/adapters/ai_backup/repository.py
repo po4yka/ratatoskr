@@ -15,6 +15,7 @@ import datetime as dt
 from typing import TYPE_CHECKING
 
 from sqlalchemy import and_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.adapters.ai_backup.redaction import redact_urls
 from app.db.models.ai_backup import (
@@ -77,28 +78,12 @@ class AiBackupRepository:
         preserved across runs.
         """
         async with self._db.transaction() as session:
-            existing = await session.scalar(
-                select(AiAccountBackup).where(
-                    and_(
-                        AiAccountBackup.user_id == user_id,
-                        AiAccountBackup.service == service,
-                    )
-                )
-            )
-            if existing is not None:
-                return existing
-
-            row = AiAccountBackup(
-                user_id=user_id,
-                service=service,
-                status=AiBackupStatus.PENDING,
+            return await self._ensure_in_transaction(
+                session,
+                user_id,
+                service,
                 authorization_status=AiBackupAuthorizationStatus.MISSING,
-                consecutive_failures=0,
             )
-            session.add(row)
-            await session.flush()
-            await session.refresh(row)
-        return row
 
     async def record_success(
         self,
@@ -171,11 +156,14 @@ class AiBackupRepository:
             row.last_error_category = "auth_expired"
 
     async def mark_authorization_unverified(self, user_id: int, service: AiBackupService) -> None:
-        """Mark a newly supplied session as unverified until the provider accepts it."""
+        """Ensure a newly supplied session is visible as pending and unverified."""
         async with self._db.transaction() as session:
-            row = await self._load_for_update(session, user_id, service)
-            if row is None:
-                return
+            row = await self._ensure_in_transaction(
+                session,
+                user_id,
+                service,
+                authorization_status=AiBackupAuthorizationStatus.UNVERIFIED,
+            )
             row.authorization_status = AiBackupAuthorizationStatus.UNVERIFIED
             row.authorization_checked_at = None
             row.backoff_until = None
@@ -204,6 +192,31 @@ class AiBackupRepository:
                 )
             )
         )
+
+    async def _ensure_in_transaction(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        service: AiBackupService,
+        *,
+        authorization_status: AiBackupAuthorizationStatus,
+    ) -> AiAccountBackup:
+        await session.execute(
+            pg_insert(AiAccountBackup)
+            .values(
+                user_id=user_id,
+                service=service,
+                status=AiBackupStatus.PENDING,
+                authorization_status=authorization_status,
+                consecutive_failures=0,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[AiAccountBackup.user_id, AiAccountBackup.service]
+            )
+        )
+        row = await self._load_for_update(session, user_id, service)
+        assert row is not None
+        return row
 
 
 __all__ = ["AiBackupRepository"]

@@ -132,7 +132,59 @@ def test_valid_session_returns_204_and_marks_authorization_unverified() -> None:
     assert save_args[0] == _USER_ID
     assert save_args[2] == _VALID_STATE
 
-    mock_repo.mark_authorization_unverified.assert_awaited_once()
+    mock_repo.mark_authorization_unverified.assert_awaited_once_with(
+        _USER_ID, AiBackupService.CHATGPT
+    )
+
+
+def test_first_session_ingest_makes_pending_unverified_status_immediately_readable() -> None:
+    class _StatusRepo:
+        def __init__(self) -> None:
+            self.row: AiAccountBackup | None = None
+
+        async def mark_authorization_unverified(
+            self, user_id: int, service: AiBackupService
+        ) -> None:
+            self.row = AiAccountBackup(
+                user_id=user_id,
+                service=service,
+                status=AiBackupStatus.PENDING,
+                authorization_status=AiBackupAuthorizationStatus.UNVERIFIED,
+                consecutive_failures=0,
+            )
+
+        async def get(self, user_id: int, service: AiBackupService) -> AiAccountBackup | None:
+            if self.row is None or self.row.user_id != user_id or self.row.service != service:
+                return None
+            return self.row
+
+    repo = _StatusRepo()
+    mock_store = MagicMock()
+    mock_store.save = AsyncMock()
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.dependency_overrides[_ai_backups.get_ai_backup_owner] = lambda: {"user_id": _USER_ID}
+    app.dependency_overrides[_ai_backups.get_current_user] = lambda: {"user_id": _USER_ID}
+    app.dependency_overrides[_ai_backups._get_repo] = lambda: repo
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with (
+        patch("app.api.routers.ai_backups._get_db", return_value=MagicMock()),
+        patch(
+            "app.adapters.ai_backup.session_store.AiBackupSessionStore",
+            return_value=mock_store,
+        ),
+        patch("app.api.routers.ai_backups._get_repo", return_value=repo),
+    ):
+        ingest_response = client.post(_URL, json=_VALID_BODY)
+        status_response = client.get(f"/v1/ai-backups/{_SERVICE}")
+
+    assert ingest_response.status_code == 204
+    assert ingest_response.content == b""
+    assert b"session-secret" not in ingest_response.content
+    assert status_response.status_code == 200
+    assert status_response.json()["backup_status"] == "pending"
+    assert status_response.json()["authorization_status"] == "unverified"
 
 
 def test_bad_shape_missing_cookies_key_returns_400() -> None:
@@ -253,9 +305,7 @@ def test_owner_can_revoke_session_and_mark_authorization_missing() -> None:
     assert resp.status_code == 204
     assert resp.content == b""
     mock_store.delete.assert_awaited_once_with(_USER_ID, AiBackupService.CHATGPT)
-    mock_repo.mark_authorization_missing.assert_awaited_once_with(
-        _USER_ID, AiBackupService.CHATGPT
-    )
+    mock_repo.mark_authorization_missing.assert_awaited_once_with(_USER_ID, AiBackupService.CHATGPT)
 
 
 def test_unauthenticated_caller_cannot_revoke_session() -> None:
