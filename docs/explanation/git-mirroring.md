@@ -103,7 +103,7 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 
 ### Eligibility and cooldown
 
-`GitMirrorRepository.list_due` returns mirrors whose status is `pending`, `ok`, or `failed`, minus those in active cooldown. A mirror enters cooldown when `GIT_BACKUP_AUTO_SKIP_FAILING=true` and `consecutive_failures >= GIT_BACKUP_MAX_CONSECUTIVE_FAILURES` (default 5): `backoff_until` is set to `now + GIT_BACKUP_FAILURE_COOLDOWN_HOURS` (default 24 h). The `skipped` status is written per-run without resetting failure counters; `ok` resets `consecutive_failures` to 0 and clears `backoff_until`.
+`GitMirrorRepository.list_due` returns mirrors whose status is `pending`, `ok`, `failed`, or `skipped`, minus those in active cooldown. A failed mirror enters cooldown when `GIT_BACKUP_AUTO_SKIP_FAILING=true` and `consecutive_failures >= GIT_BACKUP_MAX_CONSECUTIVE_FAILURES` (default 5): `backoff_until` is set to `now + GIT_BACKUP_FAILURE_COOLDOWN_HOURS` (default 24 h). The `skipped` status records a per-run skip such as an open storage circuit breaker and is retryable after any `backoff_until` has passed; `ok` resets `consecutive_failures` to 0 and clears `backoff_until`.
 
 ### Tombstoning (excluded status)
 

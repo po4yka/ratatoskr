@@ -65,6 +65,17 @@ def _compiled_sql(stmt: Any) -> str:
 
 
 class TestListDueBatchCap:
+    async def test_breaker_skipped_mirrors_remain_retryable_after_backoff(self) -> None:
+        db = _CapturingDB()
+        repo = GitMirrorRepository(db, _make_config())  # type: ignore[arg-type]
+
+        await repo.list_due()
+
+        sql = _compiled_sql(db.sink["stmt"]).lower()
+        assert "status in ('pending', 'ok', 'failed', 'skipped')" in sql
+        assert "status = 'skipped'" in sql
+        assert "backoff_until" in sql
+
     async def test_default_config_applies_limit(self) -> None:
         db = _CapturingDB()
         repo = GitMirrorRepository(db, _make_config())  # type: ignore[arg-type]
