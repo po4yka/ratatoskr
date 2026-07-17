@@ -245,3 +245,63 @@ async def test_project_failure_aborts_complete_result(tmp_path, fake_fetcher) ->
     client = ChatGptClient(fake_fetcher(handler), _writer(tmp_path))
     with pytest.raises(AiBackupParseError, match="project list"):
         await client.collect()
+
+
+async def test_repeated_full_conversation_pages_fail_closed(tmp_path, fake_fetcher) -> None:
+    page = [{"id": f"conversation-{index}"} for index in range(28)]
+    requested: list[str] = []
+
+    def handler(url: str) -> object:
+        requested.append(url)
+        return _json({"items": page})
+
+    client = ChatGptClient(fake_fetcher(handler), _writer(tmp_path), bearer_token="token")
+    with pytest.raises(AiBackupParseError, match="made no progress") as raised:
+        await client._list_conversations({}, is_archived=False)
+
+    assert len(requested) == 4
+    assert "conversation-0" not in str(raised.value)
+    assert "backend-api" not in str(raised.value)
+
+
+async def test_conversation_pagination_validates_provider_total(tmp_path, fake_fetcher) -> None:
+    client = ChatGptClient(
+        fake_fetcher(
+            lambda _url: _json(
+                {
+                    "items": [{"id": "conversation-1"}, {"id": "conversation-2"}],
+                    "total": 3,
+                }
+            )
+        ),
+        _writer(tmp_path),
+        bearer_token="token",
+    )
+
+    with pytest.raises(AiBackupParseError, match="pagination incomplete") as raised:
+        await client._list_conversations({}, is_archived=False)
+
+    assert "conversation-1" not in str(raised.value)
+    assert "backend-api" not in str(raised.value)
+
+
+async def test_conversation_pagination_accepts_matching_provider_total(
+    tmp_path, fake_fetcher
+) -> None:
+    index: dict[str, dict] = {}
+    client = ChatGptClient(
+        fake_fetcher(
+            lambda _url: _json(
+                {
+                    "items": [{"id": "conversation-1"}, {"id": "conversation-2"}],
+                    "total": 2,
+                }
+            )
+        ),
+        _writer(tmp_path),
+        bearer_token="token",
+    )
+
+    await client._list_conversations(index, is_archived=False)
+
+    assert set(index) == {"conversation-1", "conversation-2"}

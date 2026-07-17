@@ -211,6 +211,8 @@ class ChatGptClient:
     ) -> None:
         offset = 0
         consecutive_no_new = 0
+        seen_in_sweep: set[str] = set()
+        expected_total: int | None = None
         while True:
             url = (
                 f"{_API}/backend-api/conversations?offset={offset}&limit={_PAGE_SIZE}"
@@ -220,21 +222,52 @@ class ChatGptClient:
             items = data.get("items")
             if not isinstance(items, list):
                 raise AiBackupParseError(f"ChatGPT conversation list has no items array on {url}")
+            if "total" in data:
+                page_total = data["total"]
+                if (
+                    isinstance(page_total, bool)
+                    or not isinstance(page_total, int)
+                    or page_total < 0
+                ):
+                    raise AiBackupParseError("ChatGPT conversation pagination has an invalid total")
+                if expected_total is None:
+                    expected_total = page_total
+                elif page_total != expected_total:
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination total changed during sweep"
+                    )
             new_this_page = 0
             for c in items:
+                if not isinstance(c, dict):
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination contains a non-object entry"
+                    )
                 cid = c.get("id")
-                if cid and cid not in conv_index:
-                    conv_index[cid] = {**c, "_archived": is_archived}
+                if not isinstance(cid, str) or not cid:
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination contains an entry without an id"
+                    )
+                if cid not in seen_in_sweep:
+                    seen_in_sweep.add(cid)
                     new_this_page += 1
+                if cid not in conv_index:
+                    conv_index[cid] = {**c, "_archived": is_archived}
             offset += len(items)
             if new_this_page == 0:
                 consecutive_no_new += 1
                 if consecutive_no_new >= 3:
-                    break
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination made no progress across repeated full pages"
+                    )
             else:
                 consecutive_no_new = 0
             if len(items) < _PAGE_SIZE:
                 break
+        if expected_total is not None and len(seen_in_sweep) != expected_total:
+            raise AiBackupParseError(
+                "ChatGPT conversation pagination incomplete: "
+                f"received {len(seen_in_sweep)} of {expected_total} entries"
+            )
 
     async def _get_conversation(self, conv_id: str) -> dict[str, Any]:
         url = f"{_API}/backend-api/conversation/{quote(conv_id, safe='')}"
