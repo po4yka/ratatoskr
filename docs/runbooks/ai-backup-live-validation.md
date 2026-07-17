@@ -139,10 +139,9 @@ The blob never transits Telegram (the bot surfaces only status commands). There 
 Run inside the container; it validates the provider session cookie, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and marks authorization `unverified` until the next provider check — no Mobile-API JWT needed:
 
 ```bash
-docker compose -f ops/docker/docker-compose.yml cp \
-  chatgpt.json ratatoskr:/tmp/chatgpt.json
 docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
-  'trap "rm -f /tmp/chatgpt.json" EXIT; python -m app.cli.ai_backup --ingest /tmp/chatgpt.json --service chatgpt'
+  'set -eu; umask 077; tmp=$(mktemp /tmp/ai-backup-session.XXXXXX); trap "rm -f \"$tmp\"" EXIT HUP INT TERM; cat >"$tmp"; python -m app.cli.ai_backup --ingest "$tmp" --service chatgpt' \
+  < chatgpt.json
 ```
 
 It prints the cookie names found (never values). Exit code `0` on success, `2` on an unreadable/invalid blob or empty `ALLOWED_USER_IDS`.
@@ -258,10 +257,9 @@ provider IDs, correlation ID, filenames, or content:
 
 ```bash
 chmod 600 /secure/expected-chatgpt.json
-docker compose -f ops/docker/docker-compose.yml cp \
-  /secure/expected-chatgpt.json ratatoskr:/tmp/expected-chatgpt.json
 docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
-  'chmod 600 /tmp/expected-chatgpt.json; trap "rm -f /tmp/expected-chatgpt.json" EXIT; python -m app.cli.verify_ai_backup --run-dir /data/ai-backups/chatgpt/$(date +%Y-%m-%d) --expected-inventory /tmp/expected-chatgpt.json'
+  'set -eu; umask 077; tmp=$(mktemp /tmp/ai-backup-inventory.XXXXXX); trap "rm -f \"$tmp\"" EXIT HUP INT TERM; cat >"$tmp"; python -m app.cli.verify_ai_backup --run-dir /data/ai-backups/chatgpt/$(date +%Y-%m-%d) --expected-inventory "$tmp"' \
+  < /secure/expected-chatgpt.json
 ```
 
 Exit status `0` records `offline_integrity_passed`; any mismatch or unsafe path
