@@ -27,10 +27,13 @@ from app.api.routers.health import (
     _check_redis,
 )
 from app.config import load_config
+from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 from app.observability.metrics_status import record_status_check
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -670,7 +673,11 @@ class PublicStatusService:
             else:
                 signal = None
                 level = self._map_level(raw)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "public_status_probe_failed",
+                extra={"component": spec.id, "error_type": type(exc).__name__},
+            )
             level = PublicStatusLevel.OUTAGE
             signal = None
         latency_ms = round((time.perf_counter() - start) * 1000, 2)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -405,6 +406,35 @@ async def test_slow_probe_is_bounded_and_reported_as_outage() -> None:
 
     assert loop.time() - started < 0.5
     assert _components(result)["telegram_bot"].status is PublicStatusLevel.OUTAGE
+
+
+@pytest.mark.asyncio
+async def test_probe_failure_log_contains_only_safe_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "private-token-and-hostname"
+
+    async def _fails() -> PublicStatusLevel:
+        raise RuntimeError(secret)
+
+    probes = _probes()
+    probes["postgresql"] = _fails
+    service = PublicStatusService(
+        deployment=DeploymentConfig(),
+        component_probes=probes,
+        cache_enabled=False,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.api.services.status_service"):
+        result = await service.get_status()
+
+    record = next(item for item in caplog.records if item.message == "public_status_probe_failed")
+    rendered = record.getMessage() + str(record.__dict__)
+    assert _components(result)["postgresql"].status is PublicStatusLevel.OUTAGE
+    assert getattr(record, "component", None) == "postgresql"
+    assert getattr(record, "error_type", None) == "RuntimeError"
+    assert secret not in rendered
+    assert not hasattr(record, "error")
 
 
 @pytest.mark.asyncio

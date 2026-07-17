@@ -67,7 +67,9 @@ The response never contains probe URLs, hostnames, repository names or URLs,
 account identifiers, backup paths, cookie/session data, exception text,
 database details, credentials, provider keys, exact content counts, or
 Prometheus samples. Backup and authorization messages are fixed coarse values;
-detailed errors remain in owner-only diagnostics and structured logs.
+detailed errors remain in owner-only diagnostics. Public status probe failures
+log only the fixed component identifier and exception class, never exception
+text, probe URLs, or response payloads.
 
 ## Metrics topology
 
