@@ -456,15 +456,19 @@ async def test_probe_failure_log_contains_only_safe_diagnostics(
 async def test_cancellation_resistant_probe_cannot_extend_total_timeout() -> None:
     release = asyncio.Event()
     cancellation_seen = asyncio.Event()
+    finished = asyncio.Event()
 
     async def _resistant() -> PublicStatusLevel:
-        while not release.is_set():
-            try:
-                await release.wait()
-            except asyncio.CancelledError:
-                cancellation_seen.set()
-                asyncio.current_task().uncancel()
-        return PublicStatusLevel.OPERATIONAL
+        try:
+            while not release.is_set():
+                try:
+                    await release.wait()
+                except asyncio.CancelledError:
+                    cancellation_seen.set()
+                    asyncio.current_task().uncancel()
+            return PublicStatusLevel.OPERATIONAL
+        finally:
+            finished.set()
 
     probes = _probes()
     probes["telegram_bot"] = _resistant
@@ -481,12 +485,15 @@ async def test_cancellation_resistant_probe_cannot_extend_total_timeout() -> Non
 
     try:
         result = await service.get_status()
+        response_elapsed = loop.time() - started
     finally:
         release.set()
+        await asyncio.wait_for(finished.wait(), timeout=0.1)
         await asyncio.sleep(0)
 
-    assert loop.time() - started < 0.15
+    assert response_elapsed < 0.15
     assert cancellation_seen.is_set()
+    assert finished.is_set()
     assert _components(result)["telegram_bot"].status is PublicStatusLevel.OUTAGE
 
 
