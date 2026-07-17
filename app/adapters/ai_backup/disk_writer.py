@@ -29,10 +29,12 @@ runs.
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import hashlib
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 from app.adapters.ai_backup.errors import PathTraversalError
@@ -76,7 +78,7 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _write_nofollow(path: Path, data: bytes) -> None:
+def _write_nofollow(path: Path, data: bytes, *, exclusive: bool = False) -> None:
     """Write *data* to *path* without following a symlink at the final component.
 
     Opens with ``O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW`` (0o600 mode).
@@ -88,12 +90,32 @@ def _write_nofollow(path: Path, data: bytes) -> None:
     normally; the containment check in ``_safe_child`` still protects against
     resolved-path escapes.
     """
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | _O_NOFOLLOW
+    flags = os.O_WRONLY | os.O_CREAT | _O_NOFOLLOW
+    flags |= os.O_EXCL if exclusive else os.O_TRUNC
     fd = os.open(path, flags, 0o600)
     try:
-        os.write(fd, data)
+        remaining = memoryview(data)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("write returned no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _atomic_write_nofollow(path: Path, data: bytes) -> None:
+    """Write through a private sibling and atomically replace ``path``."""
+    tmp = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        _write_nofollow(tmp, data, exclusive=True)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _read_nofollow(path: Path) -> bytes | None:
@@ -162,18 +184,22 @@ class AiBackupDiskWriter:
         try:
             existing = _read_nofollow(path)
         except OSError as exc:
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} during idempotency read — refusing"
-            ) from exc
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError(
+                    f"Symlink detected at {path!r} during idempotency read — refusing"
+                ) from exc
+            raise
         if existing is not None and _sha256_hex(existing) == sha:
             return sha
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            _write_nofollow(path, data)
+            _atomic_write_nofollow(path, data)
         except OSError as exc:
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} — write refused to prevent escape"
-            ) from exc
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError(
+                    f"Symlink detected at {path!r} — write refused to prevent escape"
+                ) from exc
+            raise
         return sha
 
     def write_conversation(self, conv_id: str, payload: dict) -> None:
@@ -220,21 +246,6 @@ class AiBackupDiskWriter:
         sid = _sanitize_id(file_id)
         name = _sanitize_filename(original_name)
         path = _safe_child(self._run_dir, "files", f"{sid}__{name}")
-        # Same file_id always means identical bytes by construction: skip if present.
-        # Use O_NOFOLLOW-safe existence check (lstat, not stat) to avoid following symlinks.
-        try:
-            lst = path.lstat()
-        except FileNotFoundError:
-            lst = None
-        except OSError:
-            lst = None
-        if lst is not None and not path.is_symlink():
-            self._manifest["files"][sid] = _sha256_hex(data)
-            return
-        if lst is not None and path.is_symlink():
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} — write_file refused to prevent escape"
-            )
         self._manifest["files"][sid] = self._write_idempotent(path, data)
 
     def write_artifact(self, conv_id: str, artifact_id: str, ext: str, data: bytes) -> None:
@@ -243,19 +254,6 @@ class AiBackupDiskWriter:
         safe_ext = _sanitize_ext(ext)
         path = _safe_child(self._run_dir, "artifacts", cid, f"{aid}.{safe_ext}")
         key = f"{cid}/{aid}.{safe_ext}"
-        try:
-            lst = path.lstat()
-        except FileNotFoundError:
-            lst = None
-        except OSError:
-            lst = None
-        if lst is not None and not path.is_symlink():
-            self._manifest["artifacts"][key] = _sha256_hex(data)
-            return
-        if lst is not None and path.is_symlink():
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} — write_artifact refused to prevent escape"
-            )
         self._manifest["artifacts"][key] = self._write_idempotent(path, data)
 
     def partial_counts(self) -> dict[str, int]:
@@ -299,16 +297,12 @@ class AiBackupDiskWriter:
             "artifacts": self._manifest["artifacts"],
         }
         blob = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-        tmp = self._run_dir / ".manifest.json.tmp"
-        # Tmp file itself written with O_NOFOLLOW; final rename is atomic and
-        # os.replace never follows symlinks on the destination on Linux/macOS.
         try:
-            _write_nofollow(tmp, blob)
+            _atomic_write_nofollow(self._run_dir / "manifest.json", blob)
         except OSError as exc:
-            raise PathTraversalError(
-                f"Symlink detected at tmp path {tmp!r} — manifest write refused"
-            ) from exc
-        os.replace(tmp, self._run_dir / "manifest.json")
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError("Symlink detected during manifest write") from exc
+            raise
         return manifest
 
 

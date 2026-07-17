@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
+import os
 
 import pytest
 
@@ -11,6 +13,7 @@ from app.adapters.ai_backup.disk_writer import (
     AiBackupDiskWriter,
     _safe_child,
     _sanitize_id,
+    _write_nofollow,
 )
 from app.adapters.ai_backup.errors import PathTraversalError
 
@@ -67,14 +70,49 @@ def test_load_saved_conversation_resume(tmp_path) -> None:
     assert _writer(tmp_path).load_saved_conversation("conv1") is None
 
 
-def test_write_file_idempotent_skips_existing(tmp_path) -> None:
+def test_write_file_replaces_changed_existing_bytes(tmp_path) -> None:
     w = _writer(tmp_path)
     w.write_file("file1", "photo.png", b"abc")
     path = next((w.run_dir / "files").iterdir())
-    mtime = path.stat().st_mtime_ns
-    w.write_file("file1", "photo.png", b"DIFFERENT")  # same id -> not rewritten
-    assert path.stat().st_mtime_ns == mtime
-    assert path.read_bytes() == b"abc"
+    w.write_file("file1", "photo.png", b"DIFFERENT")
+    assert path.read_bytes() == b"DIFFERENT"
+    manifest = w.finalize_manifest(
+        {"files": 1}, requests_made=2, skipped_incremental=0, incremental=False
+    )
+    assert manifest["files"]["file1"] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_write_nofollow_retries_short_writes(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "blob"
+    real_write = os.write
+
+    def _short_write(fd: int, data: bytes | memoryview) -> int:
+        chunk = data[: max(1, len(data) // 2)]
+        return real_write(fd, chunk)
+
+    monkeypatch.setattr(os, "write", _short_write)
+    _write_nofollow(target, b"complete payload")
+    assert target.read_bytes() == b"complete payload"
+
+
+def test_failed_replacement_preserves_previous_file(tmp_path, monkeypatch) -> None:
+    w = _writer(tmp_path)
+    w.write_file("file1", "photo.png", b"original")
+    path = next((w.run_dir / "files").iterdir())
+    real_write = os.write
+    calls = 0
+
+    def _fail_mid_write(fd: int, data: bytes | memoryview) -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return real_write(fd, data[:1])
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "write", _fail_mid_write)
+    with pytest.raises(OSError, match="disk full"):
+        w.write_file("file1", "photo.png", b"replacement")
+    assert path.read_bytes() == b"original"
 
 
 def test_write_artifact_separates_by_conv_and_id(tmp_path) -> None:
