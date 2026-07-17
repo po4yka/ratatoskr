@@ -248,7 +248,11 @@ def test_extraction_status_uses_fresh_runtime_chain_results(
             f'{{outcome="failure"}} {(now - failure_age).timestamp()}'
         )
 
-    signal = PublicStatusService._parse_extraction_status("\n".join(samples).encode(), now=now)
+    signal = PublicStatusService._parse_extraction_status(
+        "\n".join(samples).encode(),
+        max_age=timedelta(hours=24),
+        now=now,
+    )
 
     assert signal.level is expected
 

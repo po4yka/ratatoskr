@@ -88,6 +88,14 @@ def test_status_qdrant_probe_uses_internal_ready_endpoint() -> None:
     )
 
 
+def test_status_runtime_signal_age_is_explicit_in_deployment() -> None:
+    for filename in ("docker-compose.yml", "docker-compose.pi.yml"):
+        environment = _environment(_compose(filename)["services"]["mobile-api"])
+        assert environment["STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS"] == (
+            "${STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS:-86400}"
+        )
+
+
 def test_api_production_surfaces_use_metrics_aware_launcher() -> None:
     services = _compose()["services"]
     api = services["mobile-api"]

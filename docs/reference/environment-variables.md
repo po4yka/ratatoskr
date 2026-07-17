@@ -208,6 +208,7 @@ See [Mobile API](mobile-api.md#authentication) and
 | `STATUS_SCHEDULER_METRICS_URL` | Internal scheduler exporter URL. |
 | `STATUS_NODE_METRICS_URL` | Internal node-exporter URL used for PostgreSQL backup freshness. |
 | `STATUS_QDRANT_READY_URL` | Internal Qdrant `/readyz` URL used for a live vector-search readiness check. |
+| `STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS` | Maximum accepted age of extraction runtime telemetry; 5 minutes–7 days, default 24 hours. |
 | `STATUS_PROBE_TIMEOUT_SECONDS` | Per-component probe ceiling, at most five seconds. |
 | `STATUS_TOTAL_TIMEOUT_SECONDS` | Aggregate status collection ceiling, at most five seconds. |
 | `STATUS_CACHE_TTL_SECONDS` | Process-local public status cache, 15–30 seconds. |

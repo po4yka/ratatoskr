@@ -75,7 +75,6 @@ _VECTOR_RECONCILE_LAG_METRIC = "ratatoskr_vector_reconcile_oldest_lag_seconds"
 _EXTRACTION_LAST_RESULT_METRIC = "ratatoskr_scraper_chain_last_result_timestamp_seconds"
 _BACKUP_STALE_AFTER = timedelta(hours=36)
 _BACKUP_OUTAGE_AFTER = timedelta(hours=48)
-_EXTRACTION_SIGNAL_MAX_AGE = timedelta(hours=24)
 _AI_SIGNAL_MAX_AGE = timedelta(hours=24)
 _VECTOR_RECONCILE_LAG_WARNING_SECONDS = 3600
 
@@ -352,7 +351,12 @@ class PublicStatusService:
             process_level, payload = await _bot_metrics()
             if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
                 return _StatusSignal(PublicStatusLevel.UNKNOWN, "Extraction status unavailable")
-            return self._parse_extraction_status(payload)
+            return self._parse_extraction_status(
+                payload,
+                max_age=timedelta(
+                    seconds=self._deployment.status_extraction_signal_max_age_seconds
+                ),
+            )
 
         async def _worker() -> PublicStatusLevel:
             process_level, _payload = await _worker_metrics()
@@ -509,7 +513,11 @@ class PublicStatusService:
 
     @classmethod
     def _parse_extraction_status(
-        cls, payload: bytes, *, now: datetime | None = None
+        cls,
+        payload: bytes,
+        *,
+        max_age: timedelta,
+        now: datetime | None = None,
     ) -> _StatusSignal:
         values = cls._metric_values(payload, _EXTRACTION_LAST_RESULT_METRIC)
         by_outcome = {
@@ -527,7 +535,7 @@ class PublicStatusService:
             age = now - datetime.fromtimestamp(latest, tz=UTC)
         except (OverflowError, OSError, ValueError):
             return _StatusSignal(PublicStatusLevel.UNKNOWN, "Extraction status unavailable")
-        if age < timedelta(minutes=-5) or age > _EXTRACTION_SIGNAL_MAX_AGE:
+        if age < timedelta(minutes=-5) or age > max_age:
             return _StatusSignal(PublicStatusLevel.UNKNOWN, "No recent extraction run observed")
         if by_outcome["failure"] > by_outcome["success"]:
             return _StatusSignal(PublicStatusLevel.DEGRADED, "Latest extraction run failed")

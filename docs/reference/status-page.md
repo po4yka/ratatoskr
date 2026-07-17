@@ -37,7 +37,7 @@ The current component map is:
 | PostgreSQL | The existing bounded database health check succeeds. |
 | Redis | The existing Redis health check succeeds or is explicitly disabled. |
 | Qdrant / vector search | The configured vector store reports availability. |
-| Scraper / extraction | The bot's local runtime telemetry reports the latest non-policy-blocked chain result; signals older than 24 hours are `unknown`. No synthetic crawl is performed. |
+| Scraper / extraction | The bot's local runtime telemetry reports the latest non-policy-blocked chain result; observations outside the validated freshness window (24 hours by default) are `unknown`. No synthetic crawl is performed. |
 | AI summarization | The worker's allowlisted OpenRouter circuit-breaker updates; only observations from the last 24 hours participate. One failed model degrades the fallback chain, while all fresh observed models open is an outage. Other providers remain `unknown` until they expose an equivalent live signal. |
 | Taskiq worker | Its aggregated internal Prometheus exporter responds. |
 | Scheduler | Its internal Prometheus exporter responds. |
@@ -103,13 +103,14 @@ STATUS_WORKER_METRICS_URL=http://worker:9102/metrics
 STATUS_SCHEDULER_METRICS_URL=http://scheduler:9103/metrics
 STATUS_NODE_METRICS_URL=http://node-exporter:9100/metrics
 STATUS_QDRANT_READY_URL=http://qdrant:6333/readyz
+STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS=86400
 ```
 
-`DeploymentConfig` validates these as credential-free HTTP URLs and bounds the
-per-probe timeout, total timeout, cache TTL, and client refresh interval. The
-Qdrant component status comes from a live, bounded `/readyz` request; no response
-body or endpoint detail is exposed publicly. Exporter ports use Compose `expose`,
-not host `ports`.
+`DeploymentConfig` validates the probe locations as credential-free HTTP URLs
+and bounds freshness windows, per-probe timeout, total timeout, cache TTL, and
+client refresh interval. The Qdrant component status comes from a live, bounded
+`/readyz` request; no response body or endpoint detail is exposed publicly.
+Exporter ports use Compose `expose`, not host `ports`.
 
 Start the complete operator stack with:
 
