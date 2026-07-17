@@ -30,6 +30,13 @@ The `pg-backup` Compose service runs `pg_dump --format=custom` on `BACKUP_CRON`
 `BACKUP_HOST_DIR` (`data/postgres-backups` by default) and deletes local files
 older than `BACKUP_RETENTION_DAYS`.
 
+On Raspberry Pi production, `make pi-deploy-all` builds this sidecar locally for
+Linux/ARM64, streams the exact Compose image to the Pi, and recreates it without
+building remotely. The Pi overlay defaults `BACKUP_RUN_ON_START=true`; the
+container becomes healthy only after that initial dump has created its artifact
+and `ratatoskr_pg_backup.prom` metric. Use
+`make pi-deploy SERVICE=pg-backup` to deploy only the sidecar.
+
 Start the sidecar and run a backup immediately:
 
 ```bash

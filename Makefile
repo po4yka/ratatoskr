@@ -242,8 +242,9 @@ web-bundle:
 
 # Build the arm64 image locally (Mac) and stream it to the Pi over SSH so the
 # Pi never has to run the heavy build. Override SERVICE=mobile-api to ship
-# the API image instead. See tools/scripts/build-and-deploy-pi.sh for flags
-# and env vars (RASPI_HOST, RASPI_REMOTE_PATH, COMPOSE_PROJECT).
+# the API image, or SERVICE=pg-backup to ship the PostgreSQL backup sidecar.
+# See tools/scripts/build-and-deploy-pi.sh for flags and env vars
+# (RASPI_HOST, RASPI_REMOTE_PATH, COMPOSE_PROJECT).
 .PHONY: pi-deploy pi-deploy-no-cache pi-build-only pi-migrate pi-rollback pi-deploy-all pi-smoke
 SERVICE ?= ratatoskr
 RASPI_HOST ?= raspi
@@ -265,11 +266,11 @@ pi-migrate:
 pi-rollback:
 	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE) --rollback
 
-# End-to-end: build+ship+restart the four ratatoskr services (bot/worker/
-# scheduler/mobile-api) in one pass. The image includes the reviewed SPA
+# End-to-end: build+ship+restart the four application services and the
+# PostgreSQL backup sidecar in one pass. The image includes the reviewed SPA
 # archive, then the smoke check verifies / and /health/ready from the Pi host.
 pi-deploy-all:
-	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api"
+	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api pg-backup"
 	$(MAKE) pi-smoke
 
 # Smoke-test mobile-api on the Pi via its mapped host port. /health/ready exercises

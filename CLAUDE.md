@@ -186,6 +186,8 @@ docker compose -f ops/docker/docker-compose.yml up -d
 # Pi deployment (cross-compile linux/arm64 on Mac, stream to Pi, restart)
 make pi-deploy                        # build + ship + restart `ratatoskr`
 make pi-deploy SERVICE=mobile-api     # mobile-api image instead
+make pi-deploy SERVICE=pg-backup      # PostgreSQL backup sidecar
+make pi-deploy-all                    # app services + pg-backup
 make pi-deploy-no-cache               # full rebuild
 make pi-build-only                    # ship without restarting
 bash tools/scripts/build-and-deploy-pi.sh --help   # full flag coverage

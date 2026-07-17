@@ -220,6 +220,14 @@ services:
   postgres:
     platform: linux/arm64
 
+  pg-backup:
+    # A Pi deploy must leave observable recovery evidence immediately instead
+    # of waiting until the next 03:00 UTC cron window. The entrypoint starts
+    # crond only after this initial dump and its textfile metric succeed, so
+    # the base healthcheck is also the deployment gate.
+    environment:
+      - BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}
+
   # Pi 5 (16 GB) drives many distinct domains at once; the base 1.5 GB / 1 CPU
   # floor thrashes Chrome-per-seed here (hung/502 CDP). Raise on the overlay, as
   # the base compose note intends ("the Pi overlay uses more").

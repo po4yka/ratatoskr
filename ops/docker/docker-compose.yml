@@ -1252,6 +1252,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "ps | grep -q '[c]rond' && test -w /backups && test -w /var/lib/node-exporter/textfile_collector",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5m
     restart: unless-stopped
     deploy:
       resources:

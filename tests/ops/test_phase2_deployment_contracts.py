@@ -203,6 +203,10 @@ def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
     assert "profiles" not in pg_backup
     assert pg_backup["build"]["dockerfile"] == "ops/docker/pg-backup/Dockerfile"
     assert pg_backup["depends_on"]["postgres"]["condition"] == "service_healthy"
+    healthcheck = " ".join(pg_backup["healthcheck"]["test"])
+    assert "[c]rond" in healthcheck
+    assert "test -w /backups" in healthcheck
+    assert "test -w /var/lib/node-exporter/textfile_collector" in healthcheck
     assert "${BACKUP_HOST_DIR:-../../data/postgres-backups}:/backups" in pg_backup["volumes"]
     assert "pg_backup_data" not in _compose()["volumes"]
 
@@ -427,13 +431,27 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     script = _pi_deploy_script()
     restart_branch = script.split("if [[ $RESTART -eq 1 ]]; then", maxsplit=1)[1]
 
-    restart_call = "up -d --no-deps --force-recreate ${svc}"
+    restart_call = "up -d --no-build --no-deps --force-recreate ${svc}"
     assert restart_call in script
     assert "tag_running_image_as_previous" in restart_branch
     assert restart_branch.index("tag_running_image_as_previous") < restart_branch.index(
         restart_call
     )
     assert "run_remote_migrations" not in restart_branch
+
+
+def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> None:
+    script = _pi_deploy_script()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    pi_overlay = (ROOT / "ops/docker/docker-compose.pi.yml").read_text(encoding="utf-8")
+
+    assert "BACKUP_DOCKERFILE=ops/docker/pg-backup/Dockerfile" in script
+    assert "BACKUP_SERVICES=(pg-backup)" in script
+    assert 'build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"' in script
+    assert 'up -d --no-build --no-deps --force-recreate ${svc}' in script
+    assert "--entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
+    assert '--services "ratatoskr worker scheduler mobile-api pg-backup"' in makefile
+    assert "BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}" in pi_overlay
 
 
 def test_pi_deploy_preserves_service_dns_alias_when_restoring_default_network() -> None:

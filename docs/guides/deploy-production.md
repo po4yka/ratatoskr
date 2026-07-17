@@ -148,10 +148,15 @@ The Pi workflow builds Linux/ARM64 images on the development machine, streams th
 ```bash
 make pi-migrate
 make pi-migrate APPLY=1
-make pi-deploy
+make pi-deploy-all
 ```
 
-Use `make pi-deploy SERVICE=mobile-api` for the API image and the project rollback targets for retained previous images. The Pi does not run `docker build`.
+`make pi-deploy-all` ships the bot, worker, scheduler, API, and `pg-backup`
+images, then recreates all five services. The backup sidecar runs one dump on
+startup so the backup directory and node-exporter textfile metric exist before
+the deploy reports it healthy. Use `make pi-deploy SERVICE=mobile-api` or
+`make pi-deploy SERVICE=pg-backup` for a targeted image and the project rollback
+targets for retained previous images. The Pi does not run `docker build`.
 
 ## Troubleshooting
 
