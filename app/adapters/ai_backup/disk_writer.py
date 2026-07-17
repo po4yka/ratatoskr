@@ -53,6 +53,31 @@ _O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
 _O_DIRECTORY: int = getattr(os, "O_DIRECTORY", 0)
 
 
+def _enforce_private_file_mode(fd: int) -> None:
+    os.fchmod(fd, 0o600)
+    metadata = os.fstat(fd)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+    ):
+        raise PermissionError(
+            errno.EACCES,
+            "Filesystem did not enforce owner-only AI backup file permissions",
+        )
+
+
+def _enforce_private_file(path: Path) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW)
+    except OSError as exc:
+        raise PathTraversalError("Backup file is unsafe or inaccessible") from exc
+    try:
+        _enforce_private_file_mode(fd)
+    finally:
+        os.close(fd)
+
+
 def _sanitize_id(raw: str) -> str:
     """Replace every unsafe char with ``_`` and cap at 128 chars. Never empty."""
     return _SAFE_ID_RE.sub("_", raw)[:128] or "_"
@@ -97,6 +122,7 @@ def _write_nofollow(path: Path, data: bytes, *, exclusive: bool = False) -> None
     flags |= os.O_EXCL if exclusive else os.O_TRUNC
     fd = os.open(path, flags, 0o600)
     try:
+        _enforce_private_file_mode(fd)
         remaining = memoryview(data)
         while remaining:
             written = os.write(fd, remaining)
@@ -165,16 +191,23 @@ def _ensure_private_directory_tree(root: Path, target: Path) -> None:
             if not stat.S_ISDIR(metadata.st_mode):
                 raise PathTraversalError("Backup directory path is not a directory")
             os.fchmod(fd, 0o700)
+            if stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
+                raise PermissionError(
+                    errno.EACCES,
+                    "Filesystem did not enforce owner-only AI backup directory permissions",
+                )
         finally:
             os.close(fd)
 
 
-def _harden_existing_subdirectories(root: Path) -> None:
-    """Upgrade legacy directories below ``root`` and fail closed on symlinks."""
-    for directory, names, _ in os.walk(root, followlinks=False):
+def _harden_existing_tree(root: Path) -> None:
+    """Upgrade legacy entries below ``root`` and fail closed on unsafe files."""
+    for directory, names, file_names in os.walk(root, followlinks=False):
         for name in names:
             candidate = Path(directory) / name
             _ensure_private_directory_tree(candidate, candidate)
+        for name in file_names:
+            _enforce_private_file(Path(directory) / name)
 
 
 class AiBackupDiskWriter:
@@ -200,7 +233,7 @@ class AiBackupDiskWriter:
         _ensure_private_directory_tree(self._data_root, self._data_root)
         self._run_dir = _safe_child(self._data_root, self._service, run_date.isoformat())
         _ensure_private_directory_tree(self._data_root, self._run_dir)
-        _harden_existing_subdirectories(self._run_dir)
+        _harden_existing_tree(self._run_dir)
         self._manifest: dict[str, dict[str, str]] = {
             "conversations": {},
             "projects": {},
@@ -273,6 +306,7 @@ class AiBackupDiskWriter:
                 ) from exc
             raise
         if existing is not None and _sha256_hex(existing) == sha:
+            _enforce_private_file(path)
             return sha
         self._ensure_free_space(len(data) - len(existing or b""))
         _ensure_private_directory_tree(self._run_dir, path.parent)

@@ -13,6 +13,7 @@ import pytest
 
 from app.adapters.ai_backup.disk_writer import (
     AiBackupDiskWriter,
+    _enforce_private_file_mode,
     _safe_child,
     _sanitize_id,
     _write_nofollow,
@@ -130,11 +131,20 @@ def test_backup_directories_are_owner_only(tmp_path) -> None:
     data_root.mkdir(mode=0o755)
     legacy = data_root / "chatgpt" / _DATE.isoformat() / "legacy"
     legacy.mkdir(parents=True, mode=0o755)
+    legacy_file = legacy / "old.json"
+    legacy_file.write_text("{}")
+    legacy_file.chmod(0o644)
     w = AiBackupDiskWriter(data_root, "chatgpt", _DATE, "corr-1")
     w.write_conversation("conv1", {"x": 1})
     w.write_project("project1", {"x": 1})
     w.write_file("file1", "one.bin", b"one")
     w.write_artifact("conv1", "artifact1", "txt", b"one")
+    w.finalize_manifest(
+        {"conversations": 1, "projects": 1, "files": 1, "artifacts": 1},
+        requests_made=4,
+        skipped_incremental=0,
+        incremental=False,
+    )
 
     directories = [
         data_root,
@@ -149,6 +159,34 @@ def test_backup_directories_are_owner_only(tmp_path) -> None:
         legacy,
     ]
     assert all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in directories)
+    assert stat.S_IMODE(legacy_file.stat().st_mode) == 0o600
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o600
+        for path in w.run_dir.rglob("*")
+        if path.is_file()
+    )
+
+
+def test_directory_mode_enforcement_fails_closed(tmp_path, monkeypatch) -> None:
+    data_root = tmp_path / "backups"
+    data_root.mkdir(mode=0o755)
+    monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+
+    with pytest.raises(PermissionError, match="directory permissions"):
+        AiBackupDiskWriter(data_root, "chatgpt", _DATE, "corr-1")
+
+
+def test_file_mode_enforcement_fails_closed(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "legacy.json"
+    path.write_text("{}")
+    path.chmod(0o644)
+    fd = os.open(path, os.O_RDONLY)
+    monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+    try:
+        with pytest.raises(PermissionError, match="file permissions"):
+            _enforce_private_file_mode(fd)
+    finally:
+        os.close(fd)
 
 
 @pytest.mark.parametrize("conv_id", ["../escape", "/absolute", "a\x00b", "a/b/c"])
