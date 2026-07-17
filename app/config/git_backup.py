@@ -482,15 +482,12 @@ class GitBackupConfig(BaseModel):
 
     # Failure propagation (exit_on_failure)
     exit_on_failure: bool = Field(
-        default=False,
+        default=True,
         validation_alias="GIT_BACKUP_EXIT_ON_FAILURE",
         description=(
-            "When true AND the sync summary reports at least one failed repo, "
-            "the Taskiq task raises a RuntimeError at the end of the try block "
-            "(after index/reconcile/metrics/notify steps have run). This causes "
-            "Taskiq to record the run as failed and fires the healthcheck failure ping. "
-            "Default false = current behavior (task always completes as success "
-            "regardless of how many repos failed). Opt-in."
+            "Deprecated compatibility setting. Partial mirror failures always "
+            "propagate after metrics and notifications so Taskiq and healthchecks "
+            "cannot report a successful backup run."
         ),
     )
 

@@ -140,7 +140,7 @@ Writes are idempotent by id; `AI_BACKUP_INCREMENTAL` skips unchanged conversatio
 
 ## Task, scheduler, and surfaces
 
-The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_sync", ttl=1800)` with silent skip-if-held (copying the git-backup header), loops the enabled services, runs each, records the lifecycle row, fires the Healthchecks ping, and sends the Telegram notification. The scheduler gains one `if cfg.ai_backup.enabled:` block emitting a `ScheduledTask(task_name="ratatoskr.ai_backup.sync", cron=cfg.ai_backup.sync_cron, labels={"job": "ai_backup_sync"})`. REST exposes list / status / session-ingest; Telegram exposes status-only `/ai_backup` and `/ai_backups` (session ingest is REST-only — the blob holds live cookies).
+The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_sync", ttl=1800)` with silent skip-if-held (copying the git-backup header), loops the enabled services, runs each, records the lifecycle row, fires the Healthchecks ping, and sends the Telegram notification. It records a fixed-cardinality `ratatoskr_backup_runs_total` outcome per provider and raises after all providers have been attempted when any state is not `ok`; therefore auth expiry, missing sessions, and partial provider failure cannot appear as generic Taskiq success. The scheduler gains one `if cfg.ai_backup.enabled:` block emitting a `ScheduledTask(task_name="ratatoskr.ai_backup.sync", cron=cfg.ai_backup.sync_cron, labels={"job": "ai_backup_sync"})`. REST exposes list / status / session-ingest; Telegram exposes status-only `/ai_backup` and `/ai_backups` (session ingest is REST-only — the blob holds live cookies).
 
 ## Security checklist
 

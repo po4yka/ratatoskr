@@ -354,9 +354,9 @@ Three opt-in features run at the end of the `sync_git_backup` Taskiq task try-bl
 
 ### Failure propagation (`GIT_BACKUP_EXIT_ON_FAILURE`)
 
-By default the task always completes as success regardless of how many repos failed in a given run. When `GIT_BACKUP_EXIT_ON_FAILURE=true`, the task raises a `RuntimeError` if `summary.failed > 0`. The raise happens at the very end of the try-block — after metrics export and Telegram notification have already run — so those steps are never skipped. The `except` branch catches the exception, fires the Healthchecks.io failure ping (`{url}/fail`), and re-raises, causing Taskiq to record the run as failed.
+Any `summary.failed > 0` now raises `RuntimeError` after metrics export and Telegram notification. The `except` branch fires the Healthchecks.io failure ping (`{url}/fail`) and re-raises, so the generic Taskiq outcome cannot claim success for a partial backup. `GIT_BACKUP_EXIT_ON_FAILURE` remains accepted as a deprecated compatibility setting and defaults to `true`; it no longer disables truthful failure propagation.
 
-Use this when you want downstream alerting (Taskiq task-failure webhooks, external monitors) to fire on partial-failure runs.
+Dedicated `ratatoskr_backup_runs_total{backup="github_repositories",outcome=...}` distinguishes `success`, `partial`, and `error`, while `ratatoskr_backup_items` exposes only aggregate fixed-cardinality counts.
 
 ### Metrics export (`GIT_BACKUP_METRICS_EXPORT_PATH` / `GIT_BACKUP_METRICS_FORMAT`)
 

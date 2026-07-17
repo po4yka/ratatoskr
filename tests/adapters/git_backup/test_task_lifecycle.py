@@ -66,9 +66,9 @@ def _make_app_config(git_backup: GitBackupConfig) -> Any:
 class TestExitOnFailure:
     """exit_on_failure raises when failed>0 and is silent otherwise."""
 
-    def test_config_default_is_false(self) -> None:
+    def test_config_default_is_true(self) -> None:
         cfg = _make_config()
-        assert cfg.exit_on_failure is False
+        assert cfg.exit_on_failure is True
 
     def test_config_override_enables_feature(self) -> None:
         cfg = _make_config(GIT_BACKUP_EXIT_ON_FAILURE=True)
@@ -109,18 +109,14 @@ class TestExitOnFailure:
         assert not raised
 
     @pytest.mark.asyncio
-    async def test_does_not_raise_when_flag_is_false(self) -> None:
+    async def test_legacy_false_does_not_change_truthful_failure(self) -> None:
         git_cfg = _make_config(GIT_BACKUP_EXIT_ON_FAILURE=False)
         summary = _make_summary(ok=0, failed=5, skipped=0)
 
-        raised = False
-        try:
-            if git_cfg.exit_on_failure and summary.failed > 0:
-                raise RuntimeError("should not happen")
-        except RuntimeError:
-            raised = True
-
-        assert not raised
+        assert git_cfg.exit_on_failure is False
+        with pytest.raises(RuntimeError):
+            if summary.failed > 0:
+                raise RuntimeError("truthful partial failure")
 
 
 # ---------------------------------------------------------------------------

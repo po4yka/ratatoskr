@@ -67,7 +67,7 @@ the Qdrant container with the same `qdrant:6333/metrics` target.
 | Durable URL work/Taskiq | `ratatoskr_url_processing_queue_depth`, `ratatoskr_url_processor_in_flight`, `ratatoskr_taskiq_retries_total` | Backlog, in-flight work, retry/dead-letter outcomes |
 | Digest | `ratatoskr_digest_*` | Delivery outcomes and existing delivery/reconnect alerts |
 | GitHub/social | `ratatoskr_github_*`, `ratatoskr_social_*` | Sync outcomes, pending analysis, provider fetch outcomes |
-| Backup | node-exporter textfile metric `ratatoskr_pg_backup_last_success_timestamp_seconds` | Backup age and the 36-hour stale-backup alert |
+| Backup | node-exporter `ratatoskr_pg_backup_last_success_timestamp_seconds` plus application `ratatoskr_backup_runs_total` and `ratatoskr_backup_items` | PostgreSQL freshness and truthful GitHub/ChatGPT/Claude run outcomes without user or repository labels |
 | Host | node-exporter `node_*` metrics | CPU, memory, filesystem saturation and alerts |
 
 Optional integrations are event-driven: if they are disabled or have never

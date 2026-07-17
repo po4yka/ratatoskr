@@ -108,6 +108,16 @@ from app.observability.metrics_auth import (
 )
 
 # ---------------------------------------------------------------------------
+# Backups
+# ---------------------------------------------------------------------------
+from app.observability.metrics_backup import (
+    BACKUP_ITEMS,
+    BACKUP_RUNS_TOTAL,
+    record_backup_run,
+    set_backup_items,
+)
+
+# ---------------------------------------------------------------------------
 # Shared Redis cache
 # ---------------------------------------------------------------------------
 from app.observability.metrics_cache import (
@@ -446,6 +456,11 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_url_enqueue",
     "set_url_processing_queue_depth",
     "set_url_processor_in_flight",
+    # Backups
+    "BACKUP_ITEMS",
+    "BACKUP_RUNS_TOTAL",
+    "record_backup_run",
+    "set_backup_items",
     # HTTP RED
     "HTTP_REQUEST_DURATION_SECONDS",
     "HTTP_REQUESTS_IN_FLIGHT",
