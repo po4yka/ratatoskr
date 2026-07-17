@@ -26,7 +26,7 @@ from app.api.services.status_service import (
 )
 from app.config.deployment import DeploymentConfig
 from app.core.time_utils import UTC
-from app.db.models.ai_backup import AiBackupStatus
+from app.db.models.ai_backup import AiBackupAuthorizationStatus, AiBackupStatus
 from app.db.models.git_backup import GitMirrorStatus
 
 _COMPONENT_IDS = (
@@ -197,7 +197,8 @@ def test_backup_status_reports_partial_git_coverage_without_sensitive_details() 
 
 def test_ai_backup_status_exposes_only_coarse_authorization_action() -> None:
     row = SimpleNamespace(
-        status=AiBackupStatus.AUTH_EXPIRED,
+        status=AiBackupStatus.OK,
+        authorization_status=AiBackupAuthorizationStatus.EXPIRED,
         last_backed_up_at=None,
         last_error="cookie secret for private account",
     )
@@ -208,6 +209,32 @@ def test_ai_backup_status_exposes_only_coarse_authorization_action() -> None:
     assert signal.message == "Authorization required"
     assert "cookie" not in signal.message
     assert "private" not in signal.message
+
+
+def test_ai_backup_status_does_not_treat_unverified_authorization_as_healthy() -> None:
+    row = SimpleNamespace(
+        status=AiBackupStatus.OK,
+        authorization_status=AiBackupAuthorizationStatus.UNVERIFIED,
+        last_backed_up_at=datetime.now(UTC),
+    )
+
+    signal = PublicStatusService._ai_backup_status([row])
+
+    assert signal.level is PublicStatusLevel.UNKNOWN
+    assert signal.message == "Authorization has not been verified"
+
+
+def test_ai_backup_status_uses_backup_freshness_after_authorization_is_valid() -> None:
+    row = SimpleNamespace(
+        status=AiBackupStatus.OK,
+        authorization_status=AiBackupAuthorizationStatus.VALID,
+        last_backed_up_at=datetime.now(UTC),
+    )
+
+    signal = PublicStatusService._ai_backup_status([row])
+
+    assert signal.level is PublicStatusLevel.OPERATIONAL
+    assert signal.message == "Authorization active; backup is current"
 
 
 def test_vector_reconciliation_status_uses_run_and_lag_metrics() -> None:

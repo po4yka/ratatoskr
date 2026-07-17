@@ -29,7 +29,12 @@ from app.api.routers.health import (
 from app.config import load_config
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
-from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiAccountBackup,
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 from app.observability.metrics_status import record_status_check
 
@@ -399,9 +404,11 @@ class PublicStatusService:
             async with self._database.session() as session:
                 rows = (
                     await session.execute(
-                        select(AiAccountBackup.status, AiAccountBackup.last_backed_up_at).where(
-                            AiAccountBackup.service == service
-                        )
+                        select(
+                            AiAccountBackup.status,
+                            AiAccountBackup.authorization_status,
+                            AiAccountBackup.last_backed_up_at,
+                        ).where(AiAccountBackup.service == service)
                     )
                 ).all()
             return self._ai_backup_status(list(rows))
@@ -647,8 +654,15 @@ class PublicStatusService:
     def _ai_backup_status(cls, rows: list[Any], *, now: datetime | None = None) -> _StatusSignal:
         if not rows:
             return _StatusSignal(PublicStatusLevel.UNKNOWN, "Authorization has not been verified")
-        if any(row.status == AiBackupStatus.AUTH_EXPIRED for row in rows):
+        if any(
+            row.authorization_status
+            in {AiBackupAuthorizationStatus.MISSING, AiBackupAuthorizationStatus.EXPIRED}
+            or row.status == AiBackupStatus.AUTH_EXPIRED
+            for row in rows
+        ):
             return _StatusSignal(PublicStatusLevel.OUTAGE, "Authorization required")
+        if any(row.authorization_status != AiBackupAuthorizationStatus.VALID for row in rows):
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "Authorization has not been verified")
         now = now or datetime.now(UTC)
         levels: list[PublicStatusLevel] = []
         for row in rows:
