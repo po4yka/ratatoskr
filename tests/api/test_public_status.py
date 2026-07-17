@@ -296,7 +296,7 @@ def test_extraction_status_uses_fresh_runtime_chain_results(
 
 
 @pytest.mark.asyncio
-async def test_bot_and_extraction_share_one_metrics_scrape(
+async def test_extraction_reads_worker_telemetry_and_shares_process_scrapes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     probes = _probes()
@@ -304,16 +304,20 @@ async def test_bot_and_extraction_share_one_metrics_scrape(
     probes.pop("extraction")
     now = datetime.now(UTC).timestamp()
     service = PublicStatusService(
-        deployment=DeploymentConfig(STATUS_BOT_METRICS_URL="http://bot:9101/metrics"),
+        deployment=DeploymentConfig(
+            STATUS_BOT_METRICS_URL="http://bot:9101/metrics",
+            STATUS_WORKER_METRICS_URL="http://worker:9102/metrics",
+        ),
         component_probes=probes,
         cache_enabled=False,
     )
-    calls = 0
+    calls: list[str | None] = []
 
-    async def _fetch(_url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
-        nonlocal calls
-        calls += 1
+    async def _fetch(url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
+        calls.append(url)
         await asyncio.sleep(0)
+        if url == "http://bot:9101/metrics":
+            return PublicStatusLevel.OPERATIONAL, b""
         return (
             PublicStatusLevel.OPERATIONAL,
             (
@@ -327,7 +331,8 @@ async def test_bot_and_extraction_share_one_metrics_scrape(
     result = await service.get_status()
 
     assert _components(result)["extraction"].status is PublicStatusLevel.OPERATIONAL
-    assert calls == 1
+    assert calls.count("http://bot:9101/metrics") == 1
+    assert calls.count("http://worker:9102/metrics") == 1
 
 
 @pytest.mark.asyncio

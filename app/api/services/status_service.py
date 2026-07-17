@@ -355,11 +355,16 @@ class PublicStatusService:
             return process_level
 
         async def _extraction() -> _StatusSignal:
-            process_level, payload = await _bot_metrics()
-            if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
+            process_results = await asyncio.gather(_bot_metrics(), _worker_metrics())
+            payloads = [
+                payload
+                for process_level, payload in process_results
+                if process_level is PublicStatusLevel.OPERATIONAL and payload is not None
+            ]
+            if not payloads:
                 return _StatusSignal(PublicStatusLevel.UNKNOWN, "Extraction status unavailable")
             return self._parse_extraction_status(
-                payload,
+                b"\n".join(payloads),
                 max_age=timedelta(
                     seconds=self._deployment.status_extraction_signal_max_age_seconds
                 ),
