@@ -21,6 +21,7 @@ def _run_script(tmp_path: Path, **overrides: str) -> subprocess.CompletedProcess
         "BACKUP_RETENTION_DAYS": "14",
     }
     for key in (
+        "APP_ENV",
         "BACKUP_ENCRYPTION_KEY",
         "BACKUP_REQUIRE_ENCRYPTION",
         "BACKUP_S3_BUCKET",
@@ -53,9 +54,72 @@ def test_invalid_encryption_policy_is_rejected(tmp_path: Path, value: str) -> No
     assert "BACKUP_REQUIRE_ENCRYPTION must be a boolean" in result.stdout
 
 
+@pytest.mark.parametrize("app_env", ["production", "staging", "local", "unknown"])
+def test_plaintext_override_is_rejected_outside_explicit_dev_test_context(
+    tmp_path: Path,
+    app_env: str,
+) -> None:
+    result = _run_script(
+        tmp_path,
+        APP_ENV=app_env,
+        BACKUP_REQUIRE_ENCRYPTION="false",
+    )
+
+    assert result.returncode == 1
+    assert "allowed only when APP_ENV=development or APP_ENV=test" in result.stdout
+    assert "pg_backup_started" not in result.stdout
+
+
+def test_plaintext_override_defaults_to_production_policy(tmp_path: Path) -> None:
+    result = _run_script(tmp_path, BACKUP_REQUIRE_ENCRYPTION="false")
+
+    assert result.returncode == 1
+    assert "allowed only when APP_ENV=development or APP_ENV=test" in result.stdout
+    assert "pg_backup_started" not in result.stdout
+
+
+def test_production_rejects_plaintext_policy_even_when_key_is_present(tmp_path: Path) -> None:
+    result = _run_script(
+        tmp_path,
+        APP_ENV="production",
+        BACKUP_REQUIRE_ENCRYPTION="false",
+        BACKUP_ENCRYPTION_KEY="configured-key",
+    )
+
+    assert result.returncode == 1
+    assert "allowed only when APP_ENV=development or APP_ENV=test" in result.stdout
+    assert "pg_backup_started" not in result.stdout
+
+
+@pytest.mark.parametrize("app_env", ["development", "test"])
+def test_explicit_dev_test_context_reaches_backup_with_plaintext_override(
+    tmp_path: Path,
+    app_env: str,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    pg_dump = bin_dir / "pg_dump"
+    pg_dump.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    pg_dump.chmod(0o755)
+
+    result = _run_script(
+        tmp_path,
+        APP_ENV=app_env,
+        BACKUP_REQUIRE_ENCRYPTION="false",
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+    )
+
+    assert result.returncode == 1
+    assert "pg_backup_started" in result.stdout
+    assert "pg_dump failed" in result.stdout
+    assert "UNENCRYPTED local backup" in result.stderr
+    assert app_env in result.stderr
+
+
 def test_off_host_copy_cannot_use_plaintext_override(tmp_path: Path) -> None:
     result = _run_script(
         tmp_path,
+        APP_ENV="development",
         BACKUP_REQUIRE_ENCRYPTION="false",
         BACKUP_S3_BUCKET="backup-bucket",
     )

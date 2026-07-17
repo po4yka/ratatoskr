@@ -72,6 +72,14 @@ case "${BACKUP_REQUIRE_ENCRYPTION:-true}" in
   *) fail "BACKUP_REQUIRE_ENCRYPTION must be a boolean (true/false)" ;;
 esac
 
+app_env="${APP_ENV:-production}"
+if [ "$require_encryption" = "false" ]; then
+  case "$app_env" in
+    development|test) ;;
+    *) fail "BACKUP_REQUIRE_ENCRYPTION=false is allowed only when APP_ENV=development or APP_ENV=test" ;;
+  esac
+fi
+
 if [ -z "${BACKUP_ENCRYPTION_KEY:-}" ]; then
   if [ "$require_encryption" = "true" ]; then
     fail "BACKUP_ENCRYPTION_KEY is required -- refusing to write an unencrypted backup"
@@ -81,8 +89,8 @@ if [ -z "${BACKUP_ENCRYPTION_KEY:-}" ]; then
   fi
   {
     printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
-    printf 'WARNING: explicit BACKUP_REQUIRE_ENCRYPTION=false override -- writing an\n'
-    printf 'UNENCRYPTED local backup. This development-only mode must not be used in production.\n'
+    printf 'WARNING: explicit %s plaintext context with BACKUP_REQUIRE_ENCRYPTION=false -- writing an\n' "$app_env"
+    printf 'UNENCRYPTED local backup. This mode is constrained to development/test.\n'
     printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
   } >&2
 fi

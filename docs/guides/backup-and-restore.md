@@ -54,9 +54,32 @@ format. `BACKUP_S3_*` settings optionally copy the artifacts to object storage.
 Keep the encryption key and object-store credentials outside the backed-up host.
 Encryption is required by default: a missing key or invalid
 `BACKUP_REQUIRE_ENCRYPTION` value makes the run fail before `pg_dump` starts,
-and off-host copies are never allowed without encryption. For isolated local
-development only, `BACKUP_REQUIRE_ENCRYPTION=false` explicitly permits a
-mode-`0600` plaintext artifact; do not use that override in production.
+and off-host copies are never allowed without encryption. The production
+Compose service hardcodes `APP_ENV=production` and
+`BACKUP_REQUIRE_ENCRYPTION=true`; the backup script also rejects
+`BACKUP_REQUIRE_ENCRYPTION=false` unless `APP_ENV` is exactly `development` or
+`test`. A single environment override therefore cannot enable plaintext in
+production.
+
+For an isolated local-development plaintext artifact, use the explicit dev
+overlay and opt out of encryption there:
+
+```bash
+POSTGRES_PASSWORD=... BACKUP_REQUIRE_ENCRYPTION=false \
+docker compose \
+  -f ops/docker/docker-compose.yml \
+  -f ops/docker/docker-compose.dev.yml \
+  up -d postgres pg-backup
+
+POSTGRES_PASSWORD=... BACKUP_REQUIRE_ENCRYPTION=false \
+docker compose \
+  -f ops/docker/docker-compose.yml \
+  -f ops/docker/docker-compose.dev.yml \
+  exec -T pg-backup ratatoskr-pg-backup-run
+```
+
+The dev overlay supplies `APP_ENV=development`; the base and Pi production
+paths do not expose this plaintext escape hatch.
 
 Verify the default encrypted dump by decrypting it only into `pg_restore`:
 
@@ -67,7 +90,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY \
 | docker run --rm -i --entrypoint pg_restore postgres:17 --list >/dev/null
 ```
 
-For an explicit local-development plaintext dump, list it directly:
+To inspect that explicit local-development plaintext dump, list it directly:
 
 ```bash
 docker run --rm -i --entrypoint pg_restore postgres:17 --list \

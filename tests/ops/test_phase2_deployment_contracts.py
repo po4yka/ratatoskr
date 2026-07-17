@@ -18,6 +18,10 @@ def _compose() -> dict[str, Any]:
     return yaml.safe_load((ROOT / "ops/docker/docker-compose.yml").read_text(encoding="utf-8"))
 
 
+def _dev_compose() -> dict[str, Any]:
+    return yaml.safe_load((ROOT / "ops/docker/docker-compose.dev.yml").read_text(encoding="utf-8"))
+
+
 def _pi_deploy_script() -> str:
     return PI_DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
@@ -215,10 +219,18 @@ def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
     assert env["POSTGRES_USER"] == "ratatoskr_app"
     assert env["BACKUP_CRON"] == "${BACKUP_CRON:-0 3 * * *}"
     assert env["BACKUP_RETENTION_DAYS"] == "${BACKUP_RETENTION_DAYS:-14}"
+    assert env["APP_ENV"] == "production"
     assert env["BACKUP_ENCRYPTION_KEY"] == "${BACKUP_ENCRYPTION_KEY:-}"
-    assert env["BACKUP_REQUIRE_ENCRYPTION"] == "${BACKUP_REQUIRE_ENCRYPTION:-true}"
+    assert env["BACKUP_REQUIRE_ENCRYPTION"] == "true"
     assert env["BACKUP_S3_BUCKET"] == "${BACKUP_S3_BUCKET:-}"
     assert env["BACKUP_S3_ENDPOINT_URL"] == "${BACKUP_S3_ENDPOINT_URL:-}"
+
+
+def test_postgres_plaintext_backup_override_is_scoped_to_dev_overlay() -> None:
+    env = _env_map(_dev_compose()["services"]["pg-backup"])
+
+    assert env["APP_ENV"] == "development"
+    assert env["BACKUP_REQUIRE_ENCRYPTION"] == "${BACKUP_REQUIRE_ENCRYPTION:-true}"
 
 
 def test_pg_backup_image_matches_production_postgres_major() -> None:
@@ -263,7 +275,9 @@ def test_postgres_backup_script_creates_metadata_and_optional_remote_copy() -> N
     assert "aws $endpoint_args s3 cp" in script
     assert "ratatoskr_pg_backup_last_success_timestamp_seconds" in script
     assert "umask 077" in script
-    assert '${BACKUP_REQUIRE_ENCRYPTION:-true}' in script
+    assert "${BACKUP_REQUIRE_ENCRYPTION:-true}" in script
+    assert "${APP_ENV:-production}" in script
+    assert "allowed only when APP_ENV=development or APP_ENV=test" in script
     assert "BACKUP_ENCRYPTION_KEY is required when BACKUP_S3_BUCKET is set" in script
 
 
@@ -452,7 +466,7 @@ def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> No
     assert "BACKUP_DOCKERFILE=ops/docker/pg-backup/Dockerfile" in script
     assert "BACKUP_SERVICES=(pg-backup)" in script
     assert 'build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"' in script
-    assert 'up -d --no-build --no-deps --force-recreate ${svc}' in script
+    assert "up -d --no-build --no-deps --force-recreate ${svc}" in script
     assert "--entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
     assert '--services "ratatoskr worker scheduler mobile-api pg-backup"' in makefile
     assert "BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}" in pi_overlay

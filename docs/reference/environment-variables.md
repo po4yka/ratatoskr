@@ -240,7 +240,7 @@ Some values are consumed by Compose or sidecars rather than `Settings`:
 | `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `QDRANT_HOST_PORT` | Development port overrides. |
 | `BACKUP_HOST_DIR`, `BACKUP_CRON`, `BACKUP_RUN_ON_START` | PostgreSQL backup sidecar. |
 | `BACKUP_ENCRYPTION_KEY` | Required passphrase for encrypted PostgreSQL sidecar dumps. |
-| `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. Encryption defaults to required; plaintext is a local-development-only explicit opt-out and is forbidden for off-host copies. |
+| `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. Production Compose hardcodes encryption as required. Plaintext requires both the explicit development overlay (or direct `APP_ENV=development`/`test` script context) and `BACKUP_REQUIRE_ENCRYPTION=false`; it remains forbidden for off-host copies. |
 | `GRAFANA_ADMIN_PASSWORD` | Monitoring profile. |
 | `ALERT_WEBHOOK_URL` | Generic Alertmanager webhook receiver. HTTP is supported for trusted internal delivery; use HTTPS for external delivery. |
 | `ALERT_SLACK_API_URL` | HTTPS Slack incoming-webhook URL rendered into the active Alertmanager receiver. |

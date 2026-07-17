@@ -1240,8 +1240,9 @@ services:
       - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-14}
       - BACKUP_DIR=/backups
       - BACKUP_METRICS_DIR=/var/lib/node-exporter/textfile_collector
+      - APP_ENV=production
       - BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY:-}
-      - BACKUP_REQUIRE_ENCRYPTION=${BACKUP_REQUIRE_ENCRYPTION:-true}
+      - BACKUP_REQUIRE_ENCRYPTION=true
       - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
       - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-ratatoskr/postgres}
       - BACKUP_S3_REGION=${BACKUP_S3_REGION:-us-east-1}
