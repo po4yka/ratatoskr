@@ -55,9 +55,16 @@ class _FakeRepo:
 
 
 class _FakeStore:
-    def __init__(self, state: dict | None, *, load_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        state: dict | None,
+        *,
+        load_error: Exception | None = None,
+        refresh_present: bool = True,
+    ) -> None:
         self._state = state
         self._load_error = load_error
+        self._refresh_present = refresh_present
         self.loads: list[tuple[int, AiBackupService]] = []
         self.saved: list[dict] = []
 
@@ -67,8 +74,9 @@ class _FakeStore:
             raise self._load_error
         return self._state
 
-    async def save(self, _u, _s, blob) -> None:
+    async def refresh(self, _u, _s, blob) -> bool:
         self.saved.append(blob)
+        return self._refresh_present
 
 
 class _RecordingNotifier:
@@ -148,6 +156,17 @@ async def test_no_session_returns_early(tmp_path, monkeypatch) -> None:
     await svc.run(42, AiBackupService.CLAUDE)
     assert repo.calls == [("authorization_missing",)]
     assert notifier.events == []
+
+
+async def test_revoke_during_run_is_not_resurrected(tmp_path, monkeypatch) -> None:
+    repo = _FakeRepo()
+    store = _FakeStore({"cookies": []}, refresh_present=False)
+    _patch_browser_layer(monkeypatch, _OkClient())
+    svc = AiBackupOrchestrationService(_cfg(tmp_path), repo, store, _RecordingNotifier())
+
+    await svc.run(42, AiBackupService.CLAUDE)
+
+    assert [call[0] for call in repo.calls] == ["success", "authorization_missing"]
 
 
 async def test_backoff_active_returns_early(tmp_path, monkeypatch) -> None:

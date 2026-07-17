@@ -3249,6 +3249,42 @@ paths:
       responses:
         '204':
           description: Successful Response
+        '403':
+          description: Owner permissions required
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+      - ai-backups
+      summary: Revoke Session
+      description: 'Delete a stored provider session and mark authorization missing.
+
+
+        The operation is owner-only and idempotent. It revokes Ratatoskr''s local
+
+        ability to use the session; it does not sign the account out at the provider.'
+      operationId: revoke_session_v1_ai_backups__service__session_delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: service
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AiBackupService'
+      responses:
+        '204':
+          description: Successful Response
+        '403':
+          description: Owner permissions required
         '422':
           description: Validation Error
           content:

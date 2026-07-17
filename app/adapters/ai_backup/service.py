@@ -211,10 +211,19 @@ class AiBackupOrchestrationService:
             await self._notifier.on_failure(service, correlation_id)
             raise
         finally:
-            # Always persist rotated cookies, even on partial failure.
+            # Persist rotated cookies only while the original row still exists.
+            # An owner revoke during a run must not be undone by this finally.
             if refreshed_out:
                 try:
-                    await self._session_store.save(user_id, service, refreshed_out[0])
+                    refreshed = await self._session_store.refresh(
+                        user_id, service, refreshed_out[0]
+                    )
+                    if not refreshed:
+                        await self._repo.mark_authorization_missing(user_id, service)
+                        logger.info(
+                            "ai_backup_session_refresh_skipped_revoked",
+                            extra={"service": service.value},
+                        )
                 except Exception:
                     logger.warning(
                         "ai_backup_session_refresh_save_failed",

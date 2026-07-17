@@ -26,6 +26,9 @@ class _FakeSession:
     def add(self, obj: object) -> None:
         self._state["row"] = obj
 
+    async def execute(self, _stmt: object) -> None:
+        self._state.pop("row", None)
+
 
 class _FakeCtx:
     def __init__(self, session: _FakeSession) -> None:
@@ -166,3 +169,35 @@ async def test_save_rejects_bad_shape_before_db() -> None:
     with pytest.raises(ValueError, match="storage_state"):
         await store.save(1, AiBackupService.CHATGPT, {"no_cookies": True})
     assert "row" not in db.state  # nothing written
+
+
+async def test_delete_removes_session_and_is_idempotent() -> None:
+    db = FakeDb()
+    db.state["row"] = SimpleNamespace(encrypted_cookies=b"ciphertext")
+    store = AiBackupSessionStore(db)
+
+    await store.delete(7, AiBackupService.CLAUDE)
+    await store.delete(7, AiBackupService.CLAUDE)
+
+    assert "row" not in db.state
+
+
+@pytest.mark.usefixtures("_fernet")
+async def test_refresh_does_not_recreate_revoked_session() -> None:
+    db = FakeDb()
+    store = AiBackupSessionStore(db)
+    state = {
+        "cookies": [
+            {
+                "name": "sessionKey",
+                "domain": ".claude.ai",
+                "value": "refreshed",
+                "expires": -1,
+            }
+        ]
+    }
+
+    refreshed = await store.refresh(7, AiBackupService.CLAUDE, state)
+
+    assert refreshed is False
+    assert "row" not in db.state

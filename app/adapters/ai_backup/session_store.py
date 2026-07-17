@@ -12,7 +12,7 @@ import json
 import time
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.logging_utils import get_logger
 from app.db.models.ai_backup import AiBackupService
@@ -161,6 +161,39 @@ class AiBackupSessionStore:
                 )
             else:
                 row.encrypted_cookies = encrypted
+
+    async def delete(self, user_id: int, service: AiBackupService) -> None:
+        """Idempotently delete the encrypted session for ``(user, service)``."""
+        domain = _SERVICE_DOMAIN[service]
+        async with self._db.transaction() as session:
+            await session.execute(
+                delete(UserBrowserSession).where(
+                    UserBrowserSession.user_id == user_id,
+                    UserBrowserSession.domain == domain,
+                )
+            )
+
+    async def refresh(self, user_id: int, service: AiBackupService, storage_state: dict) -> bool:
+        """Update a still-present session without recreating a revoked row.
+
+        Returns ``False`` when the row disappeared during a running backup.
+        This prevents the run's final cookie refresh from undoing an explicit
+        owner revoke.
+        """
+        validate_storage_state(service, storage_state)
+        domain = _SERVICE_DOMAIN[service]
+        encrypted = encrypt_secret(json.dumps(storage_state, ensure_ascii=False))
+        async with self._db.transaction() as session:
+            row = await session.scalar(
+                select(UserBrowserSession).where(
+                    UserBrowserSession.user_id == user_id,
+                    UserBrowserSession.domain == domain,
+                )
+            )
+            if row is None:
+                return False
+            row.encrypted_cookies = encrypted
+        return True
 
 
 __all__ = [

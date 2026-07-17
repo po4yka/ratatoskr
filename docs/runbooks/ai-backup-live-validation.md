@@ -161,6 +161,17 @@ curl -s -X POST https://<host>/v1/ai-backups/<service>/session \
 - **400** — malformed blob (missing required cookie or localStorage key for the service).
 - **401** — expired or invalid JWT.
 
+To remove Ratatoskr's stored authorization for a provider, use the same owner
+JWT. This is idempotent and does not sign the account out at the provider:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+    https://<host>/v1/ai-backups/<service>/session \
+    -H "Authorization: Bearer <token>"
+```
+
+Expect **204**, then verify the provider reports `authorization_status=missing`.
+
 Verify the row was persisted:
 
 ```bash

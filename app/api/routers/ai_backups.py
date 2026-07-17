@@ -1,4 +1,4 @@
-"""AI account backup status endpoints (read-only).
+"""AI account backup status and owner-only session lifecycle endpoints.
 
 Exposes the lifecycle state of the operator's ChatGPT/Claude account backups and
 accepts a Mode A session blob (Playwright ``storage_state``) for a service. The
@@ -145,7 +145,11 @@ async def get_ai_backup(
     return _to_item(row)
 
 
-@router.post("/{service}/session", status_code=204)
+@router.post(
+    "/{service}/session",
+    status_code=204,
+    responses={403: {"description": "Owner permissions required"}},
+)
 async def ingest_session(
     service: AiBackupService,
     body: SessionIngestRequest,
@@ -174,3 +178,26 @@ async def ingest_session(
     # Do not report the session as valid until the provider accepts it. Keeping
     # last_backed_up_at untouched also preserves the full outage window.
     await _get_repo(request).mark_authorization_unverified(user_id, service)
+
+
+@router.delete(
+    "/{service}/session",
+    status_code=204,
+    responses={403: {"description": "Owner permissions required"}},
+)
+async def revoke_session(
+    service: AiBackupService,
+    request: Request,
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
+) -> None:
+    """Delete a stored provider session and mark authorization missing.
+
+    The operation is owner-only and idempotent. It revokes Ratatoskr's local
+    ability to use the session; it does not sign the account out at the provider.
+    """
+    from app.adapters.ai_backup.session_store import AiBackupSessionStore
+
+    user_id: int = user["user_id"]
+    db = _get_db(request)
+    await AiBackupSessionStore(db).delete(user_id, service)
+    await _get_repo(request).mark_authorization_missing(user_id, service)

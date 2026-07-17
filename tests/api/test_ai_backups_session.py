@@ -104,8 +104,10 @@ def _patched_internals(
 def _mock_store_and_repo() -> tuple[MagicMock, MagicMock]:
     mock_store = MagicMock()
     mock_store.save = AsyncMock()
+    mock_store.delete = AsyncMock()
     mock_repo = MagicMock()
     mock_repo.mark_authorization_unverified = AsyncMock()
+    mock_repo.mark_authorization_missing = AsyncMock()
     return mock_store, mock_repo
 
 
@@ -239,3 +241,37 @@ def test_storage_state_never_echoed_in_response() -> None:
     assert resp.status_code == 204
     assert resp.content == b""
     assert b"SUPER_SECRET_TOKEN" not in resp.content
+
+
+def test_owner_can_revoke_session_and_mark_authorization_missing() -> None:
+    mock_store, mock_repo = _mock_store_and_repo()
+    p1, p2, p3 = _patched_internals(mock_store, mock_repo)
+
+    with p1, p2, p3:
+        resp = _make_client().delete(_URL)
+
+    assert resp.status_code == 204
+    assert resp.content == b""
+    mock_store.delete.assert_awaited_once_with(_USER_ID, AiBackupService.CHATGPT)
+    mock_repo.mark_authorization_missing.assert_awaited_once_with(
+        _USER_ID, AiBackupService.CHATGPT
+    )
+
+
+def test_unauthenticated_caller_cannot_revoke_session() -> None:
+    resp = _make_client(authenticated=False).delete(_URL)
+
+    assert resp.status_code == 401
+
+
+def test_authenticated_non_owner_cannot_revoke_session() -> None:
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.dependency_overrides[_ai_backups.get_current_user] = lambda: {"user_id": 200}
+    cfg = MagicMock()
+    cfg.telegram.allowed_user_ids = (100,)
+
+    with patch("app.api.routers.ai_backups._get_app_config", return_value=cfg):
+        resp = TestClient(app, raise_server_exceptions=False).delete(_URL)
+
+    assert resp.status_code == 403
