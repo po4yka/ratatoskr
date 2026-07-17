@@ -217,7 +217,7 @@ A successful run emits `ai_backup_run_complete` with a `counts` field. Absence o
 - **ChatGPT Deep Research structured citations.** Only the final report text is captured. The machine-readable `url_citation` objects and the reasoning trace are not exposed by the `/backend-api` surface; they require the paid developer Responses API.
 - **ChatGPT Custom GPT system prompts.** No confirmed internal endpoint has been identified that exposes these; they are not currently captured.
 - **Claude project binary files.** Project-knowledge text files are captured; binary attachments via the project-files path are not yet implemented.
-- **Claude Compliance API path.** `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is wired in config and parsed but the Claude client does not yet branch on it; the scrape path runs regardless. Claude Enterprise operators should treat this as a future escape hatch and leave the subsystem off (`AI_BACKUP_CLAUDE_ENABLED=false`) until the Compliance API branch is implemented.
+- **Claude Compliance API path.** `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is reserved but the Compliance client is not implemented. Setting the key makes the client factory fail closed instead of running the browser scrape. Claude Enterprise operators should leave the subsystem off (`AI_BACKUP_CLAUDE_ENABLED=false`) until the sanctioned client is implemented.
 
 ## References
 

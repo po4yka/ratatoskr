@@ -45,8 +45,9 @@ _ATTR_RE = re.compile(r'(\w+)=["\']([^"\']*)["\']')
 
 # TODO(live-validation): Claude.ai internal API shapes extracted from OSS
 # exporters; live validation against a real account is required. Project
-# knowledge-base file downloads and the Enterprise Compliance API path
-# (AI_BACKUP_CLAUDE_COMPLIANCE_KEY) are intentionally not implemented in P1.
+# knowledge-base file downloads and the Enterprise Compliance API client are
+# intentionally not implemented in P1. The factory fails closed when the
+# reserved key is configured, so it never silently routes through this client.
 
 
 def _should_skip(updated_at: str | None, since: dt.datetime | None) -> bool:

@@ -33,6 +33,10 @@ def build_client(
             last_backed_up_at=last_backed_up_at,
         )
     if service == AiBackupService.CLAUDE:
+        if cfg.claude_compliance_key is not None:
+            raise RuntimeError(
+                "Claude Compliance API backup is not implemented; refusing browser fallback"
+            )
         return ClaudeClient(
             fetcher,
             writer,
