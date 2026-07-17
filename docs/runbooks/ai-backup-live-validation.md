@@ -228,6 +228,44 @@ docker exec -it ratatoskr cat /data/ai-backups/chatgpt/$(date +%Y-%m-%d)/manifes
 
 `manifest.json` contains `counts`, `requests_made`, `skipped_incremental`, `incremental`, `correlation_id`, and the run timestamp.
 
+Before the run, create an owner-only expected-inventory file outside the
+repository. Values are the stable provider IDs recorded for the disposable
+validation corpus; never attach this file to a ticket or commit it:
+
+```json
+{
+  "service": "chatgpt",
+  "run_date": "2026-07-17",
+  "conversations": ["<conversation-id>"],
+  "projects": ["<project-id>"],
+  "files": ["<file-id>"],
+  "artifacts": []
+}
+```
+
+Verify the completed run offline. The verifier checks manifest schema v2,
+identity and counts, exact expected inventory, every payload SHA-256 by
+no-follow read-back, owner-only file modes, and rejects symlinks or unhashed
+files. Its JSON output contains aggregate counts and the manifest hash, but no
+provider IDs, correlation ID, filenames, or content:
+
+```bash
+chmod 600 /secure/expected-chatgpt.json
+docker exec -it ratatoskr python -m app.cli.verify_ai_backup \
+  --run-dir /data/ai-backups/chatgpt/$(date +%Y-%m-%d) \
+  --expected-inventory /secure/expected-chatgpt.json
+```
+
+Exit status `0` records `offline_integrity_passed`; any mismatch or unsafe path
+exits `1`. The output deliberately leaves `provider_compatibility` and
+`project_knowledge` as `unverified`. Run it after both the full and incremental
+sweeps, preserving each snapshot before a same-day run overwrites its manifest,
+and use the exact inventory expected in that run directory. This does not prove
+that a partial manifest came from a successful run: retain the lifecycle
+`status=ok` row and `ai_backup_run_complete` log marker alongside this evidence.
+It also does not replace the live provider-contract and project-knowledge checks
+in the external acceptance gate.
+
 ### Lifecycle row
 
 ```bash
