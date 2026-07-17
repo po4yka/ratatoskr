@@ -63,6 +63,15 @@ groups:
           summary: "Status component {{ $labels.component }} is degraded"
           description: "The bounded public status evaluator has reported degraded service for {{ $labels.component }} for more than ten minutes."
 
+      - alert: RatatoskrStatusComponentUnknown
+        expr: ratatoskr_status_component_state == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Status component {{ $labels.component }} has no current signal"
+          description: "The bounded public status evaluator has lacked a usable signal for {{ $labels.component }} for more than fifteen minutes. Check its internal probe and telemetry source."
+
       # High error rate alert
       - alert: RatatoskrHighErrorRate
         expr: |

@@ -251,17 +251,21 @@ def test_system_status_dashboard_covers_real_operational_families() -> None:
 
 def test_dependency_and_host_alerts_use_exported_metric_families() -> None:
     rules = yaml.safe_load((ROOT / "ops/monitoring/alerting_rules.yml").read_text(encoding="utf-8"))
-    alerts = {
-        rule["alert"]: rule["expr"]
+    alert_rules = {
+        rule["alert"]: rule
         for group in rules["groups"]
         for rule in group["rules"]
         if "alert" in rule
     }
+    alerts = {name: rule["expr"] for name, rule in alert_rules.items()}
 
     assert 'up{job=~"postgres|redis|qdrant|node"} == 0' in alerts["RatatoskrDependencyMetricsDown"]
     assert "pg_up" in alerts["RatatoskrPostgresUnavailable"]
     assert "redis_up" in alerts["RatatoskrRedisUnavailable"]
     assert "ratatoskr_status_component_state" in alerts["RatatoskrStatusComponentOutage"]
+    assert alerts["RatatoskrStatusComponentUnknown"] == ("ratatoskr_status_component_state == 0")
+    assert alert_rules["RatatoskrStatusComponentUnknown"]["for"] == "15m"
+    assert alert_rules["RatatoskrStatusComponentUnknown"]["labels"]["severity"] == "warning"
     assert "ratatoskr_http_requests_total" in alerts["RatatoskrAPIHigh5xxRate"]
     assert "ratatoskr_taskiq_executions_total" in alerts["RatatoskrTaskiqExecutionErrorRateHigh"]
     assert "pg_stat_database_numbackends" in alerts["RatatoskrPostgresConnectionsHigh"]

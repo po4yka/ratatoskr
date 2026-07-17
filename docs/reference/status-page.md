@@ -55,6 +55,8 @@ green.
 Disabled optional components do not lower the aggregate. A critical component
 outage produces overall `outage`; any other outage, degradation, or unknown
 signal produces `degraded`.
+Prometheus raises a warning when any component remains `unknown` for 15 minutes,
+so missing or stale telemetry cannot stay silent indefinitely.
 
 The API lifespan runs the same bounded evaluator immediately and then at half
 the shorter cache/client-refresh interval. This keeps status gauges and alerts
