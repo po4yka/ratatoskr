@@ -40,10 +40,10 @@ and `ratatoskr_pg_backup.prom` metric. Use
 Start the sidecar and run a backup immediately:
 
 ```bash
-POSTGRES_PASSWORD=... \
+POSTGRES_PASSWORD=... BACKUP_ENCRYPTION_KEY=... \
 docker compose -f ops/docker/docker-compose.yml up -d postgres pg-backup
 
-POSTGRES_PASSWORD=... \
+POSTGRES_PASSWORD=... BACKUP_ENCRYPTION_KEY=... \
 docker compose -f ops/docker/docker-compose.yml exec -T pg-backup \
   ratatoskr-pg-backup-run
 ```
@@ -52,8 +52,22 @@ Every successful run writes a dump plus JSON metadata containing size and
 SHA-256. `BACKUP_ENCRYPTION_KEY` encrypts sidecar dumps with the sidecar's OpenSSL
 format. `BACKUP_S3_*` settings optionally copy the artifacts to object storage.
 Keep the encryption key and object-store credentials outside the backed-up host.
+Encryption is required by default: a missing key or invalid
+`BACKUP_REQUIRE_ENCRYPTION` value makes the run fail before `pg_dump` starts,
+and off-host copies are never allowed without encryption. For isolated local
+development only, `BACKUP_REQUIRE_ENCRYPTION=false` explicitly permits a
+mode-`0600` plaintext artifact; do not use that override in production.
 
-Verify an unencrypted dump by listing its contents:
+Verify the default encrypted dump by decrypting it only into `pg_restore`:
+
+```bash
+BACKUP_ENCRYPTION_KEY=... \
+openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY \
+  -in data/postgres-backups/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump.enc \
+| docker run --rm -i --entrypoint pg_restore postgres:17 --list >/dev/null
+```
+
+For an explicit local-development plaintext dump, list it directly:
 
 ```bash
 docker run --rm -i --entrypoint pg_restore postgres:17 --list \

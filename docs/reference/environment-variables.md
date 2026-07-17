@@ -239,7 +239,8 @@ Some values are consumed by Compose or sidecars rather than `Settings`:
 | `POSTGRES_PASSWORD` | Bundled PostgreSQL, application DSN construction, backup sidecar. |
 | `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `QDRANT_HOST_PORT` | Development port overrides. |
 | `BACKUP_HOST_DIR`, `BACKUP_CRON`, `BACKUP_RUN_ON_START` | PostgreSQL backup sidecar. |
-| `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. |
+| `BACKUP_ENCRYPTION_KEY` | Required passphrase for encrypted PostgreSQL sidecar dumps. |
+| `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. Encryption defaults to required; plaintext is a local-development-only explicit opt-out and is forbidden for off-host copies. |
 | `GRAFANA_ADMIN_PASSWORD` | Monitoring profile. |
 | `ALERT_WEBHOOK_URL` | Generic Alertmanager webhook receiver. HTTP is supported for trusted internal delivery; use HTTPS for external delivery. |
 | `ALERT_SLACK_API_URL` | HTTPS Slack incoming-webhook URL rendered into the active Alertmanager receiver. |

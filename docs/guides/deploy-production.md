@@ -125,7 +125,12 @@ Then send a URL from an allowed Telegram account and confirm:
 
 ## Backups
 
-The `pg-backup` service writes scheduled PostgreSQL dumps to the configured host directory. Also protect media/session directories, operator configuration, encryption keys, and any Qdrant snapshot you need for fast restoration. Redis is ephemeral in the default stack.
+The `pg-backup` service writes scheduled encrypted PostgreSQL dumps to the
+configured host directory. Set `BACKUP_ENCRYPTION_KEY` in the deployment secret
+store before starting the stack; the sidecar fails closed when it is missing.
+Also protect media/session directories, operator configuration, encryption
+keys, and any Qdrant snapshot you need for fast restoration. Redis is ephemeral
+in the default stack.
 
 Follow [Back Up and Restore](backup-and-restore.md) and rehearse [Disaster Recovery](../runbooks/disaster-recovery.md) before relying on the deployment.
 

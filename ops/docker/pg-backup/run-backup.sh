@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 
 log() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -65,19 +66,23 @@ case "$retention_days" in
   ''|*[!0-9]*) fail "BACKUP_RETENTION_DAYS must be a non-negative integer" ;;
 esac
 
+case "${BACKUP_REQUIRE_ENCRYPTION:-true}" in
+  true|TRUE|True|1|yes|YES|Yes) require_encryption="true" ;;
+  false|FALSE|False|0|no|NO|No) require_encryption="false" ;;
+  *) fail "BACKUP_REQUIRE_ENCRYPTION must be a boolean (true/false)" ;;
+esac
+
 if [ -z "${BACKUP_ENCRYPTION_KEY:-}" ]; then
-  if [ -n "${BACKUP_REQUIRE_ENCRYPTION:-}" ]; then
-    fail "BACKUP_ENCRYPTION_KEY unset and BACKUP_REQUIRE_ENCRYPTION is set -- refusing to write an unencrypted backup"
+  if [ "$require_encryption" = "true" ]; then
+    fail "BACKUP_ENCRYPTION_KEY is required -- refusing to write an unencrypted backup"
+  fi
+  if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+    fail "BACKUP_ENCRYPTION_KEY is required when BACKUP_S3_BUCKET is set -- refusing to upload plaintext"
   fi
   {
     printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
-    printf 'WARNING: BACKUP_ENCRYPTION_KEY unset -- writing UNENCRYPTED backup to disk'
-    if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
-      printf ' and uploading it unencrypted to S3'
-    fi
-    printf '.\n'
-    printf 'The dump contains full user/Telegram/summary data. Set BACKUP_ENCRYPTION_KEY,\n'
-    printf 'or set BACKUP_REQUIRE_ENCRYPTION=true to fail instead of writing plaintext.\n'
+    printf 'WARNING: explicit BACKUP_REQUIRE_ENCRYPTION=false override -- writing an\n'
+    printf 'UNENCRYPTED local backup. This development-only mode must not be used in production.\n'
     printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n'
   } >&2
 fi

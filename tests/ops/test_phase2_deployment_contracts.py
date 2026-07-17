@@ -216,6 +216,7 @@ def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
     assert env["BACKUP_CRON"] == "${BACKUP_CRON:-0 3 * * *}"
     assert env["BACKUP_RETENTION_DAYS"] == "${BACKUP_RETENTION_DAYS:-14}"
     assert env["BACKUP_ENCRYPTION_KEY"] == "${BACKUP_ENCRYPTION_KEY:-}"
+    assert env["BACKUP_REQUIRE_ENCRYPTION"] == "${BACKUP_REQUIRE_ENCRYPTION:-true}"
     assert env["BACKUP_S3_BUCKET"] == "${BACKUP_S3_BUCKET:-}"
     assert env["BACKUP_S3_ENDPOINT_URL"] == "${BACKUP_S3_ENDPOINT_URL:-}"
 
@@ -261,6 +262,9 @@ def test_postgres_backup_script_creates_metadata_and_optional_remote_copy() -> N
     assert "BACKUP_S3_BUCKET" in script
     assert "aws $endpoint_args s3 cp" in script
     assert "ratatoskr_pg_backup_last_success_timestamp_seconds" in script
+    assert "umask 077" in script
+    assert '${BACKUP_REQUIRE_ENCRYPTION:-true}' in script
+    assert "BACKUP_ENCRYPTION_KEY is required when BACKUP_S3_BUCKET is set" in script
 
 
 def test_postgres_backup_alert_fires_when_stale_or_absent() -> None:
