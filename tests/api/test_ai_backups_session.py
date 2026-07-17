@@ -26,7 +26,17 @@ _ai_backups = importlib.import_module("app.api.routers.ai_backups")
 _USER_ID = 42
 _SERVICE = "chatgpt"
 _URL = f"/v1/ai-backups/{_SERVICE}/session"
-_VALID_BODY = {"storage_state": {"cookies": []}}
+_VALID_STATE = {
+    "cookies": [
+        {
+            "name": "__Secure-next-auth.session-token",
+            "domain": ".chatgpt.com",
+            "value": "session-secret",
+            "expires": 4_102_444_800,
+        }
+    ]
+}
+_VALID_BODY = {"storage_state": _VALID_STATE}
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +107,7 @@ def _mock_store_and_repo() -> tuple[MagicMock, MagicMock]:
 
 
 def test_valid_session_returns_204_and_calls_save_and_clear_auth_expired() -> None:
-    """Valid storage_state {"cookies": []} → 204; both side-effects are awaited."""
+    """A service-bound session cookie is saved and the route returns 204."""
     mock_store, mock_repo = _mock_store_and_repo()
     p1, p2, p3 = _patched_internals(mock_store, mock_repo)
 
@@ -110,7 +120,7 @@ def test_valid_session_returns_204_and_calls_save_and_clear_auth_expired() -> No
     mock_store.save.assert_awaited_once()
     save_args = mock_store.save.call_args.args
     assert save_args[0] == _USER_ID
-    assert save_args[2] == {"cookies": []}
+    assert save_args[2] == _VALID_STATE
 
     # AUTH_EXPIRED halt cleared after save
     mock_repo.clear_auth_expired.assert_awaited_once()
@@ -122,6 +132,30 @@ def test_bad_shape_missing_cookies_key_returns_400() -> None:
 
     assert resp.status_code == 400
     assert "cookies" in resp.json()["detail"]
+
+
+def test_missing_service_session_cookie_returns_400_before_save() -> None:
+    mock_store, mock_repo = _mock_store_and_repo()
+    p1, p2, p3 = _patched_internals(mock_store, mock_repo)
+    body = {
+        "storage_state": {
+            "cookies": [
+                {
+                    "name": "cf_clearance",
+                    "domain": ".chatgpt.com",
+                    "value": "clearance-only",
+                    "expires": 4_102_444_800,
+                }
+            ]
+        }
+    }
+
+    with p1, p2, p3:
+        resp = _make_client().post(_URL, json=body)
+
+    assert resp.status_code == 400
+    assert "no usable chatgpt session cookie" in resp.json()["detail"]
+    mock_store.save.assert_not_awaited()
 
 
 def test_non_dict_storage_state_returns_422() -> None:
@@ -162,7 +196,16 @@ def test_storage_state_never_echoed_in_response() -> None:
     """204 carries an empty body; the storage_state value is never returned."""
     mock_store, mock_repo = _mock_store_and_repo()
     p1, p2, p3 = _patched_internals(mock_store, mock_repo)
-    sensitive = {"cookies": [{"name": "sess", "value": "SUPER_SECRET_TOKEN"}]}
+    sensitive = {
+        "cookies": [
+            {
+                "name": "__Secure-next-auth.session-token",
+                "domain": ".chatgpt.com",
+                "value": "SUPER_SECRET_TOKEN",
+                "expires": 4_102_444_800,
+            }
+        ]
+    }
 
     with p1, p2, p3:
         resp = _make_client().post(_URL, json={"storage_state": sensitive})

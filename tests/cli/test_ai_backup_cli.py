@@ -297,7 +297,17 @@ async def test_ingest_valid_blob_saves_and_clears(
     monkeypatch.setattr(ai_backup, "AiBackupSessionStore", lambda db: fake_store)
     monkeypatch.setattr(ai_backup, "AiBackupRepository", lambda db: fake_repo)
 
-    blob = {"cookies": [{"name": "sessionKey", "value": "secret"}], "origins": []}
+    blob = {
+        "cookies": [
+            {
+                "name": "sessionKey",
+                "domain": ".claude.ai",
+                "value": "secret",
+                "expires": -1,
+            }
+        ],
+        "origins": [],
+    }
     path = tmp_path / "claude.json"
     path.write_text(json.dumps(blob))
 

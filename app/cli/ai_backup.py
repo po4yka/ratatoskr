@@ -11,7 +11,7 @@ Usage:
 Omit --service to run all currently-enabled services (mirrors the Taskiq cron
 behaviour). Pass --service to force a single service even if its config flag is
 off — useful for validating a freshly-supplied session before the next scheduled
-window. ``--ingest`` validates the storage_state shape, stores it Fernet-encrypted
+window. ``--ingest`` validates the service-bound session cookie, stores it Fernet-encrypted
 for the owner (first ALLOWED_USER_IDS), and lifts any AUTH_EXPIRED halt.
 
 Exit codes:
@@ -35,7 +35,7 @@ from app.adapters.ai_backup.repository import AiBackupRepository
 from app.adapters.ai_backup.service import AiBackupOrchestrationService, NullNotifier
 from app.adapters.ai_backup.session_store import (
     AiBackupSessionStore,
-    validate_storage_state_shape,
+    validate_storage_state,
 )
 from app.config import load_config
 from app.core.logging_utils import get_logger
@@ -134,9 +134,10 @@ async def ingest_session(service_name: str, path: str) -> int:
     except OSError as exc:
         print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
         return 2
+    service = AiBackupService(service_name)
     try:
         storage_state = json.loads(raw)
-        validate_storage_state_shape(storage_state)
+        validate_storage_state(service, storage_state)
     except json.JSONDecodeError as exc:
         print(f"Error: {path} is not valid JSON: {exc}", file=sys.stderr)
         return 2
@@ -144,7 +145,6 @@ async def ingest_session(service_name: str, path: str) -> int:
         print(f"Error: invalid storage_state shape: {exc}", file=sys.stderr)
         return 2
 
-    service = AiBackupService(service_name)
     cfg = load_config()
     db = Database(config=cfg.database)
     try:

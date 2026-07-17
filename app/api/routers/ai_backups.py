@@ -144,12 +144,12 @@ async def ingest_session(
     """
     from app.adapters.ai_backup.session_store import (
         AiBackupSessionStore,
-        validate_storage_state_shape,
+        validate_storage_state,
     )
 
     user_id: int = user["user_id"]
     try:
-        validate_storage_state_shape(body.storage_state)
+        validate_storage_state(service, body.storage_state)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

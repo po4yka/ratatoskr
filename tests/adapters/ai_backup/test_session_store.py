@@ -8,6 +8,7 @@ import pytest
 
 from app.adapters.ai_backup.session_store import (
     AiBackupSessionStore,
+    validate_storage_state,
     validate_storage_state_shape,
 )
 from app.db.models.ai_backup import AiBackupService
@@ -63,8 +64,59 @@ def test_validate_rejects_bad_shapes(bad: object) -> None:
         validate_storage_state_shape(bad)
 
 
-def test_validate_accepts_minimal() -> None:
+def test_validate_shape_accepts_minimal() -> None:
     validate_storage_state_shape({"cookies": []})
+
+
+@pytest.mark.parametrize(
+    ("service", "name", "domain"),
+    [
+        (AiBackupService.CHATGPT, "__Secure-next-auth.session-token", ".chatgpt.com"),
+        (AiBackupService.CHATGPT, "__Secure-next-auth.session-token.0", "chatgpt.com"),
+        (AiBackupService.CLAUDE, "sessionKey", ".claude.ai"),
+    ],
+)
+def test_validate_accepts_usable_service_cookie(
+    service: AiBackupService, name: str, domain: str
+) -> None:
+    validate_storage_state(
+        service,
+        {"cookies": [{"name": name, "domain": domain, "value": "secret", "expires": -1}]},
+        now_timestamp=100,
+    )
+
+
+@pytest.mark.parametrize(
+    "cookie",
+    [
+        {"name": "cf_clearance", "domain": ".chatgpt.com", "value": "cf", "expires": -1},
+        {
+            "name": "__Secure-next-auth.session-token",
+            "domain": ".chatgpt.com.evil.example",
+            "value": "secret",
+            "expires": -1,
+        },
+        {
+            "name": "__Secure-next-auth.session-token",
+            "domain": ".chatgpt.com",
+            "value": "secret",
+            "expires": 99,
+        },
+        {
+            "name": "__Secure-next-auth.session-token",
+            "domain": ".chatgpt.com",
+            "value": "",
+            "expires": -1,
+        },
+    ],
+)
+def test_validate_rejects_missing_wrong_or_expired_session_cookie(cookie: dict) -> None:
+    with pytest.raises(ValueError, match="no usable chatgpt session cookie"):
+        validate_storage_state(
+            AiBackupService.CHATGPT,
+            {"cookies": [cookie]},
+            now_timestamp=100,
+        )
 
 
 async def test_load_absent_returns_none() -> None:
@@ -76,7 +128,17 @@ async def test_load_absent_returns_none() -> None:
 async def test_roundtrip_encrypts() -> None:
     db = FakeDb()
     store = AiBackupSessionStore(db)
-    state = {"cookies": [{"name": "sk", "value": "Привет"}], "origins": []}
+    state = {
+        "cookies": [
+            {
+                "name": "sessionKey",
+                "domain": ".claude.ai",
+                "value": "Привет",
+                "expires": -1,
+            }
+        ],
+        "origins": [],
+    }
     await store.save(7, AiBackupService.CLAUDE, state)
     # Stored blob is real ciphertext, not the plaintext JSON.
     assert db.state["row"].encrypted_cookies != json.dumps(state, ensure_ascii=False).encode()
