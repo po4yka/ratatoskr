@@ -213,7 +213,6 @@ A result of `1` means a run is already in progress (TTL 1800 s). Wait for it to 
 AI_BACKUP_DATA_PATH/<service>/<YYYY-MM-DD>/
   conversations/<conversation_id>.json
   projects/<project_id>/project.json
-  projects/<project_id>/knowledge/<file>
   files/<file_id>__<filename>
   artifacts/<conversation_id>/<artifact_id>.<ext>   # Claude only
   manifest.json
@@ -304,7 +303,7 @@ A successful run emits `ai_backup_run_complete` with a `counts` field. Absence o
 - **`TODO(live-validation)` markers.** The field paths used by both `ChatGptBackupClient` (`app/adapters/ai_backup/chatgpt_client.py`) and `ClaudeBackupClient` (`app/adapters/ai_backup/claude_client.py`) are reverse-engineered from web-UI traffic and have **not yet been validated against live accounts**. Empty or misshapen output after a successful run is the primary symptom of a path drift.
 - **ChatGPT Deep Research structured citations.** Only the final report text is captured. The machine-readable `url_citation` objects and the reasoning trace are not exposed by the `/backend-api` surface; they require the paid developer Responses API.
 - **ChatGPT Custom GPT system prompts.** No confirmed internal endpoint has been identified that exposes these; they are not currently captured.
-- **Claude project binary files.** Project-knowledge text files are captured; binary attachments via the project-files path are not yet implemented.
+- **Claude project knowledge.** The current client stores Project metadata only. Text knowledge and binary attachments are not downloaded; both remain blocked on live validation of the project-doc/project-file contracts.
 - **Claude Compliance API path.** `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is reserved but the Compliance client is not implemented. Setting the key makes the client factory fail closed instead of running the browser scrape. Claude Enterprise operators should leave the subsystem off (`AI_BACKUP_CLAUDE_ENABLED=false`) until the sanctioned client is implemented.
 
 ## References

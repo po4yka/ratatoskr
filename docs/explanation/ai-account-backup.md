@@ -1,10 +1,10 @@
 # AI Account Backup (ChatGPT + Claude) via CloakBrowser
 
-How Ratatoskr will hold an authenticated session for the operator's own ChatGPT and Claude web accounts and periodically mirror everything they contain — conversations, Projects, project-knowledge files, attachments, and Claude Artifacts — to disk, reusing the CloakBrowser stealth sidecar that already ships in the scraper chain.
+How Ratatoskr holds an authenticated session for the operator's own ChatGPT and Claude web accounts and periodically mirrors conversations, Project metadata, ChatGPT attachments, and Claude Artifacts to disk, reusing the CloakBrowser stealth sidecar that already ships in the scraper chain. Project-knowledge download remains an explicitly unimplemented, live-contract-blocked target.
 
 **Audience:** The operator deciding whether to run this, and contributors implementing it.
 **Type:** Explanation + design (forward-looking).
-**Status:** P0 + P1 implemented (config, model + migration, repository, Redis-locked Taskiq job + scheduler, REST status + session-ingest, Telegram surfaces, the authenticated CloakBrowser context, the ChatGPT + Claude internal-API clients, the path-safe on-disk writer, incremental skipping, and Mode A session ingest — all behind `AI_BACKUP_ENABLED=false`). The deterministic core is fully unit-tested with fakes/fixtures; the live cloakserve + real-account behavior (and ChatGPT Teams/Enterprise headers) is **not yet validated against live accounts** and is marked `TODO(live-validation)` in the clients. Tracked in [`docs/tasks/issues/ai-account-backup-cloakbrowser.md`](../tasks/issues/ai-account-backup-cloakbrowser.md).
+**Status:** P0 + P1 implemented (config, model + migration, repository, Redis-locked Taskiq job + scheduler, REST status + session-ingest, Telegram surfaces, the authenticated CloakBrowser context, the ChatGPT + Claude internal-API clients, the path-safe on-disk writer, incremental skipping, and Mode A session ingest — all behind `AI_BACKUP_ENABLED=false`). The deterministic core is fully unit-tested with fakes/fixtures; the live cloakserve + real-account behavior (and ChatGPT Teams/Enterprise headers) is **not yet validated against live accounts** and is marked `TODO(live-validation)` in the clients. Claude project-knowledge downloads are not implemented. Tracked in [`docs/tasks/issues/ai-account-backup-cloakbrowser.md`](../tasks/issues/ai-account-backup-cloakbrowser.md).
 **Related:** [`webwright.md`](webwright.md) (the `user_browser_sessions` encrypted-cookie pattern this reuses), [`scraper-chain.md`](scraper-chain.md) (where the CloakBrowser provider lives), [`git-mirroring.md`](git-mirroring.md) (the backup-subsystem template this mirrors), [`environment-variables.md`](../reference/environment-variables.md) (the planned `AI_BACKUP_*` surface), [`data-model.md`](../reference/data-model.md) (`user_browser_sessions`, planned `ai_account_backups`), [`../runbooks/ai-backup-live-validation.md`](../runbooks/ai-backup-live-validation.md) (how to validate against real accounts).
 **Source (extends):** [`app/adapters/content/scraper/cloakbrowser_provider.py`](../../app/adapters/content/scraper/cloakbrowser_provider.py), [`app/db/models/webwright.py`](../../app/db/models/webwright.py) (`UserBrowserSession`), [`app/adapters/git_backup/`](../../app/adapters/git_backup/), [`app/tasks/git_backup_sync.py`](../../app/tasks/git_backup_sync.py), [`app/security/secret_crypto.py`](../../app/security/secret_crypto.py).
 
@@ -124,7 +124,7 @@ All calls go through the authenticated page's bounded CDP response stream; every
 
 - `GET /api/organizations/{org}/chat_conversations` — list.
 - `GET /api/organizations/{org}/chat_conversations/{uuid}?tree=True&rendering_mode=raw` — full conversation, Artifacts inline.
-- `GET /api/organizations/{org}/projects` + project-docs endpoints — project knowledge (text; binaries via the project-files path).
+- `GET /api/organizations/{org}/projects` — Project metadata only. Project-doc and project-file endpoints are not implemented because their live response contract is still unverified.
 - Artifacts: walk message arrays and persist artifact blocks as separate files.
 
 ## On-disk layout
@@ -132,13 +132,13 @@ All calls go through the authenticated page's bounded CDP response stream; every
 ```
 AI_BACKUP_DATA_PATH/<service>/<YYYY-MM-DD>/
   conversations/<conversation_id>.json
-  projects/<project_id>/{project.json, knowledge/<file>}
+  projects/<project_id>/project.json
   files/<file_id>__<name>
   artifacts/<conversation_id>/<artifact_id>.<ext>   # Claude
   manifest.json   # counts, ids, content hashes, run metadata, correlation_id
 ```
 
-Writes are idempotent by id; existing bytes are hash-checked, changed payloads are replaced atomically, and manifests always hash the bytes that were durably written. Repeated runs on the same UTC date merge the previous manifest entries before atomically publishing the new manifest; top-level `counts` describe the complete date directory while `run_metadata.collected_counts` describes only the latest sweep. `AI_BACKUP_INCREMENTAL` skips unchanged conversations. A run is successful only when every enabled collection subtree completes with the expected response shape; project or attachment failures fail the run instead of publishing a partial tree as `ok`. Session loading, writer creation, provider collection, manifest finalization, and success persistence share one lifecycle boundary, so local crypto or disk failures also persist a failed outcome. A later enhancement could `git commit` this tree through the existing git-backup engine for versioned history.
+Writes are idempotent by id; existing bytes are hash-checked, changed payloads are replaced atomically, and manifests always hash the bytes that were durably written. Repeated runs on the same UTC date merge the previous manifest entries before atomically publishing the new manifest; top-level `counts` describe the complete date directory while `run_metadata.collected_counts` describes only the latest sweep. `AI_BACKUP_INCREMENTAL` skips unchanged conversations. A run is successful only when every implemented collection subtree completes with the expected response shape; Project-metadata or attachment failures fail the run instead of publishing a partial tree as `ok`. Project knowledge is outside the implemented tree and must remain `unverified` until a live-validated client is added. Session loading, writer creation, provider collection, manifest finalization, and success persistence share one lifecycle boundary, so local crypto or disk failures also persist a failed outcome. A later enhancement could `git commit` this tree through the existing git-backup engine for versioned history.
 
 ## Task, scheduler, and surfaces
 
@@ -155,6 +155,7 @@ The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_syn
 
 - **ChatGPT Deep Research structured citations** (the machine-readable `url_citation` objects and the reasoning trace) are not exposed by `/backend-api`; only the final report text is captured. They are reachable only via OpenAI's paid developer Responses API. Operator expectation must be set accordingly.
 - **ChatGPT Custom GPT system prompts** are not confirmed retrievable via any internal endpoint.
+- **Claude project knowledge** is not downloaded. The client currently stores Project metadata only; project-doc and project-file endpoints require live contract validation before implementation.
 - **Claude Enterprise** Compliance API support is not implemented. Setting `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` makes the client factory fail closed; it never falls back to the consumer browser-scrape path. Keep Claude backup disabled until a dedicated sanctioned client is implemented.
 
 ## Phased delivery
