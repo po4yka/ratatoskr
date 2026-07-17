@@ -12,6 +12,7 @@ def test_public_status_config_has_bounded_defaults() -> None:
     assert config.status_bot_metrics_url is None
     assert config.status_worker_metrics_url is None
     assert config.status_scheduler_metrics_url is None
+    assert config.status_node_metrics_url is None
     assert 0 < config.status_probe_timeout_seconds <= config.status_total_timeout_seconds <= 5
     assert 15 <= config.status_cache_ttl_seconds <= 30
 
@@ -33,9 +34,13 @@ def test_public_status_config_rejects_unsafe_probe_urls(url: str) -> None:
 
 
 def test_public_status_config_accepts_internal_http_probe_url() -> None:
-    config = DeploymentConfig(STATUS_BOT_METRICS_URL="http://bot:9101/metrics")
+    config = DeploymentConfig(
+        STATUS_BOT_METRICS_URL="http://bot:9101/metrics",
+        STATUS_NODE_METRICS_URL="http://node-exporter:9100/metrics",
+    )
 
     assert config.status_bot_metrics_url == "http://bot:9101/metrics"
+    assert config.status_node_metrics_url == "http://node-exporter:9100/metrics"
 
 
 def test_public_status_config_rejects_probe_timeout_above_total() -> None:

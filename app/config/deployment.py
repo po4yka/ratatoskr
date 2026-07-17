@@ -51,6 +51,11 @@ class DeploymentConfig(BaseModel):
         validation_alias="STATUS_SCHEDULER_METRICS_URL",
         description="Internal HTTP metrics endpoint used to probe the scheduler process.",
     )
+    status_node_metrics_url: str | None = Field(
+        default=None,
+        validation_alias="STATUS_NODE_METRICS_URL",
+        description="Internal node-exporter endpoint used to probe PostgreSQL backup freshness.",
+    )
     status_probe_timeout_seconds: float = Field(
         default=1.5,
         validation_alias="STATUS_PROBE_TIMEOUT_SECONDS",
@@ -92,6 +97,7 @@ class DeploymentConfig(BaseModel):
         "status_bot_metrics_url",
         "status_worker_metrics_url",
         "status_scheduler_metrics_url",
+        "status_node_metrics_url",
         mode="before",
     )
     @classmethod

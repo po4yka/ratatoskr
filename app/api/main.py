@@ -188,6 +188,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         status_refresh_service = PublicStatusService(
             deployment=runtime.cfg.deployment,
             llm_provider=runtime.cfg.runtime.llm_provider,
+            database=runtime.db,
+            git_backup_enabled=runtime.cfg.git_backup.enabled,
+            ai_backup_enabled=runtime.cfg.ai_backup.enabled,
+            chatgpt_backup_enabled=runtime.cfg.ai_backup.chatgpt_enabled,
+            claude_backup_enabled=runtime.cfg.ai_backup.claude_enabled,
         )
         status_refresh_task = asyncio.create_task(
             run_public_status_refresh_loop(

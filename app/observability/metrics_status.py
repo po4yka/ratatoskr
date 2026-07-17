@@ -16,6 +16,11 @@ _COMPONENTS = frozenset(
         "ai_summarization",
         "taskiq_worker",
         "scheduler",
+        "vector_reconciliation",
+        "postgresql_backup",
+        "github_repository_backups",
+        "chatgpt_backup",
+        "claude_backup",
     }
 )
 _STATUSES = frozenset({"operational", "degraded", "outage", "unknown", "disabled"})

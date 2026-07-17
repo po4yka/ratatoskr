@@ -41,6 +41,11 @@ The current component map is:
 | AI summarization | The worker's allowlisted OpenRouter circuit-breaker series; one failed model degrades the fallback chain, while all observed models open is an outage. Other providers remain `unknown` until they expose an equivalent live signal. |
 | Taskiq worker | Its aggregated internal Prometheus exporter responds. |
 | Scheduler | Its internal Prometheus exporter responds. |
+| Vector reconciliation | Fixed-cardinality worker run and oldest-lag metrics show whether the durable vector repair loop is current. |
+| PostgreSQL backup | The node-exporter textfile timestamp is current (up to 36 hours), stale (36–48 hours), or overdue. |
+| GitHub repository backups | Persisted GitHub mirror states and last-success timestamps provide coarse complete, partial, or unavailable coverage. |
+| ChatGPT backup authorization | Persisted backup lifecycle reports active, unverified, unavailable, or authorization-required state. |
+| Claude backup authorization | Persisted backup lifecycle reports active, unverified, unavailable, or authorization-required state. |
 
 Checks run concurrently under a total five-second ceiling and are cached for a
 short, validated TTL. Missing signals are `unknown`, not optimistically green.
@@ -53,9 +58,11 @@ the shorter cache/client-refresh interval. This keeps status gauges and alerts
 current even when nobody has the public page open; the Prometheus scrape route
 itself remains a lightweight metrics read.
 
-The response never contains probe URLs, hostnames, exception text, database
-details, credentials, provider keys, or Prometheus samples. Detailed errors
-remain in owner-only diagnostics and structured logs.
+The response never contains probe URLs, hostnames, repository names or URLs,
+account identifiers, backup paths, cookie/session data, exception text,
+database details, credentials, provider keys, exact content counts, or
+Prometheus samples. Backup and authorization messages are fixed coarse values;
+detailed errors remain in owner-only diagnostics and structured logs.
 
 ## Metrics topology
 
@@ -87,6 +94,7 @@ The primary Compose file injects internal-only exporter locations into
 STATUS_BOT_METRICS_URL=http://ratatoskr:9101/metrics
 STATUS_WORKER_METRICS_URL=http://worker:9102/metrics
 STATUS_SCHEDULER_METRICS_URL=http://scheduler:9103/metrics
+STATUS_NODE_METRICS_URL=http://node-exporter:9100/metrics
 ```
 
 `DeploymentConfig` validates these as credential-free HTTP URLs and bounds the

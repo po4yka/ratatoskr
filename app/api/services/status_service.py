@@ -7,11 +7,12 @@ import math
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from sqlalchemy import select
 
 from app.api.models.responses.status import (
     PublicStatusComponent,
@@ -28,14 +29,15 @@ from app.api.routers.health import (
 )
 from app.config import load_config
 from app.core.time_utils import UTC
+from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
+from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 from app.observability.metrics_status import record_status_check
 
 if TYPE_CHECKING:
     from fastapi import Request
 
     from app.config.deployment import DeploymentConfig
-
-StatusProbe = Callable[[], Awaitable[dict[str, Any] | PublicStatusLevel | str]]
+    from app.db.session import Database
 
 _STATUS_MESSAGES = {
     PublicStatusLevel.OPERATIONAL: "Operational",
@@ -65,6 +67,21 @@ _HEALTH_LEVELS = {
 }
 _MAX_METRICS_RESPONSE_BYTES = 256 * 1024
 _OPENROUTER_CIRCUIT_METRIC = "openrouter_circuit_breaker_state"
+_PG_BACKUP_LAST_SUCCESS_METRIC = "ratatoskr_pg_backup_last_success_timestamp_seconds"
+_VECTOR_RECONCILE_RUNS_METRIC = "ratatoskr_vector_reconcile_runs_total"
+_VECTOR_RECONCILE_LAG_METRIC = "ratatoskr_vector_reconcile_oldest_lag_seconds"
+_BACKUP_STALE_AFTER = timedelta(hours=36)
+_BACKUP_OUTAGE_AFTER = timedelta(hours=48)
+_VECTOR_RECONCILE_LAG_WARNING_SECONDS = 3600
+
+
+@dataclass(frozen=True, slots=True)
+class _StatusSignal:
+    level: PublicStatusLevel
+    message: str
+
+
+StatusProbe = Callable[[], Awaitable[dict[str, Any] | PublicStatusLevel | str | _StatusSignal]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +96,7 @@ _GROUPS = (
     ("interfaces", "Interfaces"),
     ("data", "Data services"),
     ("processing", "Processing"),
+    ("backups", "Backups"),
 )
 _COMPONENTS = (
     _ComponentSpec("api", "API", "interfaces", critical=True),
@@ -91,6 +109,11 @@ _COMPONENTS = (
     _ComponentSpec("ai_summarization", "AI summarization", "processing", critical=True),
     _ComponentSpec("taskiq_worker", "Taskiq worker", "processing", critical=True),
     _ComponentSpec("scheduler", "Scheduler", "processing", critical=True),
+    _ComponentSpec("vector_reconciliation", "Vector reconciliation", "processing"),
+    _ComponentSpec("postgresql_backup", "PostgreSQL backup", "backups"),
+    _ComponentSpec("github_repository_backups", "GitHub repository backups", "backups"),
+    _ComponentSpec("chatgpt_backup", "ChatGPT backup authorization", "backups"),
+    _ComponentSpec("claude_backup", "Claude backup authorization", "backups"),
 )
 
 
@@ -123,6 +146,11 @@ class PublicStatusService:
         component_probes: Mapping[str, StatusProbe] | None = None,
         web_index_path: Path | None = None,
         llm_provider: str = "openrouter",
+        database: Database | None = None,
+        git_backup_enabled: bool = False,
+        ai_backup_enabled: bool = False,
+        chatgpt_backup_enabled: bool = False,
+        claude_backup_enabled: bool = False,
         cache_enabled: bool = True,
     ) -> None:
         self._deployment = deployment
@@ -131,6 +159,11 @@ class PublicStatusService:
             Path(__file__).resolve().parents[2] / "static" / "web" / "index.html"
         )
         self._llm_provider = llm_provider.strip().lower()
+        self._database = database
+        self._git_backup_enabled = git_backup_enabled
+        self._ai_backup_enabled = ai_backup_enabled
+        self._chatgpt_backup_enabled = chatgpt_backup_enabled
+        self._claude_backup_enabled = claude_backup_enabled
         self._cache_enabled = cache_enabled
 
     async def get_status(self, request: Request | None = None) -> PublicStatusResponse:
@@ -243,6 +276,7 @@ class PublicStatusService:
 
     def _build_probes(self, request: Request | None) -> dict[str, StatusProbe]:
         worker_metrics_task: asyncio.Task[tuple[PublicStatusLevel, bytes | None]] | None = None
+        node_metrics_task: asyncio.Task[tuple[PublicStatusLevel, bytes | None]] | None = None
 
         async def _worker_metrics() -> tuple[PublicStatusLevel, bytes | None]:
             nonlocal worker_metrics_task
@@ -251,6 +285,14 @@ class PublicStatusService:
                     self._fetch_metrics(self._deployment.status_worker_metrics_url)
                 )
             return await worker_metrics_task
+
+        async def _node_metrics() -> tuple[PublicStatusLevel, bytes | None]:
+            nonlocal node_metrics_task
+            if node_metrics_task is None:
+                node_metrics_task = asyncio.create_task(
+                    self._fetch_metrics(self._deployment.status_node_metrics_url)
+                )
+            return await node_metrics_task
 
         async def _api() -> PublicStatusLevel:
             return PublicStatusLevel.OPERATIONAL
@@ -276,6 +318,48 @@ class PublicStatusService:
             process_level, _payload = await _worker_metrics()
             return process_level
 
+        async def _vector_reconciliation() -> _StatusSignal:
+            process_level, payload = await _worker_metrics()
+            if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
+                return _StatusSignal(PublicStatusLevel.UNKNOWN, "Reconciliation status unavailable")
+            return self._parse_vector_reconciliation_status(payload)
+
+        async def _postgresql_backup() -> _StatusSignal:
+            process_level, payload = await _node_metrics()
+            if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
+                return _StatusSignal(PublicStatusLevel.UNKNOWN, "Backup status unavailable")
+            return self._parse_postgresql_backup_status(payload)
+
+        async def _github_repository_backups() -> _StatusSignal:
+            if not self._git_backup_enabled:
+                return _StatusSignal(PublicStatusLevel.DISABLED, "Disabled")
+            if self._database is None:
+                return _StatusSignal(PublicStatusLevel.UNKNOWN, "Backup status unavailable")
+            async with self._database.session() as session:
+                rows = (
+                    await session.execute(
+                        select(GitMirror.status, GitMirror.last_mirrored_at).where(
+                            GitMirror.source == GitMirrorSource.GITHUB
+                        )
+                    )
+                ).all()
+            return self._github_backup_status(list(rows))
+
+        async def _ai_backup(service: AiBackupService, *, enabled: bool) -> _StatusSignal:
+            if not self._ai_backup_enabled or not enabled:
+                return _StatusSignal(PublicStatusLevel.DISABLED, "Disabled")
+            if self._database is None:
+                return _StatusSignal(PublicStatusLevel.UNKNOWN, "Backup status unavailable")
+            async with self._database.session() as session:
+                rows = (
+                    await session.execute(
+                        select(AiAccountBackup.status, AiAccountBackup.last_backed_up_at).where(
+                            AiAccountBackup.service == service
+                        )
+                    )
+                ).all()
+            return self._ai_backup_status(list(rows))
+
         async def _database() -> dict[str, Any]:
             return await _check_database(include_details=False, request=request)
 
@@ -293,6 +377,15 @@ class PublicStatusService:
             "ai_summarization": _ai_summarization,
             "taskiq_worker": _worker,
             "scheduler": lambda: self._probe_process(self._deployment.status_scheduler_metrics_url),
+            "vector_reconciliation": _vector_reconciliation,
+            "postgresql_backup": _postgresql_backup,
+            "github_repository_backups": _github_repository_backups,
+            "chatgpt_backup": lambda: _ai_backup(
+                AiBackupService.CHATGPT, enabled=self._chatgpt_backup_enabled
+            ),
+            "claude_backup": lambda: _ai_backup(
+                AiBackupService.CLAUDE, enabled=self._claude_backup_enabled
+            ),
         }
         probes.update(self._component_probes)
         return probes
@@ -353,6 +446,123 @@ class PublicStatusService:
             return PublicStatusLevel.DEGRADED
         return PublicStatusLevel.OPERATIONAL
 
+    @staticmethod
+    def _metric_values(payload: bytes, metric: str) -> list[tuple[str, float]]:
+        values: list[tuple[str, float]] = []
+        for raw_line in payload.decode("utf-8", errors="ignore").splitlines():
+            line = raw_line.strip()
+            if not line.startswith((f"{metric}{{", f"{metric} ")):
+                continue
+            sample, _, value_text = line.rpartition(" ")
+            try:
+                value = float(value_text)
+            except ValueError:
+                continue
+            if math.isfinite(value):
+                values.append((sample, value))
+        return values
+
+    @classmethod
+    def _parse_postgresql_backup_status(
+        cls, payload: bytes, *, now: datetime | None = None
+    ) -> _StatusSignal:
+        values = cls._metric_values(payload, _PG_BACKUP_LAST_SUCCESS_METRIC)
+        if not values:
+            return _StatusSignal(PublicStatusLevel.OUTAGE, "No successful backup observed")
+        now = now or datetime.now(UTC)
+        age = now - datetime.fromtimestamp(max(value for _sample, value in values), tz=UTC)
+        if age < timedelta(minutes=-5):
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "Backup timestamp is invalid")
+        if age > _BACKUP_OUTAGE_AFTER:
+            return _StatusSignal(PublicStatusLevel.OUTAGE, "Latest backup is overdue")
+        if age > _BACKUP_STALE_AFTER:
+            return _StatusSignal(PublicStatusLevel.DEGRADED, "Latest backup is stale")
+        return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Latest backup is current")
+
+    @classmethod
+    def _parse_vector_reconciliation_status(cls, payload: bytes) -> _StatusSignal:
+        runs = cls._metric_values(payload, _VECTOR_RECONCILE_RUNS_METRIC)
+        if not runs:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "No reconciliation run observed")
+        successes = sum(value for sample, value in runs if 'status="success"' in sample)
+        failures = sum(value for sample, value in runs if 'status="error"' in sample)
+        if successes <= 0 and failures > 0:
+            return _StatusSignal(PublicStatusLevel.OUTAGE, "Reconciliation runs are failing")
+        lag = cls._metric_values(payload, _VECTOR_RECONCILE_LAG_METRIC)
+        if lag and max(value for _sample, value in lag) > _VECTOR_RECONCILE_LAG_WARNING_SECONDS:
+            return _StatusSignal(PublicStatusLevel.DEGRADED, "Reconciliation is behind")
+        return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Reconciliation is current")
+
+    @staticmethod
+    def _freshness_level(last_success: datetime | None, *, now: datetime) -> PublicStatusLevel:
+        if last_success is None:
+            return PublicStatusLevel.UNKNOWN
+        if last_success.tzinfo is None:
+            last_success = last_success.replace(tzinfo=UTC)
+        age = now - last_success
+        if age > _BACKUP_OUTAGE_AFTER:
+            return PublicStatusLevel.OUTAGE
+        if age > _BACKUP_STALE_AFTER:
+            return PublicStatusLevel.DEGRADED
+        return PublicStatusLevel.OPERATIONAL
+
+    @classmethod
+    def _github_backup_status(
+        cls, rows: list[Any], *, now: datetime | None = None
+    ) -> _StatusSignal:
+        active = [row for row in rows if row.status != GitMirrorStatus.EXCLUDED]
+        if not active:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "No repository backup observed")
+        now = now or datetime.now(UTC)
+        levels: list[PublicStatusLevel] = []
+        for row in active:
+            if row.status == GitMirrorStatus.OK:
+                levels.append(cls._freshness_level(row.last_mirrored_at, now=now))
+            elif row.status == GitMirrorStatus.PENDING:
+                levels.append(PublicStatusLevel.UNKNOWN)
+            else:
+                levels.append(PublicStatusLevel.OUTAGE)
+        if all(level is PublicStatusLevel.OPERATIONAL for level in levels):
+            return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Repository backups are current")
+        if all(level in {PublicStatusLevel.OUTAGE, PublicStatusLevel.UNKNOWN} for level in levels):
+            level = (
+                PublicStatusLevel.OUTAGE
+                if PublicStatusLevel.OUTAGE in levels
+                else PublicStatusLevel.UNKNOWN
+            )
+            return _StatusSignal(level, "Repository backups need attention")
+        return _StatusSignal(PublicStatusLevel.DEGRADED, "Repository backup coverage is partial")
+
+    @classmethod
+    def _ai_backup_status(cls, rows: list[Any], *, now: datetime | None = None) -> _StatusSignal:
+        if not rows:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "Authorization has not been verified")
+        if any(row.status == AiBackupStatus.AUTH_EXPIRED for row in rows):
+            return _StatusSignal(PublicStatusLevel.OUTAGE, "Authorization required")
+        now = now or datetime.now(UTC)
+        levels: list[PublicStatusLevel] = []
+        for row in rows:
+            if row.status == AiBackupStatus.OK:
+                levels.append(cls._freshness_level(row.last_backed_up_at, now=now))
+            elif row.status == AiBackupStatus.DISABLED:
+                levels.append(PublicStatusLevel.DISABLED)
+            elif row.status == AiBackupStatus.PENDING:
+                levels.append(PublicStatusLevel.UNKNOWN)
+            else:
+                levels.append(PublicStatusLevel.OUTAGE)
+        level = cls._aggregate_levels(levels)
+        if level is PublicStatusLevel.OPERATIONAL:
+            message = "Authorization active; backup is current"
+        elif level is PublicStatusLevel.DISABLED:
+            message = "Disabled"
+        elif level is PublicStatusLevel.UNKNOWN:
+            message = "Authorization has not been verified"
+        elif level is PublicStatusLevel.DEGRADED:
+            message = "Backup is stale"
+        else:
+            message = "Backup is unavailable"
+        return _StatusSignal(level, message)
+
     async def _check_component(
         self, spec: _ComponentSpec, probe: StatusProbe
     ) -> PublicStatusComponent:
@@ -361,9 +571,15 @@ class PublicStatusService:
             raw = await asyncio.wait_for(
                 probe(), timeout=self._deployment.status_probe_timeout_seconds
             )
-            level = self._map_level(raw)
+            if isinstance(raw, _StatusSignal):
+                signal = raw
+                level = raw.level
+            else:
+                signal = None
+                level = self._map_level(raw)
         except Exception:
             level = PublicStatusLevel.OUTAGE
+            signal = None
         latency_ms = round((time.perf_counter() - start) * 1000, 2)
         record_status_check(spec.id, level.value, latency_ms / 1000)
         return self._component(
@@ -371,6 +587,7 @@ class PublicStatusService:
             level,
             checked_at=datetime.now(UTC),
             latency_ms=latency_ms,
+            message=signal.message if signal is not None else None,
         )
 
     @staticmethod
@@ -388,12 +605,13 @@ class PublicStatusService:
         *,
         checked_at: datetime,
         latency_ms: float,
+        message: str | None = None,
     ) -> PublicStatusComponent:
         return PublicStatusComponent(
             id=spec.id,
             name=spec.name,
             status=level,
-            message=_STATUS_MESSAGES[level],
+            message=message or _STATUS_MESSAGES[level],
             checked_at=checked_at,
             latency_ms=latency_ms,
         )
@@ -440,8 +658,19 @@ class PublicStatusService:
 
 def get_public_status_service() -> PublicStatusService:
     """Build the public status service from validated application configuration."""
-    config = load_config(allow_stub_telegram=True)
+    try:
+        from app.di.api import get_current_api_runtime
+
+        runtime = get_current_api_runtime()
+    except RuntimeError:
+        runtime = None
+    config = runtime.cfg if runtime is not None else load_config(allow_stub_telegram=True)
     return PublicStatusService(
         deployment=config.deployment,
         llm_provider=config.runtime.llm_provider,
+        database=runtime.db if runtime is not None else None,
+        git_backup_enabled=config.git_backup.enabled,
+        ai_backup_enabled=config.ai_backup.enabled,
+        chatgpt_backup_enabled=config.ai_backup.chatgpt_enabled,
+        claude_backup_enabled=config.ai_backup.claude_enabled,
     )

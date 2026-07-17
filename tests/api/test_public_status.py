@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,6 +24,8 @@ from app.api.services.status_service import (
 )
 from app.config.deployment import DeploymentConfig
 from app.core.time_utils import UTC
+from app.db.models.ai_backup import AiBackupStatus
+from app.db.models.git_backup import GitMirrorStatus
 
 _COMPONENT_IDS = (
     "api",
@@ -35,6 +38,11 @@ _COMPONENT_IDS = (
     "ai_summarization",
     "taskiq_worker",
     "scheduler",
+    "vector_reconciliation",
+    "postgresql_backup",
+    "github_repository_backups",
+    "chatgpt_backup",
+    "claude_backup",
 )
 
 
@@ -73,14 +81,14 @@ async def test_status_aggregation_and_exact_summary() -> None:
 
     assert result.status is PublicStatusLevel.DEGRADED
     assert result.summary.model_dump() == {
-        "total": 10,
-        "operational": 8,
+        "total": 15,
+        "operational": 13,
         "degraded": 0,
         "outage": 1,
         "unknown": 0,
         "disabled": 1,
     }
-    assert sum(result.summary.model_dump()[level.value] for level in PublicStatusLevel) == 10
+    assert sum(result.summary.model_dump()[level.value] for level in PublicStatusLevel) == 15
 
 
 @pytest.mark.asyncio
@@ -94,7 +102,7 @@ async def test_all_healthy_signals_are_operational() -> None:
     result = await service.get_status()
 
     assert result.status is PublicStatusLevel.OPERATIONAL
-    assert result.summary.operational == result.summary.total == 10
+    assert result.summary.operational == result.summary.total == 15
 
 
 @pytest.mark.parametrize(
@@ -124,6 +132,79 @@ def test_ai_status_uses_only_bounded_openrouter_circuit_metric(
     sample: bytes, expected: PublicStatusLevel
 ) -> None:
     assert PublicStatusService._parse_openrouter_status(sample) is expected
+
+
+@pytest.mark.parametrize(
+    ("age", "expected"),
+    [
+        (timedelta(hours=36), PublicStatusLevel.OPERATIONAL),
+        (timedelta(hours=36, seconds=1), PublicStatusLevel.DEGRADED),
+        (timedelta(hours=48), PublicStatusLevel.DEGRADED),
+        (timedelta(hours=48, seconds=1), PublicStatusLevel.OUTAGE),
+    ],
+)
+def test_postgresql_backup_status_has_explicit_freshness_boundaries(
+    age: timedelta, expected: PublicStatusLevel
+) -> None:
+    now = datetime.now(UTC)
+    payload = (
+        f"ratatoskr_pg_backup_last_success_timestamp_seconds {(now - age).timestamp()}\n"
+    ).encode()
+
+    signal = PublicStatusService._parse_postgresql_backup_status(payload, now=now)
+
+    assert signal.level is expected
+
+
+def test_backup_status_reports_partial_git_coverage_without_sensitive_details() -> None:
+    now = datetime.now(UTC)
+    rows = [
+        SimpleNamespace(status=GitMirrorStatus.OK, last_mirrored_at=now),
+        SimpleNamespace(status=GitMirrorStatus.FAILED, last_mirrored_at=None),
+        SimpleNamespace(status=GitMirrorStatus.EXCLUDED, last_mirrored_at=None),
+    ]
+
+    signal = PublicStatusService._github_backup_status(rows, now=now)
+
+    assert signal.level is PublicStatusLevel.DEGRADED
+    assert signal.message == "Repository backup coverage is partial"
+
+
+def test_ai_backup_status_exposes_only_coarse_authorization_action() -> None:
+    row = SimpleNamespace(
+        status=AiBackupStatus.AUTH_EXPIRED,
+        last_backed_up_at=None,
+        last_error="cookie secret for private account",
+    )
+
+    signal = PublicStatusService._ai_backup_status([row])
+
+    assert signal.level is PublicStatusLevel.OUTAGE
+    assert signal.message == "Authorization required"
+    assert "cookie" not in signal.message
+    assert "private" not in signal.message
+
+
+def test_vector_reconciliation_status_uses_run_and_lag_metrics() -> None:
+    healthy = (
+        b'ratatoskr_vector_reconcile_runs_total{status="success"} 2\n'
+        b"ratatoskr_vector_reconcile_oldest_lag_seconds 10\n"
+    )
+    behind = healthy.replace(b" 10\n", b" 3601\n")
+    failing = b'ratatoskr_vector_reconcile_runs_total{status="error"} 1\n'
+
+    assert (
+        PublicStatusService._parse_vector_reconciliation_status(healthy).level
+        is PublicStatusLevel.OPERATIONAL
+    )
+    assert (
+        PublicStatusService._parse_vector_reconciliation_status(behind).level
+        is PublicStatusLevel.DEGRADED
+    )
+    assert (
+        PublicStatusService._parse_vector_reconciliation_status(failing).level
+        is PublicStatusLevel.OUTAGE
+    )
 
 
 @pytest.mark.asyncio
