@@ -111,11 +111,12 @@ class AiBackupOrchestrationService:
         fetcher: PlaywrightAuthedFetcher | None = None
 
         try:
-            storage_state = await self._session_store.load(user_id, service)
-            if storage_state is None:
+            session_snapshot = await self._session_store.load_for_refresh(user_id, service)
+            if session_snapshot is None:
                 await self._repo.mark_authorization_missing(user_id, service)
                 logger.info("ai_backup_no_session", extra={"service": service.value})
                 return
+            storage_state = session_snapshot.storage_state
 
             writer = AiBackupDiskWriter(
                 Path(ai_cfg.data_path),
@@ -211,17 +212,19 @@ class AiBackupOrchestrationService:
             await self._notifier.on_failure(service, correlation_id)
             raise
         finally:
-            # Persist rotated cookies only while the original row still exists.
-            # An owner revoke during a run must not be undone by this finally.
+            # Persist rotated cookies only while the exact session loaded by this
+            # run is still current. A revoke or replacement wins over stale work.
             if refreshed_out:
                 try:
                     refreshed = await self._session_store.refresh(
-                        user_id, service, refreshed_out[0]
+                        user_id,
+                        service,
+                        refreshed_out[0],
+                        expected_revision=session_snapshot.revision,
                     )
                     if not refreshed:
-                        await self._repo.mark_authorization_missing(user_id, service)
                         logger.info(
-                            "ai_backup_session_refresh_skipped_revoked",
+                            "ai_backup_session_refresh_skipped_stale",
                             extra={"service": service.value},
                         )
                 except Exception:

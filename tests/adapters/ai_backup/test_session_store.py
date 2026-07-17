@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
+from sqlalchemy.sql.dml import Delete, Update
 
 from app.adapters.ai_backup.session_store import (
     AiBackupSessionStore,
@@ -14,6 +16,9 @@ from app.adapters.ai_backup.session_store import (
 )
 from app.db.models.ai_backup import AiBackupService
 from app.security.secret_crypto import InvalidEncryptedSecretError, encrypt_secret
+
+if TYPE_CHECKING:
+    from app.db.session import Database
 
 
 class _FakeSession:
@@ -26,8 +31,19 @@ class _FakeSession:
     def add(self, obj: object) -> None:
         self._state["row"] = obj
 
-    async def execute(self, _stmt: object) -> None:
-        self._state.pop("row", None)
+    async def execute(self, stmt: object) -> object:
+        if isinstance(stmt, Delete):
+            self._state.pop("row", None)
+            return SimpleNamespace(rowcount=1)
+        if isinstance(stmt, Update):
+            params = stmt.compile().params
+            current = self._state.get("row")
+            expected_revision = params["encrypted_cookies_1"]
+            if current is None or current.encrypted_cookies != expected_revision:
+                return SimpleNamespace(rowcount=0)
+            current.encrypted_cookies = params["encrypted_cookies"]
+            return SimpleNamespace(rowcount=1)
+        raise AssertionError(f"Unexpected statement: {stmt!r}")
 
 
 class _FakeCtx:
@@ -50,6 +66,10 @@ class FakeDb:
 
     def transaction(self) -> _FakeCtx:
         return _FakeCtx(_FakeSession(self.state))
+
+
+def _store(db: FakeDb | None = None) -> AiBackupSessionStore:
+    return AiBackupSessionStore(cast("Database", db or FakeDb()))
 
 
 @pytest.fixture
@@ -125,14 +145,14 @@ def test_validate_rejects_missing_wrong_or_expired_session_cookie(cookie: dict) 
 
 
 async def test_load_absent_returns_none() -> None:
-    store = AiBackupSessionStore(FakeDb())
+    store = _store()
     assert await store.load(1, AiBackupService.CHATGPT) is None
 
 
 @pytest.mark.usefixtures("_fernet")
 async def test_roundtrip_encrypts() -> None:
     db = FakeDb()
-    store = AiBackupSessionStore(db)
+    store = _store(db)
     state = {
         "cookies": [
             {
@@ -156,7 +176,7 @@ async def test_roundtrip_encrypts() -> None:
 async def test_load_wraps_malformed_decrypted_state(plaintext: str) -> None:
     db = FakeDb()
     db.state["row"] = SimpleNamespace(encrypted_cookies=encrypt_secret(plaintext))
-    store = AiBackupSessionStore(db)
+    store = _store(db)
 
     with pytest.raises(InvalidEncryptedSecretError, match="browser session is invalid"):
         await store.load(7, AiBackupService.CLAUDE)
@@ -165,7 +185,7 @@ async def test_load_wraps_malformed_decrypted_state(plaintext: str) -> None:
 @pytest.mark.usefixtures("_fernet")
 async def test_save_rejects_bad_shape_before_db() -> None:
     db = FakeDb()
-    store = AiBackupSessionStore(db)
+    store = _store(db)
     with pytest.raises(ValueError, match="storage_state"):
         await store.save(1, AiBackupService.CHATGPT, {"no_cookies": True})
     assert "row" not in db.state  # nothing written
@@ -174,7 +194,7 @@ async def test_save_rejects_bad_shape_before_db() -> None:
 async def test_delete_removes_session_and_is_idempotent() -> None:
     db = FakeDb()
     db.state["row"] = SimpleNamespace(encrypted_cookies=b"ciphertext")
-    store = AiBackupSessionStore(db)
+    store = _store(db)
 
     await store.delete(7, AiBackupService.CLAUDE)
     await store.delete(7, AiBackupService.CLAUDE)
@@ -185,7 +205,7 @@ async def test_delete_removes_session_and_is_idempotent() -> None:
 @pytest.mark.usefixtures("_fernet")
 async def test_refresh_does_not_recreate_revoked_session() -> None:
     db = FakeDb()
-    store = AiBackupSessionStore(db)
+    store = _store(db)
     state = {
         "cookies": [
             {
@@ -197,7 +217,52 @@ async def test_refresh_does_not_recreate_revoked_session() -> None:
         ]
     }
 
-    refreshed = await store.refresh(7, AiBackupService.CLAUDE, state)
+    refreshed = await store.refresh(
+        7,
+        AiBackupService.CLAUDE,
+        state,
+        expected_revision=b"revoked-session-revision",
+    )
 
     assert refreshed is False
     assert "row" not in db.state
+
+
+@pytest.mark.usefixtures("_fernet")
+async def test_refresh_does_not_overwrite_session_replaced_after_load() -> None:
+    db = FakeDb()
+    store = _store(db)
+    original = {
+        "cookies": [{"name": "sessionKey", "domain": ".claude.ai", "value": "A", "expires": -1}]
+    }
+    replacement = {
+        "cookies": [{"name": "sessionKey", "domain": ".claude.ai", "value": "B", "expires": -1}]
+    }
+    stale_refresh = {
+        "cookies": [
+            {
+                "name": "sessionKey",
+                "domain": ".claude.ai",
+                "value": "A-refreshed",
+                "expires": -1,
+            }
+        ]
+    }
+
+    await store.save(7, AiBackupService.CLAUDE, original)
+    loaded = await store.load_for_refresh(7, AiBackupService.CLAUDE)
+    assert loaded is not None
+
+    # Owner revokes A and ingests B while A's backup is still in flight.
+    await store.delete(7, AiBackupService.CLAUDE)
+    await store.save(7, AiBackupService.CLAUDE, replacement)
+
+    refreshed = await store.refresh(
+        7,
+        AiBackupService.CLAUDE,
+        stale_refresh,
+        expected_revision=loaded.revision,
+    )
+
+    assert refreshed is False
+    assert await store.load(7, AiBackupService.CLAUDE) == replacement

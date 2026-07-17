@@ -8,11 +8,12 @@ to JSON and encrypted at rest. Plaintext never lands on disk and is never logged
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.logging_utils import get_logger
 from app.db.models.ai_backup import AiBackupService
@@ -24,6 +25,8 @@ from app.security.secret_crypto import (
 )
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
+
     from app.db.session import Database
 
 logger = get_logger(__name__)
@@ -100,6 +103,14 @@ def validate_storage_state(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class AiBackupSessionSnapshot:
+    """Decrypted session plus the opaque ciphertext revision it was loaded from."""
+
+    storage_state: dict
+    revision: bytes
+
+
 class AiBackupSessionStore:
     """Load and persist encrypted Playwright sessions for AI backup domains."""
 
@@ -113,6 +124,13 @@ class AiBackupSessionStore:
         the stored ciphertext cannot be decrypted (e.g. key rotated without a
         backfill) so the caller can decide to treat it as absent.
         """
+        snapshot = await self.load_for_refresh(user_id, service)
+        return snapshot.storage_state if snapshot is not None else None
+
+    async def load_for_refresh(
+        self, user_id: int, service: AiBackupService
+    ) -> AiBackupSessionSnapshot | None:
+        """Load a session together with the revision required for a later refresh."""
         domain = _SERVICE_DOMAIN[service]
         async with self._db.session() as session:
             row = await session.scalar(
@@ -123,8 +141,9 @@ class AiBackupSessionStore:
             )
         if row is None:
             return None
+        revision = bytes(row.encrypted_cookies)
         try:
-            plaintext = decrypt_secret(row.encrypted_cookies)
+            plaintext = decrypt_secret(revision)
             storage_state = json.loads(plaintext)
             validate_storage_state(service, storage_state)
         except (InvalidEncryptedSecretError, json.JSONDecodeError, ValueError) as exc:
@@ -133,7 +152,8 @@ class AiBackupSessionStore:
                 extra={"user_id": user_id, "domain": domain},
             )
             raise InvalidEncryptedSecretError("Stored browser session is invalid") from exc
-        return storage_state
+        assert isinstance(storage_state, dict)
+        return AiBackupSessionSnapshot(storage_state=storage_state, revision=revision)
 
     async def save(self, user_id: int, service: AiBackupService, storage_state: dict) -> None:
         """Validate, encrypt, and upsert the storage_state for ``(user, service)``.
@@ -173,30 +193,42 @@ class AiBackupSessionStore:
                 )
             )
 
-    async def refresh(self, user_id: int, service: AiBackupService, storage_state: dict) -> bool:
-        """Update a still-present session without recreating a revoked row.
+    async def refresh(
+        self,
+        user_id: int,
+        service: AiBackupService,
+        storage_state: dict,
+        *,
+        expected_revision: bytes,
+    ) -> bool:
+        """Replace a session only when it is still the revision loaded by this run.
 
-        Returns ``False`` when the row disappeared during a running backup.
-        This prevents the run's final cookie refresh from undoing an explicit
-        owner revoke.
+        Returns ``False`` when the row was revoked or replaced during a running
+        backup. The single conditional UPDATE is the compare-and-swap boundary;
+        a stale run can neither recreate a deleted row nor overwrite a newer
+        owner-supplied session.
         """
         validate_storage_state(service, storage_state)
         domain = _SERVICE_DOMAIN[service]
         encrypted = encrypt_secret(json.dumps(storage_state, ensure_ascii=False))
         async with self._db.transaction() as session:
-            row = await session.scalar(
-                select(UserBrowserSession).where(
-                    UserBrowserSession.user_id == user_id,
-                    UserBrowserSession.domain == domain,
-                )
+            result = cast(
+                "CursorResult[Any]",
+                await session.execute(
+                    update(UserBrowserSession)
+                    .where(
+                        UserBrowserSession.user_id == user_id,
+                        UserBrowserSession.domain == domain,
+                        UserBrowserSession.encrypted_cookies == expected_revision,
+                    )
+                    .values(encrypted_cookies=encrypted)
+                ),
             )
-            if row is None:
-                return False
-            row.encrypted_cookies = encrypted
-        return True
+        return result.rowcount == 1
 
 
 __all__ = [
+    "AiBackupSessionSnapshot",
     "AiBackupSessionStore",
     "domain_for_service",
     "validate_storage_state",
