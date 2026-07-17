@@ -131,9 +131,9 @@ class AiBackupOrchestrationService:
                 storage_state,
                 endpoint_url=self._cfg.scraper.cloakbrowser_url,
                 refreshed_out=refreshed_out,
-            ) as (_page, ctx):
+            ) as (page, _ctx):
                 fetcher = PlaywrightAuthedFetcher(
-                    ctx,
+                    page,
                     host_allowlist=list(ai_cfg.host_allowlist),
                     inter_request_delay_sec=ai_cfg.request_delay_ms / 1000.0,
                     max_requests=ai_cfg.max_requests_per_run,

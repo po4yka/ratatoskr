@@ -44,7 +44,7 @@ flowchart TB
     Svc -- decrypt storage_state --> Store
     Svc --> Prov
     Prov -- connect_over_cdp --> CDP
-    Prov -- "page.context.request.get(internal API)" --> CDP
+    Prov -- "CDP Fetch + bounded IO.read" --> CDP
     Svc -- write conversations/projects/files/artifacts --> Disk
     Svc -- re-persist refreshed storage_state --> Store
     Svc -- record backup/auth outcomes --> State
@@ -62,7 +62,7 @@ The hard problem is not reading the APIs — it is establishing and keeping a se
 
 ## The `cf_clearance` durability decision
 
-Cloudflare binds the `cf_clearance` cookie to the browser's TLS/JA3 fingerprint and source IP. A separate HTTP client (httpx) replaying the cookie with a different TLS signature gets re-challenged. Therefore **all internal-API GETs are issued from inside the authenticated CloakBrowser page context** via `page.context.request.get(...)` — the same `APIRequestContext` the existing provider already uses for gated PDF fetches (`_goto_capture`). This reuses the browser's cookie jar *and* its TLS fingerprint, keeping the clearance cookie valid. CloakBrowser derives its stealth fingerprint deterministically from the registrable domain, so `chatgpt.com` and `claude.ai` keep a stable fingerprint across the login snapshot and every subsequent backup run.
+Cloudflare binds the `cf_clearance` cookie to the browser's TLS/JA3 fingerprint and source IP. A separate HTTP client (httpx) replaying the cookie with a different TLS signature gets re-challenged. Therefore **all internal-API GETs are issued through the authenticated CloakBrowser page's network stack**. The fetcher pauses each request and redirect with CDP `Fetch.requestPaused`, then reads the terminal response through `Fetch.takeResponseBodyAsStream` and bounded `IO.read` calls. This preserves the browser cookie jar and TLS fingerprint while enforcing per-response and aggregate byte caps during transport, including chunked responses or missing/underreported `Content-Length`. CloakBrowser derives its stealth fingerprint deterministically from the registrable domain, so `chatgpt.com` and `claude.ai` keep a stable fingerprint across the login snapshot and every subsequent backup run.
 
 ## Components and file map
 
@@ -110,7 +110,7 @@ A frozen pydantic `AiBackupConfig` with `validation_alias` env vars, validators 
 
 ## Internal APIs walked
 
-All calls go through `page.context.request.get(...)` inside the authenticated context; every URL host is validated against `AI_BACKUP_HOST_ALLOWLIST` before the request.
+All calls go through the authenticated page's bounded CDP response stream; every URL host and redirect is validated against `AI_BACKUP_HOST_ALLOWLIST` before transport.
 
 **ChatGPT** (`access_token` read from `/api/auth/session`; `cf_clearance` already in the jar):
 

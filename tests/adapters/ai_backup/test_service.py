@@ -111,7 +111,7 @@ class _RecordingNotifier:
 
 
 class _FakeFetcher:
-    def __init__(self, _ctx, **_kw) -> None:
+    def __init__(self, _page, **_kw) -> None:
         self.requests_made = 5
 
 
