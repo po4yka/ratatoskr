@@ -15,7 +15,11 @@ from app.adapters.ai_backup.errors import (
 )
 from app.adapters.ai_backup.service import AiBackupOrchestrationService
 from app.config.ai_backup import AiBackupConfig
-from app.db.models.ai_backup import AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 
 _AC = "app.adapters.content.browser_auth.authenticated_context"
 _CF = "app.adapters.ai_backup.client_factory"
@@ -23,6 +27,7 @@ _CF = "app.adapters.ai_backup.client_factory"
 
 class _Row:
     status: AiBackupStatus = AiBackupStatus.PENDING
+    authorization_status: AiBackupAuthorizationStatus = AiBackupAuthorizationStatus.UNVERIFIED
     backoff_until: dt.datetime | None = None
     last_backed_up_at: dt.datetime | None = None
 
@@ -43,6 +48,9 @@ class _FakeRepo:
 
     async def mark_auth_expired(self, _u, _s, message) -> None:
         self.calls.append(("auth_expired", message))
+
+    async def mark_authorization_missing(self, _u, _s) -> None:
+        self.calls.append(("authorization_missing",))
 
 
 class _FakeStore:
@@ -134,7 +142,7 @@ async def test_no_session_returns_early(tmp_path, monkeypatch) -> None:
     svc = AiBackupOrchestrationService(_cfg(tmp_path), repo, store, notifier)
 
     await svc.run(42, AiBackupService.CLAUDE)
-    assert repo.calls == []
+    assert repo.calls == [("authorization_missing",)]
     assert notifier.events == []
 
 
@@ -151,7 +159,8 @@ async def test_backoff_active_returns_early(tmp_path, monkeypatch) -> None:
 
 async def test_auth_expired_status_halts_repeated_runs(tmp_path, monkeypatch) -> None:
     row = _Row()
-    row.status = AiBackupStatus.AUTH_EXPIRED
+    row.status = AiBackupStatus.OK
+    row.authorization_status = AiBackupAuthorizationStatus.EXPIRED
     repo = _FakeRepo(row)
     store = _FakeStore({"cookies": []})
     notifier = _RecordingNotifier()

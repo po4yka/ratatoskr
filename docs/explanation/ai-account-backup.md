@@ -32,7 +32,7 @@ flowchart TB
         Task["Taskiq cron\nratatoskr.ai_backup.sync\n(Redis-locked)"]
         Svc[AiBackupService]
         Prov["CloakBrowserProvider\n.authenticated_context()"]
-        State[(ai_account_backups\nlifecycle row)]
+        State[(ai_account_backups\nbackup + authorization state)]
     end
     subgraph Sidecar["cloakbrowser sidecar"]
         CDP["cloakserve CDP\n(stable per-domain fingerprint)"]
@@ -47,7 +47,7 @@ flowchart TB
     Prov -- "page.context.request.get(internal API)" --> CDP
     Svc -- write conversations/projects/files/artifacts --> Disk
     Svc -- re-persist refreshed storage_state --> Store
-    Svc -- record_success/failure/auth_expired --> State
+    Svc -- record backup/auth outcomes --> State
 ```
 
 ## Authentication and session model
@@ -58,7 +58,7 @@ The hard problem is not reading the APIs — it is establishing and keeping a se
 - **Mode B — headful noVNC login (future).** Interactive human login into the cloakserve profile via CloakBrowser-Manager's noVNC viewer, snapshotting `context.storage_state()` afterward. Lowest ban signal of all (a real human login from the backup fingerprint and IP) but adds an early-alpha sidecar.
 - **Mode C — automated credential login (explicit non-goal).** Storing email/password + a TOTP secret and logging in headlessly. Highest detection surface, most brittle, and the worst ban signal. Documented as out of scope.
 
-**Session refresh and expiry.** After every run the service calls `context.storage_state()` and re-encrypts/persists it, so rotating cookies keep the session alive longer. Expiry is detected from `401`, a redirect to `/auth/login`, or `403` with `cf-mitigated: challenge`; the service then sets the lifecycle row to `auth_expired`, **halts** that service, and pings the operator to re-run Mode A. Halting (rather than retrying into a login wall) is itself a ban-avoidance measure.
+**Session refresh and expiry.** After every run the service calls `context.storage_state()` and re-encrypts/persists it, so rotating cookies keep the session alive longer. Expiry is detected from `401`, a redirect to `/auth/login`, or `403` with `cf-mitigated: challenge`; the service then sets `authorization_status=expired`, preserves the independent backup outcome, **halts** that service, and pings the operator to re-run Mode A. A newly ingested session stays `unverified` until the provider accepts it. Halting (rather than retrying into a login wall) is itself a ban-avoidance measure.
 
 ## The `cf_clearance` durability decision
 
@@ -86,12 +86,14 @@ A new lifecycle table holds per-service run state, one row per `(user_id, servic
 
 ```python
 class AiBackupService(enum.StrEnum):   # "chatgpt" | "claude"
-class AiBackupStatus(enum.StrEnum):    # pending | ok | failed | auth_expired | disabled
+class AiBackupStatus(enum.StrEnum):              # pending | ok | failed | disabled
+class AiBackupAuthorizationStatus(enum.StrEnum): # missing | unverified | valid | expired
 
 class AiAccountBackup(Base):
     __tablename__ = "ai_account_backups"
     __table_args__ = (UniqueConstraint("user_id", "service", name="uq_ai_account_backups_user_service"),)
     id, user_id (FK users.telegram_user_id, CASCADE), service, status
+    authorization_status, authorization_checked_at
     last_backed_up_at, last_attempt_at, backoff_until
     consecutive_failures, total_failures, last_error, last_error_category
     counts_json (JSONB: conversations/projects/files/artifacts/bytes)

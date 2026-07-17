@@ -43,13 +43,26 @@ class AiBackupService(enum.StrEnum):
 
 
 class AiBackupStatus(enum.StrEnum):
-    """Current health state of the backup for a service."""
+    """Current backup outcome for a service.
+
+    ``AUTH_EXPIRED`` remains for database/backward compatibility. New writes
+    track authentication independently through ``AiBackupAuthorizationStatus``.
+    """
 
     PENDING = "pending"
     OK = "ok"
     FAILED = "failed"
     AUTH_EXPIRED = "auth_expired"
     DISABLED = "disabled"
+
+
+class AiBackupAuthorizationStatus(enum.StrEnum):
+    """Current authorization state of the provider browser session."""
+
+    MISSING = "missing"
+    UNVERIFIED = "unverified"
+    VALID = "valid"
+    EXPIRED = "expired"
 
 
 class AiAccountBackup(Base):
@@ -87,6 +100,19 @@ class AiAccountBackup(Base):
         default=AiBackupStatus.PENDING,
         nullable=False,
     )
+    authorization_status: Mapped[AiBackupAuthorizationStatus] = mapped_column(
+        SQLEnum(
+            AiBackupAuthorizationStatus,
+            name="ai_backup_authorization_status",
+            values_callable=_enum_values,
+            create_type=True,
+        ),
+        default=AiBackupAuthorizationStatus.MISSING,
+        nullable=False,
+    )
+    authorization_checked_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_backed_up_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -120,6 +146,7 @@ AI_BACKUP_MODELS = (AiAccountBackup,)
 __all__ = [
     "AI_BACKUP_MODELS",
     "AiAccountBackup",
+    "AiBackupAuthorizationStatus",
     "AiBackupService",
     "AiBackupStatus",
 ]

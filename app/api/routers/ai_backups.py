@@ -36,7 +36,12 @@ class AiBackupItem(BaseModel):
     """Lifecycle state of one service's backup."""
 
     service: str = Field(description="chatgpt | claude")
-    status: str = Field(description="pending | ok | failed | auth_expired | disabled")
+    status: str = Field(
+        description="Deprecated combined lifecycle state; use backup_status and authorization_status"
+    )
+    backup_status: str = Field(description="pending | ok | failed | disabled")
+    authorization_status: str = Field(description="missing | unverified | valid | expired")
+    authorization_checked_at: dt.datetime | None = None
     last_backed_up_at: dt.datetime | None = None
     last_attempt_at: dt.datetime | None = None
     consecutive_failures: int = 0
@@ -93,9 +98,19 @@ def get_ai_backup_owner(
 
 
 def _to_item(row: AiAccountBackup) -> AiBackupItem:
+    backup_status = row.status.value if hasattr(row.status, "value") else str(row.status)
+    authorization_status = (
+        row.authorization_status.value
+        if hasattr(row.authorization_status, "value")
+        else str(row.authorization_status)
+    )
+    legacy_status = "auth_expired" if authorization_status == "expired" else backup_status
     return AiBackupItem(
         service=row.service.value if hasattr(row.service, "value") else str(row.service),
-        status=row.status.value if hasattr(row.status, "value") else str(row.status),
+        status=legacy_status,
+        backup_status=backup_status,
+        authorization_status=authorization_status,
+        authorization_checked_at=row.authorization_checked_at,
         last_backed_up_at=row.last_backed_up_at,
         last_attempt_at=row.last_attempt_at,
         consecutive_failures=row.consecutive_failures,
@@ -140,7 +155,7 @@ async def ingest_session(
     """Persist a Playwright browser session for (user, service) — Mode A ingest.
 
     On success: 204. On bad shape: 400. The storage_state is never echoed back.
-    Clears an existing AUTH_EXPIRED halt so the next scheduled run fires.
+    Marks the session unverified so the next scheduled run verifies it.
     """
     from app.adapters.ai_backup.session_store import (
         AiBackupSessionStore,
@@ -156,6 +171,6 @@ async def ingest_session(
     db = _get_db(request)
     await AiBackupSessionStore(db).save(user_id, service, body.storage_state)
 
-    # Lift any AUTH_EXPIRED halt without advancing last_backed_up_at, so the next
-    # scheduled run still picks up everything changed during the outage window.
-    await _get_repo(request).clear_auth_expired(user_id, service)
+    # Do not report the session as valid until the provider accepts it. Keeping
+    # last_backed_up_at untouched also preserves the full outage window.
+    await _get_repo(request).mark_authorization_unverified(user_id, service)

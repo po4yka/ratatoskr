@@ -96,7 +96,7 @@ The blob never transits Telegram (the bot surfaces only status commands). There 
 
 ### 4a. CLI ingest (recommended for single-tenant self-host — no JWT)
 
-Run inside the container; it validates the shape, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and lifts any `AUTH_EXPIRED` halt — no Mobile-API JWT needed:
+Run inside the container; it validates the provider session cookie, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and marks authorization `unverified` until the next provider check — no Mobile-API JWT needed:
 
 ```bash
 docker cp chatgpt.json ratatoskr:/tmp/chatgpt.json
@@ -203,7 +203,7 @@ A successful run emits `ai_backup_run_complete` with a `counts` field. Absence o
 | Symptom | Likely cause | Resolution |
 |---|---|---|
 | `403 cf-mitigated` in logs or HTML Cloudflare interstitial in conversation JSON | `cf_clearance` captured from a different IP/fingerprint than the sidecar | Recapture the session using Mode B (`--cdp ws://cloakbrowser:9222`) so the clearance cookie matches the sidecar's fingerprint and IP |
-| `status=auth_expired` in `ai_account_backups` | Session cookie expired or rotated; the service halted to avoid hammering a login wall | Re-run Mode A or Mode B to capture a fresh blob, then re-ingest via `POST /v1/ai-backups/<service>/session`; the `auth_expired` halt clears automatically on successful ingest |
+| `authorization_status=expired` in `ai_account_backups` | Session cookie expired or rotated; the service halted to avoid hammering a login wall | Re-run Mode A or Mode B to capture a fresh blob, then re-ingest via `POST /v1/ai-backups/<service>/session`; it becomes `unverified` and changes to `valid` only after a successful provider run |
 | ChatGPT Projects return 404 (`gizmos/snorlax`) | The `snorlax` internal codename has changed; this endpoint is soft-fail by design | Check OpenAI web traffic for the updated path; update `chatgpt_client.py`; the run continues with conversations only until the path is fixed |
 | HTTP 429 / rate-limit errors during a run | Request cadence too aggressive, or a large account whose full sweep exceeds the provider's per-window quota (ChatGPT is far stricter than Claude) | Increase `AI_BACKUP_REQUEST_DELAY_MS` (default 1500 ms) and optionally lower `AI_BACKUP_MAX_REQUESTS_PER_RUN`. A 429 no longer discards progress: conversations already written stay on disk, a partial manifest is recorded, and the **next run resumes** — it skips conversations already saved for that run date and fetches only what is missing. So a large account converges across successive runs (manual re-run or the daily cron after the backoff window), each making far fewer requests, until one run completes with `status=ok`. |
 | `counts_json` is `{}` or all zeros after a successful run | Field-path mismatch in the internal-API response — the `TODO(live-validation)` markers in `chatgpt_client.py` and `claude_client.py` flag paths that have not yet been verified against live accounts | Inspect the raw conversation JSON saved to disk and compare field names with what the client extracts; update the client and file a follow-up under `docs/tasks/issues/ai-account-backup-cloakbrowser.md` |

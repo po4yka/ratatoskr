@@ -1,7 +1,7 @@
 """Hermetic tests for POST /v1/ai-backups/{service}/session (Mode A ingest).
 
 No Postgres, no Fernet key, no network required.
-AiBackupSessionStore.save and AiBackupRepository.clear_auth_expired are patched
+AiBackupSessionStore.save and AiBackupRepository.mark_authorization_unverified are patched
 at the class level so the full route logic is exercised without any real DB
 or crypto dependency.
 
@@ -13,11 +13,19 @@ that are instantiated inside the route body rather than injected via Depends.
 from __future__ import annotations
 
 import importlib
+import datetime as dt
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+
+from app.db.models.ai_backup import (
+    AiAccountBackup,
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 
 # Load the router module directly to avoid triggering app.api.routers.__init__,
 # which pulls in heavy adapter/di imports (same rationale as test_git_mirrors_router.py).
@@ -77,7 +85,7 @@ def _patched_internals(
       2. does AiBackupSessionStore(db).save(...)  → patched at the class level
          in the session_store module (the import is deferred inside the function
          body, so the module-level patch is the correct target)
-      3. calls _get_repo(request).clear_auth_expired(...)  → _get_repo itself
+      3. calls _get_repo(request).mark_authorization_unverified(...)  → _get_repo itself
          patched to return mock_repo directly
     """
     return (
@@ -97,7 +105,7 @@ def _mock_store_and_repo() -> tuple[MagicMock, MagicMock]:
     mock_store = MagicMock()
     mock_store.save = AsyncMock()
     mock_repo = MagicMock()
-    mock_repo.clear_auth_expired = AsyncMock()
+    mock_repo.mark_authorization_unverified = AsyncMock()
     return mock_store, mock_repo
 
 
@@ -106,7 +114,7 @@ def _mock_store_and_repo() -> tuple[MagicMock, MagicMock]:
 # ---------------------------------------------------------------------------
 
 
-def test_valid_session_returns_204_and_calls_save_and_clear_auth_expired() -> None:
+def test_valid_session_returns_204_and_marks_authorization_unverified() -> None:
     """A service-bound session cookie is saved and the route returns 204."""
     mock_store, mock_repo = _mock_store_and_repo()
     p1, p2, p3 = _patched_internals(mock_store, mock_repo)
@@ -122,8 +130,7 @@ def test_valid_session_returns_204_and_calls_save_and_clear_auth_expired() -> No
     assert save_args[0] == _USER_ID
     assert save_args[2] == _VALID_STATE
 
-    # AUTH_EXPIRED halt cleared after save
-    mock_repo.clear_auth_expired.assert_awaited_once()
+    mock_repo.mark_authorization_unverified.assert_awaited_once()
 
 
 def test_bad_shape_missing_cookies_key_returns_400() -> None:
@@ -190,6 +197,25 @@ def test_owner_dependency_accepts_first_configured_owner() -> None:
 
     with patch("app.api.routers.ai_backups._get_app_config", return_value=cfg):
         assert _ai_backups.get_ai_backup_owner(MagicMock(), user) is user
+
+
+def test_response_exposes_backup_and_authorization_independently() -> None:
+    checked_at = dt.datetime(2026, 7, 17, tzinfo=dt.UTC)
+    row = AiAccountBackup(
+        user_id=_USER_ID,
+        service=AiBackupService.CHATGPT,
+        status=AiBackupStatus.OK,
+        authorization_status=AiBackupAuthorizationStatus.EXPIRED,
+        authorization_checked_at=checked_at,
+        consecutive_failures=0,
+    )
+
+    item = _ai_backups._to_item(row)
+
+    assert item.status == "auth_expired"  # backward-compatible combined field
+    assert item.backup_status == "ok"
+    assert item.authorization_status == "expired"
+    assert item.authorization_checked_at == checked_at
 
 
 def test_storage_state_never_echoed_in_response() -> None:

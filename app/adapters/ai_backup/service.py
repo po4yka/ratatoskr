@@ -22,7 +22,7 @@ from app.adapters.ai_backup.errors import (
     classify_error,
 )
 from app.core.logging_utils import get_logger
-from app.db.models.ai_backup import AiBackupStatus
+from app.db.models.ai_backup import AiBackupAuthorizationStatus
 
 if TYPE_CHECKING:
     from app.adapters.ai_backup.repository import AiBackupRepository
@@ -90,7 +90,7 @@ class AiBackupOrchestrationService:
         correlation_id = str(uuid.uuid4())
         row = await self._repo.ensure(user_id, service)
 
-        if row.status == AiBackupStatus.AUTH_EXPIRED:
+        if row.authorization_status == AiBackupAuthorizationStatus.EXPIRED:
             logger.info("ai_backup_auth_expired_halted", extra={"service": service.value})
             return
 
@@ -103,6 +103,7 @@ class AiBackupOrchestrationService:
 
         storage_state = await self._session_store.load(user_id, service)
         if storage_state is None:
+            await self._repo.mark_authorization_missing(user_id, service)
             logger.info("ai_backup_no_session", extra={"service": service.value})
             return
 

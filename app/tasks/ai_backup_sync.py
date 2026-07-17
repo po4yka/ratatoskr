@@ -13,7 +13,11 @@ from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
-from app.db.models.ai_backup import AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
@@ -186,11 +190,16 @@ async def _run_sync(
             row = None
             run_failed = True
 
-        if run_failed or row is None or row.status == AiBackupStatus.FAILED:
+        if run_failed or row is None:
             outcome = "error"
-        elif row.status == AiBackupStatus.AUTH_EXPIRED:
+        elif row.authorization_status == AiBackupAuthorizationStatus.EXPIRED:
             outcome = "auth_required"
-        elif row.status == AiBackupStatus.OK:
+        elif row.status == AiBackupStatus.FAILED:
+            outcome = "error"
+        elif (
+            row.status == AiBackupStatus.OK
+            and row.authorization_status == AiBackupAuthorizationStatus.VALID
+        ):
             outcome = "success"
         else:
             outcome = "unverified"

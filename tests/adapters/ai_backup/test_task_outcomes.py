@@ -5,16 +5,24 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.db.models.ai_backup import AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 from app.tasks import ai_backup_sync
 
 
 class _Repo:
-    def __init__(self, states: dict[AiBackupService, AiBackupStatus]) -> None:
+    def __init__(
+        self,
+        states: dict[AiBackupService, tuple[AiBackupStatus, AiBackupAuthorizationStatus]],
+    ) -> None:
         self._states = states
 
     async def get(self, _owner_id: int, service: AiBackupService) -> SimpleNamespace:
-        return SimpleNamespace(status=self._states[service])
+        status, authorization_status = self._states[service]
+        return SimpleNamespace(status=status, authorization_status=authorization_status)
 
 
 class _Service:
@@ -33,7 +41,7 @@ def _config() -> MagicMock:
 
 def _patch_runtime(
     monkeypatch: pytest.MonkeyPatch,
-    states: dict[AiBackupService, AiBackupStatus],
+    states: dict[AiBackupService, tuple[AiBackupStatus, AiBackupAuthorizationStatus]],
 ) -> list[tuple[str, str]]:
     import app.adapters.ai_backup.repository as repository_module
     import app.adapters.ai_backup.service as service_module
@@ -59,8 +67,14 @@ async def test_run_sync_raises_after_recording_every_non_successful_service(
     recorded = _patch_runtime(
         monkeypatch,
         {
-            AiBackupService.CHATGPT: AiBackupStatus.AUTH_EXPIRED,
-            AiBackupService.CLAUDE: AiBackupStatus.OK,
+            AiBackupService.CHATGPT: (
+                AiBackupStatus.FAILED,
+                AiBackupAuthorizationStatus.EXPIRED,
+            ),
+            AiBackupService.CLAUDE: (
+                AiBackupStatus.OK,
+                AiBackupAuthorizationStatus.VALID,
+            ),
         },
     )
 
@@ -82,8 +96,14 @@ async def test_run_sync_completes_only_when_all_services_are_ok(
     recorded = _patch_runtime(
         monkeypatch,
         {
-            AiBackupService.CHATGPT: AiBackupStatus.OK,
-            AiBackupService.CLAUDE: AiBackupStatus.OK,
+            AiBackupService.CHATGPT: (
+                AiBackupStatus.OK,
+                AiBackupAuthorizationStatus.VALID,
+            ),
+            AiBackupService.CLAUDE: (
+                AiBackupStatus.OK,
+                AiBackupAuthorizationStatus.VALID,
+            ),
         },
     )
 

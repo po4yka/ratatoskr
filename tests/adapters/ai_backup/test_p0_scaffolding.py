@@ -13,7 +13,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.config.ai_backup import AiBackupConfig
-from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiAccountBackup,
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 from app.tasks.ai_backup_sync import _enabled_services
 
 
@@ -87,6 +92,12 @@ def test_enum_values_stable() -> None:
         "failed",
         "auth_expired",
         "disabled",
+    }
+    assert {s.value for s in AiBackupAuthorizationStatus} == {
+        "missing",
+        "unverified",
+        "valid",
+        "expired",
     }
 
 

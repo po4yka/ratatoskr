@@ -12,7 +12,7 @@ Omit --service to run all currently-enabled services (mirrors the Taskiq cron
 behaviour). Pass --service to force a single service even if its config flag is
 off — useful for validating a freshly-supplied session before the next scheduled
 window. ``--ingest`` validates the service-bound session cookie, stores it Fernet-encrypted
-for the owner (first ALLOWED_USER_IDS), and lifts any AUTH_EXPIRED halt.
+for the owner (first ALLOWED_USER_IDS), and marks authorization unverified.
 
 Exit codes:
     0  success (or no services enabled)
@@ -110,7 +110,8 @@ async def run_backup(service_name: str | None) -> int:
             if row is None:
                 print(f"  No database row found for {service.value}.")
             else:
-                print(f"  status:           {row.status.value}")
+                print(f"  backup_status:    {row.status.value}")
+                print(f"  authorization:    {row.authorization_status.value}")
                 print(f"  counts_json:      {row.counts_json}")
                 print(f"  last_backup_path: {row.last_backup_path}")
                 print(f"  last_error:       {row.last_error}")
@@ -124,7 +125,7 @@ async def ingest_session(service_name: str, path: str) -> int:
     """Store a captured Playwright storage_state blob for the owner (no JWT/REST).
 
     Reads ``path``, validates the shape, encrypts + persists it for the first
-    ALLOWED_USER_IDS owner, and lifts any AUTH_EXPIRED halt. Prints cookie names
+    ALLOWED_USER_IDS owner, and marks authorization unverified. Prints cookie names
     only — never values.
 
     Returns exit code (0 on success; 2 on bad input).
@@ -156,7 +157,7 @@ async def ingest_session(service_name: str, path: str) -> int:
             )
             return 2
         await AiBackupSessionStore(db).save(owner, service, storage_state)
-        await AiBackupRepository(db).clear_auth_expired(owner, service)
+        await AiBackupRepository(db).mark_authorization_unverified(owner, service)
     finally:
         await db.dispose()
 

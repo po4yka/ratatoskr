@@ -3230,7 +3230,7 @@ paths:
 
         On success: 204. On bad shape: 400. The storage_state is never echoed back.
 
-        Clears an existing AUTH_EXPIRED halt so the next scheduled run fires.'
+        Marks the session unverified so the next scheduled run verifies it.'
       operationId: ingest_session_v1_ai_backups__service__session_post
       security:
       - HTTPBearer: []
@@ -10678,7 +10678,21 @@ components:
         status:
           type: string
           title: Status
-          description: pending | ok | failed | auth_expired | disabled
+          description: Deprecated combined lifecycle state; use backup_status and authorization_status
+        backup_status:
+          type: string
+          title: Backup Status
+          description: pending | ok | failed | disabled
+        authorization_status:
+          type: string
+          title: Authorization Status
+          description: missing | unverified | valid | expired
+        authorization_checked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Authorization Checked At
         last_backed_up_at:
           anyOf:
           - type: string
@@ -10715,6 +10729,8 @@ components:
       required:
       - service
       - status
+      - backup_status
+      - authorization_status
       title: AiBackupItem
       description: Lifecycle state of one service's backup.
     AiBackupListResponse:

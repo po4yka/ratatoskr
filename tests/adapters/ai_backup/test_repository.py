@@ -1,11 +1,16 @@
-"""Tests for AiBackupRepository.clear_auth_expired (fake DB session)."""
+"""Tests for independent AI backup authorization lifecycle writes."""
 
 from __future__ import annotations
 
 import datetime as dt
 
 from app.adapters.ai_backup.repository import AiBackupRepository
-from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiAccountBackup,
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 
 
 class _FakeSession:
@@ -35,27 +40,37 @@ class _FakeDb:
         return _FakeCtx(_FakeSession(self._row))
 
 
-async def test_clear_auth_expired_preserves_last_backed_up_at() -> None:
+async def test_mark_authorization_unverified_preserves_backup_outcome() -> None:
     last = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
     row = AiAccountBackup(
         user_id=1,
         service=AiBackupService.CLAUDE,
-        status=AiBackupStatus.AUTH_EXPIRED,
+        status=AiBackupStatus.OK,
+        authorization_status=AiBackupAuthorizationStatus.EXPIRED,
         last_backed_up_at=last,
         last_error="401",
         last_error_category="auth_expired",
         consecutive_failures=3,
     )
     repo = AiBackupRepository(_FakeDb(row))
-    await repo.clear_auth_expired(1, AiBackupService.CLAUDE)
-    assert row.status == AiBackupStatus.PENDING
+    await repo.mark_authorization_unverified(1, AiBackupService.CLAUDE)
+    assert row.status == AiBackupStatus.OK
+    assert row.authorization_status == AiBackupAuthorizationStatus.UNVERIFIED
+    assert row.authorization_checked_at is None
     assert row.last_backed_up_at == last  # NOT advanced — outage window stays in scope
     assert row.last_error is None
-    assert row.consecutive_failures == 0
+    assert row.consecutive_failures == 3
 
 
-async def test_clear_auth_expired_noop_when_not_expired() -> None:
-    row = AiAccountBackup(user_id=1, service=AiBackupService.CLAUDE, status=AiBackupStatus.OK)
+async def test_mark_authorization_missing_preserves_backup_outcome() -> None:
+    row = AiAccountBackup(
+        user_id=1,
+        service=AiBackupService.CLAUDE,
+        status=AiBackupStatus.OK,
+        authorization_status=AiBackupAuthorizationStatus.VALID,
+    )
     repo = AiBackupRepository(_FakeDb(row))
-    await repo.clear_auth_expired(1, AiBackupService.CLAUDE)
-    assert row.status == AiBackupStatus.OK  # unchanged
+    await repo.mark_authorization_missing(1, AiBackupService.CLAUDE)
+    assert row.status == AiBackupStatus.OK
+    assert row.authorization_status == AiBackupAuthorizationStatus.MISSING
+    assert row.authorization_checked_at is not None
