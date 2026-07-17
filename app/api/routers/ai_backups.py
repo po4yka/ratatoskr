@@ -24,6 +24,7 @@ from app.db.session import (  # noqa: TC001 — used at runtime in FastAPI Depen
 
 if TYPE_CHECKING:
     from app.adapters.ai_backup.repository import AiBackupRepository
+    from app.config import AppConfig
     from app.db.models.ai_backup import AiAccountBackup
 
 logger = get_logger(__name__)
@@ -74,6 +75,23 @@ def _get_repo(request: Request) -> AiBackupRepository:
     return AiBackupRepository(_get_db(request))
 
 
+def _get_app_config(request: Request) -> AppConfig:
+    from app.di.api import resolve_api_runtime
+
+    return resolve_api_runtime(request).cfg
+
+
+def get_ai_backup_owner(
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Allow session-secret writes only for the configured deployment owner."""
+    owner_id = next(iter(_get_app_config(request).telegram.allowed_user_ids), None)
+    if owner_id is None or user["user_id"] != owner_id:
+        raise HTTPException(status_code=403, detail="AI account backup is owner-only")
+    return user
+
+
 def _to_item(row: AiAccountBackup) -> AiBackupItem:
     return AiBackupItem(
         service=row.service.value if hasattr(row.service, "value") else str(row.service),
@@ -117,7 +135,7 @@ async def ingest_session(
     service: AiBackupService,
     body: SessionIngestRequest,
     request: Request,
-    user: dict[str, Any] = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
 ) -> None:
     """Persist a Playwright browser session for (user, service) — Mode A ingest.
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -44,13 +45,13 @@ def _make_client(*, authenticated: bool = True) -> TestClient:
     app.include_router(_ai_backups.router)
 
     if authenticated:
-        app.dependency_overrides[_ai_backups.get_current_user] = lambda: {"user_id": _USER_ID}
+        app.dependency_overrides[_ai_backups.get_ai_backup_owner] = lambda: {"user_id": _USER_ID}
     else:
 
         def _raise_401() -> None:
             raise HTTPException(status_code=401, detail="Not authenticated")
 
-        app.dependency_overrides[_ai_backups.get_current_user] = _raise_401
+        app.dependency_overrides[_ai_backups.get_ai_backup_owner] = _raise_401
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -135,6 +136,26 @@ def test_unauthenticated_returns_401() -> None:
     resp = _make_client(authenticated=False).post(_URL, json=_VALID_BODY)
 
     assert resp.status_code == 401
+
+
+def test_owner_dependency_rejects_authenticated_non_owner() -> None:
+    cfg = MagicMock()
+    cfg.telegram.allowed_user_ids = (100, 200)
+
+    with patch("app.api.routers.ai_backups._get_app_config", return_value=cfg):
+        with pytest.raises(HTTPException) as exc_info:
+            _ai_backups.get_ai_backup_owner(MagicMock(), {"user_id": 200})
+
+    assert exc_info.value.status_code == 403
+
+
+def test_owner_dependency_accepts_first_configured_owner() -> None:
+    cfg = MagicMock()
+    cfg.telegram.allowed_user_ids = (100, 200)
+    user = {"user_id": 100}
+
+    with patch("app.api.routers.ai_backups._get_app_config", return_value=cfg):
+        assert _ai_backups.get_ai_backup_owner(MagicMock(), user) is user
 
 
 def test_storage_state_never_echoed_in_response() -> None:
