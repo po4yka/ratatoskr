@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
-from app.core.git_url_safety import assert_safe_git_url
+from app.core.git_url_safety import assert_safe_git_url, is_github_host
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirrorSource
 
@@ -123,7 +123,9 @@ class GitMirrorHandler(HandlerDependenciesMixin):
 
         mirror = await self._mirror_repo.upsert_target(
             user_id=ctx.uid,
-            source=GitMirrorSource.MANUAL,
+            source=(
+                GitMirrorSource.GITHUB if is_github_host(clone_url) else GitMirrorSource.MANUAL
+            ),
             clone_url=clone_url,
             name=display_name,
         )
