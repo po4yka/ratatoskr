@@ -68,6 +68,13 @@ class DeploymentConfig(BaseModel):
         le=604800,
         description="Maximum age of extraction runtime telemetry accepted as current.",
     )
+    status_ai_signal_max_age_seconds: int = Field(
+        default=86400,
+        validation_alias="STATUS_AI_SIGNAL_MAX_AGE_SECONDS",
+        ge=300,
+        le=604800,
+        description="Maximum age of AI circuit-breaker telemetry accepted as current.",
+    )
     status_probe_timeout_seconds: float = Field(
         default=1.5,
         validation_alias="STATUS_PROBE_TIMEOUT_SECONDS",

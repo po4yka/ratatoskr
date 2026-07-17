@@ -75,7 +75,6 @@ _VECTOR_RECONCILE_LAG_METRIC = "ratatoskr_vector_reconcile_oldest_lag_seconds"
 _EXTRACTION_LAST_RESULT_METRIC = "ratatoskr_scraper_chain_last_result_timestamp_seconds"
 _BACKUP_STALE_AFTER = timedelta(hours=36)
 _BACKUP_OUTAGE_AFTER = timedelta(hours=48)
-_AI_SIGNAL_MAX_AGE = timedelta(hours=24)
 _VECTOR_RECONCILE_LAG_WARNING_SECONDS = 3600
 
 
@@ -341,7 +340,10 @@ class PublicStatusService:
             process_level, payload = await _worker_metrics()
             if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
                 return PublicStatusLevel.UNKNOWN
-            return self._parse_openrouter_status(payload)
+            return self._parse_openrouter_status(
+                payload,
+                max_age=timedelta(seconds=self._deployment.status_ai_signal_max_age_seconds),
+            )
 
         async def _telegram_bot() -> PublicStatusLevel:
             process_level, _payload = await _bot_metrics()
@@ -479,7 +481,11 @@ class PublicStatusService:
 
     @classmethod
     def _parse_openrouter_status(
-        cls, payload: bytes, *, now: datetime | None = None
+        cls,
+        payload: bytes,
+        *,
+        max_age: timedelta,
+        now: datetime | None = None,
     ) -> PublicStatusLevel:
         values = cls._metric_values(payload, _OPENROUTER_CIRCUIT_UPDATED_METRIC)
         latest_by_model: dict[str, tuple[float, int]] = {}
@@ -501,7 +507,7 @@ class PublicStatusService:
                 age = now - datetime.fromtimestamp(timestamp, tz=UTC)
             except (OverflowError, OSError, ValueError):
                 continue
-            if timedelta(minutes=-5) <= age <= _AI_SIGNAL_MAX_AGE:
+            if timedelta(minutes=-5) <= age <= max_age:
                 fresh_states.append(state_level)
         if not fresh_states:
             return PublicStatusLevel.UNKNOWN

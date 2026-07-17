@@ -128,7 +128,14 @@ def test_ai_status_uses_only_fresh_openrouter_circuit_updates(
         for index, state in enumerate(states)
     ).encode()
 
-    assert PublicStatusService._parse_openrouter_status(sample, now=now) is expected
+    assert (
+        PublicStatusService._parse_openrouter_status(
+            sample,
+            max_age=timedelta(hours=24),
+            now=now,
+        )
+        is expected
+    )
 
 
 def test_ai_status_prefers_latest_state_per_model() -> None:
@@ -143,7 +150,11 @@ def test_ai_status_prefers_latest_state_per_model() -> None:
     ).encode()
 
     assert (
-        PublicStatusService._parse_openrouter_status(payload, now=now)
+        PublicStatusService._parse_openrouter_status(
+            payload,
+            max_age=timedelta(hours=24),
+            now=now,
+        )
         is PublicStatusLevel.OPERATIONAL
     )
 
