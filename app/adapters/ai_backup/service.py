@@ -22,6 +22,7 @@ from app.adapters.ai_backup.errors import (
     classify_error,
 )
 from app.core.logging_utils import get_logger
+from app.db.models.ai_backup import AiBackupStatus
 
 if TYPE_CHECKING:
     from app.adapters.ai_backup.repository import AiBackupRepository
@@ -88,6 +89,10 @@ class AiBackupOrchestrationService:
 
         correlation_id = str(uuid.uuid4())
         row = await self._repo.ensure(user_id, service)
+
+        if row.status == AiBackupStatus.AUTH_EXPIRED:
+            logger.info("ai_backup_auth_expired_halted", extra={"service": service.value})
+            return
 
         if row.backoff_until and dt.datetime.now(tz=dt.UTC) < row.backoff_until:
             logger.info(

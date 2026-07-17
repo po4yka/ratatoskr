@@ -15,13 +15,14 @@ from app.adapters.ai_backup.errors import (
 )
 from app.adapters.ai_backup.service import AiBackupOrchestrationService
 from app.config.ai_backup import AiBackupConfig
-from app.db.models.ai_backup import AiBackupService
+from app.db.models.ai_backup import AiBackupService, AiBackupStatus
 
 _AC = "app.adapters.content.browser_auth.authenticated_context"
 _CF = "app.adapters.ai_backup.client_factory"
 
 
 class _Row:
+    status: AiBackupStatus = AiBackupStatus.PENDING
     backoff_until: dt.datetime | None = None
     last_backed_up_at: dt.datetime | None = None
 
@@ -47,9 +48,11 @@ class _FakeRepo:
 class _FakeStore:
     def __init__(self, state: dict | None) -> None:
         self._state = state
+        self.loads: list[tuple[int, AiBackupService]] = []
         self.saved: list[dict] = []
 
-    async def load(self, _u: int, _s: AiBackupService) -> dict | None:
+    async def load(self, user_id: int, service: AiBackupService) -> dict | None:
+        self.loads.append((user_id, service))
         return self._state
 
     async def save(self, _u, _s, blob) -> None:
@@ -144,6 +147,24 @@ async def test_backoff_active_returns_early(tmp_path, monkeypatch) -> None:
     await svc.run(42, AiBackupService.CLAUDE)
     assert repo.calls == []
     assert store.saved == []
+
+
+async def test_auth_expired_status_halts_repeated_runs(tmp_path, monkeypatch) -> None:
+    row = _Row()
+    row.status = AiBackupStatus.AUTH_EXPIRED
+    repo = _FakeRepo(row)
+    store = _FakeStore({"cookies": []})
+    notifier = _RecordingNotifier()
+    _patch_browser_layer(monkeypatch, _OkClient())
+    svc = AiBackupOrchestrationService(_cfg(tmp_path), repo, store, notifier)
+
+    await svc.run(42, AiBackupService.CLAUDE)
+    await svc.run(42, AiBackupService.CLAUDE)
+
+    assert store.loads == []
+    assert store.saved == []
+    assert repo.calls == []
+    assert notifier.events == []
 
 
 async def test_auth_expired_marks_and_persists_session(tmp_path, monkeypatch) -> None:
