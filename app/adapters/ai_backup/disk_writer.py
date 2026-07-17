@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -152,12 +153,15 @@ class AiBackupDiskWriter:
         correlation_id: str,
         *,
         started_at: dt.datetime | None = None,
+        min_free_bytes: int = 0,
     ) -> None:
         self._data_root = Path(data_root).resolve()
         self._service = _sanitize_id(service)
         self._run_date = run_date
         self._correlation_id = correlation_id
         self._started_at = started_at or dt.datetime.now(tz=dt.UTC)
+        self._min_free_bytes = min_free_bytes
+        self._ensure_free_space(0)
         self._run_dir = _safe_child(self._data_root, self._service, run_date.isoformat())
         self._run_dir.mkdir(parents=True, exist_ok=True)
         self._manifest: dict[str, dict[str, str]] = {
@@ -171,6 +175,18 @@ class AiBackupDiskWriter:
     @property
     def run_dir(self) -> Path:
         return self._run_dir
+
+    def _ensure_free_space(self, growth_bytes: int) -> None:
+        probe = self._data_root
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        free = shutil.disk_usage(probe).free
+        required = self._min_free_bytes + max(0, growth_bytes)
+        if free < required:
+            raise OSError(
+                errno.ENOSPC,
+                f"AI backup requires {required} free bytes but only {free} remain",
+            )
 
     def _merge_existing_manifest(self) -> None:
         """Carry forward hashes already committed to today's run directory."""
@@ -222,6 +238,7 @@ class AiBackupDiskWriter:
             raise
         if existing is not None and _sha256_hex(existing) == sha:
             return sha
+        self._ensure_free_space(len(data) - len(existing or b""))
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             _atomic_write_nofollow(path, data)

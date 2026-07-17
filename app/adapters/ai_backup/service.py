@@ -122,6 +122,7 @@ class AiBackupOrchestrationService:
                 service.value,
                 dt.datetime.now(tz=dt.UTC).date(),
                 correlation_id,
+                min_free_bytes=ai_cfg.min_free_bytes,
             )
             await self._notifier.on_start(service)
             async with authenticated_context(
@@ -135,6 +136,8 @@ class AiBackupOrchestrationService:
                     host_allowlist=list(ai_cfg.host_allowlist),
                     inter_request_delay_sec=ai_cfg.request_delay_ms / 1000.0,
                     max_requests=ai_cfg.max_requests_per_run,
+                    max_response_bytes=ai_cfg.max_response_bytes,
+                    max_run_bytes=ai_cfg.max_run_bytes,
                 )
                 client = build_client(
                     service, fetcher, writer, ai_cfg, last_backed_up_at=row.last_backed_up_at

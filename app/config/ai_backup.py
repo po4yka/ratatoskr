@@ -82,6 +82,24 @@ class AiBackupConfig(BaseModel):
         validation_alias="AI_BACKUP_MAX_REQUESTS_PER_RUN",
         description="Hard cap on internal-API requests per service per run (safety stop).",
     )
+    max_response_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        ge=1,
+        validation_alias="AI_BACKUP_MAX_RESPONSE_BYTES",
+        description="Maximum decoded response body accepted from a provider.",
+    )
+    max_run_bytes: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=1,
+        validation_alias="AI_BACKUP_MAX_RUN_BYTES",
+        description="Maximum aggregate response bytes accepted per service run.",
+    )
+    min_free_bytes: int = Field(
+        default=512 * 1024 * 1024,
+        ge=0,
+        validation_alias="AI_BACKUP_MIN_FREE_BYTES",
+        description="Minimum filesystem free-space reserve maintained while writing backups.",
+    )
     download_files: bool = Field(
         default=True,
         validation_alias="AI_BACKUP_DOWNLOAD_FILES",

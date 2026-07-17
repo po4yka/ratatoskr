@@ -62,6 +62,10 @@ class RequestCapExceededError(RuntimeError):
     """The per-run request cap was reached."""
 
 
+class ResponseCapExceededError(RequestCapExceededError):
+    """A response or the aggregate run exceeded its configured byte cap."""
+
+
 # ── Response wrapper ─────────────────────────────────────────────────────────
 
 
@@ -191,6 +195,8 @@ class PlaywrightAuthedFetcher:
         inter_request_delay_sec: float = 1.5,
         jitter_sec: float = 0.5,
         max_requests: int = 5000,
+        max_response_bytes: int = 64 * 1024 * 1024,
+        max_run_bytes: int = 2 * 1024 * 1024 * 1024,
         timeout_ms: int = 30_000,
     ) -> None:
         self._req = context.request
@@ -198,12 +204,48 @@ class PlaywrightAuthedFetcher:
         self._delay = inter_request_delay_sec
         self._jitter = jitter_sec
         self._max = max_requests
+        self._max_response_bytes = max_response_bytes
+        self._max_run_bytes = max_run_bytes
         self._timeout_ms = timeout_ms
         self._count = 0
+        self._bytes_received = 0
 
     @property
     def requests_made(self) -> int:
         return self._count
+
+    @property
+    def bytes_received(self) -> int:
+        return self._bytes_received
+
+    def _check_declared_size(self, headers: dict[str, str]) -> None:
+        raw = headers.get("content-length")
+        if raw is None:
+            return
+        try:
+            declared = int(raw)
+        except (TypeError, ValueError):
+            return
+        if declared > self._max_response_bytes:
+            raise ResponseCapExceededError(
+                f"response Content-Length {declared} exceeds cap {self._max_response_bytes}"
+            )
+        if self._bytes_received + declared > self._max_run_bytes:
+            raise ResponseCapExceededError(
+                f"run response bytes would exceed cap {self._max_run_bytes}"
+            )
+
+    def _record_body(self, body: bytes) -> None:
+        size = len(body)
+        if size > self._max_response_bytes:
+            raise ResponseCapExceededError(
+                f"response body {size} exceeds cap {self._max_response_bytes}"
+            )
+        if self._bytes_received + size > self._max_run_bytes:
+            raise ResponseCapExceededError(
+                f"run response bytes exceed cap {self._max_run_bytes}"
+            )
+        self._bytes_received += size
 
     async def get(self, url: str, *, headers: dict[str, str] | None = None) -> FetchResponse:
         """GET ``url``, re-validating the allowlist + SSRF guard on every redirect hop.
@@ -238,7 +280,11 @@ class PlaywrightAuthedFetcher:
                     target = urljoin(target, location)
                     continue
                 # 3xx without a Location: surface it to the caller as-is.
-            return FetchResponse(status=resp.status, body_bytes=await resp.body())
+            response_headers = dict(resp.headers or {})
+            self._check_declared_size(response_headers)
+            body = await resp.body()
+            self._record_body(body)
+            return FetchResponse(status=resp.status, body_bytes=body)
 
         raise SSRFBlockedError(f"too many redirects (> {_MAX_REDIRECTS})")
 
@@ -249,6 +295,7 @@ __all__ = [
     "HostNotAllowedError",
     "PlaywrightAuthedFetcher",
     "RequestCapExceededError",
+    "ResponseCapExceededError",
     "SSRFBlockedError",
     "authenticated_context",
 ]

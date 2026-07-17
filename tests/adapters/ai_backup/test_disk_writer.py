@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -183,3 +184,15 @@ def test_invalid_existing_manifest_fails_closed(tmp_path) -> None:
     (first.run_dir / "manifest.json").write_text("not json")
     with pytest.raises(ValueError, match="manifest is invalid JSON"):
         _writer(tmp_path)
+
+
+def test_disk_free_reserve_fails_before_creating_run_dir(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.adapters.ai_backup.disk_writer.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=99),
+    )
+    with pytest.raises(OSError, match="requires 100 free bytes"):
+        AiBackupDiskWriter(
+            tmp_path / "not-created", "chatgpt", _DATE, "corr", min_free_bytes=100
+        )
+    assert not (tmp_path / "not-created").exists()

@@ -9,6 +9,7 @@ from app.adapters.content.browser_auth.authenticated_context import (
     HostNotAllowedError,
     PlaywrightAuthedFetcher,
     RequestCapExceededError,
+    ResponseCapExceededError,
     SSRFBlockedError,
 )
 
@@ -105,6 +106,34 @@ async def test_success_returns_body(monkeypatch) -> None:
     resp = await f.get("https://chatgpt.com/api", headers={"Authorization": "Bearer x"})
     assert resp.status == 200
     assert resp.json() == {"ok": True}
+
+
+async def test_declared_response_size_is_rejected_before_body(monkeypatch) -> None:
+    _allow_all_ssrf(monkeypatch)
+
+    class _LargeRequest:
+        async def get(self, *_args, **_kwargs):
+            return _FakeApiResp(200, b"must not be read", {"content-length": "100"})
+
+    f = PlaywrightAuthedFetcher(
+        _ctx_with(_LargeRequest()), host_allowlist=["chatgpt.com"], max_response_bytes=10
+    )
+    with pytest.raises(ResponseCapExceededError, match="Content-Length"):
+        await f.get("https://chatgpt.com/api")
+
+
+async def test_actual_and_aggregate_response_caps(monkeypatch) -> None:
+    _allow_all_ssrf(monkeypatch)
+    monkeypatch.setattr(ac.asyncio, "sleep", _noop_sleep)
+    f = PlaywrightAuthedFetcher(
+        _FakeContext(),
+        host_allowlist=["chatgpt.com"],
+        max_response_bytes=20,
+        max_run_bytes=20,
+    )
+    await f.get("https://chatgpt.com/a")
+    with pytest.raises(ResponseCapExceededError, match="run response bytes"):
+        await f.get("https://chatgpt.com/b")
 
 
 class _RedirectRequest:
