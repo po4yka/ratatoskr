@@ -189,6 +189,19 @@ async def test_5xx_is_transient_not_auth_expired(tmp_path, fake_fetcher) -> None
     assert not isinstance(exc_info.value, AiBackupAuthExpiredError)
 
 
+async def test_project_shape_drift_aborts_complete_result(tmp_path, fake_fetcher) -> None:
+    def handler(url: str) -> object:
+        if url.endswith("/api/account"):
+            return _account_org(url)
+        if url.endswith("/projects"):
+            return _json({"error": "shape drift"})
+        return None
+
+    client = ClaudeClient(fake_fetcher(handler), _writer(tmp_path))
+    with pytest.raises(AiBackupError, match="non-list project"):
+        await client.collect()
+
+
 async def test_non_string_artifact_code_does_not_crash(tmp_path, fake_fetcher) -> None:
     detail = {
         "chat_messages": [

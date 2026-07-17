@@ -10,7 +10,12 @@ import pytest
 
 from app.adapters.ai_backup.chatgpt_client import ChatGptClient
 from app.adapters.ai_backup.disk_writer import AiBackupDiskWriter
-from app.adapters.ai_backup.errors import AiBackupAuthExpiredError, AiBackupMaxRequestsError
+from app.adapters.ai_backup.errors import (
+    AiBackupAuthExpiredError,
+    AiBackupError,
+    AiBackupMaxRequestsError,
+    AiBackupParseError,
+)
 from app.adapters.content.browser_auth.authenticated_context import FetchResponse
 
 _DATE = dt.date(2026, 6, 27)
@@ -177,4 +182,34 @@ async def test_429_is_rate_limited_not_auth_expired(tmp_path, fake_fetcher) -> N
 
     client = ChatGptClient(fake_fetcher(handler), _writer(tmp_path))
     with pytest.raises(AiBackupMaxRequestsError):
+        await client.collect()
+
+
+async def test_5xx_fails_instead_of_recording_empty_success(tmp_path, fake_fetcher) -> None:
+    token = _jwt({"https://api.openai.com/auth": {"chatgpt_plan_type": "pro"}})
+
+    def handler(url: str) -> object:
+        if "/api/auth/session" in url:
+            return _json({"accessToken": token})
+        return _json({"error": "unavailable"}, status=503)
+
+    client = ChatGptClient(fake_fetcher(handler), _writer(tmp_path))
+    with pytest.raises(AiBackupError, match="HTTP 503"):
+        await client.collect()
+
+
+async def test_project_failure_aborts_complete_result(tmp_path, fake_fetcher) -> None:
+    token = _jwt({"https://api.openai.com/auth": {"chatgpt_plan_type": "pro"}})
+
+    def handler(url: str) -> object:
+        if "/api/auth/session" in url:
+            return _json({"accessToken": token})
+        if "/backend-api/conversations?" in url:
+            return _json({"items": []})
+        if "/backend-api/gizmos/snorlax/sidebar" in url:
+            return _json({"error": "shape drift"})
+        return None
+
+    client = ChatGptClient(fake_fetcher(handler), _writer(tmp_path))
+    with pytest.raises(AiBackupParseError, match="project list"):
         await client.collect()

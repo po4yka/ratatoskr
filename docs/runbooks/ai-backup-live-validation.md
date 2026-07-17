@@ -54,6 +54,41 @@ docker exec -it ratatoskr ls -la /data/ai-backups
 
 **Owner ID:** the task keys every backup row on the **first** Telegram user ID in `ALLOWED_USER_IDS`. Ensure that `ALLOWED_USER_IDS` is non-empty and that the first ID is the operator whose session will be submitted.
 
+### External acceptance gate (not reproducible with fixtures)
+
+The internal provider contracts and project-knowledge coverage cannot be
+certified from mocks. Treat live-account validation as blocked until an
+operator supplies all of the following:
+
+1. Explicit approval to access the operator's own ChatGPT and/or Claude account
+   through undocumented web APIs, acknowledging the Terms-of-Service and
+   account-suspension risk. Never use a third-party account.
+2. A disposable or otherwise risk-accepted account with a recorded expected
+   inventory. For ChatGPT include ordinary and archived conversations, one
+   Project with project instructions/knowledge, and at least one attachment. For
+   Claude include ordinary conversations, one Project with text knowledge, and
+   one Artifact. Record expected stable IDs and counts without copying content or
+   credentials into tickets.
+3. A freshly captured owner session containing the required service cookie and
+   `cf_clearance`, captured through the same CloakBrowser fingerprint and public
+   egress IP that will run the validation (Mode B when those differ).
+4. A non-production validation deployment with outbound access to only the
+   configured provider allowlist, both relevant feature flags enabled, a writable
+   empty backup root, enough disk headroom, and request/byte caps sized for the
+   recorded corpus. Keep Claude Compliance mode disabled unless a dedicated
+   sanctioned client is being validated; the current placeholder must fail closed.
+5. Authorization to retain redacted validation evidence: run correlation ID,
+   endpoint status codes, expected-versus-observed IDs/counts, manifest hashes,
+   file modes, and a restore/read-back check. Session blobs, cookie values,
+   access tokens, account identifiers, and conversation content must not enter
+   logs, screenshots, or repository artifacts.
+
+Completion requires observing both a full successful sweep and a second
+incremental sweep for each enabled provider, verifying project knowledge and
+attachments against the recorded inventory, then revoking the stored session.
+Until that evidence exists, report provider/project-knowledge compatibility as
+**unverified external blocker**, not as passed based on fixture tests.
+
 ## 3. Produce the session blob
 
 The session blob is a Playwright `storage_state` JSON that contains the browser's cookies and localStorage for the service domain. It is the only credential the subsystem stores; no account password is ever persisted.
