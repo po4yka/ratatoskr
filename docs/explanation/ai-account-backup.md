@@ -138,7 +138,7 @@ AI_BACKUP_DATA_PATH/<service>/<YYYY-MM-DD>/
   manifest.json   # counts, ids, content hashes, run metadata, correlation_id
 ```
 
-Writes are idempotent by id; `AI_BACKUP_INCREMENTAL` skips unchanged conversations. A run is successful only when every enabled collection subtree completes with the expected response shape; project or attachment failures fail the run instead of publishing a partial tree as `ok`. A later enhancement could `git commit` this tree through the existing git-backup engine for versioned history.
+Writes are idempotent by id; `AI_BACKUP_INCREMENTAL` skips unchanged conversations. A run is successful only when every enabled collection subtree completes with the expected response shape; project or attachment failures fail the run instead of publishing a partial tree as `ok`. Session loading, writer creation, provider collection, manifest finalization, and success persistence share one lifecycle boundary, so local crypto or disk failures also persist a failed outcome. A later enhancement could `git commit` this tree through the existing git-backup engine for versioned history.
 
 ## Task, scheduler, and surfaces
 

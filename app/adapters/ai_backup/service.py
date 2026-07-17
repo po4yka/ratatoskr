@@ -23,6 +23,7 @@ from app.adapters.ai_backup.errors import (
 )
 from app.core.logging_utils import get_logger
 from app.db.models.ai_backup import AiBackupAuthorizationStatus
+from app.security.secret_crypto import InvalidEncryptedSecretError
 
 if TYPE_CHECKING:
     from app.adapters.ai_backup.repository import AiBackupRepository
@@ -101,19 +102,8 @@ class AiBackupOrchestrationService:
             )
             return
 
-        storage_state = await self._session_store.load(user_id, service)
-        if storage_state is None:
-            await self._repo.mark_authorization_missing(user_id, service)
-            logger.info("ai_backup_no_session", extra={"service": service.value})
-            return
-
         ai_cfg = self._cfg.ai_backup
-        writer = AiBackupDiskWriter(
-            Path(ai_cfg.data_path),
-            service.value,
-            dt.datetime.now(tz=dt.UTC).date(),
-            correlation_id,
-        )
+        writer: AiBackupDiskWriter | None = None
         refreshed_out: list[dict] = []
         counts: dict[str, int] = {}
         requests_made = 0
@@ -121,6 +111,18 @@ class AiBackupOrchestrationService:
         fetcher: PlaywrightAuthedFetcher | None = None
 
         try:
+            storage_state = await self._session_store.load(user_id, service)
+            if storage_state is None:
+                await self._repo.mark_authorization_missing(user_id, service)
+                logger.info("ai_backup_no_session", extra={"service": service.value})
+                return
+
+            writer = AiBackupDiskWriter(
+                Path(ai_cfg.data_path),
+                service.value,
+                dt.datetime.now(tz=dt.UTC).date(),
+                correlation_id,
+            )
             await self._notifier.on_start(service)
             async with authenticated_context(
                 domain_for_service(service),
@@ -142,6 +144,26 @@ class AiBackupOrchestrationService:
                 counts = await client.collect()
                 skipped = client.skipped
                 requests_made = fetcher.requests_made
+
+            writer.finalize_manifest(
+                counts=counts,
+                requests_made=requests_made,
+                skipped_incremental=skipped,
+                incremental=ai_cfg.incremental,
+            )
+            await self._repo.record_success(
+                user_id, service, counts=counts, backup_path=str(writer.run_dir)
+            )
+            await self._notifier.on_success(service, counts, correlation_id)
+        except InvalidEncryptedSecretError:
+            message = "Stored AI backup session cannot be decrypted; re-ingest is required"
+            await self._repo.mark_auth_expired(user_id, service, message)
+            await self._notifier.on_auth_expired(service, correlation_id)
+            logger.warning(
+                "ai_backup_session_decrypt_action_required",
+                extra={"service": service.value, "correlation_id": correlation_id},
+            )
+            return
         except AiBackupAuthExpiredError as exc:
             await self._repo.mark_auth_expired(user_id, service, str(exc))
             await self._notifier.on_auth_expired(service, correlation_id)
@@ -157,18 +179,19 @@ class AiBackupOrchestrationService:
             # backup converges instead of re-fetching everything and re-tripping
             # the limit. Persist a partial manifest so progress is recorded, then
             # mark a retryable failure (the scheduler retries after backoff).
-            try:
-                writer.finalize_manifest(
-                    counts=writer.partial_counts(),
-                    requests_made=fetcher.requests_made if fetcher is not None else 0,
-                    skipped_incremental=0,
-                    incremental=ai_cfg.incremental,
-                )
-            except Exception:
-                logger.warning(
-                    "ai_backup_partial_manifest_failed",
-                    extra={"service": service.value, "correlation_id": correlation_id},
-                )
+            if writer is not None:
+                try:
+                    writer.finalize_manifest(
+                        counts=writer.partial_counts(),
+                        requests_made=fetcher.requests_made if fetcher is not None else 0,
+                        skipped_incremental=0,
+                        incremental=ai_cfg.incremental,
+                    )
+                except Exception:
+                    logger.warning(
+                        "ai_backup_partial_manifest_failed",
+                        extra={"service": service.value, "correlation_id": correlation_id},
+                    )
             await self._repo.record_failure(
                 user_id, service, category=classify_error(exc), message=str(exc)
             )
@@ -195,16 +218,7 @@ class AiBackupOrchestrationService:
                         extra={"service": service.value},
                     )
 
-        writer.finalize_manifest(
-            counts=counts,
-            requests_made=requests_made,
-            skipped_incremental=skipped,
-            incremental=ai_cfg.incremental,
-        )
-        await self._repo.record_success(
-            user_id, service, counts=counts, backup_path=str(writer.run_dir)
-        )
-        await self._notifier.on_success(service, counts, correlation_id)
+        assert writer is not None
         logger.info(
             "ai_backup_run_complete",
             extra={

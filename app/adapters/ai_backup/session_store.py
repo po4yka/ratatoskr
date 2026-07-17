@@ -125,13 +125,15 @@ class AiBackupSessionStore:
             return None
         try:
             plaintext = decrypt_secret(row.encrypted_cookies)
-        except InvalidEncryptedSecretError:
+            storage_state = json.loads(plaintext)
+            validate_storage_state(service, storage_state)
+        except (InvalidEncryptedSecretError, json.JSONDecodeError, ValueError) as exc:
             logger.warning(
                 "ai_backup_session_decrypt_failed",
                 extra={"user_id": user_id, "domain": domain},
             )
-            raise
-        return json.loads(plaintext)
+            raise InvalidEncryptedSecretError("Stored browser session is invalid") from exc
+        return storage_state
 
     async def save(self, user_id: int, service: AiBackupService, storage_state: dict) -> None:
         """Validate, encrypt, and upsert the storage_state for ``(user, service)``.

@@ -74,3 +74,20 @@ async def test_mark_authorization_missing_preserves_backup_outcome() -> None:
     assert row.status == AiBackupStatus.OK
     assert row.authorization_status == AiBackupAuthorizationStatus.MISSING
     assert row.authorization_checked_at is not None
+
+
+async def test_mark_auth_expired_preserves_backup_outcome() -> None:
+    last = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
+    row = AiAccountBackup(
+        user_id=1,
+        service=AiBackupService.CLAUDE,
+        status=AiBackupStatus.OK,
+        authorization_status=AiBackupAuthorizationStatus.VALID,
+        last_backed_up_at=last,
+    )
+    repo = AiBackupRepository(_FakeDb(row))
+    await repo.mark_auth_expired(1, AiBackupService.CLAUDE, "re-ingest required")
+    assert row.status == AiBackupStatus.OK
+    assert row.authorization_status == AiBackupAuthorizationStatus.EXPIRED
+    assert row.last_backed_up_at == last
+    assert row.last_error == "re-ingest required"

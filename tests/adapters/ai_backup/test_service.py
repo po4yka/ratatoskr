@@ -20,6 +20,7 @@ from app.db.models.ai_backup import (
     AiBackupService,
     AiBackupStatus,
 )
+from app.security.secret_crypto import InvalidEncryptedSecretError
 
 _AC = "app.adapters.content.browser_auth.authenticated_context"
 _CF = "app.adapters.ai_backup.client_factory"
@@ -54,13 +55,16 @@ class _FakeRepo:
 
 
 class _FakeStore:
-    def __init__(self, state: dict | None) -> None:
+    def __init__(self, state: dict | None, *, load_error: Exception | None = None) -> None:
         self._state = state
+        self._load_error = load_error
         self.loads: list[tuple[int, AiBackupService]] = []
         self.saved: list[dict] = []
 
     async def load(self, user_id: int, service: AiBackupService) -> dict | None:
         self.loads.append((user_id, service))
+        if self._load_error is not None:
+            raise self._load_error
         return self._state
 
     async def save(self, _u, _s, blob) -> None:
@@ -241,3 +245,75 @@ async def test_transient_error_records_failure_and_reraises(tmp_path, monkeypatc
     assert repo.calls[0][1] == AiBackupErrorCategory.UNKNOWN
     assert "failure" in notifier.events
     assert store.saved == [{"cookies": [{"name": "refreshed"}]}]
+
+
+async def test_session_load_error_records_failure(tmp_path) -> None:
+    repo = _FakeRepo()
+    store = _FakeStore(None, load_error=ValueError("ciphertext is invalid"))
+    notifier = _RecordingNotifier()
+    svc = AiBackupOrchestrationService(_cfg(tmp_path), repo, store, notifier)
+
+    with pytest.raises(ValueError, match="ciphertext is invalid"):
+        await svc.run(42, AiBackupService.CLAUDE)
+
+    assert repo.calls[0][0] == "failure"
+    assert notifier.events == ["failure"]
+
+
+async def test_undecryptable_session_requires_reingest_without_overwriting_backup(
+    tmp_path,
+) -> None:
+    row = _Row()
+    row.status = AiBackupStatus.OK
+    row.authorization_status = AiBackupAuthorizationStatus.VALID
+    repo = _FakeRepo(row)
+    store = _FakeStore(None, load_error=InvalidEncryptedSecretError("bad key"))
+    notifier = _RecordingNotifier()
+    svc = AiBackupOrchestrationService(_cfg(tmp_path), repo, store, notifier)
+
+    await svc.run(42, AiBackupService.CLAUDE)
+
+    assert [call[0] for call in repo.calls] == ["auth_expired"]
+    assert "bad key" not in repo.calls[0][1]
+    assert row.status == AiBackupStatus.OK
+    assert notifier.events == ["auth_expired"]
+
+
+async def test_writer_initialization_error_records_failure(tmp_path, monkeypatch) -> None:
+    def _raise_writer(*_args, **_kwargs):
+        raise OSError("backup disk unavailable")
+
+    monkeypatch.setattr("app.adapters.ai_backup.disk_writer.AiBackupDiskWriter", _raise_writer)
+    repo = _FakeRepo()
+    notifier = _RecordingNotifier()
+    svc = AiBackupOrchestrationService(
+        _cfg(tmp_path), repo, _FakeStore({"cookies": []}), notifier
+    )
+
+    with pytest.raises(OSError, match="backup disk unavailable"):
+        await svc.run(42, AiBackupService.CLAUDE)
+
+    assert repo.calls[0][0] == "failure"
+    assert repo.calls[0][1] == AiBackupErrorCategory.NETWORK
+    assert notifier.events == ["failure"]
+
+
+async def test_manifest_finalize_error_does_not_record_success(tmp_path, monkeypatch) -> None:
+    from app.adapters.ai_backup.disk_writer import AiBackupDiskWriter
+
+    def _raise_finalize(self, *_args, **_kwargs):
+        raise OSError("manifest write failed")
+
+    monkeypatch.setattr(AiBackupDiskWriter, "finalize_manifest", _raise_finalize)
+    repo = _FakeRepo()
+    notifier = _RecordingNotifier()
+    _patch_browser_layer(monkeypatch, _OkClient())
+    svc = AiBackupOrchestrationService(
+        _cfg(tmp_path), repo, _FakeStore({"cookies": []}), notifier
+    )
+
+    with pytest.raises(OSError, match="manifest write failed"):
+        await svc.run(42, AiBackupService.CLAUDE)
+
+    assert [call[0] for call in repo.calls] == ["failure"]
+    assert notifier.events == ["start", "failure"]

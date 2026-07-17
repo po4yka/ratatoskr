@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +13,7 @@ from app.adapters.ai_backup.session_store import (
     validate_storage_state_shape,
 )
 from app.db.models.ai_backup import AiBackupService
+from app.security.secret_crypto import InvalidEncryptedSecretError, encrypt_secret
 
 
 class _FakeSession:
@@ -144,6 +146,17 @@ async def test_roundtrip_encrypts() -> None:
     assert db.state["row"].encrypted_cookies != json.dumps(state, ensure_ascii=False).encode()
     loaded = await store.load(7, AiBackupService.CLAUDE)
     assert loaded == state
+
+
+@pytest.mark.usefixtures("_fernet")
+@pytest.mark.parametrize("plaintext", ["not-json", "[]", '{"cookies": []}'])
+async def test_load_wraps_malformed_decrypted_state(plaintext: str) -> None:
+    db = FakeDb()
+    db.state["row"] = SimpleNamespace(encrypted_cookies=encrypt_secret(plaintext))
+    store = AiBackupSessionStore(db)
+
+    with pytest.raises(InvalidEncryptedSecretError, match="browser session is invalid"):
+        await store.load(7, AiBackupService.CLAUDE)
 
 
 @pytest.mark.usefixtures("_fernet")
