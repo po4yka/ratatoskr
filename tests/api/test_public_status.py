@@ -296,6 +296,44 @@ async def test_slow_probe_is_bounded_and_reported_as_outage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancellation_resistant_probe_cannot_extend_total_timeout() -> None:
+    release = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+
+    async def _resistant() -> PublicStatusLevel:
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                cancellation_seen.set()
+                asyncio.current_task().uncancel()
+        return PublicStatusLevel.OPERATIONAL
+
+    probes = _probes()
+    probes["telegram_bot"] = _resistant
+    service = PublicStatusService(
+        deployment=DeploymentConfig(
+            STATUS_PROBE_TIMEOUT_SECONDS=0.01,
+            STATUS_TOTAL_TIMEOUT_SECONDS=0.05,
+        ),
+        component_probes=probes,
+        cache_enabled=False,
+    )
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+
+    try:
+        result = await service.get_status()
+    finally:
+        release.set()
+        await asyncio.sleep(0)
+
+    assert loop.time() - started < 0.15
+    assert cancellation_seen.is_set()
+    assert _components(result)["telegram_bot"].status is PublicStatusLevel.OUTAGE
+
+
+@pytest.mark.asyncio
 async def test_cancelling_collection_cancels_all_component_probes() -> None:
     started = 0
     cancelled = 0

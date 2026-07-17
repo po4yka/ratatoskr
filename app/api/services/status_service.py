@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -204,15 +205,10 @@ class PublicStatusService:
                 tasks.values(), timeout=self._deployment.status_total_timeout_seconds
             )
         except asyncio.CancelledError:
-            for task in tasks.values():
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks.values(), return_exceptions=True)
+            self._cancel_tasks(tasks.values())
             raise
         if pending:
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            self._cancel_tasks(pending)
 
         done_set = set(done)
         checked_at = datetime.now(UTC)
@@ -222,20 +218,26 @@ class PublicStatusService:
             task = tasks[spec.id]
             if task in done_set and not task.cancelled():
                 try:
-                    components[spec.id] = task.result()
-                    continue
+                    component = task.result()
                 except Exception:
-                    pass
-            components[spec.id] = self._component(
-                spec,
-                PublicStatusLevel.OUTAGE,
-                checked_at=checked_at,
-                latency_ms=timeout_latency_ms,
-            )
+                    component = self._component(
+                        spec,
+                        PublicStatusLevel.OUTAGE,
+                        checked_at=checked_at,
+                        latency_ms=timeout_latency_ms,
+                    )
+            else:
+                component = self._component(
+                    spec,
+                    PublicStatusLevel.OUTAGE,
+                    checked_at=checked_at,
+                    latency_ms=timeout_latency_ms,
+                )
+            components[spec.id] = component
             record_status_check(
                 spec.id,
-                PublicStatusLevel.OUTAGE.value,
-                self._deployment.status_total_timeout_seconds,
+                component.status.value,
+                (component.latency_ms or 0.0) / 1000,
             )
 
         groups = [
@@ -273,6 +275,21 @@ class PublicStatusService:
             ),
             groups=groups,
         )
+
+    @staticmethod
+    def _cancel_tasks(tasks: Iterable[asyncio.Task[PublicStatusComponent]]) -> None:
+        """Request cancellation without extending the public response deadline."""
+        for task in tasks:
+            if task.done():
+                continue
+            task.cancel()
+            task.add_done_callback(PublicStatusService._consume_task_result)
+
+    @staticmethod
+    def _consume_task_result(task: asyncio.Task[Any]) -> None:
+        """Consume a detached task result so late cancellation cannot warn the loop."""
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            task.result()
 
     def _build_probes(self, request: Request | None) -> dict[str, StatusProbe]:
         worker_metrics_task: asyncio.Task[tuple[PublicStatusLevel, bytes | None]] | None = None
@@ -581,7 +598,6 @@ class PublicStatusService:
             level = PublicStatusLevel.OUTAGE
             signal = None
         latency_ms = round((time.perf_counter() - start) * 1000, 2)
-        record_status_check(spec.id, level.value, latency_ms / 1000)
         return self._component(
             spec,
             level,

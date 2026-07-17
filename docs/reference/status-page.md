@@ -48,7 +48,10 @@ The current component map is:
 | Claude backup authorization | Persisted backup lifecycle reports active, unverified, unavailable, or authorization-required state. |
 
 Checks run concurrently under a total five-second ceiling and are cached for a
-short, validated TTL. Missing signals are `unknown`, not optimistically green.
+short, validated TTL. Once that ceiling expires, unfinished probes are detached
+after cancellation is requested so cancellation-resistant dependencies cannot
+hold the public response open. Missing signals are `unknown`, not optimistically
+green.
 Disabled optional components do not lower the aggregate. A critical component
 outage produces overall `outage`; any other outage, degradation, or unknown
 signal produces `degraded`.
