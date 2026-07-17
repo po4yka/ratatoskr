@@ -25,7 +25,6 @@ from app.api.models.responses.status import (
 from app.api.routers.health import (
     _check_database,
     _check_redis,
-    _check_scraper,
 )
 from app.config import load_config
 from app.core.time_utils import UTC
@@ -70,8 +69,10 @@ _OPENROUTER_CIRCUIT_METRIC = "openrouter_circuit_breaker_state"
 _PG_BACKUP_LAST_SUCCESS_METRIC = "ratatoskr_pg_backup_last_success_timestamp_seconds"
 _VECTOR_RECONCILE_RUNS_METRIC = "ratatoskr_vector_reconcile_runs_total"
 _VECTOR_RECONCILE_LAG_METRIC = "ratatoskr_vector_reconcile_oldest_lag_seconds"
+_EXTRACTION_LAST_RESULT_METRIC = "ratatoskr_scraper_chain_last_result_timestamp_seconds"
 _BACKUP_STALE_AFTER = timedelta(hours=36)
 _BACKUP_OUTAGE_AFTER = timedelta(hours=48)
+_EXTRACTION_SIGNAL_MAX_AGE = timedelta(hours=24)
 _VECTOR_RECONCILE_LAG_WARNING_SECONDS = 3600
 
 
@@ -291,8 +292,17 @@ class PublicStatusService:
             task.result()
 
     def _build_probes(self, request: Request | None) -> dict[str, StatusProbe]:
+        bot_metrics_task: asyncio.Task[tuple[PublicStatusLevel, bytes | None]] | None = None
         worker_metrics_task: asyncio.Task[tuple[PublicStatusLevel, bytes | None]] | None = None
         node_metrics_task: asyncio.Task[tuple[PublicStatusLevel, bytes | None]] | None = None
+
+        async def _bot_metrics() -> tuple[PublicStatusLevel, bytes | None]:
+            nonlocal bot_metrics_task
+            if bot_metrics_task is None:
+                bot_metrics_task = asyncio.create_task(
+                    self._fetch_metrics(self._deployment.status_bot_metrics_url)
+                )
+            return await bot_metrics_task
 
         async def _worker_metrics() -> tuple[PublicStatusLevel, bytes | None]:
             nonlocal worker_metrics_task
@@ -329,6 +339,16 @@ class PublicStatusService:
             if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
                 return PublicStatusLevel.UNKNOWN
             return self._parse_openrouter_status(payload)
+
+        async def _telegram_bot() -> PublicStatusLevel:
+            process_level, _payload = await _bot_metrics()
+            return process_level
+
+        async def _extraction() -> _StatusSignal:
+            process_level, payload = await _bot_metrics()
+            if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
+                return _StatusSignal(PublicStatusLevel.UNKNOWN, "Extraction status unavailable")
+            return self._parse_extraction_status(payload)
 
         async def _worker() -> PublicStatusLevel:
             process_level, _payload = await _worker_metrics()
@@ -382,13 +402,13 @@ class PublicStatusService:
         probes: dict[str, StatusProbe] = {
             "api": _api,
             "web_application": _web_application,
-            "telegram_bot": lambda: self._probe_process(self._deployment.status_bot_metrics_url),
+            "telegram_bot": _telegram_bot,
             "postgresql": _database,
             "redis": _check_redis,
             "vector_search": lambda: self._probe_http_ready(
                 self._deployment.status_qdrant_ready_url
             ),
-            "extraction": _check_scraper,
+            "extraction": _extraction,
             "ai_summarization": _ai_summarization,
             "taskiq_worker": _worker,
             "scheduler": lambda: self._probe_process(self._deployment.status_scheduler_metrics_url),
@@ -478,6 +498,32 @@ class PublicStatusService:
         if any(value >= 1 for value in values):
             return PublicStatusLevel.DEGRADED
         return PublicStatusLevel.OPERATIONAL
+
+    @classmethod
+    def _parse_extraction_status(
+        cls, payload: bytes, *, now: datetime | None = None
+    ) -> _StatusSignal:
+        values = cls._metric_values(payload, _EXTRACTION_LAST_RESULT_METRIC)
+        by_outcome = {
+            outcome: max(
+                (value for sample, value in values if f'outcome="{outcome}"' in sample),
+                default=0.0,
+            )
+            for outcome in ("success", "failure")
+        }
+        latest = max(by_outcome.values())
+        if latest <= 0:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "No extraction run observed")
+        now = now or datetime.now(UTC)
+        try:
+            age = now - datetime.fromtimestamp(latest, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "Extraction status unavailable")
+        if age < timedelta(minutes=-5) or age > _EXTRACTION_SIGNAL_MAX_AGE:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "No recent extraction run observed")
+        if by_outcome["failure"] > by_outcome["success"]:
+            return _StatusSignal(PublicStatusLevel.DEGRADED, "Latest extraction run failed")
+        return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Recent extraction succeeded")
 
     @staticmethod
     def _metric_values(payload: bytes, metric: str) -> list[tuple[str, float]]:

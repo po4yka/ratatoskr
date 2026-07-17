@@ -208,6 +208,73 @@ def test_vector_reconciliation_status_uses_run_and_lag_metrics() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("success_age", "failure_age", "expected"),
+    [
+        (timedelta(minutes=1), None, PublicStatusLevel.OPERATIONAL),
+        (timedelta(minutes=5), timedelta(minutes=1), PublicStatusLevel.DEGRADED),
+        (timedelta(hours=25), None, PublicStatusLevel.UNKNOWN),
+        (None, None, PublicStatusLevel.UNKNOWN),
+    ],
+)
+def test_extraction_status_uses_fresh_runtime_chain_results(
+    success_age: timedelta | None,
+    failure_age: timedelta | None,
+    expected: PublicStatusLevel,
+) -> None:
+    now = datetime.now(UTC)
+    samples: list[str] = []
+    if success_age is not None:
+        samples.append(
+            "ratatoskr_scraper_chain_last_result_timestamp_seconds"
+            f'{{outcome="success"}} {(now - success_age).timestamp()}'
+        )
+    if failure_age is not None:
+        samples.append(
+            "ratatoskr_scraper_chain_last_result_timestamp_seconds"
+            f'{{outcome="failure"}} {(now - failure_age).timestamp()}'
+        )
+
+    signal = PublicStatusService._parse_extraction_status("\n".join(samples).encode(), now=now)
+
+    assert signal.level is expected
+
+
+@pytest.mark.asyncio
+async def test_bot_and_extraction_share_one_metrics_scrape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = _probes()
+    probes.pop("telegram_bot")
+    probes.pop("extraction")
+    now = datetime.now(UTC).timestamp()
+    service = PublicStatusService(
+        deployment=DeploymentConfig(STATUS_BOT_METRICS_URL="http://bot:9101/metrics"),
+        component_probes=probes,
+        cache_enabled=False,
+    )
+    calls = 0
+
+    async def _fetch(_url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return (
+            PublicStatusLevel.OPERATIONAL,
+            (
+                "ratatoskr_scraper_chain_last_result_timestamp_seconds"
+                f'{{outcome="success"}} {now}\n'
+            ).encode(),
+        )
+
+    monkeypatch.setattr(service, "_fetch_metrics", _fetch)
+
+    result = await service.get_status()
+
+    assert _components(result)["extraction"].status is PublicStatusLevel.OPERATIONAL
+    assert calls == 1
+
+
 @pytest.mark.asyncio
 async def test_worker_and_ai_share_one_metrics_scrape(monkeypatch: pytest.MonkeyPatch) -> None:
     probes = _probes()
