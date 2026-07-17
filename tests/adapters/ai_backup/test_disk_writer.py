@@ -144,8 +144,42 @@ def test_finalize_manifest_atomic_and_complete(tmp_path) -> None:
     on_disk = json.loads((w.run_dir / "manifest.json").read_text())
     assert on_disk == manifest
     assert not (w.run_dir / ".manifest.json.tmp").exists()
-    assert manifest["schema_version"] == "1"
+    assert manifest["schema_version"] == "2"
     assert manifest["counts"]["conversations"] == 1
     assert manifest["run_metadata"]["requests_made"] == 4
     assert manifest["run_metadata"]["skipped_incremental"] == 2
     assert "c1" in manifest["conversations"]
+
+
+def test_same_day_manifest_preserves_previous_entries(tmp_path) -> None:
+    first = AiBackupDiskWriter(tmp_path, "chatgpt", _DATE, "run-1")
+    first.write_conversation("c1", {"x": 1})
+    first.write_file("f1", "one.bin", b"one")
+    first.finalize_manifest(
+        {"conversations": 1, "files": 1},
+        requests_made=2,
+        skipped_incremental=0,
+        incremental=True,
+    )
+
+    second = AiBackupDiskWriter(tmp_path, "chatgpt", _DATE, "run-2")
+    assert second.partial_counts()["conversations"] == 1
+    manifest = second.finalize_manifest(
+        {"conversations": 0, "files": 0},
+        requests_made=1,
+        skipped_incremental=1,
+        incremental=True,
+    )
+
+    assert manifest["correlation_id"] == "run-2"
+    assert set(manifest["conversations"]) == {"c1"}
+    assert set(manifest["files"]) == {"f1"}
+    assert manifest["counts"]["conversations"] == 1
+    assert manifest["run_metadata"]["collected_counts"]["conversations"] == 0
+
+
+def test_invalid_existing_manifest_fails_closed(tmp_path) -> None:
+    first = _writer(tmp_path)
+    (first.run_dir / "manifest.json").write_text("not json")
+    with pytest.raises(ValueError, match="manifest is invalid JSON"):
+        _writer(tmp_path)

@@ -44,7 +44,7 @@ _SAFE_ID_RE = re.compile(r"[^\w\-]")
 # stripped first and every path is containment-checked, so dots are safe here.
 _SAFE_NAME_RE = re.compile(r"[^\w.\-]")
 _SAFE_EXT_RE = re.compile(r"[^\w.]")
-_MANIFEST_SCHEMA_VERSION = "1"
+_MANIFEST_SCHEMA_VERSION = "2"
 
 # O_NOFOLLOW is POSIX but absent on Windows/some exotic platforms; degrade safely.
 _O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
@@ -166,10 +166,41 @@ class AiBackupDiskWriter:
             "files": {},
             "artifacts": {},
         }
+        self._merge_existing_manifest()
 
     @property
     def run_dir(self) -> Path:
         return self._run_dir
+
+    def _merge_existing_manifest(self) -> None:
+        """Carry forward hashes already committed to today's run directory."""
+        path = self._run_dir / "manifest.json"
+        try:
+            data = _read_nofollow(path)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError("Symlink detected at existing manifest") from exc
+            raise
+        if data is None:
+            return
+        try:
+            existing = json.loads(data)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError("Existing AI backup manifest is invalid JSON") from exc
+        if not isinstance(existing, dict):
+            raise ValueError("Existing AI backup manifest must be an object")
+        if existing.get("service") != self._service or existing.get("run_date") != str(
+            self._run_date
+        ):
+            raise ValueError("Existing AI backup manifest belongs to a different run directory")
+        for category in self._manifest:
+            entries = existing.get(category, {})
+            if not isinstance(entries, dict) or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in entries.items()
+            ):
+                raise ValueError(f"Existing AI backup manifest has invalid {category}")
+            self._manifest[category].update(entries)
 
     def _write_idempotent(self, path: Path, data: bytes) -> str:
         """Write ``data`` to ``path`` unless an identical blob is already there.
@@ -284,12 +315,12 @@ class AiBackupDiskWriter:
                 "finished_at": dt.datetime.now(tz=dt.UTC).isoformat(),
                 "requests_made": requests_made,
                 "skipped_incremental": skipped_incremental,
+                "collected_counts": {
+                    category: int(counts.get(category, 0)) for category in self._manifest
+                },
             },
             "counts": {
-                "conversations": int(counts.get("conversations", 0)),
-                "projects": int(counts.get("projects", 0)),
-                "files": int(counts.get("files", 0)),
-                "artifacts": int(counts.get("artifacts", 0)),
+                category: len(entries) for category, entries in self._manifest.items()
             },
             "conversations": self._manifest["conversations"],
             "projects": self._manifest["projects"],
