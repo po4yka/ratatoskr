@@ -5,12 +5,13 @@ Covers:
 - LLM retry-budget telemetry (LLM_CALL_ATTEMPTS_TOTAL, LLM_CALL_RETRY_EXHAUSTION_TOTAL, ...)
 - Per-request total LLM wall-time (LLM_REQUEST_TOTAL_LATENCY_SECONDS, LLM_REQUEST_SLOW_TOTAL)
 - Per-model latency and timeout (OPENROUTER_PER_MODEL_LATENCY, OPENROUTER_PER_MODEL_TIMEOUT)
-- OpenRouter circuit breaker state (OPENROUTER_CIRCUIT_BREAKER_STATE)
+- OpenRouter circuit breaker state and last-update freshness
 - OpenRouter stream fallback (OPENROUTER_STREAM_FALLBACK)
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from app.observability._metrics_base import (
@@ -162,6 +163,13 @@ if PROMETHEUS_AVAILABLE:
         multiprocess_mode="livemax",
         registry=REGISTRY,
     )
+    OPENROUTER_CIRCUIT_BREAKER_LAST_UPDATE_TIMESTAMP_SECONDS = Gauge(
+        "openrouter_circuit_breaker_last_update_timestamp_seconds",
+        "Unix timestamp of the latest observed per-model circuit breaker state",
+        ["model", "state"],
+        multiprocess_mode="livemax",
+        registry=REGISTRY,
+    )
 
 else:
     OPENROUTER_TOKENS = None
@@ -182,6 +190,7 @@ else:
     OPENROUTER_PER_MODEL_TIMEOUT = None
     OPENROUTER_PER_MODEL_LATENCY = None
     OPENROUTER_CIRCUIT_BREAKER_STATE = None
+    OPENROUTER_CIRCUIT_BREAKER_LAST_UPDATE_TIMESTAMP_SECONDS = None
 
 
 def record_openrouter_call(
@@ -378,8 +387,13 @@ def record_per_model_circuit_breaker_state(model: str, state: str) -> None:
     """
     if not PROMETHEUS_AVAILABLE:
         return
-    state_int = {"closed": 0, "half_open": 1, "open": 2}.get(state, 0)
-    OPENROUTER_CIRCUIT_BREAKER_STATE.labels(model=_bucket_model(model)).set(state_int)
+    states = {"closed": 0, "half_open": 1, "open": 2}
+    normalized_state = state if state in states else "closed"
+    bucketed_model = _bucket_model(model)
+    OPENROUTER_CIRCUIT_BREAKER_STATE.labels(model=bucketed_model).set(states[normalized_state])
+    OPENROUTER_CIRCUIT_BREAKER_LAST_UPDATE_TIMESTAMP_SECONDS.labels(
+        model=bucketed_model, state=normalized_state
+    ).set(time.time())
 
 
 def record_openrouter_stream_fallback(model: str, reason: str) -> None:

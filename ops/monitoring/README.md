@@ -74,7 +74,7 @@ the Qdrant container with the same `qdrant:6333/metrics` target.
 | Redis | pinned `redis_exporter`, `redis_up`, `redis_memory_*`, `redis_keyspace_*` | Reachability, memory, keyspace/cache ratios, evictions |
 | Qdrant/vector index | direct Qdrant `/metrics` scrape availability plus `ratatoskr_vector_*` | Qdrant availability, reconciliation lag and outcomes |
 | Scraper chain/Firecrawl | `ratatoskr_scraper_*`, `ratatoskr_firecrawl_*` | Provider success ratio and latency; the latest runtime chain outcome feeds public extraction status without a synthetic crawl |
-| LLM/OpenRouter | `ratatoskr_llm_*`, `ratatoskr_openrouter_*`, circuit-breaker gauges | Attempts, latency, breaker state, retry exhaustion, and cost alerts |
+| LLM/OpenRouter | `ratatoskr_llm_*`, `ratatoskr_openrouter_*`, circuit-breaker state and update-time gauges | Attempts, latency, freshness-aware breaker state, retry exhaustion, and cost alerts |
 | Durable URL work/Taskiq | `ratatoskr_url_processing_queue_depth`, `ratatoskr_url_processor_in_flight`, `ratatoskr_taskiq_retries_total` | Backlog, in-flight work, retry/dead-letter outcomes |
 | Digest | `ratatoskr_digest_*` | Delivery outcomes and existing delivery/reconnect alerts |
 | GitHub/social | `ratatoskr_github_*`, `ratatoskr_social_*` | Sync outcomes, pending analysis, provider fetch outcomes |

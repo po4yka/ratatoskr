@@ -107,32 +107,44 @@ async def test_all_healthy_signals_are_operational() -> None:
 
 
 @pytest.mark.parametrize(
-    ("sample", "expected"),
+    ("states", "age", "expected"),
     [
-        (
-            b'openrouter_circuit_breaker_state{model="primary"} 0\n',
-            PublicStatusLevel.OPERATIONAL,
-        ),
-        (
-            b'openrouter_circuit_breaker_state{model="primary"} 1\n',
-            PublicStatusLevel.DEGRADED,
-        ),
-        (
-            b'openrouter_circuit_breaker_state{model="primary"} 2\n',
-            PublicStatusLevel.OUTAGE,
-        ),
-        (
-            b'openrouter_circuit_breaker_state{model="primary"} 0\n'
-            b'openrouter_circuit_breaker_state{model="fallback"} 2\n',
-            PublicStatusLevel.DEGRADED,
-        ),
-        (b"unrelated_metric 1\n", PublicStatusLevel.UNKNOWN),
+        (("closed",), timedelta(minutes=1), PublicStatusLevel.OPERATIONAL),
+        (("half_open",), timedelta(minutes=1), PublicStatusLevel.DEGRADED),
+        (("open",), timedelta(minutes=1), PublicStatusLevel.OUTAGE),
+        (("closed", "open"), timedelta(minutes=1), PublicStatusLevel.DEGRADED),
+        (("closed",), timedelta(hours=25), PublicStatusLevel.UNKNOWN),
+        ((), timedelta(minutes=1), PublicStatusLevel.UNKNOWN),
     ],
 )
-def test_ai_status_uses_only_bounded_openrouter_circuit_metric(
-    sample: bytes, expected: PublicStatusLevel
+def test_ai_status_uses_only_fresh_openrouter_circuit_updates(
+    states: tuple[str, ...], age: timedelta, expected: PublicStatusLevel
 ) -> None:
-    assert PublicStatusService._parse_openrouter_status(sample) is expected
+    now = datetime.now(UTC)
+    sample = "\n".join(
+        "openrouter_circuit_breaker_last_update_timestamp_seconds"
+        f'{{model="model-{index}",state="{state}"}} {(now - age).timestamp()}'
+        for index, state in enumerate(states)
+    ).encode()
+
+    assert PublicStatusService._parse_openrouter_status(sample, now=now) is expected
+
+
+def test_ai_status_prefers_latest_state_per_model() -> None:
+    now = datetime.now(UTC)
+    old_open = (now - timedelta(minutes=10)).timestamp()
+    recent_closed = (now - timedelta(minutes=1)).timestamp()
+    payload = (
+        "openrouter_circuit_breaker_last_update_timestamp_seconds"
+        f'{{model="primary",state="open"}} {old_open}\n'
+        "openrouter_circuit_breaker_last_update_timestamp_seconds"
+        f'{{model="primary",state="closed"}} {recent_closed}\n'
+    ).encode()
+
+    assert (
+        PublicStatusService._parse_openrouter_status(payload, now=now)
+        is PublicStatusLevel.OPERATIONAL
+    )
 
 
 @pytest.mark.parametrize(
@@ -293,7 +305,10 @@ async def test_worker_and_ai_share_one_metrics_scrape(monkeypatch: pytest.Monkey
         await asyncio.sleep(0)
         return (
             PublicStatusLevel.OPERATIONAL,
-            b'openrouter_circuit_breaker_state{model="primary"} 0\n',
+            (
+                "openrouter_circuit_breaker_last_update_timestamp_seconds"
+                f'{{model="primary",state="closed"}} {datetime.now(UTC).timestamp()}\n'
+            ).encode(),
         )
 
     monkeypatch.setattr(service, "_fetch_metrics", _fetch)

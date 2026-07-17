@@ -65,7 +65,7 @@ _HEALTH_LEVELS = {
     "unknown": PublicStatusLevel.UNKNOWN,
 }
 _MAX_METRICS_RESPONSE_BYTES = 256 * 1024
-_OPENROUTER_CIRCUIT_METRIC = "openrouter_circuit_breaker_state"
+_OPENROUTER_CIRCUIT_UPDATED_METRIC = "openrouter_circuit_breaker_last_update_timestamp_seconds"
 _PG_BACKUP_LAST_SUCCESS_METRIC = "ratatoskr_pg_backup_last_success_timestamp_seconds"
 _VECTOR_RECONCILE_RUNS_METRIC = "ratatoskr_vector_reconcile_runs_total"
 _VECTOR_RECONCILE_LAG_METRIC = "ratatoskr_vector_reconcile_oldest_lag_seconds"
@@ -73,6 +73,7 @@ _EXTRACTION_LAST_RESULT_METRIC = "ratatoskr_scraper_chain_last_result_timestamp_
 _BACKUP_STALE_AFTER = timedelta(hours=36)
 _BACKUP_OUTAGE_AFTER = timedelta(hours=48)
 _EXTRACTION_SIGNAL_MAX_AGE = timedelta(hours=24)
+_AI_SIGNAL_MAX_AGE = timedelta(hours=24)
 _VECTOR_RECONCILE_LAG_WARNING_SECONDS = 3600
 
 
@@ -469,33 +470,37 @@ class PublicStatusService:
             pass
         return PublicStatusLevel.OUTAGE, None
 
-    @staticmethod
-    def _parse_openrouter_status(payload: bytes) -> PublicStatusLevel:
-        values: list[float] = []
-        for raw_line in payload.decode("utf-8", errors="ignore").splitlines():
-            line = raw_line.strip()
-            if not line.startswith(
-                (f"{_OPENROUTER_CIRCUIT_METRIC}{{", f"{_OPENROUTER_CIRCUIT_METRIC} ")
-            ):
+    @classmethod
+    def _parse_openrouter_status(
+        cls, payload: bytes, *, now: datetime | None = None
+    ) -> PublicStatusLevel:
+        values = cls._metric_values(payload, _OPENROUTER_CIRCUIT_UPDATED_METRIC)
+        latest_by_model: dict[str, tuple[float, int]] = {}
+        state_levels = {"closed": 0, "half_open": 1, "open": 2}
+        for sample, timestamp in values:
+            model = cls._metric_label_value(sample, "model")
+            state_name = cls._metric_label_value(sample, "state")
+            if model is None or state_name not in state_levels:
                 continue
-            if "}" in line:
-                value_text = line.rsplit("}", 1)[-1].strip()
-            else:
-                value_text = line.removeprefix(_OPENROUTER_CIRCUIT_METRIC).strip()
-            fields = value_text.split()
-            if not fields:
-                continue
-            try:
-                value = float(fields[0])
-            except ValueError:
-                continue
-            if math.isfinite(value):
-                values.append(value)
-        if not values:
+            candidate = (timestamp, state_levels[state_name])
+            if candidate > latest_by_model.get(model, (0.0, -1)):
+                latest_by_model[model] = candidate
+        if not latest_by_model:
             return PublicStatusLevel.UNKNOWN
-        if all(value >= 2 for value in values):
+        now = now or datetime.now(UTC)
+        fresh_states: list[int] = []
+        for timestamp, state_level in latest_by_model.values():
+            try:
+                age = now - datetime.fromtimestamp(timestamp, tz=UTC)
+            except (OverflowError, OSError, ValueError):
+                continue
+            if timedelta(minutes=-5) <= age <= _AI_SIGNAL_MAX_AGE:
+                fresh_states.append(state_level)
+        if not fresh_states:
+            return PublicStatusLevel.UNKNOWN
+        if all(state >= 2 for state in fresh_states):
             return PublicStatusLevel.OUTAGE
-        if any(value >= 1 for value in values):
+        if any(state >= 1 for state in fresh_states):
             return PublicStatusLevel.DEGRADED
         return PublicStatusLevel.OPERATIONAL
 
@@ -540,6 +545,15 @@ class PublicStatusService:
             if math.isfinite(value):
                 values.append((sample, value))
         return values
+
+    @staticmethod
+    def _metric_label_value(sample: str, label: str) -> str | None:
+        marker = f'{label}="'
+        _prefix, separator, remainder = sample.partition(marker)
+        if not separator:
+            return None
+        value, separator, _suffix = remainder.partition('"')
+        return value if separator else None
 
     @classmethod
     def _parse_postgresql_backup_status(

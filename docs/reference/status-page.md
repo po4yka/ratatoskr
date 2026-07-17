@@ -38,7 +38,7 @@ The current component map is:
 | Redis | The existing Redis health check succeeds or is explicitly disabled. |
 | Qdrant / vector search | The configured vector store reports availability. |
 | Scraper / extraction | The bot's local runtime telemetry reports the latest non-policy-blocked chain result; signals older than 24 hours are `unknown`. No synthetic crawl is performed. |
-| AI summarization | The worker's allowlisted OpenRouter circuit-breaker series; one failed model degrades the fallback chain, while all observed models open is an outage. Other providers remain `unknown` until they expose an equivalent live signal. |
+| AI summarization | The worker's allowlisted OpenRouter circuit-breaker updates; only observations from the last 24 hours participate. One failed model degrades the fallback chain, while all fresh observed models open is an outage. Other providers remain `unknown` until they expose an equivalent live signal. |
 | Taskiq worker | Its aggregated internal Prometheus exporter responds. |
 | Scheduler | Its internal Prometheus exporter responds. |
 | Vector reconciliation | Fixed-cardinality worker run and oldest-lag metrics show whether the durable vector repair loop is current. |

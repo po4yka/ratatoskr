@@ -119,6 +119,31 @@ def test_record_per_model_circuit_breaker_state_open_writes_2() -> None:
     assert _gauge_value(OPENROUTER_CIRCUIT_BREAKER_STATE, model=model) == 2.0
 
 
+def test_record_per_model_circuit_breaker_state_writes_freshness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.observability import metrics_llm
+    from app.observability.metrics import (
+        _DEFAULT_MODEL_ALLOWLIST,
+        OPENROUTER_CIRCUIT_BREAKER_LAST_UPDATE_TIMESTAMP_SECONDS,
+        record_per_model_circuit_breaker_state,
+    )
+
+    model = next(iter(_DEFAULT_MODEL_ALLOWLIST))
+    monkeypatch.setattr(metrics_llm.time, "time", lambda: 1_725_000_000.0)
+
+    record_per_model_circuit_breaker_state(model=model, state="open")
+
+    assert (
+        _gauge_value(
+            OPENROUTER_CIRCUIT_BREAKER_LAST_UPDATE_TIMESTAMP_SECONDS,
+            model=model,
+            state="open",
+        )
+        == 1_725_000_000.0
+    )
+
+
 def test_record_per_model_circuit_breaker_state_half_open_writes_1() -> None:
     """half_open state must write integer 1."""
     from app.observability.metrics import (
