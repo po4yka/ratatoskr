@@ -109,6 +109,10 @@ python tools/scripts/capture_ai_session.py --service chatgpt --out chatgpt.json
 python tools/scripts/capture_ai_session.py --service claude --out claude.json
 ```
 
+The helper builds the storage state in memory and atomically writes the output
+with mode `0600`. It refuses a symlink destination. Keep the file on a trusted
+local filesystem, upload it over HTTPS, and delete it immediately after ingest.
+
 The script opens a Chromium window. Log in normally (including 2FA). After the dashboard loads, press Enter in the terminal; the script writes the `storage_state` blob to the output file and exits. The file will contain `__Secure-next-auth.session-token` and `cf_clearance` for ChatGPT, or `sessionKey` and `cf_clearance` for Claude.
 
 **`cf_clearance` fingerprint/IP risk.** Cloudflare binds `cf_clearance` to the TLS/JA3 fingerprint and source IP of the browser that solved the challenge. A blob captured from your laptop carries your laptop's fingerprint and IP. If the sidecar runs on a Raspberry Pi with a different public IP, that `cf_clearance` will be re-challenged on the first internal-API call and the run will fail with a `403 cf-mitigated` error. Mode B is the fix for this.
