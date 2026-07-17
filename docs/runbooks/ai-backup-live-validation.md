@@ -245,7 +245,7 @@ validation corpus; never attach this file to a ticket or commit it:
 
 Verify the completed run offline. The verifier checks manifest schema v2,
 identity and counts, exact expected inventory, every payload SHA-256 by
-no-follow read-back, owner-only file modes, and rejects symlinks or unhashed
+no-follow read-back, owner-only file/directory modes, and rejects symlinks or unhashed
 files. Its JSON output contains aggregate counts and the manifest hash, but no
 provider IDs, correlation ID, filenames, or content:
 

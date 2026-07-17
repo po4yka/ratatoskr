@@ -35,6 +35,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import uuid
 from pathlib import Path
 
@@ -49,6 +50,7 @@ _MANIFEST_SCHEMA_VERSION = "2"
 
 # O_NOFOLLOW is POSIX but absent on Windows/some exotic platforms; degrade safely.
 _O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
+_O_DIRECTORY: int = getattr(os, "O_DIRECTORY", 0)
 
 
 def _sanitize_id(raw: str) -> str:
@@ -142,6 +144,39 @@ def _read_nofollow(path: Path) -> bytes | None:
         os.close(fd)
 
 
+def _ensure_private_directory_tree(root: Path, target: Path) -> None:
+    """Create/chmod every directory from ``root`` through ``target`` to 0700."""
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise PathTraversalError("Backup directory is outside the data root") from exc
+
+    current = root
+    for part in (None, *relative.parts):
+        if part is not None:
+            current /= part
+        try:
+            current.mkdir(mode=0o700, parents=current == root, exist_ok=True)
+            fd = os.open(current, os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW)
+        except OSError as exc:
+            raise PathTraversalError("Backup directory is unsafe or inaccessible") from exc
+        try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise PathTraversalError("Backup directory path is not a directory")
+            os.fchmod(fd, 0o700)
+        finally:
+            os.close(fd)
+
+
+def _harden_existing_subdirectories(root: Path) -> None:
+    """Upgrade legacy directories below ``root`` and fail closed on symlinks."""
+    for directory, names, _ in os.walk(root, followlinks=False):
+        for name in names:
+            candidate = Path(directory) / name
+            _ensure_private_directory_tree(candidate, candidate)
+
+
 class AiBackupDiskWriter:
     """Path-safe, idempotent-by-id writer for one backup run."""
 
@@ -162,8 +197,10 @@ class AiBackupDiskWriter:
         self._started_at = started_at or dt.datetime.now(tz=dt.UTC)
         self._min_free_bytes = min_free_bytes
         self._ensure_free_space(0)
+        _ensure_private_directory_tree(self._data_root, self._data_root)
         self._run_dir = _safe_child(self._data_root, self._service, run_date.isoformat())
-        self._run_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_private_directory_tree(self._data_root, self._run_dir)
+        _harden_existing_subdirectories(self._run_dir)
         self._manifest: dict[str, dict[str, str]] = {
             "conversations": {},
             "projects": {},
@@ -212,8 +249,7 @@ class AiBackupDiskWriter:
         for category in self._manifest:
             entries = existing.get(category, {})
             if not isinstance(entries, dict) or not all(
-                isinstance(key, str) and isinstance(value, str)
-                for key, value in entries.items()
+                isinstance(key, str) and isinstance(value, str) for key, value in entries.items()
             ):
                 raise ValueError(f"Existing AI backup manifest has invalid {category}")
             self._manifest[category].update(entries)
@@ -239,7 +275,7 @@ class AiBackupDiskWriter:
         if existing is not None and _sha256_hex(existing) == sha:
             return sha
         self._ensure_free_space(len(data) - len(existing or b""))
-        path.parent.mkdir(parents=True, exist_ok=True)
+        _ensure_private_directory_tree(self._run_dir, path.parent)
         try:
             _atomic_write_nofollow(path, data)
         except OSError as exc:
@@ -336,9 +372,7 @@ class AiBackupDiskWriter:
                     category: int(counts.get(category, 0)) for category in self._manifest
                 },
             },
-            "counts": {
-                category: len(entries) for category, entries in self._manifest.items()
-            },
+            "counts": {category: len(entries) for category, entries in self._manifest.items()},
             "conversations": self._manifest["conversations"],
             "projects": self._manifest["projects"],
             "files": self._manifest["files"],

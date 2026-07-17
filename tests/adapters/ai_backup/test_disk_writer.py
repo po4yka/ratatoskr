@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import stat
 from types import SimpleNamespace
 
 import pytest
@@ -124,6 +125,32 @@ def test_write_artifact_separates_by_conv_and_id(tmp_path) -> None:
     assert (w.run_dir / "artifacts" / "convB" / "art1.py").read_bytes() == b"print(2)"
 
 
+def test_backup_directories_are_owner_only(tmp_path) -> None:
+    data_root = tmp_path / "backups"
+    data_root.mkdir(mode=0o755)
+    legacy = data_root / "chatgpt" / _DATE.isoformat() / "legacy"
+    legacy.mkdir(parents=True, mode=0o755)
+    w = AiBackupDiskWriter(data_root, "chatgpt", _DATE, "corr-1")
+    w.write_conversation("conv1", {"x": 1})
+    w.write_project("project1", {"x": 1})
+    w.write_file("file1", "one.bin", b"one")
+    w.write_artifact("conv1", "artifact1", "txt", b"one")
+
+    directories = [
+        data_root,
+        data_root / "chatgpt",
+        w.run_dir,
+        w.run_dir / "conversations",
+        w.run_dir / "projects",
+        w.run_dir / "projects" / "project1",
+        w.run_dir / "files",
+        w.run_dir / "artifacts",
+        w.run_dir / "artifacts" / "conv1",
+        legacy,
+    ]
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in directories)
+
+
 @pytest.mark.parametrize("conv_id", ["../escape", "/absolute", "a\x00b", "a/b/c"])
 def test_remote_ids_cannot_escape_run_dir(tmp_path, conv_id: str) -> None:
     w = _writer(tmp_path)
@@ -192,7 +219,5 @@ def test_disk_free_reserve_fails_before_creating_run_dir(tmp_path, monkeypatch) 
         lambda _path: SimpleNamespace(free=99),
     )
     with pytest.raises(OSError, match="requires 100 free bytes"):
-        AiBackupDiskWriter(
-            tmp_path / "not-created", "chatgpt", _DATE, "corr", min_free_bytes=100
-        )
+        AiBackupDiskWriter(tmp_path / "not-created", "chatgpt", _DATE, "corr", min_free_bytes=100)
     assert not (tmp_path / "not-created").exists()

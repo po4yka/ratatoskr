@@ -87,6 +87,8 @@ def _validate_run_dir(path: Path) -> Path:
         raise VerificationError("run directory is missing or unreadable") from exc
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
         raise VerificationError("run directory must be a real directory, not a symlink")
+    if not _owner_only(metadata.st_mode):
+        raise VerificationError("run directory must be owner-only")
     return absolute.resolve()
 
 
@@ -274,6 +276,8 @@ def _walk_regular_files(run_dir: Path) -> set[Path]:
                 raise VerificationError("backup tree changed during inspection") from exc
             if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
                 raise VerificationError("backup tree contains an unsafe directory")
+            if not _owner_only(metadata.st_mode):
+                raise VerificationError("backup tree contains a non-owner-only directory")
         for name in file_names:
             candidate = current / name
             try:

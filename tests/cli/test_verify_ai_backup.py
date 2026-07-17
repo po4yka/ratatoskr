@@ -177,6 +177,14 @@ def test_verify_backup_rejects_world_readable_payload(tmp_path: Path) -> None:
         verify_backup(run_dir, inventory)
 
 
+def test_verify_backup_rejects_world_readable_directory(tmp_path: Path) -> None:
+    run_dir, inventory = _fixture(tmp_path)
+    (run_dir / "conversations").chmod(0o755)
+
+    with pytest.raises(VerificationError, match="non-owner-only directory"):
+        verify_backup(run_dir, inventory)
+
+
 def test_verify_backup_rejects_world_readable_expected_inventory(tmp_path: Path) -> None:
     run_dir, inventory = _fixture(tmp_path)
     inventory.chmod(0o644)
