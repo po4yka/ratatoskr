@@ -183,10 +183,15 @@ class ChatGptClient:
                 self.skipped += 1
                 continue
             saved = self._writer.load_saved_conversation(conv_id)
-            if saved is not None:
+            listed_update = meta.get("update_time")
+            if (
+                saved is not None
+                and listed_update is not None
+                and saved.get("update_time") == listed_update
+            ):
                 # Already on disk from a prior (possibly interrupted) run today:
-                # skip the network fetch so an interrupted sweep resumes instead
-                # of re-fetching everything and re-tripping the rate limit.
+                # resume only when it is the same provider version. A later
+                # same-day update must replace the saved detail.
                 counts["conversations"] += 1
                 self._collect_file_refs(saved, conv_id, file_refs)
                 self.resumed += 1

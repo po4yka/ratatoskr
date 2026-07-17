@@ -142,7 +142,7 @@ async def test_collect_resumes_already_saved_conversation(tmp_path, fake_fetcher
     token = _jwt({"https://api.openai.com/auth": {"chatgpt_plan_type": "pro"}})
     writer = _writer(tmp_path)
     # Simulate a prior interrupted run that already saved c1 to this run dir.
-    writer.write_conversation("c1", {"conversation_id": "c1", "mapping": {}})
+    writer.write_conversation("c1", {"conversation_id": "c1", "update_time": 1000.0, "mapping": {}})
 
     def handler(url: str) -> object:
         if "/api/auth/session" in url:
@@ -161,6 +161,38 @@ async def test_collect_resumes_already_saved_conversation(tmp_path, fake_fetcher
     counts = await client.collect()
     assert counts["conversations"] == 1
     assert client.resumed == 1
+
+
+async def test_collect_refreshes_same_day_conversation_when_provider_version_changed(
+    tmp_path, fake_fetcher
+) -> None:
+    token = _jwt({"https://api.openai.com/auth": {"chatgpt_plan_type": "pro"}})
+    writer = _writer(tmp_path)
+    writer.write_conversation(
+        "c1", {"conversation_id": "c1", "update_time": 1000.0, "mapping": {"old": {}}}
+    )
+
+    def handler(url: str) -> object:
+        if "/api/auth/session" in url:
+            return _json({"accessToken": token})
+        if "/backend-api/conversations?" in url:
+            if "is_archived=true" in url:
+                return _json({"items": []})
+            return _json({"items": [{"id": "c1", "update_time": 2000.0}]})
+        if "/backend-api/gizmos/snorlax/sidebar" in url:
+            return _json({"items": [], "cursor": None})
+        if "/backend-api/conversation/c1" in url:
+            return _json({"conversation_id": "c1", "update_time": 2000.0, "mapping": {"new": {}}})
+        return None
+
+    client = ChatGptClient(fake_fetcher(handler), writer)
+    counts = await client.collect()
+
+    saved = json.loads((writer.run_dir / "conversations" / "c1.json").read_text())
+    assert counts["conversations"] == 1
+    assert client.resumed == 0
+    assert saved["update_time"] == 2000.0
+    assert "new" in saved["mapping"]
 
 
 async def test_401_raises_auth_expired(tmp_path, fake_fetcher) -> None:

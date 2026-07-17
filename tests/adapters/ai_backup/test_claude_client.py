@@ -261,3 +261,44 @@ async def test_incremental_skip(tmp_path, fake_fetcher) -> None:
     counts = await client.collect()
     assert counts["conversations"] == 0
     assert client.skipped == 1
+
+
+async def test_collect_refreshes_same_day_conversation_when_provider_version_changed(
+    tmp_path, fake_fetcher
+) -> None:
+    writer = _writer(tmp_path)
+    writer.write_conversation(
+        "u1",
+        {
+            "uuid": "u1",
+            "updated_at": "2026-06-01T00:00:00Z",
+            "chat_messages": [],
+        },
+    )
+
+    def handler(url: str) -> object:
+        if url.endswith("/api/account"):
+            return _json(
+                {"memberships": [{"organization": {"uuid": "o", "capabilities": ["chat"]}}]}
+            )
+        if url.endswith("/projects"):
+            return _json([])
+        if url.endswith("/chat_conversations"):
+            return _json([{"uuid": "u1", "updated_at": "2026-06-02T00:00:00Z"}])
+        if "/chat_conversations/u1" in url:
+            return _json(
+                {
+                    "uuid": "u1",
+                    "updated_at": "2026-06-02T00:00:00Z",
+                    "chat_messages": [],
+                }
+            )
+        return None
+
+    client = ClaudeClient(fake_fetcher(handler), writer, incremental=False)
+    counts = await client.collect()
+
+    saved = json.loads((writer.run_dir / "conversations" / "u1.json").read_text())
+    assert counts["conversations"] == 1
+    assert client.resumed == 0
+    assert saved["updated_at"] == "2026-06-02T00:00:00Z"
