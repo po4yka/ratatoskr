@@ -31,6 +31,18 @@ def _make_row(user_id: int, encrypted_token: bytes) -> MagicMock:
     return row
 
 
+def _make_browser_row(row_id: int, user_id: int, encrypted_cookies: bytes) -> MagicMock:
+    row = MagicMock()
+    row.id = row_id
+    row.user_id = user_id
+    row.encrypted_cookies = encrypted_cookies
+    return row
+
+
+def _scalar_result(rows: list[MagicMock]) -> MagicMock:
+    return MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=rows))))
+
+
 def _import_reencrypt():
     from app.cli.rotate_github_tokens import reencrypt_all_tokens
 
@@ -50,11 +62,7 @@ async def test_reencrypt_row_encrypted_with_old_key(monkeypatch: pytest.MonkeyPa
 
     db = MagicMock()
     session = AsyncMock()
-    session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row])))
-        )
-    )
+    session.execute = AsyncMock(side_effect=[_scalar_result([row]), _scalar_result([])])
     session.get = AsyncMock(return_value=row)
     db.session.return_value.__aenter__ = AsyncMock(return_value=session)
     db.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -86,11 +94,7 @@ async def test_dry_run_does_not_write(monkeypatch: pytest.MonkeyPatch) -> None:
 
     db = MagicMock()
     session = AsyncMock()
-    session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row])))
-        )
-    )
+    session.execute = AsyncMock(side_effect=[_scalar_result([row]), _scalar_result([])])
     db.session.return_value.__aenter__ = AsyncMock(return_value=session)
     db.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -117,11 +121,7 @@ async def test_undecryptable_row_counted_as_failed(monkeypatch: pytest.MonkeyPat
 
     db = MagicMock()
     session = AsyncMock()
-    session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row])))
-        )
-    )
+    session.execute = AsyncMock(side_effect=[_scalar_result([row]), _scalar_result([])])
     db.session.return_value.__aenter__ = AsyncMock(return_value=session)
     db.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -145,11 +145,7 @@ async def test_user_id_filter(monkeypatch: pytest.MonkeyPatch) -> None:
 
     db = MagicMock()
     session = AsyncMock()
-    session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row])))
-        )
-    )
+    session.execute = AsyncMock(side_effect=[_scalar_result([row]), _scalar_result([])])
     session.get = AsyncMock(return_value=row)
     db.session.return_value.__aenter__ = AsyncMock(return_value=session)
     db.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -162,3 +158,64 @@ async def test_user_id_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     db.transaction.assert_called_once()
     assert result.processed == 1
     assert result.reencrypted == 1
+
+
+@pytest.mark.asyncio
+async def test_reencrypts_all_browser_sessions_with_old_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_key = Fernet.generate_key()
+    new_key = Fernet.generate_key()
+    first = _make_browser_row(10, 42, Fernet(old_key).encrypt(b'{"cookies": []}'))
+    second = _make_browser_row(11, 42, Fernet(old_key).encrypt(b'{"cookies": [{"name":"x"}]}'))
+
+    monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", new_key.decode("ascii"))
+    monkeypatch.setenv("GITHUB_TOKEN_PREVIOUS_KEYS", old_key.decode("ascii"))
+
+    db = MagicMock()
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        side_effect=[_scalar_result([]), _scalar_result([first, second])]
+    )
+    session.get = AsyncMock(side_effect=[first, second])
+    db.session.return_value.__aenter__ = AsyncMock(return_value=session)
+    db.session.return_value.__aexit__ = AsyncMock(return_value=False)
+    db.transaction.return_value.__aenter__ = AsyncMock(return_value=session)
+    db.transaction.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    reencrypt_all_tokens = _import_reencrypt()
+    result = await reencrypt_all_tokens(db)
+
+    assert result.processed == 2
+    assert result.reencrypted == 2
+    assert result.failed == 0
+    assert result.github_tokens_processed == 0
+    assert result.browser_sessions_processed == 2
+    assert Fernet(new_key).decrypt(first.encrypted_cookies) == b'{"cookies": []}'
+    assert Fernet(new_key).decrypt(second.encrypted_cookies) == b'{"cookies": [{"name":"x"}]}'
+
+
+@pytest.mark.asyncio
+async def test_concurrent_browser_session_update_is_not_overwritten(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = Fernet.generate_key()
+    stale = _make_browser_row(12, 42, Fernet(key).encrypt(b"old state"))
+    fresh = _make_browser_row(12, 42, Fernet(key).encrypt(b"new state"))
+
+    monkeypatch.setenv("GITHUB_TOKEN_ENCRYPTION_KEY", key.decode("ascii"))
+
+    db = MagicMock()
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[_scalar_result([]), _scalar_result([stale])])
+    session.get = AsyncMock(return_value=fresh)
+    db.session.return_value.__aenter__ = AsyncMock(return_value=session)
+    db.session.return_value.__aexit__ = AsyncMock(return_value=False)
+    db.transaction.return_value.__aenter__ = AsyncMock(return_value=session)
+    db.transaction.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    reencrypt_all_tokens = _import_reencrypt()
+    result = await reencrypt_all_tokens(db)
+
+    assert result.failed == 1
+    assert Fernet(key).decrypt(fresh.encrypted_cookies) == b"new state"
