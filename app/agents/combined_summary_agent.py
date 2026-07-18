@@ -21,8 +21,6 @@ from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORR
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from app.adapters.llm import LLMClientProtocol
     from app.application.ports.requests import LLMRepositoryPort
 
@@ -53,16 +51,12 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
         self,
         llm_client: LLMClientProtocol,
         correlation_id: str | None = None,
-        stream: bool = False,
-        on_stream_delta: Callable[[str], Awaitable[None] | None] | None = None,
         *,
         llm_repo: LLMRepositoryPort | None = None,
         request_id: int | None = None,
     ):
         super().__init__(name="CombinedSummaryAgent", correlation_id=correlation_id)
         self._llm = llm_client
-        self._stream = stream
-        self._on_stream_delta = on_stream_delta
         # DI supplies these so the synthesis LLM call is persisted to llm_calls
         # against one of the batch's article requests (rule 3: persist everything).
         self._llm_repo = llm_repo

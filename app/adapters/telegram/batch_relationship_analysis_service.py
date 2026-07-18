@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 import json
 import time
-from functools import partial
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import urlparse
 
@@ -13,8 +12,6 @@ from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
@@ -97,14 +94,6 @@ class BatchRelationshipAnalysisService:
         start_time_ms = time.time() * 1000
         sender = _resolve_sender(self._response_formatter)
         draft_enabled = _is_draft_streaming_enabled(sender)
-        preview_buffer = [""]
-        on_stream_delta = partial(
-            self._combined_stream_delta,
-            sender,
-            message,
-            draft_enabled,
-            preview_buffer,
-        )
 
         session_id: int | None = None
         try:
@@ -173,8 +162,6 @@ class BatchRelationshipAnalysisService:
                 relationship=relationship,
                 full_summaries=full_summaries,
                 language=language,
-                stream=draft_enabled,
-                on_stream_delta=on_stream_delta if draft_enabled else None,
             )
             if combined_summary is not None:
                 await self._batch_session_repo.async_update_batch_session_combined_summary(
@@ -232,26 +219,6 @@ class BatchRelationshipAnalysisService:
         if not draft_enabled:
             return
         await _send_message_draft_safe(sender, message, text, force=True)
-
-    async def _combined_stream_delta(
-        self,
-        sender: Any,
-        message: Any,
-        draft_enabled: bool,
-        preview_buffer: list[str],
-        delta: str,
-    ) -> None:
-        if not draft_enabled or not delta:
-            return
-        preview_buffer[0] += delta
-        preview = preview_buffer[0][-1400:].strip()
-        if not preview:
-            return
-        await _send_message_draft_safe(
-            sender,
-            message,
-            f"🔗 Relationship detected. Building combined summary...\n\n{preview}",
-        )
 
     def _clear_message_draft(self, sender: Any, message: Any) -> None:
         clear_draft = getattr(sender, "clear_message_draft", None)
@@ -494,8 +461,6 @@ class BatchRelationshipAnalysisService:
         relationship: Any,
         full_summaries: list[dict[str, Any]],
         language: str,
-        stream: bool = False,
-        on_stream_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> Any | None:
         if not (self._batch_config.combined_summary_enabled and self._llm_client):
             return None
@@ -510,8 +475,6 @@ class BatchRelationshipAnalysisService:
         combined_agent = CombinedSummaryAgent(
             llm_client=self._llm_client,
             correlation_id=correlation_id,
-            stream=stream,
-            on_stream_delta=on_stream_delta,
             llm_repo=self._llm_repo,
             request_id=anchor_request_id,
         )
