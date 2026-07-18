@@ -678,6 +678,11 @@ class GraphURLProcessor:
                 )
 
             return result
+        except asyncio.CancelledError:
+            terminal_status = "failed"
+            terminal_error_code = "CancelledError"
+            terminal_error_message = "URL flow cancelled before completion"
+            raise
         except Exception as exc:
             raise_if_cancelled(exc)
             terminal_status = "failed"

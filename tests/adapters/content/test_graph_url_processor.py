@@ -15,6 +15,7 @@ Scenarios:
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
@@ -940,6 +941,28 @@ async def test_orchestration_exception_marks_error_notifies_and_leases_failed(mo
     assert outcome_kwargs["status"] == "failed"
     assert outcome_kwargs["error_code"] == "RuntimeError"
     assert outcome_kwargs["error_message"] == "delivery exploded"
+
+
+async def test_orchestration_cancellation_propagates_and_never_leases_succeeded(monkeypatch):
+    lease = _patch_lease(monkeypatch)
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(side_effect=asyncio.CancelledError()),
+        plain=AsyncMock(side_effect=asyncio.CancelledError()),
+    )
+
+    facade = _facade()
+
+    with pytest.raises(asyncio.CancelledError):
+        await facade.handle_url_flow(_url_request())
+
+    facade.request_repo.async_update_request_status.assert_not_awaited()
+    facade.response_formatter.send_error_notification.assert_not_awaited()
+    lease.record_synchronous_outcome.assert_awaited_once()
+    _, outcome_kwargs = lease.record_synchronous_outcome.call_args
+    assert outcome_kwargs["status"] == "failed"
+    assert outcome_kwargs["error_code"] == "CancelledError"
+    assert outcome_kwargs["error_message"] == "URL flow cancelled before completion"
 
 
 async def test_orchestration_failure_renders_paywall_copy_for_academic_error(monkeypatch):
