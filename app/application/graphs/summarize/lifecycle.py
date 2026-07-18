@@ -181,6 +181,7 @@ async def route_terminal_failure(
             reason_code=reason_code,
             error=error,
             retryable=False,
+            raise_on_error=True,
         )
     else:
         # No request row to attach the failure to (should not happen past ingest);

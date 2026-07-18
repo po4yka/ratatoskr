@@ -202,6 +202,30 @@ async def test_run_deletes_checkpoint_only_after_terminal_recovery(monkeypatch) 
     assert events == ["recover", "persist-terminal", "cleanup"]
 
 
+async def test_run_preserves_checkpoint_when_terminal_persistence_fails(monkeypatch) -> None:
+    checkpointer = MagicMock(adelete_thread=AsyncMock())
+    graph = MagicMock(
+        ainvoke=AsyncMock(side_effect=RuntimeError("node boom")),
+        checkpointer=checkpointer,
+    )
+    monkeypatch.setattr(
+        graph_mod,
+        "route_terminal_failure",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    result = await run_summarize_graph(
+        graph=graph,
+        deps=MagicMock(),
+        correlation_id="corr-durable",
+        request_id=9,
+        lang="en",
+    )
+
+    assert "Error ID: corr-durable" in result["error"]
+    checkpointer.adelete_thread.assert_not_awaited()
+
+
 async def test_run_preserves_checkpoint_on_cancellation() -> None:
     checkpointer = MagicMock(adelete_thread=AsyncMock())
     graph = MagicMock(

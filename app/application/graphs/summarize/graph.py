@@ -30,6 +30,7 @@ from app.application.graphs.summarize.lifecycle import (
     REASON_GRAPH_NODE_FAILURE,
     REASON_GRAPH_RECURSION_LIMIT,
     CallBudgetExceeded,
+    error_id_message,
     notification_type_for_exception,
     route_terminal_failure,
 )
@@ -323,7 +324,13 @@ async def run_summarize_graph(
                 reason_code=reason_code,
                 recovered_llm_calls=recovered_llm_calls,
             )
-        finally:
+        except Exception:
+            logger.exception(
+                "summarize_graph_terminal_persistence_failed",
+                extra={"correlation_id": correlation_id, "request_id": request_id},
+            )
+            message = error_id_message(correlation_id, request_id)
+        else:
             await cleanup_checkpoint_thread(graph, config)
         return {
             "error": message,
