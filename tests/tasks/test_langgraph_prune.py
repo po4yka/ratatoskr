@@ -16,6 +16,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import app.tasks.langgraph_prune as lp
+from psycopg import sql as psycopg_sql
+
 from app.tasks.langgraph_prune import CheckpointPruneStats, _prune_body, _run_prune
 
 
@@ -58,6 +60,7 @@ def _stub_psycopg(
     conn.transaction = MagicMock(return_value=tx)
     connect = connect or AsyncMock(return_value=conn)
     fake = types.ModuleType("psycopg")
+    fake.sql = psycopg_sql
     fake.AsyncConnection = MagicMock()
     fake.AsyncConnection.connect = connect
     monkeypatch.setitem(sys.modules, "psycopg", fake)
