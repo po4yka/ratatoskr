@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select, update
+from sqlalchemy import Integer, String, column, select, update, values
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import Request, Summary, SummaryEmbedding, model_to_dict
@@ -134,27 +134,26 @@ class EmbeddingRepositoryAdapter:
         if not expected_content_hashes:
             return []
         now = _utcnow()
-        indexed: list[int] = []
+        expected = (
+            values(
+                column("summary_id", Integer),
+                column("content_hash", String),
+                name="expected_embeddings",
+            )
+            .data(list(expected_content_hashes.items()))
+            .cte()
+        )
         async with self._database.transaction() as session:
-            for summary_id, expected_hash in expected_content_hashes.items():
-                hash_predicate = (
-                    SummaryEmbedding.content_hash.is_(None)
-                    if expected_hash is None
-                    else SummaryEmbedding.content_hash == expected_hash
+            result = await session.execute(
+                update(SummaryEmbedding)
+                .where(
+                    SummaryEmbedding.summary_id == expected.c.summary_id,
+                    SummaryEmbedding.content_hash.is_not_distinct_from(expected.c.content_hash),
                 )
-                result = await session.execute(
-                    update(SummaryEmbedding)
-                    .where(
-                        SummaryEmbedding.summary_id == summary_id,
-                        hash_predicate,
-                    )
-                    .values(last_indexed_at=now, index_status="indexed")
-                    .returning(SummaryEmbedding.summary_id)
-                )
-                updated_summary_id = result.scalar_one_or_none()
-                if updated_summary_id is not None:
-                    indexed.append(updated_summary_id)
-        return indexed
+                .values(last_indexed_at=now, index_status="indexed")
+                .returning(SummaryEmbedding.summary_id)
+            )
+            return list(result.scalars())
 
     async def async_get_summary_embedding(self, summary_id: int) -> dict[str, Any] | None:
         """Retrieve embedding for a summary."""

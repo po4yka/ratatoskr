@@ -115,17 +115,22 @@ async def test_driver_streams_stages_sections_and_captures_final_state() -> None
             {
                 "event": "on_chain_end",
                 "name": "LangGraph",
-                "data": {"output": {"request_id": _RID, "summary": {"x": 1}}},
+                "data": {
+                    "output": {"request_id": _RID, "summary_id": 99, "summary": {"x": 1}}
+                },
             },
         ]
     )
     result = await run_summarize_graph_streamed(
         graph=graph, deps=_deps(), sink=sink, correlation_id=_CID, request_id=_RID, lang="en"
     )
-    assert result == {"request_id": _RID, "summary": {"x": 1}}
+    assert result == {"request_id": _RID, "summary_id": 99, "summary": {"x": 1}}
     assert graph.deleted_threads == [_CID]
-    assert [c[0] for c in sink.calls] == ["stage", "stage", "section"]
-    assert sink.calls[-1] == ("section", {"section": "summary_250", "content": "Hi"})
+    assert [c[0] for c in sink.calls] == ["stage", "stage", "section", "done"]
+    assert sink.calls[-1] == (
+        "done",
+        {"request_id": str(_RID), "correlation_id": _CID, "summary_id": "99"},
+    )
 
 
 async def test_driver_routes_node_failure_to_terminal_path(monkeypatch) -> None:
@@ -145,10 +150,11 @@ async def test_driver_routes_node_failure_to_terminal_path(monkeypatch) -> None:
         return "Error ID: corr-xyz"
 
     monkeypatch.setattr(graphs_mod, "route_terminal_failure", fake_route)
+    sink = RecordingSink()
     result = await run_summarize_graph_streamed(
         graph=RaisingGraph(),
         deps=_deps(),
-        sink=RecordingSink(),
+        sink=sink,
         correlation_id=_CID,
         request_id=_RID,
         lang="en",
@@ -163,6 +169,17 @@ async def test_driver_routes_node_failure_to_terminal_path(monkeypatch) -> None:
     assert captured["reason_code"] == "GRAPH_NODE_FAILURE"
     assert captured["exc_type"] == "RuntimeError"
     assert captured["recovered"] == []  # no LLM call happened before the fault
+    assert sink.calls == [
+        (
+            "error",
+            {
+                "request_id": str(_RID),
+                "correlation_id": _CID,
+                "code": "GRAPH_NODE_FAILURE",
+                "message": "Error ID: corr-xyz",
+            },
+        )
+    ]
 
 
 async def test_driver_maps_call_budget_exceeded_reason(monkeypatch) -> None:
@@ -217,7 +234,12 @@ async def test_driver_ignores_nested_and_non_dict_chain_end() -> None:
     # No valid root dict output captured -> the empty-dict fallback (best-effort,
     # not load-bearing; T9 parity asserts output via ainvoke).
     assert result == {}
-    assert sink.calls == []
+    assert sink.calls == [
+        (
+            "done",
+            {"request_id": str(_RID), "correlation_id": _CID, "summary_id": None},
+        )
+    ]
 
 
 # --- resume does not replay a half-stream: no stream buffer in checkpoint state ---

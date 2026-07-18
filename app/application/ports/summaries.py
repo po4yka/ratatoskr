@@ -210,6 +210,17 @@ class SummaryRepositoryPort(Protocol):
     ) -> SummaryFinalizeResult:
         """Persist summary and update request status; return its id and version."""
 
+    async def async_persist_summary_with_llm_calls(
+        self,
+        request_id: int,
+        lang: str,
+        json_payload: dict[str, Any],
+        llm_calls: list[dict[str, Any]],
+        insights_json: dict[str, Any] | None = None,
+        is_read: bool = False,
+    ) -> SummaryFinalizeResult:
+        """Atomically persist a summary and its required LLM attempt trail."""
+
     async def async_update_summary_insights(
         self,
         request_id: int,

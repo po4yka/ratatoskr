@@ -966,7 +966,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         try:
             for start in range(0, len(deduped_ids), _DELETE_FILTER_CHUNK_SIZE):
                 chunk = deduped_ids[start : start + _DELETE_FILTER_CHUNK_SIZE]
-                self._client.delete(
+                result = self._client.delete(
                     collection_name=self._collection_name,
                     points_selector=FilterSelector(
                         filter=Filter(
@@ -979,6 +979,11 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                         )
                     ),
                     wait=True,
+                )
+                _require_write_acknowledgement(
+                    result,
+                    wait=True,
+                    operation="request batch delete",
                 )
         except Exception as exc:
             logger.error(

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config.database import DatabaseConfig
 from app.core.time_utils import UTC
@@ -16,6 +17,7 @@ from app.db.models import (
     AggregationSession,
     AggregationSessionItem,
     CrawlResult,
+    LLMCall,
     Request,
     Summary,
     SummaryFeedback,
@@ -59,6 +61,7 @@ async def _clear(database: Database) -> None:
         await session.execute(delete(SummaryFeedback))
         await session.execute(delete(TopicSearchIndex))
         await session.execute(delete(CrawlResult))
+        await session.execute(delete(LLMCall))
         await session.execute(delete(Summary))
         await session.execute(delete(Request))
         await session.execute(delete(User))
@@ -149,6 +152,79 @@ async def test_summary_repository_upserts_reads_and_finalizes(database: Database
             select(Request.status).where(Request.id == request_id)
         )
     assert request_status == RequestStatus.COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_summary_repository_atomically_persists_graph_attempt_trail(
+    database: Database,
+) -> None:
+    repo = SummaryRepositoryAdapter(database)
+    request_id = await _create_request(database)
+    calls = [
+        {
+            "request_id": request_id,
+            "attempt_index": 1,
+            "attempt_trigger": "graph_node",
+            "provider": "openrouter",
+            "model": "model-a",
+            "status": "ok",
+        }
+    ]
+
+    result = await repo.async_persist_summary_with_llm_calls(
+        request_id,
+        "en",
+        {"summary_250": "atomic"},
+        calls,
+    )
+    # A resumed persist node replays the same deterministic attempt index; the
+    # repository must keep one audit row instead of duplicating or failing.
+    await repo.async_persist_summary_with_llm_calls(
+        request_id,
+        "en",
+        {"summary_250": "atomic"},
+        calls,
+    )
+
+    async with database.session() as session:
+        request_status = await session.scalar(
+            select(Request.status).where(Request.id == request_id)
+        )
+        persisted_calls = (
+            await session.scalars(select(LLMCall).where(LLMCall.request_id == request_id))
+        ).all()
+
+    assert isinstance(result.summary_id, int)
+    assert request_status == RequestStatus.PENDING.value
+    assert len(persisted_calls) == 1
+    assert persisted_calls[0].attempt_trigger == "graph_node"
+
+
+@pytest.mark.asyncio
+async def test_summary_repository_rolls_back_summary_when_attempt_trail_fails(
+    database: Database,
+) -> None:
+    repo = SummaryRepositoryAdapter(database)
+    request_id = await _create_request(database)
+
+    with pytest.raises(SQLAlchemyError):
+        await repo.async_persist_summary_with_llm_calls(
+            request_id,
+            "en",
+            {"summary_250": "must roll back"},
+            [
+                {
+                    "request_id": request_id,
+                    "attempt_index": 1,
+                    "attempt_trigger": "not-a-postgres-enum-value",
+                    "provider": "openrouter",
+                    "model": "model-a",
+                    "status": "ok",
+                }
+            ],
+        )
+
+    assert await repo.async_get_summary_by_request(request_id) is None
 
 
 @pytest.mark.asyncio

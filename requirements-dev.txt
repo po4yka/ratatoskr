@@ -13,7 +13,7 @@ anyio==4.13.0
     # via
     #   httpx
     #   taskiq
-ast-serialize==0.5.0
+ast-serialize==0.6.0
     # via mypy
 attrs==26.1.0
     # via
@@ -34,7 +34,7 @@ colorama==0.4.6
     #   click
     #   pytest
     #   radon
-coverage==7.15.1
+coverage==7.15.2
     # via pytest-cov
 distlib==0.4.0
     # via virtualenv
@@ -57,7 +57,7 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via respx
-hypothesis==6.155.7
+hypothesis==6.156.6
 identify==2.6.19
     # via pre-commit
 idna==3.15
@@ -81,7 +81,7 @@ jsonschema-specifications==2025.9.1
     #   openapi-schema-validator
 lazy-object-proxy==1.12.0
     # via openapi-spec-validator
-librt==0.11.0 ; platform_python_implementation != 'PyPy'
+librt==0.13.0 ; platform_python_implementation != 'PyPy'
     # via mypy
 mando==0.7.1
     # via radon
@@ -93,7 +93,7 @@ multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
-mypy==2.1.0
+mypy==2.3.0
 mypy-extensions==1.1.0
     # via mypy
 nodeenv==1.10.0
@@ -185,7 +185,7 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.20
+ruff==0.15.22
 six==1.17.0
     # via
     #   mando

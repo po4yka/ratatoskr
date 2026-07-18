@@ -100,7 +100,9 @@ class TestBatchRelationshipFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.output.series_info.numbering_pattern, "Part N")
 
     async def test_relationship_agent_detects_unrelated_articles(self) -> None:
-        agent = RelationshipAnalysisAgent(llm_client=None, correlation_id="test-unrelated-detection")
+        agent = RelationshipAnalysisAgent(
+            llm_client=None, correlation_id="test-unrelated-detection"
+        )
 
         result = await agent.execute(
             RelationshipAnalysisInput(

@@ -14,12 +14,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _provider_from_model(model: str | None) -> str:
-    if not model:
-        return "unknown"
-    return model.split("/", 1)[0] if "/" in model else "unknown"
-
-
 async def persist_agent_llm_call(
     llm_repo: LLMRepositoryPort | None,
     *,
@@ -38,6 +32,9 @@ async def persist_agent_llm_call(
     attempt_trigger: str | None = None,
     correlation_id: str | None = None,
     structured_output_used: bool | None = None,
+    provider: str | None = None,
+    request_messages: list[dict[str, Any]] | None = None,
+    response_json: Any = None,
 ) -> None:
     """Write one normalized agent LLM-call record without changing agent outcomes.
 
@@ -50,13 +47,32 @@ async def persist_agent_llm_call(
         return
 
     resolved_model = str(getattr(result, "model_used", None) or model or "unknown")
+    resolved_provider = provider if isinstance(provider, str) and provider else "unknown"
+    parsed = getattr(result, "parsed", None)
+    if response_json is None and parsed is not None:
+        model_dump = getattr(parsed, "model_dump", None)
+        if callable(model_dump):
+            try:
+                response_json = model_dump(mode="json")
+            except TypeError as exc:
+                if "unexpected keyword argument 'mode'" not in str(exc):
+                    raise
+                response_json = model_dump()
+        else:
+            response_json = parsed
     payload: LLMCallRecord = {
         "request_id": request_id,
-        "provider": _provider_from_model(resolved_model),
+        "provider": resolved_provider,
         "model": resolved_model,
         "endpoint": endpoint,
-        "response_text": response_text,
-        "tokens_prompt": tokens_prompt if tokens_prompt is not None else getattr(result, "tokens_prompt", None),
+        "request_messages_json": list(request_messages or []),
+        "response_text": response_text
+        if response_text is not None
+        else getattr(result, "response_text", None),
+        "response_json": response_json,
+        "tokens_prompt": tokens_prompt
+        if tokens_prompt is not None
+        else getattr(result, "tokens_prompt", None),
         "tokens_completion": (
             tokens_completion
             if tokens_completion is not None

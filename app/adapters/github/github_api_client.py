@@ -372,9 +372,7 @@ class GitHubAPIClient:
         """
         expected_host = urlparse(self.BASE_URL).hostname
         if urlparse(url).hostname != expected_host:
-            raise GitHubServerError(
-                f"Refusing to follow pagination Link to non-GitHub host: {url}"
-            )
+            raise GitHubServerError(f"Refusing to follow pagination Link to non-GitHub host: {url}")
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             t0 = time.monotonic()

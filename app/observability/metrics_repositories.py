@@ -41,6 +41,7 @@ if PROMETHEUS_AVAILABLE:
         "ratatoskr_github_sync_rate_limit_streak",
         "Consecutive GitHub sync runs rate-limited for a user",
         ["user_id"],
+        multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
 
@@ -78,6 +79,7 @@ if PROMETHEUS_AVAILABLE:
     GITHUB_PENDING_ANALYSIS_BACKLOG = Gauge(
         "ratatoskr_github_pending_analysis_backlog",
         "Repositories awaiting analysis (pending_analysis=True) after the last sync run",
+        multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
 

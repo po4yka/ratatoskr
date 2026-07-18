@@ -1,9 +1,8 @@
 """Summarize ``StateGraph`` assembly + invocation (ADR-0010/0011/0015).
 
 This module (with :mod:`app.di.graphs`) is the ONLY langgraph-coupled surface.
-langgraph is imported **lazily inside the functions** so the module stays
-importable in the import-linter / mypy / unit-test CI envs, which do not install
-the optional ``graph`` extra (an ``app.*`` import must never require it).
+LangGraph is a required runtime dependency; imports remain local to the assembly
+functions so framework coupling does not leak into node modules.
 
 Contract:
 
@@ -22,7 +21,7 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict, get_type_hints
 
 from app.application.graphs.summarize import nodes
 from app.application.graphs.summarize.lifecycle import (
@@ -30,6 +29,7 @@ from app.application.graphs.summarize.lifecycle import (
     REASON_GRAPH_NODE_FAILURE,
     REASON_GRAPH_RECURSION_LIMIT,
     CallBudgetExceeded,
+    error_id_message,
     notification_type_for_exception,
     route_terminal_failure,
 )
@@ -83,6 +83,33 @@ _NODES: dict[str, Any] = {
     "notify": nodes.notify,
 }
 
+_UNTRACKED_BULK_FIELDS: dict[str, type[Any]] = {
+    "source_text": str,
+    "grounding_block": str,
+    "requested_system_prompt": str,
+    "feedback_instructions": str,
+    "system_prompt": str,
+    "messages": list,
+    "content_for_summary": str,
+}
+
+
+def _checkpoint_state_schema() -> type[Any]:
+    """Build the LangGraph schema with bulk handoffs excluded from checkpoints.
+
+    ``UntrackedValue`` is imported only at graph assembly time so the application
+    state module remains framework-independent.
+    Nodes continue to use the ordinary ``SummarizeState`` TypedDict.
+    """
+    from langgraph.channels import UntrackedValue
+
+    annotations = get_type_hints(SummarizeState, include_extras=True)
+    for field, value_type in _UNTRACKED_BULK_FIELDS.items():
+        annotations[field] = Annotated[annotations[field], UntrackedValue(value_type)]
+    return TypedDict(  # type: ignore[operator]
+        "CheckpointSummarizeState", annotations, total=False
+    )
+
 
 def build_initial_state(
     *,
@@ -91,6 +118,8 @@ def build_initial_state(
     lang: str,
     input_url: str = "",
     source_text: str = "",
+    requested_system_prompt: str = "",
+    feedback_instructions: str = "",
     user_scope: str | None = None,
     environment: str | None = None,
     stream: bool = False,
@@ -130,6 +159,10 @@ def build_initial_state(
         "stream": stream,
         "two_pass_eligible": two_pass_eligible,
     }
+    if requested_system_prompt:
+        initial_state["requested_system_prompt"] = requested_system_prompt
+    if feedback_instructions:
+        initial_state["feedback_instructions"] = feedback_instructions
     if user_scope is not None:
         initial_state["user_scope"] = user_scope
     if environment is not None:
@@ -207,12 +240,75 @@ async def cleanup_checkpoint_thread(graph: Any, config: dict[str, Any]) -> None:
         )
 
 
+async def prepare_resumable_invocation(
+    graph: Any,
+    config: dict[str, Any],
+    initial_state: SummarizeState,
+) -> tuple[SummarizeState | None, dict[str, Any] | None]:
+    """Choose fresh input, pending-checkpoint resume, or a checkpointed result.
+
+    LangGraph resumes a pending thread only when invoked with ``None``. Passing a
+    freshly built state for the same ``thread_id`` restarts the graph and replays
+    already committed nodes. A terminal snapshot can be returned directly when a
+    previous cleanup failed, avoiding duplicate persistence and notifications.
+    """
+    get_state = getattr(graph, "aget_state", None)
+    if not callable(get_state):
+        return initial_state, None
+    try:
+        pending = get_state(config)
+        if not inspect.isawaitable(pending):
+            return initial_state, None
+        snapshot = await pending
+    except Exception:
+        logger.warning(
+            "summarize_graph_checkpoint_probe_failed",
+            extra={"thread_id": config.get("configurable", {}).get("thread_id")},
+            exc_info=True,
+        )
+        return initial_state, None
+
+    values = getattr(snapshot, "values", None)
+    if not isinstance(values, dict) or not values:
+        return initial_state, None
+    if "correlation_id" not in values and "request_id" not in values:
+        # Defensive for incomplete/custom saver snapshots: without an identity
+        # marker there is not enough evidence that this state belongs to the run.
+        return initial_state, None
+
+    for identity_key in ("correlation_id", "request_id"):
+        checkpoint_value = values.get(identity_key)
+        initial_value = initial_state.get(identity_key)
+        if checkpoint_value is not None and checkpoint_value != initial_value:
+            raise ValueError(
+                f"checkpoint {identity_key} mismatch: "
+                f"expected {initial_value!r}, got {checkpoint_value!r}"
+            )
+
+    next_nodes = getattr(snapshot, "next", ())
+    if next_nodes:
+        logger.info(
+            "summarize_graph_resuming_checkpoint",
+            extra={
+                "thread_id": config.get("configurable", {}).get("thread_id"),
+                "next_nodes": list(next_nodes),
+            },
+        )
+        return None, None
+
+    logger.info(
+        "summarize_graph_reusing_terminal_checkpoint",
+        extra={"thread_id": config.get("configurable", {}).get("thread_id")},
+    )
+    return None, dict(values)
+
+
 def reason_code_for_exception(exc: BaseException) -> str:
     """Map a terminal exception to its failure reason code (single mapping)."""
     if isinstance(exc, CallBudgetExceeded):
         return REASON_GRAPH_CALL_BUDGET_EXCEEDED
     # Matched by name, not isinstance, to avoid importing langgraph at module
-    # scope (the no-graph-extra import invariant, ADR-0018).
+    # scope (the framework-independent node invariant, ADR-0018).
     if type(exc).__name__ == "GraphRecursionError":
         return REASON_GRAPH_RECURSION_LIMIT
     return REASON_GRAPH_NODE_FAILURE
@@ -239,7 +335,7 @@ def build_summarize_graph(*, deps: SummarizeDeps, checkpointer: Any) -> Any:
     """
     from langgraph.graph import END, START, StateGraph
 
-    builder = StateGraph(SummarizeState)
+    builder = StateGraph(_checkpoint_state_schema())
     for node_name, node_fn in _NODES.items():
         # Bind port-typed deps via partial: deps stay in config, never in state.
         builder.add_node(node_name, functools.partial(node_fn, deps=deps))
@@ -262,6 +358,8 @@ async def run_summarize_graph(
     lang: str,
     input_url: str = "",
     source_text: str = "",
+    requested_system_prompt: str = "",
+    feedback_instructions: str = "",
     user_scope: str | None = None,
     environment: str | None = None,
     two_pass_eligible: bool = True,
@@ -293,13 +391,22 @@ async def run_summarize_graph(
         lang=lang,
         input_url=input_url,
         source_text=source_text,
+        requested_system_prompt=requested_system_prompt,
+        feedback_instructions=feedback_instructions,
         user_scope=user_scope,
         environment=environment,
         two_pass_eligible=two_pass_eligible,
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=recursion_limit)
     try:
-        final_state = await graph.ainvoke(initial_state, config=config)
+        graph_input, checkpointed_result = await prepare_resumable_invocation(
+            graph, config, initial_state
+        )
+        final_state = (
+            checkpointed_result
+            if checkpointed_result is not None
+            else await graph.ainvoke(graph_input, config=config)
+        )
     except Exception as exc:
         # Single terminal sink (ADR-0011): a node exception, GraphRecursionError,
         # and CallBudgetExceeded all route here. BaseException (e.g. cancellation)
@@ -323,7 +430,13 @@ async def run_summarize_graph(
                 reason_code=reason_code,
                 recovered_llm_calls=recovered_llm_calls,
             )
-        finally:
+        except Exception:
+            logger.exception(
+                "summarize_graph_terminal_persistence_failed",
+                extra={"correlation_id": correlation_id, "request_id": request_id},
+            )
+            message = error_id_message(correlation_id, request_id)
+        else:
             await cleanup_checkpoint_thread(graph, config)
         return {
             "error": message,

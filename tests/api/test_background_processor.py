@@ -115,9 +115,11 @@ class StubPureSummaryService:
         self.calls = 0
         self.openrouter = object()
         self.last_chosen_lang: str | None = None
+        self.last_request: Any | None = None
 
     async def summarize(self, request: Any) -> Any:
         self.calls += 1
+        self.last_request = request
         self.last_chosen_lang = request.chosen_lang
         if self.fail:
             raise RuntimeError("fail_summarize")
@@ -419,6 +421,8 @@ async def test_url_processing_auto_language_uses_detected_content():
 
     await processor.execute_request(4, correlation_id="cid-auto")
     assert summarizer.last_chosen_lang == "ru"
+    assert summarizer.last_request.request_id == 4
+    assert summarizer.last_request.stream is True
 
 
 @pytest.mark.asyncio

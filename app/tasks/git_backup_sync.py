@@ -16,6 +16,7 @@ from app.core.logging_utils import get_logger
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
+from app.observability.metrics_backup import record_backup_run, set_backup_items
 from app.tasks.broker import broker
 from app.tasks.deps import create_digest_bot_client, get_app_config, get_db
 
@@ -525,6 +526,7 @@ async def sync_git_backup(
 ) -> None:
     """Mirror all due git repositories to local bare-clone storage."""
     if not cfg.git_backup.enabled:
+        record_backup_run("github_repositories", "disabled")
         logger.info("git_backup_sync_disabled")
         return
 
@@ -533,6 +535,7 @@ async def sync_git_backup(
         redis_client, _GIT_BACKUP_SYNC_LOCK_KEY, _GIT_BACKUP_SYNC_LOCK_TTL
     ) as acquired:
         if not acquired:
+            record_backup_run("github_repositories", "skipped")
             logger.info(
                 "git_backup_sync_skipped_lock_held",
                 extra={"key": _GIT_BACKUP_SYNC_LOCK_KEY},
@@ -552,6 +555,7 @@ async def sync_git_backup(
         if hc_url:
             await ping_start(hc_url, hc_timeout)
 
+        outcome_recorded = False
         try:
             # Enumerate gists first so freshly-upserted rows are picked up by
             # perform_sync in the same run (list_due includes PENDING status).
@@ -610,15 +614,27 @@ async def sync_git_backup(
             # Telegram notification — best-effort, never blocks or fails the task.
             await _send_telegram_notify(cfg, summary)
 
-            # exit_on_failure: raise AFTER all post-sync steps have run so the
-            # healthcheck failure ping fires and Taskiq records the run as failed.
-            if cfg.git_backup.exit_on_failure and summary.failed > 0:
+            set_backup_items(
+                "github_repositories",
+                ok=summary.ok,
+                failed=summary.failed,
+                skipped=summary.skipped,
+            )
+            outcome = "success" if summary.failed == 0 else "partial" if summary.ok > 0 else "error"
+            record_backup_run("github_repositories", outcome)
+            outcome_recorded = True
+
+            # Any failed mirror makes the generic Taskiq outcome truthful. The
+            # dedicated metric above retains partial-vs-total failure detail.
+            if summary.failed > 0:
                 raise RuntimeError(
                     f"git_backup_sync_failed: {summary.failed} repo(s) failed "
                     f"(ok={summary.ok} skipped={summary.skipped} total={summary.total})"
                 )
 
         except Exception:
+            if not outcome_recorded:
+                record_backup_run("github_repositories", "error")
             if hc_url:
                 await ping_failure(hc_url, hc_timeout)
             raise

@@ -11,6 +11,7 @@ if PROMETHEUS_AVAILABLE:
         "ratatoskr_mcp_unscoped_enabled",
         "Whether MCP SSE is running without request auth or startup user scope (0/1)",
         ["app_env"],
+        multiprocess_mode="max",
         registry=REGISTRY,
     )
 

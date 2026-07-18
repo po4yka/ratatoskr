@@ -93,7 +93,9 @@ class RequestService:
                 details={"existing_id": duplicate.existing_request_id},
             )
 
-        resolved_correlation_id = correlation_id or f"api-{user_id}-{int(datetime.now(UTC).timestamp())}"
+        resolved_correlation_id = (
+            correlation_id or f"api-{user_id}-{int(datetime.now(UTC).timestamp())}"
+        )
         request_id, created_new = await self._request_repo.async_create_request_once(
             type_="url",
             status=RequestStatus.PENDING,

@@ -38,9 +38,10 @@ class GitMirrorRepository:
         """Return mirrors that are ready to be synced in this run.
 
         Eligibility rules (matches GitBackupConfig semantics):
-        - status is PENDING, OK, or FAILED
+        - status is PENDING, OK, FAILED, or SKIPPED
         - if auto_skip_failing and consecutive_failures >= max_consecutive_failures:
           skip mirrors whose backoff_until is still in the future
+        - a SKIPPED mirror is retryable once its backoff_until has passed
 
         Result is capped at ``limit`` (defaults to ``config.max_mirrors_per_run``;
         0 = unlimited) so a run never materializes an unbounded number of rows into
@@ -53,19 +54,28 @@ class GitMirrorRepository:
         now = dt.datetime.now(tz=dt.UTC)
 
         # Mirrors in PENDING / OK are always eligible.
-        # Mirrors in FAILED are eligible unless they are in cooldown.
+        # Mirrors in FAILED / SKIPPED are eligible unless they are in cooldown.
         #   cooldown: auto_skip_failing=True AND consecutive_failures >= threshold
         #             AND backoff_until > now
         cfg = self._config
-        in_cooldown = and_(
+        failed_in_cooldown = and_(
             GitMirror.status == GitMirrorStatus.FAILED,
             GitMirror.consecutive_failures >= cfg.max_consecutive_failures,
+            GitMirror.backoff_until > now,
+        )
+        skipped_in_cooldown = and_(
+            GitMirror.status == GitMirrorStatus.SKIPPED,
             GitMirror.backoff_until > now,
         )
 
         base_filter = and_(
             GitMirror.status.in_(
-                [GitMirrorStatus.PENDING, GitMirrorStatus.OK, GitMirrorStatus.FAILED]
+                [
+                    GitMirrorStatus.PENDING,
+                    GitMirrorStatus.OK,
+                    GitMirrorStatus.FAILED,
+                    GitMirrorStatus.SKIPPED,
+                ]
             ),
             # EXCLUDED rows are tombstoned (permanently gone upstream) and must
             # never be returned for sync.  They can only be revived by a fresh
@@ -73,7 +83,11 @@ class GitMirrorRepository:
             GitMirror.status != GitMirrorStatus.EXCLUDED,
         )
 
-        eligibility = and_(base_filter, ~in_cooldown) if cfg.auto_skip_failing else base_filter
+        eligibility = (
+            and_(base_filter, ~(failed_in_cooldown | skipped_in_cooldown))
+            if cfg.auto_skip_failing
+            else base_filter
+        )
 
         stmt = (
             select(GitMirror)

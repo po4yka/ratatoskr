@@ -14,6 +14,7 @@ AGENTS_SKILLS = ROOT / ".agents" / "skills"
 CLAUDE_COMMANDS = ROOT / ".claude" / "commands"
 CODEX_COMMANDS = ROOT / ".codex" / "commands"
 
+
 def _skill_names(root: Path) -> set[str]:
     if not root.is_dir():
         return set()
@@ -57,9 +58,7 @@ def _semantic_tree_differences(
 
 
 def _check_semantic_claude_codex_mirror() -> bool:
-    only_claude, only_codex, changed = _semantic_tree_differences(
-        CLAUDE_SKILLS, CODEX_SKILLS
-    )
+    only_claude, only_codex, changed = _semantic_tree_differences(CLAUDE_SKILLS, CODEX_SKILLS)
     if not only_claude and not only_codex and not changed:
         count = len(_relative_files(CLAUDE_SKILLS))
         print(f".claude/skills semantically mirrors .codex/skills ({count} files).")

@@ -60,6 +60,7 @@ async def test_resolver_detects_article_via_head_redirect(monkeypatch) -> None:
             return _fake_response(url=url)
 
     monkeypatch.setattr("app.security.ssrf.httpx.AsyncClient", _FakeAsyncClient)
+
     # The real is_url_safe rejects t.co / x.com in CI because their public
     # DNS records resolve to addresses inside ranges the SSRF allowlist treats
     # as private. Stub it for tests that exercise the post-preflight flow.
@@ -101,6 +102,7 @@ async def test_resolver_falls_back_to_get_and_uses_canonical_hint(monkeypatch) -
             )
 
     monkeypatch.setattr("app.security.ssrf.httpx.AsyncClient", _FakeAsyncClient)
+
     # The real is_url_safe rejects t.co / x.com in CI because their public
     # DNS records resolve to addresses inside ranges the SSRF allowlist treats
     # as private. Stub it for tests that exercise the post-preflight flow.
@@ -145,6 +147,7 @@ async def test_resolver_returns_resolve_failed_on_http_error(monkeypatch) -> Non
             raise RuntimeError("network down")
 
     monkeypatch.setattr("app.security.ssrf.httpx.AsyncClient", _FakeAsyncClient)
+
     # The real is_url_safe rejects t.co / x.com in CI because their public
     # DNS records resolve to addresses inside ranges the SSRF allowlist treats
     # as private. Stub it for tests that exercise the post-preflight flow.

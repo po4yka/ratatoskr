@@ -1,10 +1,10 @@
 # AI Account Backup (ChatGPT + Claude) via CloakBrowser
 
-How Ratatoskr will hold an authenticated session for the operator's own ChatGPT and Claude web accounts and periodically mirror everything they contain — conversations, Projects, project-knowledge files, attachments, and Claude Artifacts — to disk, reusing the CloakBrowser stealth sidecar that already ships in the scraper chain.
+How Ratatoskr holds an authenticated session for the operator's own ChatGPT and Claude web accounts and periodically mirrors conversations, Project metadata, ChatGPT attachments, and Claude Artifacts to disk, reusing the CloakBrowser stealth sidecar that already ships in the scraper chain. Project-knowledge download remains an explicitly unimplemented, live-contract-blocked target.
 
 **Audience:** The operator deciding whether to run this, and contributors implementing it.
 **Type:** Explanation + design (forward-looking).
-**Status:** P0 + P1 implemented (config, model + migration, repository, Redis-locked Taskiq job + scheduler, REST status + session-ingest, Telegram surfaces, the authenticated CloakBrowser context, the ChatGPT + Claude internal-API clients, the path-safe on-disk writer, incremental skipping, and Mode A session ingest — all behind `AI_BACKUP_ENABLED=false`). The deterministic core is fully unit-tested with fakes/fixtures; the live cloakserve + real-account behavior (and ChatGPT Teams/Enterprise headers) is **not yet validated against live accounts** and is marked `TODO(live-validation)` in the clients. Tracked in [`docs/tasks/issues/ai-account-backup-cloakbrowser.md`](../tasks/issues/ai-account-backup-cloakbrowser.md).
+**Status:** P0 + P1 implemented (config, model + migration, repository, Redis-locked Taskiq job + scheduler, REST status + session-ingest, Telegram surfaces, the authenticated CloakBrowser context, the ChatGPT + Claude internal-API clients, the path-safe on-disk writer, incremental skipping, and Mode A session ingest — all behind `AI_BACKUP_ENABLED=false`). The deterministic core is fully unit-tested with fakes/fixtures; the live cloakserve + real-account behavior (and ChatGPT Teams/Enterprise headers) is **not yet validated against live accounts** and is marked `TODO(live-validation)` in the clients. Claude project-knowledge downloads are not implemented. Tracked in [`docs/tasks/issues/ai-account-backup-cloakbrowser.md`](../tasks/issues/ai-account-backup-cloakbrowser.md).
 **Related:** [`webwright.md`](webwright.md) (the `user_browser_sessions` encrypted-cookie pattern this reuses), [`scraper-chain.md`](scraper-chain.md) (where the CloakBrowser provider lives), [`git-mirroring.md`](git-mirroring.md) (the backup-subsystem template this mirrors), [`environment-variables.md`](../reference/environment-variables.md) (the planned `AI_BACKUP_*` surface), [`data-model.md`](../reference/data-model.md) (`user_browser_sessions`, planned `ai_account_backups`), [`../runbooks/ai-backup-live-validation.md`](../runbooks/ai-backup-live-validation.md) (how to validate against real accounts).
 **Source (extends):** [`app/adapters/content/scraper/cloakbrowser_provider.py`](../../app/adapters/content/scraper/cloakbrowser_provider.py), [`app/db/models/webwright.py`](../../app/db/models/webwright.py) (`UserBrowserSession`), [`app/adapters/git_backup/`](../../app/adapters/git_backup/), [`app/tasks/git_backup_sync.py`](../../app/tasks/git_backup_sync.py), [`app/security/secret_crypto.py`](../../app/security/secret_crypto.py).
 
@@ -32,7 +32,7 @@ flowchart TB
         Task["Taskiq cron\nratatoskr.ai_backup.sync\n(Redis-locked)"]
         Svc[AiBackupService]
         Prov["CloakBrowserProvider\n.authenticated_context()"]
-        State[(ai_account_backups\nlifecycle row)]
+        State[(ai_account_backups\nbackup + authorization state)]
     end
     subgraph Sidecar["cloakbrowser sidecar"]
         CDP["cloakserve CDP\n(stable per-domain fingerprint)"]
@@ -44,10 +44,10 @@ flowchart TB
     Svc -- decrypt storage_state --> Store
     Svc --> Prov
     Prov -- connect_over_cdp --> CDP
-    Prov -- "page.context.request.get(internal API)" --> CDP
+    Prov -- "CDP Fetch + bounded IO.read" --> CDP
     Svc -- write conversations/projects/files/artifacts --> Disk
     Svc -- re-persist refreshed storage_state --> Store
-    Svc -- record_success/failure/auth_expired --> State
+    Svc -- record backup/auth outcomes --> State
 ```
 
 ## Authentication and session model
@@ -58,11 +58,11 @@ The hard problem is not reading the APIs — it is establishing and keeping a se
 - **Mode B — headful noVNC login (future).** Interactive human login into the cloakserve profile via CloakBrowser-Manager's noVNC viewer, snapshotting `context.storage_state()` afterward. Lowest ban signal of all (a real human login from the backup fingerprint and IP) but adds an early-alpha sidecar.
 - **Mode C — automated credential login (explicit non-goal).** Storing email/password + a TOTP secret and logging in headlessly. Highest detection surface, most brittle, and the worst ban signal. Documented as out of scope.
 
-**Session refresh and expiry.** After every run the service calls `context.storage_state()` and re-encrypts/persists it, so rotating cookies keep the session alive longer. Expiry is detected from `401`, a redirect to `/auth/login`, or `403` with `cf-mitigated: challenge`; the service then sets the lifecycle row to `auth_expired`, **halts** that service, and pings the operator to re-run Mode A. Halting (rather than retrying into a login wall) is itself a ban-avoidance measure.
+**Session refresh, expiry, and revoke.** After every run the service calls `context.storage_state()` and re-encrypts/persists it, so rotating cookies keep the session alive longer. The refresh is a compare-and-swap against the encrypted revision loaded at run start, so an in-flight run cannot overwrite a session the owner revoked or replaced. Expiry is detected from `401`, a redirect to `/auth/login`, or `403` with `cf-mitigated: challenge`; the service then sets `authorization_status=expired`, preserves the independent backup outcome, **halts** that service, and pings the operator to re-run Mode A. The first successful ingest immediately creates a `pending` backup row with `authorization_status=unverified`, and every newly ingested session stays `unverified` until the provider accepts it. The owner-only `DELETE /v1/ai-backups/{service}/session` endpoint idempotently deletes Ratatoskr's encrypted session and marks authorization `missing`; it does not remotely sign the account out at the provider. Halting (rather than retrying into a login wall) is itself a ban-avoidance measure.
 
 ## The `cf_clearance` durability decision
 
-Cloudflare binds the `cf_clearance` cookie to the browser's TLS/JA3 fingerprint and source IP. A separate HTTP client (httpx) replaying the cookie with a different TLS signature gets re-challenged. Therefore **all internal-API GETs are issued from inside the authenticated CloakBrowser page context** via `page.context.request.get(...)` — the same `APIRequestContext` the existing provider already uses for gated PDF fetches (`_goto_capture`). This reuses the browser's cookie jar *and* its TLS fingerprint, keeping the clearance cookie valid. CloakBrowser derives its stealth fingerprint deterministically from the registrable domain, so `chatgpt.com` and `claude.ai` keep a stable fingerprint across the login snapshot and every subsequent backup run.
+Cloudflare binds the `cf_clearance` cookie to the browser's TLS/JA3 fingerprint and source IP. A separate HTTP client (httpx) replaying the cookie with a different TLS signature gets re-challenged. Therefore **all internal-API GETs are issued through the authenticated CloakBrowser page's network stack**. The fetcher pauses each request and redirect with CDP `Fetch.requestPaused`, then reads the terminal response through `Fetch.takeResponseBodyAsStream` and bounded `IO.read` calls. This preserves the browser cookie jar and TLS fingerprint while enforcing per-response and aggregate byte caps during transport, including chunked responses or missing/underreported `Content-Length`. CloakBrowser derives its stealth fingerprint deterministically from the registrable domain, so `chatgpt.com` and `claude.ai` keep a stable fingerprint across the login snapshot and every subsequent backup run.
 
 ## Components and file map
 
@@ -86,12 +86,14 @@ A new lifecycle table holds per-service run state, one row per `(user_id, servic
 
 ```python
 class AiBackupService(enum.StrEnum):   # "chatgpt" | "claude"
-class AiBackupStatus(enum.StrEnum):    # pending | ok | failed | auth_expired | disabled
+class AiBackupStatus(enum.StrEnum):              # pending | ok | failed | disabled
+class AiBackupAuthorizationStatus(enum.StrEnum): # missing | unverified | valid | expired
 
 class AiAccountBackup(Base):
     __tablename__ = "ai_account_backups"
     __table_args__ = (UniqueConstraint("user_id", "service", name="uq_ai_account_backups_user_service"),)
     id, user_id (FK users.telegram_user_id, CASCADE), service, status
+    authorization_status, authorization_checked_at
     last_backed_up_at, last_attempt_at, backoff_until
     consecutive_failures, total_failures, last_error, last_error_category
     counts_json (JSONB: conversations/projects/files/artifacts/bytes)
@@ -104,11 +106,11 @@ class AiAccountBackup(Base):
 
 A frozen pydantic `AiBackupConfig` with `validation_alias` env vars, validators following `GitBackupConfig`:
 
-`AI_BACKUP_ENABLED` (default `false`), `AI_BACKUP_SYNC_CRON` (`0 5 * * *`), `AI_BACKUP_DATA_PATH` (`/data/ai-backups`, with the same resolve-inside-data-path traversal guard git-backup uses), `AI_BACKUP_CHATGPT_ENABLED` / `AI_BACKUP_CLAUDE_ENABLED`, `AI_BACKUP_REQUEST_DELAY_MS` (cadence with jitter), `AI_BACKUP_MAX_REQUESTS_PER_RUN` (hard cap), `AI_BACKUP_DOWNLOAD_FILES`, `AI_BACKUP_INCREMENTAL` (skip conversations whose `update_time` is unchanged since the last run), `AI_BACKUP_HOST_ALLOWLIST` (default `chatgpt.com,*.oaiusercontent.com,claude.ai,*.anthropic.com`), `AI_BACKUP_HC_PING_URL`, `AI_BACKUP_NOTIFY_CHAT_ID`, `AI_BACKUP_NOTIFY_ON`, and an optional `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` (when set, Claude uses the sanctioned Compliance API instead of the scrape path). Crypto reuses `GITHUB_TOKEN_ENCRYPTION_KEY` — no new key surface.
+`AI_BACKUP_ENABLED` (default `false`), `AI_BACKUP_SYNC_CRON` (`0 5 * * *`), `AI_BACKUP_DATA_PATH` (`/data/ai-backups`, with the same resolve-inside-data-path traversal guard git-backup uses), `AI_BACKUP_CHATGPT_ENABLED` / `AI_BACKUP_CLAUDE_ENABLED`, `AI_BACKUP_REQUEST_DELAY_MS` (cadence with jitter), `AI_BACKUP_MAX_REQUESTS_PER_RUN` (hard request cap), `AI_BACKUP_MAX_RESPONSE_BYTES` and `AI_BACKUP_MAX_RUN_BYTES` (per-response and aggregate transfer caps), `AI_BACKUP_MIN_FREE_BYTES` (reserved disk headroom), `AI_BACKUP_DOWNLOAD_FILES`, `AI_BACKUP_INCREMENTAL` (skip conversations whose `update_time` is unchanged since the last run), `AI_BACKUP_HOST_ALLOWLIST` (default `chatgpt.com,*.oaiusercontent.com,claude.ai,*.anthropic.com`), `AI_BACKUP_HC_PING_URL`, `AI_BACKUP_NOTIFY_CHAT_ID`, and `AI_BACKUP_NOTIFY_ON`. `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is reserved for a future sanctioned Enterprise client: setting it currently fails closed and never falls back to browser scraping. Crypto reuses `GITHUB_TOKEN_ENCRYPTION_KEY` — no new key surface.
 
 ## Internal APIs walked
 
-All calls go through `page.context.request.get(...)` inside the authenticated context; every URL host is validated against `AI_BACKUP_HOST_ALLOWLIST` before the request.
+All calls go through the authenticated page's bounded CDP response stream; every URL host and redirect is validated against `AI_BACKUP_HOST_ALLOWLIST` before transport.
 
 **ChatGPT** (`access_token` read from `/api/auth/session`; `cf_clearance` already in the jar):
 
@@ -122,7 +124,7 @@ All calls go through `page.context.request.get(...)` inside the authenticated co
 
 - `GET /api/organizations/{org}/chat_conversations` — list.
 - `GET /api/organizations/{org}/chat_conversations/{uuid}?tree=True&rendering_mode=raw` — full conversation, Artifacts inline.
-- `GET /api/organizations/{org}/projects` + project-docs endpoints — project knowledge (text; binaries via the project-files path).
+- `GET /api/organizations/{org}/projects` — Project metadata only. Project-doc and project-file endpoints are not implemented because their live response contract is still unverified.
 - Artifacts: walk message arrays and persist artifact blocks as separate files.
 
 ## On-disk layout
@@ -130,17 +132,17 @@ All calls go through `page.context.request.get(...)` inside the authenticated co
 ```
 AI_BACKUP_DATA_PATH/<service>/<YYYY-MM-DD>/
   conversations/<conversation_id>.json
-  projects/<project_id>/{project.json, knowledge/<file>}
+  projects/<project_id>/project.json
   files/<file_id>__<name>
   artifacts/<conversation_id>/<artifact_id>.<ext>   # Claude
   manifest.json   # counts, ids, content hashes, run metadata, correlation_id
 ```
 
-Writes are idempotent by id; `AI_BACKUP_INCREMENTAL` skips unchanged conversations. A later enhancement could `git commit` this tree through the existing git-backup engine for versioned history.
+Writes are idempotent by id; existing bytes are hash-checked, changed payloads are replaced atomically, and manifests always hash the bytes that were durably written. Repeated runs on the same UTC date merge the previous manifest entries before atomically publishing the new manifest; top-level `counts` describe the complete date directory while `run_metadata.collected_counts` describes only the latest sweep. `AI_BACKUP_INCREMENTAL` skips unchanged conversations. A run is successful only when every implemented collection subtree completes with the expected response shape; Project-metadata or attachment failures fail the run instead of publishing a partial tree as `ok`. Project knowledge is outside the implemented tree and must remain `unverified` until a live-validated client is added. Session loading, writer creation, provider collection, manifest finalization, and success persistence share one lifecycle boundary, so local crypto or disk failures also persist a failed outcome. A later enhancement could `git commit` this tree through the existing git-backup engine for versioned history.
 
 ## Task, scheduler, and surfaces
 
-The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_sync", ttl=1800)` with silent skip-if-held (copying the git-backup header), loops the enabled services, runs each, records the lifecycle row, fires the Healthchecks ping, and sends the Telegram notification. The scheduler gains one `if cfg.ai_backup.enabled:` block emitting a `ScheduledTask(task_name="ratatoskr.ai_backup.sync", cron=cfg.ai_backup.sync_cron, labels={"job": "ai_backup_sync"})`. REST exposes list / status / session-ingest; Telegram exposes status-only `/ai_backup` and `/ai_backups` (session ingest is REST-only — the blob holds live cookies).
+The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_sync", ttl=1800)` with silent skip-if-held (copying the git-backup header), loops the enabled services, runs each, records the lifecycle row, fires the Healthchecks ping, and sends the Telegram notification. It records a fixed-cardinality `ratatoskr_backup_runs_total` outcome per provider and raises after all providers have been attempted when any state is not `ok`; therefore auth expiry, missing sessions, and partial provider failure cannot appear as generic Taskiq success. The scheduler gains one `if cfg.ai_backup.enabled:` block emitting a `ScheduledTask(task_name="ratatoskr.ai_backup.sync", cron=cfg.ai_backup.sync_cron, labels={"job": "ai_backup_sync"})`. REST exposes list / status plus owner-only session ingest and local revoke; Telegram exposes status-only `/ai_backup` and `/ai_backups` (session secrets remain REST/HTTPS-only).
 
 ## Security checklist
 
@@ -153,7 +155,8 @@ The Taskiq task wraps its body in `RedisDistributedLock("task_lock:ai_backup_syn
 
 - **ChatGPT Deep Research structured citations** (the machine-readable `url_citation` objects and the reasoning trace) are not exposed by `/backend-api`; only the final report text is captured. They are reachable only via OpenAI's paid developer Responses API. Operator expectation must be set accordingly.
 - **ChatGPT Custom GPT system prompts** are not confirmed retrievable via any internal endpoint.
-- **Claude Enterprise** operators should set `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` and use `api.anthropic.com/v1/compliance/*` — full coverage (chats, artifact versions, project binaries, generated files), no Cloudflare, and ToS-clean. The scrape path is the consumer-account fallback only.
+- **Claude project knowledge** is not downloaded. The client currently stores Project metadata only; project-doc and project-file endpoints require live contract validation before implementation.
+- **Claude Enterprise** Compliance API support is not implemented. Setting `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` makes the client factory fail closed; it never falls back to the consumer browser-scrape path. Keep Claude backup disabled until a dedicated sanctioned client is implemented.
 
 ## Phased delivery
 

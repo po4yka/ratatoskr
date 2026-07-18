@@ -3,7 +3,7 @@
 The summarize graph is the producer; this bridge is the single translation
 surface from langgraph's event stream to the in-process ``StreamHub`` (via the
 injected sink). It imports **no langgraph type** -- it consumes plain event
-dicts (the astream_events v2 schema), so it stays in the no-graph-extra import
+dicts (the astream_events v2 schema), so it stays outside the LangGraph import
 budget and is unit-testable with hand-built event sequences.
 
 Token-feed decision (ADR-0017 work item 4)
@@ -20,10 +20,10 @@ Stage events come from **node transitions**: the first ``on_chain_start`` for a
 mapped node emits its ``ProcessingStage`` (deduped, since langgraph fires nested
 start events that all carry the same ``langgraph_node``).
 
-Terminal ``done`` / ``error`` are deliberately NOT emitted here: the durable
-``BackgroundProgressPublisher._publish_local`` is the single terminal emitter
-(one ``done``/``error`` per request_id, ADR-0017 work item 7). The assembler is
-per-instance and ephemeral -- it never enters checkpoint state (ADR-0011).
+Terminal ``done`` / ``error`` are deliberately NOT emitted by the bridge: the
+streaming runner owns that lifecycle and emits one terminal event after graph
+success or durable failure routing. The assembler is per-instance and ephemeral
+-- it never enters checkpoint state (ADR-0011).
 """
 
 from __future__ import annotations

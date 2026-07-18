@@ -46,9 +46,7 @@ def test_ci_never_ignores_an_individual_test_file() -> None:
 
 def test_ci_only_ignores_sanctioned_test_directories() -> None:
     offenders = [
-        value
-        for value in _ci_test_ignores()
-        if not value.startswith(_ALLOWED_IGNORE_PREFIXES)
+        value for value in _ci_test_ignores() if not value.startswith(_ALLOWED_IGNORE_PREFIXES)
     ]
     assert offenders == [], (
         "Unexpected CI test-suite ignore; only benchmarks/chaos/integration/stress "

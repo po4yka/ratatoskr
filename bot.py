@@ -23,9 +23,11 @@ except ImportError:  # pragma: no cover
 
 async def main() -> None:
     cfg = load_config()
+    from app.observability.metrics_http import start_metrics_http_server_from_env
     from app.observability.otel import init_tracing
 
     init_tracing(cfg)
+    start_metrics_http_server_from_env()
     cfg_holder = ConfigHolder(cfg)
 
     # Log active model configuration at startup

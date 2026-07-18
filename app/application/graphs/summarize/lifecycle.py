@@ -8,10 +8,8 @@ exact legacy terminal contract via
 (``RequestStatus.ERROR`` + the structured failure snapshot) and produces the
 user-facing ``Error ID: <correlation_id>`` message.
 
-This module is langgraph-free (it must be importable in the import-linter / mypy
-CI envs, which do not install the ``graph`` extra); the langgraph
-``GraphRecursionError`` is caught in :mod:`graph` and handed here as a plain
-exception.
+This module is framework-free; the LangGraph ``GraphRecursionError`` is caught in
+:mod:`graph` and handed here as a plain exception.
 """
 
 from __future__ import annotations
@@ -181,6 +179,7 @@ async def route_terminal_failure(
             reason_code=reason_code,
             error=error,
             retryable=False,
+            raise_on_error=True,
         )
     else:
         # No request row to attach the failure to (should not happen past ingest);

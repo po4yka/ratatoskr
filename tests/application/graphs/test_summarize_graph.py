@@ -7,6 +7,8 @@ ainvoke tests use an in-memory checkpointer and skip where ``graph`` is absent.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from typing import TypedDict
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -76,6 +78,106 @@ async def test_run_deletes_checkpoint_after_success() -> None:
     checkpointer.adelete_thread.assert_awaited_once_with("corr-clean")
 
 
+async def test_run_resumes_pending_checkpoint_with_none_input() -> None:
+    graph = MagicMock(
+        aget_state=AsyncMock(
+            return_value=SimpleNamespace(
+                values={"correlation_id": "corr-resume", "request_id": 5},
+                next=("validate",),
+            )
+        ),
+        ainvoke=AsyncMock(return_value={"summary": {"tldr": "resumed"}}),
+    )
+
+    result = await run_summarize_graph(
+        graph=graph, deps=MagicMock(), correlation_id="corr-resume", request_id=5, lang="en"
+    )
+
+    assert result["summary"]["tldr"] == "resumed"
+    assert graph.ainvoke.await_args.args[0] is None
+
+
+async def test_run_reuses_terminal_checkpoint_without_replaying_graph() -> None:
+    checkpointed = {
+        "correlation_id": "corr-terminal",
+        "request_id": 5,
+        "summary": {"tldr": "already done"},
+        "summary_id": 99,
+    }
+    checkpointer = MagicMock(adelete_thread=AsyncMock())
+    graph = MagicMock(
+        aget_state=AsyncMock(return_value=SimpleNamespace(values=checkpointed, next=())),
+        ainvoke=AsyncMock(),
+        checkpointer=checkpointer,
+    )
+
+    result = await run_summarize_graph(
+        graph=graph, deps=MagicMock(), correlation_id="corr-terminal", request_id=5, lang="en"
+    )
+
+    assert result == checkpointed
+    graph.ainvoke.assert_not_awaited()
+    checkpointer.adelete_thread.assert_awaited_once_with("corr-terminal")
+
+
+async def test_real_langgraph_resume_does_not_replay_completed_nodes() -> None:
+    from langgraph import graph as graph_api
+    from langgraph.checkpoint import memory
+
+    class ResumeState(TypedDict, total=False):
+        correlation_id: str
+        request_id: int
+        summary: dict[str, str]
+
+    calls = {"first": 0, "second": 0}
+    second_started = asyncio.Event()
+    block_first_attempt = asyncio.Event()
+
+    async def first(_state: ResumeState) -> dict[str, object]:
+        calls["first"] += 1
+        return {}
+
+    async def second(_state: ResumeState) -> dict[str, object]:
+        calls["second"] += 1
+        if calls["second"] == 1:
+            second_started.set()
+            await block_first_attempt.wait()
+        return {"summary": {"tldr": "resumed"}}
+
+    builder = graph_api.StateGraph(ResumeState)
+    builder.add_node("first", first)
+    builder.add_node("second", second)
+    builder.add_edge(graph_api.START, "first")
+    builder.add_edge("first", "second")
+    builder.add_edge("second", graph_api.END)
+    graph = builder.compile(checkpointer=memory.InMemorySaver())
+
+    interrupted = asyncio.create_task(
+        run_summarize_graph(
+            graph=graph,
+            deps=MagicMock(),
+            correlation_id="corr-real-resume",
+            request_id=5,
+            lang="en",
+        )
+    )
+    await second_started.wait()
+    interrupted.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await interrupted
+
+    result = await run_summarize_graph(
+        graph=graph,
+        deps=MagicMock(),
+        correlation_id="corr-real-resume",
+        request_id=5,
+        lang="en",
+    )
+
+    assert result["summary"] == {"tldr": "resumed"}
+    assert calls == {"first": 1, "second": 2}
+
+
 # ── runner: every failure mode routes to the single terminal helper ───────────
 
 
@@ -100,7 +202,8 @@ async def test_run_maps_failures_to_single_terminal_path(monkeypatch, exc) -> No
 
 
 async def test_run_maps_graph_recursion_error(monkeypatch) -> None:
-    errors = pytest.importorskip("langgraph.errors")
+    from langgraph import errors
+
     route = AsyncMock(return_value="Processing failed (Error ID: corr-3). Please try again.")
     monkeypatch.setattr(graph_mod, "route_terminal_failure", route)
     graph = MagicMock()
@@ -202,6 +305,30 @@ async def test_run_deletes_checkpoint_only_after_terminal_recovery(monkeypatch) 
     assert events == ["recover", "persist-terminal", "cleanup"]
 
 
+async def test_run_preserves_checkpoint_when_terminal_persistence_fails(monkeypatch) -> None:
+    checkpointer = MagicMock(adelete_thread=AsyncMock())
+    graph = MagicMock(
+        ainvoke=AsyncMock(side_effect=RuntimeError("node boom")),
+        checkpointer=checkpointer,
+    )
+    monkeypatch.setattr(
+        graph_mod,
+        "route_terminal_failure",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    result = await run_summarize_graph(
+        graph=graph,
+        deps=MagicMock(),
+        correlation_id="corr-durable",
+        request_id=9,
+        lang="en",
+    )
+
+    assert "Error ID: corr-durable" in result["error"]
+    checkpointer.adelete_thread.assert_not_awaited()
+
+
 async def test_run_preserves_checkpoint_on_cancellation() -> None:
     checkpointer = MagicMock(adelete_thread=AsyncMock())
     graph = MagicMock(
@@ -230,31 +357,29 @@ def _real_deps():
         extraction=m,
         stream_sink=m,
         summaries=m,
-        requests=m,
+        requests=MagicMock(async_update_request_error=AsyncMock()),
         summary_index=m,
     )
 
 
-async def test_build_compiles_and_runs_happy_path_with_in_memory_saver() -> None:
-    pytest.importorskip("langgraph")
+async def test_empty_compiled_run_reaches_terminal_failure_with_in_memory_saver() -> None:
     from langgraph.checkpoint.memory import InMemorySaver
 
-    graph = build_summarize_graph(deps=_real_deps(), checkpointer=InMemorySaver())
+    deps = _real_deps()
+    graph = build_summarize_graph(deps=deps, checkpointer=InMemorySaver())
     out = await run_summarize_graph(
-        graph=graph, deps=_real_deps(), correlation_id="corr-real", request_id=11, lang="en"
+        graph=graph, deps=deps, correlation_id="corr-real", request_id=11, lang="en"
     )
 
-    assert "error" not in out  # happy path traverses ingest -> ... -> notify -> END
+    assert "Error ID: corr-real" in out["error"]
     assert out["correlation_id"] == "corr-real"
     assert out["request_id"] == 11
-    assert out["lang"] == "en"  # state field survives the full traversal unchanged
-    assert out["validation_errors"] == []
+    deps.requests.async_update_request_error.assert_awaited_once()
 
 
 async def test_compiled_validate_repair_loop_terminates_via_budget(monkeypatch) -> None:
     """End-to-end: a never-valid summary drives validate<->repair until the repair
     budget trips, terminating the compiled loop through the single terminal path."""
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.memory import InMemorySaver
 
     import app.application.graphs.summarize.lifecycle as lifecycle_mod
@@ -287,7 +412,6 @@ async def test_terminal_failure_persists_accumulated_llm_calls_end_to_end(monkey
     dropped. This drives the REAL compiled graph (with an InMemorySaver, matching
     production's always-present checkpointer) through the budget loop and asserts
     the injected ``llm_repo`` received all of them."""
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.memory import InMemorySaver
 
     import app.application.graphs.summarize.lifecycle as lifecycle_mod
@@ -359,7 +483,6 @@ async def test_terminal_failure_persists_accumulated_llm_calls_end_to_end(monkey
 
 
 async def test_di_compiles_with_default_in_memory_checkpointer() -> None:
-    pytest.importorskip("langgraph")
     from app.di.graphs import build_summarize_graph_app
 
     graph = build_summarize_graph_app(deps=_real_deps())

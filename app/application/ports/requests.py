@@ -187,9 +187,7 @@ class RequestRepositoryPort(Protocol):
     async def async_count_pending_requests_before(self, created_at: datetime) -> int:
         """Count pending requests created before the supplied timestamp."""
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Return request rows for sync operations (``since>0`` filters by cursor)."""
 
     async def async_get_max_server_version(self, user_id: int) -> int | None:
@@ -252,9 +250,7 @@ class CrawlResultRepositoryPort(Protocol):
     async def async_get_crawl_result_by_request(self, request_id: int) -> dict[str, Any] | None:
         """Return crawl result by request ID."""
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Return crawl rows for sync operations (``since>0`` filters by cursor)."""
 
     async def async_get_max_server_version(self, user_id: int) -> int | None:
@@ -280,9 +276,7 @@ class LLMRepositoryPort(Protocol):
     async def async_get_latest_llm_model_by_request_id(self, request_id: int) -> str | None:
         """Return the latest model used for a request."""
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Return LLM rows for sync operations (``since>0`` filters by cursor)."""
 
     async def async_get_max_server_version(self, user_id: int) -> int | None:

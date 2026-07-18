@@ -30,13 +30,20 @@ The `pg-backup` Compose service runs `pg_dump --format=custom` on `BACKUP_CRON`
 `BACKUP_HOST_DIR` (`data/postgres-backups` by default) and deletes local files
 older than `BACKUP_RETENTION_DAYS`.
 
+On Raspberry Pi production, `make pi-deploy-all` builds this sidecar locally for
+Linux/ARM64, streams the exact Compose image to the Pi, and recreates it without
+building remotely. The Pi overlay defaults `BACKUP_RUN_ON_START=true`; the
+container becomes healthy only after that initial dump has created its artifact
+and `ratatoskr_pg_backup.prom` metric. Use
+`make pi-deploy SERVICE=pg-backup` to deploy only the sidecar.
+
 Start the sidecar and run a backup immediately:
 
 ```bash
-POSTGRES_PASSWORD=... \
+POSTGRES_PASSWORD=... BACKUP_ENCRYPTION_KEY=... \
 docker compose -f ops/docker/docker-compose.yml up -d postgres pg-backup
 
-POSTGRES_PASSWORD=... \
+POSTGRES_PASSWORD=... BACKUP_ENCRYPTION_KEY=... \
 docker compose -f ops/docker/docker-compose.yml exec -T pg-backup \
   ratatoskr-pg-backup-run
 ```
@@ -45,8 +52,45 @@ Every successful run writes a dump plus JSON metadata containing size and
 SHA-256. `BACKUP_ENCRYPTION_KEY` encrypts sidecar dumps with the sidecar's OpenSSL
 format. `BACKUP_S3_*` settings optionally copy the artifacts to object storage.
 Keep the encryption key and object-store credentials outside the backed-up host.
+Encryption is required by default: a missing key or invalid
+`BACKUP_REQUIRE_ENCRYPTION` value makes the run fail before `pg_dump` starts,
+and off-host copies are never allowed without encryption. The production
+Compose service hardcodes `APP_ENV=production` and
+`BACKUP_REQUIRE_ENCRYPTION=true`; the backup script also rejects
+`BACKUP_REQUIRE_ENCRYPTION=false` unless `APP_ENV` is exactly `development` or
+`test`. A single environment override therefore cannot enable plaintext in
+production.
 
-Verify an unencrypted dump by listing its contents:
+For an isolated local-development plaintext artifact, use the explicit dev
+overlay and opt out of encryption there:
+
+```bash
+POSTGRES_PASSWORD=... BACKUP_REQUIRE_ENCRYPTION=false \
+docker compose \
+  -f ops/docker/docker-compose.yml \
+  -f ops/docker/docker-compose.dev.yml \
+  up -d postgres pg-backup
+
+POSTGRES_PASSWORD=... BACKUP_REQUIRE_ENCRYPTION=false \
+docker compose \
+  -f ops/docker/docker-compose.yml \
+  -f ops/docker/docker-compose.dev.yml \
+  exec -T pg-backup ratatoskr-pg-backup-run
+```
+
+The dev overlay supplies `APP_ENV=development`; the base and Pi production
+paths do not expose this plaintext escape hatch.
+
+Verify the default encrypted dump by decrypting it only into `pg_restore`:
+
+```bash
+BACKUP_ENCRYPTION_KEY=... \
+openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY \
+  -in data/postgres-backups/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump.enc \
+| docker run --rm -i --entrypoint pg_restore postgres:17 --list >/dev/null
+```
+
+To inspect that explicit local-development plaintext dump, list it directly:
 
 ```bash
 docker run --rm -i --entrypoint pg_restore postgres:17 --list \

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
+import subprocess
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.config import load_config
 from app.config.worker_capacity import apply_worker_process_overrides
@@ -64,6 +66,43 @@ def capacity_summary(config: AppConfig, processes: int) -> str:
     )
 
 
+def run_worker_with_metrics(command: Sequence[str]) -> int:
+    """Run Taskiq under a signal-forwarding metrics supervisor."""
+    from app.observability.metrics_http import (
+        prepare_multiprocess_directory,
+        start_metrics_http_server_from_env,
+    )
+
+    multiprocess_directory = prepare_multiprocess_directory()
+    child = subprocess.Popen(command, start_new_session=True)
+
+    handled_signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGHUP"):
+        handled_signals.append(signal.SIGHUP)
+    previous_handlers: dict[signal.Signals, Any] = {}
+
+    def _forward_signal(signum: int, _frame: Any) -> None:
+        if child.poll() is None:
+            os.killpg(child.pid, signum)
+
+    try:
+        for handled_signal in handled_signals:
+            previous_handlers[handled_signal] = signal.getsignal(handled_signal)
+            signal.signal(handled_signal, _forward_signal)
+        start_metrics_http_server_from_env(
+            multiprocess_directory=multiprocess_directory,
+        )
+        return child.wait()
+    except BaseException:
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGTERM)
+            child.wait()
+        raise
+    finally:
+        for handled_signal, previous_handler in previous_handlers.items():
+            signal.signal(handled_signal, previous_handler)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("modules", nargs="+", help="Task modules to import")
@@ -73,6 +112,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     command = build_worker_command(config, args.modules)
     processes = int(command[command.index("--workers") + 1])
     print(capacity_summary(config, processes), file=sys.stderr, flush=True)
+    if os.getenv("METRICS_HTTP_PORT"):
+        status = run_worker_with_metrics(command)
+        if status:
+            raise SystemExit(status)
+        return
     os.execvp(command[0], command)
 
 

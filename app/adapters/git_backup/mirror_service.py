@@ -54,8 +54,10 @@ from app.adapters.git_backup.maintenance import Maintenance, RepositoryMaintenan
 from app.adapters.git_backup.retry import RetryContext, RetryPolicy, SyncFailureException
 from app.core.git_url_safety import (
     assert_resolved_public_host,
+    assert_safe_git_url,
     extract_git_host,
     is_github_host,
+    redact_git_url,
 )
 from app.db.models.git_backup import GitMirror, GitMirrorSource
 from app.security.secret_crypto import decrypt_secret
@@ -70,12 +72,10 @@ logger = logging.getLogger(__name__)
 # Type alias: (argv, cwd, timeout_seconds) -> (exit_code, combined_output)
 GitRunner = Callable[[list[str], Path, float], Awaitable[tuple[int, str]]]
 
-# Regex to strip embedded credentials from any URL-shaped substring for safe
-# logging. Matches "<scheme>://<userinfo>@" for any scheme (https, http, git,
-# ssh, ...) and collapses the userinfo to "***". Applied to free-form text
-# (git stderr, exception messages) so an injected x-access-token never lands in
-# a log line or a persisted error.
-_CREDENTIAL_RE = re.compile(r"([a-z][a-z0-9+.\-]*://)([^/@\s]+@)", re.IGNORECASE)
+# URL-shaped substrings in free-form git output. Each match is passed through
+# the shared legacy-row redactor so userinfo, query strings, and fragments are
+# scrubbed before logging or persistence.
+_URL_RE = re.compile(r"[a-z][a-z0-9+.\-]*://[^\s'\"<>]+", re.IGNORECASE)
 
 
 class _Unset:
@@ -90,12 +90,12 @@ _UNSET = _Unset()
 
 
 def _redact_url(text: str) -> str:
-    """Replace any 'scheme://user:token@' segment with 'scheme://***@'.
+    """Scrub credentials from every scheme URL embedded in arbitrary text.
 
     Operates on arbitrary text and scrubs every match, so it is safe to pass git
     output or exception strings that may embed authenticated clone URLs.
     """
-    return _CREDENTIAL_RE.sub(r"\1***@", text)
+    return _URL_RE.sub(lambda match: redact_git_url(match.group(0)), text)
 
 
 def _credential_store_line(clone_url: str, token: str) -> str:
@@ -574,12 +574,12 @@ class GitMirrorService:
         tasks: list[MirrorTask] = []
 
         for mirror in due:
-            name = mirror.name or mirror.clone_url
+            name = mirror.name or _redact_url(mirror.clone_url)
             if ignore_patterns and _is_ignored(name, mirror.clone_url, ignore_patterns):
                 logger.debug(
                     "git_mirror_ignored name=%s url=%s (matches ignore list)",
-                    name,
-                    mirror.clone_url,
+                    _redact_url(name),
+                    _redact_url(mirror.clone_url),
                 )
                 continue
             effective_url, credentials_token = await self._resolve_url(mirror)
@@ -823,6 +823,20 @@ class GitMirrorService:
             task.name,
             safe_url,
         )
+
+        # Re-apply the syntactic guard at execution time so legacy DB rows and
+        # config created before validation cannot pass credentials to git argv.
+        try:
+            assert_safe_git_url(task.effective_url)
+        except ValueError as exc:
+            logger.warning("git_mirror_blocked name=%s reason=%s", task.name, exc)
+            return MirrorOutcome(
+                mirror=task.mirror,
+                ok=False,
+                error=str(exc),
+                error_category=classify(str(exc)),
+                attempts=0,
+            )
 
         # SSRF guard (authoritative, clone time): resolve the target host and
         # refuse to clone from private / loopback / link-local / reserved

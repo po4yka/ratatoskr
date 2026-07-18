@@ -9,6 +9,7 @@ client, so they need no Telethon and no network.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -67,6 +68,32 @@ def _make_client(allowed_user_ids: tuple[int, ...]) -> TelegramClient:
     tc.client = _RecordingClient()  # type: ignore[assignment]
     tc.topic_manager = None
     return tc
+
+
+def test_bot_session_uses_configured_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: dict[str, Any] = {}
+
+    class _ClientStub:
+        def __init__(self, **kwargs: Any) -> None:
+            recorded.update(kwargs)
+
+    monkeypatch.setattr(
+        "app.adapters.telegram.telegram_client.TelethonBotClient",
+        _ClientStub,
+    )
+    cfg = SimpleNamespace(
+        telegram=SimpleNamespace(
+            api_id=1,
+            api_hash="hash",
+            bot_token="1:token",
+            session_dir="/data",
+        )
+    )
+
+    TelegramClient(cfg)
+
+    assert recorded["name"] == "ratatoskr_bot"
+    assert recorded["session_dir"] == "/data"
 
 
 @pytest.mark.asyncio

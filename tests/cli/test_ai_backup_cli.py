@@ -13,7 +13,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.cli import ai_backup
-from app.db.models.ai_backup import AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -46,6 +50,7 @@ def _fake_row(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         status=status,
+        authorization_status=AiBackupAuthorizationStatus.VALID,
         counts_json=counts_json if counts_json is not None else {"conversations": 5},
         last_backup_path=last_backup_path,
         last_error=last_error,
@@ -194,6 +199,7 @@ async def test_row_status_is_printed(
     out = capsys.readouterr().out
     assert result == 0
     assert "ok" in out
+    assert "valid" in out
     assert "42" in out
     assert "2026-06-27" in out
 
@@ -291,13 +297,23 @@ async def test_ingest_valid_blob_saves_and_clears(
     fake_store = MagicMock()
     fake_store.save = AsyncMock()
     fake_repo = MagicMock()
-    fake_repo.clear_auth_expired = AsyncMock()
+    fake_repo.mark_authorization_unverified = AsyncMock()
     monkeypatch.setattr(ai_backup, "load_config", lambda: cfg)
     monkeypatch.setattr(ai_backup, "Database", lambda config: fake_db)
     monkeypatch.setattr(ai_backup, "AiBackupSessionStore", lambda db: fake_store)
     monkeypatch.setattr(ai_backup, "AiBackupRepository", lambda db: fake_repo)
 
-    blob = {"cookies": [{"name": "sessionKey", "value": "secret"}], "origins": []}
+    blob = {
+        "cookies": [
+            {
+                "name": "sessionKey",
+                "domain": ".claude.ai",
+                "value": "secret",
+                "expires": -1,
+            }
+        ],
+        "origins": [],
+    }
     path = tmp_path / "claude.json"
     path.write_text(json.dumps(blob))
 
@@ -305,7 +321,7 @@ async def test_ingest_valid_blob_saves_and_clears(
 
     assert result == 0
     fake_store.save.assert_awaited_once_with(42, AiBackupService.CLAUDE, blob)
-    fake_repo.clear_auth_expired.assert_awaited_once_with(42, AiBackupService.CLAUDE)
+    fake_repo.mark_authorization_unverified.assert_awaited_once_with(42, AiBackupService.CLAUDE)
     fake_db.dispose.assert_awaited_once()
     out = capsys.readouterr().out
     assert "sessionKey" in out  # cookie NAME surfaced

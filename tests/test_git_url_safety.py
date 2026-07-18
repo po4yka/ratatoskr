@@ -12,6 +12,7 @@ from app.core.git_url_safety import (
     assert_safe_git_url,
     extract_git_host,
     is_github_host,
+    redact_git_url,
 )
 
 
@@ -90,6 +91,54 @@ def test_assert_safe_git_url_rejects_non_public_literals(url: str) -> None:
 )
 def test_assert_safe_git_url_allows_public(url: str) -> None:
     assert_safe_git_url(url)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:secret@example.com/repo.git",
+        "https://user@example.com/repo.git",
+        "git://token@example.com/repo.git",
+        "ssh://git:password@example.com/repo.git",
+    ],
+)
+def test_assert_safe_git_url_rejects_embedded_credentials(url: str) -> None:
+    with pytest.raises(ValueError, match="credential"):
+        assert_safe_git_url(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/repo.git?private_token=secret",
+        "https://example.com/repo.git?oauth_token=secret",
+        "https://example.com/repo.git?X-Amz-Credential=test&X-Amz-Signature=secret",
+        "https://example.com/repo.git?depth=1",
+        "https://example.com/repo.git#oauth_token=secret",
+        "git@example.com:owner/repo.git?private_token=secret",
+    ],
+)
+def test_assert_safe_git_url_rejects_all_queries_and_fragments(url: str) -> None:
+    with pytest.raises(ValueError, match="query string or fragment"):
+        assert_safe_git_url(url)
+
+
+def test_redact_git_url_hides_legacy_credentials() -> None:
+    redacted = redact_git_url(
+        "https://user:super-secret@example.com/repo.git?private_token=query-secret"
+        "&depth=1#oauth_token=fragment-secret"
+    )
+
+    assert "super-secret" not in redacted
+    assert "query-secret" not in redacted
+    assert "fragment-secret" not in redacted
+    assert redacted == "https://***@example.com/repo.git?redacted#redacted"
+
+
+def test_redact_git_url_preserves_clean_ssh_url() -> None:
+    clean = "ssh://git@example.com/repo.git"
+
+    assert redact_git_url(clean) == clean
 
 
 @pytest.mark.parametrize(

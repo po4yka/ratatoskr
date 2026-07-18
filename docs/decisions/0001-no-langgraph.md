@@ -17,7 +17,7 @@ We are re-adopting LangGraph for a **different use case the original ADR never e
 ### Decision
 
 - Adopt LangGraph (+ `langgraph-checkpoint-postgres`) to orchestrate the summarization pipeline as a state graph. **Target scope (revised 2026-06-15): the whole pipeline** — extraction, RAG grounding, summarize, validate, repair, enrich, persist, notify — as graph nodes calling application ports. The end-state node architecture is specified in [ADR-0015](0015-summarization-pipeline-target-architecture.md). (The original 2026-06-15 framing scoped this to the core summarize/validate/repair cycle; the committed clean rewrite broadens it to the full pipeline.)
-- Re-add the dependencies as an optional `graph` extra; the default image is unaffected unless the extra is installed.
+- Make the dependencies part of the base runtime once the graph becomes the sole summarize path; an ordinary `uv sync` must install the production execution engine and collect its real tests.
 - **Narrow — not lift entirely — the `banned-api` guard**: keep banning the kitchen-sink `langchain` monorepo and `langchain_community`; allow `langgraph` and `langchain_core`.
 - Keep `instructor` for structured output (no `langchain-openai`); reuse our own embedding + Qdrant clients (no `langchain-qdrant`).
 
@@ -36,7 +36,7 @@ They are complementary, not duplicative. LangGraph is **not** adopted as a task 
 
 ### Consequences
 
-- New deps under the `graph` extra: `langgraph`, `langgraph-checkpoint-postgres`, `langchain-core`, `psycopg3` + `psycopg-pool` (~30 transitive packages; record in `docs/reference/dependency-supply-chain.md`).
+- Base runtime deps: `langgraph`, `langgraph-checkpoint-postgres`, `langchain-core`, `psycopg3` + `psycopg-pool` (recorded in `docs/reference/dependency-supply-chain.md`).
 - A second (psycopg3) Postgres pool when checkpointing is enabled; the connection-budget math in `docs/vector-index-sync.md` is updated accordingly.
 - Security scanners (OSV / pip-audit / Safety) must triage any `langchain*` advisories.
 

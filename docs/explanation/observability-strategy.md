@@ -32,11 +32,11 @@ Logging helpers live in `app/core/logging_utils.py`. Services attach compact con
 
 ## Metrics
 
-Prometheus instruments application behavior through `app/observability/metrics.py` and subsystem-specific metric helpers. Metrics cover request outcomes/latency, extraction providers, LLM attempts and costs, Taskiq retries/failures, vector reconciliation, social integrations, and operational maintenance.
+Prometheus instruments application behavior through `app/observability/metrics.py` and subsystem-specific metric helpers. Metrics cover request outcomes/latency, extraction providers, LLM attempts and costs, Taskiq retries/failures, vector reconciliation, social integrations, and operational maintenance. The monitoring profile scrapes the API, Telegram bot, Taskiq worker, and scheduler separately. The worker endpoint aggregates every Taskiq child through a container-local Prometheus multiprocess registry, so scheduled-task metrics are not lost in another process. Pinned PostgreSQL and Redis exporters plus Qdrant's direct `/metrics` endpoint provide dependency readiness and saturation signals.
 
 Use metrics to detect rates and trends; use correlation-linked records to explain one failure. Avoid labels containing raw URLs, prompts, user text, tokens, or unbounded IDs.
 
-The `with-monitoring` Compose profile supplies Prometheus, Alertmanager, Grafana, Loki, Promtail, node-exporter, and tracing services declared by the current Compose file.
+The `with-monitoring` Compose profile supplies Prometheus, Alertmanager, Grafana, Loki, Promtail, node-exporter, PostgreSQL/Redis exporters, and tracing services declared by the current Compose file. The provisioned `Ratatoskr System Status` dashboard and its rollout/rollback contract are documented in [`ops/monitoring/README.md`](../../ops/monitoring/README.md).
 
 ## OpenTelemetry
 

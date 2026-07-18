@@ -24,7 +24,7 @@ See [Architecture Overview](explanation/architecture-overview.md), [Graph and Ag
 
 PostgreSQL is the relational source of truth. SQLAlchemy 2.0 models live in `app/db/models/`, are registered through `ALL_MODELS`, and are changed through Alembic revisions in `app/db/alembic/versions/`. `app/db/session.py::Database` is the application entry point for async sessions and transactions.
 
-The schema covers request processing and artifacts, users and authentication, collections and user content, digests/RSS/signals, repositories and git mirrors, exports and automation, transcription, browser sessions, task failures, and derived embedding metadata.
+The schema covers request processing and artifacts, users and authentication, collections and user content, digests/RSS/signals, repositories and git mirrors, exports and automation, transcription, browser sessions, task failures, and derived embedding metadata. AI account backups persist backup outcome separately from provider authorization state and its last verification timestamp, so an expired session does not erase the last successful backup result.
 
 See [Data Model Reference](reference/data-model.md).
 

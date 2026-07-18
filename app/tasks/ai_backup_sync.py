@@ -13,10 +13,15 @@ from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
-from app.db.models.ai_backup import AiBackupService
+from app.db.models.ai_backup import (
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
+from app.observability.metrics_backup import record_backup_run
 from app.tasks.broker import broker
 from app.tasks.deps import get_app_config, get_db
 
@@ -113,6 +118,8 @@ async def sync_ai_backup(
 ) -> None:
     """Back up the deployment owner's enabled AI web accounts."""
     if not cfg.ai_backup.enabled:
+        for service in _enabled_services(cfg):
+            record_backup_run(service.value, "disabled")
         logger.info("ai_backup_sync_disabled")
         return
 
@@ -127,13 +134,17 @@ async def sync_ai_backup(
             "ai_backup_sync_no_owner",
             extra={"reason": "ALLOWED_USER_IDS is empty; cannot key backup rows"},
         )
-        return
+        for service in services:
+            record_backup_run(service.value, "unverified")
+        raise RuntimeError("ai_backup_sync_failed: deployment owner is not configured")
 
     redis_client = await get_redis(cfg)
     async with RedisDistributedLock(
         redis_client, _AI_BACKUP_SYNC_LOCK_KEY, _AI_BACKUP_SYNC_LOCK_TTL
     ) as acquired:
         if not acquired:
+            for service in services:
+                record_backup_run(service.value, "skipped")
             logger.info(
                 "ai_backup_sync_skipped_lock_held",
                 extra={"key": _AI_BACKUP_SYNC_LOCK_KEY},
@@ -162,12 +173,44 @@ async def _run_sync(
         cfg=cfg, repo=repo, session_store=session_store, notifier=notifier
     )
 
+    failed_services: list[str] = []
     for service in services:
+        run_failed = False
         try:
             await svc.run(owner_id, service)
         except Exception as exc:
-            # AiBackupAuthExpiredError does not reach here (run() returns early).
+            run_failed = True
             logger.error(
                 "ai_backup_service_run_failed",
                 extra={"service": service.value, "error": str(exc)},
             )
+        try:
+            row = await repo.get(owner_id, service)
+        except Exception:
+            row = None
+            run_failed = True
+
+        if run_failed or row is None:
+            outcome = "error"
+        elif row.authorization_status == AiBackupAuthorizationStatus.EXPIRED:
+            outcome = "auth_required"
+        elif row.status == AiBackupStatus.FAILED:
+            outcome = "error"
+        elif (
+            row.status == AiBackupStatus.OK
+            and row.authorization_status == AiBackupAuthorizationStatus.VALID
+        ):
+            outcome = "success"
+        else:
+            outcome = "unverified"
+        record_backup_run(service.value, outcome)
+        if outcome != "success":
+            failed_services.append(service.value)
+
+    if failed_services:
+        # A later provider success may have followed an earlier failure ping;
+        # close the shared dead-man check with the aggregate task outcome.
+        await notifier._ping("fail")
+        names = ",".join(failed_services)
+        raise RuntimeError(f"ai_backup_sync_failed: non-successful services={names}")
+    await notifier._ping("")

@@ -8,6 +8,7 @@ preserving the existing record_scheduler_chronic_failure Prometheus metric.
 from __future__ import annotations
 
 import re
+import time
 import traceback
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,10 @@ if TYPE_CHECKING:
 from app.core.logging_utils import get_logger, redact_for_logging
 from app.observability.attributes import REQUEST_CORRELATION_ID, TASK_IS_ERR
 from app.observability.metrics import record_scheduler_chronic_failure, record_taskiq_retry_outcome
+from app.observability.metrics_taskiq import (
+    change_taskiq_in_flight,
+    record_taskiq_execution,
+)
 
 logger = get_logger(__name__)
 
@@ -46,6 +51,40 @@ _DEAD_LETTER_SECRET_KEY_RE = re.compile(
 )
 _DEAD_LETTER_MAX_VALUE_CHARS = 2000
 _DEAD_LETTER_REDACTED = "***REDACTED***"
+
+
+class TaskiqExecutionMetricsMiddleware(TaskiqMiddleware):
+    """Record generic RED metrics for every registered Taskiq task execution."""
+
+    def __init__(self) -> None:
+        self._started: dict[str, tuple[str, float]] = {}
+
+    @staticmethod
+    def _key(message: TaskiqMessage) -> str:
+        return message.task_id or f"message-{id(message)}"
+
+    async def pre_execute(self, message: TaskiqMessage) -> TaskiqMessage:
+        key = self._key(message)
+        if key not in self._started:
+            self._started[key] = (message.task_name, time.perf_counter())
+            change_taskiq_in_flight(message.task_name, 1)
+        return message
+
+    async def post_execute(self, message: TaskiqMessage, result: Any) -> Any:
+        started = self._started.pop(self._key(message), None)
+        if started is None:
+            task_name = message.task_name
+            duration_seconds = max(0.0, float(getattr(result, "execution_time", 0.0)))
+        else:
+            task_name, started_at = started
+            duration_seconds = time.perf_counter() - started_at
+            change_taskiq_in_flight(task_name, -1)
+        record_taskiq_execution(
+            task_name=task_name,
+            is_error=bool(getattr(result, "is_err", False)),
+            duration_seconds=duration_seconds,
+        )
+        return result
 
 
 def _redact_dead_letter_payload(value: Any, *, key: str | None = None) -> Any:

@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+from pydantic import ConfigDict
 
 from app.adapter_models.batch_analysis import (
     CombinedSummaryInput,
@@ -21,8 +21,6 @@ from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORR
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from app.adapters.llm import LLMClientProtocol
     from app.application.ports.requests import LLMRepositoryPort
 
@@ -32,17 +30,10 @@ logger = get_logger(__name__)
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
 
-class _CombinedSummaryLLMResponse(BaseModel):
-    thematic_arc: str = ""
-    synthesized_insights: list[Any] = []
-    contradictions: list[Any] = []
-    complementary_points: list[Any] = []
-    recommended_reading_order: list[Any] = []
-    reading_order_rationale: str | None = None
-    combined_key_ideas: list[Any] = []
-    combined_entities: list[Any] = []
-    combined_topic_tags: list[Any] = []
-    total_reading_time_min: int | None = None
+class _CombinedSummaryLLMResponse(CombinedSummaryOutput):
+    """Strict provider schema mirroring the application output contract."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput]):
@@ -60,16 +51,12 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
         self,
         llm_client: LLMClientProtocol,
         correlation_id: str | None = None,
-        stream: bool = False,
-        on_stream_delta: Callable[[str], Awaitable[None] | None] | None = None,
         *,
         llm_repo: LLMRepositoryPort | None = None,
         request_id: int | None = None,
     ):
         super().__init__(name="CombinedSummaryAgent", correlation_id=correlation_id)
         self._llm = llm_client
-        self._stream = stream
-        self._on_stream_delta = on_stream_delta
         # DI supplies these so the synthesis LLM call is persisted to llm_calls
         # against one of the batch's article requests (rule 3: persist everything).
         self._llm_repo = llm_repo
@@ -156,6 +143,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
                 result=None,
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 error=exc,
+                request_messages=messages,
             )
             return None
 
@@ -164,6 +152,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
             model=model,
             result=result,
             latency_ms=int((time.monotonic() - t0) * 1000),
+            request_messages=messages,
         )
         return self._parse_llm_response(result.parsed.model_dump(), input_data)
 
@@ -175,6 +164,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
         result: Any,
         latency_ms: int,
         error: Exception | None = None,
+        request_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """Best-effort persist of the synthesis LLM call to ``llm_calls``.
 
@@ -193,6 +183,8 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
             error=error,
             correlation_id=self.correlation_id,
             structured_output_used=True,
+            provider=getattr(self._llm, "provider_name", None),
+            request_messages=request_messages,
         )
 
     def _build_llm_context(self, input_data: CombinedSummaryInput) -> str:

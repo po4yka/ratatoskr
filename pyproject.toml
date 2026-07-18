@@ -110,8 +110,8 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-# ADR-0001 was reversed (2026-06-15): langgraph + langchain_core are re-adopted for the
-# summarize-pipeline graph, installed via the optional `graph` extra. The kitchen-sink
+# ADR-0001 was reversed (2026-06-15): langgraph + langchain_core are required by the
+# sole summarize-pipeline runtime. The kitchen-sink
 # `langchain` monorepo and `langchain_community` stay banned (we use only the focused
 # packages, and both are transitive-only via scrapegraphai); `langchain_openai` stays
 # banned because structured output uses `instructor` (ADR-0006), not LangChain's client.
@@ -171,7 +171,7 @@ dependencies = [
   "pydantic>=2.13.4",
   "pydantic-settings>=2.14.2",
   "pyyaml>=6.0.3",
-  "scrapling>=0.4.9,<1",
+  "scrapling>=0.4.11,<1",
   "msgspec>=0.21.1",
   "browserforge>=1.2.4",
   "curl_cffi>=0.15.0",
@@ -185,9 +185,9 @@ dependencies = [
   # out of scope; keeping the existing <4 upper bound.
   "spacy>=3.8.11,<4",
   "tldextract>=5.1.1",
-  "json-repair>=0.61.0",
+  "json-repair>=0.61.5",
   "tenacity>=8.2.0",
-  "openai>=2.44.0,<3",
+  "openai>=2.46.0,<3",
   "instructor>=1.15.4,<2",
   "loguru>=0.7.3",
   "orjson>=3.11.9",
@@ -197,12 +197,20 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0.51,<3.0",
   "asyncpg>=0.29",
   "greenlet>=3.5.2",
+  # Sole summarization runtime + durable Postgres checkpoints (ADR-0001/0004).
+  "langgraph>=1.2.9,<2",
+  "langchain-core>=1.4.9,<2",
+  "langgraph-checkpoint-postgres>=3,<4",
+  # 4.1.1 fixes GHSA-fjqc-hq36-qh5p while satisfying the Postgres saver.
+  "langgraph-checkpoint>=4.1.1,<5",
+  "psycopg[binary]>=3.3.4",
+  "psycopg-pool>=3.2",
 ]
 
 [project.optional-dependencies]
 # Attachment processing: image handling + PDF extraction + office documents
 attachment = [
-  "Pillow>=11.0.0",
+  "Pillow>=12.3.0",
   "pymupdf>=1.28.0",
   "markitdown[docx,pptx,xlsx,outlook]>=0.1.5",
 ]
@@ -213,9 +221,9 @@ attachment = [
 # stealth path fails with `ModuleNotFoundError: No module named 'patchright'`
 # and the chain loses its anti-bot fallback on JS-heavy / Cloudflare sites.
 browser_scraper = [
-  "playwright>=1.60.0",
-  "patchright>=1.60.1",
-  "crawlee[beautifulsoup,playwright]>=1.7.3",
+  "playwright>=1.61.0",
+  "patchright>=1.61.2",
+  "crawlee[beautifulsoup,playwright]>=1.8.2",
 ]
 
 # LLM-driven last-resort scraper (lazy-imported; only fires when all other providers fail)
@@ -237,8 +245,8 @@ api = [
   # undocumented `fastar` typosquat dependency into the [standard] extras
   # group (osv.dev/MAL-2026-4750, published 2026-05-23). Exclude it; the
   # upstream registry has yanked it but the exclusion is defense in depth.
-  "fastapi!=0.136.3,>=0.138.0,<1",
-  "uvicorn[standard]>=0.49.0",
+  "fastapi!=0.136.3,>=0.139.2,<1",
+  "uvicorn[standard]>=0.51.0",
   "starlette>=1.3.1,<2",
   "sse-starlette>=3.4.5",
   "pyjwt>=2.13.0",
@@ -251,14 +259,14 @@ api = [
 # Machine learning dependencies (embeddings, vector search, transformers)
 ml = [
   "ratatoskr[inference_core]",
-  "torch>=2.12.1,<3",
-  "transformers>=5.12.1,<6",
+  "torch>=2.13.0,<3",
+  "transformers>=5.14.1,<6",
   "scikit-learn>=1.9.0",
 ]
 
 # YouTube video download and transcript extraction
 youtube = [
-  "yt-dlp>=2026.6.9",
+  "yt-dlp>=2026.7.4",
   "youtube-transcript-api>=1.2.4",
 ]
 
@@ -316,25 +324,6 @@ otel = [
   "opentelemetry-instrumentation-logging>=0.63b1,<1",
 ]
 
-# LangGraph summarize-pipeline orchestration + Postgres checkpointing (ADR-0001 reversed; ADR-0004).
-# Optional and NOT installed by the default image — the runtime is unaffected until a deployment
-# opts in. langgraph + langchain-core are already transitive (via scrapegraphai); this extra
-# promotes them to direct deps and adds the checkpointer. psycopg[binary] is a direct dep here;
-# psycopg-pool is new. langgraph-checkpoint-postgres floor is >=3:
-# the 3.x line is the only one compatible with langgraph 1.x (it requires langgraph-checkpoint>=4.1.0).
-# No langchain-openai (ADR-0006 keeps instructor) and no langchain-qdrant (reuse our Qdrant client).
-graph = [
-  "langgraph>=1.2.6,<2",
-  "langchain-core>=1.4.8,<2",
-  "langgraph-checkpoint-postgres>=3,<4",
-  # Direct floor for the transitive checkpointer: 4.1.0 carries GHSA-fjqc-hq36-qh5p
-  # (CVSS 6.8 Medium), fixed in 4.1.1. Still satisfies langgraph-checkpoint-postgres's >=4.1.0.
-  "langgraph-checkpoint>=4.1.1,<5",
-  "psycopg[binary]>=3.3.4",
-  "psycopg-pool>=3.2",
-]
-
-
 # NOTE: spaCy trained models (en_core_web_sm, ru_core_news_sm) were removed because
 # the codebase only uses spacy.blank() + sentencizer, which needs no trained models.
 # Install them manually via `python -m spacy download <model>` if ever needed.
@@ -344,10 +333,10 @@ ci-lint = [
     "import-linter>=2.8.0,<3",
     "isort>=7.0.0,<8",
     "radon>=6.0.1,<7",
-    "ruff>=0.15.18",
+    "ruff>=0.15.22",
 ]
 ci-type = [
-    "mypy>=2.1.0",
+    "mypy>=2.3.0",
     "types-python-dateutil>=2.9.0.20250822",
     "types-PyYAML>=6.0.12.20250915",
 ]
@@ -356,9 +345,9 @@ ci-test = [
     # tests/tasks/test_x_bookmarks_sync.py and the ingestor tests collect/run on
     # a fresh CI test environment without a dedicated project extra.
     "aiosqlite>=0.20.0",
-    "coverage[toml]>=7.10.6",
+    "coverage[toml]>=7.15.2",
     "fakeredis>=2.36.2",
-    "hypothesis>=6.155.7",
+    "hypothesis>=6.156.6",
     "openapi-spec-validator>=0.9.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
