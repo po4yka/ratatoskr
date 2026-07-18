@@ -3,6 +3,8 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from pydantic import ValidationError
+
 from app.adapter_models.batch_analysis import (
     ArticleMetadata,
     RelationshipAnalysisInput,
@@ -11,6 +13,7 @@ from app.adapter_models.batch_analysis import (
 from app.agents.relationship_analysis_agent import (
     MetadataSignals,
     RelationshipAnalysisAgent,
+    _RelationshipLLMResponse,
 )
 
 
@@ -106,6 +109,15 @@ class TestRelationshipAnalysisAgent(unittest.IsolatedAsyncioTestCase):
                 summary_250="Preview of the football season.",
             ),
         ]
+
+    def test_structured_response_requires_signals_used(self):
+        with self.assertRaises(ValidationError):
+            _RelationshipLLMResponse.model_validate(
+                {
+                    "relationship_type": "unrelated",
+                    "confidence": 0.9,
+                }
+            )
 
     async def test_single_article_returns_unrelated(self):
         """Test that a single article returns unrelated."""

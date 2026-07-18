@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+from pydantic import ConfigDict
 
 from app.adapter_models.batch_analysis import (
     CombinedSummaryInput,
@@ -32,17 +32,10 @@ logger = get_logger(__name__)
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
 
-class _CombinedSummaryLLMResponse(BaseModel):
-    thematic_arc: str = ""
-    synthesized_insights: list[Any] = []
-    contradictions: list[Any] = []
-    complementary_points: list[Any] = []
-    recommended_reading_order: list[Any] = []
-    reading_order_rationale: str | None = None
-    combined_key_ideas: list[Any] = []
-    combined_entities: list[Any] = []
-    combined_topic_tags: list[Any] = []
-    total_reading_time_min: int | None = None
+class _CombinedSummaryLLMResponse(CombinedSummaryOutput):
+    """Strict provider schema mirroring the application output contract."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput]):

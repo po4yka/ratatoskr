@@ -35,12 +35,12 @@ logger = get_logger(__name__)
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
 
-class _RelationshipLLMResponse(BaseModel):
-    relationship_type: str = "unrelated"
-    confidence: float = 0.5
-    reasoning: str = ""
-    series_info: dict[str, Any] | None = None
-    cluster_info: dict[str, Any] | None = None
+class _RelationshipLLMResponse(RelationshipAnalysisOutput):
+    """Strict provider schema including every field consumed by the parser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    signals_used: list[str]
 
 
 # Patterns for series detection
