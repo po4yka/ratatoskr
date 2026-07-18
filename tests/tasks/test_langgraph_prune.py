@@ -44,7 +44,7 @@ def _stub_psycopg(
     cursor.rowcount = rowcount
     cursor.fetchall = AsyncMock(
         return_value=[
-            {"correlation_id": tid} if dict_rows else (tid,)
+            {"thread_id": tid} if dict_rows else (tid,)
             for tid in thread_ids
         ]
     )
@@ -87,7 +87,9 @@ async def test_prune_body_materializes_once_then_deletes_three_tables(monkeypatc
     m.tx.__aenter__.assert_awaited_once()  # ran inside an explicit transaction
     sqls = [c.args[0] for c in m.conn.execute.await_args_list]
     # exactly one SELECT (materialize) + three DELETEs
-    assert sqls[0].startswith("SELECT correlation_id FROM public.requests")
+    select_sql = sqls[0].as_string()
+    assert 'SELECT thread_id FROM "langgraph"."checkpoints"' in select_sql
+    assert "MAX((checkpoint->>'ts')::timestamptz)" in select_sql
     deletes = [query.as_string() for query in sqls[1:]]
     assert len(deletes) == 3
     assert any('"langgraph"."checkpoint_writes"' in statement for statement in deletes)

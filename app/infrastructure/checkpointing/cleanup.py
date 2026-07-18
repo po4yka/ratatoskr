@@ -29,19 +29,24 @@ async def prune_expired_checkpoints(
     retention_days: int,
     cutoff: dt.datetime | None = None,
 ) -> CheckpointPruneStats:
-    """Delete whole checkpoint runs whose parent request predates retention.
+    """Delete whole checkpoint runs whose latest checkpoint predates retention.
 
-    ``connection`` must already be inside a transaction. The checkpoint tables have no timestamp column, so request creation time identifies aged runs via their shared ``thread_id == correlation_id`` contract.
+    ``connection`` must already be inside a transaction. LangGraph stores an ISO
+    timestamp in the JSONB checkpoint payload. Aging the lineage from that payload
+    covers ordinary request threads as well as deleted requests, changed
+    correlation IDs, and content-only runs that never had a request row.
     """
     cutoff = cutoff or dt.datetime.now(dt.UTC) - dt.timedelta(days=retention_days)
     stats = CheckpointPruneStats()
-    cur = await connection.execute(
-        "SELECT correlation_id FROM public.requests "
-        "WHERE correlation_id IS NOT NULL AND created_at < %(cutoff)s",
-        {"cutoff": cutoff},
-    )
+    select_query = sql.SQL(
+        "SELECT thread_id FROM {}.{} "
+        "WHERE checkpoint->>'ts' IS NOT NULL "
+        "GROUP BY thread_id "
+        "HAVING MAX((checkpoint->>'ts')::timestamptz) < %(cutoff)s"
+    ).format(sql.Identifier(schema), sql.Identifier("checkpoints"))
+    cur = await connection.execute(select_query, {"cutoff": cutoff})
     thread_ids = [
-        row["correlation_id"] if isinstance(row, Mapping) else row[0]
+        row["thread_id"] if isinstance(row, Mapping) else row[0]
         for row in await cur.fetchall()
     ]
     if not thread_ids:

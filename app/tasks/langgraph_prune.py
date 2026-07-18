@@ -1,10 +1,9 @@
 """Taskiq task: nightly LangGraph checkpoint prune (ADR-0004).
 
-Drops checkpoint rows for runs older than the retention window. The langgraph
-checkpoint tables carry no timestamp column and `thread_id == correlation_id`
-(sacred, ADR-0011), so a "run older than N days" is resolved via the parent
-``public.requests`` row's ``created_at``. Deleting by ``thread_id`` removes the
-whole run's state across all three checkpoint tables — exactly ADR-0004's
+Drops checkpoint rows for runs older than the retention window. Run age comes
+from the timestamp in LangGraph's JSONB checkpoint payload, so orphan and
+content-only lineages are retained and pruned under the same policy. Deleting by
+``thread_id`` removes the whole run's state across all three checkpoint tables — exactly ADR-0004's
 "drop a run's checkpoints" backstop (the primary path is delete-on-terminal,
 landed with the graph in a later track).
 
@@ -65,20 +64,17 @@ async def _run_prune(cfg: AppConfig) -> CheckpointPruneStats:
 
 
 async def _prune_body(cfg: AppConfig) -> CheckpointPruneStats:
-    """Delete checkpoint rows for runs whose parent request is older than retention.
+    """Delete checkpoint rows for runs whose latest checkpoint is older than retention.
 
-    The langgraph checkpoint tables carry no timestamp and ``thread_id ==
-    correlation_id`` (sacred), so run age is resolved via the parent
-    ``public.requests`` row. The aged thread-id set is materialized ONCE and the
+    LangGraph's JSONB checkpoint payload carries its creation timestamp. The aged
+    thread-id set is materialized ONCE from that source of truth and the
     three tables are deleted in a single transaction, so the cut is
     snapshot-consistent (the three deletes never diverge).
 
     Scope: this nightly job is the **age-based backstop**. The primary
-    reclamation path is delete-on-terminal (lands with the graph in a later
-    track). Checkpoints whose ``thread_id`` has no matching request row (true
-    orphans) are intentionally left alone here — they cannot be aged from
-    ``requests``, and deleting them unconditionally could race an in-flight run
-    whose request row is still being written.
+    reclamation path is delete-on-terminal. Recent in-flight runs are excluded by
+    their latest checkpoint timestamp, without depending on a mutable request
+    correlation ID.
     """
     cp_cfg = cfg.langgraph_checkpoint
     if not cp_cfg.enabled:
