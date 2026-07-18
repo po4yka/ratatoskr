@@ -56,6 +56,8 @@ _ENRICH_KEYS = (
     "topic_taxonomy",
 )
 
+_STREAM_REPAIR_CANDIDATE_MAX_CHARS = 16_000
+
 
 def classify_sticky_error(exc: Exception) -> str | None:
     """Return the sticky-error class (substring match) or None (verbatim parity)."""
@@ -196,8 +198,9 @@ async def summarize_streaming(
     injection / quality post-processing is shared with
     :func:`summarize_with_instructor` so output shape stays consistent.
 
-    Returns ``(summary, call_meta)``. Raises ``ValueError`` only when the call
-    fails outright or yields no JSON object (routed to the terminal path).
+    Returns ``(summary, call_meta)``. Raises ``ValueError`` only when the provider
+    call fails outright. An unparsable successful response becomes an explicitly
+    invalid, bounded candidate so ``validate -> repair`` can correct it.
 
     The provider ``response_format`` honors ``structured_output_mode``: when it
     is ``"json_schema"`` the model is constrained to the strict summary schema
@@ -243,8 +246,14 @@ async def summarize_streaming(
     if not isinstance(parsed, dict) and _is_unwrapped_summary_json(result.response_json):
         parsed = result.response_json
     if not isinstance(parsed, dict):
-        detail = f": {parse_error}" if parse_error is not None else ""
-        raise ValueError(f"Streaming summary produced no parseable JSON object{detail}")
+        parsed = {
+            "__stream_parse_error__": (
+                type(parse_error).__name__ if parse_error is not None else "no_json_object"
+            ),
+            "__raw_stream_response__": (result.response_text or "")[
+                :_STREAM_REPAIR_CANDIDATE_MAX_CHARS
+            ],
+        }
 
     summary = mark_prompt_injection_metadata(parsed, source_content)
     quality = summary.get("quality")

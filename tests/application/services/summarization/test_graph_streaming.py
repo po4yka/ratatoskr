@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from app.application.graphs.summarize.nodes.validate import validate
 from app.application.services.summarization.graph_llm import summarize_streaming
 from app.core.call_status import CallStatus
 
@@ -220,16 +221,24 @@ async def test_streaming_raises_on_non_ok_status() -> None:
         )
 
 
-async def test_streaming_raises_when_no_json_object() -> None:
+async def test_streaming_routes_unparseable_output_to_validation_repair() -> None:
     llm = _FakeLLM(response_text="not json at all")
-    with pytest.raises(ValueError, match=r"no parseable JSON|no JSON object"):
-        await summarize_streaming(
-            llm_client=llm,
-            messages=_MESSAGES,
-            source_content="src",
-            max_tokens=None,
-            model_override=None,
-            temperature=0.2,
-            structured_output_mode=None,
-            on_token=_noop,
-        )
+    summary, call_meta = await summarize_streaming(
+        llm_client=llm,
+        messages=_MESSAGES,
+        source_content="src",
+        max_tokens=None,
+        model_override=None,
+        temperature=0.2,
+        structured_output_mode=None,
+        on_token=_noop,
+    )
+
+    assert summary["__raw_stream_response__"] == "not json at all"
+    assert summary["__stream_parse_error__"]
+    assert call_meta["model"] == "m1"
+
+    validation = await validate(
+        {"summary": summary}, deps=SimpleNamespace(graph_run_ledger=None)
+    )
+    assert validation["validation_errors"]
