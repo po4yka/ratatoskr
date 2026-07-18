@@ -39,6 +39,7 @@ def _success_llm() -> MagicMock:
         latency_ms=210,
     )
     llm = MagicMock()
+    llm.provider_name = "openrouter"
     llm._model = "openrouter/default"
     llm.chat_structured = AsyncMock(return_value=result)
     llm._success_result = result
@@ -60,7 +61,7 @@ async def test_persists_llm_call_on_success() -> None:
     assert payload["request_id"] == 42
     assert payload["endpoint"] == "web_search_analysis"
     assert payload["status"] == "success"
-    assert payload["provider"] == "anthropic"
+    assert payload["provider"] == "openrouter"
     assert payload["model"] == "anthropic/claude"
     assert payload["tokens_prompt"] == 120
     assert payload["tokens_completion"] == 30

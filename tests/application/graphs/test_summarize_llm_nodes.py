@@ -223,11 +223,15 @@ async def test_repair_node_budget_exhaustion_raises() -> None:
 
 
 async def test_repair_node_reruns_and_records_call() -> None:
-    llm = SimpleNamespace(chat_structured=AsyncMock(return_value=_structured(_VALID)))
+    llm = SimpleNamespace(
+        provider_name="anthropic",
+        chat_structured=AsyncMock(return_value=_structured(_VALID)),
+    )
     out = await repair(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
     assert out["repair_attempts"] == 1
     assert out["summary"]["summary_250"] == "a summary"
     assert out["llm_calls"][0]["attempt_trigger"] == "repair_loop"
+    assert out["llm_calls"][0]["provider"] == "anthropic"
 
 
 async def test_repair_node_records_failure_call_and_advances_budget() -> None:
@@ -270,13 +274,14 @@ async def test_enrich_node_noop_without_config() -> None:
 
 def _enriching_llm() -> Any:
     return SimpleNamespace(
+        provider_name="ollama",
         chat=AsyncMock(
             return_value=SimpleNamespace(
                 status=CallStatus.OK,
                 response_text='{"seo_keywords": ["x", "y"]}',
                 error_text=None,
             )
-        )
+        ),
     )
 
 
@@ -292,6 +297,7 @@ async def test_enrich_node_enabled_merges_keys() -> None:
         deps=_deps(llm_client=llm, config=_config(two_pass_enabled=True)),
     )
     assert out["summary"]["seo_keywords"] == ["x", "y"]
+    assert out["llm_calls"][0]["provider"] == "ollama"
 
 
 async def test_enrich_node_noop_when_not_eligible_even_if_enabled() -> None:

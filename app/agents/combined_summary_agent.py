@@ -193,6 +193,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
             error=error,
             correlation_id=self.correlation_id,
             structured_output_used=True,
+            provider=getattr(self._llm, "provider_name", None),
         )
 
     def _build_llm_context(self, input_data: CombinedSummaryInput) -> str:

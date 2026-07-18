@@ -88,6 +88,7 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         return {"repair_attempts": attempts}
 
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
+    provider = _provider_name(deps, config)
     model_override = (state.get("model_override") or "").strip() or None
     repair_messages = _build_repair_messages(
         messages,
@@ -127,6 +128,7 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
                     attempt,
                     status=str(attempt.get("status") or "error"),
                     error_text=str(attempt.get("error_text") or exc),
+                    provider=provider,
                 )
                 for attempt in physical_attempts
                 if isinstance(attempt, dict)
@@ -161,7 +163,12 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
                 "latency_ms": None,
             }
         failure_record = _repair_call_record(
-            state, config, failure_meta, status="error", error_text=str(exc)
+            state,
+            config,
+            failure_meta,
+            status="error",
+            error_text=str(exc),
+            provider=provider,
         )
         return {
             "repair_attempts": attempts,
@@ -180,6 +187,7 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
                 call_meta,
                 status=str(call_meta.get("status") or "ok"),
                 error_text=(str(call_meta["error_text"]) if call_meta.get("error_text") else None),
+                provider=provider,
             )
             for call_meta in call_metas
         ],
@@ -193,10 +201,11 @@ def _repair_call_record(
     *,
     status: str,
     error_text: str | None,
+    provider: str,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "request_id": state.get("request_id"),
-        "provider": "openrouter",
+        "provider": provider,
         "model": call_meta.get("model"),
         "tokens_prompt": call_meta.get("tokens_prompt"),
         "tokens_completion": call_meta.get("tokens_completion"),
@@ -218,3 +227,10 @@ def _fallback_model(config: SummarizeConfig | None, call_meta: dict[str, Any]) -
     if not isinstance(model, str) or not model:
         return None
     return model if config is not None and model != config.model else None
+
+
+def _provider_name(deps: SummarizeDeps, config: SummarizeConfig | None) -> str:
+    provider = getattr(deps.llm_client, "provider_name", None)
+    if isinstance(provider, str) and provider:
+        return provider
+    return config.llm_provider if config else "unknown"

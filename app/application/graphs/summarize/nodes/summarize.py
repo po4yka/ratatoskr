@@ -62,6 +62,7 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
         return {}
 
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
+    provider = _provider_name(deps, config)
     model_override = (state.get("model_override") or "").strip() or None
     max_tokens = state.get("max_tokens") or None
     streamed = bool(state.get("stream"))
@@ -99,7 +100,7 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
             raise CallBudgetExceeded(str(exc)) from exc
         except Exception as exc:
             # GAP 3a: attach failure record then re-raise.
-            raise _tag_failure(state, config, exc, structured=False) from exc
+            raise _tag_failure(state, config, exc, structured=False, provider=provider) from exc
     else:
         try:
             summary, call_metas, call_count = await summarize_with_instructor(
@@ -121,7 +122,7 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
             raise CallBudgetExceeded(str(exc)) from exc
         except Exception as exc:
             # GAP 3a: attach failure record then re-raise.
-            raise _tag_failure(state, config, exc, structured=True) from exc
+            raise _tag_failure(state, config, exc, structured=True, provider=provider) from exc
 
     result: dict[str, Any] = {
         "summary": summary,
@@ -134,6 +135,7 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
                 status=str(call_meta.get("status") or "ok"),
                 structured=not streamed,
                 error_text=(str(call_meta["error_text"]) if call_meta.get("error_text") else None),
+                provider=provider,
             )
             for call_meta in call_metas
         ],
@@ -169,11 +171,12 @@ def _call_record(
     status: str,
     structured: bool = True,
     error_text: str | None = None,
+    provider: str = "unknown",
 ) -> dict[str, Any]:
     """Build the serializable ``llm_calls`` record (attempt_trigger='graph_node')."""
     rec: dict[str, Any] = {
         "request_id": state.get("request_id"),
-        "provider": config.llm_provider if config else "openrouter",
+        "provider": provider,
         "model": call_meta.get("model"),
         "tokens_prompt": call_meta.get("tokens_prompt"),
         "tokens_completion": call_meta.get("tokens_completion"),
@@ -204,6 +207,7 @@ def _tag_failure(
     exc: Exception,
     *,
     structured: bool,
+    provider: str,
 ) -> Exception:
     """Attach an llm_calls failure record to ``exc`` and return it for re-raising.
 
@@ -231,6 +235,7 @@ def _tag_failure(
                 status=str(attempt.get("status") or "error"),
                 structured=structured,
                 error_text=str(attempt.get("error_text") or exc),
+                provider=provider,
             )
             for attempt in physical_attempts
             if isinstance(attempt, dict)
@@ -272,6 +277,14 @@ def _tag_failure(
         status="error",
         structured=structured,
         error_text=raw_error,
+        provider=provider,
     )
     exc.__dict__.setdefault("llm_failure_records", []).append(failure_record)
     return exc
+
+
+def _provider_name(deps: SummarizeDeps, config: SummarizeConfig | None) -> str:
+    provider = getattr(deps.llm_client, "provider_name", None)
+    if isinstance(provider, str) and provider:
+        return provider
+    return config.llm_provider if config else "unknown"

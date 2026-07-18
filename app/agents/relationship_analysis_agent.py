@@ -552,6 +552,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
             error=error,
             correlation_id=self.correlation_id,
             structured_output_used=True,
+            provider=getattr(self._llm, "provider_name", None),
         )
 
     def _parse_llm_response(

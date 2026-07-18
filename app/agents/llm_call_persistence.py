@@ -14,12 +14,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _provider_from_model(model: str | None) -> str:
-    if not model:
-        return "unknown"
-    return model.split("/", 1)[0] if "/" in model else "unknown"
-
-
 async def persist_agent_llm_call(
     llm_repo: LLMRepositoryPort | None,
     *,
@@ -38,6 +32,7 @@ async def persist_agent_llm_call(
     attempt_trigger: str | None = None,
     correlation_id: str | None = None,
     structured_output_used: bool | None = None,
+    provider: str | None = None,
 ) -> None:
     """Write one normalized agent LLM-call record without changing agent outcomes.
 
@@ -50,9 +45,10 @@ async def persist_agent_llm_call(
         return
 
     resolved_model = str(getattr(result, "model_used", None) or model or "unknown")
+    resolved_provider = provider if isinstance(provider, str) and provider else "unknown"
     payload: LLMCallRecord = {
         "request_id": request_id,
-        "provider": _provider_from_model(resolved_model),
+        "provider": resolved_provider,
         "model": resolved_model,
         "endpoint": endpoint,
         "response_text": response_text,

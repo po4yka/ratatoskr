@@ -293,6 +293,7 @@ class MultiSourceAggregationAgent(
                 error=exc,
                 correlation_id=input_data.correlation_id,
                 structured_output_used=True,
+                provider=getattr(self._llm, "provider_name", None),
             )
             return None, 0.0
 
@@ -305,6 +306,7 @@ class MultiSourceAggregationAgent(
             result=result,
             correlation_id=input_data.correlation_id,
             structured_output_used=True,
+            provider=getattr(self._llm, "provider_name", None),
         )
 
         try:

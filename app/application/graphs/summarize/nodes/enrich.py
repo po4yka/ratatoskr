@@ -64,10 +64,13 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     # provider fallbacks. The adapter's per-model telemetry is already normalized
     # by ``enrich_two_pass``.
     if call_metas:
+        provider = getattr(deps.llm_client, "provider_name", None)
+        if not isinstance(provider, str) or not provider:
+            provider = config.llm_provider
         result["llm_calls"] = [
             {
                 "request_id": state.get("request_id"),
-                "provider": "openrouter",
+                "provider": provider,
                 "model": call_meta.get("model"),
                 "tokens_prompt": call_meta.get("tokens_prompt"),
                 "tokens_completion": call_meta.get("tokens_completion"),

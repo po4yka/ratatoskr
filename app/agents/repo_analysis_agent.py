@@ -394,4 +394,5 @@ class RepoAnalysisAgent:
             attempt_trigger=attempt_trigger,
             correlation_id=correlation_id,
             structured_output_used=structured_output_used,
+            provider=getattr(self._llm, "provider_name", None),
         )
