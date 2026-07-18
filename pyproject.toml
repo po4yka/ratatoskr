@@ -275,7 +275,7 @@ youtube = [
 # Requires ffmpeg on PATH at runtime. Also relies on yt-dlp from the `youtube`
 # extra when transcribing URL inputs through /transcribe.
 transcription = [
-  "sherpa-onnx>=1.10,<2",
+  "sherpa-onnx>=1.13.3,<2",
 ]
 
 # Twitter/X extraction (uses base runtime dependencies)
