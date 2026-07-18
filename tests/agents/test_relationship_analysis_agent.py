@@ -174,6 +174,37 @@ class TestRelationshipAnalysisAgent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.output.relationship_type, RelationshipType.SERIES)
         self.assertEqual(result.output.series_info.numbering_pattern, "Chapter N")
 
+    async def test_partial_numbering_does_not_classify_entire_batch_as_series(self):
+        articles = [
+            ArticleMetadata(
+                request_id=1,
+                url="https://tutorial.example/part-1",
+                title="Database Guide Part 1",
+            ),
+            ArticleMetadata(
+                request_id=2,
+                url="https://tutorial.example/part-2",
+                title="Database Guide Part 2",
+            ),
+            ArticleMetadata(
+                request_id=3,
+                url="https://weather.example/forecast",
+                title="Weekend Weather Forecast",
+            ),
+        ]
+        agent = RelationshipAnalysisAgent(llm_client=None, correlation_id=self.correlation_id)
+
+        result = await agent.execute(
+            RelationshipAnalysisInput(
+                articles=articles,
+                correlation_id=self.correlation_id,
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertNotEqual(result.output.relationship_type, RelationshipType.SERIES)
+        self.assertIsNone(result.output.series_info)
+
     async def test_topic_cluster_detection(self):
         """Test topic cluster detection with shared entities and tags."""
         input_data = RelationshipAnalysisInput(

@@ -118,7 +118,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
         signals_used = []
 
         # Phase 2: Check for series (explicit numbering)
-        if signals.series_numbers and len(signals.series_numbers) >= 2:
+        if len(signals.series_numbers) == len(articles):
             series_result = self._detect_series(articles, signals)
             if series_result and series_result.confidence >= input_data.series_threshold:
                 self.log_info(
@@ -298,7 +298,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
         self, articles: list[ArticleMetadata], signals: MetadataSignals
     ) -> RelationshipAnalysisOutput | None:
         """Detect if articles form a series."""
-        if len(signals.series_numbers) < 2:
+        if len(signals.series_numbers) < 2 or len(signals.series_numbers) != len(articles):
             return None
 
         # Sort by detected number
