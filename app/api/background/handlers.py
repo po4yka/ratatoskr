@@ -89,6 +89,7 @@ class UrlBackgroundRequestHandler:
                     chosen_lang=lang,
                     system_prompt=system_prompt,
                     correlation_id=correlation_id,
+                    request_id=request_id,
                     source_coverage=source_coverage,
                     extraction_quality=metadata.get("extraction_quality")
                     if isinstance(metadata, dict)
@@ -189,6 +190,7 @@ class ForwardBackgroundRequestHandler:
                     chosen_lang=lang,
                     system_prompt=system_prompt,
                     correlation_id=correlation_id,
+                    request_id=request_id,
                     source_coverage="full",
                 )
             ),

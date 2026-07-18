@@ -436,6 +436,29 @@ async def test_content_only_summarize_applies_quality_metadata():
     assert quality.get("extraction_confidence") == 0.9
 
 
+async def test_content_only_summarize_with_request_uses_persisting_runner(monkeypatch):
+    graph = MagicMock()
+    runner = AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)})
+    monkeypatch.setattr(_PLAIN_PATH, runner)
+    facade = _facade(graph=graph)
+
+    out = await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id="cid-api",
+            request_id=42,
+        )
+    )
+
+    runner.assert_awaited_once()
+    assert runner.call_args.kwargs["request_id"] == 42
+    assert runner.call_args.kwargs["source_text"] == "pre-extracted body"
+    graph.ainvoke.assert_not_called()
+    assert out["summary_250"] == "s"
+
+
 @pytest.mark.parametrize("falsy_correlation_id", ["", None])
 async def test_content_only_summarize_keeps_thread_id_equal_to_correlation_id(
     falsy_correlation_id,

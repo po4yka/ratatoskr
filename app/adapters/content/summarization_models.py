@@ -53,6 +53,7 @@ class PureSummaryRequest:
     system_prompt: str
     correlation_id: str | None = None
     feedback_instructions: str | None = None
+    request_id: int | None = None
     source_coverage: str | None = None
     extraction_quality: str | None = None
     extraction_confidence: float | None = None

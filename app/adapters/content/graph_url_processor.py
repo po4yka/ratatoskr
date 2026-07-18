@@ -222,37 +222,49 @@ class GraphURLProcessor:
         # two whenever request.correlation_id was falsy: state kept "" while the
         # checkpointer keyed on "content-only".
         correlation_id = request.correlation_id or "content-only"
-        # No persistence target for the content-only path (no request row / silent
-        # summarization); the graph persist node short-circuits every DB write when
-        # request_id is None. ``0`` is NOT a usable sentinel -- it is a real FK value
-        # and INSERTing a Summary against requests.id=0 raises ForeignKeyViolationError
-        # (audit #1).
-        initial_state = build_initial_state(
-            correlation_id=correlation_id,
-            request_id=None,
-            lang=lang,
-            input_url="",
-            source_text=content_text,
-        )
-        config = invocation_config(
-            correlation_id=correlation_id,
-            recursion_limit=DEFAULT_RECURSION_LIMIT,
-        )
-        try:
-            final_state = await self._graph.ainvoke(initial_state, config=config)
-        except Exception as exc:
-            raise_if_cancelled(exc)
-            # audit #4: RE-RAISE rather than swallow to ``{}``. The background
-            # retry runner (``run_with_backoff``) only retries a stage that RAISES,
-            # so returning ``{}`` here bypassed the configured retry_attempts. The
-            # caller (run_stage) wraps this in a StageError; the retry loop fires.
-            logger.warning(
-                "graph_content_only_summarize_failed",
-                extra={"cid": correlation_id, "error": str(exc)},
+        if request.request_id is not None:
+            # API/background callers already own a real Request row. Route through
+            # the full runner so summarize/repair attempts and terminal failures are
+            # durably attached to that request instead of being discarded by the
+            # historical request_id=None content-only shortcut.
+            from app.application.graphs.summarize.graph import run_summarize_graph
+
+            user_scope, environment = self._retrieval_scope()
+            final_state = await run_summarize_graph(
+                graph=self._graph,
+                deps=self._deps,
+                correlation_id=correlation_id,
+                request_id=request.request_id,
+                lang=lang,
+                input_url="",
+                source_text=content_text,
+                user_scope=user_scope,
+                environment=environment,
+                two_pass_eligible=False,
             )
+        else:
+            initial_state = build_initial_state(
+                correlation_id=correlation_id,
+                request_id=None,
+                lang=lang,
+                input_url="",
+                source_text=content_text,
+            )
+            config = invocation_config(
+                correlation_id=correlation_id,
+                recursion_limit=DEFAULT_RECURSION_LIMIT,
+            )
+            try:
+                final_state = await self._graph.ainvoke(initial_state, config=config)
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                logger.warning(
+                    "graph_content_only_summarize_failed",
+                    extra={"cid": correlation_id, "error": str(exc)},
+                )
+                await cleanup_checkpoint_thread(self._graph, config)
+                raise
             await cleanup_checkpoint_thread(self._graph, config)
-            raise
-        await cleanup_checkpoint_thread(self._graph, config)
 
         # Terminal graph failure: the graph's route_terminal_failure node populated
         # ``state['error']`` and exited without a summary. Re-raise as ValueError so
@@ -277,7 +289,9 @@ class GraphURLProcessor:
         # LLM metadata-completion (title/author/dates) + RAG-field enrichment. Both
         # run via the port-safe app service (llm_client port + pure core helpers);
         # best-effort so a completion failure never blocks the summary.
-        await self._complete_metadata_and_enrich(summary, content_text, lang, correlation_id)
+        await self._complete_metadata_and_enrich(
+            summary, content_text, lang, correlation_id, request.request_id
+        )
 
         # Apply the request quality metadata the graph nodes do not set (parity
         # with PureSummaryService._apply_request_quality_metadata).
