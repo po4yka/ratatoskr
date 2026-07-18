@@ -369,9 +369,9 @@ async def run_summarize_graph_streamed(
     ``StreamHub`` progress; there is no separate ``ainvoke``.
 
     Streamed tokens are an ephemeral side-channel: the bridge's assembler is
-    local to this call and never enters checkpoint state (ADR-0011). Terminal
-    ``done`` / ``error`` are emitted by ``BackgroundProgressPublisher``, not here,
-    so each request_id stream terminates exactly once.
+    local to this call and never enters checkpoint state (ADR-0011). This runner
+    owns the interactive stream lifecycle, so it emits exactly one terminal
+    ``done`` or ``error`` event before returning.
 
     On any node/recursion/budget failure, routes to the single terminal-failure
     path and returns ``{"error": ...}``; otherwise returns the final graph state.
@@ -403,6 +403,12 @@ async def run_summarize_graph_streamed(
             if captured is not None:
                 final_state = captured
         await cleanup_checkpoint_thread(graph, config)
+        summary_id = final_state.get("summary_id")
+        await sink.done(
+            request_id=str(request_id),
+            correlation_id=correlation_id,
+            summary_id=str(summary_id) if summary_id is not None else None,
+        )
         return final_state
     except Exception as exc:
         # Single terminal sink (ADR-0011), mirroring run_summarize_graph: a node
@@ -426,6 +432,12 @@ async def run_summarize_graph_streamed(
             )
         finally:
             await cleanup_checkpoint_thread(graph, config)
+        await sink.error(
+            request_id=str(request_id),
+            correlation_id=correlation_id,
+            code=reason_code_for_exception(exc),
+            message=message,
+        )
         return {
             "error": message,
             "notification_type": notification_type_for_exception(exc),
