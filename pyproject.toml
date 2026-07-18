@@ -110,8 +110,8 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-# ADR-0001 was reversed (2026-06-15): langgraph + langchain_core are re-adopted for the
-# summarize-pipeline graph, installed via the optional `graph` extra. The kitchen-sink
+# ADR-0001 was reversed (2026-06-15): langgraph + langchain_core are required by the
+# sole summarize-pipeline runtime. The kitchen-sink
 # `langchain` monorepo and `langchain_community` stay banned (we use only the focused
 # packages, and both are transitive-only via scrapegraphai); `langchain_openai` stays
 # banned because structured output uses `instructor` (ADR-0006), not LangChain's client.
@@ -197,6 +197,14 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0.51,<3.0",
   "asyncpg>=0.29",
   "greenlet>=3.5.2",
+  # Sole summarization runtime + durable Postgres checkpoints (ADR-0001/0004).
+  "langgraph>=1.2.6,<2",
+  "langchain-core>=1.4.8,<2",
+  "langgraph-checkpoint-postgres>=3,<4",
+  # 4.1.1 fixes GHSA-fjqc-hq36-qh5p while satisfying the Postgres saver.
+  "langgraph-checkpoint>=4.1.1,<5",
+  "psycopg[binary]>=3.3.4",
+  "psycopg-pool>=3.2",
 ]
 
 [project.optional-dependencies]
@@ -315,25 +323,6 @@ otel = [
   "opentelemetry-instrumentation-redis>=0.63b1,<1",
   "opentelemetry-instrumentation-logging>=0.63b1,<1",
 ]
-
-# LangGraph summarize-pipeline orchestration + Postgres checkpointing (ADR-0001 reversed; ADR-0004).
-# Optional and NOT installed by the default image — the runtime is unaffected until a deployment
-# opts in. langgraph + langchain-core are already transitive (via scrapegraphai); this extra
-# promotes them to direct deps and adds the checkpointer. psycopg[binary] is a direct dep here;
-# psycopg-pool is new. langgraph-checkpoint-postgres floor is >=3:
-# the 3.x line is the only one compatible with langgraph 1.x (it requires langgraph-checkpoint>=4.1.0).
-# No langchain-openai (ADR-0006 keeps instructor) and no langchain-qdrant (reuse our Qdrant client).
-graph = [
-  "langgraph>=1.2.6,<2",
-  "langchain-core>=1.4.8,<2",
-  "langgraph-checkpoint-postgres>=3,<4",
-  # Direct floor for the transitive checkpointer: 4.1.0 carries GHSA-fjqc-hq36-qh5p
-  # (CVSS 6.8 Medium), fixed in 4.1.1. Still satisfies langgraph-checkpoint-postgres's >=4.1.0.
-  "langgraph-checkpoint>=4.1.1,<5",
-  "psycopg[binary]>=3.3.4",
-  "psycopg-pool>=3.2",
-]
-
 
 # NOTE: spaCy trained models (en_core_web_sm, ru_core_news_sm) were removed because
 # the codebase only uses spacy.blank() + sentencizer, which needs no trained models.

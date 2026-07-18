@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+
 @dataclass
 class CheckpointPruneStats:
     """Rows deleted from each checkpoint table."""
@@ -33,8 +34,8 @@ async def prune_expired_checkpoints(
     covers ordinary request threads as well as deleted requests, changed
     correlation IDs, and content-only runs that never had a request row.
     """
-    # psycopg belongs to the optional ``graph`` extra. Keep the infrastructure
-    # package importable for workers that do not install checkpoint support.
+    # Keep driver loading at the I/O boundary; importing the infrastructure
+    # package must not initialize psycopg eagerly.
     from psycopg import sql
 
     cutoff = cutoff or dt.datetime.now(dt.UTC) - dt.timedelta(days=retention_days)
@@ -47,8 +48,7 @@ async def prune_expired_checkpoints(
     ).format(sql.Identifier(schema), sql.Identifier("checkpoints"))
     cur = await connection.execute(select_query, {"cutoff": cutoff})
     thread_ids = [
-        row["thread_id"] if isinstance(row, Mapping) else row[0]
-        for row in await cur.fetchall()
+        row["thread_id"] if isinstance(row, Mapping) else row[0] for row in await cur.fetchall()
     ]
     if not thread_ids:
         return stats

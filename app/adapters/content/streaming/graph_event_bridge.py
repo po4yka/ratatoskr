@@ -3,7 +3,7 @@
 The summarize graph is the producer; this bridge is the single translation
 surface from langgraph's event stream to the in-process ``StreamHub`` (via the
 injected sink). It imports **no langgraph type** -- it consumes plain event
-dicts (the astream_events v2 schema), so it stays in the no-graph-extra import
+dicts (the astream_events v2 schema), so it stays outside the LangGraph import
 budget and is unit-testable with hand-built event sequences.
 
 Token-feed decision (ADR-0017 work item 4)

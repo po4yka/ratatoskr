@@ -8,9 +8,8 @@ failure must not prevent the service from running (the checkpointer is optional)
 Invariant 4 (ADR-0018): this pool is the ONLY sanctioned non-``Database``
 Postgres connection in the process. It is psycopg3 (not asyncpg) because
 ``langgraph-checkpoint-postgres`` requires psycopg3, and it must NOT route
-through ``app.db.session.Database``. langgraph / psycopg imports are lazy
-(inside ``start()``) so this module stays importable in the default image,
-which does not install the optional ``graph`` extra.
+through ``app.db.session.Database``. LangGraph / psycopg imports remain local to
+``start()`` so importing infrastructure does not initialize driver state.
 """
 
 from __future__ import annotations
@@ -117,9 +116,7 @@ class CheckpointerRuntime:
                     setup_saver = AsyncPostgresSaver(conn, serde=serde)
                     await setup_saver.setup()
                 finally:
-                    await conn.execute(
-                        "SELECT pg_advisory_unlock(%s)", (_SETUP_ADVISORY_LOCK_ID,)
-                    )
+                    await conn.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_ADVISORY_LOCK_ID,))
 
             saver = AsyncPostgresSaver(pool, serde=serde)
 

@@ -121,8 +121,8 @@ async def test_run_reuses_terminal_checkpoint_without_replaying_graph() -> None:
 
 
 async def test_real_langgraph_resume_does_not_replay_completed_nodes() -> None:
-    memory = pytest.importorskip("langgraph.checkpoint.memory")
-    graph_api = pytest.importorskip("langgraph.graph")
+    from langgraph import graph as graph_api
+    from langgraph.checkpoint import memory
 
     class ResumeState(TypedDict, total=False):
         correlation_id: str
@@ -202,7 +202,8 @@ async def test_run_maps_failures_to_single_terminal_path(monkeypatch, exc) -> No
 
 
 async def test_run_maps_graph_recursion_error(monkeypatch) -> None:
-    errors = pytest.importorskip("langgraph.errors")
+    from langgraph import errors
+
     route = AsyncMock(return_value="Processing failed (Error ID: corr-3). Please try again.")
     monkeypatch.setattr(graph_mod, "route_terminal_failure", route)
     graph = MagicMock()
@@ -362,7 +363,6 @@ def _real_deps():
 
 
 async def test_empty_compiled_run_reaches_terminal_failure_with_in_memory_saver() -> None:
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.memory import InMemorySaver
 
     deps = _real_deps()
@@ -380,7 +380,6 @@ async def test_empty_compiled_run_reaches_terminal_failure_with_in_memory_saver(
 async def test_compiled_validate_repair_loop_terminates_via_budget(monkeypatch) -> None:
     """End-to-end: a never-valid summary drives validate<->repair until the repair
     budget trips, terminating the compiled loop through the single terminal path."""
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.memory import InMemorySaver
 
     import app.application.graphs.summarize.lifecycle as lifecycle_mod
@@ -413,7 +412,6 @@ async def test_terminal_failure_persists_accumulated_llm_calls_end_to_end(monkey
     dropped. This drives the REAL compiled graph (with an InMemorySaver, matching
     production's always-present checkpointer) through the budget loop and asserts
     the injected ``llm_repo`` received all of them."""
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.memory import InMemorySaver
 
     import app.application.graphs.summarize.lifecycle as lifecycle_mod
@@ -485,7 +483,6 @@ async def test_terminal_failure_persists_accumulated_llm_calls_end_to_end(monkey
 
 
 async def test_di_compiles_with_default_in_memory_checkpointer() -> None:
-    pytest.importorskip("langgraph")
     from app.di.graphs import build_summarize_graph_app
 
     graph = build_summarize_graph_app(deps=_real_deps())

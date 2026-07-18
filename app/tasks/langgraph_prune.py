@@ -10,7 +10,7 @@ landed with the graph in a later track).
 Invariant 4 (ADR-0018): this task opens its OWN short-lived psycopg3 connection
 and must NOT route through ``app.db.session.Database``. ``psycopg`` is imported
 lazily inside the body so the module stays importable on the default worker
-image, which does not install the optional ``graph`` extra.
+image while keeping driver initialization at task execution time.
 """
 
 from __future__ import annotations

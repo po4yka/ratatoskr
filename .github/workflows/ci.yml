@@ -78,7 +78,6 @@ jobs:
             --extra export \
             --extra scheduler \
             --extra mcp \
-            --extra graph \
             -o requirements-all.txt
 
       - name: Compile locked requirements (dev)
@@ -290,7 +289,6 @@ jobs:
         run: |
           uv sync --frozen --no-default-groups \
             --extra api \
-            --extra graph \
             --group ci-test
 
       - name: Validate OpenAPI spec
@@ -378,7 +376,6 @@ jobs:
         run: |
           uv sync --frozen --no-default-groups \
             --extra api \
-            --extra graph \
             --group ci-type
 
       - name: Type check (mypy)
@@ -465,7 +462,6 @@ jobs:
         run: |
           uv sync --frozen --no-default-groups \
             --extra api \
-            --extra graph \
             --extra mcp \
             --extra youtube \
             --group ci-test
@@ -680,12 +676,10 @@ jobs:
       # Export ALL extras so Safety sees the complete dependency surface.
       # The prepare-environment artifact only includes api, ml, youtube, export,
       # scheduler, mcp — extras otel, push, transcription, gemini,
-      # scraper_ai, attachment, browser_scraper, monitoring, and graph are
+      # scraper_ai, attachment, browser_scraper, and monitoring are
       # omitted there. We regenerate a comprehensive requirements file here
-      # rather than relying on the shared artifact. The `graph` extra (ADR-0001
-      # reversed) adds langgraph-checkpoint-postgres + psycopg-pool on top of the
-      # langchain/langgraph ecosystem already pulled transitively by scraper_ai,
-      # so Safety/pip-audit triage those advisories too.
+      # rather than relying on the shared artifact. LangGraph and its Postgres
+      # checkpointer are base dependencies, so every export includes them.
       - name: Export comprehensive requirements (all extras)
         run: |
           uv export --no-dev --no-hashes --format requirements-txt -p 3.13 \
@@ -703,7 +697,6 @@ jobs:
             --extra attachment \
             --extra browser_scraper \
             --extra monitoring \
-            --extra graph \
             -o requirements-safety.txt
           # Dev group (type-stubs, test tools) also carry CVE-able packages
           uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 \
@@ -1005,7 +998,6 @@ jobs:
         run: |
           uv sync --frozen --no-default-groups \
             --extra api \
-            --extra graph \
             --extra mcp \
             --extra youtube \
             --group ci-test
@@ -1289,7 +1281,6 @@ jobs:
         run: |
           uv sync --frozen --no-default-groups \
             --extra api \
-            --extra graph \
             --extra mcp \
             --extra youtube \
             --group ci-db

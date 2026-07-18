@@ -1,9 +1,8 @@
 """Summarize ``StateGraph`` assembly + invocation (ADR-0010/0011/0015).
 
 This module (with :mod:`app.di.graphs`) is the ONLY langgraph-coupled surface.
-langgraph is imported **lazily inside the functions** so the module stays
-importable in the import-linter / mypy / unit-test CI envs, which do not install
-the optional ``graph`` extra (an ``app.*`` import must never require it).
+LangGraph is a required runtime dependency; imports remain local to the assembly
+functions so framework coupling does not leak into node modules.
 
 Contract:
 
@@ -98,8 +97,8 @@ _UNTRACKED_BULK_FIELDS: dict[str, type[Any]] = {
 def _checkpoint_state_schema() -> type[Any]:
     """Build the LangGraph schema with bulk handoffs excluded from checkpoints.
 
-    ``UntrackedValue`` is imported only at graph assembly time so importing the
-    application state remains possible without the optional graph dependency.
+    ``UntrackedValue`` is imported only at graph assembly time so the application
+    state module remains framework-independent.
     Nodes continue to use the ordinary ``SummarizeState`` TypedDict.
     """
     from langgraph.channels import UntrackedValue
@@ -309,7 +308,7 @@ def reason_code_for_exception(exc: BaseException) -> str:
     if isinstance(exc, CallBudgetExceeded):
         return REASON_GRAPH_CALL_BUDGET_EXCEEDED
     # Matched by name, not isinstance, to avoid importing langgraph at module
-    # scope (the no-graph-extra import invariant, ADR-0018).
+    # scope (the framework-independent node invariant, ADR-0018).
     if type(exc).__name__ == "GraphRecursionError":
         return REASON_GRAPH_RECURSION_LIMIT
     return REASON_GRAPH_NODE_FAILURE

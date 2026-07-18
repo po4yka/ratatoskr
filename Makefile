@@ -117,14 +117,14 @@ lock-uv:
 	uv lock
 	uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
 	uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
-	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra graph -o requirements-all.txt
+	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp -o requirements-all.txt
 	python3 tools/scripts/check_excluded_versions.py
 
 check-lock:
 	uv lock
 	uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
 	uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
-	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra graph -o requirements-all.txt
+	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp -o requirements-all.txt
 	@git diff --exit-code uv.lock requirements.txt requirements-dev.txt requirements-all.txt || (echo "Lockfiles are out of date. Run 'make lock-uv' and commit changes." && exit 1)
 	python3 tools/scripts/check_excluded_versions.py
 

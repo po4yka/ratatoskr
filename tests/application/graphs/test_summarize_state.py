@@ -3,8 +3,8 @@
 The strict-msgpack invariant (no pickle fallback) requires every state field to be
 a plain serializable primitive. ``json.dumps`` is a CI-safe proxy (JSON-serializable
 => msgpack-serializable for str/int/list/dict; a port/session/Pydantic leak raises),
-and the real langgraph ``JsonPlusSerializer`` round-trip runs locally (skipped where
-the optional ``graph`` extra is absent).
+and the real LangGraph ``JsonPlusSerializer`` round-trip runs in every ordinary
+test environment.
 """
 
 from __future__ import annotations
@@ -138,7 +138,6 @@ def test_bulk_fields_match_documented_allowlist() -> None:
 
 
 def test_compiled_graph_never_checkpoints_bulk_handoffs() -> None:
-    pytest.importorskip("langgraph")
     from unittest.mock import MagicMock
 
     from langgraph.channels import UntrackedValue
@@ -164,7 +163,6 @@ def test_compiled_graph_never_checkpoints_bulk_handoffs() -> None:
 
 
 async def test_checkpoint_snapshot_contains_no_bulk_payload() -> None:
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.graph import END, START, StateGraph
 
@@ -263,7 +261,6 @@ def test_checkpoint_size_stays_under_ceiling_for_typical_run() -> None:
 
 
 def test_real_msgpack_roundtrip_with_langgraph_serializer() -> None:
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
     serde = JsonPlusSerializer()

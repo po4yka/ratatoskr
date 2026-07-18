@@ -160,9 +160,8 @@ async def _dispatch_summary_token(delta: str) -> None:
 
     Best-effort, per-token side-channel: streamed tokens are ephemeral and must
     NEVER fail the authoritative summary (ADR-0011/0017). When invoked outside an
-    ``astream_events`` callback context (or without the graph extra installed),
-    the dispatch is silently skipped. langchain_core is imported lazily so this
-    node stays importable without the ``graph`` extra (no-graph-extra invariant).
+    ``astream_events`` callback context, the dispatch is silently skipped.
+    ``langchain_core`` is imported lazily so this node stays framework-independent.
     """
     if not delta:
         return

@@ -6,11 +6,10 @@ pluggable checkpointer. This module and
 ``app/application/graphs/summarize/graph.py`` are the ONLY langgraph-coupled
 surfaces (ADR-0010/0018); nodes stay framework-free.
 
-langgraph is imported **lazily** inside :func:`build_summarize_graph_app` so this
-module stays importable in the import-linter / mypy / unit-test CI envs, which do
-not install the optional ``graph`` extra. T5 defaults the checkpointer to an
-in-memory saver; T2's ``AsyncPostgresSaver`` is injected at this same seam at
-cutover.
+LangGraph is a required runtime dependency and remains imported inside
+:func:`build_summarize_graph_app` to keep framework coupling at the composition
+seam. T5 defaults the checkpointer to an in-memory saver; T2's
+``AsyncPostgresSaver`` is injected at this same seam at cutover.
 """
 
 from __future__ import annotations

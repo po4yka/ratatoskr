@@ -1,4 +1,4 @@
-"""The checkpoint cleanup module must not eagerly require the graph extra."""
+"""The checkpoint cleanup module must not initialize psycopg at import time."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import sys
 class BlockPsycopg:
     def find_spec(self, fullname, path=None, target=None):
         if fullname == "psycopg" or fullname.startswith("psycopg."):
-            raise ImportError("blocked optional dependency")
+            raise ImportError("blocked eager driver import")
         return None
 
 sys.meta_path.insert(0, BlockPsycopg())

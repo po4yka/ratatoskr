@@ -139,5 +139,5 @@ class SummarizeState(TypedDict, total=False):
     # call) the persist node writes to ``llm_calls`` with
     # ``attempt_trigger='graph_node'`` (persist-everything). ``operator.add`` is a
     # stdlib reducer so concurrent/sequential node updates append rather than
-    # overwrite -- no langgraph import (the no-graph-extra invariant, ADR-0018).
+    # overwrite -- no LangGraph type leaks into application state (ADR-0018).
     llm_calls: Annotated[list[dict[str, Any]], operator.add]
