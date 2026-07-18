@@ -81,7 +81,7 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
 
     if streamed:
         try:
-            summary, call_meta, call_count = await summarize_streaming(
+            summary, call_metas, call_count = await summarize_streaming(
                 llm_client=deps.llm_client,
                 messages=messages,
                 source_content=state.get("content_for_summary") or "",
@@ -102,7 +102,7 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
             raise _tag_failure(state, config, exc, structured=False) from exc
     else:
         try:
-            summary, call_meta, call_count = await summarize_with_instructor(
+            summary, call_metas, call_count = await summarize_with_instructor(
                 llm_client=deps.llm_client,
                 messages=messages,
                 source_content=state.get("content_for_summary") or "",
@@ -126,7 +126,17 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
     result: dict[str, Any] = {
         "summary": summary,
         "call_count": call_count,
-        "llm_calls": [_call_record(state, config, call_meta, status="ok", structured=not streamed)],
+        "llm_calls": [
+            _call_record(
+                state,
+                config,
+                call_meta,
+                status=str(call_meta.get("status") or "ok"),
+                structured=not streamed,
+                error_text=(str(call_meta["error_text"]) if call_meta.get("error_text") else None),
+            )
+            for call_meta in call_metas
+        ],
     }
 
     return result
@@ -211,6 +221,23 @@ def _tag_failure(
     reproduced here -- the instructor adapter collapses them into one result;
     a comment is left for future fidelity work.
     """
+    physical_attempts = getattr(exc, "__llm_physical_attempts__", None)
+    if isinstance(physical_attempts, list) and physical_attempts:
+        records = [
+            _call_record(
+                state,
+                config,
+                attempt,
+                status=str(attempt.get("status") or "error"),
+                structured=structured,
+                error_text=str(attempt.get("error_text") or exc),
+            )
+            for attempt in physical_attempts
+            if isinstance(attempt, dict)
+        ]
+        exc.__dict__.setdefault("llm_failure_records", []).extend(records)
+        return exc
+
     # Surface the raw LLMCallResult from the exception when available.
     llm_result = getattr(exc, "__llm_result__", None)
     if llm_result is not None:

@@ -43,7 +43,7 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     if not summary:
         return {}
 
-    enriched, call_meta, call_count = await enrich_two_pass(
+    enriched, call_metas, call_count = await enrich_two_pass(
         llm_client=deps.llm_client,
         summary=summary,
         content_text=state.get("content_for_summary") or state.get("source_text") or "",
@@ -60,10 +60,10 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
 
     result: dict[str, Any] = {"summary": enriched, "call_count": call_count}
 
-    # GAP 3b: append enrichment call record when the LLM was actually called.
-    # FIX-5: call_meta is None on non-OK status (enrich_two_pass contract); use
-    # the real status from call_meta rather than a hardcoded "ok" literal.
-    if call_meta is not None:
+    # Append every physical enrichment attempt, including transport failures and
+    # provider fallbacks. The adapter's per-model telemetry is already normalized
+    # by ``enrich_two_pass``.
+    if call_metas:
         result["llm_calls"] = [
             {
                 "request_id": state.get("request_id"),
@@ -74,10 +74,12 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
                 "cost_usd": call_meta.get("cost_usd"),
                 "latency_ms": call_meta.get("latency_ms"),
                 "status": call_meta.get("status") or "ok",
+                "error_text": call_meta.get("error_text"),
                 "structured_output_used": False,
                 "structured_output_mode": config.structured_output_mode,
                 "attempt_trigger": "graph_node",
             }
+            for call_meta in call_metas
         ]
 
     return result

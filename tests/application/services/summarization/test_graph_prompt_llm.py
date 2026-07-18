@@ -130,7 +130,7 @@ async def test_summarize_with_instructor_happy_path() -> None:
             )
         )
     )
-    summary, meta, call_count = await graph_llm.summarize_with_instructor(
+    summary, metas, call_count = await graph_llm.summarize_with_instructor(
         llm_client=llm,
         messages=[{"role": "user", "content": "x"}],
         source_content="clean source",
@@ -143,8 +143,9 @@ async def test_summarize_with_instructor_happy_path() -> None:
     )
     assert summary["summary_250"] == "a"
     assert summary["quality"]["prompt_injection_suspected"] is False
-    assert meta["model"] == "picked-model"
-    assert meta["tokens_prompt"] == 10
+    assert metas[0]["model"] == "picked-model"
+    assert metas[0]["tokens_prompt"] == 10
+    assert metas[0]["status"] == "ok"
     assert call_count == 1
 
 
@@ -158,7 +159,7 @@ async def test_summarize_with_instructor_sticky_drops_override_and_retries() -> 
         return _structured({"summary_250": "a", "summary_1000": "b", "tldr": "c"})
 
     llm = SimpleNamespace(chat_structured=_chat_structured)
-    summary, _meta, call_count = await graph_llm.summarize_with_instructor(
+    summary, metas, call_count = await graph_llm.summarize_with_instructor(
         llm_client=llm,
         messages=[{"role": "user", "content": "x"}],
         source_content="src",
@@ -173,6 +174,7 @@ async def test_summarize_with_instructor_sticky_drops_override_and_retries() -> 
     assert calls[0]["model_override"] == "sticky-model"
     assert calls[1]["model_override"] is None
     assert summary["summary_250"] == "a"
+    assert len(metas) == 1
     assert call_count == 2
 
 

@@ -543,18 +543,17 @@ async def test_gap3b_enrich_node_records_llm_call_in_llm_calls() -> None:
     assert rec["request_id"] == 42
 
 
-async def test_gap3b_enrich_node_no_llm_calls_on_exception() -> None:
-    """When enrich_two_pass raises internally, no llm_calls record (call_meta=None)."""
+async def test_gap3b_enrich_node_persists_failed_attempt_on_exception() -> None:
     llm = SimpleNamespace(chat=AsyncMock(side_effect=RuntimeError("enrich boom")))
     deps = _deps(llm_client=llm, config=_config(two_pass_enabled=True))
     state = _state(summary={"summary_250": "s"}, content_for_summary="c", lang="en")
     out = await enrich(state, deps=deps)
-    # enrich_two_pass swallows the exception and returns (summary, None)
-    assert out.get("llm_calls") is None or out.get("llm_calls") == []
+    assert len(out["llm_calls"]) == 1
+    assert out["llm_calls"][0]["status"] == "error"
+    assert out["llm_calls"][0]["error_text"] == "enrich boom"
 
 
-async def test_fix5_enrich_node_no_llm_calls_when_provider_status_not_ok() -> None:
-    """FIX-5: enrich_two_pass returns call_meta=None on non-OK status; no row written."""
+async def test_fix5_enrich_node_persists_provider_failure_status() -> None:
     llm = SimpleNamespace(
         chat=AsyncMock(
             return_value=SimpleNamespace(
@@ -572,8 +571,9 @@ async def test_fix5_enrich_node_no_llm_calls_when_provider_status_not_ok() -> No
     deps = _deps(llm_client=llm, config=_config(two_pass_enabled=True))
     state = _state(summary={"summary_250": "s"}, content_for_summary="c", lang="en")
     out = await enrich(state, deps=deps)
-    # Non-OK: enrich_two_pass now returns (summary, None), enrich node must not write a row
-    assert out.get("llm_calls") is None or out.get("llm_calls") == []
+    assert len(out["llm_calls"]) == 1
+    assert out["llm_calls"][0]["status"] == "error"
+    assert out["llm_calls"][0]["error_text"] == "provider error"
 
 
 # ===========================================================================

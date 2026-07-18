@@ -96,7 +96,7 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     )
 
     try:
-        summary, call_meta, call_count = await summarize_with_instructor(
+        summary, call_metas, call_count = await summarize_with_instructor(
             llm_client=deps.llm_client,
             messages=repair_messages,
             source_content=state.get("content_for_summary") or "",
@@ -118,6 +118,25 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
             "summarize_graph_repair_failed",
             extra={"cid": state.get("correlation_id"), "attempt": attempts, "error": str(exc)},
         )
+        physical_attempts = getattr(exc, "__llm_physical_attempts__", None)
+        if isinstance(physical_attempts, list) and physical_attempts:
+            failure_records = [
+                _repair_call_record(
+                    state,
+                    config,
+                    attempt,
+                    status=str(attempt.get("status") or "error"),
+                    error_text=str(attempt.get("error_text") or exc),
+                )
+                for attempt in physical_attempts
+                if isinstance(attempt, dict)
+            ]
+            return {
+                "repair_attempts": attempts,
+                "call_count": int(getattr(exc, "__llm_call_count__", state.get("call_count", 0))),
+                "llm_calls": failure_records,
+            }
+
         # Persist a failure llm_calls record so the repair attempt is observable
         # in the DB (persist-everything rule 3). Surface real model/latency from
         # __llm_result__ when the adapter attached it; fall back to config model.
@@ -141,21 +160,9 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
                 "cost_usd": None,
                 "latency_ms": None,
             }
-        failure_record: dict[str, Any] = {
-            "request_id": state.get("request_id"),
-            "provider": "openrouter",
-            "model": failure_meta["model"],
-            "tokens_prompt": failure_meta["tokens_prompt"],
-            "tokens_completion": failure_meta["tokens_completion"],
-            "cost_usd": failure_meta["cost_usd"],
-            "latency_ms": failure_meta["latency_ms"],
-            "fallback_model_used": _fallback_model(config, failure_meta),
-            "status": "error",
-            "structured_output_used": True,
-            "structured_output_mode": config.structured_output_mode if config else None,
-            "attempt_trigger": "repair_loop",
-            "error_text": str(exc),
-        }
+        failure_record = _repair_call_record(
+            state, config, failure_meta, status="error", error_text=str(exc)
+        )
         return {
             "repair_attempts": attempts,
             "call_count": int(getattr(exc, "__llm_call_count__", state.get("call_count", 0))),
@@ -167,22 +174,43 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         "call_count": call_count,
         "summary": summary,
         "llm_calls": [
-            {
-                "request_id": state.get("request_id"),
-                "provider": "openrouter",
-                "model": call_meta.get("model"),
-                "tokens_prompt": call_meta.get("tokens_prompt"),
-                "tokens_completion": call_meta.get("tokens_completion"),
-                "cost_usd": call_meta.get("cost_usd"),
-                "latency_ms": call_meta.get("latency_ms"),
-                "fallback_model_used": _fallback_model(config, call_meta),
-                "status": "ok",
-                "structured_output_used": True,
-                "structured_output_mode": config.structured_output_mode if config else None,
-                "attempt_trigger": "repair_loop",
-            }
+            _repair_call_record(
+                state,
+                config,
+                call_meta,
+                status=str(call_meta.get("status") or "ok"),
+                error_text=(str(call_meta["error_text"]) if call_meta.get("error_text") else None),
+            )
+            for call_meta in call_metas
         ],
     }
+
+
+def _repair_call_record(
+    state: SummarizeState,
+    config: SummarizeConfig | None,
+    call_meta: dict[str, Any],
+    *,
+    status: str,
+    error_text: str | None,
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "request_id": state.get("request_id"),
+        "provider": "openrouter",
+        "model": call_meta.get("model"),
+        "tokens_prompt": call_meta.get("tokens_prompt"),
+        "tokens_completion": call_meta.get("tokens_completion"),
+        "cost_usd": call_meta.get("cost_usd"),
+        "latency_ms": call_meta.get("latency_ms"),
+        "fallback_model_used": _fallback_model(config, call_meta),
+        "status": status,
+        "structured_output_used": True,
+        "structured_output_mode": config.structured_output_mode if config else None,
+        "attempt_trigger": "repair_loop",
+    }
+    if error_text:
+        record["error_text"] = error_text
+    return record
 
 
 def _fallback_model(config: SummarizeConfig | None, call_meta: dict[str, Any]) -> str | None:

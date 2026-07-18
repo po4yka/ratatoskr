@@ -97,6 +97,41 @@ async def test_summarize_node_produces_summary_and_graph_node_llm_call() -> None
     assert rec["status"] == "ok"
 
 
+async def test_summarize_node_persists_each_physical_structured_attempt() -> None:
+    result = _structured(_VALID, model="fallback-model")
+    result.physical_attempts = [
+        {
+            "model": "primary-model",
+            "status": "error",
+            "tokens_prompt": 20,
+            "tokens_completion": 3,
+            "cost_usd": 0.002,
+            "latency_ms": 40,
+            "error_text": "schema validation failed",
+        },
+        {
+            "model": "fallback-model",
+            "status": "ok",
+            "tokens_prompt": 22,
+            "tokens_completion": 5,
+            "cost_usd": 0.003,
+            "latency_ms": 50,
+            "error_text": None,
+        },
+    ]
+    llm = SimpleNamespace(chat_structured=AsyncMock(return_value=result))
+
+    out = await summarize(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
+
+    assert out["call_count"] == 2
+    assert [record["status"] for record in out["llm_calls"]] == ["error", "ok"]
+    assert [record["model"] for record in out["llm_calls"]] == [
+        "primary-model",
+        "fallback-model",
+    ]
+    assert [record["cost_usd"] for record in out["llm_calls"]] == [0.002, 0.003]
+
+
 async def test_summarize_node_noop_without_messages() -> None:
     out = await summarize({"request_id": 1}, deps=_deps(llm_client=MagicMock(), config=_config()))
     assert out == {}
