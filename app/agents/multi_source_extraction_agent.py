@@ -267,14 +267,26 @@ class MultiSourceExtractionAgent(
             successful_count=successful_count,
             failed_count=failed_count,
             duplicate_count=duplicate_count,
+            allow_partial_success=input_data.allow_partial_success,
         )
         failure: AggregationFailure | None = None
-        if successful_count == 0:
+        if session_status is AggregationSessionStatus.FAILED:
+            partial_disallowed = successful_count > 0
             failure = AggregationFailure(
-                code="no_extracted_sources",
-                message="No source extractions completed successfully",
+                code=(
+                    "partial_success_not_allowed"
+                    if partial_disallowed
+                    else "no_extracted_sources"
+                ),
+                message=(
+                    f"Partial source extraction is disabled. Error ID: "
+                    f"{input_data.correlation_id}"
+                    if partial_disallowed
+                    else "No source extractions completed successfully"
+                ),
                 retryable=True,
                 details={
+                    "successful_count": successful_count,
                     "failed_count": failed_count,
                     "duplicate_count": duplicate_count,
                 },
@@ -313,11 +325,12 @@ class MultiSourceExtractionAgent(
                 "duplicate_count": duplicate_count,
             },
         )
-        if successful_count == 0:
+        if session_status is AggregationSessionStatus.FAILED:
             return AgentResult.error_result(
-                "No source extractions completed successfully",
+                failure.message if failure else "Source extraction failed",
                 session_id=session_id,
                 status=AggregationSessionStatus.FAILED.value,
+                successful_count=successful_count,
                 failed_count=failed_count,
                 duplicate_count=duplicate_count,
             )
@@ -416,9 +429,14 @@ class MultiSourceExtractionAgent(
         successful_count: int,
         failed_count: int,
         duplicate_count: int,
+        allow_partial_success: bool = True,
     ) -> AggregationSessionStatus:
         if successful_count > 0 and failed_count > 0:
-            return AggregationSessionStatus.PARTIAL
+            return (
+                AggregationSessionStatus.PARTIAL
+                if allow_partial_success
+                else AggregationSessionStatus.FAILED
+            )
         if failed_count > 0 and successful_count == 0:
             return AggregationSessionStatus.FAILED
         return AggregationSessionStatus.COMPLETED
