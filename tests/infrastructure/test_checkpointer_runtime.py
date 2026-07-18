@@ -136,8 +136,23 @@ async def test_start_builds_isolated_pool_and_runs_setup(monkeypatch):
     schema_sql = m.schema_conn.execute.await_args_list[0].args[0]
     assert "CREATE SCHEMA IF NOT EXISTS" in schema_sql and "langgraph" in schema_sql
     assert m.serde_class.call_args.kwargs["pickle_fallback"] is False  # strict
+    assert m.saver_class.call_count == 2
+    assert m.saver_class.call_args_list[0].args[0] is m.schema_conn
+    assert m.saver_class.call_args_list[1].args[0] is m.pool
     m.saver.setup.assert_awaited_once()
     assert rt.saver is m.saver
+
+
+async def test_start_serializes_setup_with_advisory_lock(monkeypatch):
+    m = _install_stubs(monkeypatch)
+
+    await CheckpointerRuntime(cfg=_cfg(pmax=1)).start()
+
+    statements = [call.args[0] for call in m.schema_conn.execute.await_args_list]
+    lock_index = statements.index("SELECT pg_advisory_lock(%s)")
+    unlock_index = statements.index("SELECT pg_advisory_unlock(%s)")
+    assert lock_index < unlock_index
+    assert m.saver_class.call_args_list[0].args[0] is m.schema_conn
 
 
 async def test_start_cleans_checkpoints_before_exposing_saver(monkeypatch):

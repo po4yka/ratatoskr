@@ -30,6 +30,9 @@ logger = get_logger(__name__)
 # checkpointer is optional and failure-isolated, so a slow/unreachable Postgres
 # must not stall service startup for the psycopg_pool default (30s).
 _POOL_OPEN_TIMEOUT_SEC = 10.0
+# Stable, process-independent PostgreSQL advisory lock key for LangGraph's
+# non-transactional migration version check + insert sequence.
+_SETUP_ADVISORY_LOCK_ID = 0x52415441544F534B
 
 
 def _psycopg_dsn(database_dsn: str, dsn_override: str | None) -> str:
@@ -95,21 +98,30 @@ class CheckpointerRuntime:
             # search_path may point at a not-yet-existing schema; CREATE SCHEMA is
             # schema-name explicit). `schema` is validated to [A-Za-z0-9_] at
             # config time, so the interpolation is injection-safe.
+            # ``AsyncPostgresSaver.setup()`` reads the current migration version
+            # and then inserts subsequent versions. Serialize that sequence across
+            # bot/API processes. Run setup on the lock-owning connection itself so
+            # a pool configured with max_size=1 cannot deadlock waiting for a
+            # second connection.
             async with pool.connection() as conn:
                 await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+                await conn.execute("SELECT pg_advisory_lock(%s)", (_SETUP_ADVISORY_LOCK_ID,))
+                try:
+                    # strict_msgpack -> no pickle fallback (no arbitrary-module
+                    # deserialization). Production always forces it off.
+                    allow_pickle = not cp_cfg.strict_msgpack
+                    if allow_pickle and self._cfg.deployment.is_production_mode:
+                        logger.warning("langgraph_pickle_fallback_disabled_in_production")
+                        allow_pickle = False
+                    serde = JsonPlusSerializer(pickle_fallback=allow_pickle)
+                    setup_saver = AsyncPostgresSaver(conn, serde=serde)
+                    await setup_saver.setup()
+                finally:
+                    await conn.execute(
+                        "SELECT pg_advisory_unlock(%s)", (_SETUP_ADVISORY_LOCK_ID,)
+                    )
 
-            # strict_msgpack -> no pickle fallback (no arbitrary-module deserialization).
-            # In production the pickle fallback is forced OFF regardless of the
-            # flag: a checkpoint blob carrying a malicious pickle would otherwise
-            # execute arbitrary code on read (CWE-502). Only non-production
-            # deployments may opt into the fallback (e.g. to read legacy blobs).
-            allow_pickle = not cp_cfg.strict_msgpack
-            if allow_pickle and self._cfg.deployment.is_production_mode:
-                logger.warning("langgraph_pickle_fallback_disabled_in_production")
-                allow_pickle = False
-            serde = JsonPlusSerializer(pickle_fallback=allow_pickle)
             saver = AsyncPostgresSaver(pool, serde=serde)
-            await saver.setup()
 
             # setup() bootstraps the checkpoint tables on a fresh deployment. Only publish the saver after pruning old runs, so production graph compilation cannot enable durable execution ahead of cleanup.
             async with pool.connection() as conn, conn.transaction():
