@@ -6,6 +6,7 @@ The graph checkpointer and the scheduled prune task both use this transaction bo
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,7 +40,10 @@ async def prune_expired_checkpoints(
         "WHERE correlation_id IS NOT NULL AND created_at < %(cutoff)s",
         {"cutoff": cutoff},
     )
-    thread_ids = [row[0] for row in await cur.fetchall()]
+    thread_ids = [
+        row["correlation_id"] if isinstance(row, Mapping) else row[0]
+        for row in await cur.fetchall()
+    ]
     if not thread_ids:
         return stats
 

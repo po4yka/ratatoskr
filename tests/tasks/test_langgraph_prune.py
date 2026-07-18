@@ -31,11 +31,23 @@ def _cfg(*, enabled=True, schema="langgraph", retention_days=90, dsn_override=No
     )
 
 
-def _stub_psycopg(monkeypatch, *, thread_ids=("c1", "c2"), rowcount=3, connect=None):
+def _stub_psycopg(
+    monkeypatch,
+    *,
+    thread_ids=("c1", "c2"),
+    rowcount=3,
+    connect=None,
+    dict_rows=False,
+):
     """Install a fake ``psycopg`` module returning a transaction-aware conn mock."""
     cursor = MagicMock()
     cursor.rowcount = rowcount
-    cursor.fetchall = AsyncMock(return_value=[(tid,) for tid in thread_ids])
+    cursor.fetchall = AsyncMock(
+        return_value=[
+            {"correlation_id": tid} if dict_rows else (tid,)
+            for tid in thread_ids
+        ]
+    )
     conn = MagicMock()
     conn.execute = AsyncMock(return_value=cursor)
     conn.__aenter__ = AsyncMock(return_value=conn)
@@ -76,13 +88,23 @@ async def test_prune_body_materializes_once_then_deletes_three_tables(monkeypatc
     sqls = [c.args[0] for c in m.conn.execute.await_args_list]
     # exactly one SELECT (materialize) + three DELETEs
     assert sqls[0].startswith("SELECT correlation_id FROM public.requests")
-    deletes = sqls[1:]
+    deletes = [query.as_string() for query in sqls[1:]]
     assert len(deletes) == 3
-    assert any('"langgraph".checkpoint_writes' in s for s in deletes)
-    assert any('"langgraph".checkpoint_blobs' in s for s in deletes)
-    assert any('"langgraph".checkpoints' in s for s in deletes)
+    assert any('"langgraph"."checkpoint_writes"' in statement for statement in deletes)
+    assert any('"langgraph"."checkpoint_blobs"' in statement for statement in deletes)
+    assert any('"langgraph"."checkpoints"' in statement for statement in deletes)
     # deletes scope by the materialized id set, not a live subquery
-    assert all("thread_id = ANY(%(ids)s)" in s for s in deletes)
+    assert all("thread_id = ANY(%(ids)s)" in statement for statement in deletes)
+    for call in m.conn.execute.await_args_list[1:]:
+        assert call.args[1] == {"ids": ["c1", "c2"]}
+
+
+async def test_prune_body_accepts_runtime_dict_rows(monkeypatch):
+    """The startup pool uses psycopg ``dict_row`` rather than tuple rows."""
+    m = _stub_psycopg(monkeypatch, thread_ids=("c1", "c2"), dict_rows=True)
+
+    await _prune_body(_cfg(enabled=True))
+
     for call in m.conn.execute.await_args_list[1:]:
         assert call.args[1] == {"ids": ["c1", "c2"]}
 
@@ -98,8 +120,8 @@ async def test_prune_body_no_aged_runs_skips_deletes(monkeypatch):
 async def test_prune_body_honours_custom_schema(monkeypatch):
     m = _stub_psycopg(monkeypatch)
     await _prune_body(_cfg(enabled=True, schema="lg_ckpt"))
-    deletes = [c.args[0] for c in m.conn.execute.await_args_list[1:]]
-    assert all('"lg_ckpt".' in s for s in deletes)
+    deletes = [c.args[0].as_string() for c in m.conn.execute.await_args_list[1:]]
+    assert all('"lg_ckpt".' in statement for statement in deletes)
 
 
 async def test_prune_body_cutoff_uses_retention_days(monkeypatch):
