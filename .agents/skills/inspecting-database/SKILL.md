@@ -195,5 +195,6 @@ See `app/db/models/` for the SQLAlchemy 2.0 typed declarative models, grouped by
 | `signal.py` | `Source`, `Subscription`, `FeedItem`, `Topic`, `UserSignal` |
 | `topic_search.py` | `TopicSearchIndex` (Postgres TSVECTOR + GIN) |
 
-Migrations live in `app/db/alembic/versions/` and are applied with
-`python -m app.cli.migrate_db`.
+Migrations live in `app/db/alembic/versions/`. Inspect pending SQL with
+`python -m app.cli.migrate_db`; apply it explicitly with
+`python -m app.cli.migrate_db --apply`.

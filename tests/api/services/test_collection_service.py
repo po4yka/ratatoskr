@@ -3,16 +3,27 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 
 from app.api.exceptions import ResourceNotFoundError
 from app.db.models import Collection, CollectionCollaborator, CollectionItem
+
+
+async def _load_collection(db, collection_id: int) -> Collection | None:
+    async with db.session() as session:
+        return await session.scalar(select(Collection).where(Collection.id == collection_id))
+
+
+async def _row_exists(db, model, *conditions) -> bool:
+    async with db.session() as session:
+        return await session.scalar(select(model.id).where(*conditions)) is not None
 
 
 @pytest.mark.asyncio
 async def test_collection_service_creates_lists_builds_tree_and_reorders(
     db, user_factory, collection_service
 ) -> None:
-    owner = user_factory(username="collection-owner", telegram_user_id=6001)
+    owner = await user_factory(username="collection-owner", telegram_user_id=6001)
 
     root = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
@@ -78,7 +89,7 @@ async def test_collection_service_creates_lists_builds_tree_and_reorders(
 async def test_collection_service_updates_moves_and_soft_deletes(
     db, user_factory, collection_service
 ) -> None:
-    owner = user_factory(username="collection-editor", telegram_user_id=6002)
+    owner = await user_factory(username="collection-editor", telegram_user_id=6002)
     parent_a = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Parent A",
@@ -131,7 +142,9 @@ async def test_collection_service_updates_moves_and_soft_deletes(
     assert moved["position"] == 1
 
     await collection_service.delete_collection(child["id"], owner.telegram_user_id)
-    assert Collection.get_by_id(child["id"]).is_deleted is True  # type: ignore[attr-defined]
+    deleted = await _load_collection(db, child["id"])
+    assert deleted is not None
+    assert deleted.is_deleted is True
 
 
 @pytest.mark.asyncio
@@ -141,7 +154,7 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
     summary_factory,
     collection_service,
 ) -> None:
-    owner = user_factory(username="collection-items", telegram_user_id=6003)
+    owner = await user_factory(username="collection-items", telegram_user_id=6003)
     source = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Source Collection",
@@ -156,8 +169,8 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
         parent_id=None,
         position=None,
     )
-    summary_a = summary_factory(user=owner)
-    summary_b = summary_factory(user=owner)
+    summary_a = await summary_factory(user=owner)
+    summary_b = await summary_factory(user=owner)
 
     await collection_service.add_item(source["id"], summary_a.id, owner.telegram_user_id)
     await collection_service.add_item(source["id"], summary_b.id, owner.telegram_user_id)
@@ -199,23 +212,19 @@ async def test_collection_service_item_operations_cover_add_list_reorder_move_an
         position=1,
     )
     assert moved == [summary_a.id]
-    assert (
-        CollectionItem.select()  # type: ignore[attr-defined]
-        .where(
-            (CollectionItem.collection_id == target["id"])
-            & (CollectionItem.summary_id == summary_a.id)
-        )
-        .exists()
+    assert await _row_exists(
+        db,
+        CollectionItem,
+        CollectionItem.collection_id == target["id"],
+        CollectionItem.summary_id == summary_a.id,
     )
 
     await collection_service.remove_item(target["id"], summary_a.id, owner.telegram_user_id)
-    assert (
-        not CollectionItem.select()  # type: ignore[attr-defined]
-        .where(
-            (CollectionItem.collection_id == target["id"])
-            & (CollectionItem.summary_id == summary_a.id)
-        )
-        .exists()
+    assert not await _row_exists(
+        db,
+        CollectionItem,
+        CollectionItem.collection_id == target["id"],
+        CollectionItem.summary_id == summary_a.id,
     )
 
 
@@ -226,8 +235,8 @@ async def test_collection_service_rejects_cross_user_summary_ids(
     summary_factory,
     collection_service,
 ) -> None:
-    owner = user_factory(username="collection-owner-summary", telegram_user_id=6101)
-    other = user_factory(username="collection-other-summary", telegram_user_id=6102)
+    owner = await user_factory(username="collection-owner-summary", telegram_user_id=6101)
+    other = await user_factory(username="collection-other-summary", telegram_user_id=6102)
     collection = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Owned Collection",
@@ -235,7 +244,7 @@ async def test_collection_service_rejects_cross_user_summary_ids(
         parent_id=None,
         position=None,
     )
-    other_summary = summary_factory(user=other)
+    other_summary = await summary_factory(user=other)
 
     with pytest.raises(ResourceNotFoundError):
         await collection_service.add_item(
@@ -244,13 +253,11 @@ async def test_collection_service_rejects_cross_user_summary_ids(
             owner.telegram_user_id,
         )
 
-    assert (
-        not CollectionItem.select()  # type: ignore[attr-defined]
-        .where(
-            (CollectionItem.collection_id == collection["id"])
-            & (CollectionItem.summary_id == other_summary.id)
-        )
-        .exists()
+    assert not await _row_exists(
+        db,
+        CollectionItem,
+        CollectionItem.collection_id == collection["id"],
+        CollectionItem.summary_id == other_summary.id,
     )
 
 
@@ -261,7 +268,7 @@ async def test_collection_service_move_items_skips_ids_not_in_source_collection(
     summary_factory,
     collection_service,
 ) -> None:
-    owner = user_factory(username="collection-move-absent", telegram_user_id=6103)
+    owner = await user_factory(username="collection-move-absent", telegram_user_id=6103)
     source = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Move Source",
@@ -276,7 +283,7 @@ async def test_collection_service_move_items_skips_ids_not_in_source_collection(
         parent_id=None,
         position=None,
     )
-    absent_summary = summary_factory(user=owner)
+    absent_summary = await summary_factory(user=owner)
 
     moved = await collection_service.move_items(
         source["id"],
@@ -287,13 +294,11 @@ async def test_collection_service_move_items_skips_ids_not_in_source_collection(
     )
 
     assert moved == []
-    assert (
-        not CollectionItem.select()  # type: ignore[attr-defined]
-        .where(
-            (CollectionItem.collection_id == target["id"])
-            & (CollectionItem.summary_id == absent_summary.id)
-        )
-        .exists()
+    assert not await _row_exists(
+        db,
+        CollectionItem,
+        CollectionItem.collection_id == target["id"],
+        CollectionItem.summary_id == absent_summary.id,
     )
 
 
@@ -301,9 +306,9 @@ async def test_collection_service_move_items_skips_ids_not_in_source_collection(
 async def test_collection_service_collaborators_acl_and_invites(
     db, user_factory, collection_service
 ) -> None:
-    owner = user_factory(username="collection-owner-acl", telegram_user_id=6004)
-    collaborator = user_factory(username="collection-editor-acl", telegram_user_id=6005)
-    invitee = user_factory(username="collection-invitee-acl", telegram_user_id=6006)
+    owner = await user_factory(username="collection-owner-acl", telegram_user_id=6004)
+    collaborator = await user_factory(username="collection-editor-acl", telegram_user_id=6005)
+    invitee = await user_factory(username="collection-invitee-acl", telegram_user_id=6006)
     collection = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Shared Collection",
@@ -322,13 +327,11 @@ async def test_collection_service_collaborators_acl_and_invites(
     acl = await collection_service.list_acl(collection["id"], owner.telegram_user_id)
     roles = {entry["role"] for entry in acl}
     assert roles == {"owner", "editor"}
-    assert (
-        CollectionCollaborator.select()  # type: ignore[attr-defined]
-        .where(
-            (CollectionCollaborator.collection_id == collection["id"])
-            & (CollectionCollaborator.user_id == collaborator.telegram_user_id)
-        )
-        .exists()
+    assert await _row_exists(
+        db,
+        CollectionCollaborator,
+        CollectionCollaborator.collection_id == collection["id"],
+        CollectionCollaborator.user_id == collaborator.telegram_user_id,
     )
 
     await collection_service.remove_collaborator(
@@ -336,13 +339,11 @@ async def test_collection_service_collaborators_acl_and_invites(
         owner.telegram_user_id,
         collaborator.telegram_user_id,
     )
-    assert (
-        not CollectionCollaborator.select()  # type: ignore[attr-defined]
-        .where(
-            (CollectionCollaborator.collection_id == collection["id"])
-            & (CollectionCollaborator.user_id == collaborator.telegram_user_id)
-        )
-        .exists()
+    assert not await _row_exists(
+        db,
+        CollectionCollaborator,
+        CollectionCollaborator.collection_id == collection["id"],
+        CollectionCollaborator.user_id == collaborator.telegram_user_id,
     )
 
     invite = await collection_service.create_invite(

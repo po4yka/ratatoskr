@@ -43,6 +43,7 @@ if PROMETHEUS_AVAILABLE:
     DIGEST_ACTIVE_SUBSCRIPTION_USERS = Gauge(
         "ratatoskr_digest_active_subscription_users",
         "Users with active channel digest subscriptions seen by the scheduled run",
+        multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
 else:

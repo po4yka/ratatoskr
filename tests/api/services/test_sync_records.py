@@ -8,6 +8,7 @@ import pytest
 
 from app.api.models.responses import SyncEntityEnvelope
 from app.api.services.sync import SyncEntityAdapter, SyncEntityAdapterContext
+from app.api.services.sync.collector import SyncCollectedPage
 from app.api.services.sync_service import SyncService
 from app.core.time_utils import UTC
 
@@ -26,6 +27,18 @@ def make_sync_envelope(
         updated_at=datetime.now(UTC).isoformat() + "Z",
         deleted_at=deleted_at,
     )
+
+
+def make_collected_page(
+    records: list[SyncEntityEnvelope],
+    *,
+    has_more: bool = False,
+    next_since: int | None = None,
+) -> SyncCollectedPage:
+    resolved_next_since = next_since
+    if resolved_next_since is None:
+        resolved_next_since = records[-1].server_version if records else 0
+    return SyncCollectedPage(records, has_more, resolved_next_since)
 
 
 @pytest.fixture
@@ -156,6 +169,47 @@ class TestCollectRecords:
         assert len(records) == 0
 
     @pytest.mark.asyncio
+    async def test_collect_records_pushes_since_into_repositories(self, sync_service):
+        """Incremental sync pushes the cursor into every repo/aux query so the DB
+        filters server_version > since instead of returning the whole history (audit #2)."""
+        sync_service._user_repo.async_get_user_by_telegram_id = AsyncMock(return_value=None)
+        sync_service._request_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._summary_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._crawl_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._llm_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        aux = sync_service._collector._aux_read_port
+        aux.get_highlights_for_user = AsyncMock(return_value=[])
+        aux.get_tags_for_user = AsyncMock(return_value=[])
+        aux.get_summary_tags_for_user = AsyncMock(return_value=[])
+
+        await sync_service._collector.collect_records(123, since=42)
+
+        sync_service._request_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        sync_service._summary_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        sync_service._crawl_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        sync_service._llm_repo.async_get_all_for_user.assert_awaited_once_with(123, since=42)
+        aux.get_highlights_for_user.assert_awaited_once_with(123, since=42)
+        aux.get_tags_for_user.assert_awaited_once_with(123, since=42)
+        aux.get_summary_tags_for_user.assert_awaited_once_with(123, since=42)
+
+    @pytest.mark.asyncio
+    async def test_collect_records_since_zero_is_full_read(self, sync_service):
+        """The first sync (since=0) still issues a full read -- since=0 forwarded, no filter."""
+        sync_service._user_repo.async_get_user_by_telegram_id = AsyncMock(return_value=None)
+        sync_service._request_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._summary_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._crawl_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        sync_service._llm_repo.async_get_all_for_user = AsyncMock(return_value=[])
+        aux = sync_service._collector._aux_read_port
+        aux.get_highlights_for_user = AsyncMock(return_value=[])
+        aux.get_tags_for_user = AsyncMock(return_value=[])
+        aux.get_summary_tags_for_user = AsyncMock(return_value=[])
+
+        await sync_service._collector.collect_records(123)
+
+        sync_service._request_repo.async_get_all_for_user.assert_awaited_once_with(123, since=0)
+
+    @pytest.mark.asyncio
     async def test_fake_sync_entity_adapter_collects_and_serializes(
         self, mock_config, mock_session_manager
     ):
@@ -211,6 +265,211 @@ class TestCollectRecords:
         assert records[0].entity_type == "fake"
         assert records[0].payload == {"name": "Fake"}
         assert await service.get_max_server_version(123) == 9
+
+
+class _InMemorySyncPagePort:
+    def __init__(
+        self,
+        rows_by_entity: dict[str, list[dict[str, object]]],
+        *,
+        stats: list[dict[str, object]] | None = None,
+    ) -> None:
+        self.rows_by_entity = rows_by_entity
+        self.stats = stats or []
+        self.calls: list[tuple[str, int, int | None, int | None]] = []
+
+    async def get_sync_page(
+        self,
+        entity_type: str,
+        _user_id: int,
+        *,
+        since: int,
+        limit: int | None,
+        through_version: int | None,
+    ) -> list[dict[str, object]]:
+        self.calls.append((entity_type, since, limit, through_version))
+        rows = [
+            row
+            for row in self.rows_by_entity.get(entity_type, [])
+            if cast("int", row["server_version"]) > since
+            and (through_version is None or cast("int", row["server_version"]) <= through_version)
+        ]
+        rows.sort(key=lambda row: (cast("int", row["server_version"]), str(row["id"])))
+        return rows if limit is None else rows[:limit]
+
+    async def get_highlights_for_user(
+        self, _user_id: int, *, since: int = 0
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def get_tags_for_user(self, _user_id: int, *, since: int = 0) -> list[dict[str, object]]:
+        return []
+
+    async def get_summary_tags_for_user(
+        self, _user_id: int, *, since: int = 0
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def get_stats_for_user(self, _user_id: int) -> list[dict[str, object]]:
+        return self.stats
+
+
+def _sync_request_row(row_id: int, server_version: int) -> dict[str, object]:
+    timestamp = "2026-07-15T00:00:00+00:00"
+    return {
+        "id": row_id,
+        "type": "url",
+        "status": "completed",
+        "server_version": server_version,
+        "is_deleted": False,
+        "updated_at": timestamp,
+        "created_at": timestamp,
+    }
+
+
+class TestCollectPage:
+    @pytest.mark.asyncio
+    async def test_refetches_the_full_boundary_group_and_probes_for_more(
+        self, mock_config, mock_session_manager
+    ) -> None:
+        rows = [_sync_request_row(row_id, 10) for row_id in range(1, 7)]
+        rows.append(_sync_request_row(7, 12))
+        page_port = _InMemorySyncPagePort({"request": rows})
+        service = SyncService(
+            mock_config,
+            mock_session_manager,
+            aux_read_port=page_port,
+        )
+
+        page = await service._collector.collect_page(123, since=0, limit=3)
+
+        assert [item.id for item in page.records] == [1, 2, 3, 4, 5, 6]
+        assert page.next_since == 10
+        assert page.has_more is True
+        request_calls = [call for call in page_port.calls if call[0] == "request"]
+        assert request_calls == [
+            ("request", 0, 4, None),
+            ("request", 0, None, 10),
+            ("request", 10, 1, None),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_reports_last_tied_page_without_materializing_later_history(
+        self, mock_config, mock_session_manager
+    ) -> None:
+        page_port = _InMemorySyncPagePort(
+            {"request": [_sync_request_row(row_id, 10) for row_id in range(1, 7)]}
+        )
+        service = SyncService(
+            mock_config,
+            mock_session_manager,
+            aux_read_port=page_port,
+        )
+
+        page = await service._collector.collect_page(123, since=0, limit=3)
+
+        assert len(page.records) == 6
+        assert page.next_since == 10
+        assert page.has_more is False
+
+    @pytest.mark.asyncio
+    async def test_centrally_bounds_custom_adapter_boundary_refetch(
+        self, mock_config, mock_session_manager
+    ) -> None:
+        rows = [_sync_request_row(row_id, 10) for row_id in range(1, 4)]
+        rows.append(_sync_request_row(4, 11))
+
+        async def collect_unbounded(
+            _context: SyncEntityAdapterContext,
+            _user_id: int,
+        ) -> list[dict[str, object]]:
+            return rows
+
+        adapter = SyncEntityAdapter(
+            entity_type="request",
+            collect_records=collect_unbounded,
+            serialize_record=lambda serializer, row: serializer.serialize_request(row),
+        )
+        service = SyncService(
+            mock_config,
+            mock_session_manager,
+            entity_adapters=(adapter,),
+        )
+
+        first = await service._collector.collect_page(123, since=0, limit=2)
+        second = await service._collector.collect_page(
+            123,
+            since=first.next_since,
+            limit=2,
+        )
+
+        assert [item.id for item in first.records] == [1, 2, 3]
+        assert first.has_more is True
+        assert first.next_since == 10
+        assert [item.id for item in second.records] == [4]
+        assert second.has_more is False
+        assert second.next_since == 11
+
+    @pytest.mark.asyncio
+    async def test_optional_stats_have_legacy_and_paged_path_parity(
+        self, mock_config, mock_session_manager
+    ) -> None:
+        timestamp = "2026-07-15T00:00:00+00:00"
+        page_port = _InMemorySyncPagePort(
+            {},
+            stats=[
+                {
+                    "id": 3,
+                    "scope": "user",
+                    "name": "articles",
+                    "value": 9,
+                    "server_version": 7,
+                    "updated_at": timestamp,
+                    "created_at": timestamp,
+                }
+            ],
+        )
+        service = SyncService(
+            mock_config,
+            mock_session_manager,
+            aux_read_port=page_port,
+        )
+
+        legacy = await service._collector.collect_records(123)
+        paged = await service._collector.collect_page(123, since=0, limit=3)
+
+        assert [(item.entity_type, item.id) for item in legacy] == [("stat", 3)]
+        assert [(item.entity_type, item.id) for item in paged.records] == [("stat", 3)]
+
+    def test_projection_foreign_keys_serialize_without_relationship_objects(
+        self, sync_service
+    ) -> None:
+        timestamp = "2026-07-15T00:00:00+00:00"
+
+        highlight = sync_service._serializer.serialize_highlight(
+            {
+                "id": "a6947aad-cc74-44c0-8d94-b464e377c651",
+                "summary_id": 41,
+                "server_version": 1,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        )
+        summary_tag = sync_service._serializer.serialize_summary_tag(
+            {
+                "id": 9,
+                "summary_id": 41,
+                "tag_id": 5,
+                "server_version": 2,
+                "created_at": timestamp,
+            }
+        )
+
+        assert highlight.highlight is not None
+        assert highlight.highlight["summary_id"] == "41"
+        assert summary_tag.summary_tag is not None
+        assert summary_tag.summary_tag["summary_id"] == 41
+        assert summary_tag.summary_tag["tag_id"] == 5
 
 
 class TestPaginateRecords:
@@ -317,11 +576,11 @@ class TestGetFull:
             return_value=session_payload,
         ):
             with patch.object(
-                sync_service._collector, "collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_page", new_callable=AsyncMock
             ) as mock_collect:
-                mock_collect.return_value = [
-                    make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 6)
-                ]
+                mock_collect.return_value = make_collected_page(
+                    [make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 6)]
+                )
 
                 result = await sync_service.get_full(
                     session_id="test-session", user_id=123, client_id="test-client", limit=10
@@ -351,12 +610,13 @@ class TestGetFull:
             return_value=session_payload,
         ):
             with patch.object(
-                sync_service._collector, "collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_page", new_callable=AsyncMock
             ) as mock_collect:
-                # 200+ records to ensure pagination with limit=100
-                mock_collect.return_value = [
-                    make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 151)
-                ]
+                mock_collect.return_value = make_collected_page(
+                    [make_sync_envelope(entity_id=i, server_version=i) for i in range(1, 51)],
+                    has_more=True,
+                    next_since=50,
+                )
 
                 # Use limit=50 to override session chunk_limit
                 result = await sync_service.get_full(
@@ -366,6 +626,34 @@ class TestGetFull:
                 assert len(result.items) == 50
                 assert result.has_more is True
                 assert result.next_since == 50
+
+    @pytest.mark.asyncio
+    async def test_get_full_pushes_session_cursor_into_collection(self, sync_service):
+        """get_full forwards the session's next_since to collect_page so a
+        full-sync chunk reads only rows past the cursor (audit #2)."""
+        now = datetime.now(UTC)
+        session_payload = {
+            "session_id": "test-session",
+            "user_id": 123,
+            "client_id": "test-client",
+            "chunk_limit": 100,
+            "next_since": 9,
+            "expires_at": (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        }
+        with patch.object(
+            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+        ):
+            with patch.object(
+                sync_service._collector,
+                "collect_page",
+                new_callable=AsyncMock,
+                return_value=make_collected_page([], next_since=9),
+            ) as mock_collect:
+                await sync_service.get_full(
+                    session_id="test-session", user_id=123, client_id="test-client", limit=10
+                )
+
+        mock_collect.assert_awaited_once_with(123, since=9, limit=10)
 
     @pytest.mark.asyncio
     async def test_get_full_advances_session_cursor(self, sync_service):
@@ -380,9 +668,12 @@ class TestGetFull:
 
         with patch.object(
             sync_service._collector,
-            "collect_records",
+            "collect_page",
             new_callable=AsyncMock,
-            return_value=records,
+            side_effect=(
+                make_collected_page(records[:2], has_more=True, next_since=2),
+                make_collected_page(records[2:], next_since=4),
+            ),
         ):
             first = await sync_service.get_full(
                 session_id=session.session_id,
@@ -427,12 +718,14 @@ class TestGetDelta:
             return_value=session_payload,
         ):
             with patch.object(
-                sync_service._collector, "collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_page", new_callable=AsyncMock
             ) as mock_collect:
-                mock_collect.return_value = [
-                    make_sync_envelope(entity_id=i, server_version=i, deleted_at=None)
-                    for i in range(5, 8)
-                ]
+                mock_collect.return_value = make_collected_page(
+                    [
+                        make_sync_envelope(entity_id=i, server_version=i, deleted_at=None)
+                        for i in range(5, 8)
+                    ]
+                )
 
                 result = await sync_service.get_delta(
                     session_id="test-session",
@@ -447,6 +740,37 @@ class TestGetDelta:
                 assert len(result.created) == 3
                 assert len(result.updated) == 0
                 assert len(result.deleted) == 0
+
+    @pytest.mark.asyncio
+    async def test_get_delta_pushes_since_into_collection(self, sync_service):
+        """get_delta forwards the client's cursor to collect_page so only rows
+        changed past it are read, not the whole history (audit #2)."""
+        now = datetime.now(UTC)
+        session_payload = {
+            "session_id": "test-session",
+            "user_id": 123,
+            "client_id": "test-client",
+            "chunk_limit": 100,
+            "expires_at": (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        }
+        with patch.object(
+            sync_service, "_load_session", new_callable=AsyncMock, return_value=session_payload
+        ):
+            with patch.object(
+                sync_service._collector,
+                "collect_page",
+                new_callable=AsyncMock,
+                return_value=make_collected_page([], next_since=7),
+            ) as mock_collect:
+                await sync_service.get_delta(
+                    session_id="test-session",
+                    user_id=123,
+                    client_id="test-client",
+                    since=7,
+                    limit=10,
+                )
+
+        mock_collect.assert_awaited_once_with(123, since=7, limit=10)
 
     @pytest.mark.asyncio
     async def test_get_delta_with_deletions(self, sync_service):
@@ -467,13 +791,19 @@ class TestGetDelta:
             return_value=session_payload,
         ):
             with patch.object(
-                sync_service._collector, "collect_records", new_callable=AsyncMock
+                sync_service._collector, "collect_page", new_callable=AsyncMock
             ) as mock_collect:
                 deleted_time = now.isoformat() + "Z"
-                mock_collect.return_value = [
-                    make_sync_envelope(entity_id=5, server_version=5, deleted_at=None),
-                    make_sync_envelope(entity_id=6, server_version=6, deleted_at=deleted_time),
-                ]
+                mock_collect.return_value = make_collected_page(
+                    [
+                        make_sync_envelope(entity_id=5, server_version=5, deleted_at=None),
+                        make_sync_envelope(
+                            entity_id=6,
+                            server_version=6,
+                            deleted_at=deleted_time,
+                        ),
+                    ]
+                )
 
                 result = await sync_service.get_delta(
                     session_id="test-session",

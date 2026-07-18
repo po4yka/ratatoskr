@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 _DEFAULT_HOST_ALLOWLIST = (
     "chatgpt.com",
@@ -82,6 +82,24 @@ class AiBackupConfig(BaseModel):
         validation_alias="AI_BACKUP_MAX_REQUESTS_PER_RUN",
         description="Hard cap on internal-API requests per service per run (safety stop).",
     )
+    max_response_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        ge=1,
+        validation_alias="AI_BACKUP_MAX_RESPONSE_BYTES",
+        description="Maximum decoded response body accepted from a provider.",
+    )
+    max_run_bytes: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=1,
+        validation_alias="AI_BACKUP_MAX_RUN_BYTES",
+        description="Maximum aggregate response bytes accepted per service run.",
+    )
+    min_free_bytes: int = Field(
+        default=512 * 1024 * 1024,
+        ge=0,
+        validation_alias="AI_BACKUP_MIN_FREE_BYTES",
+        description="Minimum filesystem free-space reserve maintained while writing backups.",
+    )
     download_files: bool = Field(
         default=True,
         validation_alias="AI_BACKUP_DOWNLOAD_FILES",
@@ -104,13 +122,13 @@ class AiBackupConfig(BaseModel):
             "Accepts a comma-separated string or a JSON list in the env var."
         ),
     )
-    claude_compliance_key: str | None = Field(
+    claude_compliance_key: SecretStr | None = Field(
         default=None,
         validation_alias="AI_BACKUP_CLAUDE_COMPLIANCE_KEY",
         description=(
-            "Optional Anthropic Compliance API key (Claude Enterprise). When set, the "
-            "Claude path uses the sanctioned api.anthropic.com/v1/compliance/* surface "
-            "instead of the stealth scrape. Left unset for consumer (Pro/Max) accounts."
+            "Reserved Anthropic Compliance API key (Claude Enterprise). The Compliance "
+            "client is not implemented yet; when this value is set the Claude client "
+            "factory fails closed instead of falling back to the browser-scrape path."
         ),
     )
 
@@ -192,10 +210,10 @@ class AiBackupConfig(BaseModel):
 
     @field_validator("claude_compliance_key", mode="before")
     @classmethod
-    def _validate_claude_compliance_key(cls, value: Any) -> str | None:
+    def _normalize_claude_compliance_key(cls, value: Any) -> Any:
         if value in (None, ""):
             return None
-        return str(value).strip() or None
+        return value
 
     @field_validator("notify_chat_id", mode="before")
     @classmethod

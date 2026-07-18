@@ -114,7 +114,7 @@ class RepositoryEmbeddingGenerator:
         )
 
         model_name = self._embedding_service.get_model_name(None)
-        dimensions = self._embedding_service.get_dimensions(None)
+        dimensions = await self._embedding_service.get_dimensions_async(None)
 
         embedding = await self._embedding_service.generate_embedding(
             prepared.text,
@@ -171,7 +171,7 @@ class RepositoryEmbeddingGenerator:
 
         prepared = [self._prepare_embedding(item) for item in items]
         model_name = self._embedding_service.get_model_name(None)
-        dimensions = self._embedding_service.get_dimensions(None)
+        dimensions = await self._embedding_service.get_dimensions_async(None)
         model_version = "1.0"
 
         try:
@@ -522,13 +522,13 @@ class RepositoryEmbeddingGenerator:
             embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
         )
 
-        await asyncio.to_thread(
+        acknowledged = await asyncio.to_thread(
             self._qdrant.upsert_notes,
             [vector],
             [metadata],
             [point_id],
         )
-        return True
+        return acknowledged is True
 
     async def _upsert_qdrant_batch(
         self,
@@ -564,12 +564,14 @@ class RepositoryEmbeddingGenerator:
                 )
             )
 
-        await asyncio.to_thread(
+        acknowledged = await asyncio.to_thread(
             self._qdrant.upsert_notes,
             vectors,
             metadatas,
             point_ids,
         )
+        if acknowledged is not True:
+            return []
         return [item.repository.id for item in prepared]
 
     async def _mark_db_rows_indexed(self, repository_ids: Sequence[int]) -> None:

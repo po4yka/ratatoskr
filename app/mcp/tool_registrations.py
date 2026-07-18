@@ -27,30 +27,83 @@ def _env_positive_int(name: str, default: int) -> int:
         return default
 
 
-# In-process per-tool rate limiting for MCP. The Telegram UserRateLimiter is not
-# wired to the MCP transport, so without this a single MCP session could drive
-# unbounded scrape + LLM cost via tools like create_aggregation_bundle
-# (CWE-770). Process-local (sufficient: MCP runs as a single scoped process).
+# In-process per-(tool, tenant) rate limiting for MCP. The Telegram
+# UserRateLimiter is not wired to the MCP transport, so without this a single
+# caller could drive unbounded scrape + LLM cost via tools like
+# create_aggregation_bundle (CWE-770). The bucket is keyed by tool AND the
+# effective request identity: in the hosted multi-tenant JWT mode
+# (MCP_AUTH_MODE=jwt over SSE, one process serving many authenticated users) a
+# tool-name-only key would let every tenant share one global budget, so one
+# caller could starve all others. Still process-local -- a horizontally-scaled
+# deployment needs a shared (Redis) limiter, tracked separately.
 _MCP_TOOL_RATE_LIMITER = LocalRateLimiter()
 _MCP_TOOL_WINDOW_SEC = _env_positive_int("MCP_TOOL_RATE_WINDOW_SEC", 60)
 _MCP_TOOL_DEFAULT_LIMIT = _env_positive_int("MCP_TOOL_RATE_LIMIT", 60)
 _MCP_EXPENSIVE_TOOL_LIMIT = _env_positive_int("MCP_EXPENSIVE_TOOL_RATE_LIMIT", 5)
-# Tools that fan out to scraping + LLM calls and must be capped tighter.
-_MCP_EXPENSIVE_TOOLS = frozenset({"create_aggregation_bundle"})
+# Tools that trigger a billed external-provider call on every invocation and must
+# be capped tighter than the default read tier. Two cost shapes qualify:
+#   - scrape + LLM fan-out: create_aggregation_bundle, promote_to_library.
+#   - a per-call embedding-provider request: semantic_search, hybrid_search, and
+#     find_similar_articles all embed their query through the vector/local
+#     embedding service on every call (find_similar_articles re-embeds the source
+#     summary's seed text rather than reusing its stored vector), so at the default
+#     limit a single caller could drive unbounded embedding cost (CWE-770).
+_MCP_EXPENSIVE_TOOLS = frozenset(
+    {
+        "create_aggregation_bundle",
+        "promote_to_library",
+        "semantic_search",
+        "hybrid_search",
+        "find_similar_articles",
+    }
+)
 
 
-def _mcp_tool_rate_limited(tool_name: str) -> bool:
+def _mcp_identity_key(context: Any) -> str:
+    """Resolve a per-tenant rate-limit sub-key from the active request identity.
+
+    In hosted JWT mode this is the authenticated user (or client_id) resolved
+    per request; in stdio/local mode it collapses to a single stable key (one
+    user), so single-user behavior is unchanged.
+    """
+    user_id = getattr(context, "user_id", None)
+    if user_id is not None:
+        return f"u{user_id}"
+    client_id = getattr(context, "client_id", None)
+    if client_id:
+        return f"c{client_id}"
+    return "anon"
+
+
+def _mcp_tool_rate_limited(tool_name: str, identity_key: str) -> bool:
     limit = (
         _MCP_EXPENSIVE_TOOL_LIMIT if tool_name in _MCP_EXPENSIVE_TOOLS else _MCP_TOOL_DEFAULT_LIMIT
     )
-    allowed, _ = _MCP_TOOL_RATE_LIMITER.check(tool_name, limit=limit, window=_MCP_TOOL_WINDOW_SEC)
+    # LocalRateLimiter splits its internal key on ":" and reads the last segment
+    # as the window bucket, so extra ":"-separated identity components are safe.
+    bucket_key = f"{tool_name}:{identity_key}"
+    allowed, _ = _MCP_TOOL_RATE_LIMITER.check(bucket_key, limit=limit, window=_MCP_TOOL_WINDOW_SEC)
     return not allowed
+
+
+def mcp_rate_limit_exceeded(operation_name: str, context: Any) -> bool:
+    """Per-(operation, tenant) MCP rate-limit check shared by tools AND resources.
+
+    Resources register through this SAME limiter/buckets so they can no longer bypass
+    the tool-layer limiter (they previously routed straight to their service with no
+    cap, letting a caller drive unbounded DB / vector-scan reads -- CWE-770). Keyed
+    by the operation name plus the effective request identity, so a resource and a
+    tool never share a bucket and each tenant keeps an isolated budget.
+    """
+    return _mcp_tool_rate_limited(operation_name, _mcp_identity_key(context))
 
 
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
+    from app.mcp.archive_research_service import ArchiveResearchMcpService
     from app.mcp.article_service import ArticleReadService
     from app.mcp.catalog_service import CatalogReadService
+    from app.mcp.context import McpServerContext
     from app.mcp.semantic_service import SemanticSearchService
     from app.mcp.signal_service import SignalMcpService
     from app.mcp.x_search_service import XSearchService
@@ -96,16 +149,23 @@ def _contribute_tool(
 def register_tools(
     mcp: Any,
     *,
+    context: McpServerContext,
     aggregation_service: AggregationMcpService,
     article_service: ArticleReadService,
     catalog_service: CatalogReadService,
     semantic_service: SemanticSearchService,
     signal_service: SignalMcpService | None = None,
     x_search_service_inst: XSearchService | None = None,
+    archive_research_service: ArchiveResearchMcpService | None = None,
 ) -> None:
     signal_runtime: Any = signal_service if signal_service is not None else _NullSignalService()
     x_search_runtime: Any = (
         x_search_service_inst if x_search_service_inst is not None else _NullXSearchService()
+    )
+    archive_research_runtime: Any = (
+        archive_research_service
+        if archive_research_service is not None
+        else _NullArchiveResearchService()
     )
     contributions: list[McpToolContribution] = []
     contribute_tool = _contribute_tool(contributions)
@@ -130,7 +190,7 @@ def register_tools(
         }
 
     async def _call_async(tool_name: str, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
-        if _mcp_tool_rate_limited(tool_name):
+        if _mcp_tool_rate_limited(tool_name, _mcp_identity_key(context)):
             return _rate_limited_result(tool_name)
         started_at = time.perf_counter()
         try:
@@ -142,7 +202,7 @@ def register_tools(
         return result
 
     def _call_sync(tool_name: str, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
-        if _mcp_tool_rate_limited(tool_name):
+        if _mcp_tool_rate_limited(tool_name, _mcp_identity_key(context)):
             return _rate_limited_result(tool_name)
         started_at = time.perf_counter()
         try:
@@ -286,6 +346,18 @@ def register_tools(
         )
 
     @contribute_tool
+    async def ask_my_archive(query: str, max_sources: int = 12) -> str:
+        """Research a question from the scoped archive with verified citations."""
+        return to_json(
+            await _call_async(
+                "ask_my_archive",
+                archive_research_runtime.research,
+                query,
+                max_sources,
+            )
+        )
+
+    @contribute_tool
     async def list_collections(limit: int = 20, offset: int = 0) -> str:
         """List article collections (folders/reading lists)."""
         return to_json(
@@ -418,6 +490,18 @@ def register_tools(
         )
 
     @contribute_tool
+    async def promote_to_library(source_type: str, source_id: int) -> str:
+        """Promote one queued signal or X bookmark into a durable summary request."""
+        return to_json(
+            await _call_async(
+                "promote_to_library",
+                signal_runtime.promote_to_library,
+                source_type,
+                source_id,
+            )
+        )
+
+    @contribute_tool
     async def set_signal_source_active(source_id: int, is_active: bool) -> str:
         """Enable or disable one subscribed signal source for the scoped MCP user."""
         return to_json(
@@ -467,6 +551,9 @@ class _NullSignalService:
     async def update_signal_feedback(self, signal_id: int, action: str) -> dict[str, Any]:
         return {"error": "Signal service is not configured"}
 
+    async def promote_to_library(self, source_type: str, source_id: int) -> dict[str, Any]:
+        return {"error": "Signal service is not configured"}
+
     async def set_source_active(self, source_id: int, is_active: bool) -> dict[str, Any]:
         return {"error": "Signal service is not configured"}
 
@@ -479,3 +566,8 @@ class _NullXSearchService:
         limit: int = 10,
     ) -> dict[str, Any]:
         return {"error": "X search service is not configured"}
+
+
+class _NullArchiveResearchService:
+    async def research(self, query: str, max_sources: int = 12) -> dict[str, Any]:
+        return {"error": "Archive research service is not configured"}

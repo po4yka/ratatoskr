@@ -27,6 +27,7 @@ from app.api.models.auth import (
 )
 from app.api.models.responses import AuthTokensResponse, TokenPair, success_response
 from app.api.routers.auth._fastapi import APIRouter, Depends
+from app.api.routers.auth.argon2_offload import run_argon2
 from app.api.routers.auth.cookies import set_refresh_cookie
 from app.api.routers.auth.dependencies import get_current_user
 from app.api.routers.auth.secret_auth import (
@@ -39,6 +40,7 @@ from app.api.routers.auth.secret_auth import (
     handle_failed_attempt,
     hash_secret,
     reset_failed_attempts,
+    run_decoy_secret_verify,
     serialize_secret,
     utcnow_naive,
     validate_secret_value,
@@ -96,6 +98,9 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
     user_repo = get_user_repository()
     user = await user_repo.async_get_user_by_telegram_id(login_data.user_id)
     if not user:
+        # Timing parity: pay the argon2 cost even when the row is absent so the
+        # not-found path can't be distinguished from a wrong-secret verify.
+        await run_argon2(run_decoy_secret_verify, login_data.secret)
         raise ResourceNotFoundError("User", login_data.user_id)
 
     auth_repo = get_auth_repository()
@@ -103,6 +108,10 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
         login_data.user_id, login_data.client_id
     )
     if not secret_record:
+        # Same generic "Invalid credentials" as a wrong secret below, so the
+        # decoy verify keeps the two responses timing-indistinguishable and an
+        # attacker can't enumerate which (user_id, client_id) pairs have a secret.
+        await run_argon2(run_decoy_secret_verify, login_data.secret)
         raise AuthenticationError("Invalid credentials")
 
     if secret_record.get("status") == "revoked":
@@ -141,7 +150,8 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
 
     provided_secret = validate_secret_value(login_data.secret, context="login")
 
-    if not verify_secret(
+    if not await run_argon2(
+        verify_secret,
         provided_secret,
         secret_record.get("secret_salt", ""),
         secret_record.get("secret_hash", ""),
@@ -267,7 +277,7 @@ async def rotate_secret_key(
         else generate_secret_value()
     )
     new_salt = secrets.token_hex(16)
-    new_hash = hash_secret(new_secret_value, new_salt)
+    new_hash = await run_argon2(hash_secret, new_secret_value, new_salt)
 
     await auth_repo.async_update_client_secret(
         key_id,

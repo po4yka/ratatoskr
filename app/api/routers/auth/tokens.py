@@ -16,7 +16,7 @@ from app.api.exceptions import (
     AuthorizationError,
     ValidationError,
 )
-from app.config import Config
+from app.config import Config, load_config
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 
@@ -37,23 +37,25 @@ _SELF_SERVICE_SECRET_CLIENT_TYPES = frozenset({"cli", "mcp", "automation"})
 
 
 def _load_secret_key() -> str:
-    """Load and validate the JWT secret key."""
-    try:
-        raw_secret = Config.get("JWT_SECRET_KEY", "")
-    except ValueError as err:
-        raise RuntimeError(
-            "JWT_SECRET_KEY environment variable must be configured. "
-            "Generate one with: openssl rand -hex 32"
-        ) from err
+    """Load the JWT signing/verification key from the validated AppConfig.
 
-    secret = (raw_secret or "").strip()
+    Reads the canonical ``runtime.jwt_secret_key`` field, which resolves the
+    documented ``JWT_SECRET`` / ``JWT_SECRET_KEY`` aliases and applies the length
+    floor at config load. Reading the raw env var directly (the previous
+    behavior) bypassed that validation and silently ignored the ``JWT_SECRET``
+    alias, so an operator who set only ``JWT_SECRET`` got a "must be configured"
+    error and broken auth.
+    """
+    secret = (load_config(allow_stub_telegram=True).runtime.jwt_secret_key or "").strip()
 
     if not secret or secret == "your-secret-key-change-in-production":
         raise RuntimeError(
-            "JWT_SECRET_KEY environment variable must be set to a secure random value. "
+            "JWT_SECRET_KEY (or its JWT_SECRET alias) must be set to a secure random value. "
             "Generate one with: openssl rand -hex 32"
         )
 
+    # The field validator already enforces the >=32 floor when the secret is set;
+    # this is a defensive backstop and a clearer error at the point of use.
     if len(secret) < 32:
         raise RuntimeError(
             f"JWT_SECRET_KEY must be at least 32 characters long. Current length: {len(secret)}"

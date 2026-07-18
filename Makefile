@@ -13,15 +13,15 @@ REDIS_HOST_PORT ?= 6379
 QDRANT_HOST_PORT ?= 6333
 
 format:
-	ruff format .
-	isort .
+	uv run --frozen ruff format .
+	uv run --frozen isort .
 
 lint:
-	ruff check .
-	python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
+	uv run --frozen ruff check .
+	uv run --frozen python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
 check-file-loc:
-	python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
+	uv run --frozen python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
 type:
 	uv run --frozen mypy app --show-error-codes --pretty --cache-dir .mypy_cache
@@ -30,19 +30,19 @@ type-all:
 	uv run --frozen mypy app tests
 
 test:
-	pytest tests/ -v
+	uv run --frozen pytest tests/ -v
 
 test-unit:
-	pytest tests/ -m "not slow and not integration" -v
+	uv run --frozen pytest tests/ -m "not slow and not integration" -v
 
 test-integration:
-	pytest tests/ -m "integration" -v
+	uv run --frozen pytest tests/ -m "integration" -v
 
 test-all:
-	pytest tests/ -v --cov=app --cov-report=term-missing
+	uv run --frozen pytest tests/ -v --cov=app --cov-report=term-missing
 
 test-fast:
-	pytest tests/ -m "not slow and not integration" -v -x
+	uv run --frozen pytest tests/ -m "not slow and not integration" -v -x
 
 # Mirrors the bandit-scan and pip-audit-scan jobs in .github/workflows/ci.yml so
 # devs can reproduce CI security checks locally before pushing. Not part of
@@ -50,17 +50,17 @@ test-fast:
 security: security-bandit security-deps
 
 security-bandit:
-	uv run --frozen bandit -r app -ll
+	uv run --frozen --no-default-groups --only-group ci-security-tools bandit -r app -ll
 
 security-deps:
-	bash tools/scripts/audit-deps.sh
+	PIP_AUDIT_CMD='uv run --frozen --no-default-groups --only-group ci-security-tools pip-audit' bash tools/scripts/audit-deps.sh
 
 # Runs custom Semgrep rules that catch patterns complementary to Ruff:
 # mutable-aliasing hazards and bare/broad exception handlers.
-# Also enforced in the lint-and-format CI job and as pre-commit hooks.
+# Also enforced in CI and as pre-push hooks.
 static-checks:
-	semgrep --config semgrep/python-mutability.yml --error app/ tests/
-	semgrep --config semgrep/python-bare-except.yml --error app/ tests/
+	uv run --frozen --no-default-groups --only-group ci-security-tools semgrep --config semgrep/python-mutability.yml --error app/ tests/
+	uv run --frozen --no-default-groups --only-group ci-security-tools semgrep --config semgrep/python-bare-except.yml --error app/ tests/
 
 # Note: `all` deliberately omits `security`; run `make security` separately.
 all: format lint type test
@@ -90,13 +90,13 @@ teardown-dev:
 	POSTGRES_PASSWORD="$(DEV_POSTGRES_PASSWORD)" POSTGRES_HOST_PORT="$(POSTGRES_HOST_PORT)" REDIS_HOST_PORT="$(REDIS_HOST_PORT)" QDRANT_HOST_PORT="$(QDRANT_HOST_PORT)" $(DEV_COMPOSE) down -v --remove-orphans
 
 extension-zip:
-	uv run python tools/scripts/build_extension_zip.py
+	uv run --frozen python tools/scripts/build_extension_zip.py
 
 venv:
 	bash tools/scripts/create_venv.sh
 
 check-layout:
-	python tools/scripts/check_root_hygiene.py
+	uv run --frozen python tools/scripts/check_root_hygiene.py
 
 clean-generated:
 	rm -rf htmlcov
@@ -105,26 +105,26 @@ clean-generated:
 
 .PHONY: pre-commit-install
 pre-commit-install:
-	pre-commit install --install-hooks
-	pre-commit autoupdate || true
+	uv run --frozen pre-commit install --install-hooks
+	uv run --frozen pre-commit autoupdate || true
 
 .PHONY: pre-commit-run
 pre-commit-run:
-	pre-commit run --all-files
+	uv run --frozen pre-commit run --all-files
 
 .PHONY: lock-uv
 lock-uv:
 	uv lock
 	uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
 	uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
-	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra graph -o requirements-all.txt
+	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp -o requirements-all.txt
 	python3 tools/scripts/check_excluded_versions.py
 
 check-lock:
 	uv lock
 	uv export --no-dev --format requirements-txt -p 3.13 -o requirements.txt
 	uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 -o requirements-dev.txt
-	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra graph -o requirements-all.txt
+	uv export --no-dev --no-hashes --format requirements-txt -p 3.13 --extra api --extra ml --extra youtube --extra export --extra scheduler --extra mcp -o requirements-all.txt
 	@git diff --exit-code uv.lock requirements.txt requirements-dev.txt requirements-all.txt || (echo "Lockfiles are out of date. Run 'make lock-uv' and commit changes." && exit 1)
 	python3 tools/scripts/check_excluded_versions.py
 
@@ -213,16 +213,17 @@ docker-size:
 	@echo "=== Layer Analysis ==="
 	@docker history ratatoskr:latest --human --format "table {{.Size}}\t{{.CreatedBy}}" | head -15
 
-docker-deploy: docker-build docker-stop docker-run
+docker-deploy:
+	docker compose -f $(COMPOSE_FILE) build ratatoskr
+	docker compose -f $(COMPOSE_FILE) up -d --no-deps --force-recreate ratatoskr
 	@echo "=== Deployment complete ==="
 	@echo "Check logs with: make docker-logs"
 
-# Build the SPA in the sibling ratatoskr-web/ checkout and stage it into
-# app/static/web/ so the next image build bakes it via `COPY app ./app`.
-# Without this step, the mobile-api image ships an empty /web/ -- a silent
-# regression that's only caught by hitting the browser. `--delete` clears
-# stale assets that no longer ship.
-.PHONY: stage-web
+# Local-development helper: build the SPA in the sibling ratatoskr-web/
+# checkout and stage it for a directly launched FastAPI process. Docker images
+# ignore this directory and use the reviewed archive produced by `web-bundle`,
+# so release contents never depend on local ignored files.
+.PHONY: stage-web web-bundle
 WEB_REPO ?= ../ratatoskr-web
 
 stage-web:
@@ -233,10 +234,17 @@ stage-web:
 	rsync -a --delete "$(WEB_REPO)/dist/" app/static/web/
 	@echo "==> staged $$(du -sh app/static/web | cut -f1) into app/static/web"
 
+# Update the immutable Docker artifact from the exact frontend SHA recorded in
+# ops/docker/ratatoskr-web.commit. The script runs frontend static checks,
+# tests, and the production build before writing a deterministic archive.
+web-bundle:
+	python tools/scripts/build_web_bundle.py --web-repo "$(WEB_REPO)"
+
 # Build the arm64 image locally (Mac) and stream it to the Pi over SSH so the
 # Pi never has to run the heavy build. Override SERVICE=mobile-api to ship
-# the API image instead. See tools/scripts/build-and-deploy-pi.sh for flags
-# and env vars (RASPI_HOST, RASPI_REMOTE_PATH, COMPOSE_PROJECT).
+# the API image, or SERVICE=pg-backup to ship the PostgreSQL backup sidecar.
+# See tools/scripts/build-and-deploy-pi.sh for flags and env vars
+# (RASPI_HOST, RASPI_REMOTE_PATH, COMPOSE_PROJECT).
 .PHONY: pi-deploy pi-deploy-no-cache pi-build-only pi-migrate pi-rollback pi-deploy-all pi-smoke
 SERVICE ?= ratatoskr
 RASPI_HOST ?= raspi
@@ -258,30 +266,28 @@ pi-migrate:
 pi-rollback:
 	bash tools/scripts/build-and-deploy-pi.sh --service $(SERVICE) --rollback
 
-# End-to-end: stage the freshly-built SPA into app/static/web/, then
-# build+ship+restart the four ratatoskr services (bot/worker/scheduler/
-# mobile-api) in one pass with single-build dedup for the shared Dockerfile,
-# then HTTP-smoke /web/ and /healthz from the Pi host. Fails loudly on any
-# step. Run from `ratatoskr/`; expects ratatoskr-web/ as a sibling repo.
-pi-deploy-all: stage-web
-	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api"
+# End-to-end: build+ship+restart the four application services and the
+# PostgreSQL backup sidecar in one pass. The image includes the reviewed SPA
+# archive, then the smoke check verifies / and /health/ready from the Pi host.
+pi-deploy-all:
+	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api pg-backup"
 	$(MAKE) pi-smoke
 
-# Smoke-test mobile-api on the Pi via its mapped host port. /healthz exercises
-# the DB; /web/ confirms the SPA bundle is present. Retries briefly because
+# Smoke-test mobile-api on the Pi via its mapped host port. /health/ready exercises
+# the DB; / confirms the SPA bundle is present. Retries briefly because
 # uvicorn binds a few seconds after the container reports healthy.
 pi-smoke:
 	@echo "==> Smoke-testing http://${RASPI_HOST}:${PI_SMOKE_PORT}"
 	@for i in 1 2 3 4 5 6 7 8; do \
-	  out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/healthz 2>/dev/null || echo "000"); \
-	  echo "    /healthz attempt $$i -> $$out"; \
+	  out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/health/ready 2>/dev/null || echo "000"); \
+	  echo "    /health/ready attempt $$i -> $$out"; \
 	  [ "$$out" = "200" ] && break; \
-	  [ $$i -eq 8 ] && { echo "ERROR: /healthz never returned 200" >&2; exit 1; }; \
+	  [ $$i -eq 8 ] && { echo "ERROR: /health/ready never returned 200" >&2; exit 1; }; \
 	  sleep 4; \
 	done
-	@out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/web/ 2>/dev/null || echo "000"); \
-	  echo "    /web/    -> $$out"; \
-	  [ "$$out" = "200" ] || { echo "ERROR: /web/ returned $$out" >&2; exit 1; }
+	@out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/ 2>/dev/null || echo "000"); \
+	  echo "    /             -> $$out"; \
+	  [ "$$out" = "200" ] || { echo "ERROR: / returned $$out" >&2; exit 1; }
 	@echo "==> Smoke OK"
 
 docker-health:

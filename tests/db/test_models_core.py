@@ -32,6 +32,8 @@ from app.db.models import (
 from app.db.session import Database
 from app.db.types import _utcnow, model_to_dict
 
+pytestmark = pytest.mark.postgres
+
 
 def _test_dsn() -> str:
     return os.getenv("TEST_DATABASE_URL", "")
@@ -178,16 +180,21 @@ async def test_core_models_round_trip_against_postgres() -> None:
             "ClientSecret",
             "CrawlResult",
             "LLMCall",
+            "MagicLinkToken",
+            "ProgressEvent",
             "RefreshToken",
             "Request",
+            "RequestProcessingJob",
             "Summary",
             "SummaryEmbedding",
             "TelegramMessage",
             "User",
             "UserCredential",
             "UserDevice",
+            "UserIdentity",
             "UserInteraction",
             "VideoDownload",
+            "XBookmarkMetadata",
         }
     finally:
         async with database.engine.begin() as connection:

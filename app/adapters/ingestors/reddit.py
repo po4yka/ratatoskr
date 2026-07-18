@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from app.adapters.ingestors._http import DEFAULT_MAX_RESPONSE_MB, fetch_json_capped
 from app.application.ports.source_ingestors import (
     AuthSourceError,
     IngestedFeedItem,
@@ -57,6 +58,7 @@ class RedditIngester:
         rate_budget: RequestRateBudget | None = None,
         user_agent: str = "Ratatoskr/0.1 self-hosted signal ingester",
         base_url: str = "https://www.reddit.com",
+        max_response_mb: int = DEFAULT_MAX_RESPONSE_MB,
     ) -> None:
         cleaned = subreddit.strip().removeprefix("r/").strip("/")
         if not cleaned:
@@ -74,6 +76,7 @@ class RedditIngester:
         self.rate_budget = rate_budget or RequestRateBudget(max_requests_per_minute=60)
         self.user_agent = user_agent
         self.base_url = base_url.rstrip("/")
+        self._max_response_bytes = max_response_mb * 1024 * 1024
         self.name = f"reddit:{self.subreddit}:{self.listing}"
 
     def is_enabled(self) -> bool:
@@ -91,17 +94,14 @@ class RedditIngester:
     async def fetch(self) -> SourceFetchResult:
         self.rate_budget.acquire()
         url = f"{self.base_url}/r/{self.subreddit}/{self.listing}.json?limit={self.limit}"
-        response = await self.client.get(url, headers={"User-Agent": self.user_agent})
-        if response.status_code == 429:
-            raise RateLimitedSourceError("Reddit API returned 429")
-        if response.status_code in {401, 403}:
-            raise AuthSourceError(f"Reddit API denied access: {response.status_code}")
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise TransientSourceError(f"Reddit API error: {response.status_code}") from exc
-
-        payload = response.json()
+        payload = await fetch_json_capped(
+            self.client,
+            url,
+            max_bytes=self._max_response_bytes,
+            provider="Reddit",
+            headers={"User-Agent": self.user_agent},
+            check_status=self._check_status,
+        )
         children = (
             ((payload.get("data") or {}).get("children") or []) if isinstance(payload, dict) else []
         )
@@ -114,6 +114,17 @@ class RedditIngester:
             source=self.source_identity(),
             items=items,
         )
+
+    @staticmethod
+    def _check_status(response: Any) -> None:
+        if response.status_code == 429:
+            raise RateLimitedSourceError("Reddit API returned 429")
+        if response.status_code in {401, 403}:
+            raise AuthSourceError(f"Reddit API denied access: {response.status_code}")
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise TransientSourceError(f"Reddit API error: {response.status_code}") from exc
 
     def _normalize_child(self, raw: dict[str, Any]) -> IngestedFeedItem:
         post_id = str(raw.get("id") or raw.get("name") or "").strip()

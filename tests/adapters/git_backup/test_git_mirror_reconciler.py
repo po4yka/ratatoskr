@@ -100,9 +100,10 @@ class _FakeIndexQdrant(QdrantVectorStore):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         del wait
         self.upserted.append((list(vectors), list(metadatas), list(ids or [])))
+        return True
 
 
 def _index_db() -> MagicMock:

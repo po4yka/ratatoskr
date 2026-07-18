@@ -154,3 +154,59 @@ async def test_apple_callback_links_by_verified_email(monkeypatch: pytest.Monkey
     assert repo.upserts[0]["provider"] == "apple"
     assert repo.upserts[0]["subject"] == "apple-subject"
     assert repo.upserts[0]["email_canonical"] == "owner@privaterelay.appleid.com"
+
+
+def test_apple_callback_request_requires_nonce() -> None:
+    """The callback contract must reject a missing nonce at the edge (422) so the
+    replay-protection check can no longer be skipped by omitting it."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        AppleSignInCallbackRequest(id_token="id-token", client_id="ios-app")
+    with pytest.raises(ValidationError):
+        AppleSignInCallbackRequest(id_token="id-token", client_id="ios-app", nonce="")
+
+
+@pytest.mark.asyncio
+async def test_apple_id_token_nonce_is_always_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_validate_apple_id_token must bind the id_token to the expected nonce on
+    every path -- a matching nonce passes; a mismatched, missing, or empty nonce
+    is rejected (previously a None expected nonce silently skipped the check)."""
+    from app.api.routers.auth import apple
+
+    monkeypatch.setattr(
+        apple._APPLE_JWKS_CLIENT,
+        "get_signing_key_from_jwt",
+        lambda _token: SimpleNamespace(key="public-key"),
+    )
+
+    token_claims: dict[str, Any] = {}
+
+    def _fake_decode(_token: Any, _key: Any, **_kwargs: Any) -> dict[str, Any]:
+        return dict(token_claims)
+
+    monkeypatch.setattr(apple.jwt, "decode", _fake_decode)
+
+    # Matching nonce -> accepted.
+    token_claims.clear()
+    token_claims.update({"sub": "apple-subject", "nonce": "expected-nonce"})
+    claims = await apple._validate_apple_id_token(
+        "id-token", audience="aud", nonce="expected-nonce"
+    )
+    assert claims["sub"] == "apple-subject"
+
+    # Mismatched nonce (replayed token from a different auth request) -> rejected.
+    token_claims.clear()
+    token_claims.update({"sub": "apple-subject", "nonce": "attacker-nonce"})
+    with pytest.raises(apple.AuthenticationError):
+        await apple._validate_apple_id_token("id-token", audience="aud", nonce="expected-nonce")
+
+    # Token carries no nonce claim at all -> rejected (no silent skip).
+    token_claims.clear()
+    token_claims.update({"sub": "apple-subject"})
+    with pytest.raises(apple.AuthenticationError):
+        await apple._validate_apple_id_token("id-token", audience="aud", nonce="expected-nonce")
+
+    # Blank expected nonce -> rejected before any decode (defense in depth).
+    with pytest.raises(apple.AuthenticationError):
+        await apple._validate_apple_id_token("id-token", audience="aud", nonce="   ")

@@ -40,7 +40,29 @@ def upgrade() -> None:
     )
 
 
+_INT32_MAX = 2_147_483_647
+
+
 def downgrade() -> None:
+    # summaries.version carries ~1.7e12 millisecond-epoch values on legacy /
+    # live-Pi data (see the upgrade docstring) that overflow int32, so narrowing
+    # back to INTEGER would fail with `value out of int32 range` (or silently
+    # truncate) -- reproducing the exact bug this revision fixes. Refuse when any
+    # value exceeds the int32 max; Alembic wraps the downgrade in a transaction,
+    # so raising leaves the column as BIGINT. On data that fits int32 (or an
+    # empty table) the original narrowing still runs.
+    bind = op.get_bind()
+    max_version = bind.execute(sa.text("SELECT MAX(version) FROM summaries")).scalar()
+    if max_version is not None and max_version > _INT32_MAX:
+        msg = (
+            "Cannot downgrade past 0002: summaries.version holds a value "
+            f"({max_version}) above the int32 max ({_INT32_MAX}); narrowing to "
+            "INTEGER would overflow. These are millisecond-epoch timestamps from "
+            "legacy BaseModel.save() -- treat this revision as one-way once they "
+            "exist."
+        )
+        raise RuntimeError(msg)
+
     op.alter_column(
         "summaries",
         "version",

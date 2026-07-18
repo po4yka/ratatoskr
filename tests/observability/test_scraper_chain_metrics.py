@@ -1,8 +1,7 @@
-"""Tests for scraper-chain failure / latency telemetry.
+"""Tests for scraper-chain runtime, failure, and latency telemetry.
 
-Two new Prometheus signals:
-  * scraper_attempts_total{provider,status}      - counter
-  * scraper_attempt_latency_seconds{provider}    - histogram
+Prometheus signals include provider attempt counters and latency plus the
+latest runtime chain-result timestamp used by the public status evaluator.
 """
 
 from __future__ import annotations
@@ -54,15 +53,52 @@ class TestScraperLatencyHistogram:
         metrics_module.record_scraper_attempt_latency(provider="playwright", latency_seconds=-0.1)
 
 
+class TestScraperRuntimeResult:
+    def test_chain_outcome_updates_runtime_timestamp(
+        self, monkeypatch: pytest.MonkeyPatch, metrics_module
+    ) -> None:
+        if not metrics_module.PROMETHEUS_AVAILABLE:
+            pytest.skip("prometheus_client unavailable")
+        from app.observability import metrics_scraper
+
+        monkeypatch.setattr(metrics_scraper.time, "time", lambda: 1_725_000_000.0)
+        metrics_module.record_scraper_chain_total_latency(
+            mode="serial", outcome="empty", total_latency_seconds=1.0
+        )
+
+        value = metrics_module.SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS.labels(
+            outcome="failure"
+        )._value.get()
+        assert value == 1_725_000_000.0
+
+    def test_ssrf_policy_block_does_not_mark_runtime_failure(self, metrics_module) -> None:
+        if not metrics_module.PROMETHEUS_AVAILABLE:
+            pytest.skip("prometheus_client unavailable")
+        metric = metrics_module.SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS.labels(
+            outcome="failure"
+        )
+        before = metric._value.get()
+
+        metrics_module.record_scraper_chain_total_latency(
+            mode="serial", outcome="ssrf_blocked", total_latency_seconds=0.01
+        )
+
+        assert metric._value.get() == before
+
+
 class TestExposedInMetricsEndpoint:
     def test_metrics_endpoint_includes_signals(self, metrics_module) -> None:
         if not metrics_module.PROMETHEUS_AVAILABLE:
             pytest.skip("prometheus_client unavailable")
         metrics_module.record_scraper_attempt(provider="probe", status="success")
         metrics_module.record_scraper_attempt_latency(provider="probe", latency_seconds=1.2)
+        metrics_module.record_scraper_chain_total_latency(
+            mode="serial", outcome="success", total_latency_seconds=1.2
+        )
         payload = metrics_module.get_metrics().decode("utf-8")
         assert "ratatoskr_scraper_attempts_total" in payload
         assert "ratatoskr_scraper_attempt_latency_seconds" in payload
+        assert "ratatoskr_scraper_chain_last_result_timestamp_seconds" in payload
 
 
 class TestAttemptLogSerialization:

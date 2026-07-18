@@ -8,16 +8,17 @@ failure must not prevent the service from running (the checkpointer is optional)
 Invariant 4 (ADR-0018): this pool is the ONLY sanctioned non-``Database``
 Postgres connection in the process. It is psycopg3 (not asyncpg) because
 ``langgraph-checkpoint-postgres`` requires psycopg3, and it must NOT route
-through ``app.db.session.Database``. langgraph / psycopg imports are lazy
-(inside ``start()``) so this module stays importable in the default image,
-which does not install the optional ``graph`` extra.
+through ``app.db.session.Database``. LangGraph / psycopg imports remain local to
+``start()`` so importing infrastructure does not initialize driver state.
 """
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
+from app.infrastructure.checkpointing.cleanup import prune_expired_checkpoints
 
 if TYPE_CHECKING:
     from app.config.langgraph import LangGraphCheckpointConfig
@@ -28,6 +29,9 @@ logger = get_logger(__name__)
 # checkpointer is optional and failure-isolated, so a slow/unreachable Postgres
 # must not stall service startup for the psycopg_pool default (30s).
 _POOL_OPEN_TIMEOUT_SEC = 10.0
+# Stable, process-independent PostgreSQL advisory lock key for LangGraph's
+# non-transactional migration version check + insert sequence.
+_SETUP_ADVISORY_LOCK_ID = 0x52415441544F534B
 
 
 def _psycopg_dsn(database_dsn: str, dsn_override: str | None) -> str:
@@ -60,7 +64,7 @@ class CheckpointerRuntime:
         return self._saver
 
     async def start(self) -> None:
-        """Open the dedicated pool, create the schema, and run saver.setup()."""
+        """Open the pool and clean retained state before exposing a durable saver."""
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
         from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
         from psycopg.rows import dict_row
@@ -93,21 +97,37 @@ class CheckpointerRuntime:
             # search_path may point at a not-yet-existing schema; CREATE SCHEMA is
             # schema-name explicit). `schema` is validated to [A-Za-z0-9_] at
             # config time, so the interpolation is injection-safe.
+            # ``AsyncPostgresSaver.setup()`` reads the current migration version
+            # and then inserts subsequent versions. Serialize that sequence across
+            # bot/API processes. Run setup on the lock-owning connection itself so
+            # a pool configured with max_size=1 cannot deadlock waiting for a
+            # second connection.
             async with pool.connection() as conn:
                 await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+                await conn.execute("SELECT pg_advisory_lock(%s)", (_SETUP_ADVISORY_LOCK_ID,))
+                try:
+                    # strict_msgpack -> no pickle fallback (no arbitrary-module
+                    # deserialization). Production always forces it off.
+                    allow_pickle = not cp_cfg.strict_msgpack
+                    if allow_pickle and self._cfg.deployment.is_production_mode:
+                        logger.warning("langgraph_pickle_fallback_disabled_in_production")
+                        allow_pickle = False
+                    serde = JsonPlusSerializer(pickle_fallback=allow_pickle)
+                    setup_saver = AsyncPostgresSaver(conn, serde=serde)
+                    await setup_saver.setup()
+                finally:
+                    await conn.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_ADVISORY_LOCK_ID,))
 
-            # strict_msgpack -> no pickle fallback (no arbitrary-module deserialization).
-            # In production the pickle fallback is forced OFF regardless of the
-            # flag: a checkpoint blob carrying a malicious pickle would otherwise
-            # execute arbitrary code on read (CWE-502). Only non-production
-            # deployments may opt into the fallback (e.g. to read legacy blobs).
-            allow_pickle = not cp_cfg.strict_msgpack
-            if allow_pickle and self._cfg.deployment.is_production_mode:
-                logger.warning("langgraph_pickle_fallback_disabled_in_production")
-                allow_pickle = False
-            serde = JsonPlusSerializer(pickle_fallback=allow_pickle)
             saver = AsyncPostgresSaver(pool, serde=serde)
-            await saver.setup()
+
+            # setup() bootstraps the checkpoint tables on a fresh deployment. Only publish the saver after pruning old runs, so production graph compilation cannot enable durable execution ahead of cleanup.
+            async with pool.connection() as conn, conn.transaction():
+                prune_stats = await prune_expired_checkpoints(
+                    conn,
+                    schema=schema,
+                    retention_days=cp_cfg.retention_days,
+                )
+            logger.info("langgraph_startup_checkpoint_cleanup_complete", extra=asdict(prune_stats))
             self._saver = saver
         except Exception:
             # Never leak the just-opened pool if schema creation / setup fails:

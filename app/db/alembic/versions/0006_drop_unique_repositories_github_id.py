@@ -52,14 +52,47 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Restore the (incorrect) table-level unique constraint.
+    # Best-effort restore of the pre-0006 table-level UNIQUE(github_id).
+    #
+    # That constraint is the boundary migration 0006 deliberately removed: two
+    # different users may star the same GitHub repo, so uniqueness belongs on the
+    # composite (user_id, github_id) (uq_repositories_user_github), not on
+    # github_id alone. Recreating UNIQUE(github_id) over multi-user data would
+    # raise a duplicate-key violation and abort the downgrade, so only restore it
+    # when the data still permits; otherwise skip with a NOTICE (never delete
+    # rows to force a constraint the schema intentionally dropped). Re-upgrading
+    # is unaffected -- upgrade() drops the constraint IF EXISTS.
     op.execute("""
-        DO $$ BEGIN
-            IF NOT EXISTS (
+        DO $$
+        DECLARE
+            duplicate_github_ids integer;
+        BEGIN
+            -- Already restored (or never dropped): nothing to do.
+            IF EXISTS (
                 SELECT 1 FROM pg_constraint
                 WHERE conname = 'repositories_github_id_key'
                   AND conrelid = 'repositories'::regclass
             ) THEN
+                RETURN;
+            END IF;
+
+            SELECT count(*) INTO duplicate_github_ids
+            FROM (
+                SELECT 1
+                FROM repositories
+                WHERE github_id IS NOT NULL
+                GROUP BY github_id
+                HAVING count(*) > 1
+            ) AS duplicates;
+
+            IF duplicate_github_ids > 0 THEN
+                RAISE NOTICE
+                    'Skipping restore of repositories_github_id_key: % github_id '
+                    'value(s) are starred by more than one user; the table-level '
+                    'UNIQUE(github_id) cannot hold over this data. The composite '
+                    'uq_repositories_user_github remains in force.',
+                    duplicate_github_ids;
+            ELSE
                 ALTER TABLE repositories
                     ADD CONSTRAINT repositories_github_id_key UNIQUE (github_id);
             END IF;

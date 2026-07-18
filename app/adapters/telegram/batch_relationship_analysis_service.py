@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import html
 import json
 import time
-from functools import partial
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import urlparse
 
@@ -12,8 +12,6 @@ from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from app.adapters.external.formatting.protocols import (
         ResponseFormatterFacade as ResponseFormatter,
     )
@@ -49,12 +47,16 @@ class BatchRelationshipAnalysisService:
         llm_client: Any | None,
         batch_config: BatchAnalysisConfig | None,
         response_formatter: ResponseFormatter | None,
+        llm_repo: Any | None = None,
     ) -> None:
         self._summary_repo = summary_repo
         self._batch_session_repo = batch_session_repo
         self._llm_client = llm_client
         self._batch_config = batch_config
         self._response_formatter = response_formatter
+        # Persist the combined-summary agent's LLM call to llm_calls (rule 3);
+        # None in non-DI/test wiring disables persistence (best-effort).
+        self._llm_repo = llm_repo
 
     @property
     def is_configured(self) -> bool:
@@ -92,14 +94,6 @@ class BatchRelationshipAnalysisService:
         start_time_ms = time.time() * 1000
         sender = _resolve_sender(self._response_formatter)
         draft_enabled = _is_draft_streaming_enabled(sender)
-        preview_buffer = [""]
-        on_stream_delta = partial(
-            self._combined_stream_delta,
-            sender,
-            message,
-            draft_enabled,
-            preview_buffer,
-        )
 
         session_id: int | None = None
         try:
@@ -168,8 +162,6 @@ class BatchRelationshipAnalysisService:
                 relationship=relationship,
                 full_summaries=full_summaries,
                 language=language,
-                stream=draft_enabled,
-                on_stream_delta=on_stream_delta if draft_enabled else None,
             )
             if combined_summary is not None:
                 await self._batch_session_repo.async_update_batch_session_combined_summary(
@@ -227,26 +219,6 @@ class BatchRelationshipAnalysisService:
         if not draft_enabled:
             return
         await _send_message_draft_safe(sender, message, text, force=True)
-
-    async def _combined_stream_delta(
-        self,
-        sender: Any,
-        message: Any,
-        draft_enabled: bool,
-        preview_buffer: list[str],
-        delta: str,
-    ) -> None:
-        if not draft_enabled or not delta:
-            return
-        preview_buffer[0] += delta
-        preview = preview_buffer[0][-1400:].strip()
-        if not preview:
-            return
-        await _send_message_draft_safe(
-            sender,
-            message,
-            f"🔗 Relationship detected. Building combined summary...\n\n{preview}",
-        )
 
     def _clear_message_draft(self, sender: Any, message: Any) -> None:
         clear_draft = getattr(sender, "clear_message_draft", None)
@@ -409,6 +381,7 @@ class BatchRelationshipAnalysisService:
         relationship_agent = RelationshipAnalysisAgent(
             llm_client=self._llm_client if self._batch_config.use_llm_for_analysis else None,
             correlation_id=correlation_id,
+            llm_repo=self._llm_repo,
         )
         analysis_input = RelationshipAnalysisInput(
             articles=articles,
@@ -488,8 +461,6 @@ class BatchRelationshipAnalysisService:
         relationship: Any,
         full_summaries: list[dict[str, Any]],
         language: str,
-        stream: bool = False,
-        on_stream_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> Any | None:
         if not (self._batch_config.combined_summary_enabled and self._llm_client):
             return None
@@ -497,11 +468,15 @@ class BatchRelationshipAnalysisService:
         from app.adapter_models.batch_analysis import CombinedSummaryInput
         from app.agents.combined_summary_agent import CombinedSummaryAgent
 
+        # Attach the synthesis LLM call to one of the batch's article requests
+        # (llm_calls.request_id is a non-null FK; the combined summary spans them
+        # all, so the first successful article's request is a valid anchor).
+        anchor_request_id = getattr(articles[0], "request_id", None) if articles else None
         combined_agent = CombinedSummaryAgent(
             llm_client=self._llm_client,
             correlation_id=correlation_id,
-            stream=stream,
-            on_stream_delta=on_stream_delta,
+            llm_repo=self._llm_repo,
+            request_id=anchor_request_id,
         )
         combined_input = CombinedSummaryInput(
             articles=articles,
@@ -537,31 +512,37 @@ class BatchRelationshipAnalysisService:
         type_label = type_labels.get(relationship.relationship_type, ("Related", "Связано"))
         label = type_label[1] if language == "ru" else type_label[0]
 
+        # Sent with parse_mode="HTML" below; every value below is LLM-derived
+        # from summaries of untrusted third-party articles, so html.escape() each
+        # one to stop a crafted topic/entity/arc from injecting Telegram markup
+        # into the bot's own output. Labels/headers here are static and trusted.
         parts = [f"<b>{label}</b> ({relationship.confidence:.0%} confidence)"]
         if relationship.reasoning:
-            parts.append(f"\n{relationship.reasoning}")
+            parts.append(f"\n{html.escape(str(relationship.reasoning))}")
 
         if relationship.series_info:
             series_info = relationship.series_info
             if series_info.series_title:
-                parts.append(f"\n<b>Series:</b> {series_info.series_title}")
+                parts.append(f"\n<b>Series:</b> {html.escape(str(series_info.series_title))}")
             if series_info.numbering_pattern:
-                parts.append(f"<b>Pattern:</b> {series_info.numbering_pattern}")
+                parts.append(f"<b>Pattern:</b> {html.escape(str(series_info.numbering_pattern))}")
 
         if relationship.cluster_info:
             cluster_info = relationship.cluster_info
             if cluster_info.cluster_topic:
-                parts.append(f"\n<b>Topic:</b> {cluster_info.cluster_topic}")
+                parts.append(f"\n<b>Topic:</b> {html.escape(str(cluster_info.cluster_topic))}")
             if cluster_info.shared_entities:
-                parts.append(
-                    f"<b>Shared entities:</b> {', '.join(cluster_info.shared_entities[:5])}"
-                )
+                entities = ", ".join(html.escape(str(e)) for e in cluster_info.shared_entities[:5])
+                parts.append(f"<b>Shared entities:</b> {entities}")
             if cluster_info.shared_tags:
-                parts.append(f"<b>Shared tags:</b> {', '.join(cluster_info.shared_tags[:5])}")
+                tags = ", ".join(html.escape(str(tg)) for tg in cluster_info.shared_tags[:5])
+                parts.append(f"<b>Shared tags:</b> {tags}")
 
         if combined_summary:
             parts.append("\n---")
-            parts.append(f"\n<b>Thematic Arc:</b>\n{combined_summary.thematic_arc}")
+            parts.append(
+                f"\n<b>Thematic Arc:</b>\n{html.escape(str(combined_summary.thematic_arc))}"
+            )
 
             if combined_summary.synthesized_insights:
                 insights_header = (
@@ -569,17 +550,18 @@ class BatchRelationshipAnalysisService:
                 )
                 parts.append(f"\n<b>{insights_header}:</b>")
                 for insight in combined_summary.synthesized_insights[:5]:
-                    parts.append(f"- {insight}")
+                    parts.append(f"- {html.escape(str(insight))}")
 
             if combined_summary.contradictions:
                 contradictions_header = "Contradictions" if language != "ru" else "Противоречия"
                 parts.append(f"\n<b>{contradictions_header}:</b>")
                 for contradiction in combined_summary.contradictions[:3]:
-                    parts.append(f"- {contradiction}")
+                    parts.append(f"- {html.escape(str(contradiction))}")
 
             if combined_summary.reading_order_rationale:
                 order_header = "Reading Order" if language != "ru" else "Порядок чтения"
-                parts.append(f"\n<b>{order_header}:</b> {combined_summary.reading_order_rationale}")
+                rationale = html.escape(str(combined_summary.reading_order_rationale))
+                parts.append(f"\n<b>{order_header}:</b> {rationale}")
 
             if combined_summary.total_reading_time_min:
                 time_header = "Total Reading Time" if language != "ru" else "Общее время чтения"

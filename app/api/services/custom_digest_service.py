@@ -8,6 +8,7 @@ from app.api.dependencies.database import get_session_manager
 from app.api.exceptions import ResourceNotFoundError, ValidationError
 from app.api.models.responses import CustomDigestResponse
 from app.api.search_helpers import isotime
+from app.application.services.custom_digest_synthesis import CustomDigestSynthesizer
 from app.db.session import Database  # noqa: TC001  # used at runtime in __init__ signature
 from app.infrastructure.persistence.repositories.user_content_repository import (
     UserContentRepositoryAdapter,
@@ -15,20 +16,35 @@ from app.infrastructure.persistence.repositories.user_content_repository import 
 
 if TYPE_CHECKING:
     from app.api.models.requests import CreateCustomDigestRequest
+    from app.application.ports.llm_client import LLMClientProtocol
+    from app.application.ports.requests import LLMRepositoryPort
 
 
 class CustomDigestService:
     """Owns custom digest creation and retrieval."""
 
-    def __init__(self, session_manager: Database | None = None) -> None:
+    def __init__(
+        self,
+        session_manager: Database | None = None,
+        *,
+        llm_client: LLMClientProtocol | None = None,
+        llm_repo: LLMRepositoryPort | None = None,
+        synthesizer: CustomDigestSynthesizer | None = None,
+        user_content_repo: UserContentRepositoryAdapter | None = None,
+    ) -> None:
         self._db = session_manager or get_session_manager()
-        self._user_content_repo = UserContentRepositoryAdapter(self._db)
+        self._user_content_repo = user_content_repo or UserContentRepositoryAdapter(self._db)
+        self._synthesizer = synthesizer or CustomDigestSynthesizer(
+            llm_client=llm_client,
+            llm_repo=llm_repo,
+        )
 
     async def create_digest(
         self,
         *,
         user_id: int,
         body: CreateCustomDigestRequest,
+        correlation_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a digest from owned summary IDs."""
         from app.application.services.topic_search_utils import ensure_mapping
@@ -55,23 +71,41 @@ class CustomDigestService:
                 details={"missing_ids": [str(item) for item in missing]},
             )
 
-        content_parts: list[str] = []
-        for summary in summaries:
-            request = summary.get("request") if isinstance(summary.get("request"), dict) else {}
-            json_payload = ensure_mapping(summary.get("json_payload"))
-            metadata = ensure_mapping(json_payload.get("metadata"))
-            heading = (
-                metadata.get("title") or request.get("input_url") or f"Summary {summary.get('id')}"
+        if body.mode == "synthesized":
+            language = (
+                "ru" if summaries and all(item.get("lang") == "ru" for item in summaries) else "en"
             )
-            summary_text = json_payload.get("summary_250", "")
-            content_parts.append(f"## {heading}\n\n{summary_text}")
+            try:
+                content = (
+                    await self._synthesizer.synthesize(
+                        summaries,
+                        language=language,
+                        correlation_id=correlation_id,
+                    )
+                ).to_markdown()
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
+        else:
+            content_parts: list[str] = []
+            for summary in summaries:
+                request = summary.get("request") if isinstance(summary.get("request"), dict) else {}
+                json_payload = ensure_mapping(summary.get("json_payload"))
+                metadata = ensure_mapping(json_payload.get("metadata"))
+                heading = (
+                    metadata.get("title")
+                    or request.get("input_url")
+                    or f"Summary {summary.get('id')}"
+                )
+                summary_text = json_payload.get("summary_250", "")
+                content_parts.append(f"## {heading}\n\n{summary_text}")
+            content = "\n\n---\n\n".join(content_parts)
 
         digest = await self._user_content_repo.async_create_custom_digest(
             user_id=user_id,
             title=body.title,
             summary_ids=summary_id_ints,
             format=body.format,
-            content="\n\n---\n\n".join(content_parts),
+            content=content,
         )
         return self._digest_to_response(digest).model_dump(by_alias=True)
 

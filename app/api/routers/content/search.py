@@ -358,7 +358,9 @@ async def run_saved_search(
         return success_response(result, pagination=result.pagination)
     except Exception as exc:
         logger.error("Saved search run failed: %s", exc, exc_info=True)
-        raise ProcessingError(f"Saved search run failed: {exc!s}") from exc
+        # Do NOT stringify the internal exception into the client message (CWE-209):
+        # the full error is logged above and the handler attaches the correlation_id.
+        raise ProcessingError("Saved search run failed") from exc
 
 
 @router.get("/searches/history")
@@ -447,7 +449,9 @@ async def search_summaries(
         )
     except Exception as exc:
         logger.error("Search failed: %s", exc, exc_info=True)
-        raise ProcessingError(f"Search failed: {exc!s}") from exc
+        # Generic client message only (CWE-209): the full error is logged above and
+        # the exception handler returns the correlation_id for diagnosis.
+        raise ProcessingError("Search failed") from exc
 
 
 @router.get("/search/semantic")
@@ -478,7 +482,8 @@ async def semantic_search_summaries(
         )
     except Exception as exc:
         logger.error("Semantic search failed: %s", exc, exc_info=True)
-        raise ProcessingError(f"Semantic search failed: {exc!s}") from exc
+        # Generic client message only (CWE-209); full error logged above.
+        raise ProcessingError("Semantic search failed") from exc
 
 
 @router.get("/topics/trending")
@@ -618,7 +623,8 @@ async def search_repositories(
         )
     except Exception as exc:
         logger.error("repository_search_failed: %s", exc, exc_info=True)
-        raise ProcessingError(f"Repository search failed: {exc!s}") from exc
+        # Generic client message only (CWE-209); full error logged above.
+        raise ProcessingError("Repository search failed") from exc
 
     hits = []
     for item in results.items:

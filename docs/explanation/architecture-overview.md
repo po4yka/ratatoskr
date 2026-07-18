@@ -15,13 +15,13 @@ A bird's-eye view of how Ratatoskr is wired together: the major subsystems, how 
 - Deterministic Summary JSON contract with validation (length caps, types, dedupe).
 - Idempotence for URLs (normalized URL hash).
 - Clear observability (structured logs, audit trail, latency and token metrics).
-- Single-user security hardening (allowlist).
+- Owner-first security with explicit user and client allowlists.
 
 **Non-Goals:**
 
-- Multi-tenant access control.
+- A public, self-service SaaS control plane.
 - Full RAG answer generation or analytics dashboards.
-- Multi-tenant streaming or cross-user event fan-out.
+- Cross-user event fan-out.
 
 ---
 
@@ -38,90 +38,37 @@ A bird's-eye view of how Ratatoskr is wired together: the major subsystems, how 
 
 ```mermaid
 flowchart LR
-  subgraph TelegramBot[Telegram bot]
-    TGClient[TelegramClient] --> MsgHandler[MessageHandler]
-    MsgHandler --> AccessController
-    MsgHandler --> CallbackHandler
-    CallbackHandler --> CallbackRegistry[CallbackActionRegistry]
-    CallbackRegistry --> CallbackActions[CallbackActionService]
-    AccessController --> MessageRouter
-    MessageRouter --> TelegramCommandDispatcher
-    MessageRouter --> URLHandler
-    URLHandler --> URLBatchPolicy[URLBatchPolicyService]
-    URLHandler --> URLAwaitingState[URLAwaitingStateStore]
-    MessageRouter --> ForwardProcessor
-    MessageRouter --> MessagePersistence
-    LifecycleMgr[TelegramLifecycleManager] -.-> TGClient
-    LifecycleMgr -.-> URLHandler
-  end
+  Telegram["Telegram"] --> Bot["Telethon bot"]
+  Client["HTTP client"] --> API["FastAPI /v1"]
+  AgentClient["MCP client"] --> MCP["MCP server"]
 
-  subgraph URLPipeline[URL processing pipeline]
-    URLHandler --> GraphURLProcessor[GraphURLProcessor facade]
-    GraphURLProcessor --> SummarizeGraph[Summarize StateGraph]
-    SummarizeGraph --> Extract[extract node → extraction port]
-    Extract --> ScraperChain[ScraperChain]
-    ScraperChain -->|1| Scrapling[Scrapling]
-    ScraperChain -->|2| Crawl4AI[Crawl4AI sidecar]
-    ScraperChain -->|3| Firecrawl[(Firecrawl sidecar)]
-    ScraperChain -->|4| Defuddle[Defuddle sidecar]
-    ScraperChain -->|5| Playwright[Playwright]
-    ScraperChain -->|6| Crawlee[Crawlee]
-    ScraperChain -->|7| DirectHTML[Direct HTML]
-    ScraperChain -->|8| ScrapegraphAI[Scrapegraph-AI]
-    SummarizeGraph --> Summarize[summarize node → llm_client port]
-    Summarize --> OpenRouter[(OpenRouter Chat Completions)]
-    SummarizeGraph --> ValidateRepair[validate ↺ repair loop]
-  end
+  Bot --> Router["MessageRouter"]
+  Router --> URLHandler["URL / forward handlers"]
+  API --> GraphFacade["GraphURLProcessor"]
+  URLHandler --> GraphFacade
+  GraphFacade --> Graph["Summarize StateGraph"]
+  Graph --> Extract["extract → extraction port"]
+  Extract --> Platform["Platform-specific extractors"]
+  Extract --> Chain["13-provider ScraperChain"]
+  Graph --> LLM["Configured LLM adapter"]
+  Graph --> Validate["validate ↺ repair"]
+  Graph --> PostgreSQL[("PostgreSQL")]
+  Graph --> Qdrant[("Qdrant")]
+  Graph --> Bot
 
-  subgraph DigestPipeline[Channel digest]
-    Scheduler[APScheduler] --> DigestService
-    TelegramCommandDispatcher -.->|/digest| DigestService
-    DigestService --> ChannelReader
-    ChannelReader --> UserbotClient[Userbot client]
-    DigestService --> DigestAnalyzer
-    DigestAnalyzer --> OpenRouter
-    DigestService --> DigestFormatter
-    DigestFormatter --> TGClient
-    TelegramCommandDispatcher -.->|/init_session| SessionInit[Session init + Mini App]
-    SessionInit --> UserbotClient
-  end
+  Scheduler["Taskiq scheduler"] --> Worker["Taskiq worker"]
+  Worker --> Digest["Digest / sync / reconciliation tasks"]
+  Digest --> PostgreSQL
+  Digest --> Qdrant
+  Redis[("Redis")] --> Worker
 
-  subgraph OptionalServices[Optional services]
-    Redis[(Redis)] -.-> ContentExtractor
-    Redis -.-> LLMSummarizer
-    Redis -.-> MobileAPI
-    Qdrant[(Qdrant)] -.-> SearchService
-    MCPServer[MCP server] -.-> Postgres
-    MCPServer -.-> SearchService
-  end
-
-  ForwardProcessor --> LLMSummarizer
-  LLMSummarizer -.->|optional| WebSearch[WebSearchAgent]
-  WebSearch -.-> Firecrawl[(Firecrawl sidecar)]
-  ContentExtractor --> Postgres[(PostgreSQL)]
-  MessagePersistence --> Postgres
-  LLMSummarizer --> Postgres
-  DigestService --> Postgres
-  MessageRouter --> ResponseFormatter
-  ResponseFormatter --> TGClient
-  TGClient -->|replies| Telegram
-  Telegram -->|updates| TGClient
-  UserbotClient -->|read channels| Telegram
-  ResponseFormatter --> Logs[(Structured + audit logs)]
-
-  subgraph MobileAPI[Mobile API]
-    FastAPI[FastAPI + JWT] --> Postgres
-    FastAPI --> SearchService[SearchService]
-    FastAPI --> DigestFacade
-    DigestFacade --> DigestAPIService
-    DigestAPIService --> Postgres
-    FastAPI --> SystemMaint[SystemMaintenanceService]
-    SystemMaint --> Postgres
-    SystemMaint -.-> Redis
-  end
+  API --> PostgreSQL
+  API --> Qdrant
+  MCP --> PostgreSQL
+  MCP --> Qdrant
 ```
 
-The bot ingests updates via a lightweight `TelegramClient`, normalizes them through `MessageHandler`, and hands them to `MessageRouter` / `CallbackHandler`. `CallbackHandler` delegates action execution through `CallbackActionRegistry` + `CallbackActionService`; `URLHandler` delegates batch / await-state concerns through `URLBatchPolicyService` + `URLAwaitingStateStore` before invoking the `GraphURLProcessor` facade (which drives the summarize graph). `TelegramLifecycleManager` owns startup / shutdown of background tasks and warmups. The channel-digest subsystem uses a separate `UserbotClient` (authenticated as a real Telegram user) to read channel histories, analyzes posts via LLM, and delivers formatted digests on a schedule or via `/digest`.
+The bot ingests updates via `TelegramClient`, normalizes them through `MessageHandler`, and hands them to `MessageRouter` or `CallbackHandler`. URL work reaches the same `GraphURLProcessor` facade used by other summary entry points. The channel-digest subsystem uses a separate userbot session to read channel histories; Taskiq schedules recurring digest, synchronization, and reconciliation work.
 
 For the mobile API, routers are transport-focused and delegate infrastructure orchestration to dedicated services (`DigestFacade`, `SystemMaintenanceService`) rather than performing DB / Redis / file operations inline. `ResponseFormatter` centralizes Telegram replies and audit logging while all artifacts land in PostgreSQL.
 
@@ -154,15 +101,15 @@ Telegram update
               └─ URLHandler ── URLBatchPolicyService / URLAwaitingStateStore
                  └─ GraphURLProcessor facade (correlation_id assigned == thread_id)
                     └─ Summarize StateGraph: ingest → extract → ground → build_prompt → summarize → validate ↺ repair → enrich → persist → notify
-                       ├─ extract → extraction port → ScraperChain (Scrapling → Crawl4AI → Firecrawl self-hosted → Defuddle → Playwright → Crawlee → direct HTML → ScrapeGraphAI)
+                       ├─ extract → extraction port → platform extractor or 13-provider ScraperChain
                        │   (see docs/explanation/scraper-chain.md for the detailed provider diagram)
-                       ├─ summarize/repair → llm_client port → OpenRouter (with retries; validate↺repair self-correction)
+                       ├─ summarize/repair → llm_client port → configured LLM adapter
                        │   └─ Summary JSON (validated against summary_contract.py)
                        └─ persist → PostgreSQL: summaries / llm_calls (attempt_trigger='graph_node') / requests / crawl_results + read-your-writes Qdrant point
                           └─ notify → ResponseFormatter → TelegramClient → Telegram reply
 ```
 
-Every step writes to PostgreSQL (full request, all crawl attempts, every LLM call, the final summary) and stamps the correlation ID into structured logs so a single ID lets you trace from the Telegram message to the OpenRouter response and back.
+Durable artifacts include the request, crawl attempts, LLM calls, progress/job state, and final summary. Correlation IDs connect those records to structured logs and the user-visible error ID.
 
 ---
 
@@ -172,7 +119,7 @@ Each subsystem has a canonical doc; this page is the entry point.
 
 | Subsystem | Purpose | Canonical doc |
 | --- | --- | --- |
-| URL pipeline (Scrapling, Crawl4AI, Firecrawl self-hosted, Defuddle, Playwright, Crawlee, direct HTML, ScrapeGraphAI) | Extract clean article content from arbitrary URLs with an 8-provider fallback chain. Order overridable via `SCRAPER_PROVIDER_ORDER`. Cloud Firecrawl not used. | [`docs/explanation/scraper-chain.md`](scraper-chain.md) · [`docs/SPEC.md`](../SPEC.md) |
+| URL pipeline | Extract content with a 13-provider chain, including URL-scoped Reddit and Hacker News rungs. Order is overridable via `SCRAPER_PROVIDER_ORDER`; cloud Firecrawl is not used. | [`docs/explanation/scraper-chain.md`](scraper-chain.md) · [`docs/SPEC.md`](../SPEC.md) |
 | YouTube extractor | Download video (1080p), pull transcripts, store metadata. | [`docs/guides/configure-youtube-download.md`](../guides/configure-youtube-download.md) |
 | Twitter / X extractor | Two-tier extraction: self-hosted Firecrawl scrape by default; opt-in authenticated Playwright for protected accounts, threads, and X Articles. | [`docs/guides/configure-twitter-extraction.md`](../guides/configure-twitter-extraction.md) |
 | LLM summarization (graph) | The LangGraph summarize graph (`app/application/graphs/summarize/`) is the sole summarize path: ingest → extract → ground → build_prompt → summarize → validate ↺ repair → enrich → persist → notify. Self-correction is the `validate ↺ repair` cycle; the `summarize`/`repair` nodes call `instructor`'s `chat_structured` via `summarize_with_instructor`; summary prompt/schema/runtime binding goes through `SummaryContractDescriptor` so the default contract remains explicit and future variants do not require provider rewrites. | [`docs/explanation/multi-agent-architecture.md`](multi-agent-architecture.md) · [`docs/reference/summary-contract.md`](../reference/summary-contract.md) |
@@ -180,14 +127,14 @@ Each subsystem has a canonical doc; this page is the entry point.
 | Channel digest | Userbot reads subscribed channels; scheduled digests via `/digest`. | [`docs/SPEC.md`](../SPEC.md) (`Channel digest` section) |
 | Mixed-source aggregation | Bundle one or more links + forwards / attachments into a single synthesised result. | [`docs/SPEC.md`](../SPEC.md) (`Mixed-source aggregation` section) |
 | Search (Postgres tsvector + vector) | PostgreSQL `TSVECTOR` + `GIN` full-text plus optional Qdrant semantic / hybrid search. The persist-node fast path writes summary vectors synchronously; the Taskiq reconciler (`ratatoskr.vector.reconcile`) handles convergence and backfill. `VectorIndexReconciler` inspects indexed entity adapters for diagnostics and repair. | [`docs/guides/setup-qdrant-vector-search.md`](../guides/setup-qdrant-vector-search.md) · [`docs/vector-index-sync.md`](../vector-index-sync.md) |
-| Streaming (SSE) | Real-time summary-progress events via `GET /v1/requests/{request_id}/stream`. Publishes four event kinds: `phase`, `section`, `done`, `error`. Consumed by the Telegram URL flow (draft updates) and the web frontend SubmitPage. Implementation: `app/adapters/content/streaming/` (hub, events, assembler) + `app/api/routers/streams.py`. | `app/adapters/content/streaming/` |
+| Streaming (SSE) | Real-time summary progress via `GET /v1/requests/{request_id}/stream`, with `phase`, `section`, `done`, and `error` events. Implementation: `app/adapters/content/streaming/` and `app/api/routers/content/streams.py`. | `app/adapters/content/streaming/` |
 | Mobile API | FastAPI + JWT, sync v2, ratelimit, summary CRUD, aggregations. | [`docs/reference/mobile-api.md`](../reference/mobile-api.md) |
-| Web frontend | React SPA served on `/web/*`; library, search, submit, collections, digest, preferences, admin. Uses a project-owned design shim under `ratatoskr-web/src/design/` (separate repo). | [`docs/reference/frontend-web.md`](../reference/frontend-web.md) |
-| MCP server | Model Context Protocol server: 22 tools and 16 resources for external AI agents (OpenClaw, Claude Desktop). | [`docs/reference/mcp-server.md`](../reference/mcp-server.md) |
+| Web frontend | FastAPI serves a compiled SPA from `/`; editable React source and client checks are owned by the external `ratatoskr-web` repository. | [`docs/reference/frontend-web.md`](../reference/frontend-web.md) |
+| MCP server | Model Context Protocol server with 28 tools and 17 resources for external AI agents. | [`docs/reference/mcp-server.md`](../reference/mcp-server.md) |
 | Observability | Prometheus metrics, structured logs, correlation-ID tracing, Loki / Promtail / Grafana stack. | [`docs/explanation/observability-strategy.md`](observability-strategy.md) |
 | Redis (optional) | Response cache, rate-limit store, sync session locks, distributed background-task locks. | [`docs/guides/setup-redis-caching.md`](../guides/setup-redis-caching.md) |
 | ElevenLabs TTS (optional) | Generate audio from a stored summary on demand. | `app/adapters/elevenlabs/` (no standalone doc yet) |
-| GitHub repository ingestion | Index GitHub repos as a first-class content source: manual URL ingest, daily starred-repo sync, LangChain structured-output analysis, Qdrant embedding, reconciler-based backfill, and semantic search. | [`docs/explanation/github-repository-ingestion.md`](github-repository-ingestion.md) |
+| GitHub repository ingestion | Index GitHub repos through manual URL ingest or daily starred-repo sync, structured LLM analysis, Qdrant embedding, reconciler backfill, and semantic search. | [`docs/explanation/github-repository-ingestion.md`](github-repository-ingestion.md) |
 
 ---
 
@@ -197,9 +144,9 @@ This is the implementation-first map for future agents; use it to find ownership
 
 | Area | Backend ownership | Downstream ownership / drift checks |
 | --- | --- | --- |
-| Auth | `app/api/routers/auth/` maps Telegram login, credentials login, secret login, refresh, logout, and sessions; `tokens.py` fixes 30-minute access tokens and refresh-token rotation; `cookies.py` controls web refresh-cookie persistence; `auth_repository.py` persists refresh families; `RefreshToken` rows live in `app/db/models/core.py`. | Web storage rules are in `ratatoskr-web/src/auth/storage.ts`; KMP secure storage and refresh are in `ratatoskr-client/core/data/src/*/kotlin/.../data/local/` and `core/data/src/commonMain/kotlin/.../data/remote/auth/`; current TTL/storage contract is in `docs/reference/mobile-api.md#authentication-modes`. |
-| API contracts | FastAPI source is `app.api.main:app`; OpenAPI post-processing is `tools/scripts/generate_openapi.py`; committed generated specs are `docs/openapi/mobile_api.yaml` and `.json`; response envelope version is `app/api/models/responses/common.py::API_CONTRACT_VERSION`. | Web pins backend OpenAPI in `ratatoskr-web/tools/openapi.lock` and regenerates `src/api/generated.ts`; KMP pins the same spec in `ratatoskr-client/tools/openapi.lock` and regenerates `core/api-generated/src/commonMain/generated/`. |
-| Sync | Router entrypoints are `app/api/routers/sync.py`; session/full/delta/apply behavior is split under `app/api/services/sync/`; session persistence is `session_store.py`; DB collection reads are `collector.py` plus `app/infrastructure/persistence/sync_aux_read_adapter.py`. | Web has no offline sync owner today; KMP owns client orchestration in `feature/sync/src/commonMain/kotlin/.../data/repository/SyncRepositoryImpl.kt` and entity appliers in feature modules. |
+| Auth | `app/api/routers/auth/` maps login, refresh, logout, OAuth, and sessions; `tokens.py` creates and validates tokens; `cookies.py` controls browser refresh cookies; `auth_repository.py` persists refresh families; `RefreshToken` lives in `app/db/models/core.py`. | Client implementations live in their own repositories; the backend contract is in `docs/reference/mobile-api.md#authentication` and generated OpenAPI. |
+| API contracts | FastAPI source is `app.api.main:app`; OpenAPI generation is `tools/scripts/generate_openapi.py`; committed specs are `docs/openapi/mobile_api.yaml` and `.json`; envelope models live in `app/api/models/responses/common.py`. | External clients should pin the generated specification and validate drift in their own repositories. |
+| Sync | Router entrypoints are `app/api/routers/sync.py`; session/full/delta/apply behavior is split under `app/api/services/sync/`; DB reads also use `app/infrastructure/persistence/sync_aux_read_adapter.py`. | The protocol is documented in `docs/reference/sync-protocol.md`; client orchestration is external to this repository. |
 | Request processing | URL requests enter through the `app/adapters/content/graph_url_processor.py` facade, which drives the summarize graph (`app/application/graphs/summarize/`) and platform extraction lifecycle helpers; durable processing jobs use `app/db/models/core.py::RequestProcessingJob`. | Common triage begins with correlation ID and `docs/reference/troubleshooting.md#request-stuck-in-processing`. |
 | LLM pipeline | The `summarize`/`repair` graph nodes call `summarize_with_instructor` (`app/application/services/summarization/graph_llm.py`) via the `llm_client` port; provider creation is `app/adapters/llm/factory.py`; the shared provider contract is `app/adapters/llm/protocol.py`; concrete calls are implemented by `app/adapters/openrouter/`, `app/adapters/llm/openai/`, and `app/adapters/llm/anthropic/`; strict shaping and provider response-format construction are owned by `app/core/summary_contract.py::SummaryContractDescriptor`; the retry/repair loop is the graph's `validate ↺ repair` cycle (bounded by `MAX_REPAIR_ATTEMPTS`). | Parse failures map to `docs/reference/troubleshooting.md#json-parsing-failures`; prompt edits must keep `app/prompts/*_en.txt` and `*_ru.txt` paired and should be loaded through `PromptManager.get_contract_system_prompt()`. |
 | Extraction providers | Generic provider chain is `app/adapters/content/scraper/`; platform extraction router is `app/adapters/content/platform_extraction/`; YouTube, Twitter/X, and academic papers bypass the generic chain through their dedicated adapter packages. | Provider-order and fallback behavior are documented in `docs/explanation/scraper-chain.md`; source ingestion polling is separate under `app/adapters/ingestors/` and `app/adapters/rss/`. |
@@ -246,9 +193,9 @@ This doc keeps our layering consistent across Telegram, CLI, and the mobile API.
 - `Database` (`app/db/session.py`) is the sole database entry point. It owns the SQLAlchemy 2.0 `AsyncEngine` + `async_sessionmaker[AsyncSession]`, exposes `session()` / `transaction()` async context managers and the `with_serialization_retry` decorator, and runs Alembic migrations via `migrate()`.
 - New business workflows should go through application use cases and repository ports in `app/infrastructure/persistence/repositories/*`, not through the session factory directly.
 
-## Current seam examples (2026-03)
+## Current seam examples (2026-07)
 
-- `app/api/routers/digest.py` → delegates orchestration to `DigestFacade`.
+- `app/api/routers/social/digest.py` → delegates orchestration to `DigestFacade`.
 - `app/api/routers/system.py` → delegates DB/Redis/file maintenance work to `SystemMaintenanceService`.
 - `app/api/routers/admin.py` → delegates `/v1/admin/diagnostics` composition to `DiagnosticsService`; `AdminReadService` remains scoped to user/job/content/metrics/read operations.
 - Taskiq entrypoints build dependency bundles through `app/di/tasks.py` (`DigestTaskRuntime`, `RssPollTaskRuntime`, `VectorReconcileTaskRuntime`) so background jobs do not assemble service graphs inline.

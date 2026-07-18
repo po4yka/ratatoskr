@@ -92,6 +92,7 @@ class TelegramRuntime:
     forward_processor: Any
     attachment_processor: Any
     message_handler: Any
+    summary_repository: Any
     durable_transcription_queue: Any | None = None
     adaptive_timeout_service: Any | None = None
     verbosity_resolver: Any | None = None

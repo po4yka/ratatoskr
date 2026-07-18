@@ -94,6 +94,16 @@ def test_build_model_router_returns_none_when_routing_disabled() -> None:
         assert build_model_router(cfg) is None
 
 
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "ollama"])
+def test_build_model_router_is_disabled_for_direct_providers(provider: str) -> None:
+    from app.di.graphs import build_model_router
+
+    with _loaded_config() as cfg:
+        object.__setattr__(cfg.runtime, "llm_provider", provider)
+        object.__setattr__(cfg.model_routing, "enabled", True)
+        assert build_model_router(cfg) is None
+
+
 def test_build_model_router_delegates_with_has_images_false() -> None:
     from app.core.content_classifier import ContentTier
     from app.di.graphs import build_model_router
@@ -222,6 +232,87 @@ def test_assemble_graph_url_processor_uses_null_retrieval_when_no_vectors() -> N
         assert empty.hits == [] and empty.total == 0
 
 
+def test_telegram_runtime_threads_checkpointer_to_processing_stack(monkeypatch) -> None:
+    """The Telegram composition root must pass the started saver to its URL graph."""
+    from app.di import telegram as telegram_mod
+
+    repositories = MagicMock()
+    core = MagicMock()
+    search = MagicMock()
+    processing = MagicMock()
+    interface = MagicMock()
+    interface.durable_transcription_queue = None
+    saver = object()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(telegram_mod, "_build_telegram_repositories", lambda _db: repositories)
+    monkeypatch.setattr(telegram_mod, "VerbosityResolver", lambda _repo: MagicMock())
+    monkeypatch.setattr(
+        telegram_mod, "build_async_audit_sink", lambda *_args, **_kwargs: MagicMock()
+    )
+    monkeypatch.setattr(telegram_mod, "build_core_dependencies", lambda *_args, **_kwargs: core)
+    monkeypatch.setattr(telegram_mod, "get_topic_search_limit", lambda _cfg: None)
+    monkeypatch.setattr(telegram_mod, "_build_search_stack", lambda **_kwargs: search)
+    monkeypatch.setattr(
+        telegram_mod, "build_application_services", lambda *_args, **_kwargs: MagicMock()
+    )
+    monkeypatch.setattr(
+        telegram_mod,
+        "_build_processing_stack",
+        lambda **kwargs: captured.update(kwargs) or processing,
+    )
+    monkeypatch.setattr(
+        telegram_mod, "_build_telegram_interface_stack", lambda **_kwargs: interface
+    )
+
+    telegram_mod.build_telegram_runtime(
+        MagicMock(),
+        MagicMock(),
+        safe_reply_func=MagicMock(),
+        reply_json_func=MagicMock(),
+        checkpointer=saver,
+    )
+
+    assert captured["checkpointer"] is saver
+
+
+def test_telegram_processing_stack_threads_checkpointer_to_url_processor(monkeypatch) -> None:
+    """The Telegram URL graph is compiled with the runtime's durable saver."""
+    from types import SimpleNamespace
+
+    from app.di import telegram as telegram_mod
+
+    saver = object()
+    captured: dict[str, object] = {}
+    url_processor = MagicMock()
+    url_processor.content_extractor = MagicMock()
+
+    monkeypatch.setattr(
+        telegram_mod,
+        "_build_related_reads_service",
+        lambda **_kwargs: MagicMock(),
+    )
+    monkeypatch.setattr(
+        telegram_mod,
+        "build_url_processor",
+        lambda **kwargs: captured.update(kwargs) or url_processor,
+    )
+    monkeypatch.setattr(telegram_mod, "ForwardProcessor", lambda **_kwargs: MagicMock())
+    monkeypatch.setattr(telegram_mod, "AttachmentProcessor", lambda **_kwargs: MagicMock())
+
+    telegram_mod._build_processing_stack(
+        cfg=SimpleNamespace(web_search=SimpleNamespace(enabled=False)),
+        db=MagicMock(),
+        core=MagicMock(),
+        search=MagicMock(),
+        repositories=MagicMock(),
+        db_write_queue=None,
+        checkpointer=saver,
+    )
+
+    assert captured["checkpointer"] is saver
+
+
 @pytest.mark.parametrize("vectors_present", [True, False])
 def test_build_summarize_config_routing_long_context_selection(vectors_present: bool) -> None:
     """build_summarize_config picks the routing long-context model iff routing on."""
@@ -236,3 +327,42 @@ def test_build_summarize_config_routing_long_context_selection(vectors_present: 
         else:
             assert sc.long_context_model == cfg.openrouter.long_context_model
             assert sc.routing_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "temperature", "max_tokens", "structured_mode"),
+    [
+        ("openai", "gpt-direct", 0.31, 6000, "json_object"),
+        ("anthropic", "claude-direct", 0.32, 7000, None),
+        ("ollama", "llama-direct", 0.33, 8000, "json_object"),
+    ],
+)
+def test_build_summarize_config_uses_selected_direct_provider(
+    provider: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    structured_mode: str | None,
+) -> None:
+    from app.di.graphs import build_summarize_config
+
+    with _loaded_config() as cfg:
+        object.__setattr__(cfg.runtime, "llm_provider", provider)
+        direct = getattr(cfg, provider)
+        object.__setattr__(direct, "model", model)
+        object.__setattr__(direct, "temperature", temperature)
+        object.__setattr__(direct, "max_tokens", max_tokens)
+        object.__setattr__(cfg.model_routing, "enabled", True)
+        object.__setattr__(cfg.attachment, "article_vision_enabled", True)
+
+        snapshot = build_summarize_config(cfg)
+
+        assert snapshot.llm_provider == provider
+        assert snapshot.model == model
+        assert snapshot.temperature == temperature
+        assert snapshot.configured_max_tokens == max_tokens
+        assert snapshot.structured_output_mode == structured_mode
+        assert snapshot.routing_enabled is False
+        assert snapshot.long_context_model is None
+        assert snapshot.article_vision_enabled is False
+        assert snapshot.vision_model is None

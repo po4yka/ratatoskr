@@ -252,7 +252,10 @@ async def test_diagnostics_service_redacts_health_errors(monkeypatch: pytest.Mon
 
 
 def test_diagnostics_redaction_helpers_cover_secrets() -> None:
-    message = "failed authorization=Bearer secret-token api_key=secret-key sk-123456789abc"
+    message = (
+        "failed authorization=Bearer secret-token api_key=secret-key "
+        "sk-123456789abc raw payload body"
+    )
 
     service_redacted = diagnostics_service._redact_message(message)
     repo_redacted = admin_read_repository._redact_message(message)
@@ -262,6 +265,7 @@ def test_diagnostics_redaction_helpers_cover_secrets() -> None:
         assert "secret-token" not in redacted
         assert "secret-key" not in redacted
         assert "sk-123456789abc" not in redacted
+        assert "raw payload body" not in redacted
         assert "[REDACTED]" in redacted
 
 

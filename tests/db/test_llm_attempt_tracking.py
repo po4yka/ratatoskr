@@ -18,6 +18,8 @@ from app.db.models import ALL_MODELS, LLMAttemptTrigger, LLMCall, Request
 from app.db.session import Database
 from app.infrastructure.persistence.repositories.llm_repository import LLMRepositoryAdapter
 
+pytestmark = pytest.mark.postgres
+
 
 def _test_dsn() -> str:
     return os.getenv("TEST_DATABASE_URL", "")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select, update
+from sqlalchemy import Integer, String, column, select, update, values
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import Request, Summary, SummaryEmbedding, model_to_dict
@@ -128,18 +128,32 @@ class EmbeddingRepositoryAdapter:
 
     async def async_mark_summary_embeddings_indexed(
         self,
-        summary_ids: list[int],
-    ) -> None:
-        """Mark summary embeddings as synced to Qdrant after a successful vector write."""
-        if not summary_ids:
-            return
+        expected_content_hashes: dict[int, str | None],
+    ) -> list[int]:
+        """CAS-mark embeddings synced only when their content version still matches."""
+        if not expected_content_hashes:
+            return []
         now = _utcnow()
-        async with self._database.transaction() as session:
-            await session.execute(
-                update(SummaryEmbedding)
-                .where(SummaryEmbedding.summary_id.in_(summary_ids))
-                .values(last_indexed_at=now, index_status="indexed")
+        expected = (
+            values(
+                column("summary_id", Integer),
+                column("content_hash", String),
+                name="expected_embeddings",
             )
+            .data(list(expected_content_hashes.items()))
+            .cte()
+        )
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(SummaryEmbedding)
+                .where(
+                    SummaryEmbedding.summary_id == expected.c.summary_id,
+                    SummaryEmbedding.content_hash.is_not_distinct_from(expected.c.content_hash),
+                )
+                .values(last_indexed_at=now, index_status="indexed")
+                .returning(SummaryEmbedding.summary_id)
+            )
+            return list(result.scalars())
 
     async def async_get_summary_embedding(self, summary_id: int) -> dict[str, Any] | None:
         """Retrieve embedding for a summary."""

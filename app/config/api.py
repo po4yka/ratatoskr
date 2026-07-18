@@ -140,9 +140,10 @@ class AuthConfig(BaseModel):
         description=(
             "Pepper applied as HMAC pre-hash before argon2id. Required to use "
             "credentials login; must be independent of JWT_SECRET_KEY and "
-            "SECRET_LOGIN_PEPPER. When unset, the credentials-login route "
-            "returns 503 Configuration error -- the pepper presence is the "
-            "only gate."
+            "SECRET_LOGIN_PEPPER (enforced at config load by "
+            "Settings._ensure_auth_secret_domain_separation). When unset, the "
+            "credentials-login route returns 503 Configuration error -- the "
+            "pepper presence is the only gate."
         ),
         json_schema_extra=SECRET_MARKER,
     )
@@ -194,6 +195,20 @@ class AuthConfig(BaseModel):
         default=1,
         validation_alias="CREDENTIALS_LOGIN_ARGON2_PARALLELISM",
         description="argon2id parallelism (lanes)",
+    )
+    argon2_max_concurrency: int = Field(
+        default=2,
+        validation_alias="AUTH_ARGON2_MAX_CONCURRENCY",
+        description=(
+            "Maximum concurrent Argon2 operations per API process. Bounds the "
+            "memory used by password and client-secret authentication."
+        ),
+    )
+    metrics_bearer_token: str | None = Field(
+        default=None,
+        validation_alias="METRICS_BEARER_TOKEN",
+        description="Bearer token accepted by the internal Prometheus scrape endpoint",
+        json_schema_extra=SECRET_MARKER,
     )
     apple_client_id: str | None = Field(
         default=None,
@@ -358,6 +373,16 @@ class AuthConfig(BaseModel):
             raise ValueError(msg)
         return pepper
 
+    @field_validator("metrics_bearer_token", mode="before")
+    @classmethod
+    def _validate_metrics_bearer_token(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        token = str(value).strip()
+        if len(token) < 32 or len(token) > 512:
+            raise ValueError("METRICS_BEARER_TOKEN must contain 32 to 512 characters")
+        return token
+
     @field_validator(
         "credentials_max_failed_attempts",
         "credentials_password_min_length",
@@ -381,6 +406,18 @@ class AuthConfig(BaseModel):
         if parsed <= 0:
             msg = f"{info.field_name.replace('_', ' ')} must be positive"
             raise ValueError(msg)
+        return parsed
+
+    @field_validator("argon2_max_concurrency", mode="before")
+    @classmethod
+    def _validate_argon2_max_concurrency(cls, value: Any) -> int:
+        default = cls.model_fields["argon2_max_concurrency"].default
+        try:
+            parsed = int(str(value if value not in (None, "") else default))
+        except ValueError as exc:
+            raise ValueError("argon2 max concurrency must be a valid integer") from exc
+        if parsed < 1 or parsed > 8:
+            raise ValueError("argon2 max concurrency must be between 1 and 8")
         return parsed
 
 

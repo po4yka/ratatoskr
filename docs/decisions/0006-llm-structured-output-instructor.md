@@ -5,7 +5,7 @@
 
 ## Context
 
-Adopting LangGraph nodes (ADR-0001) opens the option of LangChain's `ChatOpenAI(...).with_structured_output(PydanticModel)` for structured LLM output. The codebase already uses `instructor` (`instructor.from_openai` over `AsyncOpenAI`, JSON mode) against OpenRouter, with a proven retry/repair loop (`app/adapters/content/pure_summary_service.py::_summarize_with_instructor`).
+Adopting LangGraph nodes (ADR-0001) opened the option of LangChain's `ChatOpenAI(...).with_structured_output(PydanticModel)` for structured LLM output. The implemented graph instead calls `instructor` through `app/application/services/summarization/graph_llm.py::summarize_with_instructor`; `app/adapters/openrouter/openrouter_client.py` lazily wraps `AsyncOpenAI` with `instructor.from_openai(..., mode=instructor.Mode.JSON)`.
 
 ## Decision
 
@@ -15,7 +15,7 @@ Keep `instructor` for structured output, called **inside** the graph nodes. Do *
 
 - `instructor` is already proven against OpenRouter, including the tool-definition-drop edge case some OpenRouter models exhibit with tool-calling-based structured output.
 - Fewer dependencies: `langchain-openai` pulls the `openai` SDK + `tiktoken`, and would introduce a second, parallel structured-output path for no benefit.
-- The existing repair loop, model cascade, and `attempt_trigger` persistence stay intact.
+- The graph-owned repair loop, model cascade, and `attempt_trigger` persistence stay intact.
 - The main upside of `with_structured_output` (LangSmith tracing) is not used; we have OTel.
 
 ## Consequences

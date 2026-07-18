@@ -13,6 +13,7 @@ from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger
+from app.security.ssrf import is_url_safe_async
 
 logger = get_logger(__name__)
 
@@ -246,6 +247,13 @@ class CrawleeProvider:
             browser_new_context_options=_new_context_opts or None,
         )
 
+        # Re-validate every browser-initiated request (redirects + subresources
+        # such as images/scripts/XHR) against the SSRF blocklist, not just the
+        # initial navigation URL. Mirrors PlaywrightProvider._block_ssrf_route so
+        # a compromised or attacker-controlled page cannot pivot the browser to
+        # an internal address (cloud metadata, other compose services, loopback).
+        crawler.pre_navigation_hook(self._install_ssrf_guard)
+
         @crawler.router.default_handler
         async def request_handler(context: PlaywrightCrawlingContext) -> None:
             nonlocal extracted_html
@@ -253,6 +261,29 @@ class CrawleeProvider:
 
         await crawler.run([url])
         return extracted_html
+
+    async def _install_ssrf_guard(self, context: Any) -> None:
+        """Install a per-request SSRF filter on the page before navigation."""
+        await context.page.route("**/*", self._ssrf_guard_route)
+
+    async def _ssrf_guard_route(self, route: Any) -> None:
+        """Abort browser requests whose (post-redirect) target is unsafe.
+
+        DNS-rebinding caveat is identical to PlaywrightProvider: Chromium does
+        its own DNS resolution at connect time, so a TTL=0 host that serves a
+        public IP to our resolver and a private IP to the browser is not caught
+        here. Close that residual gap at the network/egress layer.
+        """
+        req_url = str(route.request.url)
+        safe, reason = await is_url_safe_async(req_url)
+        if not safe:
+            logger.warning(
+                "crawlee_ssrf_blocked",
+                extra={"url": req_url, "reason": reason},
+            )
+            await route.abort("accessdenied")
+            return
+        await route.continue_()
 
     async def aclose(self) -> None:
         pass

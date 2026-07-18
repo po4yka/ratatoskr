@@ -1,0 +1,330 @@
+{
+  "annotations": {"list": []},
+  "description": "Single operational view of Ratatoskr application processes, traffic, queues, providers, data stores, vector sync, backups, and Raspberry Pi resources.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "id": 1, "panels": [], "title": "Current availability", "type": "row"},
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Prometheus scrape availability for the API, Telegram bot, Taskiq worker, and scheduler. Every series must be 1.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "unit": "none"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 12, "x": 0, "y": 1}, "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "max by (job) (up{job=~\"ratatoskr-(mobile-api|bot|worker|scheduler)\"})", "legendFormat": "{{job}}", "refId": "A"}],
+      "title": "Application processes", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Current bounded state emitted by the public status aggregator: unknown, operational, degraded, outage, or disabled.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [{"options": {"0": {"color": "gray", "text": "UNKNOWN"}, "1": {"color": "green", "text": "OPERATIONAL"}, "2": {"color": "yellow", "text": "DEGRADED"}, "3": {"color": "red", "text": "OUTAGE"}, "4": {"color": "blue", "text": "DISABLED"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "gray", "value": null}, {"color": "green", "value": 1}, {"color": "yellow", "value": 2}, {"color": "red", "value": 3}]}, "unit": "none"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 12, "x": 12, "y": 1}, "id": 3,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "max by (component) (ratatoskr_status_component_state)", "legendFormat": "{{component}}", "refId": "A"}],
+      "title": "Public status components", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [{"options": {"0": {"color": "red", "text": "UNREACHABLE"}, "1": {"color": "green", "text": "READY"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "unit": "none"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 6}, "id": 4,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "min(pg_up{job=\"postgres\"}) or vector(0)", "legendFormat": "PostgreSQL", "refId": "A"}],
+      "title": "PostgreSQL readiness", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [{"options": {"0": {"color": "red", "text": "UNREACHABLE"}, "1": {"color": "green", "text": "READY"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "unit": "none"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 6}, "id": 5,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "min(redis_up{job=\"redis\"}) or vector(0)", "legendFormat": "Redis", "refId": "A"}],
+      "title": "Redis readiness", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "unit": "none"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 6}, "id": 6,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "max(up{job=\"qdrant\"})", "legendFormat": "Qdrant", "refId": "A"}],
+      "title": "Qdrant availability", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 2}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 6}, "id": 7,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "sum(ALERTS{alertstate=\"firing\",severity=~\"warning|critical\"}) or vector(0)", "legendFormat": "Firing", "refId": "A"}],
+      "title": "Firing alerts", "type": "stat"
+    },
+
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 10}, "id": 10, "panels": [], "title": "Traffic, outcomes, and latency", "type": "row"},
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.9}, {"color": "green", "value": 0.99}]}, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 3, "x": 0, "y": 11}, "id": 11,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "1 - (sum(rate(ratatoskr_http_requests_total{status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(ratatoskr_http_requests_total[5m])), 0.001))", "legendFormat": "Success", "refId": "A"}],
+      "title": "HTTP success (5m)", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 3, "x": 3, "y": 11}, "id": 16,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "sum by (method) (ratatoskr_http_requests_in_flight)", "legendFormat": "{{method}}", "refId": "A"}],
+      "title": "HTTP in flight by method", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 9, "x": 6, "y": 11}, "id": 12,
+      "options": {"legend": {"calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (route, method, status_class) (rate(ratatoskr_http_requests_total[5m]))", "legendFormat": "HTTP {{method}} {{route}} / {{status_class}}", "refId": "A"}, {"expr": "sum by (source, type, status) (rate(ratatoskr_requests_total[5m]))", "legendFormat": "domain {{source}} / {{type}} / {{status}}", "refId": "B"}],
+      "title": "HTTP and domain request rate", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 9, "x": 15, "y": 11}, "id": 13,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le, route, method) (rate(ratatoskr_http_request_duration_seconds_bucket[5m])))", "legendFormat": "HTTP {{method}} {{route}} p95", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(ratatoskr_http_request_duration_seconds_bucket[5m])))", "legendFormat": "HTTP overall p99", "refId": "B"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(ratatoskr_request_latency_seconds_bucket{stage=\"total\"}[5m])))", "legendFormat": "domain total p95", "refId": "C"}
+      ],
+      "title": "HTTP and domain request latency", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 19}, "id": 14,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (provider, status) (rate(ratatoskr_llm_call_attempts_total[5m]))", "legendFormat": "{{provider}} / {{status}}", "refId": "A"}],
+      "title": "LLM attempt rate", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 19}, "id": 15,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, model) (rate(ratatoskr_llm_call_latency_seconds_bucket[5m])))", "legendFormat": "{{model}} p95", "refId": "A"}],
+      "title": "LLM call latency", "type": "timeseries"
+    },
+
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 26}, "id": 20, "panels": [], "title": "Queues and scheduled work", "type": "row"},
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 27}, "id": 21,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "max(ratatoskr_url_processing_queue_depth)", "legendFormat": "Pending", "refId": "A"}],
+      "title": "URL queue backlog", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 27}, "id": 22,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "sum(ratatoskr_url_processor_in_flight)", "legendFormat": "Active", "refId": "A"}],
+      "title": "URL processing in flight", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 27}, "id": 23,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "max(ratatoskr_github_pending_analysis_backlog)", "legendFormat": "Pending", "refId": "A"}],
+      "title": "GitHub analysis backlog", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 27}, "id": 24,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "sum by (task) (ratatoskr_taskiq_in_flight)", "legendFormat": "{{task}}", "refId": "A"}],
+      "title": "Taskiq in flight by task", "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 32}, "id": 25,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (task, outcome) (rate(ratatoskr_taskiq_executions_total[15m]))", "legendFormat": "execution {{task}} / {{outcome}}", "refId": "A"}, {"expr": "sum by (task, outcome) (rate(ratatoskr_taskiq_retries_total[15m]))", "legendFormat": "retry {{task}} / {{outcome}}", "refId": "B"}],
+      "title": "Taskiq execution and retry outcomes", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 32}, "id": 28,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, task) (rate(ratatoskr_taskiq_execution_duration_seconds_bucket[15m])))", "legendFormat": "{{task}} p95", "refId": "A"}],
+      "title": "Taskiq execution latency", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 4, "x": 16, "y": 32}, "id": 26,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (status) (increase(ratatoskr_digest_deliveries_total[24h]))", "legendFormat": "{{status}}", "refId": "A"}],
+      "title": "Digest deliveries (24h)", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 4, "x": 20, "y": 32}, "id": 27,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (status) (increase(ratatoskr_github_sync_runs_total[24h]))", "legendFormat": "{{status}}", "refId": "A"}],
+      "title": "GitHub sync runs (24h)", "type": "timeseries"
+    },
+
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 39}, "id": 30, "panels": [], "title": "Provider and integration health", "type": "row"},
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40}, "id": 31,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (provider) (rate(ratatoskr_scraper_attempts_total{status=\"success\"}[15m])) / clamp_min(sum by (provider) (rate(ratatoskr_scraper_attempts_total{status!=\"skipped\"}[15m])), 0.001)", "legendFormat": "{{provider}}", "refId": "A"}],
+      "title": "Scraper success ratio by provider", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40}, "id": 32,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (provider, le) (rate(ratatoskr_scraper_attempt_latency_seconds_bucket[15m])))", "legendFormat": "{{provider}} p95", "refId": "A"}],
+      "title": "Scraper provider latency", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 48}, "id": 33,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (provider, status) (rate(ratatoskr_social_fetch_total[15m]))", "legendFormat": "{{provider}} / {{status}}", "refId": "A"}],
+      "title": "Social fetch outcomes", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 48}, "id": 34,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "ratatoskr_circuit_breaker_state", "legendFormat": "{{service}}", "refId": "A"}, {"expr": "openrouter_circuit_breaker_state", "legendFormat": "OpenRouter {{model}}", "refId": "B"}],
+      "title": "Circuit breaker state (0 closed, 1 half-open, 2 open)", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 4, "x": 16, "y": 48}, "id": 35,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (component, status) (rate(ratatoskr_status_checks_total[5m]))", "legendFormat": "{{component}} / {{status}}", "refId": "A"}],
+      "title": "Status check outcomes", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 4, "x": 20, "y": 48}, "id": 36,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, component) (rate(ratatoskr_status_check_duration_seconds_bucket[5m])))", "legendFormat": "{{component}} p95", "refId": "A"}],
+      "title": "Status check latency", "type": "timeseries"
+    },
+
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 55}, "id": 40, "panels": [], "title": "Data stores and vector index", "type": "row"},
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 56}, "id": 41,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum(pg_stat_database_numbackends{datname=\"ratatoskr\"}) / clamp_min(max(pg_settings_max_connections), 1)", "legendFormat": "Connections used", "refId": "A"}],
+      "title": "PostgreSQL connection saturation", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 56}, "id": 42,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum(rate(pg_stat_database_blks_hit{datname=\"ratatoskr\"}[5m])) / clamp_min(sum(rate(pg_stat_database_blks_hit{datname=\"ratatoskr\"}[5m])) + sum(rate(pg_stat_database_blks_read{datname=\"ratatoskr\"}[5m])), 0.001)", "legendFormat": "Cache hit", "refId": "A"}],
+      "title": "PostgreSQL buffer cache hit ratio", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 56}, "id": 43,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "redis_memory_used_bytes", "legendFormat": "used", "refId": "A"}, {"expr": "redis_memory_max_bytes", "legendFormat": "configured max", "refId": "B"}],
+      "title": "Redis memory", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 63}, "id": 44,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum(rate(redis_keyspace_hits_total[5m])) / clamp_min(sum(rate(redis_keyspace_hits_total[5m])) + sum(rate(redis_keyspace_misses_total[5m])), 0.001)", "legendFormat": "Redis keyspace", "refId": "A"}, {"expr": "sum(rate(ratatoskr_redis_cache_operations_total{operation=\"get\",outcome=\"hit\"}[5m])) / clamp_min(sum(rate(ratatoskr_redis_cache_operations_total{operation=\"get\",outcome=~\"hit|miss\"}[5m])), 0.001)", "legendFormat": "Application cache", "refId": "B"}],
+      "title": "Redis hit ratios", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 63}, "id": 45,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "ratatoskr_vector_reconcile_oldest_lag_seconds", "legendFormat": "oldest stale row", "refId": "A"}, {"expr": "ratatoskr_vector_indexing_lag{metric=\"lag_seconds\"}", "legendFormat": "diagnostic lag", "refId": "B"}],
+      "title": "Vector reconciliation lag", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 63}, "id": 46,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (status) (rate(ratatoskr_vector_writes_total[15m]))", "legendFormat": "write {{status}}", "refId": "A"}, {"expr": "sum by (status) (increase(ratatoskr_vector_reconcile_runs_total[24h]))", "legendFormat": "reconcile {{status}}", "refId": "B"}],
+      "title": "Vector writes and reconciler outcomes", "type": "timeseries"
+    },
+
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 70}, "id": 50, "panels": [], "title": "Host saturation and backup", "type": "row"},
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 6, "x": 0, "y": 71}, "id": 51,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))", "legendFormat": "CPU used", "refId": "A"}],
+      "title": "Host CPU saturation", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 6, "x": 6, "y": 71}, "id": 52,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "legendFormat": "Memory used", "refId": "A"}],
+      "title": "Host memory saturation", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 6, "x": 12, "y": 71}, "id": 53,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "1 - (node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\",mountpoint=\"/\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs\",mountpoint=\"/\"})", "legendFormat": "Root filesystem used", "refId": "A"}],
+      "title": "Host disk saturation", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Time since the last successful pg_dump. No data means the textfile metric has never been written and is covered by the stale-backup alert.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 86400}, {"color": "red", "value": 129600}]}, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 6, "x": 18, "y": 71}, "id": 54,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "time() - ratatoskr_pg_backup_last_success_timestamp_seconds", "legendFormat": "Backup age", "refId": "A"}],
+      "title": "PostgreSQL backup age", "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["ratatoskr", "status", "operations"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h"], "time_options": ["15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]},
+  "timezone": "browser",
+  "title": "Ratatoskr System Status",
+  "uid": "ratatoskr-system-status",
+  "version": 1,
+  "weekStart": ""
+}

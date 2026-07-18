@@ -1,5 +1,10 @@
 # Decision memo: Ratatoskr auth/security second-wave scope
 
+> Policy record, not implementation status. The decisions below were recorded on
+> 2026-06-15; verify current behavior in the auth routers, generated OpenAPI, and
+> tests. The current canonical task board does not contain the follow-up issues
+> proposed by this memo.
+
 | field | value |
 | --- | --- |
 | date | 2026-05-17 (decisions recorded 2026-06-15) |
@@ -7,7 +12,7 @@
 | status | **DECIDED — CTO sign-off recorded 2026-06-15** |
 | references | [[review-mobile-auth-threat-model]], [[decide-auth-security-second-wave-scope]] |
 
-This memo framed the five second-wave policy questions surfaced by the Security / AppSec review. As of **2026-06-15** the owner has recorded a decision on each. Each numbered section ends with a resolved `DECISION:` line plus the task-spec classification. Implementation of the resolved items is tracked on the task board (see *Follow-up issue inventory*).
+This memo framed the five second-wave policy questions surfaced by the Security / AppSec review. As of **2026-06-15** the owner has recorded a decision on each. Each numbered section ends with a resolved `DECISION:` line plus the task-spec classification. These lines record intended policy; they do not assert that the corresponding implementation shipped.
 
 ---
 
@@ -95,9 +100,9 @@ Evidence to weigh:
 
 ---
 
-## Follow-up issue inventory
+## Historical follow-up proposal
 
-The four `implementation follow-up` decisions above should each get a task-board issue (`docs/tasks/issues/<slug>.md`):
+The original memo proposed one task-board issue (`docs/tasks/issues/<slug>.md`) for each item below. Those issue notes are not present in the current canonical board, so this list must not be treated as active tracking:
 
 - TLS certificate pinning (KMP + web) with multi-pin rotation runbook — *Decision 1*
 - secret-login DM-only plaintext delivery (UI returns metadata only) — *Decision 2*

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, PrivateAttr, field_serializer
 
 from .common import PaginationInfo
 
@@ -35,6 +35,13 @@ class SyncEntityEnvelope(BaseModel):
     highlight: dict[str, Any] | None = None
     tag: dict[str, Any] | None = None
     summary_tag: dict[str, Any] | None = None
+
+    # Internal-only creation time in epoch-ms, populated by SyncRecordCollector.
+    # Delta sync uses it to split the created vs updated buckets: a row created
+    # at/before the client cursor was already seen, so a change is an update; one
+    # created after the cursor is new to the client. A PrivateAttr so it is never
+    # serialized to the wire and never appears in the OpenAPI schema.
+    _created_at_ms: int | None = PrivateAttr(default=None)
 
     @field_serializer("id")
     def serialize_id(self, value: int | str) -> str:

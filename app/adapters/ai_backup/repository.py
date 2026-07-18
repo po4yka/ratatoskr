@@ -15,9 +15,15 @@ import datetime as dt
 from typing import TYPE_CHECKING
 
 from sqlalchemy import and_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.adapters.ai_backup.redaction import redact_urls
-from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiAccountBackup,
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,27 +78,12 @@ class AiBackupRepository:
         preserved across runs.
         """
         async with self._db.transaction() as session:
-            existing = await session.scalar(
-                select(AiAccountBackup).where(
-                    and_(
-                        AiAccountBackup.user_id == user_id,
-                        AiAccountBackup.service == service,
-                    )
-                )
+            return await self._ensure_in_transaction(
+                session,
+                user_id,
+                service,
+                authorization_status=AiBackupAuthorizationStatus.MISSING,
             )
-            if existing is not None:
-                return existing
-
-            row = AiAccountBackup(
-                user_id=user_id,
-                service=service,
-                status=AiBackupStatus.PENDING,
-                consecutive_failures=0,
-            )
-            session.add(row)
-            await session.flush()
-            await session.refresh(row)
-        return row
 
     async def record_success(
         self,
@@ -109,6 +100,8 @@ class AiBackupRepository:
             if row is None:
                 return
             row.status = AiBackupStatus.OK
+            row.authorization_status = AiBackupAuthorizationStatus.VALID
+            row.authorization_checked_at = now
             row.last_backed_up_at = now
             row.last_attempt_at = now
             row.consecutive_failures = 0
@@ -148,36 +141,45 @@ class AiBackupRepository:
         """Halt a service whose session has expired; the operator must re-supply one.
 
         No backoff is set — the service stays halted until a fresh session is
-        ingested (which resets the row via ``record_success``).
+        ingested and marked unverified. The last backup outcome is preserved.
         """
         now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
             row = await self._load_for_update(session, user_id, service)
             if row is None:
                 return
-            row.status = AiBackupStatus.AUTH_EXPIRED
+            row.authorization_status = AiBackupAuthorizationStatus.EXPIRED
+            row.authorization_checked_at = now
             row.last_attempt_at = now
             row.last_failure_at = now
             row.last_error = (redact_urls(message) or "")[:4000] if message else None
             row.last_error_category = "auth_expired"
 
-    async def clear_auth_expired(self, user_id: int, service: AiBackupService) -> None:
-        """Lift an AUTH_EXPIRED halt after a fresh session is supplied.
+    async def mark_authorization_unverified(self, user_id: int, service: AiBackupService) -> None:
+        """Ensure a newly supplied session is visible as pending and unverified."""
+        async with self._db.transaction() as session:
+            row = await self._ensure_in_transaction(
+                session,
+                user_id,
+                service,
+                authorization_status=AiBackupAuthorizationStatus.UNVERIFIED,
+            )
+            row.authorization_status = AiBackupAuthorizationStatus.UNVERIFIED
+            row.authorization_checked_at = None
+            row.backoff_until = None
+            if row.last_error_category == "auth_expired":
+                row.last_error = None
+                row.last_error_category = None
 
-        Resets status + error fields to PENDING but deliberately does NOT touch
-        ``last_backed_up_at`` -- using ``record_success`` here would advance it to
-        now and make the next incremental run skip everything that changed during
-        the outage window. No-op unless the row is currently AUTH_EXPIRED.
-        """
+    async def mark_authorization_missing(self, user_id: int, service: AiBackupService) -> None:
+        """Record that no encrypted provider session exists for this service."""
+        now = dt.datetime.now(tz=dt.UTC)
         async with self._db.transaction() as session:
             row = await self._load_for_update(session, user_id, service)
-            if row is None or row.status != AiBackupStatus.AUTH_EXPIRED:
+            if row is None:
                 return
-            row.status = AiBackupStatus.PENDING
-            row.consecutive_failures = 0
-            row.backoff_until = None
-            row.last_error = None
-            row.last_error_category = None
+            row.authorization_status = AiBackupAuthorizationStatus.MISSING
+            row.authorization_checked_at = now
 
     async def _load_for_update(
         self, session: AsyncSession, user_id: int, service: AiBackupService
@@ -190,6 +192,31 @@ class AiBackupRepository:
                 )
             )
         )
+
+    async def _ensure_in_transaction(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        service: AiBackupService,
+        *,
+        authorization_status: AiBackupAuthorizationStatus,
+    ) -> AiAccountBackup:
+        await session.execute(
+            pg_insert(AiAccountBackup)
+            .values(
+                user_id=user_id,
+                service=service,
+                status=AiBackupStatus.PENDING,
+                authorization_status=authorization_status,
+                consecutive_failures=0,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[AiAccountBackup.user_id, AiAccountBackup.service]
+            )
+        )
+        row = await self._load_for_update(session, user_id, service)
+        assert row is not None
+        return row
 
 
 __all__ = ["AiBackupRepository"]

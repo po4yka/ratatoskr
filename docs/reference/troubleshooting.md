@@ -1,1497 +1,219 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-This guide helps you diagnose and resolve common issues with Ratatoskr.
+Start with the user-visible Error ID. It is the correlation key for logs, request/job state, crawl attempts, LLM calls, progress events, and summaries. Preserve the first failure before retrying or changing state.
 
-## Debugging with Correlation IDs
-
-**Correlation IDs are your best debugging tool.** Every request in Ratatoskr gets a unique `correlation_id` that ties together:
-
-- Telegram messages
-- Database requests
-- Scraper chain provider calls
-- LLM provider calls through `LLMClientProtocol` (OpenRouter by default)
-- Log entries
-
-### How to Find Correlation IDs
-
-1. **From Error Messages**: All user-facing errors include `Error ID: <correlation_id>`
-
-   ```
-   ❌ Failed to summarize article.
-   Error ID: a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6
-   ```
-
-2. **From Logs**: Search logs for the error message, find the correlation_id
-
-   ```bash
-   grep "a1b2c3d4" /var/log/ratatoskr/app.log
-   ```
-
-3. **From Database**: Query the `requests` table
-
-   ```sql
-   SELECT * FROM requests WHERE id = 'a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6';
-   ```
-
-### Using Correlation IDs
-
-Once you have a correlation ID:
-
-```sql
--- See the full request details
-SELECT * FROM requests WHERE id = '<correlation_id>';
-
--- See Firecrawl response
-SELECT * FROM crawl_results WHERE request_id = '<correlation_id>';
-
--- See LLM calls (prompt, response, errors)
-SELECT * FROM llm_calls WHERE request_id = '<correlation_id>';
-
--- See final summary
-SELECT * FROM summaries WHERE request_id = '<correlation_id>';
-
--- See Telegram messages
-SELECT * FROM telegram_messages WHERE request_id = '<correlation_id>';
-
--- See normalized latest failure snapshot (if request failed)
-SELECT id, status, error_type, error_message, error_context_json
-FROM requests
-WHERE id = '<correlation_id>';
-```
-
-Common `error_context_json.reason_code` values:
-
-- `SCRAPER_CHAIN_EXHAUSTED` -- all providers failed
-- `FIRECRAWL_ERROR` (self-hosted)
-- `FIRECRAWL_LOW_VALUE`
-- `CRAWL4AI_ERROR`
-- `DEFUDDLE_ERROR`
-- `PLAYWRIGHT_EMPTY_CONTENT`
-- `PLAYWRIGHT_UI_OR_LOGIN`
-- `RESOLVE_FAILED`
-- `EXTRACTION_EMPTY_OUTPUT`
-
-**Pro Tip**: `DEBUG_PAYLOADS=1` enables bounded debug previews only. Authorization headers, provider tokens, prompts, raw source content, and private URL path/query data remain redacted by default; use it only in controlled local debugging.
-
-Social OAuth and connected-account fetches follow the same rule. Access tokens, refresh tokens, authorization codes, OAuth state values, cookies, `Authorization` headers, and token-bearing callback URLs are redacted in structured logs. When debugging social provider failures, search by `cid`/correlation ID and provider labels, then inspect `social_fetch_attempts.metadata_json`; it contains only sanitized operational fields such as `api_status`, `auth_strategy.selected_tier`, provider resource IDs, and rate-limit reset hints.
-
----
-
-## Installation Issues
-
-### Python Version Mismatch
-
-**Symptom**: `ImportError` or syntax errors when running the bot.
-
-**Cause**: Python 3.13+ required, older version installed.
-
-**Solution**:
+## First response
 
 ```bash
-python3 --version  # Should be 3.13 or higher
-# If not, install Python 3.13+ and recreate venv
-pyenv install 3.13.0
-pyenv local 3.13.0
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+docker compose -f ops/docker/docker-compose.yml ps
+docker compose -f ops/docker/docker-compose.yml logs --tail=200 ratatoskr worker scheduler mobile-api
+curl -fsS http://127.0.0.1:18000/health/ready
 ```
 
-### Missing ffmpeg
-
-**Symptom**: YouTube downloads fail with `ffmpeg not found`.
-
-**Cause**: yt-dlp requires ffmpeg for video/audio merging.
-
-**Solution**:
+Check the schema without changing it:
 
 ```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt-get update && sudo apt-get install -y ffmpeg
-
-# Verify
-ffmpeg -version
+docker compose -f ops/docker/docker-compose.yml exec ratatoskr \
+  python -m app.cli.migrate_db --check
 ```
 
-### Dependency Installation Failures
-
-**Symptom**: `pip install` fails with compilation errors (especially on ARM/M1 Macs).
-
-**Cause**: Some packages (like qdrant-client, sentence-transformers) require system libraries.
-
-**Solution**:
-
-```bash
-# macOS (M1/M2)
-brew install cmake pkg-config
-
-# Ubuntu/Debian
-sudo apt-get install -y build-essential python3-dev
-
-# Then retry
-pip install -r requirements.txt
-```
-
-### Pre-commit Hook Failures
-
-**Symptom**: `git commit` fails with pre-commit errors.
-
-**Cause**: Code doesn't pass ruff formatting or mypy type checks.
-
-**Solution**:
-
-```bash
-# Auto-fix formatting issues
-make format
-
-# Check what's still failing
-make lint
-make type
-
-# If you need to bypass hooks temporarily (NOT recommended)
-git commit --no-verify
-```
-
----
+Do not paste `.env`, tokens, cookies, authorization headers, raw private content, or encryption keys into diagnostics.
 
 ## Configuration Issues
 
-### Missing Required Environment Variables
-
-**Symptom**: Bot fails to start with `KeyError` or `ValidationError`.
-
-**Cause**: Required env vars not set in `.env` file.
-
-**Solution**:
+Validate the merged configuration in the same environment as the failing service:
 
 ```bash
-# Check which vars are missing
-python -c "from app.config.settings import RuntimeConfig; RuntimeConfig()"
-
-# Add missing vars to .env
-cat >> .env << EOF
-API_ID=your_api_id
-API_HASH=your_api_hash
-BOT_TOKEN=your_bot_token
-ALLOWED_USER_IDS=123456789
-OPENROUTER_API_KEY=your_key
-# No FIRECRAWL_API_KEY needed -- self-hosted sidecars replace cloud Firecrawl
-EOF
+docker compose -f ops/docker/docker-compose.yml exec ratatoskr \
+  python -c "from app.config import load_config; load_config(); print('configuration valid')"
 ```
 
-See [environment_variables.md](environment-variables.md) for full reference.
+Common causes:
 
-> **Breaking scraper rename**: startup now fails if legacy vars are present (`SCRAPLING_ENABLED`, `SCRAPLING_TIMEOUT_SEC`, `SCRAPLING_STEALTH_FALLBACK`, `SCRAPER_DIRECT_HTTP_ENABLED`). Use the new `SCRAPER_*` names from `docs/reference/environment-variables.md`.
+- missing Telegram, PostgreSQL, or selected-provider secrets;
+- model fields absent from `ratatoskr.yaml` for the selected provider;
+- a secret incorrectly placed in YAML (secret-marked YAML keys are ignored);
+- a deprecated environment variable rejected at startup;
+- production using a baked YAML file different from the operator's expected file;
+- app services unable to resolve `postgres`, `redis`, or `qdrant` outside Compose.
 
-### Invalid API Keys
+Compare [Environment Variables](environment-variables.md), [YAML Configuration](config-file.md), and the service's actual Compose environment.
 
-**Symptom**: Bot starts but all summaries fail with "401 Unauthorized" or "Invalid API key".
+## Request Stuck in Processing
 
-**Cause**: Expired, revoked, or mistyped API keys.
+The sole summary path starts at `GraphURLProcessor.handle_url_flow` and runs `app/application/graphs/summarize/`. Durable jobs live in `request_processing_jobs` with leases/fencing tokens.
 
-**Solution**:
+For the correlation ID, inspect:
+
+```sql
+SELECT id, status, error_message, created_at, updated_at
+FROM requests
+WHERE correlation_id = '<error-id>';
+
+SELECT request_id, status, lease_owner, lease_expires_at, lease_token,
+       attempt_count, last_error, updated_at
+FROM request_processing_jobs
+WHERE request_id = <request-id>;
+```
+
+Then inspect the latest `progress_events`, `crawl_results`, and `llm_calls`. A live unexpired lease should not be stolen manually. Use the maintained retry/requeue command only after confirming the worker that owns the lease is gone and the job is eligible.
+
+Check worker imports and queue connectivity through the `worker` logs; scheduled jobs require both the singleton scheduler and at least one worker.
+
+## Content Extraction Failures
+
+Generic URLs use the 13-provider chain in `app/adapters/content/scraper/`; YouTube, Twitter/X, and academic papers use dedicated extractors. Inspect `crawl_results` in attempt order and distinguish:
+
+- unsupported/skipped provider;
+- network/sidecar failure;
+- SSRF or host-allowlist rejection;
+- successful transport but content below the quality threshold;
+- platform extractor failure before the generic chain;
+- total chain failure.
+
+Check optional sidecars only when their profile is enabled:
 
 ```bash
-# Test self-hosted Firecrawl sidecar (no API key needed)
-curl -X POST http://localhost:3002/v1/scrape \
-     -H "Content-Type: application/json" \
-     -d '{"url":"https://example.com"}'
-
-# Test OpenRouter key
-curl -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-     https://openrouter.ai/api/v1/models
-
-# If OpenRouter key is invalid, regenerate at:
-# - OpenRouter: https://openrouter.ai/keys
+curl -fsS http://127.0.0.1:3002/serverHealthCheck
+curl -fsS http://127.0.0.1:11235/health
+curl -fsS http://127.0.0.1:3003/health
 ```
 
-### Access Denied (User Not Whitelisted)
-
-**Symptom**: Bot replies "Access denied" when you message it.
-
-**Cause**: Your Telegram user ID not in `ALLOWED_USER_IDS`.
-
-**Solution**:
-
-```bash
-# Find your Telegram user ID
-# Method 1: Message @userinfobot on Telegram
-
-# Method 2: Check bot logs when you message it
-grep "Access denied" /var/log/ratatoskr/app.log
-# Look for: "user_id": 987654321
-
-# Add to .env
-echo "ALLOWED_USER_IDS=123456789,987654321" >> .env
-
-# Restart bot
-docker restart ratatoskr
-```
-
----
-
-## Content Extraction / Scraper Chain Issues
-
-> **Multi-provider fallback**: Content extraction uses an ordered chain of providers (default: Scrapling → Crawl4AI → Firecrawl self-hosted → Defuddle → Playwright → Crawlee → direct HTML → ScrapeGraphAI). If one provider fails, the next is tried automatically. Cloud Firecrawl is not used; `FIRECRAWL_API_KEY` is not required. The self-hosted sidecar stack (Firecrawl, Crawl4AI, Defuddle) is started with `--profile with-scrapers`. See `docs/reference/environment-variables.md` for scraper chain configuration.
-
-### Self-Hosted Sidecar Rate / Capacity Issues
-
-**Symptom**: "429 Too Many Requests" or slow responses from a scraper sidecar.
-
-**Cause**: Self-hosted sidecar container is overloaded or under-resourced.
-
-**Solution**:
-
-```bash
-# Check sidecar health
-curl http://localhost:3002/health   # Firecrawl
-curl http://localhost:11235/health  # Crawl4AI
-curl http://localhost:3003/health   # Defuddle
-
-# Restart the affected sidecar
-docker compose -f ops/docker/docker-compose.yml --profile with-scrapers restart firecrawl-api
-```
-
-### Firecrawl Timeouts
-
-**Symptom**: Summaries fail with "Timeout waiting for Firecrawl response".
-
-**Cause**: Slow websites or Firecrawl server overload.
-
-**Solution**:
-
-```bash
-# Increase self-hosted scraper Firecrawl timeout (default: 90s)
-echo "SCRAPER_FIRECRAWL_TIMEOUT_SEC=120" >> .env
-
-# Restart bot
-docker restart ratatoskr
-```
-
-### Proxy Failures
-
-**Symptom**: Firecrawl returns "Failed to fetch" for specific sites.
-
-**Cause**: Site blocked Firecrawl's proxies or requires authentication.
-
-**Solution**:
-
-1. **Check if site is paywalled**: WSJ, NYT, Medium (members-only) fail even with Firecrawl
-2. **Try different proxy**: Firecrawl rotates automatically, retry may work
-3. **Fallback to trafilatura**: Set `CONTENT_EXTRACTION_FALLBACK=true` to use local extraction
-
-### Content Extraction Failures
-
-**Symptom**: Summary says "No content extracted" or "Article too short".
-
-**Cause**: Firecrawl returned HTML but no clean markdown (e.g., SPAs, JavaScript errors).
-
-**Solution**:
-
-```bash
-# Enable bounded Firecrawl payload previews; raw content and private URLs stay redacted
-echo "DEBUG_PAYLOADS=1" >> .env
-
-# Check database for Firecrawl response
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-  "SELECT * FROM crawl_results
-     WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>');"
-
-# If Firecrawl failed, enable fallback
-echo "CONTENT_EXTRACTION_FALLBACK=true" >> .env
-```
-
----
-
-### All Providers Failed (Scraper Chain Exhausted)
-
-**Symptom**: Summary fails; logs contain `scraper_chain_exhausted` or reason code `SCRAPER_CHAIN_EXHAUSTED`.
-
-**Cause**: All enabled scraper chain providers returned empty content or an error for this URL.
-
-**Common Pi variant**: The Pi overlay may run a lightweight profile with browser providers disabled. For Cloudflare/Condé Nast-style pages, `direct_html` can fetch a 200 HTML response while article-text extraction still cleans to empty. Treat `insufficient_useful_content:empty_after_cleaning` as an extraction-quality failure, not proof that the URL is unreachable.
-
-**Solution**:
-
-```bash
-# 1. Check which providers are enabled
-grep SCRAPER_ .env
-
-# 2. Inspect persisted provider telemetry
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -x -c \
-  "SELECT status, endpoint, error_text, winning_provider, attempt_log, options_json
-     FROM crawl_results
-    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>');"
-
-# 3. Verify sidecar health
-curl http://localhost:3002/health      # self-hosted Firecrawl
-curl http://localhost:11235/health     # Crawl4AI
-curl http://localhost:3003/health      # Defuddle
-
-# 4. Force a single provider for testing
-echo "SCRAPER_FORCE_PROVIDER=scrapling" >> .env
-# Valid values: scrapling | crawl4ai | firecrawl_self_hosted | defuddle | playwright | crawlee | direct_html | scrapegraph_ai
-
-# 5. Check per-provider failure reasons in logs
-docker logs ratatoskr 2>&1 | grep '"context":"scraper"'
-
-# 6. Restart sidecars if unresponsive
-docker compose -f ops/docker/docker-compose.yml --profile with-scrapers restart
-```
-
-For Pi production defaults, prefer `SCRAPER_PROFILE=balanced` and `SCRAPER_SCRAPLING_STEALTH_FALLBACK=true`. Enable `SCRAPER_CRAWL4AI_ENABLED=true` and `SCRAPER_DEFUDDLE_ENABLED=true` only when their sidecars are actually running and reachable from the bot container. Keep Playwright/Crawlee disabled unless the Pi has enough spare CPU/RAM for browser rendering.
-
-**Last resort**: enable ScrapeGraphAI (`SCRAPER_SCRAPEGRAPH_ENABLED=true`) — uses an LLM call and adds latency/cost but handles sites that defeat all browser-based approaches.
-
-**Heavier last resort**: enable Webwright (`WEBWRIGHT_ENABLED=true` + add the host to `WEBWRIGHT_HOST_ALLOWLIST`). See the next section.
-
----
-
-### Webwright Sidecar Failures
-
-**Symptom**: `crawl_results.options_json._chain_attempt_log` shows `webwright` rows with `error_class` ∈ `{webwright_timeout, no_content}`, or `webwright_runs.status` is `error`/`timeout`, or the `/browse` reply shows "Browser agent failed."
-
-**Quick triage by error class:**
-
-```bash
-# 1. Is the sidecar reachable at all?
-curl -fsS http://localhost:8090/health
-# Expected: {"status":"ok"}
-
-# 2. Is the URL even allowlisted? Empty allowlist short-circuits with
-#    "Webwright: host not in WEBWRIGHT_HOST_ALLOWLIST" — by design.
-grep WEBWRIGHT_ .env
-# WEBWRIGHT_ENABLED must be true AND WEBWRIGHT_HOST_ALLOWLIST must be non-empty.
-
-# 3. Is the with-webwright compose profile up?
-docker compose -f ops/docker/docker-compose.yml ps webwright
-
-# 4. Look at the trajectory for this run.
-docker exec ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-    "SELECT options_json->'_webwright_trajectory' AS path,
-            options_json->'_webwright_steps_used' AS steps,
-            options_json->'_webwright_llm_cost_usd' AS cost
-     FROM crawl_results
-     WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<cid>');"
-# Then on the host:
-ls -la data/webwright/<correlation_id>/
-cat data/webwright/<correlation_id>/report.json | jq .
-```
-
-**Reason-code cheatsheet:**
-
-| `error_class` / `status` | What happened | Fix |
-|---|---|---|
-| `host_not_allowlisted` | URL host wasn't in `WEBWRIGHT_HOST_ALLOWLIST`. | Add the host (subdomains match automatically — `example.com` covers `www.example.com`). |
-| `webwright_timeout` | Sidecar didn't return within `WEBWRIGHT_TIMEOUT_SEC`. | Bump the budget or `WEBWRIGHT_MAX_STEPS`; inspect the trajectory to see where the agent got stuck. |
-| `step_budget_exhausted` | Agent used all of `WEBWRIGHT_MAX_STEPS` without returning success. | Either raise the cap or refine the task — usually a sign the page needs interaction that wasn't authorized. |
-| Sidecar `status: "error"` | Upstream Webwright binary failed; cookies file unreadable; OPENAI_API_KEY missing | `docker logs ratatoskr-webwright` reveals the upstream exception. |
-
-**Cost growth check** — Webwright is the only chain rung that costs real LLM money per invocation. If your monthly Webwright spend creeps up:
-
-```bash
-docker exec ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-    "SELECT date_trunc('day', created_at) AS day,
-            count(*) AS runs,
-            sum(llm_cost_usd) AS daily_usd,
-            avg(steps_used) AS avg_steps
-     FROM webwright_runs
-     WHERE created_at > now() - interval '14 days'
-     GROUP BY 1 ORDER BY 1 DESC;"
-```
-
-If runs > 5/day or daily $USD > $1, the host allowlist is too broad or the trigger heuristic is firing on URLs the cheap chain could have handled.
-
----
+Use [Scraper Chain](../explanation/scraper-chain.md) and the `scraper-chain-debugging` skill for provider-specific evidence. Do not disable SSRF, allowlist, or content-quality checks to force success.
 
 ## OpenRouter Issues
 
-### Model Selection Errors
+OpenRouter is the default LLM path; direct OpenAI, Anthropic, and Ollama adapters have their own credentials/model namespaces. For any provider, inspect ordered `llm_calls` for model, trigger/index, status, latency, token usage, sanitized error, and response-format attempt.
 
-**Symptom**: Summaries fail with "Model not found" or "Model is offline".
+Typical causes:
 
-**Cause**: Specified model unavailable or deprecated.
+- wrong provider key or model namespace;
+- exhausted account/rate limit;
+- per-model or overall timeout;
+- unsupported structured-output mode;
+- invalid JSON/contract after all bounded repair attempts;
+- fallback list containing unavailable or incompatible models.
 
-**Solution**:
+Verify provider reachability outside the workflow only with a minimal sanitized request and the exact selected model. Use [LLM Providers](llm-providers.md) and the `debugging-apis` skill.
 
-```bash
-# Check available models
-curl https://openrouter.ai/api/v1/models | jq '.data[] | {id, name}'
+## JSON Parsing Failures
 
-# Update to working model
-echo "OPENROUTER_MODEL=deepseek/deepseek-v4-flash" >> .env
-echo "OPENROUTER_FALLBACK_MODELS=qwen/qwen3-max,moonshotai/kimi-k2.5" >> .env
+Validation and repair are graph nodes in `app/application/graphs/summarize/nodes/validate.py` and `repair.py`. The accepted shape is owned by `app/core/summary_contract.py` and `app/core/summary_schema.py`.
 
-# Restart bot
-docker restart ratatoskr
-```
+Inspect every `llm_calls` attempt rather than only the final error. Confirm:
 
-### Rate Limiting
+- provider response mode matches the descriptor;
+- the raw response was persisted/sanitized as configured;
+- validation errors are specific and repeatable;
+- repair attempts are bounded by graph state;
+- EN/RU prompt variants and descriptor schema are in sync.
 
-**Symptom**: "429 Rate Limit Exceeded" errors.
-
-**Cause**: Too many concurrent requests or exceeded daily quota.
-
-**Solution**:
-
-```bash
-# Reduce concurrency
-echo "MAX_CONCURRENT_CALLS=2" >> .env  # Default: 4
-
-# Add rate limit delay
-echo "RATE_LIMIT_WINDOW_SECONDS=60" >> .env
-
-# Check OpenRouter dashboard for usage
-# https://openrouter.ai/account
-```
-
-### Token Limit Exceeded
-
-**Symptom**: Summaries fail with "Token limit exceeded" or "Context length exceeded".
-
-**Cause**: Article too long for model's context window.
-
-**Solution**:
-
-```bash
-# Use long-context model
-echo "OPENROUTER_LONG_CONTEXT_MODEL=moonshotai/kimi-k2.5" >> .env  # 256k context
-
-# Or enable chunking (splits long articles)
-echo "CHUNKING_ENABLED=true" >> .env
-echo "CHUNK_MAX_CHARS=150000" >> .env
-
-# Restart bot
-docker restart ratatoskr
-```
-
-### Fallback Chain Failures
-
-**Symptom**: "All models failed" error after trying fallbacks.
-
-**Cause**: Primary and all fallback models failed (offline, rate-limited, or broken).
-
-**Solution**:
-
-```bash
-# Check logs for specific model errors
-grep "model failed" /var/log/ratatoskr/app.log
-
-# Update fallback chain to reliable models
-echo "OPENROUTER_FALLBACK_MODELS=qwen/qwen3-max,google/gemini-2.0-flash-001:free" >> .env
-
-# Verify models are online
-curl https://openrouter.ai/api/v1/models | jq '.data[] | select(.id | contains("qwen")) | {id, pricing}'
-```
-
-### JSON Parsing Failures
-
-**Symptom**: "Failed to parse summary JSON" or contract validation errors even after retries, or the request ends in the terminal-failure path with `Error ID: <correlation_id>`.
-
-**Cause**: The `validate` node detected contract violations (missing required fields, value out of range, wrong type) and the `repair` node could not fix them within `MAX_REPAIR_ATTEMPTS = 3` re-prompts. All repair attempts are written to `llm_calls` with `attempt_trigger = 'graph_node'`.
-
-**Triage**:
-
-```bash
-# See all LLM attempts + validation errors for the request
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-  "SELECT attempt_index, attempt_trigger, model, status,
-          left(error_text, 120) AS err_preview
-     FROM llm_calls
-    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>')
-    ORDER BY attempt_index;"
-
-# 1 + MAX_REPAIR_ATTEMPTS = 4 rows all with status='error' means repair budget exhausted
-```
-
-**Solutions**:
-
-```bash
-# Try a model with stronger JSON / instruction-following
-echo "OPENROUTER_MODEL=qwen/qwen3-max" >> .env  # Qwen is reliable at structured output
-
-# Enable structured outputs if the model supports it
-echo "OPENROUTER_ENABLE_STRUCTURED_OUTPUTS=true" >> .env
-
-# Check the full validation error fed back into the repair prompt
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
-  "SELECT attempt_index, error_text
-     FROM llm_calls
-    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>')
-    ORDER BY attempt_index;"
-```
-
-The repair loop (`validate → repair → validate`) lives in
-`app/application/graphs/summarize/nodes/validate.py` and `repair.py`. Contract
-rules are in `app/core/summary_contract.py`.
-
----
-
-## YouTube Issues
-
-### yt-dlp Not Found
-
-**Symptom**: YouTube downloads fail with "yt-dlp not found".
-
-**Cause**: yt-dlp not installed.
-
-**Solution**:
-
-```bash
-pip install yt-dlp
-
-# Or via system package manager
-# macOS
-brew install yt-dlp
-
-# Ubuntu/Debian
-sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-sudo chmod a+rx /usr/local/bin/yt-dlp
-```
-
-### Transcript Unavailable
-
-**Symptom**: "No transcript available for this video".
-
-**Cause**: Video lacks auto-generated or manual captions.
-
-**Solution**:
-
-- YouTube only: Use audio transcription (requires `WHISPER_API_KEY` or local Whisper)
-- Or: enable the download fallback path so the YouTube pipeline can try downloaded subtitle/VTT fallback after transcript lookup
-
-```bash
-# Option 1: Enable Whisper transcription (if available)
-echo "ENABLE_WHISPER_TRANSCRIPTION=true" >> .env
-echo "WHISPER_API_KEY=your_key" >> .env
-
-# Option 2: Skip video if no transcript
-# (Default behavior: fails gracefully with error message)
-```
-
-### Storage Quota Exceeded
-
-**Symptom**: YouTube downloads fail with "Disk full" or "No space left on device".
-
-**Cause**: Downloaded videos fill up `YOUTUBE_DOWNLOAD_PATH` directory.
-
-**Solution**:
-
-```bash
-# Check disk usage
-du -sh /data/youtube_downloads/
-
-# Clean old downloads
-find /data/youtube_downloads/ -type f -mtime +7 -delete
-
-# Or configure auto-cleanup
-echo "YOUTUBE_CLEANUP_AFTER_DAYS=7" >> .env  # Delete after 7 days
-echo "YOUTUBE_MAX_STORAGE_GB=10" >> .env    # Max 10 GB storage
-
-# Restart bot
-docker restart ratatoskr
-```
-
-### Format/Quality Issues
-
-**Symptom**: Downloaded video has poor quality or wrong format.
-
-**Cause**: Default format selection doesn't match availability.
-
-**Solution**:
-
-```bash
-# Force 1080p (default)
-echo "YOUTUBE_VIDEO_QUALITY=1080" >> .env
-
-# Or accept lower quality if 1080p unavailable
-echo "YOUTUBE_VIDEO_QUALITY=720" >> .env
-
-# Change format
-echo "YOUTUBE_VIDEO_FORMAT=mp4" >> .env  # Default: mp4
-
-# Restart bot
-docker restart ratatoskr
-```
-
----
+Do not hand-fill required fields or loosen the contract to accept malformed output. Reproduce with the same content/model through a targeted test or CLI run, then fix prompt/provider compatibility or shaping logic.
 
 ## Database Issues
 
-### Database Locked
-
-**Symptom**: "Database is locked" errors during writes.
-
-**Cause**: A long-running database transaction or connection pool exhaustion is blocking writes.
-
-**Solution**:
+PostgreSQL is authoritative. Check reachability and Alembic state:
 
 ```bash
-# Increase the asyncpg statement timeout (default 30 s)
-echo "DB_STATEMENT_TIMEOUT_SEC=60" >> .env
-
-# Inspect long-running queries
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-  "SELECT pid, age(now(), query_start) AS age, state, left(query, 80) AS query
-     FROM pg_stat_activity
-    WHERE datname = 'ratatoskr' AND state = 'active'
-    ORDER BY age DESC;"
+docker compose -f ops/docker/docker-compose.yml exec postgres \
+  pg_isready -U ratatoskr_app -d ratatoskr
+docker compose -f ops/docker/docker-compose.yml exec ratatoskr \
+  python -m app.cli.migrate_db --status
 ```
 
-### Corruption
-
-**Symptom**: Postgres reports `data corruption` or `invalid page header`, or pg\_dump fails on a relation.
-
-**Cause**: Disk failure, ungraceful shutdown of the `ratatoskr-postgres` container, or filesystem damage on the `postgres_data` volume.
-
-**Solution**:
+The migration CLI renders SQL by default. Apply reviewed revisions explicitly:
 
 ```bash
-# Inspect Postgres server logs
-docker logs ratatoskr-postgres --tail 200
-
-# If the database is unreachable, follow the standard PostgreSQL recovery
-# sequence (verify the volume, REINDEX as needed) and then restore the most
-# recent pg_dump:
-docker exec -i ratatoskr-postgres \
-  pg_restore --no-owner --no-privileges --clean --if-exists \
-             -U ratatoskr_app -d ratatoskr \
-  < backups/<timestamp>/ratatoskr.dump
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
+  python -m app.cli.migrate_db --apply
 ```
 
-**Prevention**: Enable automatic backups:
-
-```bash
-echo "DB_AUTO_BACKUP=true" >> .env
-echo "DB_BACKUP_INTERVAL_HOURS=24" >> .env
-```
-
-### Migration Failures
-
-**Symptom**: Bot fails to start after update with "Schema version mismatch".
-
-**Cause**: Database schema out of date.
-
-**Solution**:
-
-```bash
-# Run migrations
-python -m app.cli.migrate_db
-
-# Or force recreate (WARNING: deletes all data)
-docker exec -i ratatoskr-postgres psql -U postgres -c "DROP DATABASE IF EXISTS ratatoskr;"
-docker exec -i ratatoskr-postgres psql -U postgres -c "CREATE DATABASE ratatoskr OWNER ratatoskr_app;"
-python -m app.cli.migrate_db
-
-# Restore data from backup if needed
-docker exec -i ratatoskr-postgres \
-  pg_restore --no-owner --no-privileges --clean --if-exists \
-             -U ratatoskr_app -d ratatoskr \
-  < backups/<timestamp>/ratatoskr.dump
-```
-
-### Performance Issues
-
-**Symptom**: Slow queries, high CPU usage from database.
-
-**Cause**: Missing indexes or large tables.
-
-**Solution**:
-
-```bash
-# Vacuum database (reclaim space, refresh planner stats)
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "VACUUM (ANALYZE);"
-
-# Analyze query performance
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-  "EXPLAIN ANALYZE
-     SELECT * FROM summaries
-      WHERE request_id = (SELECT id FROM requests WHERE input_url = 'https://example.com');"
-```
-
----
+Do not drop/recreate a production database as a diagnostic shortcut. Preserve the failing database and restore only from a verified backup through [Back Up and Restore](../guides/backup-and-restore.md).
 
 ## Redis Issues
 
-### Connection Failures
-
-**Symptom**: "Failed to connect to Redis" warnings.
-
-**Cause**: Redis not running or wrong connection settings.
-
-**Solution**:
+Redis backs Taskiq, distributed locks, rate limits, sync sessions, and caches. In the default deployment it is ephemeral.
 
 ```bash
-# Check if Redis is running
-redis-cli ping
-# Should return: PONG
-
-# If not running, start Redis
-# macOS
-brew services start redis
-
-# Ubuntu/Debian
-sudo systemctl start redis
-
-# Docker
-docker run -d -p 6379:6379 redis:7-alpine
-
-# Update connection settings
-echo "REDIS_URL=redis://localhost:6379/0" >> .env
-echo "REDIS_TIMEOUT=5" >> .env
-
-# Restart bot
-docker restart ratatoskr
+docker compose -f ops/docker/docker-compose.yml exec redis redis-cli ping
+docker compose -f ops/docker/docker-compose.yml logs --tail=100 redis worker scheduler
 ```
 
-### Graceful Degradation
-
-**Symptom**: Bot works but logs Redis errors.
-
-**Cause**: Redis optional (caching only), bot continues without it.
-
-**Solution**:
-
-- **If Redis not needed**: Disable it entirely
-
-  ```bash
-  echo "REDIS_ENABLED=false" >> .env
-  ```
-
-- **If needed**: Fix connection (see above)
-
-### Cache Invalidation
-
-**Symptom**: Stale data returned from cache.
-
-**Cause**: Cache not invalidated after updates.
-
-**Solution**:
-
-```bash
-# Flush all cache
-redis-cli FLUSHALL
-
-# Or flush specific keys
-redis-cli KEYS "summary:*" | xargs redis-cli DEL
-
-# Adjust cache TTL
-echo "REDIS_LLM_TTL_SECONDS=3600" >> .env  # Default: 1 hour
-```
-
----
+If Redis restarts, caches and TTL/session state may disappear; PostgreSQL records should remain. Verify scheduler-to-broker and worker-to-broker connectivity separately. Do not flush a shared Redis instance without confirming every namespace/user.
 
 ## Qdrant Issues
 
-### Connection Failures
-
-**Symptom**: Search fails with "Failed to connect to Qdrant".
-
-**Cause**: Qdrant server not running or wrong URL.
-
-**Solution**:
+Qdrant is a derived index. Check service health, embedding-space/dimension configuration, collection namespace, and PostgreSQL/Qdrant drift:
 
 ```bash
-# Check if Qdrant is running
-curl http://localhost:6333/healthz
-
-# If not, start Qdrant
-# Docker
-docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.12.4
-
-# Or via compose
-docker compose -f ops/docker/docker-compose.yml up -d qdrant
-
-# Update connection settings
-echo "QDRANT_URL=http://localhost:6333" >> .env
-
-# Restart bot
-docker restart ratatoskr
+curl -fsS http://127.0.0.1:6333/readyz
+python -m app.cli.reconcile_vector_index
 ```
 
-### Embedding Errors
-
-**Symptom**: Search fails with "Failed to generate embeddings".
-
-**Cause**: Sentence-transformers model not downloaded.
-
-**Solution**:
+Run a bounded dry repair first when the scope is uncertain:
 
 ```bash
-# Download embedding model manually
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-
-# Restart bot
-docker restart ratatoskr
+python -m app.cli.reconcile_vector_index --repair --dry-run --limit=100
 ```
 
-### Collection Not Found
+Then run the reviewed repair without `--dry-run`. See [Vector Index Synchronization](../vector-index-sync.md).
 
-**Symptom**: "Collection 'summaries' does not exist".
+## Sync Conflicts
 
-**Cause**: Qdrant database not initialized or wiped.
+Sync ownership is split between `app/api/routers/sync.py`, `app/api/services/sync/`, and `app/infrastructure/persistence/sync_aux_read_adapter.py`. Confirm the session still exists, belongs to the authenticated user/client, and has not expired. Compare the client's cursor/version/idempotency data with the per-item apply result and generated OpenAPI.
 
-**Solution**:
+Do not resolve a version conflict by blindly overwriting server state. Follow [Sync Protocol](sync-protocol.md) and reproduce the conflicting item against a disposable fixture.
 
-```bash
-# Recreate collection and backfill embeddings
-python -m app.cli.backfill_vector_store
+## Refresh Token Stops Working
 
-# Check collections
-curl http://localhost:6333/collections
+Inspect the auth response code, refresh-token family row, expiry/revocation state, client/user allowlists, cookie scope, and rate limit. Token rotation invalidates replayed predecessors; a revoked/expired family requires a new login.
 
-# Verify count
-curl http://localhost:6333/collections/summaries
-```
+Backend ownership:
 
----
+- `app/api/routers/auth/tokens.py`;
+- `app/api/routers/auth/cookies.py`;
+- `app/infrastructure/persistence/repositories/auth_repository.py`;
+- `app/db/models/core.py::RefreshToken`.
+
+Never log or return the refresh token. See [Mobile API](mobile-api.md#authentication) and [API Errors](api-error-codes.md).
 
 ## Mobile API Issues
 
-### JWT Authentication Errors
+Use `/health/ready`, the generated OpenAPI document, the HTTP status, error code, and correlation metadata. Check that the client uses the correct `/v1` route, authentication mode, `client_id`, content type, and current request/response schema.
 
-**Symptom**: "Invalid token" or "Token expired" errors.
-
-**Cause**: Expired JWT token or mismatched secret.
-
-**Solution**:
-
-```bash
-# Verify JWT_SECRET is set
-grep JWT_SECRET .env
-
-# If missing, generate new secret
-openssl rand -hex 32
-echo "JWT_SECRET_KEY=<generated_secret>" >> .env
-
-# Restart API
-docker restart ratatoskr
-
-# Client: Re-authenticate to get new token
-curl -X POST http://localhost:8000/v1/auth/telegram-login \
-     -H "Content-Type: application/json" \
-     -d '{"telegram_user_id": 123456789, "telegram_auth_token": "..."}'
-```
-
-### Request Stuck In Processing
-
-**Symptom**: A submitted URL remains `pending` or `processing`, the web SubmitPage keeps polling, or the SSE stream never reaches `done` / `error`.
-
-**First checks**:
-
-```bash
-# Find the request and durable processing job by correlation/request id
-grep "<correlation_id>" /var/log/ratatoskr/app.log
-
-# Check the request and job status in the DB
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -x -c \
-  "SELECT r.status, r.error_type, j.status AS job_status, j.lease_expires_at
-     FROM requests r
-     LEFT JOIN request_processing_jobs j ON j.request_id = r.id
-    WHERE r.correlation_id = '<correlation_id>';"
-
-# Reproduce with the CLI runner and debug logs
-python -m app.cli.summary --url <URL> --log-level DEBUG
-```
-
-**Likely owners**:
-
-- `app/adapters/content/graph_url_processor.py::GraphURLProcessor.handle_url_flow` --
-  owns the `RequestProcessingJob` crash-recovery lease; if the process crashed between
-  job creation and graph completion the lease has an expiry after which the job is
-  reschedulable.
-- Summarize graph: `app/application/graphs/summarize/` -- especially the
-  `extract` node (scraper chain hang), `persist` node (DB write failure), `notify`
-  node (Telegram send failure), and `lifecycle.py::route_terminal_failure`.
-- `app/adapters/content/platform_extraction/lifecycle.py` -- extraction timeout.
-- `app/adapters/content/streaming/` -- SSE stream never closed.
-- `app/db/models/core.py::RequestProcessingJob` -- lease expiry.
-
-### Sync Conflicts
-
-**Symptom**: "Sync conflict detected" errors during sync.
-
-**Cause**: Client and server modified same data, conflict resolution failed.
-
-**Solution**:
-
-```bash
-# Enable conflict logging
-echo "SYNC_CONFLICT_LOGGING=debug" >> .env
-
-# Check logs for conflict details
-grep "sync conflict" /var/log/ratatoskr/app.log
-
-# Client: Force full sync (discards local changes)
-curl -X POST http://localhost:8000/v1/sync/summaries?mode=full \
-     -H "Authorization: Bearer <token>"
-```
-
-### Rate Limiting
-
-**Symptom**: "429 Too Many Requests" from mobile API.
-
-**Cause**: Exceeded API rate limits (default: 100 req/min per user).
-
-**Solution**:
-
-```bash
-# Increase rate limit
-echo "API_RATE_LIMIT_DEFAULT=200" >> .env
-
-# Or disable rate limiting (not recommended for production)
-echo "API_ENABLE_RATE_LIMIT=false" >> .env
-
-# Restart API
-docker restart ratatoskr
-```
-
----
-
-## External Aggregation and Auth Issues
-
-### Secret Login Fails
-
-**Symptom**: `ratatoskr login` fails or `POST /v1/auth/secret-login` returns `401` or `403`.
-
-**Cause**: One of the following is usually true:
-
-- `SECRET_LOGIN_ENABLED` is disabled
-- the submitted `client_id` is not in `ALLOWED_CLIENT_IDS`
-- the plaintext secret was mistyped, rotated, or revoked
-- too many failed attempts locked the secret temporarily
-
-**Solution**:
-
-```bash
-# Server-side checks
-grep SECRET_LOGIN_ENABLED .env
-grep ALLOWED_CLIENT_IDS .env
-grep SECRET_LOGIN_MAX_FAILED_ATTEMPTS .env
-grep SECRET_LOGIN_LOCKOUT_MINUTES .env
-
-# Retry the exchange directly
-curl -X POST http://localhost:8000/v1/auth/secret-login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": 123456,
-    "client_id": "cli-workstation-v1",
-    "secret": "<plaintext-secret>"
-  }'
-```
-
-If the secret was rotated or revoked, mint a new one and retry. Plaintext client secrets are only available at create or rotate time.
-
-### Refresh Token Stops Working
-
-**Symptom**: CLI or custom client starts getting `401` on refresh after working earlier.
-
-**Cause**:
-
-- the refresh token was revoked explicitly
-- the session was logged out
-- refresh-token reuse detection revoked the wider session set
-
-**Solution**:
-
-```bash
-# Try one refresh explicitly
-curl -X POST http://localhost:8000/v1/auth/refresh \
-  -H "Content-Type: application/json" \
-  -d '{"refresh_token": "<refresh-token>"}'
-```
-
-If refresh fails, re-run `ratatoskr login` or repeat `secret-login` with an active client secret.
-
-### Aggregation Create Is Denied Before Execution Starts
-
-**Symptom**: `POST /v1/aggregations` returns `403` or `404` before any extraction begins.
-
-**Cause**:
-
-- `AGGREGATION_BUNDLE_ENABLED=false`
-- the current `AGGREGATION_ROLLOUT_STAGE` does not include the caller
-- the authenticated user is outside `ALLOWED_USER_IDS` for the current rollout phase
-
-**Solution**:
-
-```bash
-grep AGGREGATION_BUNDLE_ENABLED .env
-grep AGGREGATION_ROLLOUT_STAGE .env
-grep ALLOWED_USER_IDS .env
-```
-
-Use `enabled` only after validating internal or beta rollout first.
-
-### Aggregation URL Is Rejected as Unsupported or Unsafe
-
-**Symptom**: Aggregation create returns `422` with validation details, or the server logs `aggregation.bundle_create_blocked_ssrf`.
-
-**Cause**:
-
-- the URL is not part of the public URL-first contract
-- the URL points at localhost, a private network, or another blocked address range
-
-**Solution**:
-
-- resubmit public `http://` or `https://` URLs only
-- remove internal, localhost, or VPN-only targets
-- add `source_kind_hint` only when it matches one of the supported public hint values
-
-### Aggregation Create Returns 429
-
-**Symptom**: External bundle submission is rate limited even though other API calls still work.
-
-**Cause**: Aggregation create has its own per-user and per-client guardrails.
-
-**Solution**:
-
-```bash
-grep API_RATE_LIMIT_AGGREGATION_CREATE_USER .env
-grep API_RATE_LIMIT_AGGREGATION_CREATE_CLIENT .env
-```
-
-Raise those limits carefully and monitor for spikes, because `/v1/aggregations` is much heavier than read endpoints.
-
-### Aggregation Session Gets Stuck in Partial or Failed
-
-**Symptom**: `ratatoskr aggregation get` or `GET /v1/aggregations/{id}` never reaches a clean `completed` state.
-
-**Cause**:
-
-- one or more upstream sources failed extraction
-- synthesis finished with incomplete coverage
-- a long-running upstream dependency exceeded practical runtime
-
-**Solution**:
-
-- inspect `session.failure` plus per-item `failure`
-- use `progress`, `queuedAt`, `startedAt`, `completedAt`, and `lastProgressAt` to see where work stopped
-- resubmit a narrower bundle after removing failing URLs
-- check server logs with the returned `correlation_id`
-
----
-
-## GitHub Integration Issues
-
-### "GitHub integration required" when submitting a github.com URL
-
-The bot and API have no anonymous GitHub path. Connect first:
-
-```bash
-# Via PAT (no Redis or OAuth App required)
-curl -X POST http://localhost:8000/v1/auth/github/pat \
-  -H "Authorization: Bearer <jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"token": "ghp_..."}'
-
-# Or via the web UI: Preferences -> GitHub Integration
-```
-
-### 401 from GitHub API / integration status shows `needs_reauth`
-
-The stored token was revoked on GitHub's side. The integration status is set to `needs_reauth` automatically. Logs will contain `event=needs_reauth_dm_skipped` (background workers do not send Telegram DMs directly).
-
-**Fix:** disconnect and reconnect:
-
-```bash
-curl -X DELETE http://localhost:8000/v1/auth/github \
-  -H "Authorization: Bearer <jwt>"
-# Then POST /v1/auth/github/pat with a fresh token
-```
-
-### 503 on POST /v1/auth/github/device/start
-
-Either `REDIS_URL` is not configured or `GITHUB_OAUTH_APP_CLIENT_ID` is unset. The Device Flow requires both. The PAT path (`POST /v1/auth/github/pat`) has no such dependency.
-
-```bash
-grep GITHUB_OAUTH_APP_CLIENT_ID .env
-grep REDIS_URL .env
-```
-
-### Daily sync did not import all starred repositories
-
-The `GITHUB_SYNC_LLM_DAILY_BUDGET` cap was reached. Remaining repos are stored with `pending_analysis=true`.
-
-```bash
-# Check how many are pending
-psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM repositories WHERE pending_analysis = true AND user_id = <id>;"
-
-# Trigger another sync run (resets day counter)
-python -m app.cli.sync_github_stars --user-id <id>
-
-# Or increase the daily budget
-echo "GITHUB_SYNC_LLM_DAILY_BUDGET=100" >> .env
-```
-
-### "No module named 'cryptography'" at startup
-
-The `cryptography` package (Fernet) is not installed.
-
-```bash
-pip install -r requirements.txt
-# Verify
-python -c "from cryptography.fernet import Fernet; print('ok')"
-```
-
-### Encryption key changed; existing GitHub tokens are unreadable
-
-Changing `GITHUB_TOKEN_ENCRYPTION_KEY` without rotating breaks all existing integrations. Follow `docs/runbooks/secret-rotation.md`:
-
-1. Set the new key as `GITHUB_TOKEN_ENCRYPTION_KEY`.
-2. Move the old key to `GITHUB_TOKEN_PREVIOUS_KEYS`.
-3. Run `python -m app.cli.rotate_github_tokens --dry-run`, then `python -m app.cli.rotate_github_tokens`.
-4. Remove `GITHUB_TOKEN_PREVIOUS_KEYS` after the backfill reports no failures.
-
-If the old key is already lost, all affected users must reconnect their GitHub integrations.
-
----
+For SSE, verify the request-specific stream route under `app/api/routers/content/streams.py`, proxy buffering/timeouts, reconnect behavior, and terminal event handling.
 
 ## MCP Server Issues
 
-### Connection Failures
+Confirm the selected transport/profile, authentication/exposure policy, PostgreSQL/Qdrant connectivity, and current tool/resource enumeration. The maintained surface is in [MCP Server](mcp-server.md). Test read-only mode before enabling write tools or public exposure.
 
-**Symptom**: Claude Desktop can't connect to MCP server.
+## GitHub Integration Issues
 
-**Cause**: MCP server not running or wrong configuration in Claude config.
+Check token decryption key/rotation state, PAT or Device Flow status, Redis for pending Device Flow, GitHub API response/rate limit, sync budget, `pending_analysis`, and repository/vector persistence. Tokens must remain redacted.
 
-**Solution**:
+Use [GitHub Sync Runbook](../runbooks/github-sync.md) and [GitHub Repository Ingestion](../explanation/github-repository-ingestion.md).
 
-1. **Start MCP server**:
+## YouTube Issues
 
-   ```bash
-   python -m app.cli.mcp_server
-   ```
+Separate URL detection, transcript API, yt-dlp download, subtitle parsing, storage limits, ffmpeg merging, and optional transcription fallback. Inspect `video_downloads`, request/crawl records, and correlation-linked logs. Verify the container has ffmpeg and writable configured storage.
 
-2. **Verify Claude config** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-   ```json
-   {
-     "mcpServers": {
-       "ratatoskr": {
-         "command": "python",
-         "args": ["-m", "app.cli.mcp_server"],
-         "cwd": "/path/to/ratatoskr",
-         "env": {
-           "PYTHONPATH": "/path/to/ratatoskr"
-         }
-       }
-     }
-   }
-   ```
-
-3. **Restart Claude Desktop**
-
-### Tool Execution Errors
-
-**Symptom**: "Tool failed to execute" in Claude Desktop.
-
-**Cause**: MCP tool encountered error (database issue, missing env vars, etc.).
-
-**Solution**:
-
-```bash
-# Enable MCP debug logging
-echo "MCP_LOG_LEVEL=DEBUG" >> .env
-
-# Check MCP server logs
-tail -f /var/log/ratatoskr/mcp.log
-
-# If using SSE, ensure user scoping is configured
-echo "MCP_TRANSPORT=sse" >> .env
-echo "MCP_USER_ID=123456789" >> .env
-```
-
-### Hosted SSE Returns 401 or 403
-
-**Symptom**: Hosted MCP connects to `/sse` but every request is rejected.
-
-**Cause**:
-
-- `MCP_AUTH_MODE=jwt` is enabled but the client did not send a bearer token
-- the bearer token is expired or invalid
-- the server is accidentally still relying on startup scope instead of request auth
-
-**Solution**:
-
-```bash
-grep MCP_AUTH_MODE .env
-grep MCP_USER_ID .env
-```
-
-For hosted mode:
-
-- set `MCP_AUTH_MODE=jwt`
-- leave `MCP_USER_ID` unset
-- make sure the MCP client sends `Authorization: Bearer <access_token>` on SSE requests
-
-### Trusted Gateway Forwarding Fails
-
-**Symptom**: Hosted MCP works with direct bearer auth but fails behind a reverse proxy or MCP gateway.
-
-**Cause**:
-
-- `MCP_FORWARDING_SECRET` is missing or mismatched
-- the gateway forwarded a user ID instead of the original bearer token
-- the forwarded header names do not match the configured names
-
-**Solution**:
-
-```bash
-grep MCP_FORWARDING_SECRET .env
-grep MCP_FORWARDED_ACCESS_TOKEN_HEADER .env
-grep MCP_FORWARDED_SECRET_HEADER .env
-```
-
-The gateway must forward:
-
-- the original access token in `MCP_FORWARDED_ACCESS_TOKEN_HEADER`
-- the shared forwarding secret in `MCP_FORWARDED_SECRET_HEADER`
-
-### Hosted MCP Reads Work but Aggregation Writes Fail
-
-**Symptom**: Search and article tools work, but `create_aggregation_bundle` fails.
-
-**Cause**: The MCP process is using a read-only database mount or a runtime profile intended for read-only tools.
-
-**Solution**:
-
-- use a writable database path for the MCP deployment
-- keep the read-only Docker profile for read tools only
-- verify the same scoped user can create bundles through `/v1/aggregations`
-
----
+See [Configure YouTube](../guides/configure-youtube-download.md).
 
 ## Performance Issues
 
-### Slow Summarization
+Measure graph-node/provider/LLM timings, queue capacity, database pools/queries, memory, and vector lag. A faster failure is not a successful optimization: compare output quality and terminal status after tuning.
 
-**Symptom**: Summaries take >30 seconds to generate.
+See [Optimize Performance](../guides/optimize-performance.md) and [Observability Strategy](../explanation/observability-strategy.md).
 
-**Cause**: Slow LLM model, large article, or network latency.
+## Getting help
 
-**Solution**:
+Provide:
 
-```bash
-# Use faster model
-echo "OPENROUTER_MODEL=qwen/qwen3-max" >> .env  # Faster than DeepSeek
+- Error ID/correlation ID;
+- exact failing operation and expected result;
+- sanitized service logs around that ID;
+- relevant request/job/crawl/LLM statuses;
+- version/commit and deployment topology;
+- checks already run and their observed output.
 
-# Reduce context window
-echo "MAX_CONTENT_LENGTH_TOKENS=30000" >> .env  # Default: 50000
-
-# Enable content chunking
-echo "CHUNKING_ENABLED=true" >> .env
-
-# Increase concurrency
-echo "MAX_CONCURRENT_CALLS=5" >> .env  # Default: 4
-
-# Restart bot
-docker restart ratatoskr
-```
-
-### High Memory Usage
-
-**Symptom**: Bot crashes with "Out of memory" or high RAM usage.
-
-**Cause**: Large embedding models or Qdrant index memory usage.
-
-**Solution**:
-
-```bash
-# Use smaller embedding model
-EMBEDDING_PROVIDER=local  # uses all-MiniLM-L6-v2 by default (~100 MB)
-
-# Disable Qdrant if not needed
-echo "QDRANT_REQUIRED=false" >> .env
-
-# Restart bot with memory limit (Docker)
-docker run --memory=1g ratatoskr
-```
-
-### Token Counting Overhead
-
-**Symptom**: High CPU usage during token counting.
-
-**Cause**: tiktoken encoding/decoding for every request.
-
-**Solution**:
-
-```bash
-# Use faster token estimation (less accurate but much faster)
-echo "TOKEN_COUNTING_MODE=fast" >> .env  # Uses len(text)//4 approximation
-
-# Or reduce token counting frequency
-echo "TOKEN_COUNTING_CACHE_SIZE=1000" >> .env
-
-# Restart bot
-docker restart ratatoskr
-```
-
----
-
-## Debugging Strategies
-
-### 1. Start Simple
-
-Before diving deep:
-
-1. **Check bot is running**: `docker ps` or `pgrep -f bot.py`
-2. **Check logs**: `docker logs ratatoskr` or `tail -f /var/log/ratatoskr/app.log`
-3. **Test basic command**: Send `/start` to bot, verify it responds
-
-### 2. Enable Debug Logging
-
-```bash
-# Enable debug logging
-echo "LOG_LEVEL=DEBUG" >> .env
-
-# Enable bounded payload previews; tokens, prompts, raw content, and private URLs stay redacted
-echo "DEBUG_PAYLOADS=1" >> .env
-
-# Restart bot
-docker restart ratatoskr
-
-# Watch logs in real-time
-docker logs -f ratatoskr
-```
-
-### 3. Use CLI Tools
-
-Test components in isolation:
-
-```bash
-# Test URL summarization (bypasses Telegram)
-python -m app.cli.summary --url https://example.com/article
-
-# Test search
-python -m app.cli.search --query "python tutorial"
-
-# Test database
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
-  "SELECT count(*) FROM summaries;"
-
-# Test Qdrant
-python -m app.cli.backfill_vector_store --dry-run
-```
-
-### 4. Inspect Database
-
-Use correlation IDs to trace requests:
-
-```bash
-docker exec -it ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr
-
--- Find failed requests
-SELECT id, input_url AS url, status, last_error FROM requests WHERE status = 'error' LIMIT 10;
-
--- See Firecrawl responses
-SELECT request_id, http_status, firecrawl_success FROM crawl_results WHERE firecrawl_success = false;
-
--- See LLM failures
-SELECT request_id, model, error FROM llm_calls WHERE error IS NOT NULL;
-
--- See summary validation errors
-SELECT request_id, validation_errors FROM summaries WHERE validation_errors IS NOT NULL;
-```
-
-### 5. Test External APIs Manually
-
-Isolate whether issue is with bot or external service:
-
-```bash
-# Test self-hosted Firecrawl sidecar
-curl -X POST http://localhost:3002/v1/scrape \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com"}' | jq .
-
-# Test Crawl4AI sidecar
-curl http://localhost:11235/health | jq .
-
-# Test Defuddle sidecar
-curl http://localhost:3003/health | jq .
-
-# Test OpenRouter
-curl -X POST https://openrouter.ai/api/v1/chat/completions \
-  -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek/deepseek-v4-flash",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }' | jq .
-```
-
-### 6. Compare Working vs Broken
-
-If something used to work:
-
-```bash
-# Check git history for changes
-git log --oneline --since="2 weeks ago"
-
-# Diff config files
-git diff HEAD~10 .env
-
-# Check if environment changed (Python version, dependencies)
-pip list | grep -i firecrawl
-
-# Rollback to last working version
-git checkout <commit_hash>
-docker build -f ops/docker/Dockerfile -t ratatoskr .
-docker run ratatoskr
-```
-
-### 7. Minimal Reproduction
-
-Strip down to simplest failing case:
-
-1. Test with single, simple URL (not complex SPA or paywalled site)
-2. Disable optional features (web search, Qdrant, Redis)
-3. Use minimal config (only required env vars)
-4. Test with default models (not experimental or unstable models)
-
-### 8. Check System Resources
-
-```bash
-# Disk space
-df -h
-
-# Memory
-free -h
-
-# CPU
-top -bn1 | grep "Cpu(s)"
-
-# Network
-curl -s http://localhost:3002/health   # self-hosted Firecrawl sidecar
-ping -c 3 openrouter.ai
-```
-
----
-
-## Getting Help
-
-If you're still stuck after trying these steps:
-
-1. **Gather diagnostics**: - Correlation ID - Relevant log excerpts - Database query results (requests, llm_calls, crawl_results) - Environment configuration (redact API keys!)
-
-2. **Check existing issues**: [GitHub Issues](https://github.com/po4yka/ratatoskr/issues)
-
-3. **Open new issue** with: - Clear title (e.g., "Firecrawl timeouts on all URLs") - Steps to reproduce - Expected vs actual behavior - Diagnostics from step 1 - Version info (`git rev-parse HEAD`)
-
-4. **Include correlation ID** in issue title/description for faster debugging
-
----
-
-## Related Documentation
-
-- [environment_variables.md](environment-variables.md) - Full configuration reference
-- [DEPLOYMENT.md](../guides/deploy-production.md) - Setup and deployment guides
-- [FAQ.md](../explanation/faq.md) - Frequently asked questions
-- [SPEC.md](../SPEC.md) - Technical specification
-
----
-
-**Last Updated**: 2026-04-30
+Last audited: 2026-07-15.

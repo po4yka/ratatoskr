@@ -103,7 +103,10 @@ def build_search_dependencies(
         if firecrawl_client is not None
         else None
     )
-    embedding_service = create_embedding_service(cfg.embedding)
+    # app_config wires the Redis EmbeddingCache in (when enabled): this single
+    # service instance backs both the summary-embedding write path and the vector
+    # query read path below, so caching covers search + RAG here.
+    embedding_service = create_embedding_service(cfg.embedding, app_config=cfg)
     embedding_generator = SummaryEmbeddingGenerator(
         embedding_repository=build_embedding_repository(db),
         request_repository=build_request_repository(db),

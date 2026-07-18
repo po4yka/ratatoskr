@@ -4,11 +4,12 @@ import datetime as dt
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.api.models.responses.diagnostics import DiagnosticsResponse
 from app.api.routers.auth.tokens import create_access_token
 from app.api.services.diagnostics_service import clear_diagnostics_cache
+from app.config import Config
 from app.core.time_utils import UTC
 from app.db.models import (
     CrawlResult,
@@ -40,18 +41,19 @@ def _clear_diagnostics_cache() -> None:
 
 @pytest.mark.asyncio
 async def test_admin_diagnostics_requires_owner(client: TestClient, db) -> None:
+    user_id = int(Config.get_allowed_user_ids()[0])
     async with db.transaction() as session:
-        session.add_all(
-            [
-                User(telegram_user_id=6101, username="diag-owner", is_owner=True),
-                User(telegram_user_id=6102, username="diag-user", is_owner=False),
-            ]
-        )
+        session.add(User(telegram_user_id=user_id, username="diag-user", is_owner=False))
 
-    forbidden = client.get("/v1/admin/diagnostics", headers=_headers(6102))
+    forbidden = client.get("/v1/admin/diagnostics", headers=_headers(user_id))
     assert forbidden.status_code == 403
 
-    ok = client.get("/v1/admin/diagnostics", headers=_headers(6101))
+    async with db.transaction() as session:
+        await session.execute(
+            update(User).where(User.telegram_user_id == user_id).values(is_owner=True)
+        )
+
+    ok = client.get("/v1/admin/diagnostics", headers=_headers(user_id))
     assert ok.status_code == 200
 
 
@@ -60,8 +62,9 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
     client: TestClient, db
 ) -> None:
     now = dt.datetime.now(UTC)
+    user_id = int(Config.get_allowed_user_ids()[0])
     async with db.transaction() as session:
-        owner = User(telegram_user_id=6201, username="diag-owner", is_owner=True)
+        owner = User(telegram_user_id=user_id, username="diag-owner", is_owner=True)
         session.add(owner)
         request = Request(
             type="url",
@@ -182,7 +185,7 @@ async def test_admin_diagnostics_redacts_payloads_and_exposes_schema(
         await session.flush()
         session.add(Summary(request_id=summary_request.id, lang="en", json_payload={}))
 
-    response = client.get("/v1/admin/diagnostics", headers=_headers(6201))
+    response = client.get("/v1/admin/diagnostics", headers=_headers(user_id))
 
     assert response.status_code == 200
     data = response.json()["data"]

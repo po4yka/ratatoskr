@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.lifecycle_manager import TelegramLifecycleManager
 from app.adapters.telegram.telethon_compat import normalize_parse_mode
@@ -150,12 +150,10 @@ class TelegramBot:
             return None
         from app.adapters.telegram.reaction_feedback import (
             ReactionFeedbackHandler,
-            SummaryFeedbackRepo,
         )
-        from app.di.repositories import build_summary_repository
 
         recorder = ReactionFeedbackHandler(
-            cast("SummaryFeedbackRepo", build_summary_repository(self.db)),
+            self._runtime.summary_repository,
             int(owner_ids[0]),
         )
         return recorder.handle
@@ -194,6 +192,15 @@ class TelegramBot:
             except Exception as e:
                 raise_if_cancelled(e)
                 logger.warning("shutdown_url_processor_close_failed", exc_info=True)
+
+        # 0b. Drain forward-flow background tasks (insights, related-reads)
+        forward_processor = getattr(self, "forward_processor", None)
+        if forward_processor is not None and hasattr(forward_processor, "aclose"):
+            try:
+                await forward_processor.aclose(timeout=drain_timeout)
+            except Exception as e:
+                raise_if_cancelled(e)
+                logger.warning("shutdown_forward_processor_close_failed", exc_info=True)
 
         # 1. Close the scraper chain (multi-provider; aclose propagates to all rungs)
         _core = getattr(getattr(self, "_runtime", None), "core", None)

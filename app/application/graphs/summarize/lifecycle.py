@@ -8,20 +8,20 @@ exact legacy terminal contract via
 (``RequestStatus.ERROR`` + the structured failure snapshot) and produces the
 user-facing ``Error ID: <correlation_id>`` message.
 
-This module is langgraph-free (it must be importable in the import-linter / mypy
-CI envs, which do not install the ``graph`` extra); the langgraph
-``GraphRecursionError`` is caught in :mod:`graph` and handed here as a plain
-exception.
+This module is framework-free; the LangGraph ``GraphRecursionError`` is caught in
+:mod:`graph` and handed here as a plain exception.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from app.observability.failure_observability import persist_request_failure
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from app.application.graphs.summarize.deps import SummarizeDeps
     from app.application.graphs.summarize.state import SummarizeState
     from app.application.ports.requests import LLMCallRecord
@@ -94,12 +94,39 @@ def notification_type_for_exception(exc: BaseException) -> str:
     return "processing_failed"
 
 
+async def _drain_llm_calls(
+    records: Iterable[Any] | None,
+    deps: SummarizeDeps,
+    *,
+    correlation_id: str | None,
+    request_id: int | None,
+) -> None:
+    """Best-effort write of accumulated/failure ``llm_calls`` rows (persist-everything).
+
+    No-ops without a writer or a request row (content-only path -- every row would
+    FK-violate ``requests.id``). One bad row is logged and skipped so it never
+    blocks the remaining rows or the ERROR finalization.
+    """
+    if not records or deps.llm_repo is None or request_id is None:
+        return
+    for record in records:
+        try:
+            await deps.llm_repo.async_insert_llm_call(cast("LLMCallRecord", record))
+        except Exception:
+            logger.warning(
+                "summarize_graph_failure_llm_call_persist_failed",
+                extra={"correlation_id": correlation_id, "request_id": request_id},
+                exc_info=True,
+            )
+
+
 async def route_terminal_failure(
     state: SummarizeState,
     deps: SummarizeDeps,
     error: BaseException,
     *,
     reason_code: str = REASON_GRAPH_NODE_FAILURE,
+    recovered_llm_calls: Iterable[Any] | None = None,
 ) -> str:
     """Persist the terminal failure and return the user-facing ``Error ID`` message.
 
@@ -107,26 +134,39 @@ async def route_terminal_failure(
     ``RequestStatus.ERROR`` via the shared persistence helper and never raises a
     second error path. Returns the message the caller surfaces to the user.
 
-    GAP 3a (persist-everything): when the exception carries ``llm_failure_records``
-    (attached by the summarize node's failure handler), those rows are written to
-    ``deps.llm_repo`` best-effort before the request is marked ERROR, so failure
-    LLM calls are always persisted (rule 3).
+    persist-everything (rule 3) is enforced across two DISJOINT sources of
+    ``llm_calls`` rows, written in chronological order before the request is marked
+    ERROR:
+
+    - ``recovered_llm_calls`` -- the records already committed to the graph
+      checkpoint (every successful ``summarize`` call + each ``repair`` attempt).
+      The success-path writer is the ``persist`` node, which a terminal failure
+      never reaches, so without this every accumulated call would be silently
+      dropped -- most visibly the whole repair loop under ``CallBudgetExceeded``.
+      The langgraph-coupled runner recovers them via ``aget_state`` and hands the
+      plain list here (this module stays framework-free). Empty when the failure
+      predates the first LLM call (e.g. an extract-stage fault).
+    - GAP 3a ``error.llm_failure_records`` -- the FAILURE record the ``summarize``
+      node attaches to the exception it RAISES (its channel writes are discarded,
+      so this row is never in the checkpoint).
+
+    The two sets never overlap: a node COMMITS its rows to the checkpoint (return)
+    XOR ATTACHES them to the raised exception -- never both -- so the union is
+    written without double-counting.
     """
     correlation_id = state.get("correlation_id")
     request_id = state.get("request_id")
 
-    # GAP 3a: drain any llm_calls failure records attached to the exception.
+    # Recovered checkpoint rows first (they happened first: summarize + repairs),
+    # then the exception-attached failure row (the final raise), so DB insert order
+    # -- and thus the repository-assigned ``attempt_index`` -- stays chronological.
+    await _drain_llm_calls(
+        recovered_llm_calls, deps, correlation_id=correlation_id, request_id=request_id
+    )
     failure_records = getattr(error, "llm_failure_records", None)
-    if failure_records and deps.llm_repo is not None and request_id is not None:
-        for record in failure_records:
-            try:
-                await deps.llm_repo.async_insert_llm_call(cast("LLMCallRecord", record))
-            except Exception:
-                logger.warning(
-                    "summarize_graph_failure_llm_call_persist_failed",
-                    extra={"correlation_id": correlation_id, "request_id": request_id},
-                    exc_info=True,
-                )
+    await _drain_llm_calls(
+        failure_records, deps, correlation_id=correlation_id, request_id=request_id
+    )
 
     if request_id is not None:
         await persist_request_failure(
@@ -139,6 +179,7 @@ async def route_terminal_failure(
             reason_code=reason_code,
             error=error,
             retryable=False,
+            raise_on_error=True,
         )
     else:
         # No request row to attach the failure to (should not happen past ingest);

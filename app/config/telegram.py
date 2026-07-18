@@ -30,6 +30,11 @@ class TelegramConfig(BaseModel):
         description="Telegram bot token",
         json_schema_extra=SECRET_MARKER,
     )
+    session_dir: str | None = Field(
+        default=None,
+        validation_alias="TELEGRAM_SESSION_DIR",
+        description="Directory for the persistent Telethon bot session",
+    )
     allowed_user_ids: tuple[int, ...] = Field(
         default_factory=tuple,
         validation_alias=AliasChoices("ALLOWED_USER_IDS", "TELEGRAM_ALLOWED_USER_IDS"),
@@ -130,6 +135,12 @@ class TelegramConfig(BaseModel):
     @classmethod
     def _parse_allowed_users(cls, value: Any) -> tuple[int, ...]:
         return _parse_allowed_user_ids(value)
+
+    @field_validator("session_dir", mode="before")
+    @classmethod
+    def _normalize_session_dir(cls, value: Any) -> str | None:
+        normalized = str(value or "").strip()
+        return normalized or None
 
     @field_validator("draft_min_interval_ms", mode="before")
     @classmethod

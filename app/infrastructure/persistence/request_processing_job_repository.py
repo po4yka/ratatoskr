@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select, update
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.logging_utils import get_logger, log_exception
@@ -29,12 +29,31 @@ logger = get_logger(__name__)
 TERMINAL_JOB_STATUSES = {"succeeded", "dead_letter"}
 
 
+class LeaseLostError(RuntimeError):
+    """Raised when a worker no longer owns the fenced processing lease."""
+
+
 @dataclass(frozen=True, slots=True)
 class LeasedRequestJob:
     id: int
     request_id: int
     attempt_count: int
     max_attempts: int
+    correlation_id: str | None
+    lease_token: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class InterruptedRequest:
+    """A bot-synchronous request orphaned by a crash mid-flight.
+
+    Returned by ``recover_interrupted_synchronous_requests`` so the caller
+    can notify the owner's chat to resend the link.
+    """
+
+    request_id: int
+    chat_id: int
+    input_url: str | None
     correlation_id: str | None
 
 
@@ -58,6 +77,7 @@ class RequestProcessingJobRepository:
             "attempt_count": 0,
             "max_attempts": max_attempts,
             "lease_owner": None,
+            "lease_token": 0,
             "lease_expires_at": None,
             "retry_after": now,
             "last_error_code": None,
@@ -173,6 +193,7 @@ class RequestProcessingJobRepository:
                 return None
             job.status = "running"
             job.lease_owner = lease_owner
+            job.lease_token = int(job.lease_token or 0) + 1
             job.lease_expires_at = lease_expires_at
             job.attempt_count += 1
             job.updated_at = now
@@ -183,22 +204,53 @@ class RequestProcessingJobRepository:
                 attempt_count=job.attempt_count,
                 max_attempts=job.max_attempts,
                 correlation_id=job.correlation_id,
+                lease_token=job.lease_token,
             )
+
+    async def renew_lease(
+        self,
+        *,
+        job_id: int,
+        lease_owner: str,
+        lease_token: int,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        """Extend a live lease only when this worker still holds its fence token."""
+        now = _utcnow()
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(RequestProcessingJob)
+                .where(
+                    RequestProcessingJob.id == job_id,
+                    RequestProcessingJob.status == "running",
+                    RequestProcessingJob.lease_owner == lease_owner,
+                    RequestProcessingJob.lease_token == lease_token,
+                    RequestProcessingJob.lease_expires_at > now,
+                )
+                .values(
+                    lease_expires_at=now + timedelta(seconds=lease_ttl_seconds),
+                    updated_at=now,
+                )
+            )
+            return bool(result.rowcount)
 
     async def mark_succeeded(
         self,
         job_id: int,
         *,
         lease_owner: str,
+        lease_token: int,
         request_id: int | None = None,
-    ) -> None:
+    ) -> bool:
         now = _utcnow()
         async with self._database.transaction() as session:
-            await session.execute(
+            result = await session.execute(
                 update(RequestProcessingJob)
                 .where(
                     RequestProcessingJob.id == job_id,
                     RequestProcessingJob.lease_owner == lease_owner,
+                    RequestProcessingJob.lease_token == lease_token,
+                    RequestProcessingJob.lease_expires_at > now,
                 )
                 .values(
                     status="succeeded",
@@ -210,6 +262,8 @@ class RequestProcessingJobRepository:
                     updated_at=now,
                 )
             )
+            if not result.rowcount:
+                return False
             if request_id is not None:
                 await session.execute(
                     update(Request)
@@ -222,6 +276,7 @@ class RequestProcessingJobRepository:
                         updated_at=now,
                     )
                 )
+        return True
 
     async def mark_failed(
         self,
@@ -238,11 +293,13 @@ class RequestProcessingJobRepository:
         message = error_message[:2000]
         retry_after = None if terminal else now + timedelta(seconds=retry_delay_seconds)
         async with self._database.transaction() as session:
-            await session.execute(
+            result = await session.execute(
                 update(RequestProcessingJob)
                 .where(
                     RequestProcessingJob.id == job.id,
                     RequestProcessingJob.lease_owner == lease_owner,
+                    RequestProcessingJob.lease_token == job.lease_token,
+                    RequestProcessingJob.lease_expires_at > now,
                 )
                 .values(
                     status=status,
@@ -254,6 +311,8 @@ class RequestProcessingJobRepository:
                     updated_at=now,
                 )
             )
+            if not result.rowcount:
+                return "fenced"
             await session.execute(
                 update(Request)
                 .where(Request.id == job.request_id)
@@ -291,6 +350,7 @@ class RequestProcessingJobRepository:
             "attempt_count": 0,
             "max_attempts": max_attempts,
             "lease_owner": None,
+            "lease_token": 0,
             "lease_expires_at": None,
             "retry_after": now,
             "last_error_code": None,
@@ -328,13 +388,18 @@ class RequestProcessingJobRepository:
         correlation_id: str | None,
         lease_owner: str = "bot:sync",
         lease_ttl_seconds: int = 900,
-    ) -> None:
-        """Insert/update a `running` row for a synchronous bot run.
+    ) -> bool:
+        """Atomically claim a request for a synchronous bot run.
 
         Worker's reconcile_stuck_processing_requests reaps rows where the
         lease expired without a terminal status, providing crash-recovery
         for the synchronous bot path. The lease TTL is sized to the
         maximum URL-flow runtime (15 min default).
+
+        Returns ``False`` when another caller already owns an unexpired
+        ``running`` lease. This is the serialization point for concurrent URL
+        dedupe hits: request creation alone is idempotent, but must not permit
+        two graph runs against the same request row.
         """
         now = _utcnow()
         lease_expires_at = now + timedelta(seconds=lease_ttl_seconds)
@@ -364,10 +429,18 @@ class RequestProcessingJobRepository:
                         "lease_expires_at": lease_expires_at,
                         "updated_at": now,
                     },
-                    where=RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
+                    where=and_(
+                        RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
+                        or_(
+                            RequestProcessingJob.status != "running",
+                            RequestProcessingJob.lease_expires_at.is_(None),
+                            RequestProcessingJob.lease_expires_at <= now,
+                        ),
+                    ),
                 )
             )
-            await session.execute(stmt)
+            result = await session.execute(stmt)
+            return bool(result.rowcount)
 
     async def record_synchronous_outcome(
         self,
@@ -400,6 +473,7 @@ class RequestProcessingJobRepository:
             "attempt_count": 1,
             "max_attempts": 1,
             "lease_owner": None,
+            "lease_token": 0,
             "lease_expires_at": None,
             "retry_after": None,
             "last_error_code": error_code,
@@ -427,6 +501,90 @@ class RequestProcessingJobRepository:
                 )
             )
             await session.execute(stmt)
+
+    async def recover_interrupted_synchronous_requests(self) -> list[InterruptedRequest]:
+        """Detect and terminally fail bot-synchronous requests orphaned by a crash.
+
+        Bot-originated URL requests run synchronously in-process and record
+        their lease via ``record_synchronous_start`` (``lease_owner="bot:sync"``,
+        ``attempt_count=1``, ``max_attempts=1``). If the bot process dies before
+        the flow completes, the job is left ``running`` with an expired lease
+        and ``attempt_count >= max_attempts`` blocks ``requeue_expired_leases``
+        from reclaiming it -- there is no worker path that can resume a
+        synchronous run. This method detects those orphans on bot startup,
+        marks both rows terminal (``requests.status='error'``, job
+        ``status='dead_letter'``), and returns lightweight records so the
+        caller can notify the owner to resend the link. Not auto-recoverable:
+        retrying would require re-running the same in-process flow, which is
+        exactly what crashed.
+        """
+        now = _utcnow()
+        async with self._database.transaction() as session:
+            rows = await session.execute(
+                select(
+                    Request.id,
+                    Request.chat_id,
+                    Request.input_url,
+                    Request.correlation_id,
+                    RequestProcessingJob.id,
+                )
+                .join(RequestProcessingJob, RequestProcessingJob.request_id == Request.id)
+                .outerjoin(Summary, Summary.request_id == Request.id)
+                .where(
+                    RequestProcessingJob.status == "running",
+                    RequestProcessingJob.lease_expires_at.is_not(None),
+                    RequestProcessingJob.lease_expires_at <= now,
+                    RequestProcessingJob.lease_owner.like("bot:%"),
+                    Summary.id.is_(None),
+                    Request.status.notin_(("ok", "error", "cancelled", "x_imported")),
+                )
+                .limit(100)
+            )
+            orphans = list(rows)
+            if not orphans:
+                return []
+
+            request_ids = [request_id for request_id, *_rest in orphans]
+            job_ids = [job_id for *_rest, job_id in orphans]
+
+            await session.execute(
+                update(Request)
+                .where(Request.id.in_(request_ids))
+                .values(
+                    status="error",
+                    error_type="processing_interrupted",
+                    error_message=(
+                        "Processing was interrupted by a bot restart before completion."
+                    ),
+                    error_timestamp=now,
+                    updated_at=now,
+                )
+            )
+            await session.execute(
+                update(RequestProcessingJob)
+                .where(RequestProcessingJob.id.in_(job_ids))
+                .values(
+                    status="dead_letter",
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    last_error_code="INTERRUPTED",
+                    last_error_message=(
+                        "Bot restarted mid-flight; not auto-recoverable (owner notified to resend)."
+                    ),
+                    updated_at=now,
+                )
+            )
+
+            return [
+                InterruptedRequest(
+                    request_id=request_id,
+                    chat_id=chat_id,
+                    input_url=input_url,
+                    correlation_id=correlation_id,
+                )
+                for request_id, chat_id, input_url, correlation_id, _job_id in orphans
+                if chat_id is not None
+            ]
 
     async def requeue_expired_leases(self) -> int:
         now = _utcnow()
@@ -621,6 +779,7 @@ class DurableRequestProcessingQueue:
         self._processor = processor
         self._max_attempts = max_attempts
         self._lease_ttl_seconds = lease_ttl_seconds
+        self._lease_renewal_interval_seconds = max(1.0, lease_ttl_seconds / 3)
         self._retry_delay_seconds = retry_delay_seconds
         self._poll_interval_seconds = poll_interval_seconds
         self._stale_processing_seconds = stale_processing_seconds
@@ -695,23 +854,26 @@ class DurableRequestProcessingQueue:
                 await self._repo.mark_succeeded(
                     job.id,
                     lease_owner=self._owner,
+                    lease_token=job.lease_token,
                     request_id=job.request_id,
                 )
                 return
-            await self._processor.execute_request(
-                job.request_id,
-                correlation_id=job.correlation_id,
-            )
+            await self._execute_request_with_lease_renewal(job)
             if await self._repo.has_summary(job.request_id):
                 await self._repo.mark_succeeded(
                     job.id,
                     lease_owner=self._owner,
+                    lease_token=job.lease_token,
                     request_id=job.request_id,
                 )
                 return
             request_status, error_message = await self._repo.get_request_status(job.request_id)
             if request_status in {"success", "complete", "completed", "ok"}:
-                await self._repo.mark_succeeded(job.id, lease_owner=self._owner)
+                await self._repo.mark_succeeded(
+                    job.id,
+                    lease_owner=self._owner,
+                    lease_token=job.lease_token,
+                )
                 return
             await self._repo.mark_failed(
                 job,
@@ -722,6 +884,11 @@ class DurableRequestProcessingQueue:
             )
         except asyncio.CancelledError:
             raise
+        except LeaseLostError:
+            logger.warning(
+                "durable_request_processing_lease_lost",
+                extra={"request_id": job.request_id, "job_id": job.id},
+            )
         except Exception as exc:
             await self._repo.mark_failed(
                 job,
@@ -737,3 +904,40 @@ class DurableRequestProcessingQueue:
                 request_id=job.request_id,
                 job_id=job.id,
             )
+
+    async def _execute_request_with_lease_renewal(self, job: LeasedRequestJob) -> None:
+        processing_task = asyncio.create_task(
+            self._processor.execute_request(
+                job.request_id,
+                correlation_id=job.correlation_id,
+            )
+        )
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {processing_task}, timeout=self._lease_renewal_interval_seconds
+                )
+                if done:
+                    await processing_task
+                    return
+                renewed = await self._repo.renew_lease(
+                    job_id=job.id,
+                    lease_owner=self._owner,
+                    lease_token=job.lease_token,
+                    lease_ttl_seconds=self._lease_ttl_seconds,
+                )
+                if renewed:
+                    continue
+                processing_task.cancel()
+                try:
+                    await processing_task
+                except asyncio.CancelledError:
+                    pass
+                raise LeaseLostError(f"lease lost for request_id={job.request_id}")
+        except asyncio.CancelledError:
+            processing_task.cancel()
+            try:
+                await processing_task
+            except asyncio.CancelledError:
+                pass
+            raise

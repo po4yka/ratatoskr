@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 # Route version for the URL graph path -- mirrors the legacy ``URL_ROUTE_VERSION``
@@ -41,8 +42,10 @@ from app.adapters.content.url_flow_models import (
 from app.application.graphs.summarize.graph import (
     DEFAULT_RECURSION_LIMIT,
     build_initial_state,
+    cleanup_checkpoint_thread,
     invocation_config,
 )
+from app.application.graphs.summarize.nodes.ingest import prepare_ingest_update
 from app.core.async_utils import raise_if_cancelled
 from app.core.lang import LANG_RU, choose_language, detect_language
 from app.core.logging_utils import get_logger, redact_url_for_logging
@@ -117,7 +120,8 @@ class GraphURLProcessor:
         self.summary_delivery = summary_delivery
         self.response_formatter = response_formatter
         self.request_repo = request_repo
-        # The persistence facade owns request creation AND the telegram_messages
+        # The persistence facade owns the transaction preflight (request creation
+        # after the graph ingest contract has normalized/deduped the URL) AND the telegram_messages
         # snapshot + User/Chat upserts (persist-everything). The graph-path
         # request row MUST mirror the legacy lifecycle: create + snapshot in one
         # seam so every row carries its owner ``user_id`` (IDOR rule 12) and a
@@ -131,6 +135,10 @@ class GraphURLProcessor:
         # keep working when DI returns the facade in place of the legacy object.
         self.content_extractor = content_extractor
         self.summary_repo = summary_repo
+        # Re-exposed (like summary_repo) so reach-through consumers such as the
+        # batch relationship/combined-summary flow can persist their own
+        # llm_calls rows (rule 3) without threading DI bundles.
+        self.llm_repo = getattr(deps, "llm_repo", None)
         self.audit_func = audit_func
         # Shared follow-up runtime (article/insights generators feed
         # ``post_summary_tasks``). Retained only so the bot shutdown drain reaches
@@ -211,36 +219,82 @@ class GraphURLProcessor:
             raise ValueError("Content text is empty or contains only whitespace")
 
         lang = request.chosen_lang or "en"
-        correlation_id = request.correlation_id or ""
-        # No persistence target for the content-only path (no request row / silent
-        # summarization); the graph persist node short-circuits every DB write when
-        # request_id is None. ``0`` is NOT a usable sentinel -- it is a real FK value
-        # and INSERTing a Summary against requests.id=0 raises ForeignKeyViolationError
-        # (audit #1).
-        initial_state = build_initial_state(
-            correlation_id=correlation_id,
-            request_id=None,
-            lang=lang,
-            input_url="",
-            source_text=content_text,
+        # Resolve the fallback ONCE so the graph state's correlation_id and the
+        # langgraph thread_id stay identical (sacred, ADR-0011 / Operating Rule 1).
+        # A thread id is a checkpoint lineage, not a caller category. Reuse the
+        # request identity when one exists; otherwise allocate a unique lineage for
+        # this invocation so concurrent RSS/content-only calls cannot merge state or
+        # delete each other's checkpoints.
+        correlation_id = request.correlation_id or (
+            f"request-{request.request_id}"
+            if request.request_id is not None
+            else f"content-only-{uuid.uuid4().hex}"
         )
-        config = invocation_config(
-            correlation_id=correlation_id or "content-only",
-            recursion_limit=DEFAULT_RECURSION_LIMIT,
-        )
-        try:
-            final_state = await self._graph.ainvoke(initial_state, config=config)
-        except Exception as exc:
-            raise_if_cancelled(exc)
-            # audit #4: RE-RAISE rather than swallow to ``{}``. The background
-            # retry runner (``run_with_backoff``) only retries a stage that RAISES,
-            # so returning ``{}`` here bypassed the configured retry_attempts. The
-            # caller (run_stage) wraps this in a StageError; the retry loop fires.
-            logger.warning(
-                "graph_content_only_summarize_failed",
-                extra={"cid": correlation_id, "error": str(exc)},
+        if request.request_id is not None:
+            # API/background callers already own a real Request row. Route through
+            # the full runner so summarize/repair attempts and terminal failures are
+            # durably attached to that request instead of being discarded by the
+            # historical request_id=None content-only shortcut.
+            user_scope, environment = self._retrieval_scope()
+            runner = self._streamed_runner if request.stream else None
+            if runner is not None:
+                final_state = await runner(
+                    graph=self._graph,
+                    deps=self._deps,
+                    sink=self._stream_sink_factory(),
+                    correlation_id=correlation_id,
+                    request_id=request.request_id,
+                    lang=lang,
+                    input_url="",
+                    source_text=content_text,
+                    requested_system_prompt=request.system_prompt,
+                    feedback_instructions=request.feedback_instructions or "",
+                    user_scope=user_scope,
+                    environment=environment,
+                    two_pass_eligible=False,
+                )
+            else:
+                from app.application.graphs.summarize.graph import run_summarize_graph
+
+                final_state = await run_summarize_graph(
+                    graph=self._graph,
+                    deps=self._deps,
+                    correlation_id=correlation_id,
+                    request_id=request.request_id,
+                    lang=lang,
+                    input_url="",
+                    source_text=content_text,
+                    requested_system_prompt=request.system_prompt,
+                    feedback_instructions=request.feedback_instructions or "",
+                    user_scope=user_scope,
+                    environment=environment,
+                    two_pass_eligible=False,
+                )
+        else:
+            initial_state = build_initial_state(
+                correlation_id=correlation_id,
+                request_id=None,
+                lang=lang,
+                input_url="",
+                source_text=content_text,
+                requested_system_prompt=request.system_prompt,
+                feedback_instructions=request.feedback_instructions or "",
             )
-            raise
+            config = invocation_config(
+                correlation_id=correlation_id,
+                recursion_limit=DEFAULT_RECURSION_LIMIT,
+            )
+            try:
+                final_state = await self._graph.ainvoke(initial_state, config=config)
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                logger.warning(
+                    "graph_content_only_summarize_failed",
+                    extra={"cid": correlation_id, "error": str(exc)},
+                )
+                await cleanup_checkpoint_thread(self._graph, config)
+                raise
+            await cleanup_checkpoint_thread(self._graph, config)
 
         # Terminal graph failure: the graph's route_terminal_failure node populated
         # ``state['error']`` and exited without a summary. Re-raise as ValueError so
@@ -265,7 +319,9 @@ class GraphURLProcessor:
         # LLM metadata-completion (title/author/dates) + RAG-field enrichment. Both
         # run via the port-safe app service (llm_client port + pure core helpers);
         # best-effort so a completion failure never blocks the summary.
-        await self._complete_metadata_and_enrich(summary, content_text, lang, correlation_id)
+        await self._complete_metadata_and_enrich(
+            summary, content_text, lang, correlation_id, request.request_id
+        )
 
         # Apply the request quality metadata the graph nodes do not set (parity
         # with PureSummaryService._apply_request_quality_metadata).
@@ -334,35 +390,44 @@ class GraphURLProcessor:
             )
         lang = choose_language(getattr(self.cfg.runtime, "preferred_lang", None), detected_lang)
         user_scope, environment = self._retrieval_scope()
-        initial_state = build_initial_state(
-            correlation_id=correlation_id or "",
+
+        # Route through run_summarize_graph -- NOT a bare self._graph.ainvoke. A bare
+        # ainvoke skipped the single terminal-failure sink, so a node / repair-budget /
+        # recursion failure lost BOTH the accumulated summarize+repair llm_calls
+        # (persist-everything, rule 3) and the structured failure snapshot
+        # (stage/component/reason_code/retryable), writing only a degraded
+        # async_update_request_error status. run_summarize_graph catches the failure and
+        # route_terminal_failure persists the recovered llm_calls + the proper snapshot
+        # before returning {"error": ...}. ``source_text`` seeds the pre-extracted
+        # transcript/document (empty input_url -> extract no-ops); two_pass_eligible is
+        # False to keep enrichment scoped to the URL path (audit #20). An empty
+        # correlation_id falls back to a synthetic per-request thread_id so the
+        # checkpointer never collides distinct requests on "".
+        from app.application.graphs.summarize.graph import run_summarize_graph
+
+        final_state = await run_summarize_graph(
+            graph=self._graph,
+            deps=self._deps,
+            correlation_id=correlation_id or f"{request_type}-{request_id}",
             request_id=request_id,
             lang=lang,
             input_url="",
             source_text=content_text,
             user_scope=user_scope,
             environment=environment,
+            two_pass_eligible=False,
         )
-        config = invocation_config(
-            correlation_id=correlation_id or f"{request_type}-{request_id}",
-            recursion_limit=DEFAULT_RECURSION_LIMIT,
-        )
-        try:
-            final_state = await self._graph.ainvoke(initial_state, config=config)
-        except Exception as exc:
-            raise_if_cancelled(exc)
-            await self.request_repo.async_update_request_error(
-                request_id,
-                "error",
-                error_type=type(exc).__name__,
-                error_message=str(exc) or "<empty>",
-            )
-            raise
 
+        # Terminal graph failure: route_terminal_failure already marked the request
+        # ERROR with the structured snapshot AND persisted the accumulated llm_calls.
+        # Return failure (mirrors handle_url_flow); the caller sends the user notice.
         if isinstance(final_state, dict) and "error" in final_state:
             return URLProcessingFlowResult(success=False, request_id=request_id)
         summary_json = final_state.get("summary") if isinstance(final_state, dict) else None
         if not isinstance(summary_json, dict) or not summary_json:
+            # Graph completed but produced no summary -- no exception was raised, so the
+            # terminal sink did NOT run and the request is still 'processing'. Finalize
+            # it explicitly (a genuine no-summary, not a graph failure).
             await self.request_repo.async_update_request_error(
                 request_id,
                 "error",
@@ -575,16 +640,24 @@ class GraphURLProcessor:
         terminal_status = "succeeded"
         terminal_error_code: str | None = None
         terminal_error_message: str | None = None
+        owns_processing_job = not request.manage_processing_job
 
         # Parity concern 3 -- in-flight gauge.
         set_url_processor_in_flight(+1)
         try:
-            # Parity concern 4 -- create the request row WITHOUT running extraction
-            # (the graph's extract node extracts). dedupe_hash via url_utils.
+            # Parity concern 4 -- apply ingest's deterministic URL contract, then
+            # create the request row WITHOUT running extraction (the graph's
+            # extract node extracts).
             req_id = await self._create_request_row(request)
 
             # Parity concern 5 -- RequestProcessingJob crash-recovery lease.
-            await self._record_url_flow_start(request=request, req_id=req_id)
+            owns_processing_job = await self._record_url_flow_start(request=request, req_id=req_id)
+            if not owns_processing_job:
+                logger.info(
+                    "graph_url_flow_duplicate_in_flight",
+                    extra={"cid": request.correlation_id, "req_id": req_id},
+                )
+                return URLProcessingFlowResult(success=True, request_id=req_id)
 
             lang = self._resolve_lang(request)
 
@@ -657,6 +730,11 @@ class GraphURLProcessor:
                 )
 
             return result
+        except asyncio.CancelledError:
+            terminal_status = "failed"
+            terminal_error_code = "CancelledError"
+            terminal_error_message = "URL flow cancelled before completion"
+            raise
         except Exception as exc:
             raise_if_cancelled(exc)
             terminal_status = "failed"
@@ -681,7 +759,7 @@ class GraphURLProcessor:
             elapsed_seconds = max(0.0, time.monotonic() - started_at)
             await self._record_url_flow_terminal(
                 request=request,
-                req_id=req_id,
+                req_id=req_id if owns_processing_job else None,
                 elapsed_seconds=elapsed_seconds,
                 status=terminal_status,
                 error_code=terminal_error_code,
@@ -699,20 +777,32 @@ class GraphURLProcessor:
         """
         if request.effective_silent:
             return False
-        return bool(getattr(self.cfg.runtime, "summary_streaming_enabled", True))
+        runtime = self.cfg.runtime
+        if not bool(getattr(runtime, "summary_streaming_enabled", True)):
+            return False
+        if str(getattr(runtime, "summary_streaming_mode", "section")).lower() != "section":
+            return False
+        scope = str(getattr(runtime, "summary_streaming_provider_scope", "openrouter")).lower()
+        if scope == "disabled":
+            return False
+        if scope == "all":
+            return True
+        provider = str(getattr(runtime, "llm_provider", "openrouter")).lower()
+        return provider == scope
 
     async def _run_graph(
         self, *, request: URLFlowRequest, req_id: int, lang: str
     ) -> dict[str, Any]:
         """Invoke the streamed runner (interactive + flag on) or the plain runner."""
         user_scope, environment = self._retrieval_scope()
+        thread_id = request.correlation_id or f"url-{req_id}"
         if not self._streaming_selected(request):
             from app.application.graphs.summarize.graph import run_summarize_graph
 
             return await run_summarize_graph(
                 graph=self._graph,
                 deps=self._deps,
-                correlation_id=request.correlation_id or "",
+                correlation_id=thread_id,
                 request_id=req_id,
                 lang=lang,
                 input_url=request.url_text,
@@ -725,7 +815,7 @@ class GraphURLProcessor:
             graph=self._graph,
             deps=self._deps,
             sink=sink,
-            correlation_id=request.correlation_id or "",
+            correlation_id=thread_id,
             request_id=req_id,
             lang=lang,
             input_url=request.url_text,
@@ -736,27 +826,27 @@ class GraphURLProcessor:
     async def _create_request_row(self, request: URLFlowRequest) -> int:
         """Create/resolve the request row (idempotent on dedupe_hash) for the flow.
 
-        Mirrors the legacy ``PlatformRequestLifecycle.create_request`` seam without
-        running extraction: ``async_create_request`` upserts on ``dedupe_hash`` so a
-        repeat URL resolves the existing row id, and ``persist_message_snapshot``
-        writes the ``telegram_messages`` row + User/Chat upserts (persist-everything).
-        The graph's extract node attaches its crawl results / failures to this
-        request_id.
+        Applies the graph ingest contract, then mirrors the legacy
+        ``PlatformRequestLifecycle.create_request`` seam without
+        running extraction: ``async_create_request_once`` resolves a repeat URL to
+        its existing row and reports the dedupe hit atomically. A hit refreshes the
+        correlation id for the active flow, while ``persist_message_snapshot`` writes
+        the ``telegram_messages`` row + User/Chat upserts (persist-everything). The
+        graph's extract node attaches its crawl results / failures to this request_id.
 
         ``chat_id`` / ``user_id`` / ``input_message_id`` are extracted at the
         Telegram boundary via ``safe_telegram_*`` exactly like the legacy lifecycle
         (``from_user.id`` / ``chat.id`` / message id) -- a NULL ``user_id`` here would
         break the defense-in-depth IDOR ownership filter (rule 12).
         """
-        from app.core.url_utils import normalize_url
-
         if request.existing_request_id is not None:
             return request.existing_request_id
 
-        dedupe_hash = compute_dedupe_hash(request.url_text)
-        normalized = normalize_url(request.url_text)
+        ingest_update = prepare_ingest_update({"input_url": request.url_text})
+        normalized = str(ingest_update["input_url"])
+        dedupe_hash = str(ingest_update["dedupe_hash"])
         chat_id, user_id, input_message_id = _message_identity(request.message)
-        req_id = await self.message_persistence.request_repo.async_create_request(
+        req_id, created = await self.message_persistence.request_repo.async_create_request_once(
             type_="url",
             correlation_id=request.correlation_id,
             chat_id=chat_id,
@@ -769,6 +859,10 @@ class GraphURLProcessor:
             route_version=URL_ROUTE_VERSION,
             initial_attempt_trigger="initial",
         )
+        if not created and request.correlation_id:
+            await self.message_persistence.request_repo.async_update_request_correlation_id(
+                req_id, request.correlation_id
+            )
         # persist-everything: snapshot the originating Telegram message (and upsert
         # the sending User / Chat) so the graph path is row-for-row identical to the
         # legacy lifecycle. Best-effort, mirroring legacy: a snapshot failure must
@@ -998,17 +1092,17 @@ class GraphURLProcessor:
                 extra={"cid": request.correlation_id, "req_id": req_id},
             )
 
-    async def _record_url_flow_start(self, *, request: URLFlowRequest, req_id: int) -> None:
-        """Write a ``running`` job row at flow entry for crash-recovery (lease)."""
+    async def _record_url_flow_start(self, *, request: URLFlowRequest, req_id: int) -> bool:
+        """Atomically claim the synchronous request processing lease."""
         if not request.manage_processing_job:
-            return
+            return True
         try:
             from app.infrastructure.persistence.request_processing_job_repository import (
                 RequestProcessingJobRepository,
             )
 
             repo = RequestProcessingJobRepository(self.db)
-            await repo.record_synchronous_start(
+            return await repo.record_synchronous_start(
                 request_id=req_id,
                 correlation_id=request.correlation_id,
                 lease_ttl_seconds=int(getattr(self.cfg.runtime, "url_flow_lease_ttl_sec", 900)),
@@ -1020,6 +1114,9 @@ class GraphURLProcessor:
                 "graph_url_flow_job_start_record_failed",
                 extra={"cid": request.correlation_id, "req_id": req_id, "error": str(exc)},
             )
+            # Crash-recovery observability is best-effort. A transient failure to
+            # record the lease must not make an otherwise valid URL unprocessable.
+            return True
 
     async def _record_url_flow_terminal(
         self,

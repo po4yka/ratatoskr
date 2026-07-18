@@ -8,6 +8,7 @@ from html import unescape
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from app.adapters.content.scraper.json_fetch import read_json_capped
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_url_for_logging
@@ -32,11 +33,13 @@ class HackerNewsProvider:
         timeout_sec: int = 20,
         top_comments: int = 20,
         client: Any | None = None,
+        max_response_mb: int = 10,
     ) -> None:
         self._timeout_sec = timeout_sec
         self._top_comments = max(1, top_comments)
         self._client = client
         self._owns_client = client is None
+        self._max_response_bytes = max_response_mb * 1024 * 1024
 
     @property
     def provider_name(self) -> str:
@@ -101,17 +104,23 @@ class HackerNewsProvider:
         )
 
     async def _fetch_json(self, endpoint: str) -> tuple[dict[str, Any], int]:
-        client = self._client
-        if client is None:
+        headers = {"Accept": "application/json"}
+        if self._client is None:
             client = make_safe_async_client(timeout=self._timeout_sec, follow_redirects=True)
             async with client as owned_client:
-                response = await owned_client.get(endpoint, headers={"Accept": "application/json"})
-                response.raise_for_status()
-                return response.json(), response.status_code
+                return await read_json_capped(
+                    owned_client,
+                    endpoint,
+                    headers=headers,
+                    max_bytes=self._max_response_bytes,
+                )
 
-        response = await client.get(endpoint, headers={"Accept": "application/json"})
-        response.raise_for_status()
-        return response.json(), response.status_code
+        return await read_json_capped(
+            self._client,
+            endpoint,
+            headers=headers,
+            max_bytes=self._max_response_bytes,
+        )
 
     async def aclose(self) -> None:
         if self._owns_client or self._client is None:

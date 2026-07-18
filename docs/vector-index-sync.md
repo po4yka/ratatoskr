@@ -21,11 +21,13 @@ Every generated summary embedding stored in `summary_embeddings` stamps:
 
 - `content_hash` — SHA256 of the text fed to the embedding model (computed by `SummaryEmbeddingGenerator`).
 - `index_status` — set to `"pending"` until the Qdrant point write succeeds.
-- `last_indexed_at` — UTC timestamp of the most recent successful Qdrant write.
+- `last_indexed_at` — UTC timestamp of the most recent Qdrant write that returned a successful acknowledgement (`completed` for the default `wait=true` path).
 
 On a subsequent generate call the generator short-circuits when an existing row's `content_hash` matches the freshly-prepared text — no embedding API call, no Qdrant upsert. The fast path and Taskiq reconciler mark rows `"indexed"` only after the matching Qdrant upsert succeeds. The reconciler treats `last_indexed_at < summaries.updated_at` (or NULL) as drift and re-runs the generator with `force=True`.
 
 Repository embeddings use the same cursor: `repository_embeddings.content_hash` tracks the embedded repository text, `index_status` remains `"pending"` until Qdrant accepts the deterministic repository point, and `last_indexed_at` is updated only after that successful upsert.
+
+All writers treat a missing, timed-out, or failed Qdrant acknowledgement as an unsuccessful write even when Qdrant is optional. They leave the SQL row pending and do not advance `last_indexed_at`; the fast path and reconciler can therefore retry without hiding drift.
 
 ## Environment variables
 

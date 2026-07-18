@@ -398,9 +398,7 @@ async def test_refresh_persists_family_id_and_parent_token_hash_on_rotation(db, 
 
 @pytest.mark.asyncio
 async def test_refresh_family_revoke_writes_one_audit_log_row(db, user_factory):
-    """REVOKE_FAMILY path writes exactly one AuditLog row with the
-    family_id + presented_token_hash_prefix in the payload.
-    """
+    """REVOKE_FAMILY writes one audit row without persisting token material."""
     from app.db.models import AuditLog as AuditLogModel
 
     user = await user_factory(telegram_user_id=987654324, username="audit-victim")
@@ -442,7 +440,7 @@ async def test_refresh_family_revoke_writes_one_audit_log_row(db, user_factory):
     assert payload_json is not None
     assert payload_json.get("family_id") == family_id
     assert payload_json.get("user_id") == user.telegram_user_id
-    assert payload_json.get("presented_token_hash_prefix") == revoked_hash[:8]
+    assert payload_json.get("presented_token_hash_prefix") == "[REDACTED]"
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,21 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Injection-signal phrases stripped from user-role message text by
+# RequestBuilder.sanitize_messages. Compiled once at import rather than rebuilt
+# and recompiled per message on every chat() call. Cosmetic filter only, not a
+# security boundary -- see sanitize_messages for the rationale.
+_INJECTION_SIGNAL_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(phrase, re.IGNORECASE)
+    for phrase in (
+        r"ignore previous instructions",
+        r"forget previous instructions",
+        r"system:",
+        r"assistant:",
+        r"user:",
+    )
+)
+
 
 class RequestBuilder:
     """Builds and validates HTTP requests for OpenRouter API."""
@@ -224,22 +239,14 @@ class RequestBuilder:
         they appear in valid user content (code pastes) and removing them silently
         corrupts that content without meaningfully blocking injection.
         """
-        patterns = [
-            r"(?i)ignore previous instructions",
-            r"(?i)forget previous instructions",
-            r"(?i)system:",
-            r"(?i)assistant:",
-            r"(?i)user:",
-        ]
-
         sanitized_messages = []
         for msg in messages:
             if msg["role"] == "user":
                 content = msg["content"]
                 if isinstance(content, str):
                     sanitized_content = content
-                    for pat in patterns:
-                        sanitized_content = re.sub(pat, "", sanitized_content)
+                    for pat in _INJECTION_SIGNAL_PATTERNS:
+                        sanitized_content = pat.sub("", sanitized_content)
                     if sanitized_content != content:
                         msg = {**msg, "content": sanitized_content}
                 elif isinstance(content, list):
@@ -247,8 +254,8 @@ class RequestBuilder:
                     for part in content:
                         if part.get("type") == "text" and isinstance(part.get("text"), str):
                             sanitized_text = part["text"]
-                            for pat in patterns:
-                                sanitized_text = re.sub(pat, "", sanitized_text)
+                            for pat in _INJECTION_SIGNAL_PATTERNS:
+                                sanitized_text = pat.sub("", sanitized_text)
                             sanitized_parts.append({**part, "text": sanitized_text})
                         else:
                             sanitized_parts.append(part)

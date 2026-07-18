@@ -3,6 +3,7 @@ Tests for collections management endpoints (direct calls).
 """
 
 import pytest
+from sqlalchemy import select
 
 from app.api.models.requests import (
     CollectionCreateRequest,
@@ -16,7 +17,7 @@ from app.db.models import Collection, CollectionItem
 
 @pytest.mark.asyncio
 async def test_create_collection(db, user_factory, collection_service):
-    user = user_factory(username="col_user")
+    user = await user_factory(username="col_user")
     user_context = {"user_id": user.telegram_user_id}
 
     body = CollectionCreateRequest(name="My Favs", description="Desc")
@@ -32,7 +33,7 @@ async def test_create_collection(db, user_factory, collection_service):
 
 @pytest.mark.asyncio
 async def test_get_collections(db, user_factory, collection_service):
-    user = user_factory(username="col_user_list")
+    user = await user_factory(username="col_user_list")
     user_context = {"user_id": user.telegram_user_id}
 
     # Create via DB or router
@@ -53,8 +54,8 @@ async def test_get_collections(db, user_factory, collection_service):
 
 @pytest.mark.asyncio
 async def test_get_collections_membership_filters(db, user_factory, collection_service):
-    owner = user_factory(username="col_filter_owner", telegram_user_id=7101)
-    collaborator = user_factory(username="col_filter_collab", telegram_user_id=7102)
+    owner = await user_factory(username="col_filter_owner", telegram_user_id=7101)
+    collaborator = await user_factory(username="col_filter_collab", telegram_user_id=7102)
     collaborator_context = {"user_id": collaborator.telegram_user_id}
 
     owned = await collection_service.create_collection(
@@ -104,9 +105,9 @@ async def test_get_collections_membership_filters(db, user_factory, collection_s
 
 @pytest.mark.asyncio
 async def test_list_incoming_collection_invites(db, user_factory, collection_service):
-    owner = user_factory(username="col_invite_owner", telegram_user_id=7111)
-    invitee = user_factory(username="col_invite_invitee", telegram_user_id=7112)
-    other = user_factory(username="col_invite_other", telegram_user_id=7113)
+    owner = await user_factory(username="col_invite_owner", telegram_user_id=7111)
+    invitee = await user_factory(username="col_invite_invitee", telegram_user_id=7112)
+    other = await user_factory(username="col_invite_other", telegram_user_id=7113)
     collection = await collection_service.create_collection(
         user_id=owner.telegram_user_id,
         name="Invite Target",
@@ -128,6 +129,8 @@ async def test_list_incoming_collection_invites(db, user_factory, collection_ser
     )
 
     response = await collections.list_incoming_collection_invites(
+        limit=20,
+        offset=0,
         user={"user_id": invitee.telegram_user_id},
         service=collection_service,
     )
@@ -141,7 +144,7 @@ async def test_list_incoming_collection_invites(db, user_factory, collection_ser
 
 @pytest.mark.asyncio
 async def test_update_collection(db, user_factory, collection_service):
-    user = user_factory(username="col_user_update")
+    user = await user_factory(username="col_user_update")
     user_context = {"user_id": user.telegram_user_id}
 
     create_resp = await collections.create_collection(
@@ -161,7 +164,7 @@ async def test_update_collection(db, user_factory, collection_service):
 
 @pytest.mark.asyncio
 async def test_delete_collection(db, user_factory, collection_service):
-    user = user_factory(username="col_user_del")
+    user = await user_factory(username="col_user_del")
     user_context = {"user_id": user.telegram_user_id}
 
     create_resp = await collections.create_collection(
@@ -174,7 +177,8 @@ async def test_delete_collection(db, user_factory, collection_service):
     )
 
     # Verify soft deletion
-    deleted = Collection.get_or_none(Collection.id == cid)
+    async with db.session() as session:
+        deleted = await session.scalar(select(Collection).where(Collection.id == cid))
     assert deleted is not None
     assert deleted.is_deleted is True
 
@@ -224,7 +228,7 @@ async def test_get_collection_tree_returns_collections_array(db, user_factory, c
 
 @pytest.mark.asyncio
 async def test_add_remove_item(db, user_factory, summary_factory, collection_service):
-    user = user_factory(username="col_user_item")
+    user = await user_factory(username="col_user_item")
     user_context = {"user_id": user.telegram_user_id}
 
     # Create collection
@@ -234,7 +238,7 @@ async def test_add_remove_item(db, user_factory, summary_factory, collection_ser
     cid = create_resp["data"]["id"]
 
     # Create summary
-    summary = summary_factory(user=user)
+    summary = await summary_factory(user=user)
 
     # Add item
     await collections.add_collection_item(
@@ -244,11 +248,14 @@ async def test_add_remove_item(db, user_factory, summary_factory, collection_ser
         service=collection_service,
     )
 
-    assert (
-        CollectionItem.select()
-        .where((CollectionItem.collection_id == cid) & (CollectionItem.summary_id == summary.id))
-        .exists()
-    )
+    async with db.session() as session:
+        item_id = await session.scalar(
+            select(CollectionItem.id).where(
+                CollectionItem.collection_id == cid,
+                CollectionItem.summary_id == summary.id,
+            )
+        )
+    assert item_id is not None
 
     # Remove item
     await collections.remove_collection_item(
@@ -258,8 +265,11 @@ async def test_add_remove_item(db, user_factory, summary_factory, collection_ser
         service=collection_service,
     )
 
-    assert (
-        not CollectionItem.select()
-        .where((CollectionItem.collection_id == cid) & (CollectionItem.summary_id == summary.id))
-        .exists()
-    )
+    async with db.session() as session:
+        item_id = await session.scalar(
+            select(CollectionItem.id).where(
+                CollectionItem.collection_id == cid,
+                CollectionItem.summary_id == summary.id,
+            )
+        )
+    assert item_id is None

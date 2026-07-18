@@ -35,7 +35,6 @@ This repository uses Obsidian Tasks-compatible Markdown checkboxes as the canoni
 - `docs/tasks/blocked.md` — Obsidian Tasks query view for `#status/blocked`
 - `docs/tasks/dashboard.md` — full query hub + Bases view links
 - `docs/tasks/board.md` — Kanban board (visual only; source of truth is `issues/`)
-- `docs/ROADMAP_PRIORITIES.md` — cross-project roadmap (strategic, not per-task)
 
 ## Rules
 
@@ -45,9 +44,8 @@ This repository uses Obsidian Tasks-compatible Markdown checkboxes as the canoni
 4. Keep task titles imperative and implementation-oriented.
 5. Exactly one `#status/*` tag per task; remove the previous one when transitioning.
 6. Add `#blocked` alongside `#status/blocked`; add an indented reason below.
-7. When completing: change `[ ]` to `[x]`, set `#status/done`, add `✅ YYYY-MM-DD`.
-8. `docs/ROADMAP_PRIORITIES.md` is a strategic planning document — task details go in `docs/tasks/`.
-9. Do not change unrelated prose, code, or other sections.
+7. Complete or drop a task by deleting its `issues/<slug>.md` note; git history is the audit trail.
+8. Do not change unrelated prose, code, or other sections.
 
 ## Per-task notes
 
@@ -94,6 +92,7 @@ The Tasks plugin picks up this line when querying across the vault — stored in
 
 1. Search `docs/tasks/` for similar tasks.
 2. If similar task exists, update it instead of duplicating.
-3. Choose the right file: `backlog.md` for new work, `active.md` if starting now.
-4. Assign: `#repo/ratatoskr`, `#area/<area>`, one `#status/*`, priority marker.
-5. Add context as indented bullets only when acceptance criteria is non-obvious.
+3. Create `docs/tasks/issues/<kebab-case-slug>.md` from `docs/tasks/templates/new-task.md`.
+4. Set `status:` in frontmatter and the matching `#status/*` tag in the canonical line.
+5. Assign `#repo/ratatoskr`, `#area/<area>`, and a priority marker.
+6. Add context as indented bullets only when acceptance criteria is non-obvious.

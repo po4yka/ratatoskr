@@ -15,6 +15,7 @@ import app.application.graphs.summarize.nodes._span as span_mod
 from app.application.graphs.summarize import nodes
 from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS, SummarizeState
+from app.core.url_utils import compute_dedupe_hash
 from app.observability.attributes import GRAPH_NODE, GRAPH_THREAD_ID, REQUEST_CORRELATION_ID
 
 ALL_NODES = [
@@ -84,9 +85,32 @@ async def test_ground_returns_empty_grounding() -> None:
     assert out["grounding_ids"] == []
 
 
-async def test_validate_reports_valid_by_default() -> None:
+async def test_ingest_normalizes_url_computes_dedupe_and_settles_ids() -> None:
+    out = await nodes.ingest(
+        _state(
+            correlation_id=" cid-xyz ",
+            request_id=7,
+            input_url="HTTPS://Example.COM/article/?utm_source=test&b=2&a=1",
+        ),
+        deps=MagicMock(),
+    )
+
+    assert out == {
+        "correlation_id": "cid-xyz",
+        "request_id": 7,
+        "input_url": "https://example.com/article?a=1&b=2",
+        "dedupe_hash": compute_dedupe_hash("https://example.com/article?a=1&b=2"),
+    }
+
+
+async def test_ingest_rejects_non_positive_request_id() -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        await nodes.ingest(_state(request_id=0), deps=MagicMock())
+
+
+async def test_validate_reports_missing_summary_by_default() -> None:
     out = await nodes.validate(_state(), deps=MagicMock())
-    assert out["validation_errors"] == []
+    assert out["validation_errors"] == ["Summary is missing"]
 
 
 async def test_repair_increments_attempts_under_budget() -> None:
@@ -114,7 +138,7 @@ async def test_repair_prompt_includes_validation_errors_and_prior_candidate(
 
     async def _fake_summarize_with_instructor(*, messages, **kwargs):
         captured["messages"] = messages
-        return {"summary_250": "fixed"}, {"model": "m", "tokens_prompt": 1}
+        return {"summary_250": "fixed"}, [{"model": "m", "tokens_prompt": 1}], 1
 
     monkeypatch.setattr(
         repair_mod,

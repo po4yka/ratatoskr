@@ -109,3 +109,74 @@ async def test_signal_judge_skips_candidate_on_llm_error() -> None:
 
     assert len(llm.calls) == 1
     assert judged == {}
+
+
+class _RecordingLLMRepo:
+    """Capture every persisted LLM-call payload (mirrors LLMRepositoryPort)."""
+
+    def __init__(self) -> None:
+        self.records: list[dict] = []
+
+    async def async_insert_llm_call(self, record: dict) -> int:
+        self.records.append(record)
+        return len(self.records)
+
+
+@pytest.mark.asyncio
+async def test_signal_judge_persists_successful_llm_call() -> None:
+    llm = _FakeLLM('{"relevance_score": 0.8, "decision": "queue", "reason": "useful"}')
+    repo = _RecordingLLMRepo()
+    service = SignalJudgeService(llm_client=llm, llm_repo=repo, daily_budget_usd=1.0)
+
+    judged = await service.judge(
+        [SimpleNamespace(feed_item_id=1, should_reach_llm_judge=True, evidence={}, score=0.7)],
+        rows_by_item_id={1: {"title": "Useful", "content_text": "body"}},
+    )
+
+    assert judged[1].decision == "queue"
+    assert len(repo.records) == 1
+    record = repo.records[0]
+    assert record["endpoint"] == "signal_judge"
+    assert record["status"] == "success"
+    assert record["model"] == "test-model"
+    assert record["cost_usd"] == 0.01
+    assert record["latency_ms"] == 123
+    assert record["structured_output_used"] is True
+
+
+@pytest.mark.asyncio
+async def test_signal_judge_persists_failed_llm_call() -> None:
+    class ErrorLLM(_FakeLLM):
+        async def chat_structured(self, messages, *, response_model, **kwargs):
+            self.calls.append({"messages": messages, **kwargs})
+            raise ValueError("LLM unavailable")
+
+    llm = ErrorLLM("")
+    repo = _RecordingLLMRepo()
+    service = SignalJudgeService(llm_client=llm, llm_repo=repo, daily_budget_usd=1.0)
+
+    judged = await service.judge(
+        [SimpleNamespace(feed_item_id=1, should_reach_llm_judge=True, evidence={}, score=0.7)],
+        rows_by_item_id={1: {"title": "x"}},
+    )
+
+    assert judged == {}
+    assert len(repo.records) == 1
+    record = repo.records[0]
+    assert record["endpoint"] == "signal_judge"
+    assert record["status"] == "error"
+    assert record["error_text"] == "LLM unavailable"
+
+
+@pytest.mark.asyncio
+async def test_signal_judge_without_repo_still_scores() -> None:
+    """Persistence is best-effort: a None repo must not break judging."""
+    llm = _FakeLLM('{"relevance_score": 0.8, "decision": "queue", "reason": "useful"}')
+    service = SignalJudgeService(llm_client=llm, daily_budget_usd=1.0)
+
+    judged = await service.judge(
+        [SimpleNamespace(feed_item_id=1, should_reach_llm_judge=True, evidence={}, score=0.7)],
+        rows_by_item_id={1: {"title": "Useful", "content_text": "body"}},
+    )
+
+    assert judged[1].decision == "queue"

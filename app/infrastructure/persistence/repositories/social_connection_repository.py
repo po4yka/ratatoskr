@@ -372,9 +372,11 @@ def _safe_url(value: str | None) -> str | None:
     if split.port:
         netloc = f"{netloc}:{split.port}"
     safe_query = urlencode(
-        (key, val)
-        for key, val in parse_qsl(split.query, keep_blank_values=True)
-        if _is_safe_nested_key(key)
+        [
+            (key, val)
+            for key, val in parse_qsl(split.query, keep_blank_values=True)
+            if _is_safe_nested_key(key)
+        ]
     )
     return urlunsplit((split.scheme, netloc, split.path, safe_query, ""))[:2000]
 

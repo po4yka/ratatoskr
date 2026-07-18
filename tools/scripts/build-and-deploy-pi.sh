@@ -5,6 +5,7 @@
 # Usage:
 #   tools/scripts/build-and-deploy-pi.sh                                # build + ship + restart `ratatoskr`
 #   tools/scripts/build-and-deploy-pi.sh --service mobile-api
+#   tools/scripts/build-and-deploy-pi.sh --service pg-backup
 #   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --service worker --service scheduler
 #   tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler"
 #   tools/scripts/build-and-deploy-pi.sh --all                          # all supported services
@@ -15,8 +16,9 @@
 #   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --rollback # swap latest/previous and recreate
 #
 # Supported services: ratatoskr, worker, scheduler, mcp, mcp-write,
-# mcp-public, mobile-api. Services sharing ops/docker/Dockerfile (everything
-# except mobile-api) are built once and re-tagged for each requested service.
+# mcp-public, mobile-api, pg-backup. App services sharing ops/docker/Dockerfile
+# are built once and re-tagged; mobile-api and pg-backup use their dedicated
+# Dockerfiles.
 # Migration application is intentionally separate from deployment. Use
 # `--migrate-only` for a dry-run and `--migrate-only --apply` to mutate the
 # schema. Each Dockerfile group streams as a single tar so `docker load`
@@ -27,6 +29,8 @@
 #   RASPI_REMOTE_PATH   Repo path on the Pi              (default: ~/ratatoskr)
 #   COMPOSE_PROJECT     Compose project name on the Pi   (default: docker)
 #   COMPOSE_ENV_FILE    Env file passed to compose       (default: .env)
+#   PI_HEALTH_TIMEOUT_SECONDS  Post-restart health wait   (default: 240)
+#   PI_HEALTH_POLL_SECONDS     Health polling interval    (default: 5)
 #   WITH_PLAYWRIGHT     mobile-api chromium install      (default: 0)
 #                       — the Pi overlay sets SCRAPER_PLAYWRIGHT_ENABLED=false
 #                       for mobile-api, so chromium is unused at runtime and
@@ -42,9 +46,9 @@
 #
 # The app-service restart uses `--no-deps --force-recreate ${SERVICE}` so we
 # never disturb postgres/redis/qdrant during recreation. A post-recreate
-# `docker network connect docker_default` works around a compose quirk that
-# occasionally drops the default-network attachment for mobile-api under
-# --no-deps.
+# `docker network connect --alias <service> docker_default` works around a
+# compose quirk that occasionally drops the default-network attachment under
+# --no-deps while preserving Compose service-name discovery.
 
 set -euo pipefail
 
@@ -58,13 +62,25 @@ COMPOSE_PROJECT=${COMPOSE_PROJECT:-docker}
 COMPOSE_ENV_FILE=${COMPOSE_ENV_FILE:-.env}
 PLATFORM=linux/arm64
 WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT:-0}
+PI_HEALTH_TIMEOUT_SECONDS=${PI_HEALTH_TIMEOUT_SECONDS:-240}
+PI_HEALTH_POLL_SECONDS=${PI_HEALTH_POLL_SECONDS:-5}
+
+for value_name in PI_HEALTH_TIMEOUT_SECONDS PI_HEALTH_POLL_SECONDS; do
+  value=${!value_name}
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "${value_name} must be a positive integer (got '${value}')" >&2
+    exit 2
+  fi
+done
 
 SHARED_DOCKERFILE=ops/docker/Dockerfile
 API_DOCKERFILE=ops/docker/Dockerfile.api
+BACKUP_DOCKERFILE=ops/docker/pg-backup/Dockerfile
 MIGRATE_SERVICE=migrate
 SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
-ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}")
+BACKUP_SERVICES=(pg-backup)
+ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
 
 SERVICES=()
 RESTART=1
@@ -76,7 +92,7 @@ GIT_SHA=$(git rev-parse --short=12 HEAD 2>/dev/null || echo "unknown")
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 usage() {
-  sed -n '2,42p' "$0"
+  sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -138,6 +154,7 @@ fi
 # Validate and bucket each requested service by its Dockerfile.
 SHARED_TO_BUILD=()
 API_TO_BUILD=()
+BACKUP_TO_BUILD=()
 for svc in "${SERVICES[@]}"; do
   matched=0
   if [[ "$svc" == "$MIGRATE_SERVICE" ]]; then
@@ -153,6 +170,11 @@ for svc in "${SERVICES[@]}"; do
     done
   fi
   if [[ $matched -eq 0 ]]; then
+    for backup in "${BACKUP_SERVICES[@]}"; do
+      [[ "$svc" == "$backup" ]] && { BACKUP_TO_BUILD+=("$svc"); matched=1; break; }
+    done
+  fi
+  if [[ $matched -eq 0 ]]; then
     echo "unsupported service: $svc (expected: ${ALL_SERVICES[*]})" >&2
     exit 2
   fi
@@ -161,6 +183,7 @@ done
 if [[ $ROLLBACK -eq 1 ]]; then
   SHARED_TO_BUILD=()
   API_TO_BUILD=()
+  BACKUP_TO_BUILD=()
 fi
 
 command -v docker >/dev/null || { echo "docker is not on PATH" >&2; exit 1; }
@@ -219,25 +242,33 @@ build_and_ship() {
   set -e
   [[ $stream_exit -ne 0 ]] && echo "    (ssh exited $stream_exit -- verifying tag presence on Pi)"
 
-  # Verify each tag exists on the Pi. Cross-host SHA comparison is
-  # unreliable (buildx --load on Apple Silicon reports the manifest-list
-  # digest locally; the Pi's docker load creates a single-platform image
-  # with a different config digest), so we only assert presence here.
+  # Verify each tag resolves to THIS build on the Pi. Mere presence is not
+  # enough: while a multi-GB `docker load` is still settling (or when ssh exits
+  # 255 before the load finalizes) the tag can briefly still point at the
+  # PREVIOUS image, which then gets picked up by the recreate below (observed
+  # 2026-07-14: mobile-api recreated on the old image and crash-looped its
+  # schema-at-head gate). Cross-host image-ID comparison is unreliable (buildx
+  # --load on Apple Silicon reports the manifest-list digest locally vs a
+  # single-platform config digest on the Pi), so match the immutable
+  # `org.opencontainers.image.created` label (unique per deploy) baked in at
+  # build time instead.
   for s in "${services[@]}"; do
     local tag="${COMPOSE_PROJECT}-${s}:latest"
-    local remote_id=""
-    for attempt in 1 2 3 4 5; do
-      remote_id=$(ssh -o BatchMode=yes "$RASPI_HOST" \
-        "docker image inspect ${tag} --format '{{.Id}}'" 2>/dev/null || true)
-      [[ -n "$remote_id" ]] && break
-      echo "    ${tag} probe ${attempt}/5 empty; retrying in 3s..." >&2
+    local remote_created="" remote_id=""
+    for attempt in 1 2 3 4 5 6 7 8; do
+      remote_created=$(ssh -o BatchMode=yes "$RASPI_HOST" \
+        "docker image inspect ${tag} --format '{{ index .Config.Labels \"org.opencontainers.image.created\" }}'" 2>/dev/null || true)
+      [[ "$remote_created" == "$DEPLOYED_AT" ]] && break
+      echo "    ${tag} not yet this build (created='${remote_created:-<none>}', want '${DEPLOYED_AT}'); retry ${attempt}/8 in 3s..." >&2
       sleep 3
     done
-    if [[ -z "$remote_id" ]]; then
-      echo "ERROR: ${tag} not found on Pi after streaming" >&2
+    if [[ "$remote_created" != "$DEPLOYED_AT" ]]; then
+      echo "ERROR: ${tag} on Pi is not this build (created='${remote_created:-<none>}', want '${DEPLOYED_AT}') -- docker load may have failed or stalled" >&2
       exit 1
     fi
-    echo "    ${tag} -> ${remote_id}"
+    remote_id=$(ssh -o BatchMode=yes "$RASPI_HOST" \
+      "docker image inspect ${tag} --format '{{.Id}}'" 2>/dev/null || true)
+    echo "    ${tag} -> ${remote_id} (created ${remote_created})"
   done
 }
 
@@ -247,6 +278,9 @@ if [[ ${#SHARED_TO_BUILD[@]} -gt 0 ]]; then
 fi
 if [[ ${#API_TO_BUILD[@]} -gt 0 ]]; then
   build_and_ship "$API_DOCKERFILE" "WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT}" -- "${API_TO_BUILD[@]}"
+fi
+if [[ ${#BACKUP_TO_BUILD[@]} -gt 0 ]]; then
+  build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"
 fi
 
 COMPOSE_RUN=(
@@ -265,10 +299,19 @@ run_remote_migrations() {
   else
     echo "==> Rendering database migration SQL dry-run on ${RASPI_HOST}"
   fi
+  # `compose run` has no `--no-build` flag before compose v2.27 (the Pi runs
+  # v2.24.6) and does not build without an explicit `--build` anyway, so the
+  # flag is both unsupported and redundant here -- the migrate image is streamed
+  # in by build_and_ship above. `up` does support `--no-build`, so it stays.
+  # Pass the full command explicitly. `docker compose run migrate --apply`
+  # REPLACES the service's `command:` with `--apply`, so tini tries to exec
+  # `--apply` as a program ("exec --apply failed: No such file or directory").
+  # Spelling out `python -m app.cli.migrate_db` keeps the entrypoint intact and
+  # appends the flag as an argument.
   ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
     ${COMPOSE_RUN[*]} up -d --no-build postgres && \
     ( ${COMPOSE_RUN[*]} rm -sf ${MIGRATE_SERVICE} >/dev/null 2>&1 || true ) && \
-    ${COMPOSE_RUN[*]} run --rm --no-build ${MIGRATE_SERVICE} ${migrate_args[*]}"
+    ${COMPOSE_RUN[*]} run --rm ${MIGRATE_SERVICE} python -m app.cli.migrate_db ${migrate_args[*]}"
 }
 
 tag_running_image_as_previous() {
@@ -284,6 +327,97 @@ tag_running_image_as_previous() {
     else \
       echo '    no running container; previous tag unchanged'; \
     fi"
+}
+
+restart_service_verified() {
+  # `compose up --force-recreate` can land on a STALE image if the :latest tag
+  # was not yet settled when it ran (see the build_and_ship note). That verify
+  # already blocks until the tag is this build, but confirm here too and retry:
+  # after recreate the running container's image must equal the current :latest.
+  # Same-host image-ID comparison is reliable (unlike the cross-host case), so
+  # compare the container's .Image to the :latest .Id directly.
+  local svc=$1
+  local latest_tag="${COMPOSE_PROJECT}-${svc}:latest"
+  local attempt verdict
+  for attempt in 1 2 3; do
+    # `|| true`: a transient ssh drop during recreate must not abort under
+    # `set -e`; the verify below (NO_CONTAINER / MISMATCH) drives the retry.
+    ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-build --no-deps --force-recreate ${svc}" || true
+    verdict=$(ssh -o BatchMode=yes "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+      CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null); \
+      [ -n \"\$CID\" ] || { echo NO_CONTAINER; exit 0; }; \
+      RUN_IMG=\$(docker inspect --format '{{.Image}}' \"\$CID\" 2>/dev/null); \
+      LATEST_IMG=\$(docker image inspect '${latest_tag}' --format '{{.Id}}' 2>/dev/null); \
+      if [ -n \"\$RUN_IMG\" ] && [ \"\$RUN_IMG\" = \"\$LATEST_IMG\" ]; then echo MATCH; \
+      else echo \"MISMATCH run=\${RUN_IMG:-none} latest=\${LATEST_IMG:-none}\"; fi" 2>/dev/null || true)
+    if [[ "$verdict" == MATCH ]]; then
+      echo "    ${svc} confirmed running on current ${latest_tag}"
+      return 0
+    fi
+    echo "    ${svc} recreate landed on stale/no image (${verdict}); retry ${attempt}/3 in 4s..." >&2
+    sleep 4
+  done
+  echo "ERROR: ${svc} did not come up on ${latest_tag} after 3 recreate attempts" >&2
+  exit 1
+}
+
+diagnose_service_health() {
+  local svc=$1
+  echo "==> Diagnostic state for ${svc}" >&2
+  ssh -o BatchMode=yes "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+    CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null || true); \
+    if [ -z \"\$CID\" ]; then \
+      echo '    container not found' >&2; \
+    else \
+      docker inspect --format '{{json .State}}' \"\$CID\" 2>/dev/null || true; \
+      ${COMPOSE_RUN[*]} logs --no-color --tail=50 ${svc} 2>/dev/null || true; \
+    fi" >&2 || true
+}
+
+wait_for_service_health() {
+  local svc=$1
+  local deadline=$((SECONDS + PI_HEALTH_TIMEOUT_SECONDS))
+  local verdict=""
+
+  echo "==> Waiting up to ${PI_HEALTH_TIMEOUT_SECONDS}s for ${svc} health"
+  while (( SECONDS < deadline )); do
+    verdict=$(ssh -o BatchMode=yes "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+      CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null || true); \
+      [ -n \"\$CID\" ] || { echo 'missing none'; exit 0; }; \
+      STATE=\$(docker inspect --format '{{.State.Status}}' \"\$CID\" 2>/dev/null || true); \
+      HEALTH=\$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \"\$CID\" 2>/dev/null || true); \
+      echo \"\${STATE:-unknown} \${HEALTH:-unknown}\"" 2>/dev/null || true)
+
+    case "$verdict" in
+      "running healthy")
+        echo "    ${svc} is healthy"
+        return 0
+        ;;
+      "running starting"|"unknown unknown"|"")
+        ;;
+      "running unhealthy")
+        echo "ERROR: ${svc} reported unhealthy after restart" >&2
+        diagnose_service_health "$svc"
+        return 1
+        ;;
+      "running none")
+        echo "ERROR: ${svc} has no Docker healthcheck" >&2
+        diagnose_service_health "$svc"
+        return 1
+        ;;
+      *)
+        echo "ERROR: ${svc} stopped while waiting for health (state: ${verdict})" >&2
+        diagnose_service_health "$svc"
+        return 1
+        ;;
+    esac
+
+    sleep "$PI_HEALTH_POLL_SECONDS"
+  done
+
+  echo "ERROR: timed out after ${PI_HEALTH_TIMEOUT_SECONDS}s waiting for ${svc} health (last state: ${verdict:-unknown})" >&2
+  diagnose_service_health "$svc"
+  return 1
 }
 
 rollback_service_image() {
@@ -342,7 +476,7 @@ ratatoskr_deploy_version_info{service="${svc}",slot="previous",git_sha="${previo
 EOF
 )
   echo "==> Writing deploy version metric for ${svc}"
-  printf "%s\n" "$metrics" | ssh "$RASPI_HOST" "docker run --rm -i --user 0 -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile '${latest_tag}' sh -c 'cat > /textfile/ratatoskr_deploy_${svc}.prom'"
+  printf "%s\n" "$metrics" | ssh "$RASPI_HOST" "docker run --rm -i --user 0 --entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile '${latest_tag}' -c 'cat > /textfile/ratatoskr_deploy_${svc}.prom'"
 }
 
 if [[ $MIGRATE_ONLY -eq 1 ]]; then
@@ -355,27 +489,29 @@ elif [[ $RESTART -eq 1 ]]; then
       tag_running_image_as_previous "$svc"
     fi
     echo "==> Restarting ${svc} on ${RASPI_HOST} (project: ${COMPOSE_PROJECT})"
-    ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}"
+    restart_service_verified "$svc"
 
     # Workaround for a `compose up --no-deps --force-recreate` quirk observed
     # 2026-05-24: mobile-api ended up attached to only the external
-    # `firecrawl_internal` network, with `docker_default` dropped. Bot didn't
-    # reproduce. `docker network connect` errors with "already exists" when
-    # correctly attached, so `|| true` keeps this idempotent across services
-    # that may or may not need docker_default.
+    # `firecrawl_internal` network, with `docker_default` dropped. A network
+    # connect errors with "already exists" when correctly attached, so `|| true`
+    # keeps this idempotent across services that may or may not need the default
+    # network. The explicit service alias is essential: Prometheus and status
+    # probes address exporters by Compose service name.
     echo "==> Ensuring ${svc} is attached to docker_default"
     ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
       CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null) && \
       [ -n \"\$CID\" ] && \
-      docker network connect docker_default \"\$CID\" 2>/dev/null \
+      docker network connect --alias '${svc}' docker_default \"\$CID\" 2>/dev/null \
       && echo '    attached docker_default' \
       || echo '    docker_default already attached or not declared'"
+    wait_for_service_health "$svc"
     write_deploy_metrics "$svc"
   done
 else
   echo "==> Skipping restart (--no-restart). To start manually on the Pi:"
   for svc in "${SERVICES[@]}"; do
-    echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}'"
+    echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-build --no-deps --force-recreate ${svc}'"
   done
 fi
 

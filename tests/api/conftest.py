@@ -36,7 +36,7 @@ class NotRequired(metaclass=_NotRequiredMeta):
     """Compatibility shim for NotRequired (Python 3.11+)."""
 
 
-import app.di.database as _di_database
+import app.db.runtime_database as _db_runtime
 from app.api.dependencies.database import clear_session_manager
 from app.config.database import DatabaseConfig
 from app.db.base import Base
@@ -99,12 +99,12 @@ async def db(monkeypatch):
     # internal `get_or_create_runtime_database_from_env()` lookup) use it.
     # Post-#9 (eliminate-module-globals) the cache is a 1-element holder list,
     # not a bare attribute.
-    _di_database._cached_runtime_db_holder[0] = database
+    _db_runtime._cached_runtime_db_holder[0] = database
 
     try:
         yield database
     finally:
-        _di_database._cached_runtime_db_holder[0] = None
+        _db_runtime._cached_runtime_db_holder[0] = None
         clear_session_manager()
         await database.dispose()
 

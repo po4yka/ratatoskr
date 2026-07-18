@@ -3,8 +3,8 @@
 The strict-msgpack invariant (no pickle fallback) requires every state field to be
 a plain serializable primitive. ``json.dumps`` is a CI-safe proxy (JSON-serializable
 => msgpack-serializable for str/int/list/dict; a port/session/Pydantic leak raises),
-and the real langgraph ``JsonPlusSerializer`` round-trip runs locally (skipped where
-the optional ``graph`` extra is absent).
+and the real LangGraph ``JsonPlusSerializer`` round-trip runs in every ordinary
+test environment.
 """
 
 from __future__ import annotations
@@ -70,13 +70,13 @@ def test_state_annotations_are_serializable_primitives() -> None:
 
 # ── audit #7: bulk-field drift guard + checkpoint-size ceiling ────────────────
 
-# The deliberate bulk-text fields (single-run, adjacent-node handoffs documented in
-# state.py). A new bulk field added without updating this allowlist (and the
-# docstring) fails the drift guard below -- forcing a review of whether it really
-# needs to ride in checkpoint state or can be re-fetched/re-derived id-based.
-_ALLOWED_BULK_FIELDS = frozenset(
+# Runtime-only bulk handoffs. This is a checkpoint denylist: graph assembly must
+# map every entry to UntrackedValue so none can reach the durable saver.
+_TRANSIENT_UNTRACKED_FIELDS = frozenset(
     {
         "source_text",
+        "requested_system_prompt",
+        "feedback_instructions",
         "grounding_block",
         "system_prompt",
         "messages",
@@ -115,26 +115,84 @@ _EXPECTED_NON_BULK_FIELDS = frozenset(
 )
 
 
-def test_bulk_fields_match_documented_allowlist() -> None:
-    """The set of bulk-text fields on SummarizeState must match the reviewed allowlist.
+def test_runtime_handoffs_match_checkpoint_denylist() -> None:
+    """Every bulk runtime handoff must be explicitly excluded from checkpoints.
 
-    audit #7 drift guard: ADR-0011 promises a minimal id-based state. The five
-    documented bulk handoff fields are the only sanctioned exceptions. Adding a new
-    str/list/dict field that is meant to carry bulk content (or removing one of the
-    handoffs) must be a conscious change here + in the state.py docstring, not a
-    silent enlargement of every Postgres checkpoint.
+    ADR-0011 promises ID-only durable state. Adding a bulk handoff must therefore
+    update this denylist and the graph's UntrackedValue mapping, rather than making
+    the payload part of the checkpoint contract.
     """
     import typing
 
     hints = set(typing.get_type_hints(SummarizeState).keys())
     # Every schema field is accounted for as either bulk or non-bulk (no orphan).
-    assert hints == (_ALLOWED_BULK_FIELDS | _EXPECTED_NON_BULK_FIELDS), (
+    assert hints == (_TRANSIENT_UNTRACKED_FIELDS | _EXPECTED_NON_BULK_FIELDS), (
         "SummarizeState fields drifted from the reviewed bulk/non-bulk partition; "
-        "update _ALLOWED_BULK_FIELDS / _EXPECTED_NON_BULK_FIELDS and the state.py "
+        "update _TRANSIENT_UNTRACKED_FIELDS / _EXPECTED_NON_BULK_FIELDS and state.py "
         "docstring after confirming the new field's checkpoint-size impact."
     )
-    # The bulk allowlist stays a strict subset (no accidental bulk-field growth).
-    assert hints >= _ALLOWED_BULK_FIELDS
+    assert hints >= _TRANSIENT_UNTRACKED_FIELDS
+
+
+def test_compiled_graph_never_checkpoints_bulk_handoffs() -> None:
+    from unittest.mock import MagicMock
+
+    from langgraph.channels import UntrackedValue
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from app.application.graphs.summarize.deps import SummarizeDeps
+    from app.application.graphs.summarize.graph import build_summarize_graph
+
+    port = MagicMock()
+    deps = SummarizeDeps(
+        llm_client=port,
+        retrieval=port,
+        extraction=port,
+        stream_sink=port,
+        summaries=port,
+        requests=port,
+        summary_index=port,
+    )
+    graph = build_summarize_graph(deps=deps, checkpointer=InMemorySaver())
+
+    for field in _TRANSIENT_UNTRACKED_FIELDS:
+        assert isinstance(graph.channels[field], UntrackedValue), field
+
+
+async def test_checkpoint_snapshot_contains_no_bulk_payload() -> None:
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import END, START, StateGraph
+
+    from app.application.graphs.summarize.graph import _checkpoint_state_schema
+
+    async def populate(_state: dict) -> dict:
+        return {
+            "source_text": "secret source",
+            "grounding_block": "secret grounding",
+            "requested_system_prompt": "secret requested prompt",
+            "feedback_instructions": "secret feedback",
+            "system_prompt": "secret system prompt",
+            "messages": [{"role": "user", "content": "secret source"}],
+            "content_for_summary": "secret source",
+        }
+
+    async def stop_before_terminal(_state: dict) -> dict:
+        raise RuntimeError("inspect pending checkpoint")
+
+    builder = StateGraph(_checkpoint_state_schema())
+    builder.add_node("populate", populate)
+    builder.add_node("stop", stop_before_terminal)
+    builder.add_edge(START, "populate")
+    builder.add_edge("populate", "stop")
+    builder.add_edge("stop", END)
+    graph = builder.compile(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "bulk-check"}}
+
+    with pytest.raises(RuntimeError, match="inspect pending checkpoint"):
+        await graph.ainvoke({"correlation_id": "bulk-check"}, config=config)
+
+    snapshot = await graph.aget_state(config)
+    assert not (_TRANSIENT_UNTRACKED_FIELDS & snapshot.values.keys())
 
 
 def test_initial_state_carries_no_bulk_prompt_fields() -> None:
@@ -152,13 +210,12 @@ def test_initial_state_carries_no_bulk_prompt_fields() -> None:
         assert field not in state
 
 
-def test_checkpoint_size_stays_under_ceiling_for_typical_run() -> None:
-    """A representative fully-populated state stays under a sane checkpoint ceiling.
+def test_id_only_checkpoint_stays_under_ceiling_for_typical_run() -> None:
+    """A representative durable checkpoint stays small after transient filtering.
 
-    A coarse regression backstop for audit #7: if a future change starts copying the
-    full crawl row / raw HTML / base64 images into state, a typical run's serialized
-    checkpoint would blow past this ceiling. The bulk handoff fields here are sized
-    to realistic upper bounds (a long article + a full prompt + messages).
+    The raw in-process state intentionally includes realistic transient handoffs;
+    measuring it would bless those payloads as durable state. Filter exactly as the
+    checkpoint schema does and enforce the ceiling on the persisted projection.
     """
     long_text = "word " * 4000  # ~20 KB of cleaned article text
     state: SummarizeState = {
@@ -193,14 +250,14 @@ def test_checkpoint_size_stays_under_ceiling_for_typical_run() -> None:
         "call_count": 1,
         "llm_calls": [{"attempt_index": 1, "model": "m"}],
     }
-    size = len(json.dumps(state).encode("utf-8"))
-    # ~256 KB ceiling: comfortably above a long-article run, far below what raw
-    # HTML / crawl-row / base64-image duplication into state would produce.
-    assert size < 256 * 1024, f"typical checkpoint grew to {size} bytes"
+    checkpoint = {
+        key: value for key, value in state.items() if key not in _TRANSIENT_UNTRACKED_FIELDS
+    }
+    size = len(json.dumps(checkpoint).encode("utf-8"))
+    assert size < 16 * 1024, f"ID-only checkpoint grew to {size} bytes"
 
 
 def test_real_msgpack_roundtrip_with_langgraph_serializer() -> None:
-    pytest.importorskip("langgraph")
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
     serde = JsonPlusSerializer()

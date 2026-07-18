@@ -102,9 +102,10 @@ class _FakeQdrantStore(QdrantVectorStore):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         del wait
         self.upserted.append((list(vectors), list(metadatas), list(ids or [])))
+        return True
 
 
 def _make_db_with_transaction() -> MagicMock:

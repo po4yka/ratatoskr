@@ -1302,12 +1302,12 @@ class TestSyncGitBackupTask:
         prune.assert_called_once_with(cfg, db)
 
     @pytest.mark.asyncio
-    async def test_exit_on_failure_raises_and_fires_hc_failure_ping(self) -> None:
-        """exit_on_failure=True with failed>0 raises RuntimeError and fires failure ping."""
+    async def test_partial_failure_always_raises_and_fires_hc_failure_ping(self) -> None:
+        """failed>0 stays truthful even with the deprecated flag set false."""
         from app.tasks.git_backup_sync import sync_git_backup
 
         git_cfg = _make_git_cfg(
-            GIT_BACKUP_EXIT_ON_FAILURE=True,
+            GIT_BACKUP_EXIT_ON_FAILURE=False,
             GIT_BACKUP_HC_PING_URL="https://hc-ping.com/uuid",
         )
         cfg = _make_app_config(git_cfg)

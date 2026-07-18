@@ -1,4 +1,4 @@
-FROM postgres:16-alpine
+FROM postgres:17-alpine
 
 RUN apk add --no-cache aws-cli bash ca-certificates coreutils openssl tzdata
 

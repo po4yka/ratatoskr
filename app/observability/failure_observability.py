@@ -200,6 +200,7 @@ async def persist_request_failure(
     article_id: str | None = None,
     quality_reason: str | None = None,
     content_signals: dict[str, Any] | None = None,
+    raise_on_error: bool = False,
 ) -> dict[str, Any]:
     """Persist a normalized request failure snapshot and emit metrics/logs."""
     snapshot = build_failure_snapshot(
@@ -250,6 +251,8 @@ async def persist_request_failure(
                 "error_type": type(exc).__name__,
             },
         )
+        if raise_on_error:
+            raise
 
     return snapshot
 

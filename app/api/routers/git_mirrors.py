@@ -23,7 +23,7 @@ from app.api.models.responses.git_mirrors import (
     RegisterMirrorResponse,
 )
 from app.api.routers.auth import get_current_user
-from app.core.git_url_safety import assert_safe_git_url, is_github_host
+from app.core.git_url_safety import assert_safe_git_url, is_github_host, redact_git_url
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirror, GitMirrorSource
 from app.db.models.repository import Repository
@@ -82,7 +82,7 @@ def _get_correlation_id(request: Request) -> str:
 def _mirror_to_compact(row: GitMirror) -> GitMirrorCompact:
     return GitMirrorCompact(
         id=row.id,
-        clone_url=row.clone_url,
+        clone_url=redact_git_url(row.clone_url),
         name=row.name,
         status=row.status.value if hasattr(row.status, "value") else str(row.status),
         source=row.source.value if hasattr(row.source, "value") else str(row.source),
@@ -95,7 +95,7 @@ def _mirror_to_compact(row: GitMirror) -> GitMirrorCompact:
 def _mirror_to_detail(row: GitMirror) -> GitMirrorDetail:
     return GitMirrorDetail(
         id=row.id,
-        clone_url=row.clone_url,
+        clone_url=redact_git_url(row.clone_url),
         name=row.name,
         status=row.status.value if hasattr(row.status, "value") else str(row.status),
         source=row.source.value if hasattr(row.source, "value") else str(row.source),
@@ -263,7 +263,7 @@ async def register_mirror(
     return RegisterMirrorResponse(
         id=row.id,
         status=row.status.value if hasattr(row.status, "value") else str(row.status),
-        clone_url=row.clone_url,
+        clone_url=redact_git_url(row.clone_url),
     )
 
 
@@ -316,7 +316,7 @@ async def search_mirrors(
     items = [
         GitMirrorSearchItem(
             mirror_id=r.mirror_id,
-            clone_url=r.clone_url,
+            clone_url=redact_git_url(r.clone_url),
             name=r.name,
             status=r.status,
             source=r.source,

@@ -80,6 +80,7 @@ async def test_with_serialization_retry_does_not_retry_non_serialization_errors(
 
 
 @pytest.mark.asyncio
+@pytest.mark.postgres
 async def test_database_session_round_trip_against_postgres() -> None:
     dsn = _test_dsn()
     if not dsn:

@@ -20,6 +20,7 @@ if PROMETHEUS_AVAILABLE:
         "ratatoskr_vector_indexing_lag",
         "Vector indexing reconciliation lag and drift counts",
         ["metric"],
+        multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
 
@@ -40,6 +41,7 @@ if PROMETHEUS_AVAILABLE:
     VECTOR_RECONCILE_OLDEST_LAG_SECONDS = Gauge(
         "ratatoskr_vector_reconcile_oldest_lag_seconds",
         "Oldest stale row lag seen by the Taskiq vector reconciler",
+        multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
 
