@@ -39,6 +39,11 @@ def _cfg(*, schema="langgraph", dsn_override=None, strict_msgpack=True, pmin=1, 
 
 
 def _install_stubs(monkeypatch, *, guard_database=True, setup_error=None):
+    monkeypatch.setattr(
+        checkpoint_runtime,
+        "prune_expired_checkpoints",
+        AsyncMock(return_value=CheckpointPruneStats()),
+    )
     pool = MagicMock()
     pool.open = AsyncMock()
     pool.close = AsyncMock()
