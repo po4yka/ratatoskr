@@ -32,7 +32,7 @@ class SummarySectionStreamAssembler:
     """Converts streamed token deltas into ordered summary section snapshots."""
 
     def __init__(self) -> None:
-        self._buffer = ""
+        self._buffer_parts: list[str] = []
         self._sections: dict[str, str | list[str]] = {}
 
     @property
@@ -43,8 +43,14 @@ class SummarySectionStreamAssembler:
         if not delta:
             return []
 
-        self._buffer += delta
-        parsed = self._extract_sections()
+        self._buffer_parts.append(delta)
+        # A section can only become complete at a JSON string/array/object
+        # boundary. Avoid rescanning the growing payload for ordinary text
+        # tokens; doing that for every delta is quadratic in response size.
+        if not any(boundary in delta for boundary in ('"', "]", "}")):
+            return []
+
+        parsed = self._extract_sections("".join(self._buffer_parts))
         emitted: list[SummarySectionSnapshot] = []
 
         for section in _SECTION_ORDER:
@@ -84,15 +90,15 @@ class SummarySectionStreamAssembler:
 
         return "\n".join(lines)
 
-    def _extract_sections(self) -> dict[str, str | list[str]]:
+    def _extract_sections(self, raw_text: str) -> dict[str, str | list[str]]:
         # 1) Fast path: complete JSON extraction from accumulated text.
         result: dict[str, str | list[str]] = {}
-        fast = self._extract_from_json_object(self._buffer)
+        fast = self._extract_from_json_object(raw_text)
         if fast:
             result.update(fast)
 
         # 2) Tolerant partial extraction for still-incomplete JSON payloads.
-        tolerant = self._extract_tolerant(self._buffer)
+        tolerant = self._extract_tolerant(raw_text)
         for key, value in tolerant.items():
             result.setdefault(key, value)
 
