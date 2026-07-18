@@ -223,7 +223,7 @@ def _repair_call_record(
         "status": status,
         "structured_output_used": True,
         "structured_output_mode": config.structured_output_mode if config else None,
-        "attempt_trigger": "repair_loop",
+        "attempt_trigger": "graph_node",
     }
     if error_text:
         record["error_text"] = error_text

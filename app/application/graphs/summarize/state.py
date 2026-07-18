@@ -52,7 +52,7 @@ MAX_REPAIR_ATTEMPTS = 3
 
 
 class SummarizeState(TypedDict, total=False):
-    """Checkpoint state for the summarize graph (serializable primitives only)."""
+    """Execution state; graph assembly excludes transient fields from checkpoints."""
 
     # Identity -- established at ingest; correlation_id == thread_id (sacred).
     # ``request_id`` is ``None`` for the content-only summarize path (the T9 facade
@@ -101,11 +101,8 @@ class SummarizeState(TypedDict, total=False):
     environment: str
     user_id: int
 
-    # ground's RAG query: the extracted source text the ground node embeds to
-    # find related prior summaries. A serializable str (not a live object), but
-    # the only bulk field here -- ground is the one node that needs the content
-    # and may only import the retrieval port, so it is handed the text via state
-    # (ponytail: a content handle could replace it once extract owns re-fetch).
+    # Runtime-only source handoff for grounding/prompt construction. Graph assembly
+    # maps it to UntrackedValue; durable resume re-fetches through request_id.
     source_text: str
     # Trusted application-level prompt overrides supplied by PureSummaryRequest.
     requested_system_prompt: str
