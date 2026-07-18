@@ -7,6 +7,8 @@ ainvoke tests use an in-memory checkpointer and skip where ``graph`` is absent.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from typing import TypedDict
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -74,6 +76,106 @@ async def test_run_deletes_checkpoint_after_success() -> None:
     )
 
     checkpointer.adelete_thread.assert_awaited_once_with("corr-clean")
+
+
+async def test_run_resumes_pending_checkpoint_with_none_input() -> None:
+    graph = MagicMock(
+        aget_state=AsyncMock(
+            return_value=SimpleNamespace(
+                values={"correlation_id": "corr-resume", "request_id": 5},
+                next=("validate",),
+            )
+        ),
+        ainvoke=AsyncMock(return_value={"summary": {"tldr": "resumed"}}),
+    )
+
+    result = await run_summarize_graph(
+        graph=graph, deps=MagicMock(), correlation_id="corr-resume", request_id=5, lang="en"
+    )
+
+    assert result["summary"]["tldr"] == "resumed"
+    assert graph.ainvoke.await_args.args[0] is None
+
+
+async def test_run_reuses_terminal_checkpoint_without_replaying_graph() -> None:
+    checkpointed = {
+        "correlation_id": "corr-terminal",
+        "request_id": 5,
+        "summary": {"tldr": "already done"},
+        "summary_id": 99,
+    }
+    checkpointer = MagicMock(adelete_thread=AsyncMock())
+    graph = MagicMock(
+        aget_state=AsyncMock(return_value=SimpleNamespace(values=checkpointed, next=())),
+        ainvoke=AsyncMock(),
+        checkpointer=checkpointer,
+    )
+
+    result = await run_summarize_graph(
+        graph=graph, deps=MagicMock(), correlation_id="corr-terminal", request_id=5, lang="en"
+    )
+
+    assert result == checkpointed
+    graph.ainvoke.assert_not_awaited()
+    checkpointer.adelete_thread.assert_awaited_once_with("corr-terminal")
+
+
+async def test_real_langgraph_resume_does_not_replay_completed_nodes() -> None:
+    memory = pytest.importorskip("langgraph.checkpoint.memory")
+    graph_api = pytest.importorskip("langgraph.graph")
+
+    class ResumeState(TypedDict, total=False):
+        correlation_id: str
+        request_id: int
+        summary: dict[str, str]
+
+    calls = {"first": 0, "second": 0}
+    second_started = asyncio.Event()
+    block_first_attempt = asyncio.Event()
+
+    async def first(_state: ResumeState) -> dict[str, object]:
+        calls["first"] += 1
+        return {}
+
+    async def second(_state: ResumeState) -> dict[str, object]:
+        calls["second"] += 1
+        if calls["second"] == 1:
+            second_started.set()
+            await block_first_attempt.wait()
+        return {"summary": {"tldr": "resumed"}}
+
+    builder = graph_api.StateGraph(ResumeState)
+    builder.add_node("first", first)
+    builder.add_node("second", second)
+    builder.add_edge(graph_api.START, "first")
+    builder.add_edge("first", "second")
+    builder.add_edge("second", graph_api.END)
+    graph = builder.compile(checkpointer=memory.InMemorySaver())
+
+    interrupted = asyncio.create_task(
+        run_summarize_graph(
+            graph=graph,
+            deps=MagicMock(),
+            correlation_id="corr-real-resume",
+            request_id=5,
+            lang="en",
+        )
+    )
+    await second_started.wait()
+    interrupted.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await interrupted
+
+    result = await run_summarize_graph(
+        graph=graph,
+        deps=MagicMock(),
+        correlation_id="corr-real-resume",
+        request_id=5,
+        lang="en",
+    )
+
+    assert result["summary"] == {"tldr": "resumed"}
+    assert calls == {"first": 1, "second": 2}
 
 
 # ── runner: every failure mode routes to the single terminal helper ───────────

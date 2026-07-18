@@ -25,6 +25,7 @@ from app.application.graphs.summarize.graph import (
     build_summarize_graph,
     cleanup_checkpoint_thread,
     invocation_config,
+    prepare_resumable_invocation,
     reason_code_for_exception,
     recover_accumulated_llm_calls,
 )
@@ -398,11 +399,17 @@ async def run_summarize_graph_streamed(
     bridge = GraphEventBridge(sink=sink, request_id=str(request_id), correlation_id=correlation_id)
     final_state: dict[str, Any] = {}
     try:
-        async for event in graph.astream_events(initial_state, config=config, version="v2"):
-            await bridge.dispatch(event)
-            captured = _final_state_from_event(event)
-            if captured is not None:
-                final_state = captured
+        graph_input, checkpointed_result = await prepare_resumable_invocation(
+            graph, config, initial_state
+        )
+        if checkpointed_result is not None:
+            final_state = checkpointed_result
+        else:
+            async for event in graph.astream_events(graph_input, config=config, version="v2"):
+                await bridge.dispatch(event)
+                captured = _final_state_from_event(event)
+                if captured is not None:
+                    final_state = captured
         await cleanup_checkpoint_thread(graph, config)
         summary_id = final_state.get("summary_id")
         await sink.done(

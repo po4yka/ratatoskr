@@ -208,6 +208,69 @@ async def cleanup_checkpoint_thread(graph: Any, config: dict[str, Any]) -> None:
         )
 
 
+async def prepare_resumable_invocation(
+    graph: Any,
+    config: dict[str, Any],
+    initial_state: SummarizeState,
+) -> tuple[SummarizeState | None, dict[str, Any] | None]:
+    """Choose fresh input, pending-checkpoint resume, or a checkpointed result.
+
+    LangGraph resumes a pending thread only when invoked with ``None``. Passing a
+    freshly built state for the same ``thread_id`` restarts the graph and replays
+    already committed nodes. A terminal snapshot can be returned directly when a
+    previous cleanup failed, avoiding duplicate persistence and notifications.
+    """
+    get_state = getattr(graph, "aget_state", None)
+    if not callable(get_state):
+        return initial_state, None
+    try:
+        pending = get_state(config)
+        if not inspect.isawaitable(pending):
+            return initial_state, None
+        snapshot = await pending
+    except Exception:
+        logger.warning(
+            "summarize_graph_checkpoint_probe_failed",
+            extra={"thread_id": config.get("configurable", {}).get("thread_id")},
+            exc_info=True,
+        )
+        return initial_state, None
+
+    values = getattr(snapshot, "values", None)
+    if not isinstance(values, dict) or not values:
+        return initial_state, None
+    if "correlation_id" not in values and "request_id" not in values:
+        # Defensive for incomplete/custom saver snapshots: without an identity
+        # marker there is not enough evidence that this state belongs to the run.
+        return initial_state, None
+
+    for identity_key in ("correlation_id", "request_id"):
+        checkpoint_value = values.get(identity_key)
+        initial_value = initial_state.get(identity_key)
+        if checkpoint_value is not None and checkpoint_value != initial_value:
+            raise ValueError(
+                f"checkpoint {identity_key} mismatch: "
+                f"expected {initial_value!r}, got {checkpoint_value!r}"
+            )
+
+    next_nodes = getattr(snapshot, "next", ())
+    if next_nodes:
+        logger.info(
+            "summarize_graph_resuming_checkpoint",
+            extra={
+                "thread_id": config.get("configurable", {}).get("thread_id"),
+                "next_nodes": list(next_nodes),
+            },
+        )
+        return None, None
+
+    logger.info(
+        "summarize_graph_reusing_terminal_checkpoint",
+        extra={"thread_id": config.get("configurable", {}).get("thread_id")},
+    )
+    return None, dict(values)
+
+
 def reason_code_for_exception(exc: BaseException) -> str:
     """Map a terminal exception to its failure reason code (single mapping)."""
     if isinstance(exc, CallBudgetExceeded):
@@ -300,7 +363,14 @@ async def run_summarize_graph(
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=recursion_limit)
     try:
-        final_state = await graph.ainvoke(initial_state, config=config)
+        graph_input, checkpointed_result = await prepare_resumable_invocation(
+            graph, config, initial_state
+        )
+        final_state = (
+            checkpointed_result
+            if checkpointed_result is not None
+            else await graph.ainvoke(graph_input, config=config)
+        )
     except Exception as exc:
         # Single terminal sink (ADR-0011): a node exception, GraphRecursionError,
         # and CallBudgetExceeded all route here. BaseException (e.g. cancellation)
