@@ -114,7 +114,7 @@ async def test_repair_prompt_includes_validation_errors_and_prior_candidate(
 
     async def _fake_summarize_with_instructor(*, messages, **kwargs):
         captured["messages"] = messages
-        return {"summary_250": "fixed"}, {"model": "m", "tokens_prompt": 1}
+        return {"summary_250": "fixed"}, {"model": "m", "tokens_prompt": 1}, 1
 
     monkeypatch.setattr(
         repair_mod,

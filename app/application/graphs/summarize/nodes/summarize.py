@@ -6,11 +6,16 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.dto.stream_enums import SUMMARY_TOKEN_EVENT
 from app.application.graphs.summarize.deps import SummarizeConfig
+from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.services.summarization.graph_llm import (
     summarize_streaming,
     summarize_with_instructor,
 )
+from app.application.services.summarization.graph_llm_guard import (
+    GraphLLMUsageBudgetExceeded,
+)
+from app.core.llm_call_budget import LLMCallCapExceeded
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -70,13 +75,13 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
             # Cache hit: no llm_calls row (mirrors legacy interactive path).
             return {
                 "summary": cached,
-                "call_count": state.get("call_count", 0) + 1,
+                "call_count": state.get("call_count", 0),
                 "llm_calls": [],
             }
 
     if streamed:
         try:
-            summary, call_meta = await summarize_streaming(
+            summary, call_meta, call_count = await summarize_streaming(
                 llm_client=deps.llm_client,
                 messages=messages,
                 source_content=state.get("content_for_summary") or "",
@@ -87,13 +92,17 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
                 on_token=_dispatch_summary_token,
                 request_id=state.get("request_id"),
                 correlation_id=state.get("correlation_id"),
+                guard=getattr(deps, "llm_guard", None),
+                current_call_count=state.get("call_count", 0),
             )
+        except (LLMCallCapExceeded, GraphLLMUsageBudgetExceeded) as exc:
+            raise CallBudgetExceeded(str(exc)) from exc
         except Exception as exc:
             # GAP 3a: attach failure record then re-raise.
             raise _tag_failure(state, config, exc, structured=False) from exc
     else:
         try:
-            summary, call_meta = await summarize_with_instructor(
+            summary, call_meta, call_count = await summarize_with_instructor(
                 llm_client=deps.llm_client,
                 messages=messages,
                 source_content=state.get("content_for_summary") or "",
@@ -104,14 +113,19 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
                 sticky_fallback_enabled=config.sticky_fallback_enabled if config else True,
                 structured_output_mode=config.structured_output_mode if config else None,
                 correlation_id=state.get("correlation_id"),
+                request_id=state.get("request_id"),
+                guard=getattr(deps, "llm_guard", None),
+                current_call_count=state.get("call_count", 0),
             )
+        except (LLMCallCapExceeded, GraphLLMUsageBudgetExceeded) as exc:
+            raise CallBudgetExceeded(str(exc)) from exc
         except Exception as exc:
             # GAP 3a: attach failure record then re-raise.
             raise _tag_failure(state, config, exc, structured=True) from exc
 
     result: dict[str, Any] = {
         "summary": summary,
-        "call_count": state.get("call_count", 0) + 1,
+        "call_count": call_count,
         "llm_calls": [_call_record(state, config, call_meta, status="ok", structured=not streamed)],
     }
 

@@ -10,7 +10,11 @@ from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS
 from app.application.services.summarization.graph_llm import summarize_with_instructor
+from app.application.services.summarization.graph_llm_guard import (
+    GraphLLMUsageBudgetExceeded,
+)
 from app.core.json_utils import dumps as json_dumps
+from app.core.llm_call_budget import LLMCallCapExceeded
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -92,7 +96,7 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     )
 
     try:
-        summary, call_meta = await summarize_with_instructor(
+        summary, call_meta, call_count = await summarize_with_instructor(
             llm_client=deps.llm_client,
             messages=repair_messages,
             source_content=state.get("content_for_summary") or "",
@@ -103,7 +107,12 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
             sticky_fallback_enabled=config.sticky_fallback_enabled if config else True,
             structured_output_mode=config.structured_output_mode if config else None,
             correlation_id=state.get("correlation_id"),
+            request_id=state.get("request_id"),
+            guard=getattr(deps, "llm_guard", None),
+            current_call_count=state.get("call_count", 0),
         )
+    except (LLMCallCapExceeded, GraphLLMUsageBudgetExceeded) as exc:
+        raise CallBudgetExceeded(str(exc)) from exc
     except Exception as exc:
         logger.warning(
             "summarize_graph_repair_failed",
@@ -147,10 +156,15 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
             "attempt_trigger": "repair_loop",
             "error_text": str(exc),
         }
-        return {"repair_attempts": attempts, "llm_calls": [failure_record]}
+        return {
+            "repair_attempts": attempts,
+            "call_count": int(getattr(exc, "__llm_call_count__", state.get("call_count", 0))),
+            "llm_calls": [failure_record],
+        }
 
     return {
         "repair_attempts": attempts,
+        "call_count": call_count,
         "summary": summary,
         "llm_calls": [
             {

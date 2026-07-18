@@ -340,6 +340,7 @@ def build_url_processor(
         embedding_service=embedding_service,
         redis_cache=redis_cache,
         checkpointer=checkpointer,
+        sem=sem,
     )
 
 

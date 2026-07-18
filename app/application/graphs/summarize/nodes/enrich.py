@@ -43,7 +43,7 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     if not summary:
         return {}
 
-    enriched, call_meta = await enrich_two_pass(
+    enriched, call_meta, call_count = await enrich_two_pass(
         llm_client=deps.llm_client,
         summary=summary,
         content_text=state.get("content_for_summary") or state.get("source_text") or "",
@@ -53,9 +53,12 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         enrichment_max_tokens=config.enrichment_max_tokens,
         enrichment_content_max_chars=config.enrichment_content_max_chars,
         correlation_id=state.get("correlation_id"),
+        request_id=state.get("request_id"),
+        guard=getattr(deps, "llm_guard", None),
+        current_call_count=state.get("call_count", 0),
     )
 
-    result: dict[str, Any] = {"summary": enriched}
+    result: dict[str, Any] = {"summary": enriched, "call_count": call_count}
 
     # GAP 3b: append enrichment call record when the LLM was actually called.
     # FIX-5: call_meta is None on non-OK status (enrich_two_pass contract); use

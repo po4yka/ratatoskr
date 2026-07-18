@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -13,6 +14,10 @@ from app.application.graphs.summarize.deps import SummarizeConfig, SummarizeDeps
 from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.nodes import enrich, repair, summarize, validate
 from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS
+from app.application.services.summarization.graph_llm_guard import (
+    GraphLLMGuard,
+    GraphLLMGuardConfig,
+)
 from app.core.call_status import CallStatus
 from app.core.summary_schema import SummaryModel
 
@@ -40,7 +45,12 @@ def _config(**over: Any) -> SummarizeConfig:
     return SummarizeConfig(**base)
 
 
-def _deps(*, llm_client: Any = None, config: SummarizeConfig | None = None) -> SummarizeDeps:
+def _deps(
+    *,
+    llm_client: Any = None,
+    config: SummarizeConfig | None = None,
+    llm_guard: GraphLLMGuard | None = None,
+) -> SummarizeDeps:
     m = MagicMock()
     return SummarizeDeps(
         llm_client=llm_client or m,
@@ -51,6 +61,7 @@ def _deps(*, llm_client: Any = None, config: SummarizeConfig | None = None) -> S
         requests=m,
         summary_index=m,
         config=config,
+        llm_guard=llm_guard,
     )
 
 
@@ -95,6 +106,23 @@ async def test_summarize_node_failure_propagates() -> None:
     llm = SimpleNamespace(chat_structured=AsyncMock(side_effect=RuntimeError("boom")))
     with pytest.raises(ValueError, match="Instructor LLM call failed"):
         await summarize(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
+
+
+async def test_summarize_node_enforces_graph_call_cap() -> None:
+    llm = SimpleNamespace(chat_structured=AsyncMock(return_value=_structured(_VALID)))
+    guard = GraphLLMGuard(
+        sem=lambda: asyncio.Semaphore(1),
+        llm_repo=None,
+        config=GraphLLMGuardConfig(max_calls_per_request=1),
+    )
+
+    with pytest.raises(CallBudgetExceeded, match="call cap"):
+        await summarize(
+            _prompted_state(call_count=1),
+            deps=_deps(llm_client=llm, config=_config(), llm_guard=guard),
+        )
+
+    llm.chat_structured.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #

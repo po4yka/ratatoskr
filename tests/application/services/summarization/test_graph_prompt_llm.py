@@ -130,7 +130,7 @@ async def test_summarize_with_instructor_happy_path() -> None:
             )
         )
     )
-    summary, meta = await graph_llm.summarize_with_instructor(
+    summary, meta, call_count = await graph_llm.summarize_with_instructor(
         llm_client=llm,
         messages=[{"role": "user", "content": "x"}],
         source_content="clean source",
@@ -145,6 +145,7 @@ async def test_summarize_with_instructor_happy_path() -> None:
     assert summary["quality"]["prompt_injection_suspected"] is False
     assert meta["model"] == "picked-model"
     assert meta["tokens_prompt"] == 10
+    assert call_count == 1
 
 
 async def test_summarize_with_instructor_sticky_drops_override_and_retries() -> None:
@@ -157,7 +158,7 @@ async def test_summarize_with_instructor_sticky_drops_override_and_retries() -> 
         return _structured({"summary_250": "a", "summary_1000": "b", "tldr": "c"})
 
     llm = SimpleNamespace(chat_structured=_chat_structured)
-    summary, _meta = await graph_llm.summarize_with_instructor(
+    summary, _meta, call_count = await graph_llm.summarize_with_instructor(
         llm_client=llm,
         messages=[{"role": "user", "content": "x"}],
         source_content="src",
@@ -172,6 +173,7 @@ async def test_summarize_with_instructor_sticky_drops_override_and_retries() -> 
     assert calls[0]["model_override"] == "sticky-model"
     assert calls[1]["model_override"] is None
     assert summary["summary_250"] == "a"
+    assert call_count == 2
 
 
 async def test_summarize_with_instructor_raises_on_failure() -> None:
@@ -201,7 +203,7 @@ async def test_enrich_two_pass_merges_truthy_keys() -> None:
         )
     )
     summary = {"summary_250": "core", "tldr": "t"}
-    out, _call_meta = await graph_llm.enrich_two_pass(
+    out, _call_meta, call_count = await graph_llm.enrich_two_pass(
         llm_client=llm,
         summary=summary,
         content_text="original content",
@@ -212,6 +214,7 @@ async def test_enrich_two_pass_merges_truthy_keys() -> None:
     )
     assert out["seo_keywords"] == ["rust", "async"]
     assert "highlights" not in out  # empty list is falsy -> not merged
+    assert call_count == 1
 
 
 async def test_enrich_two_pass_returns_original_on_llm_error() -> None:
@@ -221,7 +224,7 @@ async def test_enrich_two_pass_returns_original_on_llm_error() -> None:
         )
     )
     summary = {"summary_250": "core"}
-    out, _call_meta = await graph_llm.enrich_two_pass(
+    out, _call_meta, call_count = await graph_llm.enrich_two_pass(
         llm_client=llm,
         summary=summary,
         content_text="c",
@@ -231,3 +234,4 @@ async def test_enrich_two_pass_returns_original_on_llm_error() -> None:
         enrichment_max_tokens=4096,
     )
     assert out == {"summary_250": "core"}  # unchanged
+    assert call_count == 1

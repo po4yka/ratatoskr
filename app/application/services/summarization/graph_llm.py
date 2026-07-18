@@ -12,11 +12,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from app.application.services.summarization.graph_llm_guard import (
+    GraphLLMUsageBudgetExceeded,
+)
 from app.application.services.summarization.graph_prompt import _PROMPTS_DIR
 from app.core.call_status import CallStatus
 from app.core.content_cleaner import detect_prompt_injection_patterns
 from app.core.json_utils import dumps as json_dumps, extract_json
 from app.core.lang import LANG_RU
+from app.core.llm_call_budget import LLMCallCapExceeded
 from app.core.summary_contract_impl.quality_metadata import merge_summary_quality_metadata
 from app.prompts.file_cache import read_prompt_text
 
@@ -24,6 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from app.application.ports.llm_client import LLMClientProtocol
+    from app.application.services.summarization.graph_llm_guard import GraphLLMGuard
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +85,10 @@ async def summarize_with_instructor(
     sticky_fallback_enabled: bool,
     structured_output_mode: str | None,
     correlation_id: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    request_id: int | None = None,
+    guard: GraphLLMGuard | None = None,
+    current_call_count: int = 0,
+) -> tuple[dict[str, Any], dict[str, Any], int]:
     """Structured summary via Instructor with the sticky-failure force-fallback retry.
 
     Verbatim parity with ``PureSummaryService._summarize_with_instructor``: at most
@@ -98,20 +106,42 @@ async def summarize_with_instructor(
     last_error: Exception | None = None
     last_llm_result: Any = None  # carry the raw LLMCallResult for failure fidelity
     override_dropped = False
+    call_count = current_call_count
 
     for attempt in range(2):
         current_override = None if override_dropped else model_override
         try:
-            result = await llm_client.chat_structured(
-                messages,
-                response_model=SummaryModel,
-                max_retries=max_retries,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                model_override=current_override,
-            )
+
+            async def _call(
+                effective_max_tokens: int | None,
+                override: str | None = current_override,
+            ) -> Any:
+                return await llm_client.chat_structured(
+                    messages,
+                    response_model=SummaryModel,
+                    max_retries=max_retries,
+                    temperature=temperature,
+                    max_tokens=effective_max_tokens,
+                    request_id=request_id,
+                    model_override=override,
+                )
+
+            if guard is None:
+                call_count += 1
+                result = await _call(max_tokens)
+            else:
+                result, call_count = await guard.invoke(
+                    current_call_count=call_count,
+                    request_id=request_id,
+                    model=current_override,
+                    max_tokens=max_tokens,
+                    call=_call,
+                )
             break
+        except (LLMCallCapExceeded, GraphLLMUsageBudgetExceeded):
+            raise
         except Exception as exc:
+            call_count = int(getattr(exc, "__llm_call_count__", call_count))
             last_error = exc
             # Attempt to surface the raw LLMCallResult attached by the adapter.
             # The instructor adapter attaches ``__llm_result__`` on structured failures
@@ -144,6 +174,7 @@ async def summarize_with_instructor(
             # Propagate the raw LLMCallResult so _tag_failure can build a
             # fidelity record (real model / error_text / latency).
             err.__llm_result__ = last_llm_result  # type: ignore[attr-defined]
+            err.__llm_call_count__ = call_count  # type: ignore[attr-defined]
             raise err from exc
 
     if result is None:
@@ -153,6 +184,7 @@ async def summarize_with_instructor(
         )
         err = ValueError(f"Instructor LLM call failed: {last_error}")
         err.__llm_result__ = last_llm_result  # type: ignore[attr-defined]
+        err.__llm_call_count__ = call_count  # type: ignore[attr-defined]
         raise err from last_error
 
     summary = mark_prompt_injection_metadata(result.parsed.model_dump(), source_content)
@@ -172,7 +204,7 @@ async def summarize_with_instructor(
         "cost_usd": getattr(result, "cost_usd", None),
         "latency_ms": getattr(result, "latency_ms", None),
     }
-    return summary, call_meta
+    return summary, call_meta, call_count
 
 
 async def summarize_streaming(
@@ -187,7 +219,9 @@ async def summarize_streaming(
     on_token: Callable[[str], Awaitable[None] | None],
     request_id: int | None = None,
     correlation_id: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    guard: GraphLLMGuard | None = None,
+    current_call_count: int = 0,
+) -> tuple[dict[str, Any], dict[str, Any], int]:
     """Token-streaming summary path (ADR-0017): ONE ``chat(stream=True)`` call.
 
     The model is asked for a JSON object; ``on_token`` receives each raw text
@@ -211,16 +245,30 @@ async def summarize_streaming(
     from app.core.summary_contract import get_summary_contract_descriptor
 
     response_format = get_summary_contract_descriptor().response_format(structured_output_mode)
-    result = await llm_client.chat(
-        messages,
-        stream=True,
-        on_stream_delta=on_token,
-        response_format=response_format,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        model_override=model_override,
-        request_id=request_id,
-    )
+
+    async def _call(effective_max_tokens: int | None) -> Any:
+        return await llm_client.chat(
+            messages,
+            stream=True,
+            on_stream_delta=on_token,
+            response_format=response_format,
+            max_tokens=effective_max_tokens,
+            temperature=temperature,
+            model_override=model_override,
+            request_id=request_id,
+        )
+
+    if guard is None:
+        call_count = current_call_count + 1
+        result = await _call(max_tokens)
+    else:
+        result, call_count = await guard.invoke(
+            current_call_count=current_call_count,
+            request_id=request_id,
+            model=model_override,
+            max_tokens=max_tokens,
+            call=_call,
+        )
     if result.status != CallStatus.OK:
         logger.warning(
             "summarize_graph_streaming_failed",
@@ -230,6 +278,7 @@ async def summarize_streaming(
         # Attach the raw result so _tag_failure can build a fidelity record
         # (real model / error_text / latency without re-wrapping).
         err.__llm_result__ = result  # type: ignore[attr-defined]
+        err.__llm_call_count__ = call_count  # type: ignore[attr-defined]
         raise err
 
     # Provider adapters expose their full transport envelope in ``response_json``
@@ -272,7 +321,7 @@ async def summarize_streaming(
         "cost_usd": result.cost_usd,
         "latency_ms": result.latency_ms,
     }
-    return summary, call_meta
+    return summary, call_meta, call_count
 
 
 def _is_unwrapped_summary_json(value: Any) -> bool:
@@ -319,7 +368,10 @@ async def enrich_two_pass(
     enrichment_max_tokens: int,
     enrichment_content_max_chars: int = 30000,
     correlation_id: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    request_id: int | None = None,
+    guard: GraphLLMGuard | None = None,
+    current_call_count: int = 0,
+) -> tuple[dict[str, Any], dict[str, Any] | None, int]:
     """Optional second enrichment pass (verbatim parity with ``enrich_two_pass``).
 
     Never raises: any failure (LLM error, parse failure, exception) returns the
@@ -347,14 +399,28 @@ async def enrich_two_pass(
             {"role": "system", "content": enrichment_prompt},
             {"role": "user", "content": user_content},
         ]
-        llm_result = await llm_client.chat(
-            messages,
-            response_format={"type": "json_object"},
-            max_tokens=enrichment_max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            request_id=None,
-        )
+
+        async def _call(effective_max_tokens: int | None) -> Any:
+            return await llm_client.chat(
+                messages,
+                response_format={"type": "json_object"},
+                max_tokens=effective_max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                request_id=request_id,
+            )
+
+        if guard is None:
+            call_count = current_call_count + 1
+            llm_result = await _call(enrichment_max_tokens)
+        else:
+            llm_result, call_count = await guard.invoke(
+                current_call_count=current_call_count,
+                request_id=request_id,
+                model=None,
+                max_tokens=enrichment_max_tokens,
+                call=_call,
+            )
         llm_status = getattr(llm_result, "status", None)
         call_meta: dict[str, Any] = {
             "model": getattr(llm_result, "model", None),
@@ -373,11 +439,11 @@ async def enrich_two_pass(
             )
             # FIX-5: return call_meta=None on non-OK so the enrich node does NOT
             # write a misleading "ok" row for a failed enrichment call.
-            return summary, None
+            return summary, None, call_count
         enrichment = _parse_enrichment(llm_result)
         if not enrichment:
             logger.warning("two_pass_enrichment_parse_failed", extra={"cid": correlation_id})
-            return summary, call_meta
+            return summary, call_meta, call_count
         for key in _ENRICH_KEYS:
             value = enrichment.get(key)
             if value:
@@ -389,12 +455,13 @@ async def enrich_two_pass(
                 "enriched_fields": [k for k in _ENRICH_KEYS if k in enrichment],
             },
         )
-        return summary, call_meta
+        return summary, call_meta, call_count
     except Exception as exc:
         logger.warning(
             "two_pass_enrichment_error", extra={"cid": correlation_id, "error": str(exc)}
         )
-        return summary, None
+        call_count = int(getattr(exc, "__llm_call_count__", current_call_count))
+        return summary, None, call_count
 
 
 def _parse_enrichment(llm_result: Any) -> dict[str, Any] | None:

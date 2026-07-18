@@ -151,6 +151,7 @@ def build_summarize_deps(
     crawl_repo: Any | None = None,
     export_events: Any | None = None,
     graph_run_ledger: Any | None = None,
+    llm_guard: Any | None = None,
 ) -> SummarizeDeps:
     """Pack already-constructed ports + config snapshot into the node dependency bundle.
 
@@ -186,7 +187,31 @@ def build_summarize_deps(
         crawl_repo=crawl_repo,
         export_events=export_events,
         graph_run_ledger=graph_run_ledger,
+        llm_guard=llm_guard,
     )
+
+
+def build_graph_llm_guard(*, cfg: AppConfig, sem: Any, llm_repo: Any) -> Any:
+    """Build the shared execution guard used by every summarize-graph LLM call."""
+    from app.application.services.summarization.graph_llm_guard import (
+        GraphLLMGuard,
+        GraphLLMGuardConfig,
+    )
+
+    budget = cfg.llm_usage_budget
+    guard_config = GraphLLMGuardConfig(
+        semaphore_acquire_timeout_sec=float(cfg.runtime.semaphore_acquire_timeout_sec),
+        call_timeout_sec=float(cfg.runtime.llm_call_timeout_sec),
+        max_calls_per_request=int(cfg.runtime.llm_max_calls_per_request),
+        max_tokens_per_request=budget.max_tokens_per_request,
+        max_cost_usd_per_request=budget.max_cost_usd_per_request,
+        daily_soft_budget_usd=budget.daily_soft_budget_usd,
+        monthly_soft_budget_usd=budget.monthly_soft_budget_usd,
+        daily_hard_budget_usd=budget.daily_hard_budget_usd,
+        monthly_hard_budget_usd=budget.monthly_hard_budget_usd,
+        warning_threshold_ratio=budget.warning_threshold_ratio,
+    )
+    return GraphLLMGuard(sem=sem, llm_repo=llm_repo, config=guard_config)
 
 
 def build_summarize_graph_app(*, deps: SummarizeDeps, checkpointer: Any | None = None) -> Any:
@@ -493,6 +518,7 @@ def assemble_graph_url_processor(
     embedding_service: Any | None = None,
     redis_cache: Any | None = None,
     checkpointer: Any | None = None,
+    sem: Any | None = None,
 ) -> Any:
     """Assemble the full summarize graph + the graph-backed URL-flow facade (T9 cutover).
 
@@ -555,6 +581,9 @@ def assemble_graph_url_processor(
         crawl_repo=crawl_result_repo,
         export_events=SummaryExportDispatcher(db),
         graph_run_ledger=ProgressEventGraphRunLedger(db),
+        llm_guard=(
+            build_graph_llm_guard(cfg=cfg, sem=sem, llm_repo=llm_repo) if sem is not None else None
+        ),
     )
     graph = build_summarize_graph_app(deps=deps, checkpointer=checkpointer)
     return build_graph_url_processor(

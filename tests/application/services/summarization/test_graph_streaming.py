@@ -105,7 +105,7 @@ async def _noop(_delta: str) -> None:
 
 async def test_streaming_parses_response_json_and_builds_call_meta() -> None:
     llm = _FakeLLM(response_json={"summary_250": "S", "tldr": "T"})
-    summary, call_meta = await summarize_streaming(
+    summary, call_meta, call_count = await summarize_streaming(
         llm_client=llm,
         messages=_MESSAGES,
         source_content="src",
@@ -126,6 +126,7 @@ async def test_streaming_parses_response_json_and_builds_call_meta() -> None:
     }
     # Requested streaming from the provider.
     assert llm.chat_kwargs.get("stream") is True
+    assert call_count == 1
 
 
 async def test_streaming_honors_json_schema_structured_output_mode() -> None:
@@ -170,7 +171,7 @@ async def test_streaming_defaults_to_json_object_when_mode_unset() -> None:
 
 async def test_streaming_falls_back_to_text_when_no_response_json() -> None:
     llm = _FakeLLM(response_text='{"summary_250": "from text"}')
-    summary, _ = await summarize_streaming(
+    summary, _, _call_count = await summarize_streaming(
         llm_client=llm,
         messages=_MESSAGES,
         source_content="src",
@@ -223,7 +224,7 @@ async def test_streaming_raises_on_non_ok_status() -> None:
 
 async def test_streaming_routes_unparseable_output_to_validation_repair() -> None:
     llm = _FakeLLM(response_text="not json at all")
-    summary, call_meta = await summarize_streaming(
+    summary, call_meta, _call_count = await summarize_streaming(
         llm_client=llm,
         messages=_MESSAGES,
         source_content="src",
@@ -238,7 +239,5 @@ async def test_streaming_routes_unparseable_output_to_validation_repair() -> Non
     assert summary["__stream_parse_error__"]
     assert call_meta["model"] == "m1"
 
-    validation = await validate(
-        {"summary": summary}, deps=SimpleNamespace(graph_run_ledger=None)
-    )
+    validation = await validate({"summary": summary}, deps=SimpleNamespace(graph_run_ledger=None))
     assert validation["validation_errors"]
