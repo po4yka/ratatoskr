@@ -143,6 +143,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
                 result=None,
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 error=exc,
+                request_messages=messages,
             )
             return None
 
@@ -151,6 +152,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
             model=model,
             result=result,
             latency_ms=int((time.monotonic() - t0) * 1000),
+            request_messages=messages,
         )
         return self._parse_llm_response(result.parsed.model_dump(), input_data)
 
@@ -162,6 +164,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
         result: Any,
         latency_ms: int,
         error: Exception | None = None,
+        request_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """Best-effort persist of the synthesis LLM call to ``llm_calls``.
 
@@ -181,6 +184,7 @@ class CombinedSummaryAgent(BaseAgent[CombinedSummaryInput, CombinedSummaryOutput
             correlation_id=self.correlation_id,
             structured_output_used=True,
             provider=getattr(self._llm, "provider_name", None),
+            request_messages=request_messages,
         )
 
     def _build_llm_context(self, input_data: CombinedSummaryInput) -> str:

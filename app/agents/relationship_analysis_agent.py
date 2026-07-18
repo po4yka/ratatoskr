@@ -19,10 +19,11 @@ from app.adapter_models.batch_analysis import (
     RelationshipType,
     SeriesInfo,
 )
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
@@ -99,6 +100,15 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
     ) -> AgentResult[RelationshipAnalysisOutput]:
         """Analyze relationships between articles."""
         self.correlation_id = input_data.correlation_id
+        with _tracer.start_as_current_span("agent.relationship_analysis") as span:
+            span.set_attribute(AGENT_NAME, "relationship_analysis")
+            span.set_attribute(REQUEST_CORRELATION_ID, self.correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
+            return await self._execute(input_data)
+
+    async def _execute(
+        self, input_data: RelationshipAnalysisInput
+    ) -> AgentResult[RelationshipAnalysisOutput]:
         articles = input_data.articles
 
         if len(articles) < 2:
@@ -513,6 +523,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
                 result=None,
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 error=exc,
+                request_messages=messages,
             )
             return None
 
@@ -522,6 +533,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
             model=model,
             result=result,
             latency_ms=int((time.monotonic() - t0) * 1000),
+            request_messages=messages,
         )
         return self._parse_llm_response(result.parsed.model_dump(), articles)
 
@@ -534,6 +546,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
         result: Any,
         latency_ms: int,
         error: Exception | None = None,
+        request_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """Best-effort persist of the analysis LLM call to ``llm_calls``.
 
@@ -553,6 +566,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
             correlation_id=self.correlation_id,
             structured_output_used=True,
             provider=getattr(self._llm, "provider_name", None),
+            request_messages=request_messages,
         )
 
     def _parse_llm_response(

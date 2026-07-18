@@ -67,6 +67,11 @@ async def test_persists_llm_call_on_success() -> None:
     assert payload["tokens_completion"] == 30
     assert payload["cost_usd"] == 0.0042
     assert payload["structured_output_used"] is True
+    assert [message["role"] for message in payload["request_messages_json"]] == [
+        "system",
+        "user",
+    ]
+    assert payload["response_json"] == llm._success_result.parsed.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -86,6 +91,8 @@ async def test_persists_error_row_and_reraises_on_failure() -> None:
     assert payload["request_id"] == 42
     assert payload["status"] == "error"
     assert "llm boom" in payload["error_text"]
+    assert len(payload["request_messages_json"]) == 2
+    assert payload["response_json"] is None
 
 
 @pytest.mark.asyncio

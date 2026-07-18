@@ -271,7 +271,11 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
                 purpose="web_search",
             )
             await self._persist_llm_call(
-                status="success", model=model, result=result, latency_ms=latency_ms
+                status="success",
+                model=model,
+                result=result,
+                latency_ms=latency_ms,
+                request_messages=messages,
             )
         except Exception as exc:
             latency_ms = int((time.monotonic() - t0) * 1000)
@@ -282,7 +286,12 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
                 extra={"correlation_id": correlation_id, "model": model},
             )
             await self._persist_llm_call(
-                status="error", model=model, result=None, latency_ms=latency_ms, error=exc
+                status="error",
+                model=model,
+                result=None,
+                latency_ms=latency_ms,
+                error=exc,
+                request_messages=messages,
             )
             raise
 
@@ -296,6 +305,7 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         result: Any,
         latency_ms: int,
         error: Exception | None = None,
+        request_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """Best-effort persist of the analysis LLM call to ``llm_calls``.
 
@@ -315,6 +325,7 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
             correlation_id=self.correlation_id,
             structured_output_used=True,
             provider=getattr(self._llm, "provider_name", None),
+            request_messages=request_messages,
         )
 
     def _load_analysis_prompt(self, language: str) -> str:

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.multi_source_classification import build_source_item_from_submission
 from app.adapters.telegram.multimodal_extractor import build_telegram_normalized_document
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.application.dto.aggregation import (
     AggregationFailure,
     MultiSourceExtractionInput,
@@ -27,6 +27,7 @@ from app.observability.metrics import (
     record_aggregation_bundle,
     record_aggregation_extraction,
 )
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 
 if TYPE_CHECKING:
     from app.adapters.content.content_extractor import ContentExtractor
@@ -55,6 +56,15 @@ class MultiSourceExtractionAgent(
         """Classify and extract a mixed source bundle with partial-success semantics."""
 
         self.correlation_id = input_data.correlation_id
+        with _tracer.start_as_current_span("agent.multi_source_extraction") as span:
+            span.set_attribute(AGENT_NAME, "multi_source_extraction")
+            span.set_attribute(REQUEST_CORRELATION_ID, self.correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
+            return await self._execute(input_data)
+
+    async def _execute(
+        self, input_data: MultiSourceExtractionInput
+    ) -> AgentResult[MultiSourceExtractionOutput]:
         self.log_info(
             "multi_source_extraction_started",
             total_items=len(input_data.items),

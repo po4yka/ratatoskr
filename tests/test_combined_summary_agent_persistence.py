@@ -67,6 +67,8 @@ async def test_persists_llm_call_on_success() -> None:
     assert payload["tokens_prompt"] == 200
     assert payload["cost_usd"] == 0.02
     assert payload["structured_output_used"] is True
+    assert len(payload["request_messages_json"]) == 2
+    assert payload["response_json"] is not None
 
 
 @pytest.mark.asyncio
@@ -85,6 +87,7 @@ async def test_persists_error_row_on_failure_and_returns_none() -> None:
     payload = repo.async_insert_llm_call.await_args.args[0]
     assert payload["status"] == "error"
     assert "synth boom" in payload["error_text"]
+    assert len(payload["request_messages_json"]) == 2
 
 
 @pytest.mark.asyncio

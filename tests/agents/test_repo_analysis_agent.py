@@ -133,6 +133,8 @@ class TestRepoAnalysisAgent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repo.calls[0]["attempt_index"], 2)
         self.assertEqual(repo.calls[0]["model"], "openai/gpt-test")
         self.assertEqual(repo.calls[0]["tokens_prompt"], 10)
+        self.assertEqual(len(repo.calls[0]["request_messages_json"]), 2)
+        self.assertEqual(repo.calls[0]["response_json"]["confidence"], 0.9)
 
     async def test_structured_output_path_returns_none_on_failure(self) -> None:
         """Structured LLM failures are persisted and surfaced as a clean None result."""
@@ -149,6 +151,7 @@ class TestRepoAnalysisAgent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repo.calls[0]["status"], "error")
         self.assertEqual(repo.calls[0]["attempt_trigger"], "agent")
         self.assertIn("invalid", repo.calls[0]["error_text"])
+        self.assertEqual(len(repo.calls[0]["request_messages_json"]), 2)
 
     async def test_repository_metadata_is_wrapped_as_untrusted_source(self) -> None:
         llm = _StructuredStubLLM()
@@ -189,6 +192,8 @@ class TestRepoAnalysisAgent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(repo.calls), 1)
         self.assertEqual(repo.calls[0]["attempt_trigger"], "initial")
         self.assertEqual(repo.calls[0]["attempt_index"], 1)
+        self.assertEqual(len(repo.calls[0]["request_messages_json"]), 2)
+        self.assertEqual(repo.calls[0]["response_json"]["confidence"], 0.9)
 
     async def test_retry_on_invalid_then_valid(self) -> None:
         """Stub returns invalid then valid -> 2 LLMCalls (initial, repair_loop)."""

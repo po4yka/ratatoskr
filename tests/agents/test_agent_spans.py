@@ -142,7 +142,7 @@ class TestRepoAnalysisAgentSpanAndMetrics:
             recorded_calls.append(call)
             original(call)
 
-        monkeypatch.setattr("app.agents.repo_analysis_agent.record_llm_call_persisted", _spy)
+        monkeypatch.setattr("app.agents.llm_call_persistence.record_llm_call_persisted", _spy)
 
         await agent._persist(
             correlation_id="cid-repo",
@@ -278,3 +278,112 @@ class TestCombinedSummaryAgentSpan:
         assert recorded.get("_span_name") == "agent.combined_summary"
         assert recorded.get("ratatoskr.agent.name") == "combined_summary"
         assert recorded.get("ratatoskr.correlation_id") == "cid-cs"
+
+
+class _SharedRecordingSpan:
+    def __init__(self, recorded: dict[str, Any]) -> None:
+        self._recorded = recorded
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self._recorded[key] = value
+
+    def __enter__(self) -> _SharedRecordingSpan:
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        pass
+
+
+class _SharedRecordingTracer:
+    def __init__(self, recorded: dict[str, Any]) -> None:
+        self._recorded = recorded
+
+    def start_as_current_span(self, name: str, **_kwargs: Any) -> _SharedRecordingSpan:
+        self._recorded["_span_name"] = name
+        return _SharedRecordingSpan(self._recorded)
+
+
+@pytest.mark.asyncio
+async def test_relationship_analysis_agent_opens_span() -> None:
+    from app.adapter_models.batch_analysis import ArticleMetadata, RelationshipAnalysisInput
+    from app.agents.relationship_analysis_agent import RelationshipAnalysisAgent
+
+    recorded: dict[str, Any] = {}
+    agent = RelationshipAnalysisAgent(llm_client=None)
+    with patch(
+        "app.agents.relationship_analysis_agent._tracer",
+        _SharedRecordingTracer(recorded),
+    ):
+        await agent.execute(
+            RelationshipAnalysisInput(
+                articles=[ArticleMetadata(request_id=1, url="https://example.com")],
+                correlation_id="cid-relationship",
+            )
+        )
+
+    assert recorded["_span_name"] == "agent.relationship_analysis"
+    assert recorded["ratatoskr.agent.name"] == "relationship_analysis"
+    assert recorded["ratatoskr.correlation_id"] == "cid-relationship"
+
+
+@pytest.mark.asyncio
+async def test_multi_source_extraction_agent_opens_span() -> None:
+    from app.agents.multi_source_extraction_agent import MultiSourceExtractionAgent
+    from app.application.dto.aggregation import MultiSourceExtractionInput
+
+    recorded: dict[str, Any] = {}
+    agent = MultiSourceExtractionAgent(
+        content_extractor=MagicMock(),
+        aggregation_session_repo=MagicMock(),
+    )
+    with patch(
+        "app.agents.multi_source_extraction_agent._tracer",
+        _SharedRecordingTracer(recorded),
+    ):
+        await agent.execute(
+            MultiSourceExtractionInput(
+                correlation_id="cid-extraction",
+                user_id=1,
+                items=[],
+            )
+        )
+
+    assert recorded["_span_name"] == "agent.multi_source_extraction"
+    assert recorded["ratatoskr.agent.name"] == "multi_source_extraction"
+    assert recorded["ratatoskr.correlation_id"] == "cid-extraction"
+
+
+@pytest.mark.asyncio
+async def test_multi_source_aggregation_agent_opens_span() -> None:
+    from app.agents.multi_source_aggregation_agent import MultiSourceAggregationAgent
+    from app.application.dto.aggregation import (
+        MultiSourceAggregationInput,
+        SourceExtractionItemResult,
+    )
+    from app.domain.models.source import AggregationItemStatus, SourceKind
+
+    recorded: dict[str, Any] = {}
+    agent = MultiSourceAggregationAgent(aggregation_session_repo=MagicMock())
+    with patch(
+        "app.agents.multi_source_aggregation_agent._tracer",
+        _SharedRecordingTracer(recorded),
+    ):
+        await agent.execute(
+            MultiSourceAggregationInput(
+                session_id=1,
+                correlation_id="cid-aggregation",
+                items=[
+                    SourceExtractionItemResult(
+                        position=0,
+                        item_id=1,
+                        source_item_id="source-1",
+                        source_kind=SourceKind.WEB_ARTICLE,
+                        status=AggregationItemStatus.FAILED.value,
+                    )
+                ],
+            )
+        )
+
+    assert recorded["_span_name"] == "agent.multi_source_aggregation"
+    assert recorded["ratatoskr.agent.name"] == "multi_source_aggregation"
+    assert recorded["ratatoskr.correlation_id"] == "cid-aggregation"

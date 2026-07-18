@@ -184,6 +184,7 @@ class RepoAnalysisAgent:
                 status="error",
                 error_text=str(exc),
                 structured_output_used=True,
+                request_messages=messages,
             )
             return None
 
@@ -201,6 +202,8 @@ class RepoAnalysisAgent:
             cost_usd=result.cost_usd,
             latency_ms=result.latency_ms,
             structured_output_used=True,
+            request_messages=messages,
+            response_json=parsed.model_dump(mode="json"),
         )
         logger.info(
             "repo_analysis_structured_success",
@@ -234,6 +237,10 @@ class RepoAnalysisAgent:
                 if previous_error
                 else user_prompt
             )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": effective_prompt},
+            ]
 
             logger.info(
                 "repo_analysis_attempt",
@@ -273,17 +280,9 @@ class RepoAnalysisAgent:
                     response_text=raw_response,
                     status="error",
                     error_text=str(exc),
+                    request_messages=messages,
                 )
                 continue
-
-            await self._persist(
-                correlation_id=correlation_id,
-                attempt_index=attempt_index,
-                attempt_trigger=attempt_trigger,
-                response_text=raw_response,
-                status="success",
-                error_text=None,
-            )
 
             try:
                 result = parse_and_validate_repo_analysis(raw_response)
@@ -300,7 +299,27 @@ class RepoAnalysisAgent:
                     },
                 )
                 previous_error = error_msg
+                await self._persist(
+                    correlation_id=correlation_id,
+                    attempt_index=attempt_index,
+                    attempt_trigger=attempt_trigger,
+                    response_text=raw_response,
+                    status="success",
+                    error_text=None,
+                    request_messages=messages,
+                )
                 continue
+
+            await self._persist(
+                correlation_id=correlation_id,
+                attempt_index=attempt_index,
+                attempt_trigger=attempt_trigger,
+                response_text=raw_response,
+                status="success",
+                error_text=None,
+                request_messages=messages,
+                response_json=result.model_dump(mode="json"),
+            )
 
             logger.info(
                 "repo_analysis_success",
@@ -375,6 +394,8 @@ class RepoAnalysisAgent:
         cost_usd: float | None = None,
         latency_ms: int | None = None,
         structured_output_used: bool = False,
+        request_messages: list[dict[str, Any]] | None = None,
+        response_json: Any = None,
     ) -> None:
         if self._llm_repo is None:
             return
@@ -395,4 +416,6 @@ class RepoAnalysisAgent:
             correlation_id=correlation_id,
             structured_output_used=structured_output_used,
             provider=getattr(self._llm, "provider_name", None),
+            request_messages=request_messages,
+            response_json=response_json,
         )
