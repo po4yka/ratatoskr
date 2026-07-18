@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 from app.agents.multi_source_extraction_agent import MultiSourceExtractionAgent
 from app.application.dto.aggregation import MultiSourceExtractionInput, SourceSubmission
+from app.domain.models.source import AggregationSessionStatus
 
 
 async def test_extraction_failure_does_not_expose_upstream_error() -> None:
@@ -45,3 +46,13 @@ async def test_extraction_failure_does_not_expose_upstream_error() -> None:
     failed_event = next(event for event in events if event["event"] == "item_failed")
     assert failed_event["error"] == "Source extraction failed. Error ID: cid-safe-error"
     assert "secret-token" not in str(events)
+
+
+def test_failed_source_with_duplicate_resolves_session_as_failed() -> None:
+    status = MultiSourceExtractionAgent._resolve_session_status(
+        successful_count=0,
+        failed_count=1,
+        duplicate_count=1,
+    )
+
+    assert status is AggregationSessionStatus.FAILED

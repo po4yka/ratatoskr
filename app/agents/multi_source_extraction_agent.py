@@ -419,7 +419,7 @@ class MultiSourceExtractionAgent(
     ) -> AggregationSessionStatus:
         if successful_count > 0 and failed_count > 0:
             return AggregationSessionStatus.PARTIAL
-        if failed_count > 0 and successful_count == 0 and duplicate_count == 0:
+        if failed_count > 0 and successful_count == 0:
             return AggregationSessionStatus.FAILED
         return AggregationSessionStatus.COMPLETED
 
