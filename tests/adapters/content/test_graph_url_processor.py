@@ -220,6 +220,20 @@ async def test_lease_start_and_outcome_recorded(monkeypatch):
     assert kwargs["request_id"] == 777
 
 
+async def test_duplicate_in_flight_request_does_not_run_second_graph(monkeypatch):
+    lease_repo = _patch_lease(monkeypatch)
+    lease_repo.record_synchronous_start.return_value = False
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY})
+    _patch_runners(monkeypatch, streamed=streamed, plain=AsyncMock())
+
+    result = await _facade().handle_url_flow(_url_request())
+
+    assert result.success is True
+    assert result.request_id == 777
+    streamed.assert_not_awaited()
+    lease_repo.record_synchronous_outcome.assert_not_awaited()
+
+
 async def test_existing_request_mode_skips_create_snapshot_and_sync_lease(monkeypatch):
     lease_repo = _patch_lease(monkeypatch)
     _patch_runners(

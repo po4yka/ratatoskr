@@ -610,6 +610,7 @@ class GraphURLProcessor:
         terminal_status = "succeeded"
         terminal_error_code: str | None = None
         terminal_error_message: str | None = None
+        owns_processing_job = not request.manage_processing_job
 
         # Parity concern 3 -- in-flight gauge.
         set_url_processor_in_flight(+1)
@@ -619,7 +620,15 @@ class GraphURLProcessor:
             req_id = await self._create_request_row(request)
 
             # Parity concern 5 -- RequestProcessingJob crash-recovery lease.
-            await self._record_url_flow_start(request=request, req_id=req_id)
+            owns_processing_job = await self._record_url_flow_start(
+                request=request, req_id=req_id
+            )
+            if not owns_processing_job:
+                logger.info(
+                    "graph_url_flow_duplicate_in_flight",
+                    extra={"cid": request.correlation_id, "req_id": req_id},
+                )
+                return URLProcessingFlowResult(success=True, request_id=req_id)
 
             lang = self._resolve_lang(request)
 
@@ -721,7 +730,7 @@ class GraphURLProcessor:
             elapsed_seconds = max(0.0, time.monotonic() - started_at)
             await self._record_url_flow_terminal(
                 request=request,
-                req_id=req_id,
+                req_id=req_id if owns_processing_job else None,
                 elapsed_seconds=elapsed_seconds,
                 status=terminal_status,
                 error_code=terminal_error_code,
@@ -1053,17 +1062,19 @@ class GraphURLProcessor:
                 extra={"cid": request.correlation_id, "req_id": req_id},
             )
 
-    async def _record_url_flow_start(self, *, request: URLFlowRequest, req_id: int) -> None:
-        """Write a ``running`` job row at flow entry for crash-recovery (lease)."""
+    async def _record_url_flow_start(
+        self, *, request: URLFlowRequest, req_id: int
+    ) -> bool:
+        """Atomically claim the synchronous request processing lease."""
         if not request.manage_processing_job:
-            return
+            return True
         try:
             from app.infrastructure.persistence.request_processing_job_repository import (
                 RequestProcessingJobRepository,
             )
 
             repo = RequestProcessingJobRepository(self.db)
-            await repo.record_synchronous_start(
+            return await repo.record_synchronous_start(
                 request_id=req_id,
                 correlation_id=request.correlation_id,
                 lease_ttl_seconds=int(getattr(self.cfg.runtime, "url_flow_lease_ttl_sec", 900)),
@@ -1075,6 +1086,9 @@ class GraphURLProcessor:
                 "graph_url_flow_job_start_record_failed",
                 extra={"cid": request.correlation_id, "req_id": req_id, "error": str(exc)},
             )
+            # Crash-recovery observability is best-effort. A transient failure to
+            # record the lease must not make an otherwise valid URL unprocessable.
+            return True
 
     async def _record_url_flow_terminal(
         self,

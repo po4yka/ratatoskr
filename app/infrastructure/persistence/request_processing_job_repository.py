@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select, update
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.logging_utils import get_logger, log_exception
@@ -388,13 +388,18 @@ class RequestProcessingJobRepository:
         correlation_id: str | None,
         lease_owner: str = "bot:sync",
         lease_ttl_seconds: int = 900,
-    ) -> None:
-        """Insert/update a `running` row for a synchronous bot run.
+    ) -> bool:
+        """Atomically claim a request for a synchronous bot run.
 
         Worker's reconcile_stuck_processing_requests reaps rows where the
         lease expired without a terminal status, providing crash-recovery
         for the synchronous bot path. The lease TTL is sized to the
         maximum URL-flow runtime (15 min default).
+
+        Returns ``False`` when another caller already owns an unexpired
+        ``running`` lease. This is the serialization point for concurrent URL
+        dedupe hits: request creation alone is idempotent, but must not permit
+        two graph runs against the same request row.
         """
         now = _utcnow()
         lease_expires_at = now + timedelta(seconds=lease_ttl_seconds)
@@ -424,10 +429,18 @@ class RequestProcessingJobRepository:
                         "lease_expires_at": lease_expires_at,
                         "updated_at": now,
                     },
-                    where=RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
+                    where=and_(
+                        RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
+                        or_(
+                            RequestProcessingJob.status != "running",
+                            RequestProcessingJob.lease_expires_at.is_(None),
+                            RequestProcessingJob.lease_expires_at <= now,
+                        ),
+                    ),
                 )
             )
-            await session.execute(stmt)
+            result = await session.execute(stmt)
+            return bool(result.rowcount)
 
     async def record_synchronous_outcome(
         self,
