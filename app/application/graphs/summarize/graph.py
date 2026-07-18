@@ -92,6 +92,8 @@ def build_initial_state(
     lang: str,
     input_url: str = "",
     source_text: str = "",
+    requested_system_prompt: str = "",
+    feedback_instructions: str = "",
     user_scope: str | None = None,
     environment: str | None = None,
     stream: bool = False,
@@ -131,6 +133,10 @@ def build_initial_state(
         "stream": stream,
         "two_pass_eligible": two_pass_eligible,
     }
+    if requested_system_prompt:
+        initial_state["requested_system_prompt"] = requested_system_prompt
+    if feedback_instructions:
+        initial_state["feedback_instructions"] = feedback_instructions
     if user_scope is not None:
         initial_state["user_scope"] = user_scope
     if environment is not None:
@@ -326,6 +332,8 @@ async def run_summarize_graph(
     lang: str,
     input_url: str = "",
     source_text: str = "",
+    requested_system_prompt: str = "",
+    feedback_instructions: str = "",
     user_scope: str | None = None,
     environment: str | None = None,
     two_pass_eligible: bool = True,
@@ -357,6 +365,8 @@ async def run_summarize_graph(
         lang=lang,
         input_url=input_url,
         source_text=source_text,
+        requested_system_prompt=requested_system_prompt,
+        feedback_instructions=feedback_instructions,
         user_scope=user_scope,
         environment=environment,
         two_pass_eligible=two_pass_eligible,

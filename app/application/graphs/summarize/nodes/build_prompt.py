@@ -89,12 +89,16 @@ async def build_prompt(state: SummarizeState, *, deps: SummarizeDeps) -> dict[st
         tier = classify_content(content_for_summary)
         model_override = deps.model_router(tier, len(content_for_summary))
 
-    system_prompt = load_instructor_system_prompt(lang)
+    system_prompt = (state.get("requested_system_prompt") or "").strip()
+    if not system_prompt:
+        system_prompt = load_instructor_system_prompt(lang)
     if block:
         system_prompt = f"{system_prompt.rstrip()}\n\n{block}"
 
     user_prompt = build_summary_user_prompt(
-        content_for_summary=content_for_summary, chosen_lang=lang
+        content_for_summary=content_for_summary,
+        chosen_lang=lang,
+        feedback_instructions=(state.get("feedback_instructions") or "").strip() or None,
     )
     # Multimodal user message when vision is active; otherwise a plain text message.
     user_content: Any = (

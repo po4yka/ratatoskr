@@ -77,6 +77,8 @@ def test_state_annotations_are_serializable_primitives() -> None:
 _ALLOWED_BULK_FIELDS = frozenset(
     {
         "source_text",
+        "requested_system_prompt",
+        "feedback_instructions",
         "grounding_block",
         "system_prompt",
         "messages",

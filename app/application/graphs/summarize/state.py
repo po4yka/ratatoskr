@@ -13,8 +13,9 @@ Invariants (ADR-0011 / ADR-0018):
 - **Minimal / id-based by default.** Identity and extraction *handles* are ids, not
   bulk content -- ``request_id`` / ``dedupe_hash`` / ``summary_id`` rather than the
   crawl row or persisted summary blob, so most checkpoints stay small and PII-light.
-  Five fields are a deliberate exception: ``source_text``, ``grounding_block``,
-  ``system_prompt``, ``messages`` and ``content_for_summary`` carry bulk text. They
+  Seven fields are a deliberate exception: ``source_text``, ``grounding_block``,
+  ``requested_system_prompt``, ``feedback_instructions``, ``system_prompt``,
+  ``messages`` and ``content_for_summary`` carry bulk text. They
   are NOT redundant -- each is a single-run handoff between adjacent nodes that the
   downstream node cannot cheaply re-derive:
 
@@ -106,6 +107,9 @@ class SummarizeState(TypedDict, total=False):
     # and may only import the retrieval port, so it is handed the text via state
     # (ponytail: a content handle could replace it once extract owns re-fetch).
     source_text: str
+    # Trusted application-level prompt overrides supplied by PureSummaryRequest.
+    requested_system_prompt: str
+    feedback_instructions: str
 
     # Working fields populated as the graph advances.
     grounding_ids: list[str]

@@ -463,12 +463,15 @@ async def test_content_only_summarize_with_request_uses_persisting_runner(monkey
             system_prompt="sys",
             correlation_id="cid-api",
             request_id=42,
+            feedback_instructions="Focus on failures",
         )
     )
 
     runner.assert_awaited_once()
     assert runner.call_args.kwargs["request_id"] == 42
     assert runner.call_args.kwargs["source_text"] == "pre-extracted body"
+    assert runner.call_args.kwargs["requested_system_prompt"] == "sys"
+    assert runner.call_args.kwargs["feedback_instructions"] == "Focus on failures"
     graph.ainvoke.assert_not_called()
     assert out["summary_250"] == "s"
 

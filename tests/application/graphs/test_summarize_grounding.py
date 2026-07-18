@@ -249,6 +249,21 @@ async def test_build_prompt_appends_grounding_block_after_instructor_prompt() ->
     assert out["messages"][0]["content"] == out["system_prompt"]
 
 
+async def test_build_prompt_honours_custom_system_prompt_and_feedback() -> None:
+    out = await build_prompt(
+        _grounded_state(
+            requested_system_prompt="Custom application contract",
+            feedback_instructions="Emphasize operational risks",
+        ),
+        deps=_deps(),
+    )
+
+    assert out["system_prompt"] == "Custom application contract"
+    assert out["messages"][0]["content"] == "Custom application contract"
+    assert "Trusted correction instructions from the application" in out["messages"][1]["content"]
+    assert "Emphasize operational risks" in out["messages"][1]["content"]
+
+
 async def test_build_prompt_noop_when_no_content_and_no_block() -> None:
     # No extracted content and no grounding -> preserve the T6 grounding-only seam
     # (no prompt delta, byte-identical to the no-RAG no-content path).

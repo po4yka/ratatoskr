@@ -244,6 +244,8 @@ class GraphURLProcessor:
                 lang=lang,
                 input_url="",
                 source_text=content_text,
+                requested_system_prompt=request.system_prompt,
+                feedback_instructions=request.feedback_instructions or "",
                 user_scope=user_scope,
                 environment=environment,
                 two_pass_eligible=False,
@@ -255,6 +257,8 @@ class GraphURLProcessor:
                 lang=lang,
                 input_url="",
                 source_text=content_text,
+                requested_system_prompt=request.system_prompt,
+                feedback_instructions=request.feedback_instructions or "",
             )
             config = invocation_config(
                 correlation_id=correlation_id,
@@ -626,9 +630,7 @@ class GraphURLProcessor:
             req_id = await self._create_request_row(request)
 
             # Parity concern 5 -- RequestProcessingJob crash-recovery lease.
-            owns_processing_job = await self._record_url_flow_start(
-                request=request, req_id=req_id
-            )
+            owns_processing_job = await self._record_url_flow_start(request=request, req_id=req_id)
             if not owns_processing_job:
                 logger.info(
                     "graph_url_flow_duplicate_in_flight",
@@ -1069,9 +1071,7 @@ class GraphURLProcessor:
                 extra={"cid": request.correlation_id, "req_id": req_id},
             )
 
-    async def _record_url_flow_start(
-        self, *, request: URLFlowRequest, req_id: int
-    ) -> bool:
+    async def _record_url_flow_start(self, *, request: URLFlowRequest, req_id: int) -> bool:
         """Atomically claim the synchronous request processing lease."""
         if not request.manage_processing_job:
             return True
