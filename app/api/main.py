@@ -134,6 +134,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 await checkpointer_runtime.start()
             except ImportError:
                 logger.warning("langgraph_checkpointer_not_installed")
+                checkpointer_runtime = None
             except Exception:
                 logger.exception("langgraph_checkpointer_startup_failed")
                 checkpointer_runtime = None
