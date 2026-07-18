@@ -22,6 +22,7 @@ from app.domain.models.source import (
     AggregationSessionStatus,
     SourceItem,
 )
+from app.core.logging_utils import redact_for_logging
 from app.observability.metrics import (
     record_aggregation_bundle,
     record_aggregation_extraction,
@@ -212,13 +213,15 @@ class MultiSourceExtractionAgent(
                 await _persist_counts()
             except Exception as exc:
                 failed_count += 1
+                public_error = (
+                    f"Source extraction failed. Error ID: {input_data.correlation_id}"
+                )
                 item_failure = AggregationFailure(
                     code="source_extraction_failed",
-                    message=str(exc),
+                    message=public_error,
                     retryable=True,
                     details={
                         "source_kind": source_item.kind.value,
-                        "exception_type": type(exc).__name__,
                     },
                 )
                 await self._aggregation_session_repo.async_update_aggregation_session_item_result(
@@ -244,7 +247,8 @@ class MultiSourceExtractionAgent(
                     "multi_source_item_failed",
                     position=position,
                     source_kind=source_item.kind.value,
-                    error=str(exc),
+                    error=redact_for_logging(str(exc)),
+                    error_type=type(exc).__name__,
                 )
                 await _emit_progress(
                     input_data.progress_callback,
@@ -253,7 +257,7 @@ class MultiSourceExtractionAgent(
                         "position": position,
                         "source_kind": source_item.kind.value,
                         "source_item_id": source_item.stable_id,
-                        "error": str(exc),
+                        "error": public_error,
                     },
                 )
 
