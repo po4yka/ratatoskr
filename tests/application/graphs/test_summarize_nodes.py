@@ -84,9 +84,9 @@ async def test_ground_returns_empty_grounding() -> None:
     assert out["grounding_ids"] == []
 
 
-async def test_validate_reports_valid_by_default() -> None:
+async def test_validate_reports_missing_summary_by_default() -> None:
     out = await nodes.validate(_state(), deps=MagicMock())
-    assert out["validation_errors"] == []
+    assert out["validation_errors"] == ["Summary is missing"]
 
 
 async def test_repair_increments_attempts_under_budget() -> None:
@@ -114,7 +114,7 @@ async def test_repair_prompt_includes_validation_errors_and_prior_candidate(
 
     async def _fake_summarize_with_instructor(*, messages, **kwargs):
         captured["messages"] = messages
-        return {"summary_250": "fixed"}, {"model": "m", "tokens_prompt": 1}, 1
+        return {"summary_250": "fixed"}, [{"model": "m", "tokens_prompt": 1}], 1
 
     monkeypatch.setattr(
         repair_mod,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.application.dto.stream_enums import SUMMARY_TOKEN_EVENT
 from app.application.graphs.summarize.deps import SummarizeConfig
@@ -59,7 +59,18 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
     """
     messages = state.get("messages")
     if not messages:
-        return {}
+        # Bulk prompt channels are not checkpointed. Rebuild them from the
+        # request/crawl handles when a durable resume starts at this node.
+        from app.application.graphs.summarize.nodes.build_prompt import build_prompt
+
+        prompt_builder = getattr(build_prompt, "__wrapped__", build_prompt)
+        hydrated = await prompt_builder(state, deps=deps)
+        if not hydrated.get("messages"):
+            return {}
+        merged_state = dict(state)
+        merged_state.update(hydrated)
+        state = cast("SummarizeState", merged_state)
+        messages = state.get("messages")
 
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
     provider = _provider_name(deps, config)

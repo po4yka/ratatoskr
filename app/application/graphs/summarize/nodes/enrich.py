@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.graphs.summarize.deps import SummarizeConfig
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.graphs.summarize.nodes._context import load_source_text
 from app.application.services.summarization.graph_llm import enrich_two_pass
 
 if TYPE_CHECKING:
@@ -43,10 +44,11 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     if not summary:
         return {}
 
+    source_text = state.get("content_for_summary") or await load_source_text(state, deps)
     enriched, call_metas, call_count = await enrich_two_pass(
         llm_client=deps.llm_client,
         summary=summary,
-        content_text=state.get("content_for_summary") or state.get("source_text") or "",
+        content_text=source_text,
         chosen_lang=state.get("lang") or "en",
         temperature=config.temperature,
         top_p=config.top_p,

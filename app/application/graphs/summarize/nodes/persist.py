@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.dto.vector_search import RetrievalScope
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.graphs.summarize.nodes._context import load_source_text
 from app.application.services.summarization.metadata_backfill import backfill_summary_metadata
 from app.domain.models.request import RequestStatus
 
@@ -57,6 +58,9 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     """
     summary = state.get("summary") or {}
     request_id = state.get("request_id")
+    source_text = await load_source_text(state, deps)
+    if source_text and not state.get("source_text"):
+        state = {**state, "source_text": source_text, "content_for_summary": source_text}
 
     await _write_summary_cache(state, deps, summary)
 

@@ -70,11 +70,9 @@ def test_state_annotations_are_serializable_primitives() -> None:
 
 # ── audit #7: bulk-field drift guard + checkpoint-size ceiling ────────────────
 
-# The deliberate bulk-text fields (single-run, adjacent-node handoffs documented in
-# state.py). A new bulk field added without updating this allowlist (and the
-# docstring) fails the drift guard below -- forcing a review of whether it really
-# needs to ride in checkpoint state or can be re-fetched/re-derived id-based.
-_ALLOWED_BULK_FIELDS = frozenset(
+# The transient bulk-text fields (single-run, adjacent-node handoffs documented in
+# state.py). Graph assembly must map every one to an UntrackedValue channel.
+_UNTRACKED_BULK_FIELDS = frozenset(
     {
         "source_text",
         "requested_system_prompt",
@@ -130,13 +128,76 @@ def test_bulk_fields_match_documented_allowlist() -> None:
 
     hints = set(typing.get_type_hints(SummarizeState).keys())
     # Every schema field is accounted for as either bulk or non-bulk (no orphan).
-    assert hints == (_ALLOWED_BULK_FIELDS | _EXPECTED_NON_BULK_FIELDS), (
+    assert hints == (_UNTRACKED_BULK_FIELDS | _EXPECTED_NON_BULK_FIELDS), (
         "SummarizeState fields drifted from the reviewed bulk/non-bulk partition; "
-        "update _ALLOWED_BULK_FIELDS / _EXPECTED_NON_BULK_FIELDS and the state.py "
+        "update _UNTRACKED_BULK_FIELDS / _EXPECTED_NON_BULK_FIELDS and the state.py "
         "docstring after confirming the new field's checkpoint-size impact."
     )
     # The bulk allowlist stays a strict subset (no accidental bulk-field growth).
-    assert hints >= _ALLOWED_BULK_FIELDS
+    assert hints >= _UNTRACKED_BULK_FIELDS
+
+
+def test_compiled_graph_never_checkpoints_bulk_handoffs() -> None:
+    pytest.importorskip("langgraph")
+    from unittest.mock import MagicMock
+
+    from langgraph.channels import UntrackedValue
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from app.application.graphs.summarize.deps import SummarizeDeps
+    from app.application.graphs.summarize.graph import build_summarize_graph
+
+    port = MagicMock()
+    deps = SummarizeDeps(
+        llm_client=port,
+        retrieval=port,
+        extraction=port,
+        stream_sink=port,
+        summaries=port,
+        requests=port,
+        summary_index=port,
+    )
+    graph = build_summarize_graph(deps=deps, checkpointer=InMemorySaver())
+
+    for field in _UNTRACKED_BULK_FIELDS:
+        assert isinstance(graph.channels[field], UntrackedValue), field
+
+
+async def test_checkpoint_snapshot_contains_no_bulk_payload() -> None:
+    pytest.importorskip("langgraph")
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import END, START, StateGraph
+
+    from app.application.graphs.summarize.graph import _checkpoint_state_schema
+
+    async def populate(_state: dict) -> dict:
+        return {
+            "source_text": "secret source",
+            "grounding_block": "secret grounding",
+            "requested_system_prompt": "secret requested prompt",
+            "feedback_instructions": "secret feedback",
+            "system_prompt": "secret system prompt",
+            "messages": [{"role": "user", "content": "secret source"}],
+            "content_for_summary": "secret source",
+        }
+
+    async def stop_before_terminal(_state: dict) -> dict:
+        raise RuntimeError("inspect pending checkpoint")
+
+    builder = StateGraph(_checkpoint_state_schema())
+    builder.add_node("populate", populate)
+    builder.add_node("stop", stop_before_terminal)
+    builder.add_edge(START, "populate")
+    builder.add_edge("populate", "stop")
+    builder.add_edge("stop", END)
+    graph = builder.compile(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "bulk-check"}}
+
+    with pytest.raises(RuntimeError, match="inspect pending checkpoint"):
+        await graph.ainvoke({"correlation_id": "bulk-check"}, config=config)
+
+    snapshot = await graph.aget_state(config)
+    assert not (_UNTRACKED_BULK_FIELDS & snapshot.values.keys())
 
 
 def test_initial_state_carries_no_bulk_prompt_fields() -> None:

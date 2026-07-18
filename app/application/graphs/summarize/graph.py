@@ -22,7 +22,7 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict, get_type_hints
 
 from app.application.graphs.summarize import nodes
 from app.application.graphs.summarize.lifecycle import (
@@ -83,6 +83,33 @@ _NODES: dict[str, Any] = {
     "persist": nodes.persist,
     "notify": nodes.notify,
 }
+
+_UNTRACKED_BULK_FIELDS: dict[str, type[Any]] = {
+    "source_text": str,
+    "grounding_block": str,
+    "requested_system_prompt": str,
+    "feedback_instructions": str,
+    "system_prompt": str,
+    "messages": list,
+    "content_for_summary": str,
+}
+
+
+def _checkpoint_state_schema() -> type[Any]:
+    """Build the LangGraph schema with bulk handoffs excluded from checkpoints.
+
+    ``UntrackedValue`` is imported only at graph assembly time so importing the
+    application state remains possible without the optional graph dependency.
+    Nodes continue to use the ordinary ``SummarizeState`` TypedDict.
+    """
+    from langgraph.channels import UntrackedValue
+
+    annotations = get_type_hints(SummarizeState, include_extras=True)
+    for field, value_type in _UNTRACKED_BULK_FIELDS.items():
+        annotations[field] = Annotated[annotations[field], UntrackedValue(value_type)]
+    return TypedDict(  # type: ignore[operator]
+        "CheckpointSummarizeState", annotations, total=False
+    )
 
 
 def build_initial_state(
@@ -309,7 +336,7 @@ def build_summarize_graph(*, deps: SummarizeDeps, checkpointer: Any) -> Any:
     """
     from langgraph.graph import END, START, StateGraph
 
-    builder = StateGraph(SummarizeState)
+    builder = StateGraph(_checkpoint_state_schema())
     for node_name, node_fn in _NODES.items():
         # Bind port-typed deps via partial: deps stay in config, never in state.
         builder.add_node(node_name, functools.partial(node_fn, deps=deps))

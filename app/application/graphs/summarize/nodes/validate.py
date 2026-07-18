@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.graphs.summarize.nodes._context import load_source_text
 from app.core.summary_contract import validate_and_shape_summary
 from app.core.summary_contract_impl.quality_metadata import (
     infer_source_coverage,
@@ -34,8 +35,9 @@ async def validate(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, A
         shaped = validate_and_shape_summary(summary)
     except Exception as exc:
         return {"validation_errors": [str(exc)]}
+    source_text = state.get("content_for_summary") or await load_source_text(state, deps)
     inferred_source_coverage = infer_source_coverage(
-        content_text=state.get("content_for_summary") or state.get("source_text"),
+        content_text=source_text,
         content_source=state.get("content_source"),
     )
     merge_summary_quality_metadata(

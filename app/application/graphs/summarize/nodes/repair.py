@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.application.graphs.summarize.deps import SummarizeConfig
 from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
@@ -84,8 +84,16 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
 
     messages = state.get("messages")
     if not messages:
-        # Nothing to repair against (no prompt assembled) -- only advance the budget.
-        return {"repair_attempts": attempts}
+        from app.application.graphs.summarize.nodes.build_prompt import build_prompt
+
+        prompt_builder = getattr(build_prompt, "__wrapped__", build_prompt)
+        hydrated = await prompt_builder(state, deps=deps)
+        if not hydrated.get("messages"):
+            return {"repair_attempts": attempts}
+        merged_state = dict(state)
+        merged_state.update(hydrated)
+        state = cast("SummarizeState", merged_state)
+        messages = state.get("messages")
 
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
     provider = _provider_name(deps, config)

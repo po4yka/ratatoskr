@@ -96,6 +96,7 @@ def _deps(
     summary_index: Any = None,
     summaries: Any = None,
     requests: Any = None,
+    crawl_repo: Any = None,
     export_events: Any = None,
     rag_enabled: bool = False,
     rag_top_k: int = 5,
@@ -114,6 +115,7 @@ def _deps(
         rag_enabled=rag_enabled,
         rag_top_k=rag_top_k,
         export_events=export_events,
+        crawl_repo=crawl_repo,
     )
 
 
@@ -262,6 +264,21 @@ async def test_build_prompt_honours_custom_system_prompt_and_feedback() -> None:
     assert out["messages"][0]["content"] == "Custom application contract"
     assert "Trusted correction instructions from the application" in out["messages"][1]["content"]
     assert "Emphasize operational risks" in out["messages"][1]["content"]
+
+
+async def test_build_prompt_rehydrates_untracked_source_from_crawl_row() -> None:
+    crawl_repo = SimpleNamespace(
+        async_get_crawl_result_by_request=AsyncMock(
+            return_value={"content_markdown": "Persisted article body"}
+        )
+    )
+    state = _grounded_state()
+    state.pop("source_text")
+
+    out = await build_prompt(state, deps=_deps(crawl_repo=crawl_repo))
+
+    assert out["source_text"] == "Persisted article body"
+    assert "Persisted article body" in out["messages"][1]["content"]
 
 
 async def test_build_prompt_noop_when_no_content_and_no_block() -> None:
