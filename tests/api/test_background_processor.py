@@ -422,6 +422,7 @@ async def test_url_processing_auto_language_uses_detected_content():
     await processor.execute_request(4, correlation_id="cid-auto")
     assert summarizer.last_chosen_lang == "ru"
     assert summarizer.last_request.request_id == 4
+    assert summarizer.last_request.stream is True
 
 
 @pytest.mark.asyncio

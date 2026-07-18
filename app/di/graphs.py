@@ -234,7 +234,9 @@ def build_summarize_graph_app(*, deps: SummarizeDeps, checkpointer: Any | None =
     return build_summarize_graph(deps=deps, checkpointer=checkpointer)
 
 
-def build_stream_sink(*, hub: Any | None = None) -> StreamSinkPort:
+def build_stream_sink(
+    *, hub: Any | None = None, progress_event_repo: Any | None = None
+) -> StreamSinkPort:
     """Construct the StreamHub-backed stream sink (ADR-0017).
 
     Imported lazily so this module stays importable without the streaming stack
@@ -243,7 +245,7 @@ def build_stream_sink(*, hub: Any | None = None) -> StreamSinkPort:
     """
     from app.adapters.content.streaming.stream_sink_hub import StreamHubStreamSink
 
-    return StreamHubStreamSink(hub=hub)
+    return StreamHubStreamSink(hub=hub, progress_event_repo=progress_event_repo)
 
 
 def build_model_router(cfg: AppConfig) -> Any:
@@ -319,6 +321,7 @@ def build_graph_url_processor(
     summary_repo: Any | None = None,
     audit_func: Any | None = None,
     summarization_runtime: Any | None = None,
+    progress_event_repo: Any | None = None,
 ) -> Any:
     """Compose the graph-backed URL-flow facade (T9 cutover seam, ADR-0013).
 
@@ -349,10 +352,10 @@ def build_graph_url_processor(
 
     def _stream_sink_factory() -> StreamSinkPort:
         if hub_factory is not None:
-            return build_stream_sink(hub=hub_factory())
+            return build_stream_sink(hub=hub_factory(), progress_event_repo=progress_event_repo)
         from app.adapters.content.streaming import get_stream_hub
 
-        return build_stream_sink(hub=get_stream_hub())
+        return build_stream_sink(hub=get_stream_hub(), progress_event_repo=progress_event_repo)
 
     return GraphURLProcessor(
         cfg=cfg,
@@ -383,6 +386,10 @@ async def run_summarize_graph_streamed(
     request_id: int,
     lang: str,
     input_url: str = "",
+    source_text: str = "",
+    requested_system_prompt: str = "",
+    feedback_instructions: str = "",
+    two_pass_eligible: bool = True,
     user_scope: str | None = None,
     environment: str | None = None,
     recursion_limit: int | None = None,
@@ -413,12 +420,15 @@ async def run_summarize_graph_streamed(
         request_id=request_id,
         lang=lang,
         input_url=input_url,
+        source_text=source_text,
+        requested_system_prompt=requested_system_prompt,
+        feedback_instructions=feedback_instructions,
         user_scope=user_scope,
         environment=environment,
         stream=True,
         # URL-flow (interactive streamed) runner: two-pass enrich is eligible
         # here, still AND-gated by config.two_pass_enabled (audit #20).
-        two_pass_eligible=True,
+        two_pass_eligible=two_pass_eligible,
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=limit)
     bridge = GraphEventBridge(sink=sink, request_id=str(request_id), correlation_id=correlation_id)
@@ -519,6 +529,7 @@ def assemble_graph_url_processor(
     redis_cache: Any | None = None,
     checkpointer: Any | None = None,
     sem: Any | None = None,
+    progress_event_repo: Any | None = None,
 ) -> Any:
     """Assemble the full summarize graph + the graph-backed URL-flow facade (T9 cutover).
 
@@ -567,7 +578,7 @@ def assemble_graph_url_processor(
         llm_client=llm_client,
         retrieval=retrieval,
         extraction=extraction,
-        stream_sink=build_stream_sink(),
+        stream_sink=build_stream_sink(progress_event_repo=progress_event_repo),
         summaries=summary_repo,
         requests=request_repo,
         summary_index=summary_index,
@@ -600,6 +611,7 @@ def assemble_graph_url_processor(
         summary_repo=summary_repo,
         audit_func=audit_func,
         summarization_runtime=summarization_runtime,
+        progress_event_repo=progress_event_repo,
     )
 
 

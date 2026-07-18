@@ -476,6 +476,27 @@ async def test_content_only_summarize_with_request_uses_persisting_runner(monkey
     assert out["summary_250"] == "s"
 
 
+async def test_api_content_summarize_uses_streamed_runner_for_previews():
+    streamed = AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)})
+    facade = _facade(graph=MagicMock(), streamed_runner=streamed)
+
+    await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id="cid-api-stream",
+            request_id=42,
+            stream=True,
+        )
+    )
+
+    streamed.assert_awaited_once()
+    assert streamed.await_args.kwargs["source_text"] == "pre-extracted body"
+    assert streamed.await_args.kwargs["two_pass_eligible"] is False
+    assert "sink" in streamed.await_args.kwargs
+
+
 @pytest.mark.parametrize("falsy_correlation_id", ["", None])
 async def test_content_only_summarize_keeps_thread_id_equal_to_correlation_id(
     falsy_correlation_id,

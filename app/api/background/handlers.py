@@ -90,6 +90,7 @@ class UrlBackgroundRequestHandler:
                     system_prompt=system_prompt,
                     correlation_id=correlation_id,
                     request_id=request_id,
+                    stream=True,
                     source_coverage=source_coverage,
                     extraction_quality=metadata.get("extraction_quality")
                     if isinstance(metadata, dict)
@@ -191,6 +192,7 @@ class ForwardBackgroundRequestHandler:
                     system_prompt=system_prompt,
                     correlation_id=correlation_id,
                     request_id=request_id,
+                    stream=True,
                     source_coverage="full",
                 )
             ),

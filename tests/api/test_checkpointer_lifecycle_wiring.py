@@ -58,6 +58,7 @@ async def test_api_runtime_threads_checkpointer_to_url_processor(monkeypatch) ->
         )
 
     assert captured["checkpointer"] is saver
+    assert captured["progress_event_repo"] is not None
 
 
 async def test_lifespan_starts_checkpointer_before_building_api_runtime(monkeypatch) -> None:

@@ -233,23 +233,41 @@ class GraphURLProcessor:
             # the full runner so summarize/repair attempts and terminal failures are
             # durably attached to that request instead of being discarded by the
             # historical request_id=None content-only shortcut.
-            from app.application.graphs.summarize.graph import run_summarize_graph
-
             user_scope, environment = self._retrieval_scope()
-            final_state = await run_summarize_graph(
-                graph=self._graph,
-                deps=self._deps,
-                correlation_id=correlation_id,
-                request_id=request.request_id,
-                lang=lang,
-                input_url="",
-                source_text=content_text,
-                requested_system_prompt=request.system_prompt,
-                feedback_instructions=request.feedback_instructions or "",
-                user_scope=user_scope,
-                environment=environment,
-                two_pass_eligible=False,
-            )
+            runner = self._streamed_runner if request.stream else None
+            if runner is not None:
+                final_state = await runner(
+                    graph=self._graph,
+                    deps=self._deps,
+                    sink=self._stream_sink_factory(),
+                    correlation_id=correlation_id,
+                    request_id=request.request_id,
+                    lang=lang,
+                    input_url="",
+                    source_text=content_text,
+                    requested_system_prompt=request.system_prompt,
+                    feedback_instructions=request.feedback_instructions or "",
+                    user_scope=user_scope,
+                    environment=environment,
+                    two_pass_eligible=False,
+                )
+            else:
+                from app.application.graphs.summarize.graph import run_summarize_graph
+
+                final_state = await run_summarize_graph(
+                    graph=self._graph,
+                    deps=self._deps,
+                    correlation_id=correlation_id,
+                    request_id=request.request_id,
+                    lang=lang,
+                    input_url="",
+                    source_text=content_text,
+                    requested_system_prompt=request.system_prompt,
+                    feedback_instructions=request.feedback_instructions or "",
+                    user_scope=user_scope,
+                    environment=environment,
+                    two_pass_eligible=False,
+                )
         else:
             initial_state = build_initial_state(
                 correlation_id=correlation_id,

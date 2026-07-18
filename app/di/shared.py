@@ -220,6 +220,7 @@ def build_url_processor(
     embedding_service: Any | None = None,
     redis_cache: Any | None = None,
     checkpointer: Any | None = None,
+    progress_event_repo: Any | None = None,
 ) -> Any:
     """Build the graph-backed URL-flow facade for Telegram, API, and CLI runtimes.
 
@@ -340,6 +341,7 @@ def build_url_processor(
         embedding_service=embedding_service,
         redis_cache=redis_cache,
         checkpointer=checkpointer,
+        progress_event_repo=progress_event_repo,
         sem=sem,
     )
 
