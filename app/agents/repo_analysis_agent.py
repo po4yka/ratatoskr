@@ -179,7 +179,7 @@ class RepoAnalysisAgent:
             await self._persist(
                 correlation_id=correlation_id,
                 attempt_index=1,
-                attempt_trigger="structured",
+                attempt_trigger="agent",
                 response_text="",
                 status="error",
                 error_text=str(exc),
@@ -191,7 +191,7 @@ class RepoAnalysisAgent:
         await self._persist(
             correlation_id=correlation_id,
             attempt_index=max(1, result.retry_count + 1),
-            attempt_trigger="structured",
+            attempt_trigger="agent",
             response_text=parsed.model_dump_json(),
             status="success",
             error_text=None,

@@ -129,7 +129,7 @@ class TestRepoAnalysisAgent(unittest.IsolatedAsyncioTestCase):
         self.assertIs(llm.calls[0]["response_model"], RepoAnalysis)
         self.assertEqual(llm.calls[0]["max_retries"], 3)
         self.assertEqual(len(repo.calls), 1)
-        self.assertEqual(repo.calls[0]["attempt_trigger"], "structured")
+        self.assertEqual(repo.calls[0]["attempt_trigger"], "agent")
         self.assertEqual(repo.calls[0]["attempt_index"], 2)
         self.assertEqual(repo.calls[0]["model"], "openai/gpt-test")
         self.assertEqual(repo.calls[0]["tokens_prompt"], 10)
@@ -147,6 +147,7 @@ class TestRepoAnalysisAgent(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
         self.assertEqual(len(repo.calls), 1)
         self.assertEqual(repo.calls[0]["status"], "error")
+        self.assertEqual(repo.calls[0]["attempt_trigger"], "agent")
         self.assertIn("invalid", repo.calls[0]["error_text"])
 
     async def test_repository_metadata_is_wrapped_as_untrusted_source(self) -> None:
