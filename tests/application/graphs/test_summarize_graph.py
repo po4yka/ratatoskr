@@ -356,25 +356,25 @@ def _real_deps():
         extraction=m,
         stream_sink=m,
         summaries=m,
-        requests=m,
+        requests=MagicMock(async_update_request_error=AsyncMock()),
         summary_index=m,
     )
 
 
-async def test_build_compiles_and_runs_happy_path_with_in_memory_saver() -> None:
+async def test_empty_compiled_run_reaches_terminal_failure_with_in_memory_saver() -> None:
     pytest.importorskip("langgraph")
     from langgraph.checkpoint.memory import InMemorySaver
 
-    graph = build_summarize_graph(deps=_real_deps(), checkpointer=InMemorySaver())
+    deps = _real_deps()
+    graph = build_summarize_graph(deps=deps, checkpointer=InMemorySaver())
     out = await run_summarize_graph(
-        graph=graph, deps=_real_deps(), correlation_id="corr-real", request_id=11, lang="en"
+        graph=graph, deps=deps, correlation_id="corr-real", request_id=11, lang="en"
     )
 
-    assert "error" not in out  # happy path traverses ingest -> ... -> notify -> END
+    assert "Error ID: corr-real" in out["error"]
     assert out["correlation_id"] == "corr-real"
     assert out["request_id"] == 11
-    assert out["lang"] == "en"  # state field survives the full traversal unchanged
-    assert out["validation_errors"] == []
+    deps.requests.async_update_request_error.assert_awaited_once()
 
 
 async def test_compiled_validate_repair_loop_terminates_via_budget(monkeypatch) -> None:

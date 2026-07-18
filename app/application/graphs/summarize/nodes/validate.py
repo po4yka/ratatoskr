@@ -22,12 +22,14 @@ async def validate(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, A
 
     On success: replace ``summary`` with the canonical shaped payload and clear
     ``validation_errors`` (router -> enrich). On a contract ``ValidationError``:
-    populate ``validation_errors`` (router -> repair). No summary yet (the
-    no-content path) is treated as valid-and-empty so the skeleton still drains.
+    populate ``validation_errors`` (router -> repair). A missing summary is also
+    invalid: routing it through repair guarantees the run either produces a real
+    payload or reaches the terminal failure sink instead of leaving the Request in
+    ``processing``.
     """
     summary = state.get("summary")
     if not summary:
-        return {"validation_errors": []}
+        return {"validation_errors": ["Summary is missing"]}
     try:
         shaped = validate_and_shape_summary(summary)
     except Exception as exc:

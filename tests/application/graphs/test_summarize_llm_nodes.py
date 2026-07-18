@@ -204,9 +204,9 @@ async def test_validate_node_flags_invalid_summary() -> None:
     assert out["validation_errors"]  # non-empty -> routes to repair
 
 
-async def test_validate_node_empty_summary_is_valid_empty() -> None:
+async def test_validate_node_empty_summary_routes_to_repair() -> None:
     out = await validate({}, deps=MagicMock())
-    assert out == {"validation_errors": []}
+    assert out == {"validation_errors": ["Summary is missing"]}
 
 
 # --------------------------------------------------------------------------- #
