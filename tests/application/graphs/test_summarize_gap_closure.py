@@ -54,6 +54,7 @@ def _config(**over: Any) -> SummarizeConfig:
 
 def _deps(**over: Any) -> SummarizeDeps:
     m = MagicMock()
+    m.async_update_request_status = AsyncMock()
     defaults: dict[str, Any] = {
         "llm_client": m,
         "retrieval": m,
@@ -592,10 +593,11 @@ async def test_gap4_persist_backfills_canonical_url_from_request() -> None:
     request_repo = SimpleNamespace(
         async_get_request_by_id=AsyncMock(
             return_value={"normalized_url": "https://example.com/article"}
-        )
+        ),
+        async_update_request_status=AsyncMock(),
     )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(
+        async_persist_summary_with_llm_calls=AsyncMock(
             return_value=SummaryFinalizeResult(summary_id=99, version=1)
         ),
     )
@@ -614,8 +616,8 @@ async def test_gap4_persist_backfills_canonical_url_from_request() -> None:
         source_text="article text",
     )
     out = await persist(state, deps=deps)
-    # The summary passed to async_finalize_request_summary should have canonical_url
-    call_kwargs = summary_repo.async_finalize_request_summary.call_args.kwargs
+    # The atomically persisted summary should have canonical_url.
+    call_kwargs = summary_repo.async_persist_summary_with_llm_calls.call_args.kwargs
     saved = call_kwargs["json_payload"]
     assert saved.get("metadata", {}).get("canonical_url") == "https://example.com/article"
 
@@ -632,10 +634,11 @@ async def test_gap4_persist_backfills_domain_from_url() -> None:
     request_repo = SimpleNamespace(
         async_get_request_by_id=AsyncMock(
             return_value={"normalized_url": "https://news.example.org/story"}
-        )
+        ),
+        async_update_request_status=AsyncMock(),
     )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(
+        async_persist_summary_with_llm_calls=AsyncMock(
             return_value=SummaryFinalizeResult(summary_id=99, version=1)
         ),
     )
@@ -649,7 +652,7 @@ async def test_gap4_persist_backfills_domain_from_url() -> None:
     )
     state = _state(summary=summary, request_id=42, lang="en")
     await persist(state, deps=deps)
-    call_kwargs = summary_repo.async_finalize_request_summary.call_args.kwargs
+    call_kwargs = summary_repo.async_persist_summary_with_llm_calls.call_args.kwargs
     saved = call_kwargs["json_payload"]
     assert "example.org" in saved.get("metadata", {}).get("domain", "")
 
@@ -663,9 +666,12 @@ async def test_gap4_persist_backfills_title_from_heading() -> None:
         "metadata": {},
     }
     crawl_repo = SimpleNamespace(async_get_crawl_result_by_request=AsyncMock(return_value=None))
-    request_repo = SimpleNamespace(async_get_request_by_id=AsyncMock(return_value=None))
+    request_repo = SimpleNamespace(
+        async_get_request_by_id=AsyncMock(return_value=None),
+        async_update_request_status=AsyncMock(),
+    )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(
+        async_persist_summary_with_llm_calls=AsyncMock(
             return_value=SummaryFinalizeResult(summary_id=99, version=1)
         ),
     )
@@ -684,7 +690,7 @@ async def test_gap4_persist_backfills_title_from_heading() -> None:
         source_text="# My Article Title\n\nBody text here.",
     )
     await persist(state, deps=deps)
-    call_kwargs = summary_repo.async_finalize_request_summary.call_args.kwargs
+    call_kwargs = summary_repo.async_persist_summary_with_llm_calls.call_args.kwargs
     saved = call_kwargs["json_payload"]
     assert saved.get("metadata", {}).get("title") == "My Article Title"
 
@@ -698,20 +704,21 @@ async def test_gap4_persist_skipped_when_crawl_repo_none() -> None:
         "metadata": {},
     }
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(
+        async_persist_summary_with_llm_calls=AsyncMock(
             return_value=SummaryFinalizeResult(summary_id=99, version=1)
         ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
         crawl_repo=None,
+        requests=SimpleNamespace(async_update_request_status=AsyncMock()),
         summaries=summary_repo,
         summary_index=summary_index,
         llm_repo=None,
     )
     state = _state(summary=summary, request_id=42, lang="en")
     out = await persist(state, deps=deps)
-    summary_repo.async_finalize_request_summary.assert_awaited_once()
+    summary_repo.async_persist_summary_with_llm_calls.assert_awaited_once()
 
 
 async def test_gap4_backfill_crawl_metadata_applied() -> None:

@@ -472,13 +472,13 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
     Drives the real ``persist`` node (no langgraph): the graph stub's ``ainvoke``
     invokes ``persist`` against the facade-built initial state (with a summary
     grafted on, mimicking the spine), then returns the final state. Asserts the
-    persist node NEVER awaits async_finalize_request_summary / async_insert_llm_call /
+    persist node NEVER awaits async_persist_summary_with_llm_calls / async_insert_llm_call /
     index_summary (zero DB writes), and the facade still returns a shaped dict.
     """
     from app.application.graphs.summarize.deps import SummarizeDeps
     from app.application.graphs.summarize.nodes import persist as persist_node_fn
 
-    finalize = AsyncMock()
+    persist_atomic = AsyncMock()
     insert_llm = AsyncMock()
     index = AsyncMock()
     persist_deps = SummarizeDeps(
@@ -486,7 +486,7 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
         retrieval=MagicMock(),
         extraction=MagicMock(),
         stream_sink=MagicMock(),
-        summaries=MagicMock(async_finalize_request_summary=finalize),
+        summaries=MagicMock(async_persist_summary_with_llm_calls=persist_atomic),
         requests=MagicMock(),
         summary_index=MagicMock(index_summary=index),
         llm_repo=MagicMock(async_insert_llm_call=insert_llm),
@@ -520,7 +520,7 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
 
     # The content-only path has NO request row -> request_id must be None.
     # The real persist node must therefore write NOTHING.
-    finalize.assert_not_awaited()
+    persist_atomic.assert_not_awaited()
     insert_llm.assert_not_awaited()
     index.assert_not_awaited()
     # The shaped summary dict still returns to the caller.
