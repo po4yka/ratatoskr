@@ -478,10 +478,8 @@ async def test_content_only_summarize_keeps_thread_id_equal_to_correlation_id(
     falsy_correlation_id,
 ):
     # Sacred invariant (ADR-0011 / Operating Rule 1): the graph state's
-    # correlation_id and the langgraph thread_id must stay identical, even when the
-    # request's correlation_id is falsy. Applying the "content-only" fallback to the
-    # config alone diverged them (state kept "" while the checkpointer keyed on
-    # "content-only").
+    # correlation_id and the langgraph thread_id must stay identical. A missing
+    # caller correlation id receives a unique per-run lineage.
     graph = MagicMock(ainvoke=AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)}))
     facade = _facade(graph=graph)
 
@@ -499,7 +497,33 @@ async def test_content_only_summarize_keeps_thread_id_equal_to_correlation_id(
     config = graph.ainvoke.call_args.kwargs["config"]
     thread_id = config["configurable"]["thread_id"]
     assert init_state["correlation_id"] == thread_id
-    assert thread_id == "content-only"
+    assert thread_id.startswith("content-only-")
+
+
+async def test_content_only_calls_without_correlation_use_distinct_threads():
+    graph = MagicMock(ainvoke=AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)}))
+    facade = _facade(graph=graph)
+    request = PureSummaryRequest(
+        content_text="pre-extracted body", chosen_lang="en", system_prompt="sys"
+    )
+
+    await facade.summarize(request)
+    await facade.summarize(request)
+
+    first = graph.ainvoke.await_args_list[0].kwargs["config"]["configurable"]["thread_id"]
+    second = graph.ainvoke.await_args_list[1].kwargs["config"]["configurable"]["thread_id"]
+    assert first != second
+    assert first and second
+
+
+async def test_url_flow_without_correlation_uses_request_thread_id(monkeypatch):
+    _patch_lease(monkeypatch)
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=plain)
+
+    await _facade().handle_url_flow(_url_request(correlation_id=None, silent=True))
+
+    assert plain.await_args.kwargs["correlation_id"] == "url-777"
 
 
 async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monkeypatch):

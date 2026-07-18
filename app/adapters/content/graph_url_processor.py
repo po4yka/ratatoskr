@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 # Route version for the URL graph path -- mirrors the legacy ``URL_ROUTE_VERSION``
@@ -218,10 +219,15 @@ class GraphURLProcessor:
         lang = request.chosen_lang or "en"
         # Resolve the fallback ONCE so the graph state's correlation_id and the
         # langgraph thread_id stay identical (sacred, ADR-0011 / Operating Rule 1).
-        # Applying "content-only" only to invocation_config (as before) diverged the
-        # two whenever request.correlation_id was falsy: state kept "" while the
-        # checkpointer keyed on "content-only".
-        correlation_id = request.correlation_id or "content-only"
+        # A thread id is a checkpoint lineage, not a caller category. Reuse the
+        # request identity when one exists; otherwise allocate a unique lineage for
+        # this invocation so concurrent RSS/content-only calls cannot merge state or
+        # delete each other's checkpoints.
+        correlation_id = request.correlation_id or (
+            f"request-{request.request_id}"
+            if request.request_id is not None
+            else f"content-only-{uuid.uuid4().hex}"
+        )
         if request.request_id is not None:
             # API/background callers already own a real Request row. Route through
             # the full runner so summarize/repair attempts and terminal failures are
@@ -766,13 +772,14 @@ class GraphURLProcessor:
     ) -> dict[str, Any]:
         """Invoke the streamed runner (interactive + flag on) or the plain runner."""
         user_scope, environment = self._retrieval_scope()
+        thread_id = request.correlation_id or f"url-{req_id}"
         if not self._streaming_selected(request):
             from app.application.graphs.summarize.graph import run_summarize_graph
 
             return await run_summarize_graph(
                 graph=self._graph,
                 deps=self._deps,
-                correlation_id=request.correlation_id or "",
+                correlation_id=thread_id,
                 request_id=req_id,
                 lang=lang,
                 input_url=request.url_text,
@@ -785,7 +792,7 @@ class GraphURLProcessor:
             graph=self._graph,
             deps=self._deps,
             sink=sink,
-            correlation_id=request.correlation_id or "",
+            correlation_id=thread_id,
             request_id=req_id,
             lang=lang,
             input_url=request.url_text,
