@@ -45,6 +45,7 @@ from app.application.graphs.summarize.graph import (
     cleanup_checkpoint_thread,
     invocation_config,
 )
+from app.application.graphs.summarize.nodes.ingest import prepare_ingest_update
 from app.core.async_utils import raise_if_cancelled
 from app.core.lang import LANG_RU, choose_language, detect_language
 from app.core.logging_utils import get_logger, redact_url_for_logging
@@ -119,7 +120,8 @@ class GraphURLProcessor:
         self.summary_delivery = summary_delivery
         self.response_formatter = response_formatter
         self.request_repo = request_repo
-        # The persistence facade owns request creation AND the telegram_messages
+        # The persistence facade owns the transaction preflight (request creation
+        # after the graph ingest contract has normalized/deduped the URL) AND the telegram_messages
         # snapshot + User/Chat upserts (persist-everything). The graph-path
         # request row MUST mirror the legacy lifecycle: create + snapshot in one
         # seam so every row carries its owner ``user_id`` (IDOR rule 12) and a
@@ -643,8 +645,9 @@ class GraphURLProcessor:
         # Parity concern 3 -- in-flight gauge.
         set_url_processor_in_flight(+1)
         try:
-            # Parity concern 4 -- create the request row WITHOUT running extraction
-            # (the graph's extract node extracts). dedupe_hash via url_utils.
+            # Parity concern 4 -- apply ingest's deterministic URL contract, then
+            # create the request row WITHOUT running extraction (the graph's
+            # extract node extracts).
             req_id = await self._create_request_row(request)
 
             # Parity concern 5 -- RequestProcessingJob crash-recovery lease.
@@ -823,7 +826,8 @@ class GraphURLProcessor:
     async def _create_request_row(self, request: URLFlowRequest) -> int:
         """Create/resolve the request row (idempotent on dedupe_hash) for the flow.
 
-        Mirrors the legacy ``PlatformRequestLifecycle.create_request`` seam without
+        Applies the graph ingest contract, then mirrors the legacy
+        ``PlatformRequestLifecycle.create_request`` seam without
         running extraction: ``async_create_request_once`` resolves a repeat URL to
         its existing row and reports the dedupe hit atomically. A hit refreshes the
         correlation id for the active flow, while ``persist_message_snapshot`` writes
@@ -835,13 +839,12 @@ class GraphURLProcessor:
         (``from_user.id`` / ``chat.id`` / message id) -- a NULL ``user_id`` here would
         break the defense-in-depth IDOR ownership filter (rule 12).
         """
-        from app.core.url_utils import normalize_url
-
         if request.existing_request_id is not None:
             return request.existing_request_id
 
-        dedupe_hash = compute_dedupe_hash(request.url_text)
-        normalized = normalize_url(request.url_text)
+        ingest_update = prepare_ingest_update({"input_url": request.url_text})
+        normalized = str(ingest_update["input_url"])
+        dedupe_hash = str(ingest_update["dedupe_hash"])
         chat_id, user_id, input_message_id = _message_identity(request.message)
         req_id, created = await self.message_persistence.request_repo.async_create_request_once(
             type_="url",
