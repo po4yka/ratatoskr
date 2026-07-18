@@ -9,7 +9,12 @@ Covers:
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from app.config.runtime import RuntimeConfig
@@ -35,6 +40,20 @@ class TestUrlWorkerEnqueueEnabled:
     def test_one_string_enables(self) -> None:
         cfg = RuntimeConfig.model_validate({"URL_WORKER_ENQUEUE_ENABLED": "1"})
         assert cfg.url_worker_enqueue_enabled is True
+
+    def test_committed_config_enables_worker_handoff(self) -> None:
+        config_path = Path(__file__).resolve().parents[2] / "config/ratatoskr.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert config["runtime"]["url_worker_enqueue_enabled"] is True
+
+    def test_url_processing_task_module_imports_in_worker_environment(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-c", "import app.tasks.url_processing"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stderr
 
 
 class TestUrlWorkerConcurrency:
