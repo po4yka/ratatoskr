@@ -54,6 +54,8 @@ def test_taskiq_failed_job_model_is_registered() -> None:
 
 def test_memory_broker_registers_retry_and_dead_letter_middlewares(monkeypatch) -> None:
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    import app.tasks as tasks_package
+
     original_broker_module = sys.modules.pop("app.tasks.broker", None)
 
     try:
@@ -64,6 +66,7 @@ def test_memory_broker_registers_retry_and_dead_letter_middlewares(monkeypatch) 
         assert type(broker_module.broker).__name__ == "InMemoryBroker"
         assert [type(middleware).__name__ for middleware in broker_module.broker.middlewares] == [
             "SimpleRetryMiddleware",
+            "TaskiqExecutionMetricsMiddleware",
             "ChronicFailureMiddleware",
             "TaskiqDeadLetterMiddleware",
             "OTelPropagationMiddleware",
@@ -72,6 +75,9 @@ def test_memory_broker_registers_retry_and_dead_letter_middlewares(monkeypatch) 
         sys.modules.pop("app.tasks.broker", None)
         if original_broker_module is not None:
             sys.modules["app.tasks.broker"] = original_broker_module
+            tasks_package.broker = original_broker_module
+        else:
+            tasks_package.__dict__.pop("broker", None)
 
 
 @pytest.mark.asyncio

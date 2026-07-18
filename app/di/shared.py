@@ -34,6 +34,14 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Process-wide strong-reference registry for fire-and-forget audit-write tasks
+# scheduled by build_async_audit_sink when the caller does not supply its own.
+# asyncio holds only a WEAK reference to a task, so an unreferenced
+# create_task() result can be garbage-collected before the DB write completes,
+# silently dropping the audit record. Each task discards itself on completion
+# (add_done_callback below), so this set stays bounded by in-flight writes.
+_AUDIT_TASKS: set[asyncio.Task[Any]] = set()
+
 
 class LazySemaphoreFactory:
     """Lazy semaphore factory mirroring runtime bot behavior."""
@@ -53,6 +61,12 @@ def build_async_audit_sink(
 ) -> Callable[[str, str, dict[str, Any]], None]:
     """Create an async fire-and-forget audit callback backed by the DB."""
     repo = build_audit_log_repository(db)
+    # Always keep a strong reference to scheduled tasks. Callers may pass their
+    # own registry (e.g. one drained on shutdown); otherwise fall back to the
+    # module-level registry so every call site is protected -- most (di/api,
+    # admin, system, aggregation routers, and the unscoped telegram path) never
+    # pass one, which left their audit tasks eligible for GC before completion.
+    registry = task_registry if task_registry is not None else _AUDIT_TASKS
 
     def audit(level: str, event: str, details: dict[str, Any]) -> None:
         payload = details if isinstance(details, dict) else {"details": str(details)}
@@ -76,9 +90,8 @@ def build_async_audit_sink(
             logger.debug("audit_task_schedule_skipped", extra={"error": str(exc)})
             return
 
-        if task_registry is not None:
-            task_registry.add(task)
-            task.add_done_callback(task_registry.discard)
+        registry.add(task)
+        task.add_done_callback(registry.discard)
 
     return audit
 
@@ -157,6 +170,13 @@ def build_core_dependencies(
     sem_factory = semaphore_factory or LazySemaphoreFactory(cfg.runtime.max_concurrent_calls)
     firecrawl_client = _build_firecrawl_client(cfg, audit)
     llm_client = LLMClientFactory.create_from_config(cfg, audit=audit)
+    # When cfg is a hot-reloadable ConfigHolder (/setmodel) and the client froze
+    # its model at construction, re-apply the swapped config to the live client
+    # so a model change takes effect without a process restart.
+    register_listener = getattr(cfg, "register_listener", None)
+    apply_runtime_config = getattr(llm_client, "apply_runtime_config", None)
+    if callable(register_listener) and callable(apply_runtime_config):
+        register_listener(apply_runtime_config)
     scraper_chain = ContentScraperFactory.create_from_config(cfg, audit=audit)
 
     response_kwargs = dict(response_formatter_kwargs or {})
@@ -200,6 +220,7 @@ def build_url_processor(
     embedding_service: Any | None = None,
     redis_cache: Any | None = None,
     checkpointer: Any | None = None,
+    progress_event_repo: Any | None = None,
 ) -> Any:
     """Build the graph-backed URL-flow facade for Telegram, API, and CLI runtimes.
 
@@ -320,6 +341,8 @@ def build_url_processor(
         embedding_service=embedding_service,
         redis_cache=redis_cache,
         checkpointer=checkpointer,
+        progress_event_repo=progress_event_repo,
+        sem=sem,
     )
 
 

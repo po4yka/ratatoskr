@@ -8,10 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
     from app.application.ports.llm_client import LLMClientProtocol
+    from app.application.ports.requests import LLMRepositoryPort
 
 logger = get_logger(__name__)
 PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
@@ -48,10 +50,12 @@ class SignalJudgeService:
         self,
         *,
         llm_client: LLMClientProtocol,
+        llm_repo: LLMRepositoryPort | None = None,
         daily_budget_usd: float = 0.25,
         lang: str = "en",
     ) -> None:
         self._llm = llm_client
+        self._llm_repo = llm_repo
         self._daily_budget_usd = max(0.0, daily_budget_usd)
         self._lang = lang
         self._spent_usd = 0.0
@@ -80,6 +84,7 @@ class SignalJudgeService:
 
     async def _judge_one(self, row: dict[str, Any]) -> SignalJudgeDecision | None:
         prompt = self._build_prompt(row)
+        model = getattr(self._llm, "_model", "unknown")
         try:
             result = await self._llm.chat_structured(
                 [{"role": "user", "content": prompt}],
@@ -90,7 +95,27 @@ class SignalJudgeService:
             )
         except Exception as exc:
             logger.warning("signal_judge_llm_error", extra={"error": str(exc)})
+            # Operating Rule #3: every billed LLM call -- success AND failure --
+            # is persisted to llm_calls. Best-effort; never changes the outcome.
+            await persist_agent_llm_call(
+                self._llm_repo,
+                request_id=None,
+                endpoint="signal_judge",
+                model=model,
+                status="error",
+                error=exc,
+                structured_output_used=True,
+            )
             return None
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=None,
+            endpoint="signal_judge",
+            model=model,
+            status="success",
+            result=result,
+            structured_output_used=True,
+        )
         parsed = result.parsed
         return SignalJudgeDecision(
             llm_score=parsed.relevance_score,

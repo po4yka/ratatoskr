@@ -2,7 +2,7 @@
 
 ## Endpoints
 
-- **Base URL**: `https://api.firecrawl.dev`
+- **Base URL**: `FIRECRAWL_SELF_HOSTED_URL` (default `http://firecrawl-api:3002`)
 - **Scrape endpoint**: `POST /v2/scrape`
 
 ## Official Documentation
@@ -14,7 +14,8 @@
 ## Integration Location
 
 - **Client**: `app/adapters/content/scraper/firecrawl_provider.py`
-- **Parser**: `app/adapters/external/firecrawl_parser.py`
+- **Client**: `app/adapters/external/firecrawl/client.py`
+- **Parser**: `app/adapters/external/firecrawl/parsing.py`
 - **DB Storage**: `crawl_results` table
 
 ## Common Request Format
@@ -51,7 +52,6 @@ EOF
 
 - **400**: Invalid request (bad URL, malformed params)
 - **401**: Invalid API key
-- **402**: Payment required (quota exceeded)
 - **429**: Rate limit exceeded
 - **500/502/503**: Firecrawl server errors (retry with backoff)
 - **timeout**: Request exceeded timeout limit
@@ -75,8 +75,8 @@ export LOG_LEVEL=DEBUG
 ## Test Firecrawl Directly
 
 ```bash
-curl -X POST https://api.firecrawl.dev/v2/scrape \
-  -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
+curl -X POST "${FIRECRAWL_SELF_HOSTED_URL:-http://localhost:3002}/v2/scrape" \
+  -H "Authorization: Bearer $FIRECRAWL_SELF_HOSTED_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",

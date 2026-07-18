@@ -54,6 +54,8 @@ from app.db.models import (
 from app.db.session import Database
 from app.db.types import _utcnow
 
+pytestmark = pytest.mark.postgres
+
 
 def _test_dsn() -> str:
     return os.getenv("TEST_DATABASE_URL", "")
@@ -274,7 +276,9 @@ async def test_feature_models_round_trip_against_postgres() -> None:
         assert stored_webhook.events_json == ["summary.created"]
         assert stored_tag is not None
         assert stored_tag.name == "AI"
-        assert len(ALL_MODELS) == 63
+        registered_table_names = {table.key for table in _all_tables()}
+        assert len(registered_table_names) == len(ALL_MODELS)
+        assert registered_table_names <= set(Base.metadata.tables)
     finally:
         async with database.engine.begin() as connection:
             await connection.run_sync(Base.metadata.drop_all, tables=list(reversed(_all_tables())))

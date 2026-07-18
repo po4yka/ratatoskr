@@ -18,7 +18,8 @@ from fastapi import APIRouter, Depends, Request
 
 from app.api.dependencies.database import get_session_manager
 from app.api.models.responses import success_response
-from app.api.routers.auth import get_current_user
+from app.api.routers.auth import AuthenticatedUser, get_current_user
+from app.api.services.auth_service import AuthService
 from app.config import load_config
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC, format_iso_z
@@ -261,9 +262,9 @@ def _get_circuit_breaker_states() -> dict[str, str]:
 
 @router.get("/health/detailed")
 async def detailed_health_check(
-    request: Request, _: dict[str, Any] = Depends(get_current_user)
+    request: Request, user: AuthenticatedUser = Depends(get_current_user)
 ) -> Any:
-    """Comprehensive health check with component status.
+    """Owner-only comprehensive health check with component status.
 
     Returns detailed status of all system components:
     - Database connectivity and size
@@ -271,6 +272,7 @@ async def detailed_health_check(
     - Circuit breaker states
     - Overall health score
     """
+    await AuthService.require_owner(user)
     start_time = time.perf_counter()
 
     # Run component checks concurrently

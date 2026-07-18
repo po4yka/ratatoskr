@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.adapters.ingestors._http import DEFAULT_MAX_RESPONSE_MB, fetch_json_capped
 from app.application.ports.source_ingestors import (
     IngestedFeedItem,
     IngestedSource,
@@ -15,7 +16,10 @@ from app.application.ports.source_ingestors import (
     SourceFetchResult,
     TransientSourceError,
 )
+from app.core.logging_utils import get_logger
 from app.core.url_utils import normalize_url
+
+logger = get_logger(__name__)
 
 _FEEDS = {
     "top": "topstories",
@@ -23,6 +27,18 @@ _FEEDS = {
     "new": "newstories",
     "newest": "newstories",
 }
+
+
+def _representative_error(errors: list[Exception]) -> Exception:
+    """Pick the error that best represents a total item-fetch failure.
+
+    Prefer a rate-limit error so the runner honors its retry_at/backoff; fall
+    back to the first error otherwise.
+    """
+    for error in errors:
+        if isinstance(error, RateLimitedSourceError):
+            return error
+    return errors[0]
 
 
 class HackerNewsIngester:
@@ -37,6 +53,7 @@ class HackerNewsIngester:
         client: Any | None = None,
         base_url: str = "https://hacker-news.firebaseio.com/v0",
         max_concurrency: int = 5,
+        max_response_mb: int = DEFAULT_MAX_RESPONSE_MB,
     ) -> None:
         key = feed.strip().lower()
         if key not in _FEEDS:
@@ -48,6 +65,7 @@ class HackerNewsIngester:
         self.client = client or httpx.AsyncClient(timeout=20.0)
         self.base_url = base_url.rstrip("/")
         self.max_concurrency = max(1, int(max_concurrency))
+        self._max_response_bytes = max_response_mb * 1024 * 1024
         self.name = f"hacker_news:{self.feed}"
 
     def is_enabled(self) -> bool:
@@ -76,10 +94,39 @@ class HackerNewsIngester:
                 return None
             return self._normalize_item(raw)
 
-        # Fan out the per-item lookups concurrently (bounded by the semaphore);
-        # gather preserves listing order.
-        fetched = await asyncio.gather(*(_load(item_id) for item_id in ids[: self.limit]))
-        items = [item for item in fetched if item is not None]
+        # Fan out the per-item lookups concurrently (bounded by the semaphore).
+        # return_exceptions=True so one failing item fetch never discards the
+        # whole batch: individual failures are skipped and the items that did
+        # load are still returned. gather preserves listing order.
+        results = await asyncio.gather(
+            *(_load(item_id) for item_id in ids[: self.limit]),
+            return_exceptions=True,
+        )
+
+        items: list[IngestedFeedItem] = []
+        errors: list[Exception] = []
+        for result in results:
+            if isinstance(result, IngestedFeedItem):
+                items.append(result)
+            elif isinstance(result, Exception):
+                errors.append(result)
+            elif isinstance(result, BaseException):
+                # CancelledError / KeyboardInterrupt / SystemExit must propagate,
+                # never be swallowed as a skippable item failure.
+                raise result
+            # None => filtered non-story/deleted item; skip silently.
+
+        if errors and not items:
+            # Every item fetch failed: surface the failure so the runner backs
+            # off instead of recording a false success (which would clear the
+            # backoff and tight-loop during an outage).
+            raise _representative_error(errors)
+
+        if errors:
+            logger.warning(
+                "hacker_news_partial_item_fetch",
+                extra={"feed": self.feed, "fetched": len(items), "dropped": len(errors)},
+            )
 
         return SourceFetchResult(
             source=self.source_identity(),
@@ -87,14 +134,22 @@ class HackerNewsIngester:
         )
 
     async def _get_json(self, url: str) -> Any:
-        response = await self.client.get(url)
+        return await fetch_json_capped(
+            self.client,
+            url,
+            max_bytes=self._max_response_bytes,
+            provider="Hacker News",
+            check_status=self._check_status,
+        )
+
+    @staticmethod
+    def _check_status(response: Any) -> None:
         if response.status_code == 429:
             raise RateLimitedSourceError("Hacker News API returned 429")
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise TransientSourceError(f"Hacker News API error: {response.status_code}") from exc
-        return response.json()
 
     @staticmethod
     def _normalize_item(raw: dict[str, Any]) -> IngestedFeedItem:

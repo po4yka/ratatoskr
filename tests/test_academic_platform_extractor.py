@@ -227,9 +227,7 @@ def test_extract_pdf_text_aborts_when_aggregate_text_exceeds_cap(
     """
     fitz = pytest.importorskip("fitz", reason="PyMuPDF (fitz) required")
 
-    monkeypatch.setattr(
-        "app.adapters.academic.platform_extractor._DEFAULT_PDF_MAX_TEXT_CHARS", 50
-    )
+    monkeypatch.setattr("app.adapters.academic.platform_extractor._DEFAULT_PDF_MAX_TEXT_CHARS", 50)
 
     doc = fitz.open()
     page = doc.new_page()
@@ -350,6 +348,7 @@ def _gated_extractor(
     agentic_pdf: Any | None = None,
 ) -> AcademicPlatformExtractor:
     """Extractor whose landing scrape is empty and whose SSRN PDF 403s -> gated."""
+
     async def fake_is_url_safe_async(u: str) -> tuple[bool, str | None]:
         return True, None
 

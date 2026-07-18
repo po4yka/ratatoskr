@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.adapters.telegram.telegram_bot import TelegramBot
+from app.application.ports.summaries import SummaryFinalizeResult
 from app.core.json_utils import extract_json
 from app.utils.json_validation import extract_structured_dict
 from tests.conftest import make_test_app_config
@@ -59,7 +60,9 @@ def _setup_bot_repository_mocks(
     summary_repo_mock = MagicMock()
     summary_repo_mock.async_get_summary_by_request = AsyncMock(return_value=None)
     summary_repo_mock.async_upsert_summary = AsyncMock(return_value=1)
-    summary_repo_mock.async_finalize_request_summary = AsyncMock(return_value=1)
+    summary_repo_mock.async_finalize_request_summary = AsyncMock(
+        return_value=SummaryFinalizeResult(summary_id=1, version=1)
+    )
     summary_repo_mock.async_update_summary_insights = AsyncMock()
 
     llm_repo_mock = MagicMock()

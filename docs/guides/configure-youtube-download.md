@@ -1,310 +1,104 @@
 # Configure YouTube Download
 
-Enable YouTube video and transcript support in Ratatoskr.
+YouTube URLs use the dedicated platform extractor in `app/adapters/youtube/`.
+The pipeline obtains transcript data, downloads media and subtitles with
+`yt-dlp`, persists the extraction artifacts, and passes normalized text into the
+summarize graph.
 
-**Audience:** Users, Operators **Difficulty:** Beginner **Estimated Time:** 5 minutes
+## Runtime requirements
 
----
+- Enable the `youtube` dependency extra for a local Python installation.
+- Install `ffmpeg` for separate audio/video stream merging and transcription
+  fallback.
+- Give `YOUTUBE_STORAGE_PATH` enough persistent space.
 
-## Prerequisites
+The main Docker image installs `ffmpeg` unless it is deliberately built with
+`WITH_FFMPEG=0`.
 
-- Ratatoskr installed and running
-- ffmpeg installed on your system (for video/audio merging)
+## Configuration
 
----
+The checked-in defaults are defined under `youtube:` in
+`config/ratatoskr.yaml`:
 
-## Steps
+```yaml
+youtube:
+  enabled: true
+  storage_path: /data/videos
+  max_video_size_mb: 500
+  max_storage_gb: 100
+  auto_cleanup_enabled: true
+  cleanup_after_days: 30
+  preferred_quality: 1080p
+  subtitle_languages: [en, ru]
+```
 
-### 1. Install ffmpeg (if not already installed)
+Environment overrides use these names:
 
-**macOS:**
+| Variable | Purpose |
+| --- | --- |
+| `YOUTUBE_DOWNLOAD_ENABLED` | Enable the YouTube platform extractor. |
+| `YOUTUBE_STORAGE_PATH` | Directory for downloaded media and sidecars. |
+| `YOUTUBE_MAX_VIDEO_SIZE_MB` | Reject downloads beyond the per-video limit. |
+| `YOUTUBE_MAX_STORAGE_GB` | Storage budget used by the cleanup guard. |
+| `YOUTUBE_AUTO_CLEANUP_ENABLED` | Allow automatic removal of expired downloads. |
+| `YOUTUBE_CLEANUP_AFTER_DAYS` | Retention period for completed downloads. |
+| `YOUTUBE_PREFERRED_QUALITY` | One of `1080p`, `720p`, `480p`, `360p`, `240p`. |
+| `YOUTUBE_SUBTITLE_LANGUAGES` | Comma-separated subtitle preference order. |
+
+For a local process, create the configured directory and make it writable by the
+runtime user. The Compose deployment persists the common `/data` volume.
+
+## Transcript fallback
+
+The normal order is the YouTube transcript API followed by subtitle files from
+`yt-dlp`. When neither yields text, Ratatoskr can transcribe the downloaded media
+through the optional shared transcription service.
+
+Enable that fallback with:
 
 ```bash
-brew install ffmpeg
+TRANSCRIPTION_ENABLED=true
+TRANSCRIPTION_AUTO_URL_PIPELINE=true
 ```
 
-**Ubuntu/Debian:**
+The transcription provider is `local` by default. It uses the language-specific
+sherpa-onnx model under `TRANSCRIPTION_MODEL_PATH`. A remote OpenAI-compatible
+provider is selected with `TRANSCRIPTION_PROVIDER=openai` and
+`TRANSCRIPTION_API_KEY`; there are no `ENABLE_WHISPER_TRANSCRIPTION` or
+`WHISPER_API_KEY` settings.
 
-```bash
-sudo apt-get update
-sudo apt-get install -y ffmpeg
-```
+See [Environment Variables](../reference/environment-variables.md) for the full
+transcription configuration.
 
-**Docker:** ffmpeg is already included in the Docker image.
+## Verify
 
-**Verify installation:**
+After restarting the affected bot/worker process, send a public YouTube watch,
+short, live, embed, or `youtu.be` URL. Verify observed behavior rather than a
+fixed response template:
 
-```bash
-ffmpeg -version
-# Should output: ffmpeg version 6.x.x or higher
-```
+1. progress reaches transcript extraction and media download;
+2. the request completes with a summary or a user-visible error containing an
+   `Error ID`;
+3. the request, download, crawl/source artifacts, and summary exist in
+   PostgreSQL;
+4. temporary or retained files appear below the configured storage path.
 
----
-
-### 2. Configure Environment Variables
-
-Add these variables to your `.env` file:
-
-```bash
-# Enable YouTube support
-YOUTUBE_DOWNLOAD_ENABLED=true
-
-# Video quality (default: 1080p)
-YOUTUBE_PREFERRED_QUALITY=1080p
-
-# Storage path (default: /data/videos)
-YOUTUBE_STORAGE_PATH=/data/videos
-
-# Auto-cleanup old videos (optional)
-YOUTUBE_AUTO_CLEANUP_ENABLED=true
-YOUTUBE_CLEANUP_AFTER_DAYS=7        # Delete videos older than 7 days
-YOUTUBE_MAX_STORAGE_GB=10          # Max 10 GB total storage
-YOUTUBE_MAX_VIDEO_SIZE_MB=500       # Max 500 MB per video
-```
-
----
-
-### 3. Create Storage Directory
-
-```bash
-# Local installation
-mkdir -p /data/videos
-
-# Docker (already created in image)
-# No action needed
-```
-
----
-
-### 4. Restart Bot
-
-```bash
-# Docker
-docker restart ratatoskr
-
-# Local
-# Press Ctrl+C to stop, then:
-python bot.py
-```
-
----
-
-## Verification
-
-Send a YouTube URL to your bot:
-
-```
-https://www.youtube.com/watch?v=dQw4w9WgXcQ
-```
-
-**Expected behavior:**
-
-1. Bot replies "📹 Processing YouTube video..."
-2. ~10-20 seconds pass (transcript extraction + video download)
-3. Bot sends summary with video metadata
-
-**Example output:**
-
-```
-📹 Video Title
-
-🎬 Channel: Example Channel
-⏱ Duration: 5:32
-📅 Published: 2025-01-15
-
-🔖 TLDR
-[50-character summary of video content]
-
-📝 Summary (from transcript)
-[Detailed summary of video content]
-
-💡 Key Topics
-• Topic 1
-• Topic 2
-• Topic 3
-
-✅ Processed in 18.4s
-```
-
----
+The exact duration and Telegram formatting depend on media length, subtitle
+availability, LLM configuration, and current formatter behavior.
 
 ## Troubleshooting
 
-### ffmpeg not found
+- **Merge failure:** run `ffmpeg -version`; inspect the `yt-dlp` error stored for
+  the download.
+- **No transcript:** confirm the video is public and not age-, region-, or
+  membership-restricted; enable transcription fallback if policy permits.
+- **Size limit:** increase `YOUTUBE_MAX_VIDEO_SIZE_MB` deliberately or choose a
+  lower `YOUTUBE_PREFERRED_QUALITY`.
+- **Storage pressure:** inspect `YOUTUBE_STORAGE_PATH`, cleanup settings, and the
+  persistent-volume capacity.
+- **Authentication/rate limit:** the downloader reports login/age checks and
+  YouTube throttling as extraction failures; Ratatoskr does not document a
+  browser-cookie bypass as a supported production contract.
 
-**Symptom:** Error message "ffmpeg not found"
-
-**Solution:**
-
-```bash
-# Install ffmpeg (see Step 1 above)
-
-# Verify installation
-which ffmpeg
-# Should output: /usr/local/bin/ffmpeg or similar
-```
-
----
-
-### Transcript unavailable
-
-**Symptom:** Error message "No transcript available for this video"
-
-**Cause:** Video has no auto-generated or manual captions
-
-**Solutions:**
-
-1. **Enable Whisper transcription** (requires API key):
-
-   ```bash
-   ENABLE_WHISPER_TRANSCRIPTION=true
-   WHISPER_API_KEY=your_key  # Optional, uses local Whisper if omitted
-   ```
-
-2. **Try different video:** Many videos have auto-generated captions
-
----
-
-### Storage quota exceeded
-
-**Symptom:** Error message "Disk full" or "No space left on device"
-
-**Solution:**
-
-```bash
-# Check storage usage
-du -sh /data/videos/
-
-# Clean old videos manually
-find /data/videos/ -type f -mtime +7 -delete
-
-# Or enable auto-cleanup (recommended)
-echo "YOUTUBE_AUTO_CLEANUP_ENABLED=true" >> .env
-echo "YOUTUBE_CLEANUP_AFTER_DAYS=7" >> .env
-echo "YOUTUBE_MAX_STORAGE_GB=10" >> .env
-docker restart ratatoskr
-```
-
----
-
-### Video quality issues
-
-**Symptom:** Downloaded video has wrong quality or format
-
-**Solution:**
-
-```bash
-# Try lower quality
-YOUTUBE_PREFERRED_QUALITY=720p
-
-# Or use best available quality
-YOUTUBE_PREFERRED_QUALITY=best
-
-# Restart bot
-docker restart ratatoskr
-```
-
----
-
-## Advanced Configuration
-
-### Custom Storage Location
-
-```bash
-# Use custom directory
-YOUTUBE_STORAGE_PATH=/mnt/external/youtube
-
-# Create directory
-mkdir -p /mnt/external/youtube
-
-# Update Docker volume mount
-docker run -v /mnt/external/youtube:/data/videos ...
-```
-
-### Audio-Only Mode (Future Feature)
-
-Audio-only downloads (smaller files) are planned but not yet implemented. Current workaround:
-
-```bash
-# Use lower quality to reduce file size
-YOUTUBE_PREFERRED_QUALITY=480p
-```
-
-### Disable Video Download (Transcript Only)
-
-```bash
-# Download transcript but not video
-YOUTUBE_DOWNLOAD_VIDEO=false
-YOUTUBE_DOWNLOAD_TRANSCRIPT=true
-```
-
----
-
-## Storage Management
-
-### Check Storage Usage
-
-```bash
-# Total usage
-du -sh /data/videos/
-
-# Per-video usage
-du -h /data/videos/ | sort -hr | head -20
-
-# Count videos
-ls /data/videos/*.mp4 | wc -l
-```
-
-### Manual Cleanup
-
-```bash
-# Delete videos older than 30 days
-find /data/videos/ -name "*.mp4" -mtime +30 -delete
-
-# Delete videos larger than 1GB
-find /data/videos/ -name "*.mp4" -size +1G -delete
-
-# Keep only latest 100 videos
-ls -t /data/videos/*.mp4 | tail -n +101 | xargs rm
-```
-
----
-
-## Supported URL Formats
-
-Ratatoskr supports all major YouTube URL formats:
-
-```
-# Standard watch
-https://www.youtube.com/watch?v=VIDEO_ID
-
-# Short URLs
-https://youtu.be/VIDEO_ID
-
-# Shorts
-https://www.youtube.com/shorts/VIDEO_ID
-
-# Live streams
-https://www.youtube.com/live/VIDEO_ID
-
-# Embedded
-https://www.youtube.com/embed/VIDEO_ID
-
-# Mobile
-https://m.youtube.com/watch?v=VIDEO_ID
-
-# YouTube Music
-https://music.youtube.com/watch?v=VIDEO_ID
-```
-
----
-
-## See Also
-
-- [FAQ § YouTube Support](../explanation/faq.md#youtube-support)
-- [TROUBLESHOOTING § YouTube Issues](../reference/troubleshooting.md#youtube-issues)
-- [environment_variables.md § YouTube](../reference/environment-variables.md) - Full variable reference
-
----
-
-**Last Updated:** 2026-02-09
+For correlation-ID lookup and detailed failure triage, see
+[Troubleshooting: YouTube issues](../reference/troubleshooting.md#youtube-issues).

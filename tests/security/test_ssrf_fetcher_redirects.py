@@ -47,10 +47,11 @@ class _DefuddleClient:
         self.response.status_code = 302
         self.response.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
         self.response.raise_for_status = MagicMock()
+        self.response.aclose = AsyncMock()
 
-    async def get(self, url: str, **_kwargs):
+    def stream(self, _method: str, url: str, **_kwargs):
         self.urls.append(url)
-        return self.response
+        return _AsyncContext(self.response)
 
 
 @pytest.mark.asyncio
@@ -84,7 +85,8 @@ async def test_direct_html_provider_blocks_redirect_to_private_ip() -> None:
             return_value=_AsyncContext(client),
         ),
         patch(
-            "app.adapters.content.scraper.direct_html_provider.is_url_safe",
+            "app.adapters.content.scraper.direct_html_provider.is_url_safe_async",
+            new_callable=AsyncMock,
             side_effect=[_SAFE_URL, _PRIVATE_REDIRECT],
         ),
     ):
@@ -105,7 +107,8 @@ async def test_defuddle_provider_blocks_redirect_to_private_ip() -> None:
             return_value=_AsyncContext(client),
         ),
         patch(
-            "app.adapters.content.scraper.defuddle_provider.is_url_safe",
+            "app.adapters.content.scraper.defuddle_provider.is_url_safe_async",
+            new_callable=AsyncMock,
             # 1st call: target-URL input guard; 2nd: initial defuddle_url;
             # 3rd: the redirect target (private IP) which is blocked.
             side_effect=[_SAFE_URL, _SAFE_URL, _PRIVATE_REDIRECT],
@@ -119,21 +122,25 @@ async def test_defuddle_provider_blocks_redirect_to_private_ip() -> None:
 
 @pytest.mark.asyncio
 async def test_crawl4ai_provider_blocks_sidecar_redirect_to_private_ip() -> None:
-    redirect = MagicMock(spec=httpx.Response)
-    redirect.status_code = 302
-    redirect.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
-    client = MagicMock()
-    client.post = AsyncMock(return_value=redirect)
+    client = _DirectHTMLClient()
     provider = Crawl4AIProvider("http://crawl4ai:11235", min_content_length=1)
     provider._client = client
 
-    with patch(
-        "app.adapters.content.scraper.crawl4ai_provider.is_url_safe",
-        return_value=_PRIVATE_REDIRECT,
+    with (
+        patch(
+            "app.adapters.content.scraper.target_safety.is_url_safe_async",
+            new_callable=AsyncMock,
+            return_value=_SAFE_URL,
+        ),
+        patch(
+            "app.adapters.content.scraper.crawl4ai_provider.is_url_safe_async",
+            new_callable=AsyncMock,
+            return_value=_PRIVATE_REDIRECT,
+        ),
     ):
         result = await provider.scrape_markdown("https://example.com/article")
 
     assert result.status == CallStatus.ERROR
     assert result.error_text is not None
     assert "SSRF blocked redirect target" in result.error_text
-    client.post.assert_awaited_once()
+    assert client.urls == ["http://crawl4ai:11235/crawl"]

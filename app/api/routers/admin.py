@@ -9,11 +9,17 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.dependencies.database import get_session_manager
-from app.api.models.responses import DiagnosticsSuccessResponse, success_response
+from app.api.models.responses import (
+    DiagnosticsSuccessResponse,
+    GraphRunEvaluationListSuccessResponse,
+    GraphRunLedgerSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth import AuthenticatedUser, get_current_user
 from app.api.services.admin_read_service import AdminReadService
 from app.api.services.auth_service import AuthService
 from app.api.services.diagnostics_service import DiagnosticsService
+from app.api.services.graph_run_ledger_service import GraphRunLedgerService
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.di.shared import build_async_audit_sink
@@ -197,7 +203,44 @@ async def diagnostics(
 
 
 # ---------------------------------------------------------------------------
-# 7. GET /audit-log -- Paginated audit log
+# 7. GET /graph-runs -- Owner-only sanitized graph ledger and evaluation records
+# ---------------------------------------------------------------------------
+
+
+@router.get("/graph-runs/{request_id}", response_model=GraphRunLedgerSuccessResponse)
+async def graph_run_ledger(
+    request_id: int,
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> Any:
+    """Return a sanitized graph chronology, LLM attempts, and feedback signals."""
+    await AuthService.require_owner(user)
+    user_id = _extract_user_id(user)
+    audit = build_async_audit_sink(_resolve_db(request))
+    audit("INFO", "admin.graph_run_ledger", {"user_id": user_id, "request_id": request_id})
+    return success_response(
+        await GraphRunLedgerService(_resolve_db(request)).get_run(request_id=request_id)
+    )
+
+
+@router.get("/graph-runs", response_model=GraphRunEvaluationListSuccessResponse)
+async def graph_run_evaluations(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+) -> Any:
+    """List bounded privacy-safe run and feedback records for offline evaluation."""
+    await AuthService.require_owner(user)
+    user_id = _extract_user_id(user)
+    audit = build_async_audit_sink(_resolve_db(request))
+    audit("INFO", "admin.graph_run_evaluations", {"user_id": user_id, "limit": limit})
+    return success_response(
+        await GraphRunLedgerService(_resolve_db(request)).list_evaluations(limit=limit)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. GET /audit-log -- Paginated audit log
 # ---------------------------------------------------------------------------
 
 

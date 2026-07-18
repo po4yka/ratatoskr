@@ -179,12 +179,13 @@ class URLSummaryDeliveryService:
         silent: bool,
     ) -> None:
         try:
-            new_version = await self._summary_repo.async_finalize_request_summary(
+            finalize_result = await self._summary_repo.async_finalize_request_summary(
                 request_id=req_id,
                 lang=chosen_lang,
                 json_payload=summary_json,
                 is_read=not silent,
             )
+            new_version = finalize_result.version
             self._audit("INFO", "summary_upserted", {"request_id": req_id, "version": new_version})
 
             if interaction_id:

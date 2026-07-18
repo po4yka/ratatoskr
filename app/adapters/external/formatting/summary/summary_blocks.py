@@ -52,12 +52,20 @@ class SummaryBlocksPresenter:
         _l = self._context.lang
         combined_lines: list[str] = []
 
+        # This block is sent with parse_mode="HTML", so every LLM-derived value
+        # interpolated below (summary text, tags, entities, metadata, categories)
+        # is html.escape()'d -- otherwise a crafted title/tag/entity from scraped
+        # third-party content that reproduces a Telegram HTML tag would render as
+        # real markup in the bot's own trusted output. sanitize_summary_text only
+        # normalizes/trims; it does not escape.
         tl_dr = str(shaped.get("summary_250", "")).strip()
         if tl_dr:
-            tl_dr_clean = self._context.text_processor.sanitize_summary_text(tl_dr)
+            tl_dr_clean = html.escape(self._context.text_processor.sanitize_summary_text(tl_dr))
             combined_lines.extend([f"📋 {t('tldr', _l)}:", tl_dr_clean, ""])
 
-        tag_items = self._clean_string_list(shaped.get("topic_tags") or [])
+        tag_items = [
+            html.escape(tag) for tag in self._clean_string_list(shaped.get("topic_tags") or [])
+        ]
         if tag_items:
             combined_lines.append(
                 f"🏷️ {t('tags', _l)}: " + self._summarize_visible_items(tag_items, 5, joiner=" ")
@@ -66,9 +74,13 @@ class SummaryBlocksPresenter:
 
         entities = shaped.get("entities") or {}
         if isinstance(entities, dict):
-            people = self._clean_string_list(entities.get("people") or [])
-            orgs = self._clean_string_list(entities.get("organizations") or [])
-            locs = self._clean_string_list(entities.get("locations") or [])
+            people = [html.escape(v) for v in self._clean_string_list(entities.get("people") or [])]
+            orgs = [
+                html.escape(v) for v in self._clean_string_list(entities.get("organizations") or [])
+            ]
+            locs = [
+                html.escape(v) for v in self._clean_string_list(entities.get("locations") or [])
+            ]
             if people or orgs or locs:
                 combined_lines.append(f"🧭 {t('entities', _l)}:")
                 if people:
@@ -110,18 +122,20 @@ class SummaryBlocksPresenter:
         if isinstance(metadata, dict):
             meta_parts = []
             if metadata.get("title"):
-                meta_parts.append(f"📰 {metadata['title']}")
+                meta_parts.append(f"📰 {html.escape(str(metadata['title']))}")
             if metadata.get("author"):
-                meta_parts.append(f"✍️ {metadata['author']}")
+                meta_parts.append(f"✍️ {html.escape(str(metadata['author']))}")
             if include_domain and metadata.get("domain"):
-                meta_parts.append(f"🌐 {metadata['domain']}")
+                meta_parts.append(f"🌐 {html.escape(str(metadata['domain']))}")
             if meta_parts:
                 combined_lines.extend(meta_parts)
                 combined_lines.append("")
 
         categories = self._clean_string_list(shaped.get("categories") or [])
         if categories:
-            combined_lines.append(f"📁 {t('categories', _l)}: " + ", ".join(categories[:10]))
+            combined_lines.append(
+                f"📁 {t('categories', _l)}: " + ", ".join(html.escape(c) for c in categories[:10])
+            )
             combined_lines.append("")
 
         confidence = shaped.get("confidence", 0.0)
@@ -131,7 +145,9 @@ class SummaryBlocksPresenter:
             combined_lines.append(f"🎯 {t('confidence', _l)}: {confidence:.1%}")
         if risk != "low":
             risk_emoji = "🚨" if risk == "high" else "⚠️"
-            combined_lines.append(f"{risk_emoji} {t('hallucination_risk', _l)}: {risk}")
+            combined_lines.append(
+                f"{risk_emoji} {t('hallucination_risk', _l)}: {html.escape(risk)}"
+            )
         if low_confidence or risk != "low":
             combined_lines.append("")
 
@@ -199,7 +215,8 @@ class SummaryBlocksPresenter:
         ideas = self._clean_string_list(shaped.get("key_ideas") or [])
         if not ideas:
             return None
-        bullets = "\n".join(f"• {idea}" for idea in ideas)
+        # Sent with parse_mode="HTML"; escape each LLM-derived idea.
+        bullets = "\n".join(f"• {html.escape(idea)}" for idea in ideas)
         return f"<b>💡 {t('key_ideas', self._context.lang)}</b>\n{bullets}"
 
     def build_all_supplemental_blocks(self, shaped: dict[str, Any]) -> str | None:

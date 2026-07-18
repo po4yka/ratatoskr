@@ -10,6 +10,7 @@ from app.core.logging_utils import get_logger
 from app.observability.metrics import record_web_search_decision
 
 if TYPE_CHECKING:
+    from app.application.ports.requests import LLMRepositoryPort
     from app.application.services.topic_search import TopicSearchService
 
 logger = get_logger(__name__)
@@ -24,10 +25,12 @@ class SearchContextEnricher:
         cfg: Any,
         openrouter: Any,
         topic_search: TopicSearchService | None = None,
+        llm_repo: LLMRepositoryPort | None = None,
     ) -> None:
         self._cfg = cfg
         self._openrouter = openrouter
         self._topic_search = topic_search
+        self._llm_repo = llm_repo
 
     async def enrich(
         self,
@@ -35,6 +38,7 @@ class SearchContextEnricher:
         content_text: str,
         chosen_lang: str,
         correlation_id: str | None,
+        request_id: int | None = None,
     ) -> str:
         """Return formatted search context or an empty string."""
         if not self._cfg.web_search.enabled:
@@ -69,6 +73,8 @@ class SearchContextEnricher:
                 search_service=self._topic_search,
                 cfg=self._cfg.web_search,
                 correlation_id=correlation_id,
+                llm_repo=self._llm_repo,
+                request_id=request_id,
             )
             input_data = WebSearchAgentInput(
                 content=content_text[:8000],

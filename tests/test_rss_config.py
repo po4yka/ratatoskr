@@ -14,6 +14,7 @@ class TestRSSConfig:
         assert cfg.auto_summarize is True
         assert cfg.min_content_length == 500
         assert cfg.max_items_per_poll == 20
+        assert cfg.poll_concurrency == 8
         assert cfg.concurrency == 2
 
     def test_enabled_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,6 +33,15 @@ class TestRSSConfig:
             RSSConfig(concurrency=0)
         cfg = RSSConfig(concurrency=5)
         assert cfg.concurrency == 5
+
+    def test_poll_concurrency_is_separate_and_bounded(self) -> None:
+        with pytest.raises(ValidationError):
+            RSSConfig(poll_concurrency=0)
+        with pytest.raises(ValidationError):
+            RSSConfig(poll_concurrency=33)
+        cfg = RSSConfig(poll_concurrency=6, concurrency=2)
+        assert cfg.poll_concurrency == 6
+        assert cfg.concurrency == 2
 
     def test_frozen(self) -> None:
         cfg = RSSConfig()

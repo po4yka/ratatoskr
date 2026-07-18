@@ -212,6 +212,7 @@ class FakeSession:
                 GitMirrorStatus.PENDING,
                 GitMirrorStatus.OK,
                 GitMirrorStatus.FAILED,
+                GitMirrorStatus.SKIPPED,
             )
             # EXCLUDED must never appear in list_due results -- mirror_repo
             # enforces this via SQL; here we replicate the semantics.
@@ -257,16 +258,17 @@ class TestListDueSkipsExcluded:
         pending = _make_mirror(mirror_id=2, status=GitMirrorStatus.PENDING)
         ok_mirror = _make_mirror(mirror_id=3, status=GitMirrorStatus.OK)
         failed = _make_mirror(mirror_id=4, status=GitMirrorStatus.FAILED)
+        skipped = _make_mirror(mirror_id=5, status=GitMirrorStatus.SKIPPED)
 
         cfg = _make_config()
-        db = FakeDB([excluded, pending, ok_mirror, failed])
+        db = FakeDB([excluded, pending, ok_mirror, failed, skipped])
         repo = GitMirrorRepository(db, cfg)  # type: ignore[arg-type]
 
         results = await repo.list_due()
 
         ids = {r.id for r in results}
         assert 1 not in ids, "EXCLUDED mirror must not appear in list_due"
-        assert {2, 3, 4} == ids
+        assert {2, 3, 4, 5} == ids
 
     async def test_only_excluded_returns_empty(self) -> None:
         from app.adapters.git_backup.repository import GitMirrorRepository

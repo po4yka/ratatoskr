@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.multi_source_classification import build_source_item_from_submission
 from app.adapters.telegram.multimodal_extractor import build_telegram_normalized_document
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
 from app.application.dto.aggregation import (
     AggregationFailure,
     MultiSourceExtractionInput,
@@ -22,10 +22,12 @@ from app.domain.models.source import (
     AggregationSessionStatus,
     SourceItem,
 )
+from app.core.logging_utils import redact_for_logging
 from app.observability.metrics import (
     record_aggregation_bundle,
     record_aggregation_extraction,
 )
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 
 if TYPE_CHECKING:
     from app.adapters.content.content_extractor import ContentExtractor
@@ -54,6 +56,15 @@ class MultiSourceExtractionAgent(
         """Classify and extract a mixed source bundle with partial-success semantics."""
 
         self.correlation_id = input_data.correlation_id
+        with _tracer.start_as_current_span("agent.multi_source_extraction") as span:
+            span.set_attribute(AGENT_NAME, "multi_source_extraction")
+            span.set_attribute(REQUEST_CORRELATION_ID, self.correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
+            return await self._execute(input_data)
+
+    async def _execute(
+        self, input_data: MultiSourceExtractionInput
+    ) -> AgentResult[MultiSourceExtractionOutput]:
         self.log_info(
             "multi_source_extraction_started",
             total_items=len(input_data.items),
@@ -212,13 +223,15 @@ class MultiSourceExtractionAgent(
                 await _persist_counts()
             except Exception as exc:
                 failed_count += 1
+                public_error = (
+                    f"Source extraction failed. Error ID: {input_data.correlation_id}"
+                )
                 item_failure = AggregationFailure(
                     code="source_extraction_failed",
-                    message=str(exc),
+                    message=public_error,
                     retryable=True,
                     details={
                         "source_kind": source_item.kind.value,
-                        "exception_type": type(exc).__name__,
                     },
                 )
                 await self._aggregation_session_repo.async_update_aggregation_session_item_result(
@@ -244,7 +257,8 @@ class MultiSourceExtractionAgent(
                     "multi_source_item_failed",
                     position=position,
                     source_kind=source_item.kind.value,
-                    error=str(exc),
+                    error=redact_for_logging(str(exc)),
+                    error_type=type(exc).__name__,
                 )
                 await _emit_progress(
                     input_data.progress_callback,
@@ -253,7 +267,7 @@ class MultiSourceExtractionAgent(
                         "position": position,
                         "source_kind": source_item.kind.value,
                         "source_item_id": source_item.stable_id,
-                        "error": str(exc),
+                        "error": public_error,
                     },
                 )
 
@@ -263,14 +277,26 @@ class MultiSourceExtractionAgent(
             successful_count=successful_count,
             failed_count=failed_count,
             duplicate_count=duplicate_count,
+            allow_partial_success=input_data.allow_partial_success,
         )
         failure: AggregationFailure | None = None
-        if successful_count == 0:
+        if session_status is AggregationSessionStatus.FAILED:
+            partial_disallowed = successful_count > 0
             failure = AggregationFailure(
-                code="no_extracted_sources",
-                message="No source extractions completed successfully",
+                code=(
+                    "partial_success_not_allowed"
+                    if partial_disallowed
+                    else "no_extracted_sources"
+                ),
+                message=(
+                    f"Partial source extraction is disabled. Error ID: "
+                    f"{input_data.correlation_id}"
+                    if partial_disallowed
+                    else "No source extractions completed successfully"
+                ),
                 retryable=True,
                 details={
+                    "successful_count": successful_count,
                     "failed_count": failed_count,
                     "duplicate_count": duplicate_count,
                 },
@@ -309,11 +335,12 @@ class MultiSourceExtractionAgent(
                 "duplicate_count": duplicate_count,
             },
         )
-        if successful_count == 0:
+        if session_status is AggregationSessionStatus.FAILED:
             return AgentResult.error_result(
-                "No source extractions completed successfully",
+                failure.message if failure else "Source extraction failed",
                 session_id=session_id,
                 status=AggregationSessionStatus.FAILED.value,
+                successful_count=successful_count,
                 failed_count=failed_count,
                 duplicate_count=duplicate_count,
             )
@@ -412,10 +439,15 @@ class MultiSourceExtractionAgent(
         successful_count: int,
         failed_count: int,
         duplicate_count: int,
+        allow_partial_success: bool = True,
     ) -> AggregationSessionStatus:
         if successful_count > 0 and failed_count > 0:
-            return AggregationSessionStatus.PARTIAL
-        if failed_count > 0 and successful_count == 0 and duplicate_count == 0:
+            return (
+                AggregationSessionStatus.PARTIAL
+                if allow_partial_success
+                else AggregationSessionStatus.FAILED
+            )
+        if failed_count > 0 and successful_count == 0:
             return AggregationSessionStatus.FAILED
         return AggregationSessionStatus.COMPLETED
 

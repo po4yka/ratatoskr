@@ -13,7 +13,7 @@ anyio==4.13.0
     # via
     #   httpx
     #   taskiq
-ast-serialize==0.5.0
+ast-serialize==0.6.0
     # via mypy
 attrs==26.1.0
     # via
@@ -21,55 +21,51 @@ attrs==26.1.0
     #   jsonschema
     #   jsonschema-path
     #   referencing
-bandit==1.9.4
-boolean-py==5.0
-    # via license-expression
-cachecontrol==0.14.4
-    # via pip-audit
 certifi==2026.4.22
     # via
     #   httpcore
     #   httpx
-    #   requests
 cfgv==3.5.0
     # via pre-commit
-charset-normalizer==3.4.7
-    # via requests
-colorama==0.4.6 ; sys_platform == 'win32'
+click==8.3.3
+    # via import-linter
+colorama==0.4.6
     # via
-    #   bandit
+    #   click
     #   pytest
-cyclonedx-python-lib==11.7.0
-    # via pip-audit
-defusedxml==0.7.1
-    # via py-serializable
+    #   radon
+coverage==7.15.2
+    # via pytest-cov
 distlib==0.4.0
     # via virtualenv
+execnet==2.1.2
+    # via pytest-xdist
 fakeredis==2.36.2
 filelock==3.29.0
     # via
-    #   cachecontrol
     #   python-discovery
     #   virtualenv
 frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
+grimp==3.15
+    # via import-linter
 h11==0.16.0
     # via httpcore
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via respx
-hypothesis==6.155.7
+hypothesis==6.156.6
 identify==2.6.19
     # via pre-commit
 idna==3.15
     # via
     #   anyio
     #   httpx
-    #   requests
     #   yarl
+import-linter==2.13
 iniconfig==2.3.0
     # via pytest
 isort==7.0.0
@@ -85,21 +81,19 @@ jsonschema-specifications==2025.9.1
     #   openapi-schema-validator
 lazy-object-proxy==1.12.0
     # via openapi-spec-validator
-librt==0.11.0 ; platform_python_implementation != 'PyPy'
+librt==0.13.0 ; platform_python_implementation != 'PyPy'
     # via mypy
-license-expression==30.4.4
-    # via cyclonedx-python-lib
+mando==0.7.1
+    # via radon
 markdown-it-py==4.2.0
     # via rich
 mdurl==0.1.2
     # via markdown-it-py
-msgpack==1.2.1
-    # via cachecontrol
 multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
-mypy==2.1.0
+mypy==2.3.0
 mypy-extensions==1.1.0
     # via mypy
 nodeenv==1.10.0
@@ -107,32 +101,23 @@ nodeenv==1.10.0
 openapi-schema-validator==0.9.0
     # via openapi-spec-validator
 openapi-spec-validator==0.9.0
-packageurl-python==0.17.6
-    # via cyclonedx-python-lib
 packaging==26.2
     # via
-    #   pip-audit
-    #   pip-requirements-parser
     #   pytest
+    #   pytest-rerunfailures
     #   taskiq
 pathable==0.6.0
     # via jsonschema-path
 pathspec==1.1.1
     # via mypy
-pip==26.1.2
-    # via pip-api
-pip-api==0.0.34
-    # via pip-audit
-pip-audit==2.10.1
-pip-requirements-parser==32.0.1
-    # via pip-audit
 platformdirs==4.9.6
     # via
-    #   pip-audit
     #   python-discovery
     #   virtualenv
 pluggy==1.6.0
-    # via pytest
+    # via
+    #   pytest
+    #   pytest-cov
 pre-commit==4.6.0
 propcache==0.4.1
     # via
@@ -140,8 +125,6 @@ propcache==0.4.1
     #   yarl
 py-cpuinfo==9.0.0
     # via pytest-benchmark
-py-serializable==2.1.0
-    # via cyclonedx-python-lib
 pycron==3.2.0
     # via taskiq
 pydantic==2.13.4
@@ -160,23 +143,29 @@ pygments==2.20.0
     # via
     #   pytest
     #   rich
-pyparsing==3.3.2
-    # via pip-requirements-parser
 pytest==9.1.1
     # via
     #   pytest-asyncio
     #   pytest-benchmark
+    #   pytest-cov
+    #   pytest-rerunfailures
+    #   pytest-timeout
+    #   pytest-xdist
 pytest-asyncio==1.4.0
 pytest-benchmark==5.2.3
+pytest-cov==7.1.0
+pytest-rerunfailures==16.4
+pytest-timeout==2.4.0
+pytest-xdist==3.8.0
 python-discovery==1.2.2
     # via virtualenv
 python-dotenv==1.2.2
     # via pydantic-settings
 pyyaml==6.0.3
     # via
-    #   bandit
     #   jsonschema-path
     #   pre-commit
+radon==6.0.1
 redis==8.0.1
     # via
     #   fakeredis
@@ -187,44 +176,34 @@ referencing==0.37.0
     #   jsonschema-path
     #   jsonschema-specifications
     #   openapi-schema-validator
-requests==2.33.1
-    # via
-    #   cachecontrol
-    #   pip-audit
 respx==0.23.1
 rfc3339-validator==0.1.4
     # via openapi-schema-validator
 rich==14.3.4
-    # via
-    #   bandit
-    #   pip-audit
+    # via import-linter
 rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.20
+ruff==0.15.22
 six==1.17.0
-    # via rfc3339-validator
+    # via
+    #   mando
+    #   rfc3339-validator
 sortedcontainers==2.4.0
     # via
-    #   cyclonedx-python-lib
     #   fakeredis
     #   hypothesis
-stevedore==5.7.0
-    # via bandit
 taskiq==0.12.4
     # via taskiq-redis
 taskiq-dependencies==1.5.7
     # via taskiq
 taskiq-redis==1.2.3
-tomli==2.4.1
-    # via pip-audit
-tomli-w==1.2.0
-    # via pip-audit
 types-python-dateutil==2.9.0.20260518
 types-pyyaml==6.0.12.20260518
 typing-extensions==4.15.0
     # via
+    #   import-linter
     #   mypy
     #   pydantic
     #   pydantic-core
@@ -233,8 +212,6 @@ typing-inspection==0.4.2
     # via
     #   pydantic
     #   pydantic-settings
-urllib3==2.7.0
-    # via requests
 virtualenv==21.3.0
     # via pre-commit
 yarl==1.23.0

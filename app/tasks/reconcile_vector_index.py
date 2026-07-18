@@ -294,7 +294,11 @@ async def _sync_summary_vectors(
         for embedding in embeddings
         if isinstance(embedding.get("summary_id"), int)
     }
-    indexed_summary_ids: list[int] = []
+    indexed_content_hashes: dict[int, str] = {}
+    request_ids: list[int] = []
+    raw_ids: list[str] = []
+    vectors: list[list[float]] = []
+    point_payloads: list[dict[str, Any]] = []
     embedding_service = runtime.embedding_generator.embedding_service
 
     for row in rows:
@@ -328,22 +332,46 @@ async def _sync_summary_vectors(
             cfg.vector_store.environment,
         )
         raw_id = f"{request_id}:{summary_id}"
-        await asyncio.to_thread(
-            vector_store.replace_summary_point,
-            request_id,
-            raw_id,
-            vector_list,
-            point_payload,
-        )
-        indexed_summary_ids.append(summary_id)
-        logger.debug(
-            "vector_reconcile_summary_point_upserted",
-            extra={
-                "summary_id": summary_id,
-                "request_id": request_id,
-                "point_id": summary_point_id(request_id, summary_id),
-            },
-        )
+        indexed_content_hashes[summary_id] = current_hash
+        request_ids.append(request_id)
+        raw_ids.append(raw_id)
+        vectors.append(vector_list)
+        point_payloads.append(point_payload)
 
-    await runtime.embedding_repository.async_mark_summary_embeddings_indexed(indexed_summary_ids)
+    if not indexed_content_hashes:
+        return 0
+
+    candidate_summary_ids = list(indexed_content_hashes)
+
+    acknowledged = await asyncio.to_thread(
+        vector_store.replace_summary_points,
+        request_ids,
+        raw_ids,
+        vectors,
+        point_payloads,
+    )
+    if acknowledged is not True:
+        logger.warning(
+            "vector_reconcile_summary_batch_unacknowledged",
+            extra={"summaries": len(candidate_summary_ids)},
+        )
+        return 0
+
+    logger.debug(
+        "vector_reconcile_summary_batch_upserted",
+        extra={
+            "summaries": len(candidate_summary_ids),
+            "point_ids": [
+                summary_point_id(request_id, summary_id)
+                for request_id, summary_id in zip(request_ids, candidate_summary_ids, strict=True)
+            ],
+        },
+    )
+
+    indexed_summary_ids = await runtime.embedding_repository.async_mark_summary_embeddings_indexed(
+        indexed_content_hashes
+    )
+    cas_misses = len(indexed_content_hashes) - len(indexed_summary_ids)
+    if cas_misses:
+        logger.info("vector_reconcile_summary_cas_miss", extra={"rows": cas_misses})
     return len(indexed_summary_ids)

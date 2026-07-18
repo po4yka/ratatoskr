@@ -29,10 +29,14 @@ runs.
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import hashlib
 import json
 import os
 import re
+import shutil
+import stat
+import uuid
 from pathlib import Path
 
 from app.adapters.ai_backup.errors import PathTraversalError
@@ -42,10 +46,36 @@ _SAFE_ID_RE = re.compile(r"[^\w\-]")
 # stripped first and every path is containment-checked, so dots are safe here.
 _SAFE_NAME_RE = re.compile(r"[^\w.\-]")
 _SAFE_EXT_RE = re.compile(r"[^\w.]")
-_MANIFEST_SCHEMA_VERSION = "1"
+_MANIFEST_SCHEMA_VERSION = "2"
 
 # O_NOFOLLOW is POSIX but absent on Windows/some exotic platforms; degrade safely.
 _O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
+_O_DIRECTORY: int = getattr(os, "O_DIRECTORY", 0)
+
+
+def _enforce_private_file_mode(fd: int) -> None:
+    os.fchmod(fd, 0o600)
+    metadata = os.fstat(fd)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+    ):
+        raise PermissionError(
+            errno.EACCES,
+            "Filesystem did not enforce owner-only AI backup file permissions",
+        )
+
+
+def _enforce_private_file(path: Path) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW)
+    except OSError as exc:
+        raise PathTraversalError("Backup file is unsafe or inaccessible") from exc
+    try:
+        _enforce_private_file_mode(fd)
+    finally:
+        os.close(fd)
 
 
 def _sanitize_id(raw: str) -> str:
@@ -76,7 +106,7 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _write_nofollow(path: Path, data: bytes) -> None:
+def _write_nofollow(path: Path, data: bytes, *, exclusive: bool = False) -> None:
     """Write *data* to *path* without following a symlink at the final component.
 
     Opens with ``O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW`` (0o600 mode).
@@ -88,12 +118,33 @@ def _write_nofollow(path: Path, data: bytes) -> None:
     normally; the containment check in ``_safe_child`` still protects against
     resolved-path escapes.
     """
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | _O_NOFOLLOW
+    flags = os.O_WRONLY | os.O_CREAT | _O_NOFOLLOW
+    flags |= os.O_EXCL if exclusive else os.O_TRUNC
     fd = os.open(path, flags, 0o600)
     try:
-        os.write(fd, data)
+        _enforce_private_file_mode(fd)
+        remaining = memoryview(data)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("write returned no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _atomic_write_nofollow(path: Path, data: bytes) -> None:
+    """Write through a private sibling and atomically replace ``path``."""
+    tmp = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        _write_nofollow(tmp, data, exclusive=True)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _read_nofollow(path: Path) -> bytes | None:
@@ -119,6 +170,46 @@ def _read_nofollow(path: Path) -> bytes | None:
         os.close(fd)
 
 
+def _ensure_private_directory_tree(root: Path, target: Path) -> None:
+    """Create/chmod every directory from ``root`` through ``target`` to 0700."""
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise PathTraversalError("Backup directory is outside the data root") from exc
+
+    current = root
+    for part in (None, *relative.parts):
+        if part is not None:
+            current /= part
+        try:
+            current.mkdir(mode=0o700, parents=current == root, exist_ok=True)
+            fd = os.open(current, os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW)
+        except OSError as exc:
+            raise PathTraversalError("Backup directory is unsafe or inaccessible") from exc
+        try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise PathTraversalError("Backup directory path is not a directory")
+            os.fchmod(fd, 0o700)
+            if stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
+                raise PermissionError(
+                    errno.EACCES,
+                    "Filesystem did not enforce owner-only AI backup directory permissions",
+                )
+        finally:
+            os.close(fd)
+
+
+def _harden_existing_tree(root: Path) -> None:
+    """Upgrade legacy entries below ``root`` and fail closed on unsafe files."""
+    for directory, names, file_names in os.walk(root, followlinks=False):
+        for name in names:
+            candidate = Path(directory) / name
+            _ensure_private_directory_tree(candidate, candidate)
+        for name in file_names:
+            _enforce_private_file(Path(directory) / name)
+
+
 class AiBackupDiskWriter:
     """Path-safe, idempotent-by-id writer for one backup run."""
 
@@ -130,24 +221,71 @@ class AiBackupDiskWriter:
         correlation_id: str,
         *,
         started_at: dt.datetime | None = None,
+        min_free_bytes: int = 0,
     ) -> None:
         self._data_root = Path(data_root).resolve()
         self._service = _sanitize_id(service)
         self._run_date = run_date
         self._correlation_id = correlation_id
         self._started_at = started_at or dt.datetime.now(tz=dt.UTC)
+        self._min_free_bytes = min_free_bytes
+        self._ensure_free_space(0)
+        _ensure_private_directory_tree(self._data_root, self._data_root)
         self._run_dir = _safe_child(self._data_root, self._service, run_date.isoformat())
-        self._run_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_private_directory_tree(self._data_root, self._run_dir)
+        _harden_existing_tree(self._run_dir)
         self._manifest: dict[str, dict[str, str]] = {
             "conversations": {},
             "projects": {},
             "files": {},
             "artifacts": {},
         }
+        self._merge_existing_manifest()
 
     @property
     def run_dir(self) -> Path:
         return self._run_dir
+
+    def _ensure_free_space(self, growth_bytes: int) -> None:
+        probe = self._data_root
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        free = shutil.disk_usage(probe).free
+        required = self._min_free_bytes + max(0, growth_bytes)
+        if free < required:
+            raise OSError(
+                errno.ENOSPC,
+                f"AI backup requires {required} free bytes but only {free} remain",
+            )
+
+    def _merge_existing_manifest(self) -> None:
+        """Carry forward hashes already committed to today's run directory."""
+        path = self._run_dir / "manifest.json"
+        try:
+            data = _read_nofollow(path)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError("Symlink detected at existing manifest") from exc
+            raise
+        if data is None:
+            return
+        try:
+            existing = json.loads(data)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError("Existing AI backup manifest is invalid JSON") from exc
+        if not isinstance(existing, dict):
+            raise ValueError("Existing AI backup manifest must be an object")
+        if existing.get("service") != self._service or existing.get("run_date") != str(
+            self._run_date
+        ):
+            raise ValueError("Existing AI backup manifest belongs to a different run directory")
+        for category in self._manifest:
+            entries = existing.get(category, {})
+            if not isinstance(entries, dict) or not all(
+                isinstance(key, str) and isinstance(value, str) for key, value in entries.items()
+            ):
+                raise ValueError(f"Existing AI backup manifest has invalid {category}")
+            self._manifest[category].update(entries)
 
     def _write_idempotent(self, path: Path, data: bytes) -> str:
         """Write ``data`` to ``path`` unless an identical blob is already there.
@@ -162,18 +300,24 @@ class AiBackupDiskWriter:
         try:
             existing = _read_nofollow(path)
         except OSError as exc:
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} during idempotency read — refusing"
-            ) from exc
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError(
+                    f"Symlink detected at {path!r} during idempotency read — refusing"
+                ) from exc
+            raise
         if existing is not None and _sha256_hex(existing) == sha:
+            _enforce_private_file(path)
             return sha
-        path.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_free_space(len(data) - len(existing or b""))
+        _ensure_private_directory_tree(self._run_dir, path.parent)
         try:
-            _write_nofollow(path, data)
+            _atomic_write_nofollow(path, data)
         except OSError as exc:
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} — write refused to prevent escape"
-            ) from exc
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError(
+                    f"Symlink detected at {path!r} — write refused to prevent escape"
+                ) from exc
+            raise
         return sha
 
     def write_conversation(self, conv_id: str, payload: dict) -> None:
@@ -220,21 +364,6 @@ class AiBackupDiskWriter:
         sid = _sanitize_id(file_id)
         name = _sanitize_filename(original_name)
         path = _safe_child(self._run_dir, "files", f"{sid}__{name}")
-        # Same file_id always means identical bytes by construction: skip if present.
-        # Use O_NOFOLLOW-safe existence check (lstat, not stat) to avoid following symlinks.
-        try:
-            lst = path.lstat()
-        except FileNotFoundError:
-            lst = None
-        except OSError:
-            lst = None
-        if lst is not None and not path.is_symlink():
-            self._manifest["files"][sid] = _sha256_hex(data)
-            return
-        if lst is not None and path.is_symlink():
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} — write_file refused to prevent escape"
-            )
         self._manifest["files"][sid] = self._write_idempotent(path, data)
 
     def write_artifact(self, conv_id: str, artifact_id: str, ext: str, data: bytes) -> None:
@@ -243,19 +372,6 @@ class AiBackupDiskWriter:
         safe_ext = _sanitize_ext(ext)
         path = _safe_child(self._run_dir, "artifacts", cid, f"{aid}.{safe_ext}")
         key = f"{cid}/{aid}.{safe_ext}"
-        try:
-            lst = path.lstat()
-        except FileNotFoundError:
-            lst = None
-        except OSError:
-            lst = None
-        if lst is not None and not path.is_symlink():
-            self._manifest["artifacts"][key] = _sha256_hex(data)
-            return
-        if lst is not None and path.is_symlink():
-            raise PathTraversalError(
-                f"Symlink detected at {path!r} — write_artifact refused to prevent escape"
-            )
         self._manifest["artifacts"][key] = self._write_idempotent(path, data)
 
     def partial_counts(self) -> dict[str, int]:
@@ -286,29 +402,23 @@ class AiBackupDiskWriter:
                 "finished_at": dt.datetime.now(tz=dt.UTC).isoformat(),
                 "requests_made": requests_made,
                 "skipped_incremental": skipped_incremental,
+                "collected_counts": {
+                    category: int(counts.get(category, 0)) for category in self._manifest
+                },
             },
-            "counts": {
-                "conversations": int(counts.get("conversations", 0)),
-                "projects": int(counts.get("projects", 0)),
-                "files": int(counts.get("files", 0)),
-                "artifacts": int(counts.get("artifacts", 0)),
-            },
+            "counts": {category: len(entries) for category, entries in self._manifest.items()},
             "conversations": self._manifest["conversations"],
             "projects": self._manifest["projects"],
             "files": self._manifest["files"],
             "artifacts": self._manifest["artifacts"],
         }
         blob = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-        tmp = self._run_dir / ".manifest.json.tmp"
-        # Tmp file itself written with O_NOFOLLOW; final rename is atomic and
-        # os.replace never follows symlinks on the destination on Linux/macOS.
         try:
-            _write_nofollow(tmp, blob)
+            _atomic_write_nofollow(self._run_dir / "manifest.json", blob)
         except OSError as exc:
-            raise PathTraversalError(
-                f"Symlink detected at tmp path {tmp!r} — manifest write refused"
-            ) from exc
-        os.replace(tmp, self._run_dir / "manifest.json")
+            if exc.errno == errno.ELOOP:
+                raise PathTraversalError("Symlink detected during manifest write") from exc
+            raise
         return manifest
 
 

@@ -12,6 +12,7 @@ the reconciler = convergence/backfill.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 from app.core.logging_utils import get_logger
@@ -79,15 +80,28 @@ class QdrantSummaryIndexAdapter:
         # shared summary_point_id namespace, so the fast-path and the reconciler
         # converge on one point.
         raw_id = f"{request_id}:{summary_id}"
-        await asyncio.to_thread(
+        acknowledged = await asyncio.to_thread(
             self._vector_store.replace_summary_point,
             request_id,
             raw_id,
             vector,
             point_payload,
         )
+        if acknowledged is not True:
+            logger.warning(
+                "summary_index_qdrant_unacknowledged",
+                extra={
+                    "correlation_id": correlation_id,
+                    "request_id": request_id,
+                    "summary_id": summary_id,
+                },
+            )
+            return
         if self._embedding_repository is not None:
-            await self._embedding_repository.async_mark_summary_embeddings_indexed([summary_id])
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            await self._embedding_repository.async_mark_summary_embeddings_indexed(
+                {summary_id: content_hash}
+            )
         logger.info(
             "summary_indexed_fastpath",
             extra={

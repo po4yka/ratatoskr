@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from app.adapters.telegram.command_handlers.base_handler import HandlerDependenciesMixin
 from app.adapters.telegram.command_handlers.decorators import combined_handler
-from app.core.git_url_safety import assert_safe_git_url
+from app.core.git_url_safety import assert_safe_git_url, is_github_host, redact_git_url
 from app.core.logging_utils import get_logger
 from app.db.models.git_backup import GitMirrorSource
 
@@ -51,13 +51,15 @@ def _parse_mirror_arg(raw: str) -> tuple[str, str | None]:
 
 def _format_mirror_row(mirror: object) -> str:
     """Format one GitMirror row for display."""
-    name = getattr(mirror, "name", None) or getattr(mirror, "clone_url", "?")
+    clone_url = getattr(mirror, "clone_url", "")
+    safe_url = redact_git_url(clone_url) if clone_url else "?"
+    name = getattr(mirror, "name", None) or safe_url
     status = getattr(mirror, "status", "?")
     last_mirrored = getattr(mirror, "last_mirrored_at", None)
     last_mirrored_str = last_mirrored.strftime("%Y-%m-%d %H:%M UTC") if last_mirrored else "never"
-    url = getattr(mirror, "clone_url", "")
     return (
-        f"[{getattr(mirror, 'id', '?')}] {name}  status={status}  last={last_mirrored_str}\n  {url}"
+        f"[{getattr(mirror, 'id', '?')}] {name}  status={status}  "
+        f"last={last_mirrored_str}\n  {safe_url}"
     )
 
 
@@ -117,13 +119,15 @@ class GitMirrorHandler(HandlerDependenciesMixin):
         except ValueError:
             await ctx.response_formatter.safe_reply(
                 ctx.message,
-                "That URL targets a non-public address and cannot be mirrored.",
+                "That URL is not allowed (credentials, unsafe transport, or non-public address).",
             )
             return
 
         mirror = await self._mirror_repo.upsert_target(
             user_id=ctx.uid,
-            source=GitMirrorSource.MANUAL,
+            source=(
+                GitMirrorSource.GITHUB if is_github_host(clone_url) else GitMirrorSource.MANUAL
+            ),
             clone_url=clone_url,
             name=display_name,
         )

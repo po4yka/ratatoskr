@@ -78,7 +78,6 @@ jobs:
             --extra export \
             --extra scheduler \
             --extra mcp \
-            --extra graph \
             -o requirements-all.txt
 
       - name: Compile locked requirements (dev)
@@ -210,36 +209,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  lint-and-format:
-    name: Lint and Format Checks
-    needs: prepare-environment
+  fast-lint:
+    name: Fast Lint and Format
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      - name: Download compiled requirements
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: compiled-requirements
-          path: .
-
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-
-      - name: Cache Python environment
-        id: cache-python-env
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-lint-${{ runner.os }}-${{ hashFiles('requirements-all.txt', 'requirements-dev.txt') }}
-          restore-keys: |
-            python-lint-${{ runner.os }}-
 
       - name: Install uv (fast Python package manager)
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -250,33 +231,20 @@ jobs:
             pyproject.toml
             uv.lock
 
-      - name: Install dependencies
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
-
-      - name: Validate OpenAPI spec
-        run: |
-          uv run --frozen --extra api openapi-spec-validator docs/openapi/mobile_api.yaml
-          uv run --frozen --extra api openapi-spec-validator docs/openapi/mobile_api.json
-
-      - name: Check generated OpenAPI drift
-        run: uv run --frozen --extra api python tools/scripts/generate_openapi.py --check
-
-      - name: Check OpenAPI spec sync with code
-        run: |
-          uv run --frozen --extra api pytest tests/api/test_openapi_sync.py tests/api/test_openapi_security.py tests/api/test_runtime_openapi_drift.py tests/tools/test_generate_openapi.py \
-            -v --tb=short
+      - name: Install lint tools
+        run: uv sync --frozen --no-default-groups --only-group ci-lint
 
       - name: Lint (ruff) - comprehensive
-        run: ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Format check (ruff)
-        run: ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: Import sort check (isort)
-        run: isort --check-only .
+        run: uv run --no-sync isort --check-only .
 
       - name: Enforce class size limit
-        run: python tools/scripts/check_class_size.py --max-loc 1000 --baseline tools/scripts/class_size_baseline.json
+        run: uv run --no-sync python tools/scripts/check_class_size.py --max-loc 1000 --baseline tools/scripts/class_size_baseline.json
 
       - name: Enforce file size limit
         env:
@@ -286,22 +254,86 @@ jobs:
           if [[ "$PR_ACTOR" == "dependabot[bot]" || "$PR_HEAD_REF" == dependabot/* ]]; then
             git checkout -- uv.lock requirements.txt requirements-all.txt requirements-dev.txt
           fi
-          python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
+          uv run --no-sync python tools/scripts/check_file_size.py --max-loc 1500 --baseline tools/scripts/file_size_baseline.json
 
       - name: Check code complexity
         run: |
           echo "Checking code complexity with radon..."
-          uv pip install --system radon
-          radon cc app --min B --show-complexity --no-assert
-          radon mi app --min B
+          uv run --no-sync radon cc app --min B --show-complexity --no-assert
+          uv run --no-sync radon mi app --min B
+
+  openapi-contract:
+    name: OpenAPI Contract
+    needs: prepare-environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install OpenAPI dependencies
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --group ci-test
+
+      - name: Validate OpenAPI spec
+        run: |
+          uv run --no-sync openapi-spec-validator docs/openapi/mobile_api.yaml
+          uv run --no-sync openapi-spec-validator docs/openapi/mobile_api.json
+
+      - name: Check generated OpenAPI drift
+        run: uv run --no-sync python tools/scripts/generate_openapi.py --check
+
+      - name: Check OpenAPI spec sync with code
+        run: |
+          uv run --no-sync pytest tests/api/test_openapi_sync.py tests/api/test_openapi_security.py tests/api/test_runtime_openapi_drift.py tests/tools/test_generate_openapi.py \
+            -v --tb=short
+
+  semgrep-scan:
+    name: Security - Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install Semgrep
+        run: uv sync --frozen --no-default-groups --only-group ci-security-tools
 
       - name: Semgrep (Python mutability rules)
-        run: |
-          uv pip install --system semgrep --quiet
-          semgrep --config semgrep/python-mutability.yml --error app/ tests/
+        run: uv run --no-sync semgrep --config semgrep/python-mutability.yml --error app/ tests/
 
       - name: Semgrep (Python bare-except rules)
-        run: semgrep --config semgrep/python-bare-except.yml --error app/ tests/
+        run: uv run --no-sync semgrep --config semgrep/python-bare-except.yml --error app/ tests/
 
   type-check:
     name: Type Check (mypy)
@@ -323,17 +355,6 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Cache Python environment
-        id: cache-python-env
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-type-${{ runner.os }}-${{ hashFiles('requirements-all.txt', 'requirements-dev.txt') }}
-          restore-keys: |
-            python-type-${{ runner.os }}-
-
       - name: Cache mypy
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -352,14 +373,17 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --group ci-type
 
       - name: Type check (mypy)
         # tests/ stays out of scope for now: `mypy app tests` currently reports
         # 79 errors across 25 files (loose SimpleNamespace/Fake* stand-ins passed
         # where app types are expected, plus a couple of genuine drift errors).
         # TODO: clean up tests/ typing and switch this back to `mypy app tests`.
-        run: mypy app --show-error-codes --pretty --cache-dir .mypy_cache
+        run: uv run --no-sync mypy app --show-error-codes --pretty --cache-dir .mypy_cache
 
 
   import-linter:
@@ -392,19 +416,14 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        # import-linter builds the import graph by importing app.*, so the full
-        # runtime deps must be present. It is a CI-only architecture gate, so it
-        # is installed ad-hoc here rather than pinned into the lockfile.
-        run: |
-          uv pip sync --system requirements-all.txt requirements-dev.txt
-          uv pip install --system import-linter
+        run: uv sync --frozen --no-default-groups --group ci-lint
 
       # GATING: all layering contracts are green (the restore-architecture-layering
       # epic closed every known violation), so the full suite gates the build and
       # fails on ANY regression. Contracts live in .importlinter; see
       # docs/explanation/architecture-overview.md#layering-contracts.
       - name: Enforce layering contracts (gating)
-        run: lint-imports
+        run: uv run --no-sync lint-imports
 
 
   test:
@@ -430,17 +449,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Cache Python environment
-        id: cache-python-env
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-test-${{ runner.os }}-${{ hashFiles('requirements-all.txt', 'requirements-dev.txt') }}
-          restore-keys: |
-            python-test-${{ runner.os }}-
-
       - name: Install uv (fast Python package manager)
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -451,60 +459,28 @@ jobs:
             uv.lock
 
       - name: Install dependencies (all extras for comprehensive testing)
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
-
-      - name: Install additional test/coverage tools
-        run: uv pip install --system pytest-cov pytest-xdist pytest-rerunfailures pytest-asyncio coverage[toml]
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra mcp \
+            --extra youtube \
+            --group ci-test
 
       - name: Run unit tests with coverage
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
-          # Remaining tests/ exclusions and why (checked 2026-07-04):
-          #
-          # tests/test_digest_api_service.py no longer exists at this path; its
-          # cases were split into tests/api/services/test_digest_api_service_background.py
-          # and test_digest_api_service_module.py, which already run unignored.
-          # TODO: delete this stale ignore entry.
-          #
-          # tests/test_pure_summary_service.py, tests/test_smart_collection_handler.py,
-          # and tests/test_user_digest_preference.py do not exist anywhere in the repo
-          # (no replacement files found either). TODO: confirm each removal was
-          # intentional, then delete these stale ignore entries.
-          #
-          # tests/test_runtime_di_architecture.py: 2 real failures --
-          # test_p2_runtime_modules_do_not_import_app_di and
-          # test_p2_runtime_modules_do_not_use_runtime_builder_shortcuts flag
-          # app/adapters/telegram/telegram_bot.py importing app.di.repositories and
-          # calling build_summary_repository(...) directly, violating the runtime/DI
-          # layering guard. TODO: fix telegram_bot.py to use its injected repository
-          # instead of the builder shortcut, then re-enable this file.
-          #
-          # tests/test_scraper_factory.py: 2 real failures --
-          # test_default_config_creates_chain_with_{eight,nine}_providers_when_firecrawl_
-          # {disabled,enabled} assert a stale provider-chain order (expects the chain to
-          # start with 'scrapling'; the factory now emits 'reddit'/'crawlee' first).
-          # TODO: update the expected provider order in tests/test_scraper_factory.py,
-          # then re-enable.
-          pytest \
+          uv run --no-sync pytest \
             -p pytest_cov \
             -p xdist \
             -p pytest_rerunfailures \
             -p pytest_asyncio.plugin \
             tests/ \
-            -m "not integration" \
+            -m "not integration and not postgres" \
             --ignore=tests/benchmarks \
             --ignore=tests/chaos \
             --ignore=tests/integration \
             --ignore=tests/stress \
-            --ignore=tests/api/test_background_processor.py \
-            --ignore=tests/test_api_rate_limit_and_sync.py \
-            --ignore=tests/test_digest_api_service.py \
-            --ignore=tests/test_pure_summary_service.py \
-            --ignore=tests/test_runtime_di_architecture.py \
-            --ignore=tests/test_scraper_factory.py \
-            --ignore=tests/test_smart_collection_handler.py \
-            --ignore=tests/test_user_digest_preference.py \
             --cov=app \
             --cov-report=term-missing:skip-covered \
             --cov-report=xml \
@@ -515,19 +491,23 @@ jobs:
             --maxfail=10 \
             --tb=short \
             --strict-markers \
-            --reruns=3 \
-            --reruns-delay=1 \
             -n auto
 
-          # Run benchmarks separately without parallel execution
-          pytest \
-            tests/benchmarks/ \
-            -p pytest_benchmark.plugin \
-            --verbose \
-            --tb=short \
+      - name: Run PR benchmark regression budget
+        if: github.event_name == 'pull_request'
+        env:
+          JSON_VALIDATION_P99_TARGET_MS: "10"
+        run: |
+          uv run --no-sync pytest \
+            tests/benchmarks/test_json_validation.py::TestJSONValidationBenchmarks::test_validate_and_shape_throughput \
+            tests/benchmarks/test_recent_hotspots.py::TestRecentHotspotBenchmarks::test_aggregation_sentence_cache_scan \
+            tests/benchmarks/test_recent_hotspots.py::TestRecentHotspotBenchmarks::test_vector_point_id_generation_batch \
             --benchmark-only \
             --benchmark-disable-gc \
-            --benchmark-warmup=on
+            --benchmark-max-time=0.05 \
+            --benchmark-min-rounds=1 \
+            --benchmark-warmup=off \
+            --tb=short
 
       - name: Upload test results
         if: always()
@@ -559,13 +539,13 @@ jobs:
           # Threshold is set in pyproject.toml [tool.coverage.report] fail_under.
           # A below-threshold run fails this step and therefore fails CI.
           # To raise the bar: bump fail_under in pyproject.toml in a separate commit.
-          coverage report \
+          uv run --no-sync coverage report \
             --omit="app/db/alembic/*,app/static/*,app/cli/migrations/*" \
             --show-missing
 
       - name: API surface count (informational)
         continue-on-error: true
-        run: python3 tools/count_api_endpoints.py
+        run: uv run --no-sync python tools/count_api_endpoints.py
 
   bandit-scan:
     name: Security - Bandit (SAST)
@@ -584,21 +564,20 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Cache Python environment
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-bandit-${{ runner.os }}
-          restore-keys: |
-            python-bandit-${{ runner.os }}-
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
-      - name: Install bandit
-        run: pip install --no-cache-dir bandit
+      - name: Install security tools
+        run: uv sync --frozen --no-default-groups --only-group ci-security-tools
 
       - name: Run Bandit (SAST)
-        run: bandit -r app -ll
+        run: uv run --no-sync bandit -r app -ll
 
   pip-audit-scan:
     name: Security - pip-audit (Dependencies)
@@ -623,18 +602,17 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Cache Python environment
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-pip-audit-${{ runner.os }}
-          restore-keys: |
-            python-pip-audit-${{ runner.os }}-
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
-      - name: Install pip-audit
-        run: pip install --no-cache-dir pip-audit
+      - name: Install security tools
+        run: uv sync --frozen --no-default-groups --only-group ci-security-tools
 
       - name: Prepare audit requirements
         run: |
@@ -667,7 +645,7 @@ jobs:
       - name: Run pip-audit
         # torch CVE-2025-3000 has no upstream fix (ml extra only, not in the
         # request path); also suppressed for the OSV scanner via osv-scanner.toml.
-        run: pip-audit -r requirements-audit.txt --strict --ignore-vuln CVE-2025-3000
+        run: uv run --no-sync pip-audit -r requirements-audit.txt --strict --ignore-vuln CVE-2025-3000
 
   safety-scan:
     name: Security - Safety (Dependencies)
@@ -695,25 +673,13 @@ jobs:
             pyproject.toml
             uv.lock
 
-      - name: Cache Python environment
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/uv
-            ~/.cache/pip
-          key: python-safety-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-          restore-keys: |
-            python-safety-${{ runner.os }}-
-
       # Export ALL extras so Safety sees the complete dependency surface.
       # The prepare-environment artifact only includes api, ml, youtube, export,
       # scheduler, mcp — extras otel, push, transcription, gemini,
-      # scraper_ai, attachment, browser_scraper, monitoring, and graph are
+      # scraper_ai, attachment, browser_scraper, and monitoring are
       # omitted there. We regenerate a comprehensive requirements file here
-      # rather than relying on the shared artifact. The `graph` extra (ADR-0001
-      # reversed) adds langgraph-checkpoint-postgres + psycopg-pool on top of the
-      # langchain/langgraph ecosystem already pulled transitively by scraper_ai,
-      # so Safety/pip-audit triage those advisories too.
+      # rather than relying on the shared artifact. LangGraph and its Postgres
+      # checkpointer are base dependencies, so every export includes them.
       - name: Export comprehensive requirements (all extras)
         run: |
           uv export --no-dev --no-hashes --format requirements-txt -p 3.13 \
@@ -731,22 +697,19 @@ jobs:
             --extra attachment \
             --extra browser_scraper \
             --extra monitoring \
-            --extra graph \
             -o requirements-safety.txt
           # Dev group (type-stubs, test tools) also carry CVE-able packages
           uv export --only-group dev --no-hashes --format requirements-txt -p 3.13 \
             -o requirements-dev-safety.txt
 
-      - name: Install dependencies and safety (all extras for comprehensive scanning)
-        run: |
-          uv pip sync --system requirements-safety.txt requirements-dev-safety.txt
-          uv pip install --system safety
+      - name: Install security tools
+        run: uv sync --frozen --no-default-groups --only-group ci-security-tools
 
       # Secret must be added in GitHub repo settings → Secrets → SAFETY_API_KEY
       - name: Run Safety
         # torch CVE-2025-3000 (SFTY-20250331-30014): no upstream fix, ml extra
         # only; also accepted for OSV (osv-scanner.toml) and pip-audit.
-        run: safety check -r requirements-safety.txt -r requirements-dev-safety.txt --full-report --ignore SFTY-20250331-30014
+        run: uv run --no-sync safety check -r requirements-safety.txt -r requirements-dev-safety.txt --full-report --ignore SFTY-20250331-30014
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
 
@@ -774,9 +737,9 @@ jobs:
             --lockfile=uv.lock
 
   docker-build:
-    name: Docker - Build smoke test
+    name: Docker - Pi ARM64 build smoke test
     needs: prepare-environment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     permissions:
       contents: read
@@ -784,10 +747,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      # paths-filter scopes the actual build to commits that touched Docker
-      # inputs. PRs always build; pushes to main only build when Dockerfile,
-      # app sources, lockfiles, or pyproject change. Catches Dockerfile and
-      # dependency-pin regressions before release.yml does.
+      # Build only when an input copied or consumed by this Dockerfile changes.
       - name: Detect Docker-relevant changes
         id: filter
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
@@ -795,28 +755,31 @@ jobs:
           filters: |
             docker:
               - 'ops/docker/Dockerfile'
-              - 'ops/docker/Dockerfile.api'
+              - 'ops/docker/ratatoskr-web.commit'
+              - 'ops/docker/ratatoskr-web.bundle.tar.gz'
+              - '.dockerignore'
               - 'app/**'
               - 'bot.py'
+              - 'alembic.ini'
+              - 'config/**'
               - 'pyproject.toml'
-              - 'requirements.txt'
-              - 'requirements-dev.txt'
               - 'uv.lock'
 
       - name: Set up Docker Buildx
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Build (no push)
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: ops/docker/Dockerfile
+          platforms: linux/arm64
           push: false
           load: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=bot-${{ runner.arch }},timeout=5m
+          cache-to: type=gha,scope=bot-${{ runner.arch }},mode=min,timeout=5m,ignore-error=true
 
   docker-api-browser-smoke:
     name: Docker API - Playwright browser smoke test
@@ -836,49 +799,31 @@ jobs:
           filters: |
             docker:
               - 'ops/docker/Dockerfile.api'
+              - 'ops/docker/ratatoskr-web.commit'
+              - 'ops/docker/ratatoskr-web.bundle.tar.gz'
+              - '.dockerignore'
               - 'app/**'
+              - 'alembic.ini'
+              - 'config/**'
               - 'pyproject.toml'
               - 'uv.lock'
 
       - name: Set up Docker Buildx
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Build API image
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
+        if: steps.filter.outputs.docker == 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: ops/docker/Dockerfile.api
+          target: browser-smoke
           push: false
-          load: true
-          tags: ratatoskr-api:smoke
+          load: false
           build-args: WITH_PLAYWRIGHT=1
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Verify Chromium resolves as appuser (UID 1000)
-        if: github.event_name == 'pull_request' || steps.filter.outputs.docker == 'true'
-        run: |
-          docker run --rm \
-            --user 1000 \
-            ratatoskr-api:smoke \
-            python -c "
-          import os, sys
-          browsers_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
-          print(f'PLAYWRIGHT_BROWSERS_PATH={browsers_path}')
-          assert browsers_path == '/ms-playwright', f'Wrong path: {browsers_path!r}'
-
-          from playwright.sync_api import sync_playwright
-          with sync_playwright() as p:
-              exe = p.chromium.executable_path
-              print(f'Chromium executable: {exe}')
-              assert exe.startswith('/ms-playwright'), f'Executable not under /ms-playwright: {exe!r}'
-              assert os.path.isfile(exe), f'Executable does not exist: {exe!r}'
-              assert os.access(exe, os.X_OK), f'Executable not executable by current user: {exe!r}'
-
-          print('Browser smoke test passed.')
-          "
+          cache-from: type=gha,scope=api-${{ runner.arch }},timeout=5m
+          cache-to: type=gha,scope=api-${{ runner.arch }},mode=min,timeout=5m,ignore-error=true
 
   compose-config-check:
     name: Docker Compose - Config smoke test
@@ -935,8 +880,8 @@ jobs:
           if worker_command[: len(expected_worker)] != expected_worker:
               raise SystemExit("MISSING worker shell entrypoint")
           worker_script = " ".join(worker_command[len(expected_worker):])
-          if "exec taskiq worker" not in worker_script:
-              raise SystemExit("MISSING worker command: taskiq worker")
+          if "exec python -m app.cli.taskiq_worker" not in worker_script:
+              raise SystemExit("MISSING bounded Taskiq worker launcher")
           if "app.tasks.import_tasks" not in worker_script:
               raise SystemExit("MISSING worker task module: app.tasks.import_tasks")
           PY
@@ -1024,7 +969,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    needs: [prepare-environment, test]
+    needs: prepare-environment
     runs-on: ubuntu-latest
     timeout-minutes: 25
     if: github.event_name == 'push' || github.event.pull_request.draft == false
@@ -1050,29 +995,26 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies (all extras for integration tests)
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
-
-      - name: Install test tools
-        run: uv pip install --system pytest pytest-timeout pytest-xdist pytest-rerunfailures pytest-asyncio
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra mcp \
+            --extra youtube \
+            --group ci-test
 
       - name: Run integration tests
         id: integration_tests
         run: |
           echo "::group::Running integration tests"
-          pytest \
+          uv run --no-sync pytest \
             tests/ \
-            -m "integration" \
+            -m "integration and not postgres" \
             --ignore=tests/benchmarks \
-            --ignore=tests/integration/test_batch_relationship_flow.py \
-            --ignore=tests/api/test_background_processor.py \
-            --ignore=tests/test_api_rate_limit_and_sync.py \
             --verbose \
             --maxfail=5 \
             --tb=short \
             --strict-markers \
-            --timeout=60 \
-            --reruns=2 \
-            --reruns-delay=2 || EXIT_CODE=$?
+            --timeout=60 || EXIT_CODE=$?
 
           # Exit code 5 means no tests collected (no integration tests marked)
           # This is acceptable - treat as success
@@ -1092,7 +1034,7 @@ jobs:
   pr-summary:
     name: PR Summary
     if: github.event_name == 'pull_request'
-    needs: [prepare-environment, markdown-lint, link-check, browser-extension, lint-and-format, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test, restore-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, browser-extension, fast-lint, openapi-contract, semgrep-scan, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1108,7 +1050,7 @@ jobs:
             summary += '### Checks Completed\n';
             summary += '- ✅ Markdown lint and link checks\n';
             summary += '- ✅ Browser extension package\n';
-            summary += '- ✅ Code linting and formatting\n';
+            summary += '- ✅ Code linting, formatting, and OpenAPI contract\n';
             summary += '- ✅ Type checking (mypy)\n';
             summary += '- ✅ Unit tests with coverage\n';
             summary += '- ✅ Integration, migration, and restore smoke tests\n';
@@ -1149,7 +1091,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -1188,15 +1130,13 @@ jobs:
             uv.lock
 
       - name: Install dependencies
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
+        run: uv sync --frozen --no-default-groups
 
       - name: Run migration round-trip
-        run: |
-          set -euo pipefail
-          python -m app.cli.migrate_db --apply
-          alembic downgrade -1
-          alembic upgrade head
-          alembic current 2>&1 | grep -q "(head)"
+        # Full head -> base -> head cycle against a seeded database, so every
+        # downgrade() (not just the latest) and any data-dependent rollback
+        # failure surface here instead of during a production rollback.
+        run: uv run --no-sync bash tools/scripts/migration_roundtrip.sh
 
   restore-smoke-test:
     name: Restore Smoke Test (pg_dump archive + Alembic)
@@ -1205,7 +1145,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -1278,24 +1218,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          uv pip sync --system requirements-all.txt requirements-dev.txt
+          uv sync --frozen --no-default-groups
 
       - name: Restore sample dump and run migrations
         if: steps.db-changes.outputs.run == 'true'
-        run: tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump
+        run: uv run --no-sync tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump
 
       - name: Skip restore smoke
         if: steps.db-changes.outputs.run != 'true'
         run: echo "No app/db or migration-related files changed; restore smoke not required."
 
   postgres-tests:
-    name: Postgres-gated Tests (parity + persistence)
+    name: PostgreSQL Tests
     needs: prepare-environment
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -1338,32 +1278,32 @@ jobs:
             uv.lock
 
       - name: Install dependencies (all extras for DB-backed tests)
-        run: uv pip sync --system requirements-all.txt requirements-dev.txt
+        run: |
+          uv sync --frozen --no-default-groups \
+            --extra api \
+            --extra mcp \
+            --extra youtube \
+            --group ci-db
 
-      - name: Install test tools
-        run: uv pip install --system pytest pytest-xdist pytest-rerunfailures pytest-asyncio
-
-      - name: Run Postgres-gated parity + persistence suites
+      - name: Run all PostgreSQL tests
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: |
-          pytest \
+          uv run --no-sync pytest \
             -p xdist \
             -p pytest_rerunfailures \
             -p pytest_asyncio.plugin \
-            tests/parity \
-            -m "not integration" \
+            tests/ \
+            -m "postgres" \
             --verbose \
             --maxfail=10 \
             --tb=short \
-            --strict-markers \
-            --reruns=2 \
-            --reruns-delay=1
+            --strict-markers
 
   status-check:
     name: CI Status Check
     if: always()
-    needs: [prepare-environment, markdown-lint, link-check, browser-extension, lint-and-format, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test, restore-smoke-test]
+    needs: [prepare-environment, markdown-lint, link-check, browser-extension, fast-lint, openapi-contract, semgrep-scan, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1377,8 +1317,18 @@ jobs:
             exit 1
           fi
 
-          if [[ "${{ needs.lint-and-format.result }}" != "success" ]]; then
-            echo "::error::lint-and-format job failed"
+          if [[ "${{ needs.fast-lint.result }}" != "success" ]]; then
+            echo "::error::fast-lint job failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.openapi-contract.result }}" != "success" ]]; then
+            echo "::error::openapi-contract job failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.semgrep-scan.result }}" != "success" ]]; then
+            echo "::error::semgrep-scan job failed"
             exit 1
           fi
 

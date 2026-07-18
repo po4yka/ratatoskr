@@ -67,13 +67,42 @@ class CallbackActionStore:
             self._summary_cache.pop(summary_id, None)
         return new_state
 
-    async def lookup_retry_url(self, correlation_id: str) -> str | None:
+    async def lookup_retry_url(self, correlation_id: str, user_id: int) -> str | None:
+        """Resolve the retry URL for *correlation_id*, verifying ownership.
+
+        The correlation id is embedded in attacker-influenceable callback_data,
+        so only the request's owner may replay it. Returns ``None`` when the
+        request is missing or belongs to a different user — a defence-in-depth
+        IDOR guard, never call this without a verified user identity.
+        """
         request = await self._request_repo.async_get_latest_request_by_correlation_id(
             correlation_id
         )
         if request is None:
             return None
+        if request.get("user_id") != user_id:
+            return None
         return str(request.get("input_url") or "") or None
+
+    async def summary_belongs_to_user(self, summary_id: str, user_id: int) -> bool:
+        """Return True only when *summary_id* is owned by *user_id*.
+
+        Ownership is the summary's originating request's user_id (the same
+        predicate as ``async_toggle_favorite_for_user``). Export actions resolve
+        ``summary_id`` straight from callback_data, so they must gate on this
+        before reading the summary. Fails closed on a missing/unparseable id or
+        a summary with no owning request.
+        """
+        try:
+            if summary_id.startswith("req:"):
+                request = await self._request_repo.async_get_request_by_id(int(summary_id[4:]))
+            else:
+                context = await self._summary_repo.async_get_summary_context_by_id(int(summary_id))
+                request = context.get("request") if isinstance(context, dict) else None
+        except (ValueError, TypeError):
+            return False
+        owner = request.get("user_id") if isinstance(request, dict) else None
+        return owner is not None and owner == user_id
 
     async def load_summary_payload(
         self,

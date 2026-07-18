@@ -15,6 +15,7 @@ Scenarios:
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
@@ -61,6 +62,10 @@ def _cfg() -> Any:
             url_flow_lease_ttl_sec=900,
             llm_request_slow_threshold_sec=300.0,
             summary_prompt_version="v1",
+            llm_provider="openrouter",
+            summary_streaming_enabled=True,
+            summary_streaming_mode="section",
+            summary_streaming_provider_scope="openrouter",
         ),
         openrouter=SimpleNamespace(model="base-model", structured_output_mode="json_schema"),
         vector_store=SimpleNamespace(user_scope="owner", environment="prod"),
@@ -76,7 +81,10 @@ def _message_persistence(**over: Any) -> Any:
     written (persist-everything + IDOR rule 12).
     """
     mp = MagicMock(
-        request_repo=MagicMock(async_create_request=AsyncMock(return_value=777)),
+        request_repo=MagicMock(
+            async_create_request_once=AsyncMock(return_value=(777, True)),
+            async_update_request_correlation_id=AsyncMock(),
+        ),
         persist_message_snapshot=AsyncMock(),
     )
     for key, val in over.items():
@@ -105,7 +113,7 @@ def _facade(**over: Any) -> GraphURLProcessor:
             send_cover_message=AsyncMock(),
         ),
         "request_repo": MagicMock(
-            async_create_request=AsyncMock(return_value=777),
+            async_create_request_once=AsyncMock(return_value=(777, True)),
             async_update_request_status=AsyncMock(),
         ),
         "message_persistence": _message_persistence(),
@@ -188,7 +196,7 @@ async def test_cache_hit_short_circuits_graph(monkeypatch):
     assert result.cached is True
     run_streamed.assert_not_awaited()
     run_plain.assert_not_awaited()
-    facade.message_persistence.request_repo.async_create_request.assert_not_awaited()
+    facade.message_persistence.request_repo.async_create_request_once.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #
@@ -212,6 +220,20 @@ async def test_lease_start_and_outcome_recorded(monkeypatch):
     assert kwargs["request_id"] == 777
 
 
+async def test_duplicate_in_flight_request_does_not_run_second_graph(monkeypatch):
+    lease_repo = _patch_lease(monkeypatch)
+    lease_repo.record_synchronous_start.return_value = False
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY})
+    _patch_runners(monkeypatch, streamed=streamed, plain=AsyncMock())
+
+    result = await _facade().handle_url_flow(_url_request())
+
+    assert result.success is True
+    assert result.request_id == 777
+    streamed.assert_not_awaited()
+    lease_repo.record_synchronous_outcome.assert_not_awaited()
+
+
 async def test_existing_request_mode_skips_create_snapshot_and_sync_lease(monkeypatch):
     lease_repo = _patch_lease(monkeypatch)
     _patch_runners(
@@ -232,7 +254,7 @@ async def test_existing_request_mode_skips_create_snapshot_and_sync_lease(monkey
     )
 
     assert result.request_id == 123
-    message_persistence.request_repo.async_create_request.assert_not_awaited()
+    message_persistence.request_repo.async_create_request_once.assert_not_awaited()
     message_persistence.persist_message_snapshot.assert_not_awaited()
     lease_repo.record_synchronous_start.assert_not_awaited()
     lease_repo.record_synchronous_outcome.assert_not_awaited()
@@ -339,6 +361,36 @@ async def test_interactive_streams_when_flag_enabled(monkeypatch):
     plain.assert_not_awaited()
 
 
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "ollama"])
+async def test_interactive_direct_provider_respects_openrouter_stream_scope(monkeypatch, provider):
+    _patch_lease(monkeypatch)
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=streamed, plain=plain)
+    cfg = _cfg()
+    cfg.runtime.llm_provider = provider
+
+    await _facade(cfg=cfg).handle_url_flow(_url_request())
+
+    plain.assert_awaited_once()
+    streamed.assert_not_awaited()
+
+
+async def test_interactive_direct_provider_streams_when_scope_is_all(monkeypatch):
+    _patch_lease(monkeypatch)
+    streamed = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=streamed, plain=plain)
+    cfg = _cfg()
+    cfg.runtime.llm_provider = "openai"
+    cfg.runtime.summary_streaming_provider_scope = "all"
+
+    await _facade(cfg=cfg).handle_url_flow(_url_request())
+
+    streamed.assert_awaited_once()
+    plain.assert_not_awaited()
+
+
 # --------------------------------------------------------------------------- #
 # (e) graph {"error": ...} -> failure result + Error ID notification
 # --------------------------------------------------------------------------- #
@@ -398,6 +450,106 @@ async def test_content_only_summarize_applies_quality_metadata():
     assert quality.get("extraction_confidence") == 0.9
 
 
+async def test_content_only_summarize_with_request_uses_persisting_runner(monkeypatch):
+    graph = MagicMock()
+    runner = AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)})
+    monkeypatch.setattr(_PLAIN_PATH, runner)
+    facade = _facade(graph=graph)
+
+    out = await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id="cid-api",
+            request_id=42,
+            feedback_instructions="Focus on failures",
+        )
+    )
+
+    runner.assert_awaited_once()
+    assert runner.call_args.kwargs["request_id"] == 42
+    assert runner.call_args.kwargs["source_text"] == "pre-extracted body"
+    assert runner.call_args.kwargs["requested_system_prompt"] == "sys"
+    assert runner.call_args.kwargs["feedback_instructions"] == "Focus on failures"
+    graph.ainvoke.assert_not_called()
+    assert out["summary_250"] == "s"
+
+
+async def test_api_content_summarize_uses_streamed_runner_for_previews():
+    streamed = AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)})
+    facade = _facade(graph=MagicMock(), streamed_runner=streamed)
+
+    await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id="cid-api-stream",
+            request_id=42,
+            stream=True,
+        )
+    )
+
+    streamed.assert_awaited_once()
+    assert streamed.await_args.kwargs["source_text"] == "pre-extracted body"
+    assert streamed.await_args.kwargs["two_pass_eligible"] is False
+    assert "sink" in streamed.await_args.kwargs
+
+
+@pytest.mark.parametrize("falsy_correlation_id", ["", None])
+async def test_content_only_summarize_keeps_thread_id_equal_to_correlation_id(
+    falsy_correlation_id,
+):
+    # Sacred invariant (ADR-0011 / Operating Rule 1): the graph state's
+    # correlation_id and the langgraph thread_id must stay identical. A missing
+    # caller correlation id receives a unique per-run lineage.
+    graph = MagicMock(ainvoke=AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)}))
+    facade = _facade(graph=graph)
+
+    await facade.summarize(
+        PureSummaryRequest(
+            content_text="pre-extracted body",
+            chosen_lang="en",
+            system_prompt="sys",
+            correlation_id=falsy_correlation_id,
+        )
+    )
+
+    graph.ainvoke.assert_awaited_once()
+    init_state = graph.ainvoke.call_args.args[0]
+    config = graph.ainvoke.call_args.kwargs["config"]
+    thread_id = config["configurable"]["thread_id"]
+    assert init_state["correlation_id"] == thread_id
+    assert thread_id.startswith("content-only-")
+
+
+async def test_content_only_calls_without_correlation_use_distinct_threads():
+    graph = MagicMock(ainvoke=AsyncMock(return_value={"summary": dict(_GOOD_SUMMARY)}))
+    facade = _facade(graph=graph)
+    request = PureSummaryRequest(
+        content_text="pre-extracted body", chosen_lang="en", system_prompt="sys"
+    )
+
+    await facade.summarize(request)
+    await facade.summarize(request)
+
+    first = graph.ainvoke.await_args_list[0].kwargs["config"]["configurable"]["thread_id"]
+    second = graph.ainvoke.await_args_list[1].kwargs["config"]["configurable"]["thread_id"]
+    assert first != second
+    assert first and second
+
+
+async def test_url_flow_without_correlation_uses_request_thread_id(monkeypatch):
+    _patch_lease(monkeypatch)
+    plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=plain)
+
+    await _facade().handle_url_flow(_url_request(correlation_id=None, silent=True))
+
+    assert plain.await_args.kwargs["correlation_id"] == "url-777"
+
+
 async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monkeypatch):
     """audit #1: facade.summarize() must pass request_id=None so the REAL persist
     node short-circuits every DB write (no FK violation against requests.id=0).
@@ -405,13 +557,13 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
     Drives the real ``persist`` node (no langgraph): the graph stub's ``ainvoke``
     invokes ``persist`` against the facade-built initial state (with a summary
     grafted on, mimicking the spine), then returns the final state. Asserts the
-    persist node NEVER awaits async_finalize_request_summary / async_insert_llm_call /
+    persist node NEVER awaits async_persist_summary_with_llm_calls / async_insert_llm_call /
     index_summary (zero DB writes), and the facade still returns a shaped dict.
     """
     from app.application.graphs.summarize.deps import SummarizeDeps
     from app.application.graphs.summarize.nodes import persist as persist_node_fn
 
-    finalize = AsyncMock()
+    persist_atomic = AsyncMock()
     insert_llm = AsyncMock()
     index = AsyncMock()
     persist_deps = SummarizeDeps(
@@ -419,10 +571,7 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
         retrieval=MagicMock(),
         extraction=MagicMock(),
         stream_sink=MagicMock(),
-        summaries=MagicMock(
-            async_finalize_request_summary=finalize,
-            async_get_summary_id_by_request=AsyncMock(return_value=123),
-        ),
+        summaries=MagicMock(async_persist_summary_with_llm_calls=persist_atomic),
         requests=MagicMock(),
         summary_index=MagicMock(index_summary=index),
         llm_repo=MagicMock(async_insert_llm_call=insert_llm),
@@ -456,7 +605,7 @@ async def test_content_only_summarize_drives_real_persist_node_no_db_writes(monk
 
     # The content-only path has NO request row -> request_id must be None.
     # The real persist node must therefore write NOTHING.
-    finalize.assert_not_awaited()
+    persist_atomic.assert_not_awaited()
     insert_llm.assert_not_awaited()
     index.assert_not_awaited()
     # The shaped summary dict still returns to the caller.
@@ -583,6 +732,127 @@ async def test_content_only_summarize_no_summary_returns_empty_dict_no_raise():
 
 
 # --------------------------------------------------------------------------- #
+# (f2) summarize_text_request routes pre-extracted text through run_summarize_graph
+#      so a terminal failure persists llm_calls + the structured snapshot, not a
+#      bare degraded async_update_request_error.
+# --------------------------------------------------------------------------- #
+def _text_message() -> Any:
+    return SimpleNamespace(
+        chat=SimpleNamespace(id=1, type="private", title=None, username=None),
+        from_user=SimpleNamespace(id=2, username="owner"),
+        id=3,
+    )
+
+
+def _text_request_repo() -> Any:
+    return MagicMock(
+        async_update_request_content_text=AsyncMock(),
+        async_update_request_lang_detected=AsyncMock(),
+        async_update_request_error=AsyncMock(),
+    )
+
+
+async def test_summarize_text_request_seeds_source_text_through_runner(monkeypatch):
+    """The pre-extracted transcript/document is seeded as ``source_text`` with an
+    empty ``input_url`` (extract no-ops) and two_pass_eligible=False (audit #20),
+    routed through run_summarize_graph -- NOT a bare self._graph.ainvoke."""
+    run_plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    facade = _facade(request_repo=_text_request_repo())
+
+    result = await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=321,
+        content_text="A transcript body worth summarizing.",
+        correlation_id="cid-txt",
+        request_type="telegram_voice",
+        silent=True,
+    )
+
+    assert result.success is True
+    facade._graph.ainvoke.assert_not_called()  # bare ainvoke bypass is gone
+    run_plain.assert_awaited_once()
+    kwargs = run_plain.await_args.kwargs
+    assert kwargs["request_id"] == 321
+    assert kwargs["source_text"] == "A transcript body worth summarizing."
+    assert kwargs["input_url"] == ""
+    assert kwargs["two_pass_eligible"] is False
+    assert kwargs["correlation_id"] == "cid-txt"
+    facade.post_summary_tasks.schedule_tasks.assert_awaited_once()
+
+
+async def test_summarize_text_request_terminal_failure_has_no_degraded_error_write(monkeypatch):
+    """A terminal graph failure returns success=False and does NOT write its own
+    async_update_request_error: run_summarize_graph -> route_terminal_failure already
+    persisted the accumulated llm_calls + the structured snapshot (the finding)."""
+    run_plain = AsyncMock(
+        return_value={"error": "Processing failed (Error ID: cid-t). Please try again."}
+    )
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    request_repo = _text_request_repo()
+    facade = _facade(request_repo=request_repo)
+
+    result = await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=321,
+        content_text="A transcript body worth summarizing.",
+        correlation_id="cid-t",
+        request_type="telegram_voice",
+        silent=True,
+    )
+
+    assert result.success is False
+    assert result.request_id == 321
+    run_plain.assert_awaited_once()
+    # The degraded, snapshot-less status write is gone -- the terminal sink owns it.
+    request_repo.async_update_request_error.assert_not_awaited()
+    facade.post_summary_tasks.schedule_tasks.assert_not_awaited()
+
+
+async def test_summarize_text_request_empty_summary_finalizes_processing_request(monkeypatch):
+    """No summary + no exception => the terminal sink did NOT run, so the request is
+    still 'processing'. summarize_text_request finalizes it itself (empty_summary)."""
+    run_plain = AsyncMock(return_value={"summary": {}, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    request_repo = _text_request_repo()
+    facade = _facade(request_repo=request_repo)
+
+    result = await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=99,
+        content_text="body",
+        correlation_id="cid-e",
+        request_type="text",
+        silent=True,
+    )
+
+    assert result.success is False
+    request_repo.async_update_request_error.assert_awaited_once()
+    assert (
+        request_repo.async_update_request_error.await_args.kwargs["error_type"] == "empty_summary"
+    )
+
+
+async def test_summarize_text_request_empty_correlation_id_falls_back(monkeypatch):
+    """An empty correlation_id becomes a synthetic per-request thread_id so the
+    checkpointer never collides distinct requests on \"\"."""
+    run_plain = AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"})
+    _patch_runners(monkeypatch, streamed=AsyncMock(), plain=run_plain)
+    facade = _facade(request_repo=_text_request_repo())
+
+    await facade.summarize_text_request(
+        message=_text_message(),
+        request_id=55,
+        content_text="body",
+        correlation_id=None,
+        request_type="text",
+        silent=True,
+    )
+
+    assert run_plain.await_args.kwargs["correlation_id"] == "text-55"
+
+
+# --------------------------------------------------------------------------- #
 # (g) request row gets the owner user_id from a from_user-shaped message,
 #     a telegram_messages snapshot is written, content_text + route_version set
 # --------------------------------------------------------------------------- #
@@ -603,8 +873,8 @@ async def test_create_request_row_owner_id_snapshot_content_and_route_version(mo
     # The request row carries the owner user_id from ``from_user.id`` (NOT NULL) so
     # the IDOR ownership filter (rule 12) holds; chat_id from ``chat.id``; the input
     # message id from ``id``; content_text = the URL; route_version = the URL path's.
-    mp.request_repo.async_create_request.assert_awaited_once()
-    _, kwargs = mp.request_repo.async_create_request.call_args
+    mp.request_repo.async_create_request_once.assert_awaited_once()
+    _, kwargs = mp.request_repo.async_create_request_once.call_args
     assert kwargs["user_id"] == 30
     assert kwargs["chat_id"] == 10
     assert kwargs["input_message_id"] == 20
@@ -616,6 +886,26 @@ async def test_create_request_row_owner_id_snapshot_content_and_route_version(mo
     mp.persist_message_snapshot.assert_awaited_once()
     snap_args, _ = mp.persist_message_snapshot.call_args
     assert snap_args[0] == 777
+
+
+async def test_create_request_row_refreshes_correlation_on_dedupe_hit(monkeypatch):
+    _patch_lease(monkeypatch)
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+        plain=AsyncMock(return_value={"summary": _GOOD_SUMMARY, "source_text": "body"}),
+    )
+
+    repo = MagicMock(
+        async_create_request_once=AsyncMock(return_value=(777, False)),
+        async_update_request_correlation_id=AsyncMock(),
+    )
+    mp = _message_persistence(request_repo=repo)
+    facade = _facade(message_persistence=mp)
+
+    await facade.handle_url_flow(_url_request(correlation_id="cid-repeat"))
+
+    repo.async_update_request_correlation_id.assert_awaited_once_with(777, "cid-repeat")
 
 
 async def test_create_request_row_null_owner_when_no_from_user(monkeypatch):
@@ -634,7 +924,7 @@ async def test_create_request_row_null_owner_when_no_from_user(monkeypatch):
     bad_msg = SimpleNamespace(chat_id=10, id=20, sender=SimpleNamespace(id=30), sender_id=30)
     await facade.handle_url_flow(_url_request(message=bad_msg))
 
-    _, kwargs = mp.request_repo.async_create_request.call_args
+    _, kwargs = mp.request_repo.async_create_request_once.call_args
     assert kwargs["user_id"] is None
     assert kwargs["chat_id"] is None  # read from ``chat.id``, not ``chat_id``
 
@@ -736,6 +1026,28 @@ async def test_orchestration_exception_marks_error_notifies_and_leases_failed(mo
     assert outcome_kwargs["status"] == "failed"
     assert outcome_kwargs["error_code"] == "RuntimeError"
     assert outcome_kwargs["error_message"] == "delivery exploded"
+
+
+async def test_orchestration_cancellation_propagates_and_never_leases_succeeded(monkeypatch):
+    lease = _patch_lease(monkeypatch)
+    _patch_runners(
+        monkeypatch,
+        streamed=AsyncMock(side_effect=asyncio.CancelledError()),
+        plain=AsyncMock(side_effect=asyncio.CancelledError()),
+    )
+
+    facade = _facade()
+
+    with pytest.raises(asyncio.CancelledError):
+        await facade.handle_url_flow(_url_request())
+
+    facade.request_repo.async_update_request_status.assert_not_awaited()
+    facade.response_formatter.send_error_notification.assert_not_awaited()
+    lease.record_synchronous_outcome.assert_awaited_once()
+    _, outcome_kwargs = lease.record_synchronous_outcome.call_args
+    assert outcome_kwargs["status"] == "failed"
+    assert outcome_kwargs["error_code"] == "CancelledError"
+    assert outcome_kwargs["error_message"] == "URL flow cancelled before completion"
 
 
 async def test_orchestration_failure_renders_paywall_copy_for_academic_error(monkeypatch):

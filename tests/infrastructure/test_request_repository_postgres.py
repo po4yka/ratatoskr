@@ -105,7 +105,7 @@ async def test_request_repository_context_and_telegram_message(database: Databas
         dedupe_hash="repo-context-hash",
     )
     same_request_id, created_again = await repo.async_create_minimal_request(
-        dedupe_hash="repo-context-hash"
+        user_id=43, dedupe_hash="repo-context-hash"
     )
 
     assert created is True

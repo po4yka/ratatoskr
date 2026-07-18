@@ -82,8 +82,9 @@ class LangGraphCheckpointConfig(BaseModel):
         ge=1,
         validation_alias="LANGGRAPH_CHECKPOINT_RETENTION_DAYS",
         description=(
-            "Age in days past which a run's checkpoint rows are pruned by the "
-            "nightly prune job. Aligned with the AuditLog 90-day ceiling "
+            "Age in days past which a run's checkpoint rows are pruned before "
+            "the durable saver starts and by the nightly prune job. Aligned with "
+            "the AuditLog 90-day ceiling "
             "(auth memo Decision 3 / ADR-0004)."
         ),
     )

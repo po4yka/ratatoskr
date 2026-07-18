@@ -1,12 +1,12 @@
 # Claude Code and Codex Hooks
 
-Claude Code hooks live in `.claude/settings.json` for local Claude sessions. Codex uses the checked-in `.codex/hooks.json` plus scripts under `.codex/hooks/`.
+Claude Code hooks are registered in `.claude/settings.json` and implemented by scripts under `.claude/hooks/`. Codex uses the checked-in `.codex/hooks.json` plus scripts under `.codex/hooks/`.
 
-The Codex hook set is the maintained repo adaptation. It preserves the useful Claude behavior, but removes stale SQLite-era checks and points prompts at the current PostgreSQL, Telethon, FastAPI, and Vite stack.
+Both hook sets read the host event JSON from stdin, accept the current `tool_input` shape, and point prompts at the current PostgreSQL, Telethon, FastAPI, and external-web-client boundaries.
 
 ## PreToolUse Hooks
 
-### File Protection (Write | Edit)
+### File Protection (Write | Edit | apply_patch)
 
 Blocks modifications to protected files:
 
@@ -32,16 +32,16 @@ Warns on risky operations: installing packages outside requirements, force-pushi
 
 Runs at session start to validate the development environment:
 
-- Python version and virtual environment status
+- Python version from the project `.venv` when available, plus virtual environment status
 - Core dependencies installed
-- `.env` file exists with required API keys
+- `.env` file presence without reading secret names or values
 - Git branch and uncommitted changes
 
 Displays quick command reference (`make format`, `make lint`, etc.).
 
-## PostToolUse Hook (Edit | Write)
+## PostToolUse Hook (Edit | Write | apply_patch)
 
-After modifying Python files, runs `ruff check --select F,E` for quick lint feedback. Shows issues immediately and suggests `make format` for auto-fix.
+After modifying Python files, extracts every edited path (including paths embedded in an `apply_patch` payload) and runs the project `.venv/bin/ruff check --select F,E` for quick lint feedback. Shows issues immediately and suggests `make format` for auto-fix.
 
 Skips non-Python files and files in `venv`/`build`/`dist` directories.
 
@@ -54,8 +54,8 @@ Automatically injects helpful context based on prompt keywords:
 - **summary validate**: Links to `app/core/summary_contract.py`
 - **firecrawl / openrouter / api**: Points to adapter files and the `debugging-apis` skill
 - **test / cli**: Links to the CLI runner and `testing-workflows` skill
-- **frontend / web / react / vite**: Points to `web/src`, FastAPI `/web`, and the `web-frontend-dev` skill
+- **frontend / web / react / vite**: Points to the external `ratatoskr-web` source, local FastAPI root SPA serving, and the `web-frontend-dev` skill
 
 ## Customizing
 
-Edit `.codex/hooks.json` and `.codex/hooks/*` for Codex behavior. Edit `.claude/settings.json` only for Claude Code behavior. Each hook has a `matcher` (tool name pattern) and a command script.
+Edit `.codex/hooks.json` and `.codex/hooks/*` for Codex behavior. Edit `.claude/settings.json` and `.claude/hooks/*` for Claude Code behavior. Each hook has a `matcher` (tool name pattern) and a command script.

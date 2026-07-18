@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.application.graphs.summarize.deps import SummarizeConfig
 from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS
 from app.application.services.summarization.graph_llm import summarize_with_instructor
+from app.application.services.summarization.graph_llm_guard import (
+    GraphLLMUsageBudgetExceeded,
+)
 from app.core.json_utils import dumps as json_dumps
+from app.core.llm_call_budget import LLMCallCapExceeded
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -80,10 +84,19 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
 
     messages = state.get("messages")
     if not messages:
-        # Nothing to repair against (no prompt assembled) -- only advance the budget.
-        return {"repair_attempts": attempts}
+        from app.application.graphs.summarize.nodes.build_prompt import build_prompt
+
+        prompt_builder = getattr(build_prompt, "__wrapped__", build_prompt)
+        hydrated = await prompt_builder(state, deps=deps)
+        if not hydrated.get("messages"):
+            return {"repair_attempts": attempts}
+        merged_state = dict(state)
+        merged_state.update(hydrated)
+        state = cast("SummarizeState", merged_state)
+        messages = state.get("messages")
 
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
+    provider = _provider_name(deps, config)
     model_override = (state.get("model_override") or "").strip() or None
     repair_messages = _build_repair_messages(
         messages,
@@ -92,7 +105,7 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     )
 
     try:
-        summary, call_meta = await summarize_with_instructor(
+        summary, call_metas, call_count = await summarize_with_instructor(
             llm_client=deps.llm_client,
             messages=repair_messages,
             source_content=state.get("content_for_summary") or "",
@@ -103,12 +116,37 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
             sticky_fallback_enabled=config.sticky_fallback_enabled if config else True,
             structured_output_mode=config.structured_output_mode if config else None,
             correlation_id=state.get("correlation_id"),
+            request_id=state.get("request_id"),
+            guard=getattr(deps, "llm_guard", None),
+            current_call_count=state.get("call_count", 0),
         )
+    except (LLMCallCapExceeded, GraphLLMUsageBudgetExceeded) as exc:
+        raise CallBudgetExceeded(str(exc)) from exc
     except Exception as exc:
         logger.warning(
             "summarize_graph_repair_failed",
             extra={"cid": state.get("correlation_id"), "attempt": attempts, "error": str(exc)},
         )
+        physical_attempts = getattr(exc, "__llm_physical_attempts__", None)
+        if isinstance(physical_attempts, list) and physical_attempts:
+            failure_records = [
+                _repair_call_record(
+                    state,
+                    config,
+                    attempt,
+                    status=str(attempt.get("status") or "error"),
+                    error_text=str(attempt.get("error_text") or exc),
+                    provider=provider,
+                )
+                for attempt in physical_attempts
+                if isinstance(attempt, dict)
+            ]
+            return {
+                "repair_attempts": attempts,
+                "call_count": int(getattr(exc, "__llm_call_count__", state.get("call_count", 0))),
+                "llm_calls": failure_records,
+            }
+
         # Persist a failure llm_calls record so the repair attempt is observable
         # in the DB (persist-everything rule 3). Surface real model/latency from
         # __llm_result__ when the adapter attached it; fall back to config model.
@@ -132,38 +170,75 @@ async def repair(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
                 "cost_usd": None,
                 "latency_ms": None,
             }
-        failure_record: dict[str, Any] = {
-            "request_id": state.get("request_id"),
-            "provider": "openrouter",
-            "model": failure_meta["model"],
-            "tokens_prompt": failure_meta["tokens_prompt"],
-            "tokens_completion": failure_meta["tokens_completion"],
-            "cost_usd": failure_meta["cost_usd"],
-            "latency_ms": failure_meta["latency_ms"],
-            "status": "error",
-            "structured_output_used": True,
-            "structured_output_mode": config.structured_output_mode if config else None,
-            "attempt_trigger": "graph_node",
-            "error_text": str(exc),
+        failure_record = _repair_call_record(
+            state,
+            config,
+            failure_meta,
+            status="error",
+            error_text=str(exc),
+            provider=provider,
+        )
+        return {
+            "repair_attempts": attempts,
+            "call_count": int(getattr(exc, "__llm_call_count__", state.get("call_count", 0))),
+            "llm_calls": [failure_record],
         }
-        return {"repair_attempts": attempts, "llm_calls": [failure_record]}
 
     return {
         "repair_attempts": attempts,
+        "call_count": call_count,
         "summary": summary,
         "llm_calls": [
-            {
-                "request_id": state.get("request_id"),
-                "provider": "openrouter",
-                "model": call_meta.get("model"),
-                "tokens_prompt": call_meta.get("tokens_prompt"),
-                "tokens_completion": call_meta.get("tokens_completion"),
-                "cost_usd": call_meta.get("cost_usd"),
-                "latency_ms": call_meta.get("latency_ms"),
-                "status": "ok",
-                "structured_output_used": True,
-                "structured_output_mode": config.structured_output_mode if config else None,
-                "attempt_trigger": "graph_node",
-            }
+            _repair_call_record(
+                state,
+                config,
+                call_meta,
+                status=str(call_meta.get("status") or "ok"),
+                error_text=(str(call_meta["error_text"]) if call_meta.get("error_text") else None),
+                provider=provider,
+            )
+            for call_meta in call_metas
         ],
     }
+
+
+def _repair_call_record(
+    state: SummarizeState,
+    config: SummarizeConfig | None,
+    call_meta: dict[str, Any],
+    *,
+    status: str,
+    error_text: str | None,
+    provider: str,
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "request_id": state.get("request_id"),
+        "provider": provider,
+        "model": call_meta.get("model"),
+        "tokens_prompt": call_meta.get("tokens_prompt"),
+        "tokens_completion": call_meta.get("tokens_completion"),
+        "cost_usd": call_meta.get("cost_usd"),
+        "latency_ms": call_meta.get("latency_ms"),
+        "fallback_model_used": _fallback_model(config, call_meta),
+        "status": status,
+        "structured_output_used": True,
+        "structured_output_mode": config.structured_output_mode if config else None,
+        "attempt_trigger": "graph_node",
+    }
+    if error_text:
+        record["error_text"] = error_text
+    return record
+
+
+def _fallback_model(config: SummarizeConfig | None, call_meta: dict[str, Any]) -> str | None:
+    model = call_meta.get("model")
+    if not isinstance(model, str) or not model:
+        return None
+    return model if config is not None and model != config.model else None
+
+
+def _provider_name(deps: SummarizeDeps, config: SummarizeConfig | None) -> str:
+    provider = getattr(deps.llm_client, "provider_name", None)
+    if isinstance(provider, str) and provider:
+        return provider
+    return config.llm_provider if config else "unknown"

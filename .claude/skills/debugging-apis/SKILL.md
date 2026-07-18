@@ -79,7 +79,7 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
 
 Supporting files:
 
-- **Firecrawl parser**: `app/adapters/external/firecrawl_parser.py`
+- **Firecrawl client/parser**: `app/adapters/external/firecrawl/client.py`, `app/adapters/external/firecrawl/parsing.py`
 - **OpenRouter error handler**: `app/adapters/openrouter/error_handler.py`
 - **OpenRouter request builder**: `app/adapters/openrouter/request_builder.py`
 - **Scraper chain**: `app/adapters/content/scraper/` (protocol, chain, factory, providers)

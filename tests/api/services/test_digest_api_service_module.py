@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import select
 
 from app.api.exceptions import ValidationError
 from app.api.services.digest_api_service import DigestAPIService
@@ -25,25 +27,32 @@ def digest_service() -> DigestAPIService:
     return DigestAPIService(ChannelDigestConfig(enabled=True))
 
 
-def _create_subscription(
+async def _create_subscription(
+    db,
     *,
     user_id: int,
     username: str,
     title: str | None = None,
-    category: ChannelCategory | None = None,
+    category_id: int | None = None,
     is_active: bool = True,
 ) -> ChannelSubscription:
-    channel = Channel.create(  # type: ignore[attr-defined]
-        username=username,
-        title=title or username.title(),
-        is_active=True,
-    )
-    return ChannelSubscription.create(  # type: ignore[attr-defined]
-        user=user_id,
-        channel=channel,
-        category=category,
-        is_active=is_active,
-    )
+    async with db.transaction() as session:
+        channel = Channel(
+            username=username,
+            title=title or username.title(),
+            is_active=True,
+        )
+        session.add(channel)
+        await session.flush()
+        subscription = ChannelSubscription(
+            user_id=user_id,
+            channel_id=channel.id,
+            category_id=category_id,
+            is_active=is_active,
+        )
+        session.add(subscription)
+        await session.flush()
+        return subscription
 
 
 @pytest.mark.asyncio
@@ -53,15 +62,18 @@ async def test_resolve_channel_updates_channel_metadata_and_subscription_state(
     digest_service: DigestAPIService,
     monkeypatch,
 ) -> None:
-    user = user_factory(username="digest-resolve", telegram_user_id=8001)
-    channel = Channel.create(  # type: ignore[attr-defined]
+    user = await user_factory(username="digest-resolve", telegram_user_id=8001)
+    await _create_subscription(
+        db,
+        user_id=user.telegram_user_id,
         username="resolvedchan",
         title="Old Title",
-        description="Old description",
-        member_count=10,
-        is_active=True,
     )
-    ChannelSubscription.create(user=user.telegram_user_id, channel=channel, is_active=True)  # type: ignore[attr-defined]
+    async with db.transaction() as session:
+        channel = await session.scalar(select(Channel).where(Channel.username == "resolvedchan"))
+        assert channel is not None
+        channel.description = "Old description"
+        channel.member_count = 10
 
     userbot = SimpleNamespace(
         start=AsyncMock(),
@@ -83,7 +95,9 @@ async def test_resolve_channel_updates_channel_metadata_and_subscription_state(
 
     resolved = await digest_service.resolve_channel(user.telegram_user_id, "@ResolvedChan")
 
-    refreshed = Channel.get(Channel.username == "resolvedchan")  # type: ignore[attr-defined]
+    async with db.session() as session:
+        refreshed = await session.scalar(select(Channel).where(Channel.username == "resolvedchan"))
+    assert refreshed is not None
     assert resolved.username == "resolvedchan"
     assert resolved.title == "New Title"
     assert resolved.description == "Fresh description"
@@ -96,39 +110,49 @@ async def test_resolve_channel_updates_channel_metadata_and_subscription_state(
     userbot.stop.assert_awaited_once()
 
 
-def test_list_channel_posts_returns_paginated_posts_with_analysis(
+async def test_list_channel_posts_returns_paginated_posts_with_analysis(
     db,
     user_factory,
     digest_service: DigestAPIService,
 ) -> None:
-    user = user_factory(username="digest-posts", telegram_user_id=8002)
-    subscription = _create_subscription(user_id=user.telegram_user_id, username="postchan")
-    newest = ChannelPost.create(  # type: ignore[attr-defined]
-        channel=subscription.channel,
-        message_id=101,
-        text="A" * 700,
-        date=datetime.now(UTC),
-        views=120,
-        forwards=7,
-        media_type="photo",
-        url="https://t.me/postchan/101",
+    user = await user_factory(username="digest-posts", telegram_user_id=8002)
+    subscription = await _create_subscription(
+        db, user_id=user.telegram_user_id, username="postchan"
     )
-    ChannelPostAnalysis.create(  # type: ignore[attr-defined]
-        post=newest,
-        real_topic="Digest Topic",
-        tldr="Concise summary",
-        relevance_score=0.85,
-        content_type="news",
-    )
-    ChannelPost.create(  # type: ignore[attr-defined]
-        channel=subscription.channel,
-        message_id=100,
-        text="Older post",
-        date=datetime.now(UTC) - timedelta(hours=1),
-        url="https://t.me/postchan/100",
-    )
+    async with db.transaction() as session:
+        newest = ChannelPost(
+            channel_id=subscription.channel_id,
+            message_id=101,
+            text="A" * 700,
+            date=datetime.now(UTC),
+            views=120,
+            forwards=7,
+            media_type="photo",
+            url="https://t.me/postchan/101",
+        )
+        session.add(newest)
+        await session.flush()
+        session.add(
+            ChannelPostAnalysis(
+                post_id=newest.id,
+                real_topic="Digest Topic",
+                tldr="Concise summary",
+                relevance_score=0.85,
+                content_type="news",
+            )
+        )
+        session.add(
+            ChannelPost(
+                channel_id=subscription.channel_id,
+                message_id=100,
+                text="Older post",
+                date=datetime.now(UTC) - timedelta(hours=1),
+                url="https://t.me/postchan/100",
+            )
+        )
 
-    result = digest_service.list_channel_posts(
+    result = await asyncio.to_thread(
+        digest_service.list_channel_posts,
         user.telegram_user_id,
         "@postchan",
         limit=1,
@@ -146,41 +170,54 @@ def test_list_channel_posts_returns_paginated_posts_with_analysis(
     assert post.analysis.relevance_score == 0.85
 
 
-def test_list_channel_posts_validates_input_and_subscription(
+async def test_list_channel_posts_validates_input_and_subscription(
     db,
     user_factory,
     digest_service: DigestAPIService,
 ) -> None:
-    user = user_factory(username="digest-post-errors", telegram_user_id=8003)
-    _create_subscription(user_id=user.telegram_user_id, username="allowedchan")
-    Channel.create(username="orphaned", title="Orphaned", is_active=True)  # type: ignore[attr-defined]
+    user = await user_factory(username="digest-post-errors", telegram_user_id=8003)
+    await _create_subscription(db, user_id=user.telegram_user_id, username="allowedchan")
+    async with db.transaction() as session:
+        session.add(Channel(username="orphaned", title="Orphaned", is_active=True))
 
     with pytest.raises(ValidationError, match="Invalid"):
-        digest_service.list_channel_posts(user.telegram_user_id, "x")
+        await asyncio.to_thread(digest_service.list_channel_posts, user.telegram_user_id, "x")
 
     with pytest.raises(ValidationError, match="not found"):
-        digest_service.list_channel_posts(user.telegram_user_id, "@missingchannel")
+        await asyncio.to_thread(
+            digest_service.list_channel_posts,
+            user.telegram_user_id,
+            "@missingchannel",
+        )
 
     with pytest.raises(ValidationError, match="Not subscribed"):
-        digest_service.list_channel_posts(user.telegram_user_id, "@orphaned")
+        await asyncio.to_thread(
+            digest_service.list_channel_posts,
+            user.telegram_user_id,
+            "@orphaned",
+        )
 
 
-def test_update_preferences_updates_existing_records_and_validates_time_formats(
+async def test_update_preferences_updates_existing_records_and_validates_time_formats(
     db,
     user_factory,
     digest_service: DigestAPIService,
 ) -> None:
-    user = user_factory(username="digest-prefs", telegram_user_id=8004)
-    pref = UserDigestPreference.create(  # type: ignore[attr-defined]
-        user=user.telegram_user_id,
-        delivery_time="09:00",
-        timezone=None,
-        hours_lookback=24,
-        max_posts_per_digest=10,
-        min_relevance_score=0.3,
-    )
+    user = await user_factory(username="digest-prefs", telegram_user_id=8004)
+    async with db.transaction() as session:
+        session.add(
+            UserDigestPreference(
+                user_id=user.telegram_user_id,
+                delivery_time="09:00",
+                timezone=None,
+                hours_lookback=24,
+                max_posts_per_digest=10,
+                min_relevance_score=0.3,
+            )
+        )
 
-    updated = digest_service.update_preferences(
+    updated = await asyncio.to_thread(
+        digest_service.update_preferences,
         user.telegram_user_id,
         delivery_time="11:30",
         hours_lookback=12,
@@ -188,7 +225,13 @@ def test_update_preferences_updates_existing_records_and_validates_time_formats(
         min_relevance_score=0.75,
     )
 
-    refreshed = UserDigestPreference.get(UserDigestPreference.user == user.telegram_user_id)  # type: ignore[attr-defined]
+    async with db.session() as session:
+        refreshed = await session.scalar(
+            select(UserDigestPreference).where(
+                UserDigestPreference.user_id == user.telegram_user_id
+            )
+        )
+    assert refreshed is not None
     assert updated.delivery_time == "11:30"
     assert updated.delivery_time_source == "user"
     assert updated.timezone == "UTC"
@@ -199,29 +242,39 @@ def test_update_preferences_updates_existing_records_and_validates_time_formats(
     assert refreshed.updated_at is not None
 
     with pytest.raises(ValidationError, match="valid integers"):
-        digest_service.update_preferences(user.telegram_user_id, delivery_time="11:xx")
+        await asyncio.to_thread(
+            digest_service.update_preferences,
+            user.telegram_user_id,
+            delivery_time="11:xx",
+        )
 
     with pytest.raises(ValidationError, match="Invalid hour/minute"):
-        digest_service.update_preferences(user.telegram_user_id, delivery_time="24:00")
+        await asyncio.to_thread(
+            digest_service.update_preferences,
+            user.telegram_user_id,
+            delivery_time="24:00",
+        )
 
 
-def test_category_crud_and_assignment_flows(
+async def test_category_crud_and_assignment_flows(
     db, user_factory, digest_service: DigestAPIService
 ) -> None:
-    user = user_factory(username="digest-cats", telegram_user_id=8005)
-    first = digest_service.create_category(user.telegram_user_id, "News")
-    second = digest_service.create_category(user.telegram_user_id, "Tech")
-    subscription = _create_subscription(
+    user = await user_factory(username="digest-cats", telegram_user_id=8005)
+    first = await asyncio.to_thread(digest_service.create_category, user.telegram_user_id, "News")
+    second = await asyncio.to_thread(digest_service.create_category, user.telegram_user_id, "Tech")
+    subscription = await _create_subscription(
+        db,
         user_id=user.telegram_user_id,
         username="catchan",
-        category=ChannelCategory.get_by_id(first.id),  # type: ignore[attr-defined]
+        category_id=first.id,
     )
 
-    listed = digest_service.list_categories(user.telegram_user_id)
+    listed = await asyncio.to_thread(digest_service.list_categories, user.telegram_user_id)
     assert [item.name for item in listed] == ["News", "Tech"]
     assert listed[0].subscription_count == 1
 
-    renamed = digest_service.update_category(
+    renamed = await asyncio.to_thread(
+        digest_service.update_category,
         user.telegram_user_id,
         first.id,
         name="World News",
@@ -230,80 +283,117 @@ def test_category_crud_and_assignment_flows(
     assert renamed.name == "World News"
     assert renamed.position == 5
 
-    subscriptions = digest_service.list_subscriptions(user.telegram_user_id)
+    subscriptions = await asyncio.to_thread(
+        digest_service.list_subscriptions, user.telegram_user_id
+    )
     assert subscriptions["channels"][0].category_name == "World News"
 
-    assert digest_service.assign_category(user.telegram_user_id, subscription.id, second.id) == {
-        "status": "updated"
-    }
-    assert digest_service.assign_category(user.telegram_user_id, subscription.id, None) == {
-        "status": "updated"
-    }
-    assert digest_service.delete_category(user.telegram_user_id, second.id) == {"status": "deleted"}
+    assert await asyncio.to_thread(
+        digest_service.assign_category,
+        user.telegram_user_id,
+        subscription.id,
+        second.id,
+    ) == {"status": "updated"}
+    assert await asyncio.to_thread(
+        digest_service.assign_category,
+        user.telegram_user_id,
+        subscription.id,
+        None,
+    ) == {"status": "updated"}
+    assert await asyncio.to_thread(
+        digest_service.delete_category, user.telegram_user_id, second.id
+    ) == {"status": "deleted"}
 
     with pytest.raises(ValidationError, match="already exists"):
-        digest_service.create_category(user.telegram_user_id, "World News")
+        await asyncio.to_thread(digest_service.create_category, user.telegram_user_id, "World News")
 
     with pytest.raises(ValidationError, match="Category not found"):
-        digest_service.update_category(user.telegram_user_id, 999999, name="Missing")
+        await asyncio.to_thread(
+            digest_service.update_category,
+            user.telegram_user_id,
+            999999,
+            name="Missing",
+        )
 
     with pytest.raises(ValidationError, match="Category not found"):
-        digest_service.delete_category(user.telegram_user_id, 999999)
+        await asyncio.to_thread(digest_service.delete_category, user.telegram_user_id, 999999)
 
     with pytest.raises(ValidationError, match="Subscription not found"):
-        digest_service.assign_category(user.telegram_user_id, 999999, None)
+        await asyncio.to_thread(
+            digest_service.assign_category,
+            user.telegram_user_id,
+            999999,
+            None,
+        )
 
     with pytest.raises(ValidationError, match="Category not found"):
-        digest_service.assign_category(user.telegram_user_id, subscription.id, 999999)
+        await asyncio.to_thread(
+            digest_service.assign_category,
+            user.telegram_user_id,
+            subscription.id,
+            999999,
+        )
 
 
-def test_digest_category_assignment_rejects_cross_user_ids(
+async def test_digest_category_assignment_rejects_cross_user_ids(
     db,
     user_factory,
     digest_service: DigestAPIService,
 ) -> None:
-    owner = user_factory(username="digest-owner", telegram_user_id=8015)
-    other = user_factory(username="digest-other", telegram_user_id=8016)
-    owner_category = digest_service.create_category(owner.telegram_user_id, "Owner")
-    other_category = digest_service.create_category(other.telegram_user_id, "Other")
-    owner_subscription = _create_subscription(
+    owner = await user_factory(username="digest-owner", telegram_user_id=8015)
+    other = await user_factory(username="digest-other", telegram_user_id=8016)
+    owner_category = await asyncio.to_thread(
+        digest_service.create_category, owner.telegram_user_id, "Owner"
+    )
+    other_category = await asyncio.to_thread(
+        digest_service.create_category, other.telegram_user_id, "Other"
+    )
+    owner_subscription = await _create_subscription(
+        db,
         user_id=owner.telegram_user_id,
         username="ownerchan",
-        category=ChannelCategory.get_by_id(owner_category.id),  # type: ignore[attr-defined]
+        category_id=owner_category.id,
     )
-    other_subscription = _create_subscription(
+    other_subscription = await _create_subscription(
+        db,
         user_id=other.telegram_user_id,
         username="otherchan",
-        category=ChannelCategory.get_by_id(other_category.id),  # type: ignore[attr-defined]
+        category_id=other_category.id,
     )
 
     with pytest.raises(ValidationError, match="Subscription not found"):
-        digest_service.assign_category(
+        await asyncio.to_thread(
+            digest_service.assign_category,
             owner.telegram_user_id,
             other_subscription.id,
             owner_category.id,
         )
 
     with pytest.raises(ValidationError, match="Category not found"):
-        digest_service.assign_category(
+        await asyncio.to_thread(
+            digest_service.assign_category,
             owner.telegram_user_id,
             owner_subscription.id,
             other_category.id,
         )
 
 
-def test_bulk_digest_operations_report_mixed_results(
+async def test_bulk_digest_operations_report_mixed_results(
     db,
     user_factory,
     digest_service: DigestAPIService,
 ) -> None:
-    user = user_factory(username="digest-bulk", telegram_user_id=8006)
-    sub_one = _create_subscription(user_id=user.telegram_user_id, username="bulkone")
-    sub_two = _create_subscription(user_id=user.telegram_user_id, username="bulktwo")
-    Channel.create(username="orphanbulk", title="Orphan", is_active=True)  # type: ignore[attr-defined]
-    category = ChannelCategory.create(user=user.telegram_user_id, name="Bulk", position=1)  # type: ignore[attr-defined]
+    user = await user_factory(username="digest-bulk", telegram_user_id=8006)
+    sub_one = await _create_subscription(db, user_id=user.telegram_user_id, username="bulkone")
+    sub_two = await _create_subscription(db, user_id=user.telegram_user_id, username="bulktwo")
+    async with db.transaction() as session:
+        session.add(Channel(username="orphanbulk", title="Orphan", is_active=True))
+        category = ChannelCategory(user_id=user.telegram_user_id, name="Bulk", position=1)
+        session.add(category)
+        await session.flush()
 
-    unsubscribe_result = digest_service.bulk_unsubscribe(
+    unsubscribe_result = await asyncio.to_thread(
+        digest_service.bulk_unsubscribe,
         user.telegram_user_id,
         ["bulkone", "orphanbulk", "missingbulk", "x"],
     )
@@ -318,7 +408,8 @@ def test_bulk_digest_operations_report_mixed_results(
         unsubscribe_result["results"]
     )
 
-    assign_result = digest_service.bulk_assign_category(
+    assign_result = await asyncio.to_thread(
+        digest_service.bulk_assign_category,
         user.telegram_user_id,
         [sub_one.id, sub_two.id, 999999],
         category.id,
@@ -329,4 +420,9 @@ def test_bulk_digest_operations_report_mixed_results(
     assert {"id": "999999", "status": "error", "detail": "not_found"} in assign_result["results"]
 
     with pytest.raises(ValidationError, match="Category not found"):
-        digest_service.bulk_assign_category(user.telegram_user_id, [sub_one.id], 424242)
+        await asyncio.to_thread(
+            digest_service.bulk_assign_category,
+            user.telegram_user_id,
+            [sub_one.id],
+            424242,
+        )

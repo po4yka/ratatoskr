@@ -15,6 +15,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     FilterSelector,
+    MatchAny,
     MatchValue,
     PayloadSchemaType,
     PointIdsList,
@@ -46,6 +47,23 @@ def _get_tracer() -> Any:
 # Upsert points are chunked into bounded batches so a large backfill does not
 # build one oversized request body (Qdrant streams each chunk independently).
 _UPSERT_CHUNK_SIZE = 256
+_DELETE_FILTER_CHUNK_SIZE = 100
+_SUMMARY_REPLACE_CHUNK_SIZE = 100
+
+
+def _write_acknowledged(result: Any, *, wait: bool) -> bool:
+    """Return whether Qdrant acknowledged/completed a write operation."""
+    status = getattr(result, "status", None)
+    status_value = getattr(status, "value", status)
+    if status_value == "completed":
+        return True
+    return not wait and status_value == "acknowledged"
+
+
+def _require_write_acknowledgement(result: Any, *, wait: bool, operation: str) -> None:
+    if not _write_acknowledged(result, wait=wait):
+        status = getattr(getattr(result, "status", None), "value", None)
+        raise VectorStoreError(f"Qdrant {operation} was not acknowledged (status={status!r})")
 
 
 class QdrantVectorStore(QdrantIndexedEntityMixin):
@@ -419,14 +437,13 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         """Upsert vectors with metadata, chunked into bounded batches.
 
-        ``wait=True`` (default) blocks until Qdrant has flushed each chunk to
-        disk -- callers that must read-after-write rely on it. Bulk/backfill
-        callers pass ``wait=False`` to avoid blocking on the disk flush; the
-        vector reconciler re-indexes anything a non-waited write loses, so
-        at-least-once semantics hold.
+        ``wait=True`` (default) requires Qdrant to return ``completed`` for
+        every chunk. With ``wait=False``, ``acknowledged`` is sufficient, so
+        callers must not advance a durable SQL index cursor from that weaker
+        result.
         """
         if not self._available:
             self.ensure_available()
@@ -434,7 +451,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             logger.warning(
                 "vector_upsert_skipped", extra={"reason": "not_available", "count": len(vectors)}
             )
-            return
+            return False
 
         if len(vectors) != len(metadatas):
             msg = "vectors and metadatas must have the same length"
@@ -451,15 +468,17 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             t0 = time.perf_counter()
             try:
                 for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
-                    self._client.upsert(
+                    result = self._client.upsert(
                         collection_name=self._collection_name,
                         points=points[start : start + _UPSERT_CHUNK_SIZE],
                         wait=wait,
                     )
+                    _require_write_acknowledgement(result, wait=wait, operation="upsert")
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_upsert", elapsed)
                 record_vector_write(operation="upsert", status="success")
                 span.set_attribute(VECTOR_STATUS, "success")
+                return True
             except Exception as exc:
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_upsert", elapsed)
@@ -471,6 +490,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 if self._required:
                     raise VectorStoreError(str(exc)) from exc
                 self._available = False
+                return False
 
     def replace_request_notes(
         self,
@@ -480,11 +500,12 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         """Replace a request's points (upsert new, delete stale).
 
-        ``wait=False`` is for operator-rerunnable batch backfills that do not
-        need read-after-write; live paths keep the default ``wait=True``.
+        ``wait=False`` accepts Qdrant's ``acknowledged`` status; callers that
+        persist an indexed timestamp keep the default ``wait=True`` and require
+        ``completed``.
         """
         if not self._available:
             self.ensure_available()
@@ -493,7 +514,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 "vector_replace_skipped",
                 extra={"reason": "not_available", "request_id": request_id, "count": len(vectors)},
             )
-            return
+            return False
 
         if len(vectors) != len(metadatas):
             msg = "vectors and metadatas must have the same length"
@@ -513,22 +534,25 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             try:
                 existing_uuid_strs = self._fetch_request_point_ids(request_id)
                 for start in range(0, len(points), _UPSERT_CHUNK_SIZE):
-                    client.upsert(
+                    result = client.upsert(
                         collection_name=self._collection_name,
                         points=points[start : start + _UPSERT_CHUNK_SIZE],
                         wait=wait,
                     )
+                    _require_write_acknowledgement(result, wait=wait, operation="replace upsert")
                 stale = existing_uuid_strs - new_uuid_strs
                 if stale:
-                    client.delete(
+                    result = client.delete(
                         collection_name=self._collection_name,
                         points_selector=PointIdsList(points=list(stale)),
                         wait=wait,
                     )
+                    _require_write_acknowledgement(result, wait=wait, operation="replace delete")
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
                 record_vector_write(operation="replace", status="success")
                 span.set_attribute(VECTOR_STATUS, "success")
+                return True
             except Exception as exc:
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
@@ -541,6 +565,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 if self._required:
                     raise VectorStoreError(str(exc)) from exc
                 self._available = False
+                return False
 
     def replace_summary_point(
         self,
@@ -550,7 +575,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
         payload: dict[str, Any],
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         """Replace a request's single summary point, writing ``payload`` VERBATIM.
 
         The read-your-writes fast-path (ADR-0012) uses this instead of
@@ -574,7 +599,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 "vector_replace_skipped",
                 extra={"reason": "not_available", "request_id": request_id, "count": 1},
             )
-            return
+            return False
 
         point_uuid = _str_to_uuid(raw_id)
         point = PointStruct(id=point_uuid, vector=list(vector), payload=dict(payload))
@@ -588,7 +613,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 # that a re-summarization (new summary_id) leaves no orphan.
                 # Filter-delete avoids the fetch-then-delete TOCTOU; the
                 # subsequent upsert writes the new point.
-                client.delete(
+                delete_result = client.delete(
                     collection_name=self._collection_name,
                     points_selector=FilterSelector(
                         filter=Filter(
@@ -602,15 +627,22 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                     ),
                     wait=wait,
                 )
-                client.upsert(
+                _require_write_acknowledgement(
+                    delete_result, wait=wait, operation="summary replace delete"
+                )
+                upsert_result = client.upsert(
                     collection_name=self._collection_name,
                     points=[point],
                     wait=wait,
+                )
+                _require_write_acknowledgement(
+                    upsert_result, wait=wait, operation="summary replace upsert"
                 )
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
                 record_vector_write(operation="replace", status="success")
                 span.set_attribute(VECTOR_STATUS, "success")
+                return True
             except Exception as exc:
                 elapsed = time.perf_counter() - t0
                 record_db_query("qdrant_replace", elapsed)
@@ -623,6 +655,110 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 if self._required:
                     raise VectorStoreError(str(exc)) from exc
                 self._available = False
+                return False
+
+    def replace_summary_points(
+        self,
+        request_ids: Sequence[int | str],
+        raw_ids: Sequence[str],
+        vectors: Sequence[Sequence[float]],
+        payloads: Sequence[dict[str, Any]],
+    ) -> bool:
+        """Replace summary points using bounded, fully completed write batches.
+
+        Each chunk removes existing points for all included requests with one
+        ``MatchAny`` filter, then upserts the replacement points in one request.
+        The method returns ``True`` only after every delete and upsert reports
+        ``completed``. A caller persisting an indexing cursor can therefore use
+        the return value as an all-or-nothing acknowledgement contract: a
+        partial write is safe to retry, but must not advance durable state.
+
+        Summary rows have a unique ``request_id``. Enforcing that invariant at
+        this boundary prevents two chunks from deleting each other's points.
+        """
+        lengths = {len(request_ids), len(raw_ids), len(vectors), len(payloads)}
+        if len(lengths) != 1:
+            msg = "request_ids, raw_ids, vectors and payloads must have the same length"
+            raise ValueError(msg)
+        if not request_ids:
+            return True
+
+        normalized_request_ids = [int(request_id) for request_id in request_ids]
+        if len(set(normalized_request_ids)) != len(normalized_request_ids):
+            msg = "request_ids must be unique for summary replacement"
+            raise ValueError(msg)
+
+        if not self._available:
+            self.ensure_available()
+        if not self._available:
+            logger.warning(
+                "vector_replace_summaries_skipped",
+                extra={"reason": "not_available", "count": len(request_ids)},
+            )
+            return False
+
+        points = [
+            PointStruct(id=_str_to_uuid(raw_id), vector=list(vector), payload=dict(payload))
+            for raw_id, vector, payload in zip(raw_ids, vectors, payloads, strict=True)
+        ]
+
+        client = self._client
+        with _get_tracer().start_as_current_span("vector.replace_batch") as span:
+            span.set_attribute(VECTOR_OPERATION, "replace_batch")
+            t0 = time.perf_counter()
+            try:
+                for start in range(0, len(points), _SUMMARY_REPLACE_CHUNK_SIZE):
+                    request_id_chunk = normalized_request_ids[
+                        start : start + _SUMMARY_REPLACE_CHUNK_SIZE
+                    ]
+                    point_chunk = points[start : start + _SUMMARY_REPLACE_CHUNK_SIZE]
+                    delete_result = client.delete(
+                        collection_name=self._collection_name,
+                        points_selector=FilterSelector(
+                            filter=Filter(
+                                must=[
+                                    FieldCondition(
+                                        key="request_id",
+                                        match=MatchAny(any=request_id_chunk),
+                                    )
+                                ]
+                            )
+                        ),
+                        wait=True,
+                    )
+                    _require_write_acknowledgement(
+                        delete_result,
+                        wait=True,
+                        operation="summary batch replace delete",
+                    )
+                    upsert_result = client.upsert(
+                        collection_name=self._collection_name,
+                        points=point_chunk,
+                        wait=True,
+                    )
+                    _require_write_acknowledgement(
+                        upsert_result,
+                        wait=True,
+                        operation="summary batch replace upsert",
+                    )
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace_batch", elapsed)
+                record_vector_write(operation="replace_batch", status="success")
+                span.set_attribute(VECTOR_STATUS, "success")
+                return True
+            except Exception as exc:
+                elapsed = time.perf_counter() - t0
+                record_db_query("qdrant_replace_batch", elapsed)
+                logger.error(
+                    "vector_replace_summaries_failed",
+                    extra={"count": len(points), "error": str(exc)},
+                )
+                record_vector_write(operation="replace_batch", status="failed")
+                span.set_attribute(VECTOR_STATUS, "error")
+                if self._required:
+                    raise VectorStoreError(str(exc)) from exc
+                self._available = False
+                return False
 
     # ------------------------------------------------------------------
     # Read operations
@@ -812,31 +948,47 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 return VectorQueryResult.empty()
 
     def delete_by_request_id(self, request_id: int | str) -> None:
+        self.delete_by_request_ids([request_id])
+
+    def delete_by_request_ids(self, request_ids: Sequence[int | str]) -> None:
+        """Delete vectors for request IDs using bounded ``MatchAny`` filters."""
+        deduped_ids = list(dict.fromkeys(int(request_id) for request_id in request_ids))
+        if not deduped_ids:
+            return
         if not self._available:
             self.ensure_available()
         if not self._available:
             logger.warning(
-                "vector_delete_skipped", extra={"reason": "not_available", "request_id": request_id}
+                "vector_delete_skipped",
+                extra={"reason": "not_available", "request_count": len(deduped_ids)},
             )
             return
         try:
-            self._client.delete(
-                collection_name=self._collection_name,
-                points_selector=FilterSelector(
-                    filter=Filter(
-                        must=[
-                            FieldCondition(
-                                key="request_id",
-                                match=MatchValue(value=int(request_id)),
-                            )
-                        ]
-                    )
-                ),
-                wait=True,
-            )
+            for start in range(0, len(deduped_ids), _DELETE_FILTER_CHUNK_SIZE):
+                chunk = deduped_ids[start : start + _DELETE_FILTER_CHUNK_SIZE]
+                result = self._client.delete(
+                    collection_name=self._collection_name,
+                    points_selector=FilterSelector(
+                        filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="request_id",
+                                    match=MatchAny(any=chunk),
+                                )
+                            ]
+                        )
+                    ),
+                    wait=True,
+                )
+                _require_write_acknowledgement(
+                    result,
+                    wait=True,
+                    operation="request batch delete",
+                )
         except Exception as exc:
             logger.error(
-                "vector_delete_failed", extra={"request_id": request_id, "error": str(exc)}
+                "vector_delete_failed",
+                extra={"request_count": len(deduped_ids), "error": str(exc)},
             )
             record_vector_write(operation="delete", status="failed")
             if self._required:

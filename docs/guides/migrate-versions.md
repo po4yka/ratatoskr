@@ -1,417 +1,134 @@
 # Migrate Between Versions
 
-Upgrade Ratatoskr to a new version safely.
+Ratatoskr upgrades are application, configuration, and Alembic migrations. No
+release class is assumed to be schema-free: read the release notes and inspect
+pending migrations for every upgrade.
 
-**Audience:** Operators **Difficulty:** Intermediate **Estimated Time:** 10-15 minutes
+For the historical `bite-size-reader` rename, first read
+[Migrate from bite-size-reader](migrate-from-bite-size-reader.md).
 
-> **Upgrading across the `bite-size-reader` → `ratatoskr` rename?** That upgrade has a dedicated page that covers the renamed contracts (Docker image, MCP URIs, Prometheus metrics, web storage keys, etc.): see [Migrate from bite-size-reader](migrate-from-bite-size-reader.md). Use this generic version-upgrade page for everything else.
+## Before the maintenance window
 
----
+1. Record the currently deployed Git revision or image digest.
+2. Read `CHANGELOG.md`, the target release notes, and new Alembic revisions under
+   `app/db/alembic/versions/`.
+3. Create and verify a PostgreSQL backup using
+   [Back Up and Restore](backup-and-restore.md).
+4. Back up `.env`, the active `ratatoskr.yaml`, and durable files below `data/`.
+5. Confirm that the previous application artifact and its matching configuration
+   remain available for rollback.
 
-## Before You Start
+Do not rely on a copied container as a database rollback. Application rollback
+and data rollback are separate decisions once a migration has changed the
+schema.
 
-### Backup First
+## Inspect the target version
 
-**CRITICAL**: Always backup your data before upgrading:
+From a clean target checkout, compare operator-controlled configuration:
 
 ```bash
-# Backup PostgreSQL database
-docker exec -t ratatoskr-postgres \
-  pg_dump --format=custom --no-owner --no-privileges \
-          -U ratatoskr_app -d ratatoskr \
-  > "data/ratatoskr.dump.$(date +%Y%m%d)"
-
-# Backup environment file
-cp .env .env.backup
-
-# Backup YouTube videos (if enabled)
-tar -czf youtube_backup_$(date +%Y%m%d).tar.gz data/videos/
-
-# Verify backups
-ls -lh data/ratatoskr.dump.* .env.backup youtube_backup* 2>/dev/null
+git diff <deployed-revision>..<target-revision> -- \
+  .env.example config/ratatoskr.yaml ops/docker/docker-compose.yml
 ```
 
-### Check Release Notes
-
-1. Visit https://github.com/po4yka/ratatoskr/releases
-2. Read **CHANGELOG.md** for breaking changes
-3. Note any required migration steps
-
----
-
-## Migration Path
-
-### Docker Deployment
-
-#### 1. Pull Latest Image
+Validate the effective Compose model before changing running services:
 
 ```bash
-# Pull the latest non-prerelease stable image
-docker pull ghcr.io/po4yka/ratatoskr:stable
-
-# Or specific version
-docker pull ghcr.io/po4yka/ratatoskr:v1.2.0
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml config --quiet
 ```
 
-Release tags publish semver images plus `stable` for non-prerelease tags. `:latest` is not published by the release workflow; use `:stable` for routine upgrades and semver tags for pinned rollbacks.
+Build or pull the exact application artifacts required by your deployment. Avoid
+floating tags during a controlled upgrade.
 
-#### 2. Stop Current Container
+## Inspect and apply migrations
 
-```bash
-# Stop gracefully
-docker stop ratatoskr
-
-# Backup current container (optional)
-docker commit ratatoskr ratatoskr-backup
-```
-
-#### 3. Update Configuration (If Needed)
+The migration CLI is intentionally dry-run by default. In the same environment
+and image that will be deployed:
 
 ```bash
-# Compare .env.example from new version
-docker run --rm ghcr.io/po4yka/ratatoskr:stable cat .env.example > .env.example.new
-
-# Review differences
-diff .env .env.example.new
-
-# Add any new required variables
-nano .env
-```
-
-#### 4. Run Database Migrations
-
-```bash
-# Inspect pending/applied migrations first
-docker run --rm \
-  --env-file .env \
-  -v $(pwd)/data:/data \
-  ghcr.io/po4yka/ratatoskr:stable \
+# Show the current and target Alembic revisions.
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
   python -m app.cli.migrate_db --status
 
-# Run migrations before starting new version
-docker run --rm \
-  --env-file .env \
-  -v $(pwd)/data:/data \
-  ghcr.io/po4yka/ratatoskr:stable \
+# Render pending SQL without changing PostgreSQL.
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
   python -m app.cli.migrate_db
-
-# Check output for any errors
 ```
 
-#### 5. Start New Version
+Review the SQL and expected locking/space impact. Then stop application writers
+for migrations that are not documented as online-safe:
 
 ```bash
-# Remove old container
-docker rm ratatoskr
-
-# Start new version
-docker run -d \
-  --name ratatoskr \
-  --env-file .env \
-  -v $(pwd)/data:/data \
-  --restart unless-stopped \
-  ghcr.io/po4yka/ratatoskr:stable
-
-# Verify startup
-docker logs ratatoskr | head -20
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml stop \
+  ratatoskr worker scheduler mobile-api mcp-write
 ```
 
-#### 6. Test Functionality
+Apply the reviewed revision set explicitly:
 
 ```bash
-# Send test URL to bot
-# Expected: Bot responds normally
-
-# Check logs for errors
-docker logs ratatoskr | grep -i error
-
-# Verify database connectivity / migration head
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT 1;"
-docker exec -i ratatoskr python -m app.cli.migrate_db --status
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
+  python -m app.cli.migrate_db --apply
 ```
 
----
+Application containers run `migrate_db --check` at startup and refuse to run
+against a schema that is not at Alembic head. They do not apply migrations for
+you.
 
-### Local Installation
-
-#### 1. Update Repository
+## Start and verify
 
 ```bash
-# Stash local changes
-git stash
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml up -d
 
-# Pull latest code
-git pull origin main
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml ps
 
-# Or checkout specific version
-git checkout v1.2.0
-
-# Restore local changes
-git stash pop
+curl --fail http://127.0.0.1:18000/health
 ```
 
-#### 2. Update Dependencies
-
-```bash
-# Activate venv
-source .venv/bin/activate
-
-# Update dependencies
-pip install -r requirements.txt -r requirements-dev.txt --upgrade
-
-# Verify no conflicts
-pip check
-```
-
-#### 3. Run Migrations
-
-```bash
-# Run database migrations
-python -m app.cli.migrate_db
-
-# Check for errors
-echo $?  # Should output: 0
-```
-
-#### 4. Restart Bot
-
-```bash
-# Stop bot (Ctrl+C)
-# Then restart
-python bot.py
-
-# Verify startup logs
-```
-
----
-
-## Common Migration Scenarios
-
-### Upgrading from v0.x to v1.x (Breaking Changes)
-
-**Breaking changes:**
-
-- Environment variable renames (see CHANGELOG)
-- Database schema changes (automatic migration)
-- Summary contract v3.0 (new fields)
-
-**Steps:**
-
-1. Backup database (critical!)
-2. Update environment variables:
-
-   ```bash
-   # Renamed variables
-   OLD_VAR_NAME → NEW_VAR_NAME
-   ```
-
-3. Run migrations
-4. Verify summaries still accessible
-
----
-
-### Minor Version Upgrade (v1.1 → v1.2)
-
-**Usually safe:**
-
-- No breaking changes
-- Database migrations automatic
-- New optional features
-
-**Steps:**
-
-1. Backup database (precaution)
-2. Pull new code/image
-3. Run migrations
-4. Restart bot
-
----
-
-### Patch Version Upgrade (v1.2.0 → v1.2.1)
-
-**Always safe:**
-
-- Bug fixes only
-- No database changes
-- No config changes
-
-**Steps:**
-
-1. Pull new code/image
-2. Restart bot
-3. Done!
-
----
-
-## Rollback Procedure
-
-If upgrade fails or causes issues:
-
-### Docker Rollback
-
-```bash
-# Stop new version
-docker stop ratatoskr
-docker rm ratatoskr
-
-# Restore PostgreSQL backup
-docker exec -i ratatoskr-postgres \
-  psql -U postgres -c "DROP DATABASE IF EXISTS ratatoskr;"
-docker exec -i ratatoskr-postgres \
-  psql -U postgres -c "CREATE DATABASE ratatoskr OWNER ratatoskr_app;"
-docker exec -i ratatoskr-postgres \
-  pg_restore --no-owner --no-privileges --clean --if-exists \
-             -U ratatoskr_app -d ratatoskr \
-  < data/ratatoskr.dump.YYYYMMDD
-
-# Run previous version
-docker run -d \
-  --name ratatoskr \
-  --env-file .env.backup \
-  -v $(pwd)/data:/data \
-  --restart unless-stopped \
-  ghcr.io/po4yka/ratatoskr:v1.1.0  # Previous version
-
-# Verify
-docker logs ratatoskr
-```
-
-### Local Rollback
-
-```bash
-# Restore PostgreSQL backup
-docker exec -i ratatoskr-postgres \
-  pg_restore --no-owner --no-privileges --clean --if-exists \
-             -U ratatoskr_app -d ratatoskr \
-  < data/ratatoskr.dump.YYYYMMDD
-
-# Checkout previous version
-git checkout v1.1.0
-
-# Restore dependencies
-pip install -r requirements.txt
-
-# Restart bot
-python bot.py
-```
-
----
-
-## Migration Checklist
-
-Use this checklist for all upgrades:
-
-- [ ] **Read release notes and CHANGELOG.md**
-- [ ] **Backup database** (`docker exec -t ratatoskr-postgres pg_dump -F c -U ratatoskr_app -d ratatoskr > data/ratatoskr.dump.$(date +%Y%m%d)`)
-- [ ] **Backup .env file** (`cp .env .env.backup`)
-- [ ] **Backup YouTube videos** (if enabled)
-- [ ] **Pull new version** (Docker: `docker pull`, Local: `git pull`)
-- [ ] **Compare .env.example** (check for new variables)
-- [ ] **Update .env** (add any new required variables)
-- [ ] **Run database migrations** (`python -m app.cli.migrate_db`)
-- [ ] **Restart bot** (Docker: `docker restart`, Local: restart process)
-- [ ] **Test functionality** (send test URL to bot)
-- [ ] **Check logs** (verify no errors)
-- [ ] **Verify database connectivity** (`docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT 1;"`)
-- [ ] **Monitor for 24 hours** (watch for issues)
-- [ ] **Delete old backups** (after 7 days if stable)
-
----
-
-## Troubleshooting
-
-### Migration fails
-
-**Symptom:** Error during `migrate_db`
-
-**Solution:**
-
-```bash
-# Check database connectivity
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT 1;"
-
-# Inspect Alembic migration head
-python -m app.cli.migrate_db --status
-
-# If state is unrecoverable, restore from backup
-docker exec -i ratatoskr-postgres \
-  pg_restore --no-owner --no-privileges --clean --if-exists \
-             -U ratatoskr_app -d ratatoskr \
-  < data/ratatoskr.dump.YYYYMMDD
-
-# Retry migration
-python -m app.cli.migrate_db
-```
-
----
-
-### Bot won't start after upgrade
-
-**Symptom:** Bot crashes on startup
-
-**Diagnostics:**
-
-```bash
-# Check logs
-docker logs ratatoskr
-
-# Common causes:
-# 1. Missing environment variables
-# 2. Database schema mismatch
-# 3. Dependency conflicts
-
-# Solution: Rollback and report issue
-```
-
----
-
-### Summaries not accessible
-
-**Symptom:** Search/retrieval fails for old summaries
-
-**Solution:**
-
-```bash
-# Rebuild search index
-python -m app.cli.rebuild_indexes
-
-# Backfill vector store embeddings (if enabled)
-python -m app.cli.backfill_vector_store
-
-# Verify
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT count(*) FROM summaries;"
-```
-
----
-
-## Automated Update (Advanced)
-
-### Watchtower (Docker)
-
-```bash
-# Install Watchtower to auto-update containers
-docker run -d \
-  --name watchtower \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  containrrr/watchtower \
-  --cleanup \
-  --interval 86400 \
-  ratatoskr
-
-# Watchtower checks daily and updates if new version available
-```
-
-**Warning:** Automated updates skip backup step. Use with caution.
-
----
-
-## See Also
-
-- [CHANGELOG.md](../../CHANGELOG.md) - Version history
-- [DEPLOYMENT.md](deploy-production.md) - Deployment guide
-- [TROUBLESHOOTING.md](../reference/troubleshooting.md) - Fix issues
-- [Backup and Restore Guide](backup-and-restore.md) - Data protection
-
----
-
-**Last Updated:** 2026-03-05
+Then verify the behavior affected by the release:
+
+- migration status reports the expected head;
+- bot, worker, scheduler, and API logs contain no startup loop;
+- a known summary is readable;
+- one new request completes and persists its artifacts;
+- search works; check vector reconciliation lag if embedding code or namespace
+  changed;
+- optional profiles and integrations used by this deployment are healthy.
+
+Use correlation IDs for any failed request and follow
+[Troubleshooting](../reference/troubleshooting.md).
+
+## Rollback
+
+Stop and choose the rollback type from observed evidence:
+
+- **Application-only rollback:** safe only when the old application is compatible
+  with the migrated schema and configuration. Redeploy the recorded artifact;
+  do not downgrade Alembic automatically.
+- **Full data rollback:** restore the verified pre-upgrade PostgreSQL backup and
+  matching durable files, then deploy the old application and configuration.
+  This discards writes made after the backup and therefore requires an explicit
+  outage/data-loss decision.
+- **Forward fix:** often safer when a migration has already completed and new
+  writes exist. Apply a new tested migration or application fix.
+
+Use the restore rehearsal in [Back Up and Restore](backup-and-restore.md) rather
+than improvising database drop/recreate commands during an incident.
+
+## Upgrade checklist
+
+- [ ] Deployed and target revisions/digests recorded.
+- [ ] Release notes, configuration diff, and Alembic revisions reviewed.
+- [ ] PostgreSQL and durable-file backups created and verified.
+- [ ] Effective Compose configuration validates.
+- [ ] Pending migration SQL reviewed.
+- [ ] Required writer outage agreed and applied.
+- [ ] Migrations applied with `--apply` and status confirmed.
+- [ ] Services, health endpoint, old reads, new writes, and search verified.
+- [ ] Rollback compatibility or restore path recorded before reopening traffic.

@@ -192,8 +192,8 @@ async def test_social_connection_repository_records_fetch_attempt(
             status="failed",
             error_code="rate_limited",
             error_message="rate_limited",
-            source_url="https://x.com/user/status/123?access_token=raw-token",
-            normalized_url="https://x.com/user/status/123?access_token=raw-token",
+            source_url="https://x.com/user/status/123?lang=en&access_token=raw-token",
+            normalized_url="https://x.com/user/status/123?lang=en&access_token=raw-token",
             provider_resource_id="123",
             http_status=429,
             auth_tier="x_api",
@@ -215,8 +215,8 @@ async def test_social_connection_repository_records_fetch_attempt(
     assert row.attempt_type == "post_lookup"
     assert row.status == "failed"
     assert row.error_code == "rate_limited"
-    assert row.source_url == "https://x.com/user/status/123"
-    assert row.normalized_url == "https://x.com/user/status/123"
+    assert row.source_url == "https://x.com/user/status/123?lang=en"
+    assert row.normalized_url == "https://x.com/user/status/123?lang=en"
     assert row.provider_resource_id == "123"
     assert row.http_status == 429
     assert row.auth_tier == "x_api"

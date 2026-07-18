@@ -14,6 +14,7 @@ from app.adapters.content.platform_extraction import (
     build_platform_extraction_router,
 )
 from app.core.logging_utils import get_logger
+from app.di.repositories import build_llm_repository
 from app.infrastructure.persistence.message_persistence import MessagePersistence
 
 if TYPE_CHECKING:
@@ -308,7 +309,7 @@ def _build_github_platform_extractor(context: PlatformExtractorBuildContext) -> 
         environment=context.cfg.vector_store.environment,
         user_scope=context.cfg.vector_store.user_scope,
     )
-    agent = RepoAnalysisAgent(llm_service=llm_client)
+    agent = RepoAnalysisAgent(llm_service=llm_client, llm_repo=build_llm_repository(context.db))
     repository_repo = RepositoryAnalysisRepositoryAdapter(context.db)
     analyze_use_case = AnalyzeRepositoryUseCase(
         repository_repo=repository_repo,

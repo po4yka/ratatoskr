@@ -80,6 +80,9 @@ class AuthRepositoryAdapter:
                     expires_at=expires_at,
                     is_revoked=False,
                     token_id=token_id,
+                    remember_me=remember_me,
+                    family_id=family_id,
+                    parent_token_hash=parent_token_hash,
                 )
             except Exception as exc:
                 logger.warning(
@@ -201,6 +204,9 @@ class AuthRepositoryAdapter:
                     expires_at=result.get("expires_at"),
                     is_revoked=result.get("is_revoked", False),
                     token_id=result.get("id"),
+                    remember_me=result.get("remember_me", True),
+                    family_id=result.get("family_id"),
+                    parent_token_hash=result.get("parent_token_hash"),
                 )
             except Exception as exc:
                 logger.warning(
@@ -211,11 +217,18 @@ class AuthRepositoryAdapter:
         return result
 
     async def async_revoke_refresh_token(self, token_hash: str) -> bool:
-        """Revoke a refresh token by hash."""
+        """Atomically revoke an active refresh token by hash.
+
+        Returning ``False`` for an already-revoked token lets refresh rotation
+        distinguish the winner of a concurrent compare-and-set from a replay.
+        """
         async with self._database.transaction() as session:
             revoked_id = await session.scalar(
                 update(RefreshToken)
-                .where(RefreshToken.token_hash == token_hash)
+                .where(
+                    RefreshToken.token_hash == token_hash,
+                    RefreshToken.is_revoked.is_(False),
+                )
                 .values(is_revoked=True)
                 .returning(RefreshToken.id)
             )

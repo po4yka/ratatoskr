@@ -206,7 +206,12 @@ async def refresh_access_token(
         cookie_max_age = None  # session cookie -- vanishes on browser close
 
     # Rotate: revoke old token, issue new one chained into the same family.
-    await auth_repo.async_revoke_refresh_token(token_hash)
+    if not await auth_repo.async_revoke_refresh_token(token_hash):
+        # Another request won the atomic rotation race after our policy read.
+        # Reject this request without treating the overlap as token theft and
+        # without revoking the winner's newly-created family leaf.
+        clear_refresh_cookie(response)
+        raise TokenInvalidError("Refresh token was already rotated")
     new_refresh_token, session_id = await create_refresh_token(
         user_id=user_id,
         client_id=client_id,

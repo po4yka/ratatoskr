@@ -280,6 +280,7 @@ def test_create_mcp_server_registers_expected_tools_and_resources(
         "get_stats",
         "find_by_entity",
         "x_search",
+        "ask_my_archive",
         "list_collections",
         "get_collection",
         "list_videos",
@@ -295,6 +296,7 @@ def test_create_mcp_server_registers_expected_tools_and_resources(
         "list_user_signals",
         "set_signal_source_active",
         "update_signal_feedback",
+        "promote_to_library",
     }
     assert set(mcp.registered_resources) == {
         "ratatoskr://aggregations/recent",
@@ -366,6 +368,7 @@ def test_mcp_resource_contribution_is_schema_testable_and_registers_on_fake_mcp(
 
 
 def test_registered_tool_still_records_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.mcp.context import McpServerContext
     from app.mcp.tool_registrations import register_tools
 
     metric_calls: list[dict[str, Any]] = []
@@ -378,6 +381,7 @@ def test_registered_tool_still_records_metrics(monkeypatch: pytest.MonkeyPatch) 
     mcp = FakeFastMCP()
     register_tools(
         mcp,
+        context=McpServerContext(),
         aggregation_service=cast(
             "Any",
             SimpleNamespace(check_source_supported=lambda **_kwargs: {"supported": True}),

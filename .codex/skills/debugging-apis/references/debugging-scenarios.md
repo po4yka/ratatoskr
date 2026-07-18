@@ -6,11 +6,11 @@ Check:
 
 ```bash
 # View raw response
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr "
-  SELECT raw_response_json
-  FROM crawl_results
-  WHERE request_id = '<correlation_id>';
-" | python -m json.tool
+docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -At -c \
+  "SELECT raw_response_json
+     FROM crawl_results
+    WHERE request_id = (SELECT id FROM requests WHERE correlation_id = '<correlation_id>');" \
+  | python -m json.tool
 
 # Check if PDF parser needed
 grep -r "parsers.*pdf" app/adapters/content/

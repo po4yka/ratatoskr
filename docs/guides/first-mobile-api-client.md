@@ -1,669 +1,171 @@
 # Build Your First Mobile API Client
 
-Build a simple mobile client for Ratatoskr using the REST API.
+This guide covers the smallest supported flow for a native client: authenticate,
+call an authorized endpoint, rotate the refresh token, and then adopt the sync
+contract. The committed OpenAPI files remain the source of truth for request and
+response schemas:
 
-If you are onboarding the packaged `ratatoskr` CLI or hosted MCP clients with client secrets instead of Telegram login, start with [External Access Quickstart](external-access-quickstart.md) first.
+- [`docs/openapi/mobile_api.yaml`](../openapi/mobile_api.yaml)
+- [`docs/openapi/mobile_api.json`](../openapi/mobile_api.json)
 
-**Time:** ~30 minutes **Difficulty:** Intermediate **Prerequisites:** Python 3.8+ or JavaScript/Node.js 16+
+The Compose deployment publishes the API at `http://127.0.0.1:18000` by default.
 
----
-
-## What You'll Learn
-
-By the end of this tutorial, you'll have:
-
-- ✅ Authenticated via Telegram login exchange
-- ✅ Obtained and managed JWT tokens
-- ✅ Fetched summaries from the API
-- ✅ Implemented basic sync functionality
-- ✅ Working sample client in Python or JavaScript
-
----
-
-## Prerequisites
-
-### 1. Ratatoskr Mobile API Running
+## 1. Check the API
 
 ```bash
-# Verify API is running
-curl http://localhost:8000/health
-
-# Expected response:
-# {"status":"healthy","version":"1.0.0"}
+curl --fail http://127.0.0.1:18000/health
 ```
 
-If not running, see [DEPLOYMENT.md](deploy-production.md) for setup.
+If the API is not running, follow [Quickstart](quickstart.md) or
+[Production Deployment](deploy-production.md). Do not infer readiness from the
+container state alone: the health request must succeed.
 
-### 2. Required Environment Variables
+## 2. Choose an authentication flow
 
-Ensure these are set in your `.env`:
+Ratatoskr supports several authentication endpoints. Native clients normally use
+one of these:
 
-```bash
-# Mobile API
-JWT_SECRET_KEY=your_secret_key_here  # 32+ random characters
-API_RATE_LIMIT_DEFAULT=100
+- `POST /v1/auth/telegram-login` with data signed by the Telegram Login Widget or
+  Telegram Web App;
+- `POST /v1/auth/credentials-login` where credential login is configured;
+- `POST /v1/auth/secret-login` for a provisioned client secret.
 
-# Telegram (for login exchange)
-BOT_TOKEN=your_bot_token
-ALLOWED_USER_IDS=your_user_id
+There is no bot `/mobile_login` command or one-time Telegram token exchange. The
+Telegram endpoint verifies the genuine Telegram signature. Its JSON body uses
+the Telegram field names plus a Ratatoskr client identifier:
+
+```json
+{
+  "id": 123456789,
+  "hash": "telegram-provided-hmac",
+  "auth_date": 1784088000,
+  "username": "alice",
+  "first_name": "Alice",
+  "last_name": null,
+  "photo_url": null,
+  "client_id": "ios-app-v1.0"
+}
 ```
 
-### 3. Development Tools
+`client_id` may contain letters, digits, `.`, `_`, and `-`, and must be allowed
+by the server authentication configuration. Never manufacture or modify the
+Telegram-signed fields in a client.
 
-**Python:**
+Successful API responses use the common envelope. A non-web client receives the
+tokens under `data.tokens`:
 
-```bash
-pip install httpx pyjwt
+```json
+{
+  "success": true,
+  "data": {
+    "tokens": {
+      "accessToken": "...",
+      "refreshToken": "...",
+      "expiresIn": 900,
+      "tokenType": "Bearer"
+    },
+    "sessionId": 42
+  },
+  "meta": {
+    "correlationId": "...",
+    "version": "1.0.0"
+  }
+}
 ```
 
-**JavaScript:**
+The exact expiry is server configuration, not a client constant. Web clients
+receive the refresh token in an `HttpOnly` cookie instead of the JSON body.
 
-```bash
-npm install axios jsonwebtoken
-```
+## 3. Make an authorized request
 
----
-
-## Step 1: Telegram Login Exchange (Get Auth Token)
-
-The Mobile API uses Telegram as the identity provider. Users authenticate by messaging the bot.
-
-### How It Works
-
-1. User messages bot: `/mobile_login`
-2. Bot generates one-time auth token (valid 5 minutes)
-3. Bot sends token to user via Telegram
-4. Client exchanges token for JWT
-
-### Get Auth Token
-
-**Via Telegram:**
-
-```
-/mobile_login
-```
-
-**Bot response:**
-
-```
-🔐 Mobile API Login Token
-
-Token: 1a2b3c4d5e6f7g8h9i0j
-
-Use this token to authenticate your mobile client.
-Expires in 5 minutes.
-
-curl -X POST http://localhost:8000/v1/auth/telegram-login \
-  -H "Content-Type: application/json" \
-  -d '{"telegram_user_id": 123456789, "telegram_auth_token": "1a2b3c4d5e6f7g8h9i0j"}'
-```
-
----
-
-## Step 2: Exchange Token for JWT (Python)
-
-Create `client.py`:
+The following Python example accepts an already signed Telegram payload. It does
+not implement Telegram UI integration.
 
 ```python
+from typing import Any
+
 import httpx
-from typing import Optional
 
-API_BASE_URL = "http://localhost:8000/v1"
 
-class BiteSizeClient:
-    def __init__(self, base_url: str = API_BASE_URL):
-        self.base_url = base_url
-        self.access_token: Optional[str] = None
-        self.refresh_token: Optional[str] = None
-        self.client = httpx.Client(base_url=base_url)
+class RatatoskrClient:
+    def __init__(self, base_url: str = "http://127.0.0.1:18000") -> None:
+        self.http = httpx.Client(base_url=base_url, timeout=20.0)
+        self.access_token: str | None = None
+        self.refresh_token: str | None = None
 
-    def login(self, telegram_user_id: int, telegram_auth_token: str) -> dict:
-        """Exchange Telegram auth token for JWT tokens."""
-        response = self.client.post(
-            "/auth/telegram-login",
-            json={
-                "telegram_user_id": telegram_user_id,
-                "telegram_auth_token": telegram_auth_token
-            }
+    def telegram_login(self, signed_payload: dict[str, Any]) -> None:
+        response = self.http.post("/v1/auth/telegram-login", json=signed_payload)
+        response.raise_for_status()
+        tokens = response.json()["data"]["tokens"]
+        self.access_token = tokens["accessToken"]
+        self.refresh_token = tokens["refreshToken"]
+
+    def list_summaries(self, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+        if self.access_token is None:
+            raise RuntimeError("authenticate before calling the API")
+        response = self.http.get(
+            "/v1/summaries",
+            params={"limit": limit, "offset": offset},
+            headers={"Authorization": f"Bearer {self.access_token}"},
         )
         response.raise_for_status()
-        data = response.json()
-
-        # Store tokens
-        self.access_token = data["access_token"]
-        self.refresh_token = data["refresh_token"]
-
-        return data
-
-    def _get_headers(self) -> dict:
-        """Get headers with authorization."""
-        if not self.access_token:
-            raise ValueError("Not logged in. Call login() first.")
-        return {"Authorization": f"Bearer {self.access_token}"}
-
-# Usage
-client = BiteSizeClient()
-
-# Replace with your values from /mobile_login
-telegram_user_id = 123456789
-auth_token = "1a2b3c4d5e6f7g8h9i0j"
-
-# Login
-tokens = client.login(telegram_user_id, auth_token)
-print(f"Logged in! Access token expires in {tokens['expires_in']}s")
-```
-
----
-
-## Step 2: Exchange Token for JWT (JavaScript)
-
-Create `client.js`:
-
-```javascript
-const axios = require('axios');
-
-const API_BASE_URL = 'http://localhost:8000/v1';
-
-class BiteSizeClient {
-    constructor(baseUrl = API_BASE_URL) {
-        this.baseUrl = baseUrl;
-        this.accessToken = null;
-        this.refreshToken = null;
-        this.client = axios.create({ baseURL: baseUrl });
-    }
-
-    async login(telegramUserId, telegramAuthToken) {
-        const response = await this.client.post('/auth/telegram-login', {
-            telegram_user_id: telegramUserId,
-            telegram_auth_token: telegramAuthToken
-        });
-
-        // Store tokens
-        this.accessToken = response.data.access_token;
-        this.refreshToken = response.data.refresh_token;
-
-        return response.data;
-    }
-
-    _getHeaders() {
-        if (!this.accessToken) {
-            throw new Error('Not logged in. Call login() first.');
-        }
-        return { Authorization: `Bearer ${this.accessToken}` };
-    }
-}
-
-// Usage
-const client = new BiteSizeClient();
-
-// Replace with your values from /mobile_login
-const telegramUserId = 123456789;
-const authToken = '1a2b3c4d5e6f7g8h9i0j';
-
-// Login
-client.login(telegramUserId, authToken)
-    .then(tokens => {
-        console.log(`Logged in! Access token expires in ${tokens.expires_in}s`);
-    })
-    .catch(error => {
-        console.error('Login failed:', error.response?.data | | error.message);
-    });
-```
-
----
-
-## Step 3: Fetch Summaries (Python)
-
-Add to `client.py`:
-
-```python
-def get_summaries(
-    self,
-    limit: int = 20,
-    offset: int = 0,
-    topic: Optional[str] = None
-) -> dict:
-    """Fetch summaries from API."""
-    params = {"limit": limit, "offset": offset}
-    if topic:
-        params["topic"] = topic
-
-    response = self.client.get(
-        "/summaries",
-        headers=self._get_headers(),
-        params=params
-    )
-    response.raise_for_status()
-    return response.json()
-
-# Usage
-summaries = client.get_summaries(limit=10)
-print(f"Fetched {len(summaries['items'])} summaries")
-
-for summary in summaries['items']:
-    print(f"- {summary['title']}")
-    print(f"  URL: {summary['url']}")
-    print(f"  TLDR: {summary['tldr']}")
-    print()
-```
-
----
-
-## Step 3: Fetch Summaries (JavaScript)
-
-Add to `client.js`:
-
-```javascript
-async getSummaries(limit = 20, offset = 0, topic = null) {
-    const params = { limit, offset };
-    if (topic) params.topic = topic;
-
-    const response = await this.client.get('/summaries', {
-        headers: this._getHeaders(),
-        params
-    });
-
-    return response.data;
-}
-
-// Usage
-client.getSummaries(10)
-    .then(summaries => {
-        console.log(`Fetched ${summaries.items.length} summaries`);
-
-        summaries.items.forEach(summary => {
-            console.log(`- ${summary.title}`);
-            console.log(`  URL: ${summary.url}`);
-            console.log(`  TLDR: ${summary.tldr}`);
-            console.log();
-        });
-    });
-```
-
----
-
-## Step 4: Get Single Summary (Python)
-
-```python
-def get_summary(self, request_id: str) -> dict:
-    """Fetch single summary by request ID."""
-    response = self.client.get(
-        f"/summaries/{request_id}",
-        headers=self._get_headers()
-    )
-    response.raise_for_status()
-    return response.json()
-
-# Usage
-request_id = "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"
-summary = client.get_summary(request_id)
-
-print(f"Title: {summary['title']}")
-print(f"Summary (250 chars): {summary['summary_250']}")
-print(f"Key Ideas: {', '.join(summary['key_ideas'])}")
-```
-
----
-
-## Step 4: Get Single Summary (JavaScript)
-
-```javascript
-async getSummary(requestId) {
-    const response = await this.client.get(`/summaries/${requestId}`, {
-        headers: this._getHeaders()
-    });
-    return response.data;
-}
-
-// Usage
-const requestId = 'a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6';
-client.getSummary(requestId)
-    .then(summary => {
-        console.log(`Title: ${summary.title}`);
-        console.log(`Summary (250 chars): ${summary.summary_250}`);
-        console.log(`Key Ideas: ${summary.key_ideas.join(', ')}`);
-    });
-```
-
----
-
-## Step 5: Implement Sync (Python)
-
-```python
-def sync_summaries(
-    self,
-    last_sync_timestamp: Optional[str] = None,
-    mode: str = "delta"
-) -> dict:
-    """Sync summaries (delta or full)."""
-    params = {"mode": mode}
-    if last_sync_timestamp:
-        params["last_sync_timestamp"] = last_sync_timestamp
-
-    response = self.client.post(
-        "/sync/summaries",
-        headers=self._get_headers(),
-        params=params
-    )
-    response.raise_for_status()
-    return response.json()
-
-# Usage - Initial sync (full)
-sync_result = client.sync_summaries(mode="full")
-print(f"Synced {len(sync_result['added'])} summaries")
-print(f"Sync timestamp: {sync_result['sync_timestamp']}")
-
-# Save sync timestamp for next delta sync
-last_sync = sync_result['sync_timestamp']
-
-# Later - Delta sync (only changes)
-delta = client.sync_summaries(last_sync_timestamp=last_sync, mode="delta")
-print(f"New: {len(delta['added'])}, Modified: {len(delta['modified'])}, Deleted: {len(delta['deleted'])}")
-```
-
----
-
-## Step 5: Implement Sync (JavaScript)
-
-```javascript
-async syncSummaries(lastSyncTimestamp = null, mode = 'delta') {
-    const params = { mode };
-    if (lastSyncTimestamp) {
-        params.last_sync_timestamp = lastSyncTimestamp;
-    }
-
-    const response = await this.client.post('/sync/summaries', null, {
-        headers: this._getHeaders(),
-        params
-    });
-
-    return response.data;
-}
-
-// Usage - Initial sync (full)
-client.syncSummaries(null, 'full')
-    .then(syncResult => {
-        console.log(`Synced ${syncResult.added.length} summaries`);
-        console.log(`Sync timestamp: ${syncResult.sync_timestamp}`);
-
-        // Save for next delta sync
-        const lastSync = syncResult.sync_timestamp;
-
-        // Later - Delta sync
-        return client.syncSummaries(lastSync, 'delta');
-    })
-    .then(delta => {
-        console.log(`New: ${delta.added.length}, Modified: ${delta.modified.length}, Deleted: ${delta.deleted.length}`);
-    });
-```
-
----
-
-## Step 6: Refresh Access Token (Python)
-
-Access tokens expire after 1 hour. Use refresh token to get new access token.
-
-```python
-def refresh_access_token(self) -> dict:
-    """Refresh access token using refresh token."""
-    if not self.refresh_token:
-        raise ValueError("No refresh token available")
-
-    response = self.client.post(
-        "/auth/refresh",
-        json={"refresh_token": self.refresh_token}
-    )
-    response.raise_for_status()
-    data = response.json()
-
-    # Update access token
-    self.access_token = data["access_token"]
-
-    return data
-
-# Usage
-try:
-    summaries = client.get_summaries()
-except httpx.HTTPStatusError as e:
-    if e.response.status_code == 401:
-        # Token expired, refresh
-        client.refresh_access_token()
-        summaries = client.get_summaries()
-    else:
-        raise
-```
-
----
-
-## Step 6: Refresh Access Token (JavaScript)
-
-```javascript
-async refreshAccessToken() {
-    if (!this.refreshToken) {
-        throw new Error('No refresh token available');
-    }
-
-    const response = await this.client.post('/auth/refresh', {
-        refresh_token: this.refreshToken
-    });
-
-    // Update access token
-    this.accessToken = response.data.access_token;
-
-    return response.data;
-}
-
-// Usage with automatic retry
-async getSummariesWithRefresh() {
-    try {
-        return await this.getSummaries();
-    } catch (error) {
-        if (error.response?.status === 401) {
-            // Token expired, refresh and retry
-            await this.refreshAccessToken();
-            return await this.getSummaries();
-        }
-        throw error;
-    }
-}
-```
-
----
-
-## Complete Example (Python)
-
-`complete_client.py`:
-
-```python
-import httpx
-from typing import Optional
-from datetime import datetime
-
-class BiteSizeClient:
-    def __init__(self, base_url: str = "http://localhost:8000/v1"):
-        self.base_url = base_url
-        self.access_token: Optional[str] = None
-        self.refresh_token: Optional[str] = None
-        self.client = httpx.Client(base_url=base_url, timeout=30.0)
-
-    def login(self, telegram_user_id: int, telegram_auth_token: str) -> dict:
-        """Exchange Telegram auth token for JWT tokens."""
-        response = self.client.post(
-            "/auth/telegram-login",
-            json={
-                "telegram_user_id": telegram_user_id,
-                "telegram_auth_token": telegram_auth_token
-            }
+        return response.json()
+
+    def refresh(self) -> None:
+        if self.refresh_token is None:
+            raise RuntimeError("no refresh token is available")
+        response = self.http.post(
+            "/v1/auth/refresh",
+            json={"refresh_token": self.refresh_token},
         )
         response.raise_for_status()
-        data = response.json()
-        self.access_token = data["access_token"]
-        self.refresh_token = data["refresh_token"]
-        return data
-
-    def refresh_access_token(self) -> dict:
-        """Refresh access token."""
-        response = self.client.post(
-            "/auth/refresh",
-            json={"refresh_token": self.refresh_token}
-        )
-        response.raise_for_status()
-        data = response.json()
-        self.access_token = data["access_token"]
-        return data
-
-    def _get_headers(self) -> dict:
-        if not self.access_token:
-            raise ValueError("Not logged in")
-        return {"Authorization": f"Bearer {self.access_token}"}
-
-    def _request_with_auth_retry(self, method: str, endpoint: str, **kwargs):
-        """Make request with automatic token refresh on 401."""
-        try:
-            response = self.client.request(
-                method, endpoint, headers=self._get_headers(), **kwargs
-            )
-            response.raise_for_status()
-            return response
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401 and self.refresh_token:
-                # Token expired, refresh and retry
-                self.refresh_access_token()
-                response = self.client.request(
-                    method, endpoint, headers=self._get_headers(), **kwargs
-                )
-                response.raise_for_status()
-                return response
-            raise
-
-    def get_summaries(self, limit: int = 20, offset: int = 0, topic: Optional[str] = None) -> dict:
-        params = {"limit": limit, "offset": offset}
-        if topic:
-            params["topic"] = topic
-        return self._request_with_auth_retry("GET", "/summaries", params=params).json()
-
-    def get_summary(self, request_id: str) -> dict:
-        return self._request_with_auth_retry("GET", f"/summaries/{request_id}").json()
-
-    def sync_summaries(self, last_sync_timestamp: Optional[str] = None, mode: str = "delta") -> dict:
-        params = {"mode": mode}
-        if last_sync_timestamp:
-            params["last_sync_timestamp"] = last_sync_timestamp
-        return self._request_with_auth_retry("POST", "/sync/summaries", params=params).json()
-
-    def close(self):
-        self.client.close()
-
-# Example usage
-if __name__ == "__main__":
-    client = BiteSizeClient()
-
-    # Login
-    telegram_user_id = 123456789
-    auth_token = "1a2b3c4d5e6f7g8h9i0j"
-    client.login(telegram_user_id, auth_token)
-    print("✅ Logged in")
-
-    # Fetch summaries
-    summaries = client.get_summaries(limit=5)
-    print(f"📚 Fetched {len(summaries['items'])} summaries")
-
-    for summary in summaries['items']:
-        print(f"\n📄 {summary['title']}")
-        print(f"   {summary['tldr']}")
-
-    # Sync
-    sync_result = client.sync_summaries(mode="full")
-    print(f"\n🔄 Synced {len(sync_result['added'])} summaries")
-
-    client.close()
+        tokens = response.json()["data"]["tokens"]
+        self.access_token = tokens["accessToken"]
+        self.refresh_token = tokens["refreshToken"]
 ```
 
----
+Store refresh tokens in the platform secure store (Keychain on Apple platforms,
+Keystore-backed encrypted storage on Android). Keep access tokens in memory where
+practical. Do not log either token.
 
-## Testing Your Client
+Every protected request sends:
 
-```bash
-# Python
-python complete_client.py
-
-# Expected output:
-# ✅ Logged in
-# 📚 Fetched 5 summaries
-#
-# 📄 Example Article Title
-#    Short summary of the article...
-# ...
-# 🔄 Synced 150 summaries
+```http
+Authorization: Bearer <access-token>
 ```
 
----
+Errors also use the common envelope and include `meta.correlationId`. Preserve
+that identifier in client diagnostics; it is the server-side lookup key for a
+failed request.
 
-## Error Handling
+## 4. Rotate, do not reuse, refresh tokens
 
-### Common Errors
+`POST /v1/auth/refresh` rotates the refresh token. Replace the stored token only
+after a successful response and never send the previous token again. Reuse can
+revoke the whole token family as a theft precaution.
 
-**401 Unauthorized:**
+Use `POST /v1/auth/logout` to revoke the current session and
+`POST /v1/auth/logout-all` to revoke every session for the authenticated user.
+See [Mobile API](../reference/mobile-api.md#authentication) for the complete
+authentication policy.
 
-```python
-# Token expired or invalid
-# Solution: Refresh token or re-login
-```
+## 5. Add offline sync
 
-**429 Too Many Requests:**
+Do not invent a client-side merge protocol from the summaries endpoints. The v2
+sync contract defines cursors, mutations, conflicts, and tombstones. Generate
+request/response types from OpenAPI, then implement the state machine documented
+in [Sync Protocol](../reference/sync-protocol.md).
 
-```python
-# Rate limit exceeded
-# Solution: Implement exponential backoff
-import time
+For long-running saves, consume the request-specific server-sent-event endpoint
+defined in OpenAPI instead of polling undocumented fields.
 
-for attempt in range(3):
-    try:
-        summaries = client.get_summaries()
-        break
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            wait = 2 ** attempt  # 1s, 2s, 4s
-            time.sleep(wait)
-        else:
-            raise
-```
+## Completion checklist
 
-**500 Internal Server Error:**
-
-```python
-# Server error
-# Check API logs: docker logs ratatoskr
-```
-
----
-
-## Next Steps
-
-**Extend the client:**
-
-- Add search functionality (`GET /summaries/search?q=query`)
-- Implement collections (`GET /collections`, `POST /collections`)
-- Add offline support (cache summaries locally)
-- Handle sync conflicts (compare timestamps)
-
-**Build a UI:**
-
-- React Native app
-- Flutter app
-- Swift iOS app
-- Kotlin Android app
-
-**See full API spec:** [MOBILE_API_SPEC.md](../reference/mobile-api.md)
-
----
-
-## See Also
-
-- [MOBILE_API_SPEC.md](../reference/mobile-api.md) - Complete API reference
-- [FAQ § Integration](../explanation/faq.md#integration) - Integration questions
-- [TROUBLESHOOTING § Mobile API](../reference/troubleshooting.md#mobile-api-issues)
-
----
-
-**Last Updated:** 2026-02-09
+- `/health` succeeds on the intended deployment.
+- The client uses an authentication method enabled by that deployment.
+- Telegram login data comes directly from Telegram and passes signature checks.
+- `client_id` is stable and allowed by the server.
+- Bearer authentication can fetch `/v1/summaries`.
+- Refresh-token rotation replaces the stored token atomically.
+- Tokens are kept out of logs and insecure application storage.
+- Generated API types and the v2 sync protocol are used for broader integration.

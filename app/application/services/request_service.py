@@ -82,6 +82,7 @@ class RequestService:
         user_id: int,
         input_url: str,
         lang_preference: str = "auto",
+        correlation_id: str | None = None,
     ) -> RequestCreatedDTO:
         """Create a new URL-backed request, enforcing per-user deduplication."""
         normalized = self._normalize_url(input_url)
@@ -92,11 +93,13 @@ class RequestService:
                 details={"existing_id": duplicate.existing_request_id},
             )
 
-        correlation_id = f"api-{user_id}-{int(datetime.now(UTC).timestamp())}"
+        resolved_correlation_id = (
+            correlation_id or f"api-{user_id}-{int(datetime.now(UTC).timestamp())}"
+        )
         request_id, created_new = await self._request_repo.async_create_request_once(
             type_="url",
             status=RequestStatus.PENDING,
-            correlation_id=correlation_id,
+            correlation_id=resolved_correlation_id,
             user_id=user_id,
             input_url=input_url,
             normalized_url=normalized,
@@ -117,9 +120,31 @@ class RequestService:
 
         logger.info(
             "url_request_created",
-            extra={"request_id": request_id, "user_id": user_id, "correlation_id": correlation_id},
+            extra={
+                "request_id": request_id,
+                "user_id": user_id,
+                "correlation_id": resolved_correlation_id,
+            },
         )
         return self._to_request_created(created)
+
+    async def mark_enqueue_failed(
+        self,
+        *,
+        user_id: int,
+        request_id: int,
+        error_message: str,
+    ) -> None:
+        """Mark a user-owned request terminal when durable enqueue fails."""
+        request = await self._request_repo.async_get_request_by_id(request_id)
+        if request is None or request.get("user_id") != user_id:
+            raise ResourceNotFoundError("Request", details={"request_id": request_id})
+        await self._request_repo.async_update_request_error(
+            request_id,
+            RequestStatus.ERROR.value,
+            error_type="enqueue_failed",
+            error_message=error_message,
+        )
 
     async def create_forward_request(
         self,

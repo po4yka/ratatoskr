@@ -4,7 +4,8 @@ This module provides common fixtures for all tests.
 """
 
 import os
-from datetime import datetime
+import socket
+from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -142,6 +143,95 @@ else:
     )
 
 
+_POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "session"})
+_QUARANTINE_REQUIRED_FIELDS = frozenset({"issue", "owner", "expires"})
+_QUARANTINE_RERUNS = 2
+_QUARANTINE_RERUN_DELAY_SECONDS = 1
+
+
+def _apply_quarantine_policy(item: pytest.Item, *, today: date | None = None) -> None:
+    """Validate explicit flaky-test quarantine metadata and bound its retries."""
+    quarantines = list(item.iter_markers(name="quarantined"))
+    flaky_markers = list(item.iter_markers(name="flaky"))
+
+    if flaky_markers:
+        raise pytest.UsageError(
+            f"{item.nodeid}: @pytest.mark.flaky is managed by the test quarantine "
+            "policy; use @pytest.mark.quarantined(issue=..., owner=..., "
+            "expires='YYYY-MM-DD') instead"
+        )
+    if not quarantines:
+        return
+    if len(quarantines) != 1:
+        raise pytest.UsageError(
+            f"{item.nodeid}: exactly one @pytest.mark.quarantined marker is allowed"
+        )
+
+    quarantine = quarantines[0]
+    if quarantine.args:
+        raise pytest.UsageError(
+            f"{item.nodeid}: @pytest.mark.quarantined accepts keyword metadata only"
+        )
+
+    missing = _QUARANTINE_REQUIRED_FIELDS.difference(quarantine.kwargs)
+    if missing:
+        fields = ", ".join(sorted(missing))
+        raise pytest.UsageError(
+            f"{item.nodeid}: @pytest.mark.quarantined is missing required metadata: {fields}"
+        )
+
+    for field in ("issue", "owner"):
+        value = quarantine.kwargs[field]
+        if not isinstance(value, str) or not value.strip():
+            raise pytest.UsageError(f"{item.nodeid}: quarantine {field} must be a non-empty string")
+
+    expiry = quarantine.kwargs["expires"]
+    if not isinstance(expiry, str):
+        raise pytest.UsageError(f"{item.nodeid}: quarantine expires must use YYYY-MM-DD")
+    try:
+        expiry_date = date.fromisoformat(expiry)
+    except ValueError as error:
+        raise pytest.UsageError(
+            f"{item.nodeid}: invalid quarantine expiry {expiry!r}; expected YYYY-MM-DD"
+        ) from error
+    if expiry_date.isoformat() != expiry:
+        raise pytest.UsageError(
+            f"{item.nodeid}: invalid quarantine expiry {expiry!r}; expected YYYY-MM-DD"
+        )
+
+    current_date = today or datetime.now(timezone.utc).date()
+    if expiry_date < current_date:
+        raise pytest.UsageError(
+            f"{item.nodeid}: quarantine expired on {expiry}; either fix the test or "
+            "renew the quarantine with an issue, owner, and future expiry"
+        )
+
+    item.add_marker(
+        pytest.mark.flaky(
+            reruns=_QUARANTINE_RERUNS,
+            reruns_delay=_QUARANTINE_RERUN_DELAY_SECONDS,
+        )
+    )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Apply collection policies for PostgreSQL and quarantined tests.
+
+    The marker is attached before pytest evaluates ``-m`` expressions. This
+    keeps mixed test modules split correctly: pure unit tests stay in the fast
+    job, while tests using the shared ``database``/``session`` fixtures or the
+    API ``db`` fixture move to the single Postgres job.
+
+    Tests that open Postgres directly without a shared fixture must declare
+    ``@pytest.mark.postgres`` explicitly.
+    """
+    for item in items:
+        _apply_quarantine_policy(item)
+        if _POSTGRES_FIXTURE_NAMES.intersection(item.fixturenames):
+            item.add_marker(pytest.mark.postgres)
+
+
 @pytest.fixture(autouse=True)
 def fast_qdrant_retries(monkeypatch):
     """Skip Qdrant connect-retry sleeps so bot tests don't pay 6s/test.
@@ -162,6 +252,70 @@ def fast_qdrant_retries(monkeypatch):
         original(self, max_attempts=1, base_delay=0)
 
     monkeypatch.setattr(qmod.QdrantVectorStore, "_connect_with_retry", fast)
+
+
+# Hosts a `no_network` test may still reach: loopback and the unspecified
+# address. Everything else is treated as live network egress.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0", ""})
+
+
+class BlockedNetworkError(RuntimeError):
+    """Raised when a ``no_network``-marked test attempts live network I/O."""
+
+
+def _connect_target_is_loopback(address: Any) -> bool:
+    # AF_INET/AF_INET6 addresses are ``(host, port[, ...])`` tuples; AF_UNIX
+    # addresses are str/bytes paths (never network egress -> always allowed).
+    if not isinstance(address, tuple) or not address:
+        return True
+    return str(address[0]) in _LOOPBACK_HOSTS
+
+
+@pytest.fixture(autouse=True)
+def enforce_no_network(request, monkeypatch):
+    """Actually block live network I/O for tests marked ``no_network``.
+
+    The marker was purely declarative -- registered in pyproject and applied to
+    ~27 suites, but enforced by nothing. A regression that started reaching the
+    real network would pass silently: slow, flaky, and a data-egress risk in CI.
+
+    This installs a socket guard for the duration of each marked test: any
+    outbound connection to a non-loopback address raises
+    :class:`BlockedNetworkError`. Loopback and UNIX-domain sockets stay allowed so
+    asyncio internals, local fixtures, and respx's mock transport keep working.
+    monkeypatch restores the real socket functions on teardown, so the guard
+    never leaks into unmarked tests.
+    """
+    if request.node.get_closest_marker("no_network") is None:
+        return
+
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+    real_create_connection = socket.create_connection
+
+    def _guard(address: Any, call: str) -> None:
+        if not _connect_target_is_loopback(address):
+            raise BlockedNetworkError(
+                f"{call} to {address!r} blocked: this test is marked "
+                "@pytest.mark.no_network and must not perform live network I/O. "
+                "Mock the client/transport, or remove the marker if the call is intended."
+            )
+
+    def guarded_connect(self, address, *args, **kwargs):
+        _guard(address, "socket.connect")
+        return real_connect(self, address, *args, **kwargs)
+
+    def guarded_connect_ex(self, address, *args, **kwargs):
+        _guard(address, "socket.connect_ex")
+        return real_connect_ex(self, address, *args, **kwargs)
+
+    def guarded_create_connection(address, *args, **kwargs):
+        _guard(address, "socket.create_connection")
+        return real_create_connection(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
+    monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
 
 
 @pytest.fixture(autouse=True)

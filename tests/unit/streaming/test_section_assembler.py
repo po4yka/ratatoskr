@@ -96,3 +96,24 @@ def test_new_value_for_same_section_is_re_emitted() -> None:
 
     assert "summary_250" in sections
     assert sections["summary_250"] == "Final version with more content"
+
+
+def test_plain_token_deltas_do_not_rescan_the_growing_payload(monkeypatch) -> None:
+    assembler = SummarySectionStreamAssembler()
+    original = assembler._extract_sections
+    scanned_lengths: list[int] = []
+
+    def recording_extract(raw_text: str):
+        scanned_lengths.append(len(raw_text))
+        return original(raw_text)
+
+    monkeypatch.setattr(assembler, "_extract_sections", recording_extract)
+
+    assembler.add_delta('{"summary_250":"')
+    for _ in range(10_000):
+        assert assembler.add_delta("x") == []
+    snapshots = assembler.add_delta('"}')
+
+    assert len(scanned_lengths) == 2
+    assert snapshots[0].section == "summary_250"
+    assert snapshots[0].value == "x" * 10_000

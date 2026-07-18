@@ -11,9 +11,10 @@ Telegram edit is executed (idempotency guard).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
-from taskiq import TaskiqDepends
+from taskiq import TaskiqDepends, TaskiqEvents
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
@@ -22,6 +23,10 @@ from app.tasks.broker import broker
 from app.tasks.deps import get_app_config, get_db
 
 logger = get_logger(__name__)
+
+
+class LeaseLostError(RuntimeError):
+    """Raised when a worker can no longer prove it owns a durable-job lease."""
 
 
 # ── Runtime dataclass ─────────────────────────────────────────────────────────
@@ -55,11 +60,51 @@ async def _get_url_processing_runtime(
     """Build the URL-processing task runtime once per worker process."""
     global _url_processing_runtime_instance
     if _url_processing_runtime_instance is None:
-        _url_processing_runtime_instance = _build_url_processing_runtime(cfg, db)
+        checkpointer = await _start_url_processing_checkpointer(cfg)
+        _url_processing_runtime_instance = _build_url_processing_runtime(
+            cfg,
+            db,
+            checkpointer=checkpointer,
+        )
     return _url_processing_runtime_instance
 
 
 _url_processing_runtime_instance: URLProcessingTaskRuntime | None = None
+_url_processing_checkpointer_runtime: Any | None = None
+
+
+async def _start_url_processing_checkpointer(cfg: AppConfig) -> Any | None:
+    """Start the worker-local durable saver and return it when enabled."""
+    global _url_processing_checkpointer_runtime
+    if not cfg.langgraph_checkpoint.enabled:
+        return None
+    if _url_processing_checkpointer_runtime is not None:
+        return _url_processing_checkpointer_runtime.saver
+
+    try:
+        from app.infrastructure.checkpointing import CheckpointerRuntime
+
+        runtime = CheckpointerRuntime(cfg=cfg)
+        await runtime.start()
+    except ImportError:
+        logger.warning("langgraph_checkpointer_not_installed")
+        return None
+    except Exception:
+        logger.exception("langgraph_checkpointer_startup_failed")
+        return None
+
+    _url_processing_checkpointer_runtime = runtime
+    return runtime.saver
+
+
+@broker.on_event(TaskiqEvents.WORKER_SHUTDOWN)
+async def _stop_url_processing_checkpointer(_state: Any) -> None:
+    """Close the worker-local checkpointer pool during Taskiq shutdown."""
+    global _url_processing_checkpointer_runtime
+    runtime = _url_processing_checkpointer_runtime
+    _url_processing_checkpointer_runtime = None
+    if runtime is not None:
+        await runtime.stop(timeout=10.0)
 
 
 # ── Task ─────────────────────────────────────────────────────────────────────
@@ -118,7 +163,7 @@ async def _process_url_request_body(
     )
 
     try:
-        await _run_url_task(
+        await _run_url_task_with_lease_renewal(
             request_id=request_id,
             cid=cid,
             job_repo=job_repo,
@@ -127,6 +172,7 @@ async def _process_url_request_body(
             cfg=cfg,
             db=db,
             runtime=runtime,
+            lease_ttl_seconds=lease_ttl,
         )
     except asyncio.CancelledError:
         raise
@@ -224,6 +270,7 @@ async def _run_url_task(
         await job_repo.mark_succeeded(
             job.id,
             lease_owner=lease_owner,
+            lease_token=job.lease_token,
             request_id=request_id,
         )
         return
@@ -271,12 +318,51 @@ async def _run_url_task(
     await job_repo.mark_succeeded(
         job.id,
         lease_owner=lease_owner,
+        lease_token=job.lease_token,
         request_id=request_id,
     )
     logger.info(
         "process_url_request_succeeded",
         extra={"request_id": request_id, "cid": cid},
     )
+
+
+async def _run_url_task_with_lease_renewal(
+    *,
+    job_repo: Any,
+    job: Any,
+    lease_owner: str,
+    lease_ttl_seconds: int,
+    **kwargs: Any,
+) -> None:
+    """Run URL processing while renewing its lease before it can expire."""
+    processing_task = asyncio.create_task(
+        _run_url_task(job_repo=job_repo, job=job, lease_owner=lease_owner, **kwargs)
+    )
+    renewal_interval = max(1.0, lease_ttl_seconds / 3)
+    try:
+        while True:
+            done, _ = await asyncio.wait({processing_task}, timeout=renewal_interval)
+            if done:
+                await processing_task
+                return
+            renewed = await job_repo.renew_lease(
+                job_id=job.id,
+                lease_owner=lease_owner,
+                lease_token=job.lease_token,
+                lease_ttl_seconds=lease_ttl_seconds,
+            )
+            if renewed:
+                continue
+            processing_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await processing_task
+            raise LeaseLostError(f"lease lost for request_id={job.request_id}")
+    except asyncio.CancelledError:
+        processing_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await processing_task
+        raise
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -443,7 +529,12 @@ class _WorkerPeerStub:
         self.user_id = chat_id
 
 
-def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessingTaskRuntime:
+def _build_url_processing_runtime(
+    cfg: AppConfig,
+    db: Database,
+    *,
+    checkpointer: Any | None = None,
+) -> URLProcessingTaskRuntime:
     """Construct the URL-processing task runtime from config and DB.
 
     Called once per worker process (cached in module-level singleton).
@@ -488,6 +579,7 @@ def _build_url_processing_runtime(cfg: AppConfig, db: Database) -> URLProcessing
         user_repo=build_user_repository(db),
         vector_store=search.vector_store,
         embedding_service=search.embedding_service,
+        checkpointer=checkpointer,
     )
 
     telegram_sender = WorkerTelegramSender(bot_token=cfg.telegram.bot_token)

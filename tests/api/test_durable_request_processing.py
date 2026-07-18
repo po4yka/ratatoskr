@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -36,6 +37,8 @@ class FakeJobRepository:
         self.requeue_count = 0
         self.dead_letter_count = 0
         self.stuck_count = 0
+        self.renewed: list[dict[str, Any]] = []
+        self.renew_result = True
 
     async def enqueue(
         self,
@@ -66,11 +69,30 @@ class FakeJobRepository:
         job_id: int,
         *,
         lease_owner: str,
+        lease_token: int,
         request_id: int | None = None,
     ) -> None:
         self.succeeded.append(job_id)
         if request_id is not None:
             self.finalized_requests.append(request_id)
+
+    async def renew_lease(
+        self,
+        *,
+        job_id: int,
+        lease_owner: str,
+        lease_token: int,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        self.renewed.append(
+            {
+                "job_id": job_id,
+                "lease_owner": lease_owner,
+                "lease_token": lease_token,
+                "lease_ttl_seconds": lease_ttl_seconds,
+            }
+        )
+        return self.renew_result
 
     async def mark_failed(
         self,
@@ -414,12 +436,47 @@ async def test_repository_lease_next_sets_running_lease_fields() -> None:
 
     leased = await repository.lease_next(lease_owner="worker-1", lease_ttl_seconds=30)
 
-    assert leased == LeasedRequestJob(7, 42, 1, 3, "cid-lease")
+    assert leased == LeasedRequestJob(7, 42, 1, 3, "cid-lease", 1)
     assert job.status == "running"
     assert job.lease_owner == "worker-1"
     assert job.lease_expires_at is not None
     assert job.attempt_count == 1
     assert session.flush_count == 1
+
+
+@pytest.mark.asyncio
+async def test_repository_renew_lease_requires_current_fence_token() -> None:
+    session = FakeSession(execute_results=[SimpleNamespace(rowcount=1)])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    renewed = await repository.renew_lease(
+        job_id=7,
+        lease_owner="worker-1",
+        lease_token=4,
+        lease_ttl_seconds=30,
+    )
+
+    assert renewed is True
+    sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "lease_token" in sql
+    assert "lease_expires_at" in sql
+
+
+@pytest.mark.asyncio
+async def test_repository_completion_is_fenced_by_token_and_expiry() -> None:
+    session = FakeSession(execute_results=[SimpleNamespace(rowcount=0)])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    completed = await repository.mark_succeeded(
+        7,
+        lease_owner="stale-worker",
+        lease_token=3,
+    )
+
+    assert completed is False
+    sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "lease_token" in sql
+    assert "lease_expires_at" in sql
 
 
 @pytest.mark.asyncio
@@ -442,7 +499,7 @@ async def test_repository_lease_by_id_accepts_retryable_failed_job() -> None:
         by_id=43,
     )
 
-    assert leased == LeasedRequestJob(8, 43, 2, 3, "cid-retry")
+    assert leased == LeasedRequestJob(8, 43, 2, 3, "cid-retry", 1)
     assert job.status == "running"
     assert job.lease_owner == "worker-retry"
     assert job.lease_expires_at is not None
@@ -474,7 +531,7 @@ async def test_repository_lease_by_id_accepts_expired_running_job() -> None:
         by_id=44,
     )
 
-    assert leased == LeasedRequestJob(9, 44, 2, 3, "cid-expired")
+    assert leased == LeasedRequestJob(9, 44, 2, 3, "cid-expired", 1)
     assert job.status == "running"
     assert job.lease_owner == "worker-recovered"
     assert job.lease_expires_at is not None
@@ -496,6 +553,57 @@ async def test_worker_processes_job_successfully() -> None:
 
     assert processor.calls == [{"request_id": 42, "correlation_id": "cid-worker"}]
     assert repo.succeeded == [1]
+    assert repo.failed == []
+
+
+@pytest.mark.asyncio
+async def test_worker_renews_lease_during_long_processing() -> None:
+    repo = FakeJobRepository()
+    repo.leased.append(LeasedRequestJob(1, 42, 1, 3, "cid-renew", 7))
+
+    class SlowProcessor(FakeProcessor):
+        async def execute_request(
+            self, request_id: int, *, correlation_id: str | None = None
+        ) -> None:
+            self.calls.append({"request_id": request_id, "correlation_id": correlation_id})
+            await asyncio.sleep(0.03)
+            self._repo.summary_exists = True
+
+    queue = _queue(repo, SlowProcessor(repo))
+    queue._lease_renewal_interval_seconds = 0.01
+
+    assert await queue.run_once() is True
+
+    assert len(repo.renewed) >= 1
+    assert repo.renewed[0]["lease_token"] == 7
+    assert repo.succeeded == [1]
+
+
+@pytest.mark.asyncio
+async def test_worker_cancels_processing_when_lease_is_lost() -> None:
+    repo = FakeJobRepository()
+    repo.renew_result = False
+    repo.leased.append(LeasedRequestJob(1, 42, 1, 3, "cid-lost", 8))
+    cancelled = asyncio.Event()
+
+    class BlockingProcessor(FakeProcessor):
+        async def execute_request(
+            self, request_id: int, *, correlation_id: str | None = None
+        ) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+    queue = _queue(repo, BlockingProcessor(repo))
+    queue._lease_renewal_interval_seconds = 0.01
+
+    assert await queue.run_once() is True
+
+    assert cancelled.is_set()
+    assert len(repo.renewed) == 1
+    assert repo.succeeded == []
     assert repo.failed == []
 
 
@@ -597,6 +705,23 @@ class TestRecordSynchronousStart:
         assert "bot:sync" in sql
 
     @pytest.mark.asyncio
+    async def test_unexpired_running_lease_rejects_duplicate_claim(self) -> None:
+        class ContendedSession(FakeSession):
+            async def execute(self, statement: Any) -> Any:
+                self.executed.append(statement)
+                return SimpleNamespace(rowcount=0)
+
+        repo = RequestProcessingJobRepository(FakeDatabase(ContendedSession()))
+
+        claimed = await repo.record_synchronous_start(
+            request_id=99,
+            correlation_id="cid-duplicate",
+            lease_ttl_seconds=900,
+        )
+
+        assert claimed is False
+
+    @pytest.mark.asyncio
     async def test_calling_twice_refreshes_lease_not_duplicate(self) -> None:
         """Two calls for the same request_id both execute (upsert path)."""
         executed: list[Any] = []
@@ -694,6 +819,7 @@ def test_request_processing_job_model_contains_durable_state_columns() -> None:
         "attempt_count",
         "max_attempts",
         "lease_owner",
+        "lease_token",
         "lease_expires_at",
         "retry_after",
         "last_error_code",

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.adapters.email.service import EmailDeliveryError, EmailDeliveryService
 from app.api.email_errors import raise_email_api_error
@@ -14,20 +15,41 @@ from app.api.models.responses import success_response
 from app.api.routers.auth import get_current_user
 from app.api.services.custom_digest_service import CustomDigestService
 from app.config import load_config
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import generate_correlation_id, get_logger
+from app.di.api import resolve_api_runtime
+from app.di.repositories import build_llm_repository
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
+def _get_custom_digest_service(request: Request) -> CustomDigestService:
+    """Resolve a digest service with the runtime LLM dependencies when available."""
+    with contextlib.suppress(RuntimeError):
+        runtime = resolve_api_runtime(request)
+        return CustomDigestService(
+            session_manager=runtime.db,
+            llm_client=runtime.core.llm_client,
+            llm_repo=build_llm_repository(runtime.db),
+        )
+    return CustomDigestService()
+
+
 @router.post("")
 async def create_custom_digest(
     body: CreateCustomDigestRequest,
+    request: Request,
     user: dict[str, Any] = Depends(get_current_user),
+    service: CustomDigestService = Depends(_get_custom_digest_service),
 ) -> dict[str, Any]:
     """Create a custom digest from a list of summary IDs."""
-    payload = await CustomDigestService().create_digest(user_id=user["user_id"], body=body)
-    return success_response(payload)
+    correlation_id = getattr(request.state, "correlation_id", None) or generate_correlation_id()
+    payload = await service.create_digest(
+        user_id=user["user_id"],
+        body=body,
+        correlation_id=correlation_id,
+    )
+    return success_response(payload, correlation_id=correlation_id)
 
 
 @router.get("")
