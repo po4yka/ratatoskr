@@ -36,6 +36,44 @@ class TestTruncate:
         result = _truncate(text)
         assert "\n[truncated]" in result
 
+    def test_cuts_on_line_boundary_leaving_tags_intact(self) -> None:
+        # Card markup: every tag lives on one line, so a line-boundary cut can
+        # never strand an opening tag without its closer.
+        line = "<b>" + "y" * 90 + "</b>\n"
+        result = _truncate(line * 60)
+        body = result.removesuffix("\n[truncated]")
+        assert body.endswith("</b>")
+        assert body.count("<b>") == body.count("</b>")
+
+
+# ── HTML markup ───────────────────────────────────────────────────────────────
+
+
+class TestHtmlParseMode:
+    @pytest.mark.asyncio
+    async def test_send_and_edit_request_html_parsing(self) -> None:
+        sender = WorkerTelegramSender(bot_token="123:tok")
+        post_mock = AsyncMock(return_value=_make_ok_response({"message_id": 1}))
+
+        with patch.object(sender._client, "post", new=post_mock):
+            await sender.send_message(chat_id=1, text="<b>hi</b>")
+            await sender.edit_message_text(chat_id=1, message_id=1, text="<b>done</b>")
+
+        assert [c[1]["json"]["parse_mode"] for c in post_mock.call_args_list] == ["HTML", "HTML"]
+
+    @pytest.mark.asyncio
+    async def test_400_falls_back_to_plain_text(self) -> None:
+        sender = WorkerTelegramSender(bot_token="123:tok")
+        rejected = _make_error_response(400)
+        rejected.text = "Bad Request: can't parse entities"
+        post_mock = AsyncMock(side_effect=[rejected, _make_ok_response({"message_id": 1})])
+
+        with patch.object(sender._client, "post", new=post_mock):
+            await sender.edit_message_text(chat_id=1, message_id=1, text="<b>broken")
+
+        assert post_mock.call_count == 2
+        assert "parse_mode" not in post_mock.call_args_list[1][1]["json"]
+
 
 # ── _extract_retry_after ──────────────────────────────────────────────────────
 

@@ -14,6 +14,11 @@ Message length:
 - Telegram limits messages to 4096 UTF-8 characters.  Text that exceeds the
   limit is truncated and a ``[truncated]`` marker is appended so the reader
   knows the message is incomplete.
+
+Markup:
+- Both operations send ``parse_mode=HTML``.  The worker delivers the same
+  ``build_card_sections`` markup the bot path produces, so without it Telegram
+  renders the tags and escaped entities literally.
 """
 
 from __future__ import annotations
@@ -32,11 +37,25 @@ _TRUNCATION_MARKER = "\n[truncated]"
 
 
 def _truncate(text: str) -> str:
-    """Truncate *text* to Telegram's 4096-char message limit."""
+    """Truncate *text* to Telegram's 4096-char message limit.
+
+    Cuts on a line boundary when one is available: the card renderer never
+    splits an HTML tag or a ``&...;`` entity across lines, so a line-boundary
+    cut cannot leave Telegram's parser a broken tag to choke on.
+
+    ponytail: line-boundary cut, not a real HTML-aware splitter. A single line
+    longer than the limit still gets a hard cut -- ``_post`` retries without
+    ``parse_mode`` if that ever produces markup Telegram rejects. Swap in a
+    tag-aware splitter only if a renderer starts emitting multi-line tags.
+    """
     if len(text) <= _TELEGRAM_MAX_CHARS:
         return text
     cutoff = _TELEGRAM_MAX_CHARS - len(_TRUNCATION_MARKER)
-    return text[:cutoff] + _TRUNCATION_MARKER
+    head = text[:cutoff]
+    boundary = head.rfind("\n")
+    if boundary > cutoff // 2:
+        head = head[:boundary].rstrip()
+    return head + _TRUNCATION_MARKER
 
 
 class WorkerTelegramSender:
@@ -81,6 +100,7 @@ class WorkerTelegramSender:
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": _truncate(text),
+            "parse_mode": "HTML",
         }
         if reply_to is not None:
             payload["reply_to_message_id"] = reply_to
@@ -113,6 +133,7 @@ class WorkerTelegramSender:
             "chat_id": chat_id,
             "message_id": message_id,
             "text": _truncate(text),
+            "parse_mode": "HTML",
         }
         await self._post("editMessageText", payload, cid=cid)
         logger.info(
@@ -130,7 +151,7 @@ class WorkerTelegramSender:
         """POST to ``{base}/{method}`` and return the decoded JSON body.
 
         Retries once on HTTP 429 after sleeping the ``retry_after`` seconds
-        specified by Telegram.
+        specified by Telegram, and once on HTTP 400 without ``parse_mode``.
         """
         url = f"{self._base}/{method}"
         response = await self._client.post(url, json=payload)
@@ -143,6 +164,17 @@ class WorkerTelegramSender:
             )
             await asyncio.sleep(retry_after)
             response = await self._client.post(url, json=payload)
+
+        if response.status_code == 400 and payload.get("parse_mode"):
+            # Telegram rejects malformed markup ("can't parse entities") with a
+            # 400 and delivers nothing. Losing the whole summary is worse than
+            # showing it unformatted, so resend as plain text.
+            logger.warning(
+                "worker_telegram_html_rejected",
+                extra={"cid": cid, "method": method, "body": response.text[:500]},
+            )
+            plain = {k: v for k, v in payload.items() if k != "parse_mode"}
+            response = await self._client.post(url, json=plain)
 
         if not response.is_success:
             logger.error(

@@ -421,7 +421,7 @@ def _format_summary_for_edit(
 
         sections = build_card_sections(
             summary_json,
-            None,  # llm stub — not available at edit time; model info line is skipped when None
+            None,  # llm stub — not available at edit time; the model label is omitted
             None,  # chunks
             reader=False,
             text_processor=runtime.response_formatter._text_processor,

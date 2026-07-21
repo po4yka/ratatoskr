@@ -254,11 +254,13 @@ def build_card_sections(
 
     if not reader:
         method = f"{t('chunked', lang)} ({chunks} parts)" if chunks else t("single_pass", lang)
-        model_name = getattr(llm, "model", None) or "unknown"
-        model_parts = [
-            f"{t('model', lang)}: {html.escape(str(model_name))}",
-            html.escape(method),
-        ]
+        # The worker edit path has no LLM handle; omit the label rather than
+        # printing a bare "Model: unknown" at the user.
+        model_name = getattr(llm, "model", None)
+        model_parts = []
+        if model_name:
+            model_parts.append(f"{t('model', lang)}: {html.escape(str(model_name))}")
+        model_parts.append(html.escape(method))
 
         confidence = summary_shaped.get("confidence")
         try:
