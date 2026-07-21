@@ -891,6 +891,15 @@ services:
     # for human readability only — Docker uses the digest.
     image: ${CLOAKBROWSER_IMAGE:-cloakhq/cloakbrowser@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1}  # 0.3.30
     container_name: ratatoskr-cloakbrowser
+    # PID 1 here is cloakserve (an aiohttp server), which never wait()s on
+    # orphaned children. Chrome's launcher exits immediately and re-parents the
+    # browser to PID 1, so every launch leaks a permanent zombie. The health
+    # probe below calls /json/version, which launches a real Chrome on each hit
+    # -- ~2 zombies per 30s probe exhausted the 19358-PID cgroup in ~3 days and
+    # every fork() then failed with EAGAIN (BlockingIOError), pinning the
+    # sidecar unhealthy. `init: true` puts tini at PID 1 to reap them, matching
+    # the ratatoskr/worker services above.
+    init: true
     # Chromium maps shared-memory renderer buffers into /dev/shm; Docker's 64 MB
     # default makes cloakserve's per-seed Chrome processes crash into <defunct>
     # zombies and the CDP endpoint never comes up (health probe 502/timeout).
