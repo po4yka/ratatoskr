@@ -220,6 +220,39 @@ readiness URL to `mobile-api`.
 They are credential-free internal HTTP URLs and are never returned by the
 public API. See [Status page and system metrics](status-page.md).
 
+### Connected social accounts (OAuth)
+
+Mobile API endpoints under `/v1/social/{provider}/connect-url` and
+`/v1/social/{provider}/callback` let a user connect their own X, Threads, or
+Instagram account so the bot can read that user's posts through their token
+instead of an unauthenticated scrape. `redirect_uri` is a route on the
+frontend web app (it receives the provider's browser redirect and then calls
+the backend `callback` endpoint) -- it is not a backend API path, and it must
+exactly match what's registered with the provider.
+
+A provider only gets a real OAuth client when its required credentials are
+present (`app/di/social.py::build_social_oauth_clients`); otherwise it keeps a
+stub that fails cleanly with 501 `SOCIAL_OAUTH_CLIENT_NOT_CONFIGURED`, so
+configuring one provider never breaks the others.
+
+| Variable | Purpose | Owner |
+| --- | --- | --- |
+| `X_OAUTH_CLIENT_ID` | X OAuth 2.0 client ID. Required to enable the X client -- X supports Authorization Code with PKCE for public clients, so this alone is enough. | `app/config/twitter.py` |
+| `X_OAUTH_CLIENT_SECRET` | Optional X client secret for a confidential client. | `app/config/twitter.py` |
+| `X_OAUTH_REDIRECT_URI` | Frontend callback route registered with the X app. | `app/config/twitter.py` |
+| `X_OAUTH_SCOPES` | Space/comma-separated read-only scopes; write scopes are rejected. Default `tweet.read users.read offline.access`. | `app/config/twitter.py` |
+| `THREADS_CLIENT_ID` | Threads OAuth client ID. | `app/config/social.py` |
+| `THREADS_CLIENT_SECRET` | Threads client secret. Threads is a confidential client -- both ID and secret are required to enable the real client. | `app/config/social.py` |
+| `THREADS_REDIRECT_URI` | Frontend callback route registered with the Threads app. | `app/config/social.py` |
+| `THREADS_SCOPES` | Read-only scopes; default `threads_basic`. Publish/reply-management scopes are rejected. | `app/config/social.py` |
+| `INSTAGRAM_CLIENT_ID` | Instagram OAuth client ID (Instagram API with Instagram Login, professional accounts only). | `app/config/social.py` |
+| `INSTAGRAM_CLIENT_SECRET` | Instagram client secret. Instagram is a confidential client -- both ID and secret are required to enable the real client. | `app/config/social.py` |
+| `INSTAGRAM_REDIRECT_URI` | Frontend callback route registered with the Instagram app. | `app/config/social.py` |
+| `INSTAGRAM_SCOPES` | Read-only scope; currently only `instagram_business_basic` is supported. | `app/config/social.py` |
+
+See [Configure Twitter / X Extraction](../guides/configure-twitter-extraction.md#connected-user-x-api)
+for the X connected-account flow in context.
+
 ### Optional integrations
 
 Each optional integration has its own feature gate and credentials. Common

@@ -25,43 +25,57 @@ if TYPE_CHECKING:
 
 
 def build_social_oauth_clients(cfg: AppConfig) -> dict[str, Any]:
-    """Build configured provider OAuth clients."""
+    """Build configured provider OAuth clients, one provider at a time.
+
+    A provider only gets its real client when the credentials it needs are
+    present; otherwise it keeps the stub from `build_stub_social_oauth_clients`,
+    so a deployment that configured only one provider isn't broken for the
+    others (`build_authorization_url`/`exchange_code` on an unconfigured
+    provider then raises the stub's clean 501 `SOCIAL_OAUTH_CLIENT_NOT_CONFIGURED`
+    instead of failing deeper in the provider-specific HTTP call). X supports
+    OAuth 2.0 Authorization Code with PKCE for public clients, so only its
+    client ID is required; Threads and Instagram are confidential clients that
+    require both a client ID and a client secret to exchange a code.
+    """
     clients = build_stub_social_oauth_clients()
     twitter_cfg = cfg.twitter
     social_cfg = cfg.social
-    clients["x"] = XOAuthClient(
-        XOAuthConfig(
-            client_id=twitter_cfg.x_oauth_client_id,
-            client_secret=twitter_cfg.x_oauth_client_secret.get_secret_value()
-            if twitter_cfg.x_oauth_client_secret is not None
-            else None,
-            redirect_uri=twitter_cfg.x_oauth_redirect_uri,
-            scopes=twitter_cfg.x_oauth_scopes,
-            api_base_url=twitter_cfg.x_api_base_url,
+
+    if twitter_cfg.x_oauth_client_id:
+        clients["x"] = XOAuthClient(
+            XOAuthConfig(
+                client_id=twitter_cfg.x_oauth_client_id,
+                client_secret=twitter_cfg.x_oauth_client_secret.get_secret_value()
+                if twitter_cfg.x_oauth_client_secret is not None
+                else None,
+                redirect_uri=twitter_cfg.x_oauth_redirect_uri,
+                scopes=twitter_cfg.x_oauth_scopes,
+                api_base_url=twitter_cfg.x_api_base_url,
+            )
         )
-    )
-    clients["threads"] = ThreadsClient(
-        ThreadsOAuthConfig(
-            client_id=social_cfg.threads_client_id,
-            client_secret=social_cfg.threads_client_secret.get_secret_value()
-            if social_cfg.threads_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.threads_redirect_uri,
-            scopes=social_cfg.threads_scopes,
-            graph_base_url=social_cfg.threads_graph_base_url,
+
+    if social_cfg.threads_client_id and social_cfg.threads_client_secret is not None:
+        clients["threads"] = ThreadsClient(
+            ThreadsOAuthConfig(
+                client_id=social_cfg.threads_client_id,
+                client_secret=social_cfg.threads_client_secret.get_secret_value(),
+                redirect_uri=social_cfg.threads_redirect_uri,
+                scopes=social_cfg.threads_scopes,
+                graph_base_url=social_cfg.threads_graph_base_url,
+            )
         )
-    )
-    clients["instagram"] = InstagramClient(
-        InstagramOAuthConfig(
-            client_id=social_cfg.instagram_client_id,
-            client_secret=social_cfg.instagram_client_secret.get_secret_value()
-            if social_cfg.instagram_client_secret is not None
-            else None,
-            redirect_uri=social_cfg.instagram_redirect_uri,
-            scopes=social_cfg.instagram_scopes,
-            graph_base_url=social_cfg.instagram_graph_base_url,
+
+    if social_cfg.instagram_client_id and social_cfg.instagram_client_secret is not None:
+        clients["instagram"] = InstagramClient(
+            InstagramOAuthConfig(
+                client_id=social_cfg.instagram_client_id,
+                client_secret=social_cfg.instagram_client_secret.get_secret_value(),
+                redirect_uri=social_cfg.instagram_redirect_uri,
+                scopes=social_cfg.instagram_scopes,
+                graph_base_url=social_cfg.instagram_graph_base_url,
+            )
         )
-    )
+
     return clients
 
 
