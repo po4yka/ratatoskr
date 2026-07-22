@@ -47,6 +47,7 @@ from app.api.routers import (
     auth,
     backups,
     collections,
+    credentials,
     custom_digests,
     digest,
     export_integrations,
@@ -356,6 +357,7 @@ app.include_router(summaries.router, prefix="/v1/summaries", tags=["Summaries"])
 app.include_router(repositories.router)
 app.include_router(git_mirrors.router)
 app.include_router(ai_backups.router)
+app.include_router(credentials.router)
 app.include_router(summaries.router, prefix="/v1/articles", tags=["Articles"])
 app.include_router(requests.router, prefix="/v1/requests", tags=["Requests"])
 app.include_router(streams.router, prefix="/v1/requests", tags=["Streams"])

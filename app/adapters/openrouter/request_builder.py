@@ -56,6 +56,7 @@ class RequestBuilder:
         self._api_key = api_key
         self._http_referer = http_referer
         self._x_title = x_title
+
         self._provider_order = list(provider_order or [])
         self._enable_structured_outputs = enable_structured_outputs
         self._structured_output_mode = structured_output_mode
@@ -66,6 +67,15 @@ class RequestBuilder:
         self._prompt_cache_ttl_anthropic = prompt_cache_ttl_anthropic
         self._cache_system_prompt = cache_system_prompt
         self._cache_large_content_threshold = cache_large_content_threshold
+
+    def set_api_key(self, api_key: str) -> None:
+        """Replace the bearer credential used for subsequent requests.
+
+        The key is frozen here at construction but the Authorization header is
+        built per request, so swapping it takes effect on the very next call
+        without rebuilding the client or dropping pooled connections.
+        """
+        self._api_key = api_key
 
     def validate_chat_request(self, request: ChatRequest) -> None:
         """Validate chat request parameters."""

@@ -5223,6 +5223,158 @@
         }
       }
     },
+    "/v1/credentials": {
+      "get": {
+        "tags": [
+          "credentials"
+        ],
+        "summary": "List Credentials",
+        "description": "Return every catalog entry with presence flags -- never the values.",
+        "operationId": "list_credentials_v1_credentials_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/credentials/{key}": {
+      "put": {
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Set Credential",
+        "description": "Install or replace a credential. Applies without a restart.",
+        "operationId": "set_credential_v1_credentials__key__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialSetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialSetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Delete Credential",
+        "description": "Remove a UI-installed credential, reverting to the environment value.",
+        "operationId": "delete_credential_v1_credentials__key__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeleteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/articles": {
       "get": {
         "tags": [
@@ -18370,6 +18522,147 @@
         ],
         "title": "CreateWebhookRequest",
         "description": "Request body for creating a webhook subscription."
+      },
+      "CredentialDeleteResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted",
+            "description": "False when no UI-installed value existed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "deleted"
+        ],
+        "title": "CredentialDeleteResponse",
+        "description": "Result of clearing a credential."
+      },
+      "CredentialItem": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "Environment-variable name, also the storage key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Human-readable provider name"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "description": "llm | embedding | speech | scraping | storage | ..."
+          },
+          "help_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Help Url",
+            "description": "Where to obtain this credential"
+          },
+          "configured_in_db": {
+            "type": "boolean",
+            "title": "Configured In Db",
+            "description": "A value is installed through the UI"
+          },
+          "configured_in_env": {
+            "type": "boolean",
+            "title": "Configured In Env",
+            "description": "A value is present in the deployed environment"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint",
+            "description": "Last four characters of the stored value, e.g. '...a3f9'"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "group",
+          "configured_in_db",
+          "configured_in_env"
+        ],
+        "title": "CredentialItem",
+        "description": "Non-secret state of one catalog entry."
+      },
+      "CredentialListResponse": {
+        "properties": {
+          "credentials": {
+            "items": {
+              "$ref": "#/components/schemas/CredentialItem"
+            },
+            "type": "array",
+            "title": "Credentials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "credentials"
+        ],
+        "title": "CredentialListResponse",
+        "description": "Every UI-manageable credential and whether it is configured."
+      },
+      "CredentialSetRequest": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Value",
+            "description": "Plaintext secret. Encrypted at rest and never echoed back."
+          }
+        },
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "CredentialSetRequest",
+        "description": "Body for ``PUT /{key}``."
+      },
+      "CredentialSetResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "CredentialSetResponse",
+        "description": "Result of installing a credential."
       },
       "CredentialsLoginRequest": {
         "properties": {
