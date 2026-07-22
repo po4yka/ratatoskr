@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from functools import partial
 from typing import Any
 
@@ -82,7 +83,20 @@ async def main() -> None:
     # Started inside the try so the finally below always tears the pool down.
     checkpointer_runtime: Any = None
     bot: TelegramBot | None = None
+    credential_refresh: asyncio.Task[None] | None = None
     try:
+        # Credentials installed through the web UI land in the API process;
+        # the LLM calls happen here. Polling carries the change across the
+        # container boundary and reaches live clients via the ConfigHolder
+        # listeners that /setmodel already established.
+        owner_id = next(iter(cfg.telegram.allowed_user_ids), None)
+        if owner_id is not None:
+            from app.config.credential_reloader import start_credential_refresh_task
+            from app.infrastructure.persistence.credential_store import CredentialStore
+
+            credential_refresh = start_credential_refresh_task(
+                cfg_holder, CredentialStore(db), owner_id=owner_id
+            )
         if cfg.langgraph_checkpoint.enabled:
             try:
                 from app.infrastructure.checkpointing import CheckpointerRuntime
@@ -108,6 +122,10 @@ async def main() -> None:
         )
         await bot.start()
     finally:
+        if credential_refresh is not None:
+            credential_refresh.cancel()
+            with suppress(asyncio.CancelledError):
+                await credential_refresh
         if bot is not None:
             try:
                 await bot.message_handler.message_router.coalescer.shutdown()
