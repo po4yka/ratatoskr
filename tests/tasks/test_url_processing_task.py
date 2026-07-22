@@ -37,7 +37,9 @@ def _stub_taskiq(monkeypatch):
     taskiq_mod = sys.modules["taskiq"]
     taskiq_mod.AsyncBroker = object
     taskiq_mod.TaskiqDepends = lambda fn, **_kw: None
-    taskiq_mod.TaskiqEvents = SimpleNamespace(WORKER_SHUTDOWN="worker_shutdown")
+    taskiq_mod.TaskiqEvents = SimpleNamespace(
+        WORKER_STARTUP="worker_startup", WORKER_SHUTDOWN="worker_shutdown"
+    )
     taskiq_mod.TaskiqMiddleware = object
     taskiq_mod.InMemoryBroker = MagicMock
 
@@ -496,6 +498,80 @@ def test_worker_runtime_wires_vector_store_and_embeddings(monkeypatch):
 
     assert captured.get("vector_store") is sentinel_store
     assert captured.get("embedding_service") is sentinel_embed
+
+
+def test_worker_runtime_registers_credential_hot_reload_listener(monkeypatch):
+    """A ConfigHolder swap must reach the worker's long-lived LLM client.
+
+    ``_build_url_processing_runtime`` builds ``llm_client`` once and caches it
+    in the module-level ``_url_processing_runtime_instance`` singleton (it
+    survives every task invocation for the life of the worker process), so
+    unless it registers an ``apply_runtime_config`` listener with the holder
+    -- mirroring ``app/di/shared.py``'s ``build_core_dependencies`` -- a
+    credential installed via the web UI would never reach it without a
+    worker restart. Uses the real ``OpenRouterClient.apply_runtime_config``
+    (not a mock) so the assertions prove the actual key/model swap.
+    """
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.adapters.openrouter.openrouter_client import OpenRouterClient
+    from app.config.config_holder import ConfigHolder
+
+    client = OpenRouterClient.__new__(OpenRouterClient)
+    client._model = "old-model"
+    client._fallback_models = []
+    client._api_key = "old-key"
+    client.request_builder = MagicMock()
+
+    cfg = _build_cfg()
+    cfg.openrouter = SimpleNamespace(api_key="old-key", model="old-model", fallback_models=[])
+    holder = ConfigHolder(cfg)
+
+    from app.tasks.url_processing import _build_url_processing_runtime
+
+    with (
+        patch(
+            "app.di.search.build_search_dependencies",
+            new=MagicMock(return_value=SimpleNamespace(vector_store=None, embedding_service=None)),
+        ),
+        patch(
+            "app.di.shared.build_url_processor",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.content.scraper.factory.ContentScraperFactory.create_from_config",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.llm.LLMClientFactory.create_from_config",
+            new=MagicMock(return_value=client),
+        ),
+        patch(
+            "app.di.shared.build_response_formatter",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.telegram.worker_telegram_sender.WorkerTelegramSender",
+            new=MagicMock(),
+        ),
+    ):
+        _build_url_processing_runtime(holder, MagicMock())
+
+    new_cfg = _build_cfg()
+    new_cfg.openrouter = SimpleNamespace(
+        api_key="new-key", model="new-model", fallback_models=["fb"]
+    )
+    holder.swap(new_cfg)
+
+    assert client._api_key == "new-key"
+    assert client._model == "new-model"
+    assert client._fallback_models == ["fb"]
+    client.request_builder.set_api_key.assert_called_once_with("new-key")
 
 
 @pytest.mark.asyncio
