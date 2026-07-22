@@ -79,7 +79,11 @@ class DataFormatterImpl:
             label_escaped = html.escape(label)
 
             value_text = self.format_metric_value(entry.get("value"))
-            unit = str(entry.get("unit", "")).strip()
+            # `or ""`, not a .get() default: the model emits an explicit null
+            # unit for dimensionless stats (years, counts). A default only fires
+            # when the key is absent, so str(None) rendered a literal "None"
+            # after the value -- "1958 None".
+            unit = str(entry.get("unit") or "").strip()
             source_excerpt = str(entry.get("source_excerpt", "")).strip()
 
             detail_parts: list[str] = []
@@ -124,7 +128,11 @@ class DataFormatterImpl:
 
             label_escaped = html.escape(label)
             value_text = self.format_metric_value(entry.get("value"))
-            unit = str(entry.get("unit", "")).strip()
+            # `or ""`, not a .get() default: the model emits an explicit null
+            # unit for dimensionless stats (years, counts). A default only fires
+            # when the key is absent, so str(None) rendered a literal "None"
+            # after the value -- "1958 None".
+            unit = str(entry.get("unit") or "").strip()
 
             detail_parts: list[str] = []
             if value_text is not None:
