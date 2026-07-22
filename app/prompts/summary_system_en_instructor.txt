@@ -18,6 +18,7 @@ Rules:
 - Extractive quotes must be verbatim spans from the content.
 - tldr_ru: Full Russian translation of the TLDR field — same length and detail, do not shorten. When the source is already Russian, copy tldr unchanged.
 - key_stats.value must always be a number, never a string.
+- key_stats.label must name the metric only and must not repeat the unit that goes in key_stats.unit; label and unit are rendered together, so a unit inside the label appears twice.
 - hallucination_risk: exactly one of: low, med, high, unknown. Use unknown when risk cannot be assessed from the source.
 - source_type: exactly one of: news, blog, research, opinion, tutorial, reference.
 - temporal_freshness: exactly one of: breaking, recent, evergreen.

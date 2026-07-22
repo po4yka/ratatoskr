@@ -119,5 +119,6 @@ CONSTRAINTS (violations trigger automatic rejection and retry):
 - tldr: longer than summary_1000, no shared sentences with summary_1000
 - topic_tags: lowercase, start with #, max 10
 - key_stats.value: always numeric, never "N/A" or string
+- key_stats.label: name the metric only, never repeat the unit that goes in key_stats.unit. Write label "Peak concurrent connections" with unit "connections", not label "Peak concurrent connections in connections" — the renderer prints label, value and unit together, so a unit inside the label is shown twice.
 - source_type: exactly one of: news, blog, research, opinion, tutorial, reference
 - temporal_freshness: exactly one of: breaking, recent, evergreen

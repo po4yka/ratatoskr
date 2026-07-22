@@ -242,8 +242,17 @@ def build_card_sections(
                 detail_lines.append("")
             detail_lines.append(f"<b>{t('questionable', lang)}</b>")
             if caution:
+                # `caution` is a lead-in sentence, `critique` is a list. Setting
+                # the lead-in in italics and separating it with a blank line
+                # reads as a deliberate two-part section; run together, an
+                # unbulleted paragraph directly above bullets looked like the
+                # first bullet had failed to render.
                 caution_clean = text_processor.sanitize_summary_text(caution)
-                detail_lines.append(html.escape(truncate_plain_text(caution_clean, 300)))
+                detail_lines.append(
+                    f"<i>{html.escape(truncate_plain_text(caution_clean, 300))}</i>"
+                )
+                if critique_items:
+                    detail_lines.append("")
             detail_lines.extend([f"\u2022 {c}" for c in critique_items])
 
     if meta_lines:

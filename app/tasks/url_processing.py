@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from types import SimpleNamespace
 from typing import Any
 
 from taskiq import TaskiqDepends, TaskiqEvents
@@ -430,11 +431,24 @@ async def _load_summary(*, request_id: int, db: Database) -> dict[str, Any] | No
 
     from app.db.models.core import Summary
 
+    from app.db.models.core import LLMCall
+
     async with db.session() as session:
         row = await session.scalar(select(Summary).where(Summary.request_id == request_id))
         if row is None:
             return None
-        return {"json_payload": row.json_payload or {}}
+        # The worker has no LLM handle at edit time, so the model that actually
+        # produced this summary is read back from its call trail -- otherwise
+        # the card footer silently loses the model name. Highest attempt_index
+        # is the call that succeeded: the repair loop only advances on retry,
+        # so the last one is the one whose output was persisted.
+        model = await session.scalar(
+            select(LLMCall.model)
+            .where(LLMCall.request_id == request_id, LLMCall.model.is_not(None))
+            .order_by(LLMCall.attempt_index.desc())
+            .limit(1)
+        )
+        return {"json_payload": row.json_payload or {}, "model": model}
 
 
 def _format_summary_for_edit(
@@ -459,9 +473,15 @@ def _format_summary_for_edit(
     try:
         from app.adapters.external.formatting.summary.card_renderer import build_card_sections
 
+        # build_card_sections only reads `.model` off this, so a namespace
+        # carrying the model recovered from llm_calls restores the footer
+        # without giving the worker a real LLM client it has no use for.
+        model_name = summary_data.get("model")
+        llm_stub = SimpleNamespace(model=model_name) if model_name else None
+
         sections = build_card_sections(
             summary_json,
-            None,  # llm stub — not available at edit time; the model label is omitted
+            llm_stub,
             None,  # chunks
             reader=False,
             text_processor=runtime.response_formatter._text_processor,

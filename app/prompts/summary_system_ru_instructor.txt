@@ -18,6 +18,7 @@
 - Extractive quotes должны быть дословными фрагментами из источника.
 - tldr_ru: полный перевод поля TLDR на русский язык — той же длины и детализации, не сокращайте. Если источник уже на русском — скопируйте tldr без изменений.
 - key_stats.value всегда должно быть числом, не строкой.
+- key_stats.label содержит только название метрики и не повторяет единицу измерения из key_stats.unit; label и unit выводятся вместе, поэтому единица внутри label дублируется.
 - hallucination_risk: строго одно из: low, med, high, unknown. Используйте unknown, если риск нельзя оценить по источнику.
 - source_type: строго одно из: news, blog, research, opinion, tutorial, reference.
 - temporal_freshness: строго одно из: breaking, recent, evergreen.
