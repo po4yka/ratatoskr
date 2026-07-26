@@ -153,7 +153,8 @@ def hash_secret(secret: str, salt: str) -> str:
     Returns the standard ``$argon2id$...`` encoded string. Legacy rows store a
     bare HMAC-SHA256 hex digest; :func:`verify_secret` accepts both.
     """
-    return _get_password_hasher().hash(_peppered_input(secret, salt))
+    hashed: str = _get_password_hasher().hash(_peppered_input(secret, salt))
+    return hashed
 
 
 def _legacy_hmac_hash(secret: str, salt: str) -> str:
@@ -175,7 +176,11 @@ def verify_secret(secret: str, salt: str, stored_hash: str) -> bool:
         # treat as no-match. Config errors (e.g. missing pepper) propagate so a
         # misconfiguration surfaces loudly instead of failing silently.
         try:
-            return _get_password_hasher().verify(stored_hash, _peppered_input(secret, salt))
+            verified: bool = _get_password_hasher().verify(
+                stored_hash,
+                _peppered_input(secret, salt),
+            )
+            return verified
         except (Argon2Error, InvalidHashError):
             return False
     return hmac.compare_digest(_legacy_hmac_hash(secret, salt), stored_hash)
