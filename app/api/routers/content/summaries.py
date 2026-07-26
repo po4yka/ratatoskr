@@ -7,6 +7,7 @@ Provides CRUD operations for summaries.
 from datetime import datetime
 from hashlib import sha256
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel as _BulkBaseModel, Field
@@ -584,6 +585,22 @@ async def get_summary(
         }
     if not source.get("title"):
         source["title"] = summary_metadata.get("title")
+    source["url"] = (
+        source.get("url")
+        or summary_metadata.get("canonical_url")
+        or request_data.get("input_url")
+        or request_data.get("normalized_url")
+    )
+    source["domain"] = source.get("domain") or summary_metadata.get("domain")
+    if not source["domain"] and source["url"]:
+        try:
+            source["domain"] = urlsplit(str(source["url"])).hostname
+        except ValueError:
+            source["domain"] = None
+    source["author"] = source.get("author") or summary_metadata.get("author")
+    source["published_at"] = (
+        source.get("published_at") or summary_metadata.get("published_at")
+    )
 
     # Build processing info
     processing = {}

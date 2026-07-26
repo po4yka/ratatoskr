@@ -158,6 +158,35 @@ async def test_get_article_title_falls_back_to_summary_metadata():
 
 
 @pytest.mark.asyncio
+async def test_get_article_source_falls_back_without_a_crawl_result():
+    use_case = AsyncMock()
+    use_case.get_summary_context_for_user.return_value = _summary_context(
+        metadata={
+            "title": "Coroutine history",
+            "author": "Dmitry Popov",
+            "published_at": "2026-07-25",
+        },
+    )
+
+    result = await get_summary(
+        summary_id=1402,
+        user={"user_id": 1},
+        use_case=use_case,
+    )
+
+    assert result["data"]["source"] == {
+        "url": "https://example.com/article",
+        "title": "Coroutine history",
+        "domain": "example.com",
+        "author": "Dmitry Popov",
+        "publishedAt": "2026-07-25",
+        "wordCount": None,
+        "contentType": None,
+        "transcript": None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_article_by_url(db, article_data):
     user = article_data["user"]
 
