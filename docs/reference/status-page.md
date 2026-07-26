@@ -37,8 +37,8 @@ The current component map is:
 | PostgreSQL | The existing bounded database health check succeeds. |
 | Redis | The existing Redis health check succeeds or is explicitly disabled. |
 | Qdrant / vector search | The configured vector store reports availability. |
-| Scraper / extraction | The bot's local runtime telemetry reports the latest non-policy-blocked chain result; observations outside the validated freshness window (24 hours by default) are `unknown`. No synthetic crawl is performed. |
-| AI summarization | The worker's allowlisted OpenRouter circuit-breaker updates; only observations inside the validated freshness window (24 hours by default) participate. One failed model degrades the fallback chain, while all fresh observed models open is an outage. Other providers remain `unknown` until they expose an equivalent live signal. |
+| Scraper / extraction | Bot and worker runtime telemetry reports the latest non-policy-blocked chain result. After a process restart clears that telemetry, the latest persisted terminal URL request supplies a bounded fallback; unrelated summarization failures are ignored. Observations outside the validated freshness window (24 hours by default) are `unknown`. No synthetic crawl is performed. |
+| AI summarization | The worker's allowlisted OpenRouter circuit-breaker updates are authoritative. After a process restart clears them, the latest persisted OpenRouter call supplies a bounded fallback. Only observations inside the validated freshness window (24 hours by default) participate. One failed model degrades the runtime fallback chain, while all fresh observed models open is an outage. Other providers remain `unknown` until they expose an equivalent live signal. |
 | Taskiq worker | Its aggregated internal Prometheus exporter responds. |
 | Scheduler | Its internal Prometheus exporter responds. |
 | Vector reconciliation | Fixed-cardinality worker run and oldest-lag metrics show whether the durable vector repair loop is current. |
@@ -50,8 +50,10 @@ The current component map is:
 Checks run concurrently under a total five-second ceiling and are cached for a
 short, validated TTL. Once that ceiling expires, unfinished probes are detached
 after cancellation is requested so cancellation-resistant dependencies cannot
-hold the public response open. Missing signals are `unknown`, not optimistically
-green.
+hold the public response open. A missing process-local extraction or OpenRouter
+signal can use a fresh persisted outcome only while the corresponding process
+exporter remains reachable. Missing or stale runtime and persisted signals are
+`unknown`, not optimistically green.
 Disabled optional components do not lower the aggregate. A critical component
 outage produces overall `outage`; any other outage, degradation, or unknown
 signal produces `degraded`.
