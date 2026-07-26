@@ -1,6 +1,7 @@
 """Article endpoint tests using the direct-call pattern (no HTTP client)."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -8,8 +9,16 @@ import pytest
 import pytest_asyncio
 
 from app.api.dependencies.database import get_summary_read_model_use_case
-from app.api.exceptions import ResourceNotFoundError
-from app.api.routers.content.summaries import get_summary, get_summary_by_url, get_summary_content
+from app.api.exceptions import ExternalAPIError, ResourceNotFoundError
+from app.api.routers.content.summaries import (
+    backfill_summary_content,
+    get_summary,
+    get_summary_by_url,
+    get_summary_content,
+)
+from app.application.services.source_content_backfill_service import (
+    SourceContentBackfillFailedError,
+)
 from app.core.summary_schema import SummaryModel
 from app.db.models import Request, Summary
 
@@ -228,6 +237,48 @@ async def test_get_article_content_uses_transcript_without_a_crawl_result():
     assert content["content"] == "The complete voice transcript."
     assert content["format"] == "text"
     assert content["contentType"] == "text/plain"
+
+
+@pytest.mark.asyncio
+async def test_backfill_article_content_returns_restored_body():
+    use_case = AsyncMock()
+    context = _summary_context(metadata={"title": "Restored article"})
+    context["request"]["content_text"] = "The restored source body."
+    use_case.get_summary_context_for_user.return_value = context
+    service = AsyncMock()
+
+    result = await backfill_summary_content(
+        summary_id=1402,
+        request=SimpleNamespace(state=SimpleNamespace(correlation_id="operation-cid")),
+        user={"user_id": 1},
+        service=service,
+        use_case=use_case,
+    )
+
+    service.backfill.assert_awaited_once_with(
+        user_id=1,
+        summary_id=1402,
+        operation_correlation_id="operation-cid",
+    )
+    assert result["data"]["content"]["content"] == "The restored source body."
+
+
+@pytest.mark.asyncio
+async def test_backfill_article_content_maps_extraction_failure():
+    service = AsyncMock()
+    service.backfill.side_effect = SourceContentBackfillFailedError(1402)
+
+    with pytest.raises(ExternalAPIError) as exc_info:
+        await backfill_summary_content(
+            summary_id=1402,
+            request=SimpleNamespace(state=SimpleNamespace(correlation_id="operation-cid")),
+            user={"user_id": 1},
+            service=service,
+            use_case=AsyncMock(),
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.retryable is True
 
 
 @pytest.mark.asyncio

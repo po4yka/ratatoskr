@@ -24,6 +24,9 @@ from app.api.services.sync import (
 from app.api.services.sync_service import SyncService
 from app.application.services.repository_service import RepositoryService
 from app.application.services.request_service import RequestService
+from app.application.services.source_content_backfill_service import (
+    SourceContentBackfillService,
+)
 from app.application.services.transcription_job_service import TranscriptionJobService
 from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
 from app.application.use_cases.search_read_model import SearchReadModelUseCase
@@ -213,6 +216,12 @@ async def build_api_runtime(
         llm_repository=llm_repository,
         vector_store=search.vector_store,
     )
+    source_content_backfill_service = SourceContentBackfillService(
+        summary_reader=summary_read_model_use_case,
+        source_extractor=url_processor.content_extractor,
+        request_writer=request_repository,
+        persist_source_content=app_cfg.retention.persist_raw_extracted_content,
+    )
     search_read_model_use_case = SearchReadModelUseCase(
         topic_search_repository=build_topic_search_repository(database),
         request_repository=request_repository,
@@ -310,6 +319,7 @@ async def build_api_runtime(
         durable_transcription_queue=durable_transcription_queue,
         progress_event_repository=progress_event_repository,
         summary_read_model_use_case=summary_read_model_use_case,
+        source_content_backfill_service=source_content_backfill_service,
         search_read_model_use_case=search_read_model_use_case,
         request_service=request_service,
         collection_service=collection_service,

@@ -120,6 +120,7 @@ class ApiRuntime:
     durable_transcription_queue: Any
     progress_event_repository: Any
     summary_read_model_use_case: Any
+    source_content_backfill_service: Any
     search_read_model_use_case: Any
     request_service: Any
     collection_service: Any

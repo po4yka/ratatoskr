@@ -171,3 +171,36 @@ async def test_crawl_result_repository_is_idempotent(database: Database) -> None
     assert await repo.async_get_max_server_version(request.user_id or 0) is not None
     rows = await repo.async_get_all_for_user(request.user_id or 0)
     assert [item["id"] for item in rows] == [first_id]
+
+
+@pytest.mark.asyncio
+async def test_crawl_result_repository_backfill_replaces_missing_body(database: Database) -> None:
+    request = await _request(database, user_id=1003)
+    repo = CrawlResultRepositoryAdapter(database)
+
+    original_id = await repo.async_insert_crawl_result(
+        request.id,
+        success=True,
+        metadata_json={"title": "Original title"},
+        source_url=request.normalized_url,
+        status="ok",
+    )
+    upserted_id = await repo.async_upsert_crawl_result(
+        request.id,
+        success=True,
+        markdown="# Restored\n\nComplete article body.",
+        metadata_json={"title": "Restored title"},
+        source_url=request.normalized_url,
+        status="ok",
+        endpoint="scrapling",
+        attempt_log=[{"provider": "scrapling", "status": "success"}],
+        winning_provider="scrapling",
+    )
+
+    assert upserted_id == original_id
+    row = await repo.async_get_crawl_result_by_request(request.id)
+    assert row is not None
+    assert row["content_markdown"] == "# Restored\n\nComplete article body."
+    assert row["metadata_json"] == {"title": "Restored title"}
+    assert row["winning_provider"] == "scrapling"
+    assert row["attempt_log"] == [{"provider": "scrapling", "status": "success"}]

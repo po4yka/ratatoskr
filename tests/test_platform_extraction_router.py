@@ -103,7 +103,7 @@ def _make_extractor(platform_router: PlatformExtractionRouter | None = None) -> 
         )
     )
     firecrawl = cast("FirecrawlClient", SimpleNamespace(scrape_markdown=firecrawl_scrape_mock))
-    return ContentExtractor(
+    extractor = ContentExtractor(
         cfg=_dummy_cfg(),
         db=cast("DatabaseSessionManager", SimpleNamespace()),
         firecrawl=firecrawl,  # type: ignore[arg-type]
@@ -114,6 +114,10 @@ def _make_extractor(platform_router: PlatformExtractionRouter | None = None) -> 
         sem=_dummy_sem,
         platform_router=platform_router,
     )
+    extractor.message_persistence.crawl_repo = SimpleNamespace(
+        async_upsert_crawl_result=AsyncMock(return_value=1),
+    )
+    return extractor
 
 
 def _make_extractor_with_cfg(
@@ -140,7 +144,7 @@ def _make_extractor_with_cfg(
         )
     )
     firecrawl = cast("FirecrawlClient", SimpleNamespace(scrape_markdown=firecrawl_scrape_mock))
-    return ContentExtractor(
+    extractor = ContentExtractor(
         cfg=_dummy_cfg(
             aggregation_meta_extractors_enabled=aggregation_meta_extractors_enabled,
             aggregation_article_media_enabled=aggregation_article_media_enabled,
@@ -154,6 +158,10 @@ def _make_extractor_with_cfg(
         sem=_dummy_sem,
         platform_router=platform_router,
     )
+    extractor.message_persistence.crawl_repo = SimpleNamespace(
+        async_upsert_crawl_result=AsyncMock(return_value=1),
+    )
+    return extractor
 
 
 def _router_for(url: str, extractor: _FakePlatformExtractor) -> PlatformExtractionRouter:
@@ -288,6 +296,10 @@ async def test_extract_content_pure_routes_twitter_urls_through_platform_router(
 @pytest.mark.asyncio
 async def test_extract_content_pure_passes_request_id_to_generic_scraper() -> None:
     extractor = _make_extractor()
+    crawl_repo = SimpleNamespace(
+        async_upsert_crawl_result=AsyncMock(return_value=1),
+    )
+    extractor.message_persistence.crawl_repo = crawl_repo
 
     content_text, content_source, metadata = await extractor.extract_content_pure(
         "https://example.com/article",
@@ -302,6 +314,24 @@ async def test_extract_content_pure_passes_request_id_to_generic_scraper() -> No
         "https://example.com/article",
         request_id=777,
     )
+    crawl_repo.async_upsert_crawl_result.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_extract_content_pure_does_not_persist_low_value_backfill() -> None:
+    extractor = _make_extractor()
+    extractor.scraper.scrape_markdown.return_value.content_markdown = "Too short"  # type: ignore[attr-defined]
+    crawl_repo = extractor.message_persistence.crawl_repo
+
+    with pytest.raises(ValueError, match="Low-value content"):
+        await extractor.extract_content_pure(
+            "https://example.com/article",
+            correlation_id="cid-low-value",
+            request_id=777,
+            update_request_on_failure=False,
+        )
+
+    crawl_repo.async_upsert_crawl_result.assert_not_awaited()
 
 
 @pytest.mark.asyncio

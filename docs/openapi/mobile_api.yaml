@@ -2374,6 +2374,39 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/summaries/{summary_id}/content/backfill:
+    post:
+      tags:
+      - Summaries
+      summary: Backfill Summary Content
+      description: Re-extract and persist a missing reader source body.
+      operationId: backfill_summary_content_v1_summaries__summary_id__content_backfill_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: summary_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Summary Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryContentSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/summaries/{summary_id}/export:
     get:
       tags:
@@ -3787,6 +3820,40 @@ paths:
           pattern: ^(markdown|text)$
           default: markdown
           title: Format
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryContentSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/articles/{summary_id}/content/backfill:
+    post:
+      tags:
+      - Articles
+      summary: Backfill Summary Content
+      description: Alias for POST /v1/summaries/{summary_id}/content/backfill. Re-extract and persist a missing reader source
+        body.
+      operationId: backfill_summary_content_v1_articles__summary_id__content_backfill_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: summary_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Summary Id
       responses:
         '200':
           description: Successful Response

@@ -70,6 +70,8 @@ async def persist_crawl_result(
     req_id: int,
     crawl: Any,
     correlation_id: str | None,
+    *,
+    replace_existing: bool = False,
 ) -> None:
     """Persist crawl result; exceptions propagate so task callbacks can log and meter them."""
     try:
@@ -83,7 +85,12 @@ async def persist_crawl_result(
         options_json = dict(crawl.options_json or {})
         attempt_log = options_json.pop("_chain_attempt_log", None)
         winning_provider = options_json.pop("_chain_winning_provider", None)
-        await message_persistence.crawl_repo.async_insert_crawl_result(
+        persist = (
+            message_persistence.crawl_repo.async_upsert_crawl_result
+            if replace_existing
+            else message_persistence.crawl_repo.async_insert_crawl_result
+        )
+        await persist(
             request_id=req_id,
             success=crawl.response_success,
             markdown=crawl.content_markdown if retain_raw else None,
@@ -148,7 +155,12 @@ class ContentExtractorRequestsMixin:
             return None
 
     async def _persist_crawl_result(
-        self, req_id: int, crawl: Any, correlation_id: str | None
+        self,
+        req_id: int,
+        crawl: Any,
+        correlation_id: str | None,
+        *,
+        replace_existing: bool = False,
     ) -> None:
         """Persist crawl result; exceptions propagate so the task callback can log and meter them."""
         await persist_crawl_result(
@@ -157,6 +169,7 @@ class ContentExtractorRequestsMixin:
             req_id,
             crawl,
             correlation_id,
+            replace_existing=replace_existing,
         )
 
     async def _handle_request_dedupe_or_create(

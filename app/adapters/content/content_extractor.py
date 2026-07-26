@@ -143,6 +143,8 @@ class ContentExtractor(
         url: str,
         correlation_id: str | None = None,
         request_id: int | None = None,
+        *,
+        update_request_on_failure: bool = True,
     ) -> tuple[str, str, dict[str, Any]]:
         """Pure extraction method without message dependencies."""
         normalized_url = normalize_url(url)
@@ -189,7 +191,7 @@ class ContentExtractor(
             logger.warning(
                 "pure_extraction_low_value", extra={"cid": correlation_id, "reason": reason}
             )
-            if request_id is not None:
+            if request_id is not None and update_request_on_failure:
                 await persist_request_failure(
                     request_repo=self.message_persistence.request_repo,
                     logger=logger,
@@ -213,7 +215,7 @@ class ContentExtractor(
 
         if crawl.status != CallStatus.OK or not (has_markdown or has_html):
             error_msg = crawl.error_text or "Content extraction failed"
-            if request_id is not None:
+            if request_id is not None and update_request_on_failure:
                 await persist_request_failure(
                     request_repo=self.message_persistence.request_repo,
                     logger=logger,
@@ -230,6 +232,14 @@ class ContentExtractor(
                     provider_error_code=crawl.response_error_code,
                 )
             raise ValueError(f"Extraction failed: {error_msg}") from None
+
+        if request_id is not None:
+            await self._persist_crawl_result(
+                request_id,
+                crawl,
+                correlation_id,
+                replace_existing=True,
+            )
 
         if crawl.content_markdown and crawl.content_markdown.strip():
             content_text = clean_markdown_article_text(crawl.content_markdown)

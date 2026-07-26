@@ -250,6 +250,27 @@ class CrawlResultRepositoryPort(Protocol):
     async def async_get_crawl_result_by_request(self, request_id: int) -> dict[str, Any] | None:
         """Return crawl result by request ID."""
 
+    async def async_upsert_crawl_result(
+        self,
+        request_id: int,
+        success: bool,
+        markdown: str | None = None,
+        html: str | None = None,
+        error: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+        *,
+        source_url: str | None = None,
+        http_status: int | None = None,
+        status: str | None = None,
+        endpoint: str | None = None,
+        latency_ms: int | None = None,
+        correlation_id: str | None = None,
+        options_json: dict[str, Any] | None = None,
+        attempt_log: list[dict[str, Any]] | None = None,
+        winning_provider: str | None = None,
+    ) -> int:
+        """Insert or replace the crawl artifact for a request."""
+
     async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Return crawl rows for sync operations (``since>0`` filters by cursor)."""
 

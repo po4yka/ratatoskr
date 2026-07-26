@@ -17,7 +17,12 @@ from app.api.aggregation_provenance import build_source_bundle
 from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.dependencies.search_resources import get_vector_search_service
 from app.api.email_errors import raise_email_api_error
-from app.api.exceptions import FeatureDisabledError, ResourceNotFoundError, ValidationError
+from app.api.exceptions import (
+    ExternalAPIError,
+    FeatureDisabledError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.api.models.digest import SendEmailRequest
 from app.api.models.requests import (
     SaveReadingPositionRequest,
@@ -64,6 +69,12 @@ from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
 from app.application.dto.vector_search import VectorSearchHitDTO
 from app.application.services.related_reads_service import RelatedReadsService
+from app.application.services.source_content_backfill_service import (
+    SourceContentBackfillFailedError,
+    SourceContentBackfillNotFoundError,
+    SourceContentBackfillService,
+    SourceContentBackfillUnavailableError,
+)
 from app.application.services.topic_search_utils import ensure_mapping
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.config import load_config
@@ -229,6 +240,15 @@ def _build_summary_source_bundle(raw: Any) -> AggregationSourceBundle | None:
 def _get_summary_use_case() -> SummaryReadModelUseCase:
     """Build the summary read-model use case for API handlers."""
     return get_summary_read_model_use_case()
+
+
+def _get_source_content_backfill_service(request: Request) -> SourceContentBackfillService:
+    from app.di.api import resolve_api_runtime
+
+    return cast(
+        "SourceContentBackfillService",
+        resolve_api_runtime(request).source_content_backfill_service,
+    )
 
 
 async def _get_related_reads_service(
@@ -817,6 +837,39 @@ async def get_summary_content(
                 checksum_sha256=checksum,
             )
         )
+    )
+
+
+@router.post("/{summary_id}/content/backfill", response_model=SummaryContentSuccessResponse)
+async def backfill_summary_content(
+    summary_id: int,
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+    service: SourceContentBackfillService = Depends(_get_source_content_backfill_service),
+    use_case: SummaryReadModelUseCase = Depends(_get_summary_use_case),
+) -> Any:
+    """Re-extract and persist a missing reader source body."""
+    try:
+        await service.backfill(
+            user_id=user["user_id"],
+            summary_id=summary_id,
+            operation_correlation_id=getattr(request.state, "correlation_id", None),
+        )
+    except SourceContentBackfillNotFoundError as exc:
+        raise ResourceNotFoundError("Summary", summary_id) from exc
+    except SourceContentBackfillUnavailableError as exc:
+        raise ValidationError(str(exc), details={"summary_id": summary_id}) from exc
+    except SourceContentBackfillFailedError as exc:
+        raise ExternalAPIError(
+            "Source extraction",
+            "Could not restore the original article text",
+        ) from exc
+
+    return await get_summary_content(
+        summary_id=summary_id,
+        format="markdown",
+        user=user,
+        use_case=use_case,
     )
 
 

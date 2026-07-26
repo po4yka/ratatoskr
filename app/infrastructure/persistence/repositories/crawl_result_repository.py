@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 from app.db.json_utils import prepare_json_payload
 from app.db.models import CrawlResult, Request, model_to_dict
+from app.db.types import _next_server_version, _utcnow
 
 
 class CrawlResultRepositoryAdapter:
@@ -82,6 +83,66 @@ class CrawlResultRepositoryAdapter:
                 select(CrawlResult).where(CrawlResult.request_id == request_id)
             )
             return model_to_dict(result)
+
+    async def async_upsert_crawl_result(
+        self,
+        request_id: int,
+        success: bool,
+        markdown: str | None = None,
+        html: str | None = None,
+        error: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+        *,
+        source_url: str | None = None,
+        http_status: int | None = None,
+        status: str | None = None,
+        endpoint: str | None = None,
+        latency_ms: int | None = None,
+        correlation_id: str | None = None,
+        options_json: dict[str, Any] | None = None,
+        attempt_log: list[dict[str, Any]] | None = None,
+        winning_provider: str | None = None,
+    ) -> int:
+        """Insert or replace the single crawl artifact owned by ``request_id``."""
+        payload = {
+            "request_id": request_id,
+            "firecrawl_success": success,
+            "content_markdown": markdown,
+            "content_html": html,
+            "error_text": error,
+            "metadata_json": prepare_json_payload(metadata_json, default={}),
+            "source_url": source_url,
+            "http_status": http_status,
+            "status": status,
+            "endpoint": endpoint,
+            "latency_ms": latency_ms,
+            "correlation_id": correlation_id,
+            "options_json": prepare_json_payload(options_json, default=None),
+            "attempt_log": prepare_json_payload(attempt_log, default=None),
+            "winning_provider": winning_provider,
+        }
+        update_payload = {key: value for key, value in payload.items() if key != "request_id"}
+        update_payload.update(
+            updated_at=_utcnow(),
+            server_version=_next_server_version(),
+            is_deleted=False,
+            deleted_at=None,
+        )
+        async with self._database.transaction() as session:
+            stmt = (
+                insert(CrawlResult)
+                .values(**payload)
+                .on_conflict_do_update(
+                    index_elements=[CrawlResult.request_id],
+                    set_=update_payload,
+                )
+                .returning(CrawlResult.id)
+            )
+            row_id = await session.scalar(stmt)
+            if row_id is None:
+                msg = f"crawl result upsert returned no id for request_id={request_id}"
+                raise RuntimeError(msg)
+            return int(row_id)
 
     async def async_get_max_server_version(self, user_id: int) -> int | None:
         """Return the maximum server_version across crawl results owned by *user_id*."""

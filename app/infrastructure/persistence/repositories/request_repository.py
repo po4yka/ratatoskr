@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.db.json_utils import prepare_json_payload
 from app.db.models import CrawlResult, Request, Summary, TelegramMessage, model_to_dict
-from app.db.types import _utcnow
+from app.db.types import _next_server_version, _utcnow
 from app.domain.models.request import (
     Request as DomainRequest,
     RequestStatus,
@@ -437,7 +437,12 @@ class RequestRepositoryAdapter:
         await self._update_request(request_id, correlation_id=correlation_id)
 
     async def async_update_request_content_text(self, request_id: int, content_text: str) -> None:
-        await self._update_request(request_id, content_text=content_text)
+        await self._update_request(
+            request_id,
+            content_text=content_text,
+            updated_at=_utcnow(),
+            server_version=_next_server_version(),
+        )
 
     async def async_update_request_lang_detected(self, request_id: int, lang: str) -> None:
         await self._update_request(request_id, lang_detected=lang)
