@@ -19,6 +19,7 @@ from app.api.exceptions import (
     ValidationError,
 )
 from app.api.models.auth import ClientSecretInfo
+from app.api.routers.auth.argon2_offload import run_argon2
 from app.config import AppConfig, Config, load_config
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
@@ -52,7 +53,9 @@ def _get_secret_pepper() -> str:
     in different places (env, CI runners, deploy secrets) than DB peppers
     should. The previous fallback to jwt_secret_key was removed for that
     reason — see docs/tasks/issues archive: decouple-secret-login-pepper-
-    from-jwt-key.
+    from-jwt-key. This independence is enforced at config load by
+    Settings._ensure_auth_secret_domain_separation, which rejects reusing one
+    value across JWT_SECRET_KEY / SECRET_LOGIN_PEPPER / CREDENTIALS_LOGIN_PEPPER.
 
     Raises RuntimeError when secret-login is enabled but the pepper is unset.
     """
@@ -178,6 +181,42 @@ def verify_secret(secret: str, salt: str, stored_hash: str) -> bool:
     return hmac.compare_digest(_legacy_hmac_hash(secret, salt), stored_hash)
 
 
+# Precomputed argon2id PHC used only for timing-parity decoy verifies. Hashed
+# once (lazily) with the same PasswordHasher as real secrets so a decoy verify
+# costs the same wall-clock as a real one.
+_decoy_phc_holder: list[str | None] = [None]
+
+# Fixed salt for the decoy path. Irrelevant to security (the result is
+# discarded); it only needs to be a stable, valid input to _peppered_input.
+_DECOY_SALT = "decoy-timing-parity"
+
+
+def _get_decoy_phc() -> str:
+    if _decoy_phc_holder[0] is None:
+        _decoy_phc_holder[0] = _get_password_hasher().hash(
+            _peppered_input("decoy-timing-parity-secret", _DECOY_SALT)
+        )
+    return _decoy_phc_holder[0]
+
+
+def run_decoy_secret_verify(secret: str) -> None:
+    """Run a throwaway argon2 verify to match ``verify_secret`` wall-clock.
+
+    ``secret_login`` must pay the argon2 cost even when the user or the
+    client-secret row is absent. Otherwise the not-found paths (which return the
+    same generic "Invalid credentials" as a wrong secret) answer measurably
+    faster than the real verify, letting an attacker enumerate which
+    (user_id, client_id) pairs actually have a registered secret. The verify
+    always mismatches; the result is intentionally discarded. ``_peppered_input``
+    HMACs ``secret`` to a fixed-length digest, so argon2 cost is independent of
+    the supplied secret's length.
+    """
+    try:
+        _get_password_hasher().verify(_get_decoy_phc(), _peppered_input(secret, _DECOY_SALT))
+    except (Argon2Error, InvalidHashError):
+        pass
+
+
 def generate_secret_value() -> str:
     """Generate a secure random secret value."""
     cfg = _get_auth_config()
@@ -284,7 +323,7 @@ async def build_secret_record(
         else generate_secret_value()
     )
     salt = secrets.token_hex(16)
-    secret_hash = hash_secret(secret_value, salt)
+    secret_hash = await run_argon2(hash_secret, secret_value, salt)
 
     auth_repo = get_auth_repository()
     record_id = await auth_repo.async_replace_active_client_secret(

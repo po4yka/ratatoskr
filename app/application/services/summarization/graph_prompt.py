@@ -107,10 +107,11 @@ _UNTRUSTED_SOURCE_END = "</untrusted_source_content>"
 
 
 def select_max_tokens(content_text: str, *, configured_max: int | None) -> int | None:
-    """Dynamic output-token budget: clamp(input//2 + 1024, 1536, 12288).
+    """Dynamic output-token budget.
 
-    With a configured ceiling, clamp it DOWN to the dynamic budget (floor 1536).
-    Verbatim parity with ``PureSummaryService.select_max_tokens``.
+    Returns ``clamp(input // 2 + 1024, _MIN_OUTPUT_TOKENS, _MAX_OUTPUT_TOKENS)``
+    (currently 16384..32768). With a configured ceiling, the budget is clamped
+    DOWN to that dynamic value but never below the ``_MIN_OUTPUT_TOKENS`` floor.
     """
     approx_input_tokens = count_tokens(content_text)
     dynamic_budget = max(

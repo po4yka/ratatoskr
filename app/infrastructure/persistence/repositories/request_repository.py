@@ -151,13 +151,18 @@ class RequestRepositoryAdapter:
             )
             return int(value) if value is not None else None
 
-    async def async_get_all_for_user(self, user_id: int) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
+        stmt = select(Request).where(Request.user_id == user_id)
+        if since > 0:
+            # Incremental sync: only rows changed past the client's cursor, pushed to
+            # the DB so a poll never re-reads the user's entire lifetime history and
+            # discards it in memory (audit #2). server_version is a global monotonic
+            # counter, so this is equivalent to the caller's server_version > since
+            # pagination filter.
+            stmt = stmt.where(Request.server_version > since)
+        stmt = stmt.order_by(Request.id)
         async with self._database.session() as session:
-            rows = (
-                await session.execute(
-                    select(Request).where(Request.user_id == user_id).order_by(Request.id)
-                )
-            ).scalars()
+            rows = (await session.execute(stmt)).scalars()
             return [model_to_dict(row) or {} for row in rows]
 
     async def async_get_request_id_by_url_with_summary(self, user_id: int, url: str) -> int | None:

@@ -32,6 +32,7 @@ from app.db.models.repository import (
     UserRepositoryWatch,
 )
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
+from app.di.repositories import build_llm_repository
 from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
 from app.observability.metrics_repositories import (
@@ -1028,7 +1029,7 @@ def _build_analyze_use_case(db: Database, settings: AppConfig) -> Any:
         environment=settings.vector_store.environment,
         user_scope=settings.vector_store.user_scope,
     )
-    agent = RepoAnalysisAgent(llm_service=llm_client)
+    agent = RepoAnalysisAgent(llm_service=llm_client, llm_repo=build_llm_repository(db))
     repository_repo = RepositoryAnalysisRepositoryAdapter(db)
     return AnalyzeRepositoryUseCase(
         repository_repo=repository_repo,

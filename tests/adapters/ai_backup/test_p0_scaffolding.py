@@ -13,7 +13,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.config.ai_backup import AiBackupConfig
-from app.db.models.ai_backup import AiAccountBackup, AiBackupService, AiBackupStatus
+from app.db.models.ai_backup import (
+    AiAccountBackup,
+    AiBackupAuthorizationStatus,
+    AiBackupService,
+    AiBackupStatus,
+)
 from app.tasks.ai_backup_sync import _enabled_services
 
 
@@ -27,6 +32,8 @@ def test_config_defaults_disabled() -> None:
     assert cfg.notify_on == "never"
     assert "claude.ai" in cfg.host_allowlist
     assert "chatgpt.com" in cfg.host_allowlist
+    assert cfg.max_response_bytes < cfg.max_run_bytes
+    assert cfg.min_free_bytes > 0
 
 
 def test_any_service_enabled_toggles() -> None:
@@ -58,6 +65,19 @@ def test_absolute_data_path_accepted() -> None:
     assert AiBackupConfig(data_path="/srv/ai-backups").data_path == "/srv/ai-backups"
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"max_response_bytes": 0},
+        {"max_run_bytes": 0},
+        {"min_free_bytes": -1},
+    ],
+)
+def test_backup_byte_caps_reject_invalid_values(kwargs: dict) -> None:
+    with pytest.raises(ValidationError):
+        AiBackupConfig(**kwargs)
+
+
 def test_invalid_notify_on_rejected() -> None:
     with pytest.raises(ValidationError):
         AiBackupConfig(notify_on="sometimes")
@@ -87,6 +107,12 @@ def test_enum_values_stable() -> None:
         "failed",
         "auth_expired",
         "disabled",
+    }
+    assert {s.value for s in AiBackupAuthorizationStatus} == {
+        "missing",
+        "unverified",
+        "valid",
+        "expired",
     }
 
 

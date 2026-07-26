@@ -418,4 +418,8 @@ async def test_pat_insufficient_scope_returns_422(client: Any, db: Database, gh_
         )
 
     assert resp.status_code == 422
-    assert "repo" in resp.json()["detail"]
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "github_token_invalid"
+    assert "repo" in body["error"]["message"]
+    assert body["error"]["correlation_id"]

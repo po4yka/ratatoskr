@@ -152,3 +152,72 @@ async def test_toggle_save_invalidates_exact_cache_key(monkeypatch: pytest.Monke
 
     assert result is True
     assert "42" not in store._summary_cache
+
+
+@pytest.mark.asyncio
+async def test_lookup_retry_url_returns_url_for_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _make_store()
+    monkeypatch.setattr(
+        store._request_repo,
+        "async_get_latest_request_by_correlation_id",
+        AsyncMock(return_value={"user_id": 100, "input_url": "https://example.com/x"}),
+    )
+
+    assert await store.lookup_retry_url("orig-cid", 100) == "https://example.com/x"
+
+
+@pytest.mark.asyncio
+async def test_lookup_retry_url_denies_other_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _make_store()
+    monkeypatch.setattr(
+        store._request_repo,
+        "async_get_latest_request_by_correlation_id",
+        AsyncMock(return_value={"user_id": 100, "input_url": "https://example.com/x"}),
+    )
+
+    # A different user replaying the embedded correlation id gets nothing.
+    assert await store.lookup_retry_url("orig-cid", 999) is None
+
+
+@pytest.mark.asyncio
+async def test_summary_belongs_to_user_checks_request_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _make_store()
+    monkeypatch.setattr(
+        store._summary_repo,
+        "async_get_summary_context_by_id",
+        AsyncMock(return_value={"request": {"user_id": 100}}),
+    )
+
+    assert await store.summary_belongs_to_user("42", 100) is True
+    assert await store.summary_belongs_to_user("42", 999) is False
+
+
+@pytest.mark.asyncio
+async def test_summary_belongs_to_user_req_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _make_store()
+    monkeypatch.setattr(
+        store._request_repo,
+        "async_get_request_by_id",
+        AsyncMock(return_value={"user_id": 100}),
+    )
+
+    assert await store.summary_belongs_to_user("req:7", 100) is True
+    assert await store.summary_belongs_to_user("req:7", 1) is False
+
+
+@pytest.mark.asyncio
+async def test_summary_belongs_to_user_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _make_store()
+
+    # Unparseable id never reaches the repo.
+    assert await store.summary_belongs_to_user("not-an-int", 100) is False
+
+    # Missing summary / no owning request denies.
+    monkeypatch.setattr(
+        store._summary_repo,
+        "async_get_summary_context_by_id",
+        AsyncMock(return_value=None),
+    )
+    assert await store.summary_belongs_to_user("42", 100) is False

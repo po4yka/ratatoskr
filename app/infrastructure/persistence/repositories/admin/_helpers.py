@@ -76,6 +76,9 @@ def _redact_message(message: Any, *, max_len: int = 240) -> str | None:
     text = str(message)
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub(_redact_match, text)
+    redaction_end = text.find("[REDACTED]")
+    if redaction_end >= 0:
+        text = text[: redaction_end + len("[REDACTED]")]
     text = text.replace("\n", " ").replace("\r", " ").strip()
     if len(text) > max_len:
         return f"{text[: max_len - 3]}..."

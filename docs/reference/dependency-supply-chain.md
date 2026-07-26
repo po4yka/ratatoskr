@@ -2,7 +2,7 @@
 
 Ratatoskr's dependency resolution uses a private Safety CLI index in addition to PyPI and a CPU-only PyTorch extra index. This document explains the resolution topology, the failure modes that emerge when a subscription lapses, and the layered defenses that prevent a yanked or malicious release from entering the lock or the installed environment.
 
-**Last Updated:** 2026-06-15
+**Last Updated:** 2026-07-18
 
 ---
 
@@ -70,36 +70,28 @@ The `ci.yml` lockfile-freshness job (`check-lock`) verifies that committed `requ
 
 ---
 
-## The `graph` optional extra (LangGraph supply chain)
+## Base LangGraph runtime supply chain
 
-ADR-0001 was reversed (2026-06-15): LangGraph + langchain-core are re-adopted to orchestrate the summarize pipeline as a checkpointed state graph (see `docs/decisions/0001-no-langgraph.md`, `0004`, `0015`). The dependencies live behind an optional `graph` extra in `pyproject.toml`, so the **default image is unaffected** — it does not install the extra (verify: the default Dockerfile extra set `ml youtube export scheduler mcp api browser_scraper attachment otel` resolves with neither `langgraph-checkpoint-postgres` nor `psycopg-pool`).
+ADR-0001 was reversed on 2026-06-15 and the graph subsequently became the sole summarize path (see ADR-0013/0015). Since 2026-07-18, LangGraph and its PostgreSQL checkpointer are base dependencies rather than an optional extra. A plain `uv sync`, the bot image, the API image, `requirements.txt`, and `requirements-all.txt` therefore all contain the real execution engine. This prevents a minimal developer install from silently collecting only mock/InMemory graph tests while production runs a different dependency surface.
 
-The extra declares five direct dependencies — `langgraph>=1.2.4,<2`, `langchain-core>=1.4.0,<2`, `langgraph-checkpoint-postgres>=3,<4`, `psycopg[binary]>=3.3.4`, `psycopg-pool>=3.2`. The `>=3` floor on `langgraph-checkpoint-postgres` is load-bearing: the 3.x line declares `langgraph-checkpoint<5,>=4.1.0` and resolves it to 4.1.0 — the same version langgraph 1.x pins — whereas a `<3` cap selects a 2.x release that conflicts with `langgraph-checkpoint>=4.1.0` and fails to resolve. `langchain-openai` and `langchain-qdrant` are deliberately excluded (structured output stays on `instructor` per ADR-0006; retrieval reuses our own Qdrant client).
+The direct constraints in `pyproject.toml` and their current `uv.lock` resolutions are:
 
-### Transitive closure of the `graph` extra (19 over the zero-extra base; only 2 net-new to the lock)
+| Direct dependency | Constraint | Locked version | Role |
+|---|---|---|---|
+| `langgraph` | `>=1.2.6,<2` | 1.2.6 | State-graph runtime |
+| `langchain-core` | `>=1.4.8,<2` | 1.4.8 | Callback/message primitives used by LangGraph streaming |
+| `langgraph-checkpoint` | `>=4.1.1,<5` | 4.1.1 | Checkpoint base; 4.1.1 is the security floor for GHSA-fjqc-hq36-qh5p |
+| `langgraph-checkpoint-postgres` | `>=3,<4` | 3.1.0 | `AsyncPostgresSaver` implementation |
+| `psycopg[binary]` | `>=3.3.4` | 3.3.4 | PostgreSQL driver required by the saver |
+| `psycopg-pool` | `>=3.2` | 3.3.1 | Dedicated checkpoint connection pool |
 
-The table below is `uv export --extra graph` minus the zero-extra base export, so it lists the extra's full closure. **Only two of these are net-new `uv.lock` nodes** — the rest were already locked transitively before this change (the langchain/langgraph ecosystem via `scrapegraphai`/`scraper_ai`, `psycopg[binary]` already in the base, `websockets` via `uvicorn`).
-
-| Package | Version | Role |
-|---|---|---|
-| `langgraph` | 1.2.4 | State-graph runtime |
-| `langgraph-checkpoint` | 4.1.0 | Checkpoint base (transitive) |
-| `langgraph-checkpoint-postgres` | 3.1.0 | Postgres checkpointer (`AsyncPostgresSaver`) |
-| `langgraph-prebuilt` | 1.1.0 | Prebuilt graph helpers (transitive) |
-| `langgraph-sdk` | 0.4.2 | SDK types (transitive) |
-| `langchain-core` | 1.4.0 | Core message/runnable types |
-| `langchain-protocol` | 0.0.15 | Protocol shims (transitive) |
-| `langsmith` | 0.8.0 | Tracing client (transitive; unused — we use OTel) |
-| `psycopg` / `psycopg-binary` | 3.3.4 | psycopg3 driver for the checkpointer (ADR-0004) |
-| `psycopg-pool` | 3.3.1 | psycopg3 connection pool |
-| `jsonpatch` 1.33, `jsonpointer` 3.1.1, `ormsgpack` 1.12.2, `requests-toolbelt` 1.0.0, `uuid-utils` 0.14.1, `websockets` 15.0.1, `xxhash` 3.7.0, `zstandard` 0.25.0 | — | Supporting transitive deps |
-
-**Net-new to `uv.lock`:** only `langgraph-checkpoint-postgres` and `psycopg-pool`. The still-banned `langchain`, `langchain-community`, and `langchain-openai` are present only as transitive deps of `scrapegraphai` — never imported directly (enforced by the ruff banned-api guard). The `graph` extra therefore mostly *promotes* already-locked packages to direct dependencies.
+The `langgraph-checkpoint-postgres>=3` floor is load-bearing: the 3.x line is compatible with `langgraph-checkpoint` 4.x. Structured output remains on `instructor` and retrieval uses the existing Qdrant client, so `langchain-openai` and `langchain-qdrant` are not direct dependencies. Ruff continues to ban direct imports of the kitchen-sink `langchain`, `langchain-community`, and `langchain-openai` packages.
 
 ### Export and scanning policy
 
-- The `graph` extra is **not** included in the committed `requirements-all.txt` (the test-image export) — no runtime code imports langgraph yet, so the test image stays graph-free until a later track adds importing code and tests. `uv.lock` still resolves the extra (the two new nodes appear), so the lockfile-drift gate stays green with no change to the `make lock-uv` / `ci.yml` export commands.
-- The `graph` extra **is** added to the comprehensive `requirements-safety.txt` export in `ci.yml` so Safety / pip-audit / OSV scan its full surface. langchain/langgraph advisories were already in scope via `scraper_ai`; this also covers `langgraph-checkpoint-postgres` and `psycopg-pool`. When a `langchain*` advisory is disclosed, triage it the same way as any other index-protected package and add a `!=` clause if a release must be excluded.
+- `requirements.txt` is the base runtime export and includes LangGraph, `langgraph-checkpoint-postgres`, psycopg, and psycopg-pool.
+- `requirements-all.txt` adds the API/ML/YouTube/export/scheduler/MCP extras on top of that same base and therefore includes the graph stack too. Both production Dockerfiles install from the base project plus their service extras; no `--extra graph` switch exists.
+- The comprehensive security export in `ci.yml` starts from the same base and adds every optional feature extra, so Safety, pip-audit, and OSV always scan the graph stack. When a LangGraph/LangChain advisory is disclosed, triage it like any other base-runtime advisory and add a resolver exclusion or raise a direct floor when required.
 
 ---
 

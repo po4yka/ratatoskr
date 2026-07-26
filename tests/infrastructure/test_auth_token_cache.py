@@ -71,12 +71,22 @@ async def test_auth_token_cache_noops_when_disabled() -> None:
 
     assert service.enabled is False
     assert await service.get_token("abc") is None
-    assert await service.set_token("abc", user_id=1, client_id=None, expires_at="soon") is False
+    assert (
+        await service.set_token(
+            "abc",
+            user_id=1,
+            client_id=None,
+            expires_at="soon",
+            remember_me=True,
+            family_id="family-abc",
+        )
+        is False
+    )
     assert await service.invalidate_token("abc") is False
 
 
 @pytest.mark.asyncio
-async def test_auth_token_cache_stores_datetime_and_token_id() -> None:
+async def test_auth_token_cache_stores_rotation_policy_fields() -> None:
     cache = _cache()
     service = AuthTokenCache(_redis(cache), _cfg())
 
@@ -87,6 +97,9 @@ async def test_auth_token_cache_stores_datetime_and_token_id() -> None:
         expires_at=datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc),
         is_revoked=False,
         token_id=99,
+        remember_me=False,
+        family_id="family-123",
+        parent_token_hash="parent-456",
     )
 
     assert ok is True
@@ -98,6 +111,9 @@ async def test_auth_token_cache_stores_datetime_and_token_id() -> None:
                 "expires_at": "2026-01-02T03:04:00+00:00",
                 "is_revoked": False,
                 "id": 99,
+                "remember_me": False,
+                "family_id": "family-123",
+                "parent_token_hash": "parent-456",
             },
             "ttl_seconds": 123,
             "parts": ("auth", "token", "abc123456"),
@@ -106,11 +122,33 @@ async def test_auth_token_cache_stores_datetime_and_token_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_auth_token_cache_get_and_mark_revoked_round_trip() -> None:
-    cache = _cache(cached={"user_id": 7, "is_revoked": False})
+async def test_auth_token_cache_treats_legacy_rotation_metadata_as_a_miss() -> None:
+    cache = _cache(
+        cached={
+            "user_id": 42,
+            "client_id": "mobile",
+            "expires_at": "2026-01-02T03:04:00+00:00",
+            "is_revoked": False,
+        }
+    )
     service = AuthTokenCache(_redis(cache), _cfg())
 
-    assert await service.get_token("hash-value") == {"user_id": 7, "is_revoked": False}
+    assert await service.get_token("legacy-token") is None
+
+
+@pytest.mark.asyncio
+async def test_auth_token_cache_get_and_mark_revoked_round_trip() -> None:
+    cached = {
+        "user_id": 7,
+        "is_revoked": False,
+        "remember_me": True,
+        "family_id": "family-7",
+        "parent_token_hash": None,
+    }
+    cache = _cache(cached=cached)
+    service = AuthTokenCache(_redis(cache), _cfg())
+
+    assert await service.get_token("hash-value") == cached
     assert await service.mark_revoked("hash-value") is True
 
     assert cache.set_calls[-1]["value"]["is_revoked"] is True

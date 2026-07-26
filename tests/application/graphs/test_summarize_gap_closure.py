@@ -23,6 +23,7 @@ from app.application.graphs.summarize.nodes import (
     summarize,
 )
 from app.application.graphs.summarize.state import SummarizeState
+from app.application.ports.summaries import SummaryFinalizeResult
 from app.application.services.summarization.metadata_backfill import (
     _extract_heading_title,
     _flatten_crawl_metadata,
@@ -53,6 +54,7 @@ def _config(**over: Any) -> SummarizeConfig:
 
 def _deps(**over: Any) -> SummarizeDeps:
     m = MagicMock()
+    m.async_update_request_status = AsyncMock()
     defaults: dict[str, Any] = {
         "llm_client": m,
         "retrieval": m,
@@ -541,18 +543,17 @@ async def test_gap3b_enrich_node_records_llm_call_in_llm_calls() -> None:
     assert rec["request_id"] == 42
 
 
-async def test_gap3b_enrich_node_no_llm_calls_on_exception() -> None:
-    """When enrich_two_pass raises internally, no llm_calls record (call_meta=None)."""
+async def test_gap3b_enrich_node_persists_failed_attempt_on_exception() -> None:
     llm = SimpleNamespace(chat=AsyncMock(side_effect=RuntimeError("enrich boom")))
     deps = _deps(llm_client=llm, config=_config(two_pass_enabled=True))
     state = _state(summary={"summary_250": "s"}, content_for_summary="c", lang="en")
     out = await enrich(state, deps=deps)
-    # enrich_two_pass swallows the exception and returns (summary, None)
-    assert out.get("llm_calls") is None or out.get("llm_calls") == []
+    assert len(out["llm_calls"]) == 1
+    assert out["llm_calls"][0]["status"] == "error"
+    assert out["llm_calls"][0]["error_text"] == "enrich boom"
 
 
-async def test_fix5_enrich_node_no_llm_calls_when_provider_status_not_ok() -> None:
-    """FIX-5: enrich_two_pass returns call_meta=None on non-OK status; no row written."""
+async def test_fix5_enrich_node_persists_provider_failure_status() -> None:
     llm = SimpleNamespace(
         chat=AsyncMock(
             return_value=SimpleNamespace(
@@ -570,8 +571,9 @@ async def test_fix5_enrich_node_no_llm_calls_when_provider_status_not_ok() -> No
     deps = _deps(llm_client=llm, config=_config(two_pass_enabled=True))
     state = _state(summary={"summary_250": "s"}, content_for_summary="c", lang="en")
     out = await enrich(state, deps=deps)
-    # Non-OK: enrich_two_pass now returns (summary, None), enrich node must not write a row
-    assert out.get("llm_calls") is None or out.get("llm_calls") == []
+    assert len(out["llm_calls"]) == 1
+    assert out["llm_calls"][0]["status"] == "error"
+    assert out["llm_calls"][0]["error_text"] == "provider error"
 
 
 # ===========================================================================
@@ -591,11 +593,13 @@ async def test_gap4_persist_backfills_canonical_url_from_request() -> None:
     request_repo = SimpleNamespace(
         async_get_request_by_id=AsyncMock(
             return_value={"normalized_url": "https://example.com/article"}
-        )
+        ),
+        async_update_request_status=AsyncMock(),
     )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_persist_summary_with_llm_calls=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
@@ -612,8 +616,8 @@ async def test_gap4_persist_backfills_canonical_url_from_request() -> None:
         source_text="article text",
     )
     out = await persist(state, deps=deps)
-    # The summary passed to async_finalize_request_summary should have canonical_url
-    call_kwargs = summary_repo.async_finalize_request_summary.call_args.kwargs
+    # The atomically persisted summary should have canonical_url.
+    call_kwargs = summary_repo.async_persist_summary_with_llm_calls.call_args.kwargs
     saved = call_kwargs["json_payload"]
     assert saved.get("metadata", {}).get("canonical_url") == "https://example.com/article"
 
@@ -630,11 +634,13 @@ async def test_gap4_persist_backfills_domain_from_url() -> None:
     request_repo = SimpleNamespace(
         async_get_request_by_id=AsyncMock(
             return_value={"normalized_url": "https://news.example.org/story"}
-        )
+        ),
+        async_update_request_status=AsyncMock(),
     )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_persist_summary_with_llm_calls=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
@@ -646,7 +652,7 @@ async def test_gap4_persist_backfills_domain_from_url() -> None:
     )
     state = _state(summary=summary, request_id=42, lang="en")
     await persist(state, deps=deps)
-    call_kwargs = summary_repo.async_finalize_request_summary.call_args.kwargs
+    call_kwargs = summary_repo.async_persist_summary_with_llm_calls.call_args.kwargs
     saved = call_kwargs["json_payload"]
     assert "example.org" in saved.get("metadata", {}).get("domain", "")
 
@@ -660,10 +666,14 @@ async def test_gap4_persist_backfills_title_from_heading() -> None:
         "metadata": {},
     }
     crawl_repo = SimpleNamespace(async_get_crawl_result_by_request=AsyncMock(return_value=None))
-    request_repo = SimpleNamespace(async_get_request_by_id=AsyncMock(return_value=None))
+    request_repo = SimpleNamespace(
+        async_get_request_by_id=AsyncMock(return_value=None),
+        async_update_request_status=AsyncMock(),
+    )
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_persist_summary_with_llm_calls=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
@@ -680,7 +690,7 @@ async def test_gap4_persist_backfills_title_from_heading() -> None:
         source_text="# My Article Title\n\nBody text here.",
     )
     await persist(state, deps=deps)
-    call_kwargs = summary_repo.async_finalize_request_summary.call_args.kwargs
+    call_kwargs = summary_repo.async_persist_summary_with_llm_calls.call_args.kwargs
     saved = call_kwargs["json_payload"]
     assert saved.get("metadata", {}).get("title") == "My Article Title"
 
@@ -694,19 +704,21 @@ async def test_gap4_persist_skipped_when_crawl_repo_none() -> None:
         "metadata": {},
     }
     summary_repo = SimpleNamespace(
-        async_finalize_request_summary=AsyncMock(),
-        async_get_summary_id_by_request=AsyncMock(return_value=99),
+        async_persist_summary_with_llm_calls=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        ),
     )
     summary_index = SimpleNamespace(index_summary=AsyncMock())
     deps = _deps(
         crawl_repo=None,
+        requests=SimpleNamespace(async_update_request_status=AsyncMock()),
         summaries=summary_repo,
         summary_index=summary_index,
         llm_repo=None,
     )
     state = _state(summary=summary, request_id=42, lang="en")
     out = await persist(state, deps=deps)
-    summary_repo.async_finalize_request_summary.assert_awaited_once()
+    summary_repo.async_persist_summary_with_llm_calls.assert_awaited_once()
 
 
 async def test_gap4_backfill_crawl_metadata_applied() -> None:

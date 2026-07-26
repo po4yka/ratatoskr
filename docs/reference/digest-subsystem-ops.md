@@ -16,9 +16,9 @@ Taskiq Worker process  (one or more replicas)
               ├─ UserbotClient.start()        ← Telethon userbot session
               ├─ DigestService.generate_digest() per user
               │     ├─ ChannelReader   → fetch posts via userbot
-              │     ├─ DigestAnalyzer  → LLM analysis (OpenRouter)
+              │     ├─ DigestAnalyzer  → configured LLM analysis
               │     ├─ DigestFormatter → Telegram message chunks
-              │     └─ SqliteDigestStore.create_delivery() → DigestDelivery row
+              │     └─ DigestStore.async_create_delivery() → DigestDelivery row
               └─ UserbotClient.stop()
 ```
 
@@ -46,7 +46,7 @@ The scheduler and workers run as separate processes (see `ops/docker/`):
 taskiq scheduler app.tasks.scheduler:scheduler
 
 # Worker — consumes and executes tasks
-taskiq worker app.tasks.broker:broker app.tasks.digest app.tasks.rss
+python -m app.cli.taskiq_worker app.tasks.digest app.tasks.rss
 ```
 
 In Docker Compose, these are the `scheduler` and `worker` services.

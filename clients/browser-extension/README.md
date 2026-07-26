@@ -108,7 +108,7 @@ Requires `cairosvg` (`pip install cairosvg`) or use any SVG-to-PNG converter at 
 
 ## Design Tokens
 
-The browser extension does not consume the web token source in Phase 4. The shared token JSON lives at `clients/web/tokens/tokens.json`; extension CSS stays hand-maintained until the extension has a build step that can copy or transform those tokens without duplicating partial values.
+The browser extension does not currently consume the external web application's design-token build. Its CSS is maintained locally until the extension gains an explicit token import/build step.
 
 ## Project Structure
 

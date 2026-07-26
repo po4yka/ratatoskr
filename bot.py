@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
+from functools import partial
 from typing import Any
 
 from app.adapters.telegram.telegram_bot import TelegramBot
@@ -22,9 +24,11 @@ except ImportError:  # pragma: no cover
 
 async def main() -> None:
     cfg = load_config()
+    from app.observability.metrics_http import start_metrics_http_server_from_env
     from app.observability.otel import init_tracing
 
     init_tracing(cfg)
+    start_metrics_http_server_from_env()
     cfg_holder = ConfigHolder(cfg)
 
     # Log active model configuration at startup
@@ -60,14 +64,6 @@ async def main() -> None:
     db_write_queue = DbWriteQueue(maxsize=256)
     db_write_queue.start()
 
-    bot = TelegramBot(
-        cfg=cfg_holder,  # type: ignore[arg-type]
-        db=db,
-        runtime_builder=build_telegram_runtime,
-        audit_repository_builder=build_audit_log_repository,
-        db_write_queue=db_write_queue,
-    )
-
     # Start the taskiq broker in producer mode (not worker mode — the worker
     # process runs separately via `taskiq worker app.tasks.broker:broker`).
     broker: Any = None
@@ -86,7 +82,21 @@ async def main() -> None:
     # failure-isolated; ADR-0004). Dedicated psycopg3 pool -- not Database.
     # Started inside the try so the finally below always tears the pool down.
     checkpointer_runtime: Any = None
+    bot: TelegramBot | None = None
+    credential_refresh: asyncio.Task[None] | None = None
     try:
+        # Credentials installed through the web UI land in the API process;
+        # the LLM calls happen here. Polling carries the change across the
+        # container boundary and reaches live clients via the ConfigHolder
+        # listeners that /setmodel already established.
+        owner_id = next(iter(cfg.telegram.allowed_user_ids), None)
+        if owner_id is not None:
+            from app.config.credential_reloader import start_credential_refresh_task
+            from app.infrastructure.persistence.credential_store import CredentialStore
+
+            credential_refresh = start_credential_refresh_task(
+                cfg_holder, CredentialStore(db), owner_id=owner_id
+            )
         if cfg.langgraph_checkpoint.enabled:
             try:
                 from app.infrastructure.checkpointing import CheckpointerRuntime
@@ -98,12 +108,29 @@ async def main() -> None:
                     "langgraph_checkpointer_startup_failed", exc_info=True
                 )
                 checkpointer_runtime = None
+        bot = TelegramBot(
+            cfg=cfg_holder,  # type: ignore[arg-type]
+            db=db,
+            runtime_builder=partial(
+                build_telegram_runtime,
+                checkpointer=checkpointer_runtime.saver
+                if checkpointer_runtime is not None
+                else None,
+            ),
+            audit_repository_builder=build_audit_log_repository,
+            db_write_queue=db_write_queue,
+        )
         await bot.start()
     finally:
-        try:
-            await bot.message_handler.message_router.coalescer.shutdown()
-        except Exception:
-            logging.getLogger(__name__).warning("coalescer_shutdown_failed", exc_info=True)
+        if credential_refresh is not None:
+            credential_refresh.cancel()
+            with suppress(asyncio.CancelledError):
+                await credential_refresh
+        if bot is not None:
+            try:
+                await bot.message_handler.message_router.coalescer.shutdown()
+            except Exception:
+                logging.getLogger(__name__).warning("coalescer_shutdown_failed", exc_info=True)
         if checkpointer_runtime is not None:
             await checkpointer_runtime.stop(timeout=10.0)
         await db_write_queue.stop()

@@ -230,6 +230,7 @@ class CreateCustomDigestRequest(BaseModel):
     summary_ids: list[str] = Field(min_length=1)
     format: str = "markdown"
     title: str | None = None
+    mode: Literal["concatenated", "synthesized"] = "concatenated"
 
 
 class CreateHighlightRequest(BaseModel):

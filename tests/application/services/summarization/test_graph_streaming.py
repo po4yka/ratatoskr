@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from app.application.graphs.summarize.nodes.validate import validate
 from app.application.services.summarization.graph_llm import summarize_streaming
 from app.core.call_status import CallStatus
 
@@ -104,7 +105,7 @@ async def _noop(_delta: str) -> None:
 
 async def test_streaming_parses_response_json_and_builds_call_meta() -> None:
     llm = _FakeLLM(response_json={"summary_250": "S", "tldr": "T"})
-    summary, call_meta = await summarize_streaming(
+    summary, call_metas, call_count = await summarize_streaming(
         llm_client=llm,
         messages=_MESSAGES,
         source_content="src",
@@ -116,15 +117,20 @@ async def test_streaming_parses_response_json_and_builds_call_meta() -> None:
     )
     assert summary["summary_250"] == "S"
     assert summary["tldr"] == "T"
-    assert call_meta == {
-        "model": "m1",
-        "tokens_prompt": 10,
-        "tokens_completion": 20,
-        "cost_usd": 0.01,
-        "latency_ms": 123,
-    }
+    assert call_metas == [
+        {
+            "model": "m1",
+            "status": "ok",
+            "tokens_prompt": 10,
+            "tokens_completion": 20,
+            "cost_usd": 0.01,
+            "latency_ms": 123,
+            "error_text": None,
+        }
+    ]
     # Requested streaming from the provider.
     assert llm.chat_kwargs.get("stream") is True
+    assert call_count == 1
 
 
 async def test_streaming_honors_json_schema_structured_output_mode() -> None:
@@ -169,7 +175,7 @@ async def test_streaming_defaults_to_json_object_when_mode_unset() -> None:
 
 async def test_streaming_falls_back_to_text_when_no_response_json() -> None:
     llm = _FakeLLM(response_text='{"summary_250": "from text"}')
-    summary, _ = await summarize_streaming(
+    summary, _, _call_count = await summarize_streaming(
         llm_client=llm,
         messages=_MESSAGES,
         source_content="src",
@@ -220,16 +226,22 @@ async def test_streaming_raises_on_non_ok_status() -> None:
         )
 
 
-async def test_streaming_raises_when_no_json_object() -> None:
+async def test_streaming_routes_unparseable_output_to_validation_repair() -> None:
     llm = _FakeLLM(response_text="not json at all")
-    with pytest.raises(ValueError, match=r"no parseable JSON|no JSON object"):
-        await summarize_streaming(
-            llm_client=llm,
-            messages=_MESSAGES,
-            source_content="src",
-            max_tokens=None,
-            model_override=None,
-            temperature=0.2,
-            structured_output_mode=None,
-            on_token=_noop,
-        )
+    summary, call_metas, _call_count = await summarize_streaming(
+        llm_client=llm,
+        messages=_MESSAGES,
+        source_content="src",
+        max_tokens=None,
+        model_override=None,
+        temperature=0.2,
+        structured_output_mode=None,
+        on_token=_noop,
+    )
+
+    assert summary["__raw_stream_response__"] == "not json at all"
+    assert summary["__stream_parse_error__"]
+    assert call_metas[0]["model"] == "m1"
+
+    validation = await validate({"summary": summary}, deps=SimpleNamespace(graph_run_ledger=None))
+    assert validation["validation_errors"]

@@ -8,7 +8,7 @@ How Ratatoskr extracts clean article content from arbitrary URLs: the provider t
 
 ## Overview
 
-`ContentScraperChain` is the content-extraction layer that sits between `URLProcessor` and the LLM summarization step. It holds an ordered list of provider instances and tries each in turn until one returns substantive, high-quality content. Every provider implements `ContentScraperProtocol` and returns a `FirecrawlResult`, so downstream code never needs to know which provider actually served the request; the `endpoint` field on the returned result is set to the winning provider's name (or `"chain"` on total failure). Results are persisted to the `crawl_results` table regardless of outcome.
+`ContentScraperChain` implements the generic extraction port used by the summarize graph's `extract` node. It holds an ordered list of provider instances and tries each in turn until one returns substantive, high-quality content. Every provider implements `ContentScraperProtocol` and returns a `FirecrawlResult`, so downstream code never needs to know which provider served the request; the `endpoint` field names the winner (or `"chain"` on total failure). Results are persisted to `crawl_results` regardless of outcome.
 
 ---
 
@@ -51,7 +51,7 @@ Every successful scrape stamps the seed, timezone, locale, humanize path (`patch
 
 ```mermaid
 flowchart TD
-    Start([URL ingested via URLProcessor]) --> JsCheck{JS-heavy host?\nSCRAPER_JS_HEAVY_HOSTS}
+    Start(["URL reaches graph extract node"]) --> JsCheck{"JS-heavy host?\nSCRAPER_JS_HEAVY_HOSTS"}
     JsCheck -- yes --> Reorder[Browser providers reordered to front]
     JsCheck -- no --> Reddit
 

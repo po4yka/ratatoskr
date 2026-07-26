@@ -48,30 +48,17 @@ python -m app.cli.summary "/summarize https://example.com/article"
 Standalone test scripts are bundled with this skill in `./scripts/`. Run them directly:
 
 ```bash
-python .claude/skills/testing-workflows/scripts/test-url-normalization.py
-python .claude/skills/testing-workflows/scripts/test-summary-validation.py
-python .claude/skills/testing-workflows/scripts/test-language-detection.py
-python .claude/skills/testing-workflows/scripts/test-access-control.py
+.venv/bin/python .claude/skills/testing-workflows/scripts/test-url-normalization.py
+.venv/bin/python .claude/skills/testing-workflows/scripts/test-summary-validation.py
+.venv/bin/python .claude/skills/testing-workflows/scripts/test-language-detection.py
+.venv/bin/python .claude/skills/testing-workflows/scripts/test-access-control.py
 ```
 
 ## Simulating Telegram Messages
 
 ### Message Models
 
-See `app/models/telegram/telegram_message.py` for data structures:
-
-```python
-from app.models.telegram.telegram_message import TelegramMessage
-from app.models.telegram.telegram_chat import TelegramChat
-
-test_message = TelegramMessage(
-    message_id=12345,
-    date=1234567890,
-    chat=TelegramChat(id=111, type="private"),
-    text="https://example.com/article",
-    from_user={"id": 123456789, "username": "testuser"}
-)
-```
+Telegram adapters receive Telethon message objects. Follow existing fixtures and `MagicMock`/`SimpleNamespace` shapes in `tests/adapters/telegram/` and `tests/test_command_dispatcher.py`; do not invent a parallel Telegram message model.
 
 ### Test Message Router
 
@@ -87,7 +74,7 @@ python -m app.cli.summary \
   --log-level DEBUG
 
 # Verify output
-cat test_output.json | python -m json.tool
+python -m json.tool test_output.json
 
 # Verify in database
 docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
@@ -139,12 +126,12 @@ python -m pytest tests/ --cov=app --cov-report=html
 - **Message Router**: `app/adapters/telegram/message_router.py`
 - **Access Controller**: `app/adapters/telegram/access_controller.py`
 - **URL Handler**: `app/adapters/telegram/url_handler.py`
-- **Command Processor**: `app/adapters/telegram/command_processor.py`
+- **Command Dispatcher**: `app/adapters/telegram/command_dispatcher.py`, `app/adapters/telegram/command_dispatch/`
 
 ## Important Notes
 
 - CLI runner does NOT send actual Telegram messages
 - Database operations work exactly like production
-- All validation logic is the same as the live bot
+- The summary validation script exercises both the strict provider schema and the tolerant compatibility mapper used by the live workflow
 - Use correlation IDs to trace requests across logs and DB
 - Test both English and Russian language flows

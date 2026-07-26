@@ -275,6 +275,8 @@ async def test_pipeline_uses_vtt_fallback_when_transcript_api_empty(tmp_path: Pa
     session_service.persist_success.assert_awaited_once()
     persisted = session_service.persist_success.await_args.kwargs
     assert persisted["transcript_source"] == "vtt"
+    # On full success the downloaded files are kept, never cleaned up.
+    session_service.cleanup_partial_download_files.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -314,6 +316,79 @@ async def test_pipeline_cleans_partial_files_after_error(tmp_path: Path) -> None
         )
 
     session_service.handle_failure.assert_awaited_once()
+    session_service.cleanup_partial_download_files.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_cleans_partial_files_when_extraction_fails_after_download(
+    tmp_path: Path,
+) -> None:
+    """Regression: a failure in post-download packaging must still clean up.
+
+    The download + persist succeed, then video_source_extractor.extract raises.
+    The request is marked failed and the downloaded files must be removed rather
+    than orphaned (previously the success flag was set before extraction, so the
+    finally-block cleanup was skipped and the files leaked).
+    """
+    session_service = MagicMock(spec=YouTubeDownloadSessionService)
+    session_service.storage_path = tmp_path / "videos"
+    session_service.storage_path.mkdir(parents=True, exist_ok=True)
+    session_service.mark_download_started = AsyncMock()
+    session_service.persist_success = AsyncMock()
+    session_service.handle_failure = AsyncMock()
+    session_service.cleanup_partial_download_files = MagicMock()
+    feedback_service = MagicMock(spec=YouTubeFeedbackService)
+    feedback_service.start = AsyncMock(
+        return_value=SimpleNamespace(
+            updater=None, typing_ctx=None, completed_stages=[], stage_start=0
+        )
+    )
+    feedback_service.mark_transcript_ready = AsyncMock()
+    feedback_service.mark_subtitle_fallback = AsyncMock()
+    feedback_service.finalize_success = AsyncMock()
+    feedback_service.finalize_error = AsyncMock()
+    pipeline: Any = YouTubeDownloadPipeline(
+        cfg=_make_cfg(tmp_path),
+        audit_func=lambda *_args, **_kwargs: None,
+        feedback_service=feedback_service,
+        session_service=session_service,
+    )
+    pipeline._extract_transcript_api = AsyncMock(return_value=("body", "en", False, "api"))
+    pipeline._download_video_sync = MagicMock(
+        return_value={
+            "title": "Example video",
+            "channel": "Channel",
+            "channel_id": "ch-1",
+            "duration": 123,
+            "upload_date": "20260101",
+            "view_count": 1000,
+            "like_count": 100,
+            "resolution": "1080p",
+            "file_size": 1024 * 1024,
+            "vcodec": "h264",
+            "acodec": "aac",
+            "format_id": "137+140",
+            "video_file_path": str(tmp_path / "videos" / "video.mp4"),
+            "thumbnail_file_path": str(tmp_path / "videos" / "thumb.jpg"),
+        }
+    )
+    # Download + persist succeed; packaging/extraction then fails.
+    pipeline._video_source_extractor = MagicMock()
+    pipeline._video_source_extractor.extract = MagicMock(
+        side_effect=RuntimeError("packaging failed")
+    )
+
+    with pytest.raises(RuntimeError, match="packaging failed"):
+        await pipeline.run(
+            request=_make_request(),
+            video_id="dQw4w9WgXcQ",
+            req_id=500,
+            download_id=900,
+        )
+
+    session_service.persist_success.assert_awaited_once()
+    session_service.handle_failure.assert_awaited_once()
+    # The fix: partial download files are cleaned up on post-download failure.
     session_service.cleanup_partial_download_files.assert_called_once()
 
 
@@ -360,6 +435,45 @@ async def test_session_service_uses_request_id_override_in_pure_mode(tmp_path: P
         video_id="dQw4w9WgXcQ",
         status="pending",
     )
+
+
+@pytest.mark.asyncio
+async def test_session_service_persists_download_paths_for_retention(tmp_path: Path) -> None:
+    repos = _youtube_repo_kwargs()
+    repos["video_repo"].async_update_video_download = AsyncMock()
+    repos["request_repo"].async_update_request_status = AsyncMock()
+    repos["request_repo"].async_update_request_lang_detected = AsyncMock()
+    session = YouTubeDownloadSessionService(
+        cfg=_make_cfg(tmp_path),
+        db=MagicMock(),
+        response_formatter=_make_response_formatter(),
+        audit_func=lambda *_args, **_kwargs: None,
+        lifecycle=_make_lifecycle(),
+        **repos,
+    )
+    paths = {
+        "video_file_path": str(tmp_path / "video.mp4"),
+        "subtitle_file_path": str(tmp_path / "captions.vtt"),
+        "metadata_file_path": str(tmp_path / "metadata.json"),
+        "thumbnail_file_path": str(tmp_path / "thumb.jpg"),
+    }
+
+    await session.persist_success(
+        req_id=10,
+        download_id=20,
+        video_metadata={"title": "Video", **paths},
+        transcript_text="body",
+        transcript_lang="en",
+        auto_generated=False,
+        transcript_source="vtt",
+        detected_lang="en",
+    )
+
+    persisted = repos["video_repo"].async_update_video_download.await_args.kwargs
+    assert {key: persisted[key] for key in paths} == paths
+    assert persisted["status"] == "completed"
+    assert persisted["download_completed_at"] is not None
+    repos["video_repo"].async_update_video_download_status.assert_not_called()
 
 
 @pytest.mark.asyncio

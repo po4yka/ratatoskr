@@ -88,6 +88,7 @@ async def build_api_runtime(
     *,
     db: Database | None = None,
     redis_client: Any | None = None,
+    checkpointer: Any | None = None,
 ) -> ApiRuntime:
     """Build the shared API runtime graph."""
     app_cfg = cfg or load_config(allow_stub_telegram=True)
@@ -132,6 +133,7 @@ async def build_api_runtime(
         firecrawl_client=core.firecrawl_client,
     )
     redis = redis_client if redis_client is not None else await get_redis(app_cfg)
+    progress_event_repository = ProgressEventRepository(database)
     url_processor = build_url_processor(
         cfg=app_cfg,
         db=database,
@@ -143,6 +145,8 @@ async def build_api_runtime(
         topic_search=search.topic_searcher if app_cfg.web_search.enabled else None,
         vector_store=search.vector_store,
         embedding_service=search.embedding_service,
+        checkpointer=checkpointer,
+        progress_event_repo=progress_event_repository,
     )
 
     def url_processor_factory(runtime_db: Any) -> Any:
@@ -157,6 +161,8 @@ async def build_api_runtime(
             topic_search=search.topic_searcher if app_cfg.web_search.enabled else None,
             vector_store=search.vector_store,
             embedding_service=search.embedding_service,
+            checkpointer=checkpointer,
+            progress_event_repo=progress_event_repository,
         )
 
     user_repository = build_user_repository(database)
@@ -165,7 +171,6 @@ async def build_api_runtime(
     crawl_result_repository = build_crawl_result_repository(database)
     llm_repository = build_llm_repository(database)
     transcription_repository = build_transcription_repository(database)
-    progress_event_repository = ProgressEventRepository(database)
     background_processor = BackgroundProcessor(
         cfg=app_cfg,
         db=database,
@@ -223,7 +228,7 @@ async def build_api_runtime(
     repository_analysis_repo = RepositoryAnalysisRepositoryAdapter(database)
     analyze_repository_use_case = AnalyzeRepositoryUseCase(
         repository_repo=repository_analysis_repo,
-        agent=RepoAnalysisAgent(llm_service=core.llm_client),
+        agent=RepoAnalysisAgent(llm_service=core.llm_client, llm_repo=llm_repository),
         embedding_gen=repository_embedding_gen,
     )
     github_platform_extractor = GitHubPlatformExtractor(

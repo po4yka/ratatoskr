@@ -86,6 +86,7 @@ async def test_aggregation_detail_resource_returns_session_payload() -> None:
 
     register_resources(
         mcp,
+        context=cast("Any", SimpleNamespace(user_id=1, client_id=None)),
         aggregation_service=cast("Any", aggregation_service),
         article_service=cast("Any", article_service),
         catalog_service=cast("Any", catalog_service),
@@ -142,6 +143,7 @@ def test_hosted_mcp_resource_uses_request_scoped_identity(mcp_test_db, monkeypat
 
     register_resources(
         mcp,
+        context=context,
         aggregation_service=aggregation_service,
         article_service=cast("Any", article_service),
         catalog_service=cast("Any", catalog_service),
@@ -182,3 +184,99 @@ def test_hosted_mcp_resource_uses_request_scoped_identity(mcp_test_db, monkeypat
     payload = response.json()
     assert payload["session"]["id"] == session_id
     assert payload["session"]["user"] == user_id
+
+
+def _rate_limit_services() -> dict[str, Any]:
+    return {
+        "aggregation_service": SimpleNamespace(
+            list_aggregation_bundles=AsyncMock(return_value={"sessions": []}),
+            get_aggregation_bundle=AsyncMock(return_value={"session": {"id": 1}}),
+        ),
+        "article_service": SimpleNamespace(
+            list_articles=AsyncMock(return_value={"items": []}),
+            unread_articles=AsyncMock(return_value={"items": []}),
+            get_stats=AsyncMock(return_value={"total": 1}),
+            tag_counts=AsyncMock(return_value={"items": []}),
+            entity_counts=AsyncMock(return_value={"items": []}),
+            domain_counts=AsyncMock(return_value={"items": []}),
+        ),
+        "catalog_service": SimpleNamespace(
+            list_collections=AsyncMock(return_value={"items": []}),
+            list_videos=AsyncMock(return_value={"items": []}),
+            processing_stats=AsyncMock(return_value={"jobs": 0}),
+        ),
+        "semantic_service": SimpleNamespace(
+            vector_health=AsyncMock(return_value={"status": "ok"}),
+            vector_index_stats=AsyncMock(return_value={"coverage": 1.0}),
+            vector_sync_gap=AsyncMock(return_value={"gap": 0}),
+        ),
+        "signal_service": SimpleNamespace(
+            list_sources=AsyncMock(return_value={"sources": []}),
+            list_signals=AsyncMock(return_value={"signals": []}),
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_resource_reads_are_rate_limited_per_tenant(monkeypatch) -> None:
+    """The 17 resources route through the SAME tool-layer limiter, bucketed per
+    tenant -- previously they bypassed rate limiting entirely (CWE-770)."""
+    from app.mcp import tool_registrations as tr
+
+    tr._MCP_TOOL_RATE_LIMITER.reset()
+    monkeypatch.setattr(tr, "_MCP_TOOL_DEFAULT_LIMIT", 2)
+
+    def _register(user_id: int) -> RecordingMCP:
+        mcp = RecordingMCP()
+        register_resources(
+            mcp,
+            context=cast("Any", SimpleNamespace(user_id=user_id, client_id=None)),
+            **{k: cast("Any", v) for k, v in _rate_limit_services().items()},
+        )
+        return mcp
+
+    async def _read(mcp: RecordingMCP) -> dict[str, Any]:
+        return cast("dict[str, Any]", json.loads(await mcp.resources["recent_articles_resource"]()))
+
+    tenant_a = _register(1)
+    tenant_b = _register(2)
+
+    # Tenant A spends its (tightened) budget, then is throttled.
+    assert "error" not in await _read(tenant_a)
+    assert "error" not in await _read(tenant_a)
+    assert (await _read(tenant_a)).get("error") == "rate_limited"
+
+    # Tenant B has an independent budget -- a global (per-resource-only) bucket
+    # would have throttled B here too.
+    assert "error" not in await _read(tenant_b)
+    assert "error" not in await _read(tenant_b)
+    assert (await _read(tenant_b)).get("error") == "rate_limited"
+
+    tr._MCP_TOOL_RATE_LIMITER.reset()
+
+
+@pytest.mark.asyncio
+async def test_resource_rate_limit_bucket_is_per_operation(monkeypatch) -> None:
+    """Each resource keeps its own budget (mirrors per-tool bucketing): exhausting
+    one resource does not throttle a different one for the same tenant."""
+    from app.mcp import tool_registrations as tr
+
+    tr._MCP_TOOL_RATE_LIMITER.reset()
+    monkeypatch.setattr(tr, "_MCP_TOOL_DEFAULT_LIMIT", 1)
+
+    mcp = RecordingMCP()
+    register_resources(
+        mcp,
+        context=cast("Any", SimpleNamespace(user_id=7, client_id=None)),
+        **{k: cast("Any", v) for k, v in _rate_limit_services().items()},
+    )
+
+    async def _read(name: str) -> dict[str, Any]:
+        return cast("dict[str, Any]", json.loads(await mcp.resources[name]()))
+
+    assert "error" not in await _read("recent_articles_resource")
+    assert (await _read("recent_articles_resource")).get("error") == "rate_limited"
+    # A different resource for the same tenant still has its own fresh budget.
+    assert "error" not in await _read("stats_resource")
+
+    tr._MCP_TOOL_RATE_LIMITER.reset()

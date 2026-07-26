@@ -281,7 +281,7 @@ The topics list is sorted before hashing so topic-set permutations from the GitH
 
 ## OAuth Device Flow
 
-Standard OAuth Web Flow requires a browser callback URL. Ratatoskr's target deployment (a single-container Raspberry Pi or VPS behind a NAT, accessed via Telegram or a private web UI) typically has no stable public callback URL. OAuth Device Flow solves this: the user visits a short URL on github.com and enters a code; no inbound HTTP connection to the server is required.
+Standard OAuth Web Flow requires a browser callback URL. Device Flow avoids that inbound callback: the user visits a GitHub verification URL and enters a code while Ratatoskr polls through its authenticated API surface.
 
 **Endpoints** in `app/api/routers/auth/github.py`:
 
@@ -321,15 +321,7 @@ Copy the output into your `.env` as `GITHUB_TOKEN_ENCRYPTION_KEY=<key>`.
 
 ## Cost Model
 
-Each LLM analysis call consumes roughly 1000-2000 input tokens (system prompt + repo metadata + README excerpt) and 300-800 output tokens. At $0.01-0.03 per 1000 tokens with typical OpenRouter models, a single analysis costs $0.01-0.05.
-
-For a user with 1000 starred repositories on first sync:
-
-- Default `GITHUB_LLM_DAILY_BUDGET=100` means 100 repos analyzed per day.
-- Full analysis of 1000 repos takes 10 days.
-- Total first-sync cost: approximately $10-50, spread over 10 days.
-
-The `GITHUB_LLM_CONCURRENCY` cap (default 2) limits simultaneous LLM calls within a single sync run, both to respect OpenRouter rate limits and to avoid saturating the event loop.
+Repository analysis cost depends on README size, selected provider/model, structured-output retries, and current provider pricing. The default `GITHUB_SYNC_LLM_DAILY_BUDGET=100` bounds calls within a sync run, and `GITHUB_SYNC_LLM_CONCURRENCY=2` bounds simultaneous analysis calls. Use persisted LLM usage/cost data and the current provider dashboard for estimates.
 
 Repos deferred by the budget cap have `pending_analysis=true`. The next day's cron run picks them up. The web UI surfaces this state as a "still indexing" badge on the repository card so users understand why search results may be incomplete immediately after connecting a large GitHub account.
 
@@ -363,19 +355,9 @@ All variables are read by `app/config/github.py::GitHubConfig`.
 | `GITHUB_TOKEN_PREVIOUS_KEYS` | _(none)_ | No — key rotation only | Comma-separated previous Fernet keys accepted for decrypting existing rows during rotation |
 | `GITHUB_SYNC_ENABLED` | `true` | No | Master switch for the daily Taskiq sync job |
 | `GITHUB_SYNC_CRON` | `0 2 * * *` | No | UTC cron expression for the sync job; default is 02:00 UTC |
-| `GITHUB_LLM_CONCURRENCY` | `2` | No | Maximum concurrent LLM analysis calls within a single sync run |
-| `GITHUB_LLM_DAILY_BUDGET` | `100` | No | Maximum LLM calls per day across all sync runs; excess repos get `pending_analysis=true` |
+| `GITHUB_SYNC_LLM_CONCURRENCY` | `2` | No | Maximum concurrent LLM analysis calls within a single sync run |
+| `GITHUB_SYNC_LLM_DAILY_BUDGET` | `100` | No | Maximum LLM calls loaded for one sync run; excess repos remain pending |
 
 ---
 
-## Future Work
-
-The following are explicitly out of scope for the current implementation and tracked as follow-up items:
-
-- **Repository recommendations** — use embedding-neighbor queries to surface repos similar to ones the user has starred or manually ingested.
-- **Topic clustering and trend dashboards** — group repositories by inferred topic cluster; surface emerging technology signals over time.
-- **Dependency-graph extraction** — parse `package.json`, `Cargo.toml`, `pyproject.toml`, and `go.mod` to build a language-aware dependency graph.
-- **Code search** — index file-level content beyond README for fine-grained search.
-- **Multi-account GitHub support** — currently one `UserGitHubIntegration` row per user enforced by the unique constraint; multi-account would require lifting that.
-- **OAuth Web Flow** — explicitly rejected for the self-hosted deployment shape; reconsider if a hosted-cloud variant is ever built.
 - **Re-analysis prompt versioning UI** — surface `analysis_model` to allow bulk re-analyze on prompt iterations.

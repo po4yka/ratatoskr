@@ -24,13 +24,74 @@ scrape_configs:
 
   # Ratatoskr Mobile API
   - job_name: 'ratatoskr-mobile-api'
-    metrics_path: '/metrics'
+    metrics_path: '/internal/metrics'
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/metrics_bearer_token
     static_configs:
       - targets: ['mobile-api:8000']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
         replacement: 'ratatoskr-mobile-api'
+
+  # Process-local metrics from the Telegram bot.
+  - job_name: 'ratatoskr-bot'
+    static_configs:
+      - targets: ['ratatoskr:9101']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-bot'
+
+  # Aggregated metrics from every Taskiq worker child process.
+  - job_name: 'ratatoskr-worker'
+    static_configs:
+      - targets: ['worker:9102']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-worker'
+
+  # Scheduler process availability; task execution metrics come from the worker.
+  - job_name: 'ratatoskr-scheduler'
+    static_configs:
+      - targets: ['scheduler:9103']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-scheduler'
+
+  # PostgreSQL exporter. `pg_up` distinguishes an exporter process that can be
+  # scraped from a database connection that is actually usable.
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-postgres'
+
+  # Redis exporter. Credentials stay on the exporter container; Prometheus
+  # only reaches this internal, unauthenticated metrics endpoint.
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-redis'
+
+  # Qdrant exposes Prometheus text directly. The Pi overlay maps this hostname
+  # to the host-native Qdrant service; regular Compose resolves the container.
+  - job_name: 'qdrant'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['qdrant:6333']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ratatoskr-qdrant'
 
   # Host metrics via node-exporter sidecar
   - job_name: 'node'

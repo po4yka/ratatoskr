@@ -48,6 +48,10 @@ def graph_node(name: str) -> Callable[[NodeFn], NodeFn]:
         @functools.wraps(fn)
         async def wrapper(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any]:
             correlation_id = state.get("correlation_id") or ""
+            request_id = state.get("request_id")
+            ledger = deps.graph_run_ledger
+            if isinstance(request_id, int) and ledger is not None:
+                await _record_node(ledger, request_id, correlation_id, name, "started")
             with _tracer.start_as_current_span(
                 f"graph.node.{name}",
                 attributes={
@@ -59,8 +63,28 @@ def graph_node(name: str) -> Callable[[NodeFn], NodeFn]:
                 },
             ):
                 set_correlation_id_attr(correlation_id or None)
-                return await fn(state, deps=deps)
+                try:
+                    result = await fn(state, deps=deps)
+                except Exception:
+                    if isinstance(request_id, int) and ledger is not None:
+                        await _record_node(ledger, request_id, correlation_id, name, "failed")
+                    raise
+            if isinstance(request_id, int) and ledger is not None:
+                await _record_node(ledger, request_id, correlation_id, name, "completed")
+            return result
 
         return wrapper
 
     return decorate
+
+
+async def _record_node(
+    ledger: Any, request_id: int, correlation_id: str, node: str, status: str
+) -> None:
+    """Keep observability best-effort so a ledger outage never changes graph work."""
+    try:
+        await ledger.record_node(
+            request_id=request_id, correlation_id=correlation_id, node=node, status=status
+        )
+    except Exception:
+        return

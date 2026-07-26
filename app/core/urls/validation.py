@@ -143,6 +143,13 @@ def _validate_hostname_security(hostname: str) -> None:
     _validate_suspicious_domain_pattern(hostname_lower)
 
     resolved_ips = _resolve_hostname_to_addrs(hostname, hostname_lower)
+    if not resolved_ips:
+        # Fail closed on an empty resolution set, matching ssrf.py's
+        # _verdict_for_resolved_ips. getaddrinfo normally raises rather than
+        # returning [], so this is a defensive guard against ever treating an
+        # unresolved host as safe.
+        msg = f"No DNS records found for {hostname}"
+        raise ValueError(msg)
     for info in resolved_ips:
         addr_str = str(info[4][0])
         if is_ip_blocked(addr_str):
@@ -182,8 +189,16 @@ def _resolve_hostname_to_addrs(hostname: str, hostname_lower: str) -> list[Any]:
 
     try:
         resolved = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
-    except OSError:
-        resolved = []
+    except OSError as exc:
+        # Fail closed, matching the authoritative SSRF module
+        # (app/security/ssrf.py::is_url_safe, which returns a DNS-failure
+        # verdict here). The previous ``resolved = []`` was a silent SSRF
+        # fail-open: the caller's "reject if any resolved IP is blocked" loop
+        # skips an empty list, so an unresolvable host was allowed through
+        # whenever DNS was unavailable. A failed lookup is never cached so a
+        # later attempt re-resolves.
+        msg = f"DNS resolution failed for {hostname}"
+        raise ValueError(msg) from exc
     if cache is not None:
         cache[hostname_lower] = resolved
     return resolved
@@ -204,12 +219,16 @@ async def _async_resolve_hostname_to_addrs(hostname: str, hostname_lower: str) -
         return cache[hostname_lower]
 
     def _getaddrinfo() -> list[Any]:
-        try:
-            return socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
-        except OSError:
-            return []
+        return socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
 
-    resolved = await asyncio.to_thread(_getaddrinfo)
+    try:
+        resolved = await asyncio.to_thread(_getaddrinfo)
+    except OSError as exc:
+        # Fail closed, matching the authoritative SSRF module (see the sync
+        # twin ``_resolve_hostname_to_addrs``). Swallowing the error into an
+        # empty list silently allowed unresolvable hosts through.
+        msg = f"DNS resolution failed for {hostname}"
+        raise ValueError(msg) from exc
     if cache is not None:
         cache[hostname_lower] = resolved
     return resolved
@@ -241,6 +260,10 @@ async def _async_validate_hostname_security(hostname: str) -> None:
     _validate_suspicious_domain_pattern(hostname_lower)
 
     resolved_ips = await _async_resolve_hostname_to_addrs(hostname, hostname_lower)
+    if not resolved_ips:
+        # Fail closed on an empty resolution set (see the sync twin).
+        msg = f"No DNS records found for {hostname}"
+        raise ValueError(msg)
     for info in resolved_ips:
         addr_str = str(info[4][0])
         if is_ip_blocked(addr_str):

@@ -51,7 +51,9 @@ class _FakeLLM:
 
 
 def _deps(llm: _FakeLLM) -> Any:
-    return SimpleNamespace(llm_client=llm, config=None)
+    # graph_run_ledger mirrors the real SummarizeDeps default (None); the
+    # @graph_node span decorator reads it and skips ledger recording when None.
+    return SimpleNamespace(llm_client=llm, config=None, graph_run_ledger=None)
 
 
 async def test_stream_flag_routes_to_streaming_path() -> None:
@@ -73,6 +75,44 @@ async def test_stream_flag_routes_to_streaming_path() -> None:
     # streaming path used a raw chat call, not instructor structured output.
     assert out["llm_calls"][0]["structured_output_used"] is False
     assert out["llm_calls"][0]["attempt_trigger"] == "graph_node"
+
+
+async def test_streaming_parses_summary_text_instead_of_provider_envelope() -> None:
+    llm = _FakeLLM()
+
+    async def chat(messages: list[dict[str, Any]], **kw: Any) -> Any:
+        return SimpleNamespace(
+            status=CallStatus.OK,
+            error_text=None,
+            response_json={
+                "id": "chatcmpl-1",
+                "choices": [{"message": {"content": '{"summary_250": "text"}'}}],
+                "usage": {"prompt_tokens": 1},
+            },
+            response_text='{"summary_250": "text", "tldr": "parsed"}',
+            model="gpt-direct",
+            tokens_prompt=1,
+            tokens_completion=2,
+            cost_usd=0.0,
+            latency_ms=5,
+        )
+
+    llm.chat = chat  # type: ignore[method-assign]
+    out = await summarize(
+        {
+            "stream": True,
+            "messages": _MESSAGES,
+            "content_for_summary": "src",
+            "request_id": 7,
+            "correlation_id": "c",
+            "call_count": 0,
+        },
+        deps=_deps(llm),
+    )
+
+    assert out["summary"]["summary_250"] == "text"
+    assert out["summary"]["tldr"] == "parsed"
+    assert "choices" not in out["summary"]
 
 
 async def test_no_stream_flag_keeps_structured_path() -> None:

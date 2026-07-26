@@ -21,7 +21,10 @@ from taskiq.abc.schedule_source import ScheduleSource
 from taskiq.scheduler.scheduled_task import ScheduledTask
 
 from app.config import load_config
+from app.observability.metrics_http import start_metrics_http_server_from_env
 from app.tasks.broker import broker
+
+start_metrics_http_server_from_env()
 
 
 def _minutes_to_cron(n: int) -> str:
@@ -79,6 +82,16 @@ class _AppConfigScheduleSource(ScheduleSource):
                     task_name="ratatoskr.rss.poll",
                     cron=_minutes_to_cron(cfg.rss.poll_interval_minutes),
                     labels={"job": "rss_poll"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+        if signal_sources_enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.topic_change_watch.run",
+                    cron="15 * * * *",
+                    labels={"job": "topic_change_watch"},
                     args=[],
                     kwargs={},
                 )

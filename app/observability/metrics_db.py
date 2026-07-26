@@ -24,6 +24,7 @@ if PROMETHEUS_AVAILABLE:
     DB_CONNECTIONS = Gauge(
         "ratatoskr_db_connections_active",
         "Number of active database connections",
+        multiprocess_mode="livesum",
         registry=REGISTRY,
     )
 

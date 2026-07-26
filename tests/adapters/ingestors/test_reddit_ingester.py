@@ -6,23 +6,48 @@ import httpx
 import pytest
 
 from app.adapters.ingestors.reddit import RedditIngester, RequestRateBudget
-from app.application.ports.source_ingestors import AuthSourceError, RateLimitedSourceError
+from app.application.ports.source_ingestors import (
+    AuthSourceError,
+    RateLimitedSourceError,
+    TransientSourceError,
+)
+
+
+class _StreamCM:
+    def __init__(self, response: httpx.Response) -> None:
+        self._response = response
+
+    async def __aenter__(self) -> httpx.Response:
+        return self._response
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
 
 
 class _FakeClient:
-    def __init__(self, response: object, *, status_code: int = 200) -> None:
+    def __init__(
+        self,
+        response: object,
+        *,
+        status_code: int = 200,
+        response_headers: dict[str, str] | None = None,
+    ) -> None:
         self.response = response
         self.status_code = status_code
+        self.response_headers = response_headers
         self.urls: list[str] = []
         self.headers: list[dict[str, str]] = []
 
-    async def get(self, url: str, **kwargs):
+    def stream(self, method: str, url: str, *, headers: dict[str, str] | None = None) -> _StreamCM:
         self.urls.append(url)
-        self.headers.append(kwargs.get("headers") or {})
-        return httpx.Response(
-            self.status_code,
-            json=self.response if self.status_code < 400 else None,
-            request=httpx.Request("GET", url),
+        self.headers.append(headers or {})
+        return _StreamCM(
+            httpx.Response(
+                self.status_code,
+                json=self.response if self.status_code < 400 else None,
+                headers=self.response_headers,
+                request=httpx.Request("GET", url),
+            )
         )
 
 
@@ -76,6 +101,16 @@ async def test_reddit_ingester_maps_rate_limit_and_auth_errors() -> None:
             subreddit="private",
             client=_FakeClient({}, status_code=403),
         ).fetch()
+
+
+@pytest.mark.asyncio
+async def test_reddit_ingester_rejects_oversized_response() -> None:
+    client = _FakeClient(
+        {"data": {"children": []}},
+        response_headers={"content-length": str(50 * 1024 * 1024)},
+    )
+    with pytest.raises(TransientSourceError):
+        await RedditIngester(subreddit="python", client=client, max_response_mb=10).fetch()
 
 
 @pytest.mark.asyncio

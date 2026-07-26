@@ -36,11 +36,12 @@ def _format_backup_row(row: object) -> str:
     """Format one AiAccountBackup row for display."""
     service = getattr(getattr(row, "service", None), "value", None) or "?"
     status = getattr(getattr(row, "status", None), "value", None) or "?"
+    auth = getattr(getattr(row, "authorization_status", None), "value", None) or "?"
     last = getattr(row, "last_backed_up_at", None)
     last_str = last.strftime("%Y-%m-%d %H:%M UTC") if last else "never"
     error = getattr(row, "last_error", None)
     suffix = f"\n  last_error: {error}" if error else ""
-    return f"[{service}] status={status}  last_backup={last_str}{suffix}"
+    return f"[{service}] backup={status}  authorization={auth}  last_backup={last_str}{suffix}"
 
 
 class AiBackupHandler(HandlerDependenciesMixin):

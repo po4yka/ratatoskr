@@ -42,7 +42,7 @@ flowchart LR
 
 ### Path A — last-resort scraper rung (`webwright_provider`)
 
-The chain's 10th and final tier. Fires only when **all** earlier providers (Scrapling, Crawl4AI, Firecrawl, Defuddle, CloakBrowser, Playwright, Crawlee, direct HTML, ScrapegraphAI) failed AND the URL host appears in `WEBWRIGHT_HOST_ALLOWLIST`. Empty allowlist → `_build_webwright` returns `None` so the provider isn't even constructed; an explicit `*` accepts any host (not recommended for cost reasons).
+The chain's 13th and final tier. It fires only after the applicable Reddit/Hacker News rungs and the eleven generic predecessors have failed, and only when the URL host appears in `WEBWRIGHT_HOST_ALLOWLIST`. An empty allowlist makes `_build_webwright` return `None`, so the provider is not constructed; an explicit `*` accepts any host and is not recommended for cost reasons.
 
 Use this for paywall-walled or SPA articles the rest of the chain cannot crack (Substack premium, gated docs sites, JS dashboards). The sidecar's `POST /scrape` endpoint receives a single URL plus a fixed extraction prompt; the response is shaped to fit `FirecrawlResult` so downstream code (quality gates, persistence, summarization) does not need to know which provider served the request.
 
@@ -56,12 +56,6 @@ The handler (`BrowseHandler`) writes a `webwright_runs` row in `RUNNING` state, 
 
 Site cookies (paywall sessions, logged-in state) are stored encrypted at rest in `user_browser_sessions` and decrypted only inside the sidecar at task time. Encryption reuses the existing `GITHUB_TOKEN_ENCRYPTION_KEY` Fernet rotation surface via `app.security.secret_crypto` — one rotation surface for all stored secrets.
 
-### Path C — `WebwrightEnricher` (removed)
-
-`WebwrightEnricher` and its `maybe_enrich_url` / `EnrichmentResult` API have been removed from the codebase (`app/adapters/webwright/enricher.py` deleted). No production caller ever wired it up. The `LLMCall.attempt_trigger` Postgres enum retains the `webwright_tool` value as a reserved/unused label — removing an enum value requires a migration, and the value may be reused if a future content-enrichment path is wired.
-
----
-
 ## Sidecar architecture
 
 ```mermaid
@@ -72,7 +66,7 @@ flowchart TD
         Server --> Loop[Webwright agent loop\nupstream Python module\npinned by WEBWRIGHT_REF]
         Loop --> Chromium[Chromium\nMicrosoft Playwright base image]
         Loop --> OpenRouter[OpenAI-compatible endpoint\nOPENAI_BASE_URL=OpenRouter\nOPENAI_API_KEY=OPENROUTER_API_KEY]
-        Loop --> Volume[/data/webwright\ntrajectories + screenshots\nbind-mounted to host]
+        Loop --> Volume["/data/webwright\ntrajectories + screenshots\nbind-mounted to host"]
     end
 
     Ratatoskr[ratatoskr / worker / mobile-api] -- "POST /scrape (Path A)" --> Server
@@ -98,10 +92,10 @@ flowchart TD
 
 ## Cost containment
 
-Three hard gates keep Webwright from running away with the LLM budget. All three are off-by-default:
+Path A has three gates that keep Webwright from running away with the LLM budget:
 
 1. **Feature flag.** `WEBWRIGHT_ENABLED=false` — the provider is never constructed.
-2. **Host allowlist.** `WEBWRIGHT_HOST_ALLOWLIST=` (empty) — the provider is constructed but every call short-circuits with `host_not_allowlisted` before any sidecar invocation.
+2. **Host allowlist.** `WEBWRIGHT_HOST_ALLOWLIST=` (empty) — the provider is not constructed. Path B applies the same host policy to browser tasks.
 3. **Compose profile.** `with-webwright` not active — the sidecar container is not running, so even allowlisted URLs error out cleanly at the HTTP layer.
 
 Per-run knobs:
@@ -110,7 +104,7 @@ Per-run knobs:
 - `WEBWRIGHT_TIMEOUT_SEC=180` — wall-clock cap. Client-side timeout is `timeout + 5s` so the sidecar gets a chance to return its structured timeout response instead of httpx aborting first.
 - `WEBWRIGHT_MODEL` — picks the cheapest competent model by default (`openai/gpt-4o-mini`); routed via OpenRouter using its OpenAI-compatible endpoint.
 
-Per-request audit: every Webwright run produces one row in `webwright_runs` (Path B) or one entry in `crawl_results.options_json._chain_attempt_log` (Path A). The `attempt_trigger='webwright_tool'` enum value is reserved but unused (Path C was removed). Cost growth over a long horizon is queryable from these two tables alone.
+Per-request audit: every Webwright run produces one row in `webwright_runs` (Path B) or one entry in `crawl_results.options_json._chain_attempt_log` (Path A). The `attempt_trigger='webwright_tool'` enum value remains reserved. Cost growth over a long horizon is queryable from these two tables.
 
 ---
 
@@ -172,7 +166,7 @@ Bind-mounted trajectories live at `data/webwright/<correlation_id>/`. The `repor
 
 ## See also
 
-- [Scraper Chain](scraper-chain.md) — Webwright is the 10th rung; chain-level fallback logic lives there.
+- [Scraper Chain](scraper-chain.md) — Webwright is the 13th rung; chain-level fallback logic lives there.
 - [Environment Variables](../reference/environment-variables.md) — full `WEBWRIGHT_*` surface with bounds.
 - [Data Model](../reference/data-model.md) — `webwright_runs`, `user_browser_sessions`, `RequestType.WEBWRIGHT`, `LLMAttemptTrigger.webwright_tool`.
 - [Microsoft Webwright](https://github.com/microsoft/Webwright) — upstream repo + blog post linking the benchmark results.

@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from types import SimpleNamespace
@@ -36,6 +37,9 @@ def _stub_taskiq(monkeypatch):
     taskiq_mod = sys.modules["taskiq"]
     taskiq_mod.AsyncBroker = object
     taskiq_mod.TaskiqDepends = lambda fn, **_kw: None
+    taskiq_mod.TaskiqEvents = SimpleNamespace(
+        WORKER_STARTUP="worker_startup", WORKER_SHUTDOWN="worker_shutdown"
+    )
     taskiq_mod.TaskiqMiddleware = object
     taskiq_mod.InMemoryBroker = MagicMock
 
@@ -58,6 +62,7 @@ def _stub_taskiq(monkeypatch):
 
 def _build_cfg():
     return SimpleNamespace(
+        langgraph_checkpoint=SimpleNamespace(enabled=False),
         runtime=SimpleNamespace(
             url_flow_lease_ttl_sec=900,
             max_concurrent_calls=2,
@@ -87,6 +92,7 @@ def _make_leased_job(request_id: int = 1, cid: str = "test-cid"):
         attempt_count=1,
         max_attempts=3,
         correlation_id=cid,
+        lease_token=1,
     )
 
 
@@ -150,6 +156,50 @@ async def test_process_url_request_lease_not_acquired(monkeypatch):
         )
 
     runtime.url_processor.handle_url_flow.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_lease_renewal_cancels_processing_after_fence_loss(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks import url_processing
+
+    processing_cancelled = False
+
+    async def blocked_processing(**_kwargs):
+        nonlocal processing_cancelled
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            processing_cancelled = True
+            raise
+
+    monkeypatch.setattr(url_processing, "_run_url_task", blocked_processing)
+    job = _make_leased_job(request_id=42, cid="cid-fenced")
+    job_repo = MagicMock()
+    job_repo.renew_lease = AsyncMock(return_value=False)
+
+    with pytest.raises(url_processing.LeaseLostError, match="lease lost"):
+        await url_processing._run_url_task_with_lease_renewal(
+            request_id=42,
+            cid="cid-fenced",
+            job_repo=job_repo,
+            job=job,
+            lease_owner="worker:taskiq:42",
+            lease_ttl_seconds=1,
+            cfg=_build_cfg(),
+            db=MagicMock(),
+            runtime=_make_runtime(),
+        )
+
+    assert processing_cancelled is True
+    job_repo.renew_lease.assert_awaited_once_with(
+        job_id=10,
+        lease_owner="worker:taskiq:42",
+        lease_token=1,
+        lease_ttl_seconds=1,
+    )
 
 
 @pytest.mark.asyncio
@@ -448,3 +498,106 @@ def test_worker_runtime_wires_vector_store_and_embeddings(monkeypatch):
 
     assert captured.get("vector_store") is sentinel_store
     assert captured.get("embedding_service") is sentinel_embed
+
+
+def test_worker_runtime_registers_credential_hot_reload_listener(monkeypatch):
+    """A ConfigHolder swap must reach the worker's long-lived LLM client.
+
+    ``_build_url_processing_runtime`` builds ``llm_client`` once and caches it
+    in the module-level ``_url_processing_runtime_instance`` singleton (it
+    survives every task invocation for the life of the worker process), so
+    unless it registers an ``apply_runtime_config`` listener with the holder
+    -- mirroring ``app/di/shared.py``'s ``build_core_dependencies`` -- a
+    credential installed via the web UI would never reach it without a
+    worker restart. Uses the real ``OpenRouterClient.apply_runtime_config``
+    (not a mock) so the assertions prove the actual key/model swap.
+    """
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.adapters.openrouter.openrouter_client import OpenRouterClient
+    from app.config.config_holder import ConfigHolder
+
+    client = OpenRouterClient.__new__(OpenRouterClient)
+    client._model = "old-model"
+    client._fallback_models = []
+    client._api_key = "old-key"
+    client.request_builder = MagicMock()
+
+    cfg = _build_cfg()
+    cfg.openrouter = SimpleNamespace(api_key="old-key", model="old-model", fallback_models=[])
+    holder = ConfigHolder(cfg)
+
+    from app.tasks.url_processing import _build_url_processing_runtime
+
+    with (
+        patch(
+            "app.di.search.build_search_dependencies",
+            new=MagicMock(return_value=SimpleNamespace(vector_store=None, embedding_service=None)),
+        ),
+        patch(
+            "app.di.shared.build_url_processor",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.content.scraper.factory.ContentScraperFactory.create_from_config",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.llm.LLMClientFactory.create_from_config",
+            new=MagicMock(return_value=client),
+        ),
+        patch(
+            "app.di.shared.build_response_formatter",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "app.adapters.telegram.worker_telegram_sender.WorkerTelegramSender",
+            new=MagicMock(),
+        ),
+    ):
+        _build_url_processing_runtime(holder, MagicMock())
+
+    new_cfg = _build_cfg()
+    new_cfg.openrouter = SimpleNamespace(
+        api_key="new-key", model="new-model", fallback_models=["fb"]
+    )
+    holder.swap(new_cfg)
+
+    assert client._api_key == "new-key"
+    assert client._model == "new-model"
+    assert client._fallback_models == ["fb"]
+    client.request_builder.set_api_key.assert_called_once_with("new-key")
+
+
+@pytest.mark.asyncio
+async def test_worker_runtime_threads_durable_checkpointer(monkeypatch):
+    """The Taskiq URL worker must compile its graph with the Postgres saver."""
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks import url_processing
+
+    saver = object()
+    built_runtime = MagicMock()
+    url_processing._url_processing_runtime_instance = None
+    monkeypatch.setattr(
+        url_processing,
+        "_start_url_processing_checkpointer",
+        AsyncMock(return_value=saver),
+    )
+    builder = MagicMock(return_value=built_runtime)
+    monkeypatch.setattr(url_processing, "_build_url_processing_runtime", builder)
+
+    result = await url_processing._get_url_processing_runtime(_build_cfg(), MagicMock())
+
+    assert result is built_runtime
+    assert builder.call_args.kwargs["checkpointer"] is saver

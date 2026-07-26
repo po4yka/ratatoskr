@@ -1,0 +1,65 @@
+name: Benchmarks
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+env:
+  UV_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/cpu"
+  UV_INDEX_STRATEGY: "unsafe-first-match"
+
+jobs:
+  full-benchmarks:
+    name: Full benchmark baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install benchmark dependencies
+        run: uv sync --frozen --no-default-groups --group ci-test
+
+      - name: Run full benchmark suite
+        run: |
+          uv run --no-sync pytest \
+            tests/benchmarks/ \
+            --benchmark-only \
+            --benchmark-disable-gc \
+            --benchmark-warmup=on \
+            --benchmark-json=benchmark-baseline.json
+
+      - name: Upload benchmark baseline
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: benchmark-baseline-${{ github.run_id }}
+          path: benchmark-baseline.json
+          if-no-files-found: error
+          retention-days: 90

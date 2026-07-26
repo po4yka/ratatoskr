@@ -30,7 +30,9 @@ def main() -> None:
             "CONTEXT: Ratatoskr uses PostgreSQL through `app/db/session.py`; use the inspecting-database skill for query patterns."
         )
 
-    if "summary" in prompt and any(term in prompt for term in ("validate", "validation", "check", "contract")):
+    if "summary" in prompt and any(
+        term in prompt for term in ("validate", "validation", "check", "contract")
+    ):
         context.append(
             "CONTEXT: Summary contracts live in `app/core/summary_contract.py`; use the validating-summaries skill."
         )
@@ -42,7 +44,7 @@ def main() -> None:
 
     if any(term in prompt for term in ("frontend", "web", "react", "vite", "/web")):
         context.append(
-            "CONTEXT: The React + TypeScript + Vite frontend is under `web/src` and served by FastAPI at `/web`; use the web-frontend-dev skill."
+            "CONTEXT: Editable React + TypeScript + Vite source lives in the external `ratatoskr-web` repository; this repo owns FastAPI `/web` serving and compiled `app/static/web/` assets. Use the web-frontend-dev skill."
         )
 
     if any(term in prompt for term in ("test", "cli")):

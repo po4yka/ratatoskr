@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -18,12 +19,16 @@ from app.adapter_models.batch_analysis import (
     RelationshipType,
     SeriesInfo,
 )
-from app.agents.base_agent import AgentResult, BaseAgent
+from app.agents.base_agent import AgentResult, BaseAgent, _tracer
+from app.agents.llm_call_persistence import persist_agent_llm_call
+from app.core.content_cleaner import wrap_untrusted_source
 from app.core.logging_utils import get_logger
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.application.ports.llm_client import LLMClientProtocol
+    from app.application.ports.requests import LLMRepositoryPort
 
 logger = get_logger(__name__)
 
@@ -31,12 +36,12 @@ logger = get_logger(__name__)
 _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
 
-class _RelationshipLLMResponse(BaseModel):
-    relationship_type: str = "unrelated"
-    confidence: float = 0.5
-    reasoning: str = ""
-    series_info: dict[str, Any] | None = None
-    cluster_info: dict[str, Any] | None = None
+class _RelationshipLLMResponse(RelationshipAnalysisOutput):
+    """Strict provider schema including every field consumed by the parser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    signals_used: list[str]
 
 
 # Patterns for series detection
@@ -81,15 +86,29 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
         self,
         llm_client: LLMClientProtocol | None = None,
         correlation_id: str | None = None,
+        *,
+        llm_repo: LLMRepositoryPort | None = None,
     ):
         super().__init__(name="RelationshipAnalysisAgent", correlation_id=correlation_id)
         self._llm = llm_client
+        # DI supplies this so the ambiguous-case LLM call is persisted to
+        # llm_calls against one of the analysed article requests (rule 3).
+        self._llm_repo = llm_repo
 
     async def execute(
         self, input_data: RelationshipAnalysisInput
     ) -> AgentResult[RelationshipAnalysisOutput]:
         """Analyze relationships between articles."""
         self.correlation_id = input_data.correlation_id
+        with _tracer.start_as_current_span("agent.relationship_analysis") as span:
+            span.set_attribute(AGENT_NAME, "relationship_analysis")
+            span.set_attribute(REQUEST_CORRELATION_ID, self.correlation_id)
+            span.set_attribute(AGENT_ATTEMPT, 1)
+            return await self._execute(input_data)
+
+    async def _execute(
+        self, input_data: RelationshipAnalysisInput
+    ) -> AgentResult[RelationshipAnalysisOutput]:
         articles = input_data.articles
 
         if len(articles) < 2:
@@ -109,7 +128,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
         signals_used = []
 
         # Phase 2: Check for series (explicit numbering)
-        if signals.series_numbers and len(signals.series_numbers) >= 2:
+        if len(signals.series_numbers) == len(articles):
             series_result = self._detect_series(articles, signals)
             if series_result and series_result.confidence >= input_data.series_threshold:
                 self.log_info(
@@ -289,7 +308,7 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
         self, articles: list[ArticleMetadata], signals: MetadataSignals
     ) -> RelationshipAnalysisOutput | None:
         """Detect if articles form a series."""
-        if len(signals.series_numbers) < 2:
+        if len(signals.series_numbers) < 2 or len(signals.series_numbers) != len(articles):
             return None
 
         # Sort by detected number
@@ -470,24 +489,85 @@ class RelationshipAnalysisAgent(BaseAgent[RelationshipAnalysisInput, Relationshi
                 desc += f"  Summary: {article.summary_250}\n"
             article_descriptions.append(desc)
 
-        user_content = "Analyze the relationship between these articles:\n\n"
-        user_content += "\n".join(article_descriptions)
+        user_content = (
+            "Analyze the relationship between the article metadata inside the "
+            "untrusted-source boundary.\n\n"
+            + wrap_untrusted_source("\n".join(article_descriptions))
+        )
 
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": user_content},
         ]
 
-        result = await self._llm.chat_structured(
-            messages,
-            response_model=_RelationshipLLMResponse,
-            max_retries=3,
-            max_tokens=1000,
-            temperature=0.1,
-            request_id=None,
-        )
+        model = getattr(self._llm, "_model", "unknown")
+        request_id = articles[0].request_id if articles else None
+        t0 = time.monotonic()
+        try:
+            result = await self._llm.chat_structured(
+                messages,
+                response_model=_RelationshipLLMResponse,
+                max_retries=3,
+                max_tokens=1000,
+                temperature=0.1,
+                request_id=None,
+            )
+        except Exception as exc:
+            # Local error handling (previously absent): log, persist the error
+            # row, and degrade to None so execute()'s metadata fallback runs.
+            self.log_warning(f"LLM relationship analysis failed: {exc}")
+            await self._persist_llm_call(
+                request_id=request_id,
+                status="error",
+                model=model,
+                result=None,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                error=exc,
+                request_messages=messages,
+            )
+            return None
 
+        await self._persist_llm_call(
+            request_id=request_id,
+            status="success",
+            model=model,
+            result=result,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            request_messages=messages,
+        )
         return self._parse_llm_response(result.parsed.model_dump(), articles)
+
+    async def _persist_llm_call(
+        self,
+        *,
+        request_id: int | None,
+        status: str,
+        model: str,
+        result: Any,
+        latency_ms: int,
+        error: Exception | None = None,
+        request_messages: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Best-effort persist of the analysis LLM call to ``llm_calls``.
+
+        ``endpoint="relationship_analysis"`` keeps it queryable. The article
+        request anchor is optional; persistence failures are logged and never
+        propagated.
+        """
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=request_id,
+            endpoint="relationship_analysis",
+            model=model,
+            status=status,
+            result=result,
+            latency_ms=latency_ms,
+            error=error,
+            correlation_id=self.correlation_id,
+            structured_output_used=True,
+            provider=getattr(self._llm, "provider_name", None),
+            request_messages=request_messages,
+        )
 
     def _parse_llm_response(
         self, parsed: dict[str, Any], articles: list[ArticleMetadata]

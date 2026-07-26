@@ -19,6 +19,13 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Commands that expose owner-only administration or debugging surface. These are
+# advertised only in the owners' own private chats (per-peer command scope), never
+# via the default / all-private-chats scopes, so a non-owner who opens a chat with
+# the bot never sees them enumerated in the command menu. The command handlers
+# still enforce access control independently; this only governs advertisement.
+ADMIN_COMMAND_NAMES = frozenset({"admin", "dbinfo", "dbverify", "models", "setmodel", "clearcache"})
+
 
 class TelegramClient:
     """Handles Telethon bot client setup and operations."""
@@ -36,6 +43,7 @@ class TelegramClient:
                 api_id=self.cfg.telegram.api_id,
                 api_hash=self.cfg.telegram.api_hash,
                 bot_token=self.cfg.telegram.bot_token,
+                session_dir=self.cfg.telegram.session_dir,
             )
 
     async def start(
@@ -120,15 +128,21 @@ class TelegramClient:
             BotCommand("subscribe", "Подписаться на канал"),
             BotCommand("unsubscribe", "Отписаться от канала"),
         ]
+        public_en = [c for c in commands_en if c.command not in ADMIN_COMMAND_NAMES]
+        public_ru = [c for c in commands_ru if c.command not in ADMIN_COMMAND_NAMES]
+        owner_ids = self.cfg.telegram.allowed_user_ids
         try:
-            await self.client.set_bot_commands(commands_en)
-            await self.client.set_bot_commands(commands_en, scope=BotCommandScopeAllPrivateChats())
-            await self.client.set_bot_commands(commands_ru, language_code="ru")
+            # Public commands: advertised to every user (default + all private chats).
+            await self.client.set_bot_commands(public_en)
+            await self.client.set_bot_commands(public_en, scope=BotCommandScopeAllPrivateChats())
+            await self.client.set_bot_commands(public_ru, language_code="ru")
             await self.client.set_bot_commands(
-                commands_ru,
+                public_ru,
                 scope=BotCommandScopeAllPrivateChats(),
                 language_code="ru",
             )
+            # Full set (public + admin/debug) advertised only in each owner's chat.
+            await self._advertise_owner_commands(commands_en, commands_ru, owner_ids)
             with contextlib.suppress(Exception):
                 await self.client.set_bot_description(
                     "Ratatoskr: Summarize URLs, YouTube videos, and forwarded posts. "
@@ -154,10 +168,41 @@ class TelegramClient:
                     await self.client.set_chat_menu_button(text="Open", url=api_base)
             logger.info(
                 "bot_commands_set",
-                extra={"count_en": len(commands_en), "count_ru": len(commands_ru)},
+                extra={
+                    "count_public": len(public_en),
+                    "count_owner": len(commands_en),
+                    "owner_count": len(owner_ids),
+                },
             )
         except Exception as exc:
             logger.warning("bot_commands_set_failed", extra={"error": str(exc)})
+
+    async def _advertise_owner_commands(
+        self,
+        commands_en: list[BotCommand],
+        commands_ru: list[BotCommand],
+        owner_ids: tuple[int, ...],
+    ) -> None:
+        """Advertise the full command set in each owner's own private chat.
+
+        Uses the per-peer command scope so admin/debug commands appear in the
+        owner's autocomplete menu without being enumerated to every user.
+        Resolving an owner's input peer can fail if the bot has not seen that
+        user since the last restart (they have not messaged it yet); that owner
+        simply keeps the public menu until they do. A per-owner failure must not
+        abort setup for the others, so each owner is isolated.
+        """
+        if not self.client:
+            return
+        for uid in owner_ids:
+            try:
+                await self.client.set_bot_commands(commands_en, peer=uid)
+                await self.client.set_bot_commands(commands_ru, peer=uid, language_code="ru")
+            except Exception as exc:
+                logger.warning(
+                    "owner_bot_commands_set_failed",
+                    extra={"user_id": uid, "error": str(exc)},
+                )
 
     async def _setup_forum_topics(self) -> None:
         """Initialize forum topics for allowed users' private chats."""

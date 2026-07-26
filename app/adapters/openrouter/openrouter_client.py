@@ -136,6 +136,11 @@ class OpenRouterClient:
         circuit_breaker: CircuitBreaker | PerModelCircuitBreaker | None = None,
     ) -> None:
         cfg = config or OpenRouterClientConfig()
+        # Declared here (not only in _set_core_configuration) because
+        # apply_runtime_config reassigns both on a hot-reload; without a
+        # binding that precedes it in file order mypy cannot infer the type.
+        self._api_key: str = ""
+        self._base_url: str = ""
         self._validate_init_params(
             api_key,
             model,
@@ -237,6 +242,40 @@ class OpenRouterClient:
             provider_order=list(or_cfg.provider_order),
             audit=audit,
             circuit_breaker=circuit_breaker,
+        )
+
+    def apply_runtime_config(self, cfg: Any) -> None:
+        """Re-read the primary + fallback models and API key after a hot-reload.
+
+        Both are frozen at construction, so a ``/setmodel`` reload or a
+        credential installed through the settings UI that swaps the ConfigHolder
+        snapshot would never reach live chat calls otherwise. Registered as a
+        ConfigHolder listener in ``build_core_dependencies``; a no-op when the
+        openrouter section or model is missing.
+
+        The key is also held by ``request_builder``, which is what actually
+        builds the Authorization header -- updating only ``self._api_key`` would
+        leave live requests authenticating with the old credential.
+        """
+        or_cfg = getattr(cfg, "openrouter", None)
+        if or_cfg is None:
+            return
+        new_model = getattr(or_cfg, "model", None)
+        if new_model:
+            self._model = new_model
+        self._fallback_models = self._validate_fallback_models(list(or_cfg.fallback_models))
+
+        raw_key = getattr(or_cfg, "api_key", None)
+        new_key = str(raw_key) if raw_key else ""
+        key_rotated = bool(new_key) and new_key != self._api_key
+        if key_rotated:
+            self._api_key = new_key
+            self.request_builder.set_api_key(new_key)
+
+        logger.info(
+            "openrouter_config_hot_reloaded",
+            # Never log the credential itself -- only that it changed.
+            extra={"model": self._model, "api_key_rotated": key_rotated},
         )
 
     def _set_core_configuration(
@@ -639,6 +678,7 @@ class OpenRouterClient:
         import time
 
         import instructor
+        from instructor.core.hooks import Hooks
         from openai import AsyncOpenAI
 
         from app.adapter_models.llm.llm_models import StructuredLLMResult
@@ -679,13 +719,84 @@ class OpenRouterClient:
         )
 
         last_exc: Exception | None = None
+        physical_attempts: list[dict[str, Any]] = []
         for model in models_to_try:
             started = time.perf_counter()
+            hooks = Hooks()
+            attempt_started: list[float] = []
+
+            def _on_arguments(
+                *_args: Any,
+                _attempt_started: list[float] = attempt_started,
+                **_kwargs: Any,
+            ) -> None:
+                _attempt_started.append(time.perf_counter())
+
+            def _on_response(
+                response: Any,
+                *,
+                _attempt_started: list[float] = attempt_started,
+                _started: float = started,
+                _model: str = model,
+            ) -> None:
+                usage = getattr(response, "usage", None)
+                prompt_tokens = getattr(usage, "prompt_tokens", None)
+                completion_tokens = getattr(usage, "completion_tokens", None)
+                attempt_start = _attempt_started[-1] if _attempt_started else _started
+                physical_attempts.append(
+                    {
+                        "model": _model,
+                        "status": "ok",
+                        "tokens_prompt": prompt_tokens,
+                        "tokens_completion": completion_tokens,
+                        "cost_usd": self._structured_cost_usd(
+                            usage, prompt_tokens, completion_tokens
+                        ),
+                        "latency_ms": int((time.perf_counter() - attempt_start) * 1000),
+                        "error_text": None,
+                    }
+                )
+
+            def _on_parse_error(error: Exception, **_kwargs: Any) -> None:
+                if physical_attempts and physical_attempts[-1].get("status") == "ok":
+                    physical_attempts[-1]["status"] = "error"
+                    physical_attempts[-1]["error_text"] = str(error)
+
+            def _on_completion_error(
+                error: Exception,
+                *,
+                _attempt_started: list[float] = attempt_started,
+                _started: float = started,
+                _model: str = model,
+                **_kwargs: Any,
+            ) -> None:
+                attempt_start = _attempt_started[-1] if _attempt_started else _started
+                physical_attempts.append(
+                    {
+                        "model": _model,
+                        "status": "error",
+                        "tokens_prompt": None,
+                        "tokens_completion": None,
+                        "cost_usd": None,
+                        "latency_ms": int((time.perf_counter() - attempt_start) * 1000),
+                        "error_text": str(error),
+                    }
+                )
+
+            hooks.on("completion:kwargs", _on_arguments)
+            hooks.on("completion:response", _on_response)
+            hooks.on("parse:error", _on_parse_error)
+            hooks.on("completion:error", _on_completion_error)
+            structured_client = (
+                instructor.from_openai(self._oai_client, mode=instructor.Mode.JSON, hooks=hooks)
+                if self._oai_client is not None
+                else self._instructor_async_client
+            )
             try:
                 (
                     parsed,
                     completion,
-                ) = await self._instructor_async_client.chat.completions.create_with_completion(
+                ) = await structured_client.chat.completions.create_with_completion(
                     model=model,
                     messages=messages,
                     response_model=response_model,
@@ -715,6 +826,7 @@ class OpenRouterClient:
                     cost_usd=cost_usd,
                     latency_ms=latency,
                     model_used=model,
+                    physical_attempts=physical_attempts,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -727,7 +839,9 @@ class OpenRouterClient:
                     },
                 )
 
-        raise last_exc or RuntimeError("All models exhausted in chat_structured")
+        terminal = last_exc or RuntimeError("All models exhausted in chat_structured")
+        terminal.__llm_physical_attempts__ = physical_attempts  # type: ignore[attr-defined]
+        raise terminal
 
     def _structured_cost_usd(
         self,

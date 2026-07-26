@@ -5,12 +5,13 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from app.adapters.content.search_context_builder import SearchContextBuilder
 from app.agents.base_agent import AgentResult, BaseAgent, _tracer
+from app.agents.llm_call_persistence import persist_agent_llm_call
 from app.core.logging_utils import get_logger
 from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.observability.metrics import (
@@ -24,6 +25,7 @@ from app.prompts.file_cache import read_prompt_text
 
 if TYPE_CHECKING:
     from app.adapters.llm import LLMClientProtocol
+    from app.application.ports.requests import LLMRepositoryPort
     from app.application.services.topic_search import TopicArticle, TopicSearchService
     from app.config import WebSearchConfig
 
@@ -81,12 +83,19 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         search_service: TopicSearchService,
         cfg: WebSearchConfig,
         correlation_id: str | None = None,
+        *,
+        llm_repo: LLMRepositoryPort | None = None,
+        request_id: int | None = None,
     ):
         super().__init__(name="WebSearchAgent", correlation_id=correlation_id)
         self._llm = llm_client
         self._search = search_service
         self._cfg = cfg
         self._context_builder = SearchContextBuilder(max_chars=cfg.max_context_chars)
+        # DI supplies these so the analysis LLM call is persisted to llm_calls
+        # against the summarize request it enriches (rule 3: persist everything).
+        self._llm_repo = llm_repo
+        self._request_id = request_id
 
     async def execute(self, input_data: WebSearchAgentInput) -> AgentResult[WebSearchAgentOutput]:
         """Execute web search enrichment workflow.
@@ -233,10 +242,8 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
         ]
 
         # Make LLM call with latency tracking for Prometheus.
-        # request_id is int | None (DB foreign key); this agent has no DB-backed
-        # request row so it remains None.  correlation_id is the string tracer for
-        # log correlation and is emitted below so any failure is bracketed by a
-        # traceable log entry.
+        # request_id is optional: the shared persistence contract records this
+        # analysis even when no parent request row is available.
         model = getattr(self._llm, "_model", "unknown")
         logger.debug(
             "web_search_analysis_llm_start",
@@ -252,6 +259,7 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
                 temperature=0.1,  # Low temperature for deterministic analysis
                 request_id=None,
             )
+            latency_ms = int((time.monotonic() - t0) * 1000)
             record_llm_call_attempt(provider="openrouter", model=model, status="success")
             record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)
             record_openrouter_call(
@@ -262,16 +270,63 @@ class WebSearchAgent(BaseAgent[WebSearchAgentInput, WebSearchAgentOutput]):
                 latency_seconds=(float(getattr(result, "latency_ms", 0) or 0) / 1000.0) or None,
                 purpose="web_search",
             )
-        except Exception:
+            await self._persist_llm_call(
+                status="success",
+                model=model,
+                result=result,
+                latency_ms=latency_ms,
+                request_messages=messages,
+            )
+        except Exception as exc:
+            latency_ms = int((time.monotonic() - t0) * 1000)
             record_llm_call_attempt(provider="openrouter", model=model, status="error")
             record_llm_call_latency(model=model, latency_seconds=time.monotonic() - t0)
             logger.debug(
                 "web_search_analysis_llm_failed",
                 extra={"correlation_id": correlation_id, "model": model},
             )
+            await self._persist_llm_call(
+                status="error",
+                model=model,
+                result=None,
+                latency_ms=latency_ms,
+                error=exc,
+                request_messages=messages,
+            )
             raise
 
         return result.parsed
+
+    async def _persist_llm_call(
+        self,
+        *,
+        status: str,
+        model: str,
+        result: Any,
+        latency_ms: int,
+        error: Exception | None = None,
+        request_messages: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Best-effort persist of the analysis LLM call to ``llm_calls``.
+
+        Endpoint ``web_search_analysis`` keeps these queryable/separable from
+        summarize-graph calls. A request anchor is optional; persistence failures
+        are logged and never fail enrichment.
+        """
+        await persist_agent_llm_call(
+            self._llm_repo,
+            request_id=self._request_id,
+            endpoint="web_search_analysis",
+            model=model,
+            status=status,
+            result=result,
+            latency_ms=latency_ms,
+            error=error,
+            correlation_id=self.correlation_id,
+            structured_output_used=True,
+            provider=getattr(self._llm, "provider_name", None),
+            request_messages=request_messages,
+        )
 
     def _load_analysis_prompt(self, language: str) -> str:
         """Load the search analysis prompt for the given language.

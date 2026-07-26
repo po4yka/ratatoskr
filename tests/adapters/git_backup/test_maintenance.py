@@ -3,9 +3,17 @@ plus git-argv coverage via an injected command runner)."""
 
 from __future__ import annotations
 
+import logging
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock
 
-from app.adapters.git_backup.maintenance import Maintenance, RepositoryMaintenance
+from app.adapters.git_backup import maintenance as maintenance_mod
+from app.adapters.git_backup.maintenance import (
+    Maintenance,
+    RepositoryMaintenance,
+    _default_runner,
+)
 
 
 class RecordingRunner:
@@ -114,3 +122,53 @@ def test_run_full_repack_nonexistent_path(tmp_path: Path) -> None:
     m, runner = _make(Maintenance(enabled=True))
     m.run_full_repack(tmp_path / "missing")
     assert runner.calls == []
+
+
+# --- default runner: subprocess failures are observable, never swallowed ---
+
+
+def test_default_runner_logs_nonzero_exit(monkeypatch, caplog, tmp_path: Path) -> None:
+    """A non-zero git exit (check=False, so it does not raise) is logged with the
+    return code + stderr instead of vanishing silently."""
+    completed = subprocess.CompletedProcess(
+        args=["git"], returncode=1, stdout=b"", stderr=b"fatal: gc failed\n"
+    )
+    monkeypatch.setattr(maintenance_mod.subprocess, "run", MagicMock(return_value=completed))
+    run = _default_runner(600.0)
+
+    with caplog.at_level(logging.WARNING):
+        run(["git", "-C", str(tmp_path), "gc", "--auto"], tmp_path)
+
+    assert "git_maintenance_command_failed" in caplog.text
+    assert "rc=1" in caplog.text
+    assert "fatal: gc failed" in caplog.text
+
+
+def test_default_runner_logs_and_swallows_subprocess_error(
+    monkeypatch, caplog, tmp_path: Path
+) -> None:
+    """A raised subprocess error (e.g. timeout) is logged AND swallowed -- the sync
+    must never be aborted by a maintenance failure (callers have no try/except)."""
+
+    def _raise(*_a, **_k):
+        raise subprocess.TimeoutExpired(cmd=["git"], timeout=600.0)
+
+    monkeypatch.setattr(maintenance_mod.subprocess, "run", _raise)
+    run = _default_runner(600.0)
+
+    with caplog.at_level(logging.WARNING):
+        run(["git", "-C", str(tmp_path), "gc", "--auto"], tmp_path)  # must NOT raise
+
+    assert "git_maintenance_command_error" in caplog.text
+
+
+def test_default_runner_success_logs_nothing(monkeypatch, caplog, tmp_path: Path) -> None:
+    """A clean (rc=0) maintenance command emits no warning."""
+    completed = subprocess.CompletedProcess(args=["git"], returncode=0, stdout=b"", stderr=b"")
+    monkeypatch.setattr(maintenance_mod.subprocess, "run", MagicMock(return_value=completed))
+    run = _default_runner(600.0)
+
+    with caplog.at_level(logging.WARNING):
+        run(["git", "-C", str(tmp_path), "gc", "--auto"], tmp_path)
+
+    assert caplog.records == []

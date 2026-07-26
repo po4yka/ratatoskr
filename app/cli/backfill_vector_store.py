@@ -174,7 +174,9 @@ async def backfill_vector_store(
         deleted = 0
         skipped = 0
         total_fetched = 0
-        pending_requests: list[tuple[int, int, list[list[float]], list[dict[str, Any]]]] = []
+        pending_requests: list[
+            tuple[int, int, str | None, list[list[float]], list[dict[str, Any]]]
+        ] = []
         pending_vector_count = 0
 
         async def flush_pending() -> None:
@@ -187,26 +189,33 @@ async def backfill_vector_store(
                 pending_requests.clear()
                 pending_vector_count = 0
                 return
-            indexed_summary_ids: list[int] = []
+            indexed_content_hashes: dict[int, str | None] = {}
             for (
                 pending_request_id,
                 pending_summary_id,
+                expected_content_hash,
                 request_vectors,
                 request_metadata,
             ) in pending_requests:
-                # Backfill is operator-rerunnable, so skip the per-request disk
-                # flush; a lost write is recovered by re-running the backfill.
                 # replace_request_notes is synchronous (Qdrant sync client); wrap
                 # it so the event loop is not blocked.
-                await asyncio.to_thread(
+                acknowledged = await asyncio.to_thread(
                     vector_store.replace_request_notes,
                     pending_request_id,
                     request_vectors,
                     request_metadata,
-                    wait=False,
                 )
-                indexed_summary_ids.append(pending_summary_id)
-            await embedding_repo.async_mark_summary_embeddings_indexed(indexed_summary_ids)
+                if acknowledged is True:
+                    indexed_content_hashes[pending_summary_id] = expected_content_hash
+                else:
+                    logger.warning(
+                        "vector_backfill_qdrant_unacknowledged",
+                        extra={
+                            "request_id": pending_request_id,
+                            "summary_id": pending_summary_id,
+                        },
+                    )
+            await embedding_repo.async_mark_summary_embeddings_indexed(indexed_content_hashes)
             pending_requests.clear()
             pending_vector_count = 0
 
@@ -353,7 +362,15 @@ async def backfill_vector_store(
                     deleted += 1
                     continue
 
-                pending_requests.append((request_id, summary_id, request_vectors, request_metadata))
+                pending_requests.append(
+                    (
+                        request_id,
+                        summary_id,
+                        existing.get("content_hash"),
+                        request_vectors,
+                        request_metadata,
+                    )
+                )
                 pending_vector_count += len(request_vectors)
                 processed += len(request_vectors)
 

@@ -267,7 +267,7 @@ async def test_expired_session_raises_410(db, contract_user):
     session_id = session_result["data"]["session_id"]
 
     # Directly mutate the in-memory fallback store's expires_at to the past.
-    svc._fallback_store._sessions[session_id]["expires_at"] = "2000-01-01T00:00:00Z"
+    svc._sync_sessions[session_id]["expires_at"] = "2000-01-01T00:00:00Z"
 
     with pytest.raises(SyncSessionExpiredError) as exc_info:
         await full_sync(session_id=session_id, limit=10, user=user_ctx, svc=svc)

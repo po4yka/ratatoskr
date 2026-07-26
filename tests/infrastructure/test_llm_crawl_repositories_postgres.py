@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import delete
 
 from app.config.database import DatabaseConfig
-from app.db.models import CrawlResult, LLMCall, Request
+from app.db.models import CrawlResult, LLMAttemptTrigger, LLMCall, Request
 from app.db.session import Database
 from app.infrastructure.persistence.repositories.crawl_result_repository import (
     CrawlResultRepositoryAdapter,
@@ -107,6 +107,44 @@ async def test_llm_repository_persists_and_reads_batch(database: Database) -> No
     assert rows[0]["fallback_model_used"] is None
     assert rows[0]["retry_exhausted"] is False
     assert rows[0]["total_latency_ms"] == 75
+
+
+@pytest.mark.asyncio
+async def test_llm_repository_persists_agent_call_without_request(database: Database) -> None:
+    """Agent-originated calls (no parent request) persist with request_id NULL.
+
+    Regression guard for the schema/code contract mismatch where
+    ``llm_calls.request_id`` was ``NOT NULL`` while ``persist_agent_llm_call``
+    writes ``request_id=None`` -- silently dropping every agent LLM call
+    (fixed by migration 0051). The unit tests for agents use a fake repo, so
+    only a real-schema insert exercises the NOT-NULL constraint.
+    """
+    repo = LLMRepositoryAdapter(database)
+
+    call_id = await repo.async_insert_llm_call(
+        {
+            "request_id": None,
+            "provider": "openrouter",
+            "model": "openrouter/agent-model",
+            "endpoint": "signal_judge",
+            "status": "success",
+            "cost_usd": 0.01,
+            "latency_ms": 123,
+            "structured_output_used": True,
+        }
+    )
+
+    assert call_id > 0
+    async with database.transaction() as session:
+        row = await session.get(LLMCall, call_id)
+        assert row is not None
+        assert row.request_id is None
+        # attempt_trigger may load as the enum member or its value depending on
+        # SQLAlchemy config; normalize before comparing.
+        trigger = getattr(row.attempt_trigger, "value", row.attempt_trigger)
+        assert trigger == LLMAttemptTrigger.agent.value
+        assert row.attempt_index == 1
+        assert row.endpoint == "signal_judge"
 
 
 @pytest.mark.asyncio

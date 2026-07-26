@@ -209,13 +209,13 @@ async def test_fake_descriptor_adds_extractor_without_content_extractor_changes(
     fake_extractor = _FakeExtractor("new-platform")
     descriptor = PlatformExtractorDescriptor(
         name="new-platform",
-        predicate=lambda normalized_url: normalized_url == "https://new.example/item",
+        predicate=lambda normalized_url: normalized_url == "https://example.com/item",
         factory=lambda _context: fake_extractor,
     )
     extractor, scrape_markdown = _make_content_extractor(descriptor)
 
     content_text, content_source, metadata = await extractor.extract_content_pure(
-        "https://new.example/item",
+        "https://example.com/item",
         correlation_id="cid",
         request_id=123,
     )

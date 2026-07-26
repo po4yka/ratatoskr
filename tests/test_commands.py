@@ -4,7 +4,7 @@ Ported off the legacy DatabaseSessionManager + tests.db_helpers shim. Each
 test constructs a real TelegramBot wired against async Postgres and the
 function-scoped session/database fixtures, then drives commands through
 bot._on_message. URL processing is short-circuited via a BotSpy that
-replaces url_processor.handle_url_flow so the tests stay focused on
+replaces the URLFlowRequest-based processor entrypoint so the tests stay focused on
 command routing rather than the summarisation pipeline (which has its
 own coverage in test_dedupe.py).
 """
@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 
 from app.adapters.telegram.telegram_bot import TelegramBot
 from app.application.services.topic_search import TopicArticle
+from app.config.runtime import RuntimeConfig
 from tests.conftest import make_test_app_config
 from tests.db_helpers_async import (
     create_request,
@@ -59,9 +60,12 @@ class BotSpy(TelegramBot):
 
         if hasattr(self, "url_processor"):
 
-            async def mock_handle_url_flow(message: Any, url_text: str, **_: object) -> None:
-                self.seen_urls.append(url_text)
-                await self._safe_reply(message, f"OK {url_text}")
+            async def mock_handle_url_flow(flow_request: Any) -> None:
+                self.seen_urls.append(flow_request.url_text)
+                await self._safe_reply(
+                    flow_request.message,
+                    f"OK {flow_request.url_text}",
+                )
 
             self.url_processor.handle_url_flow = mock_handle_url_flow
 
@@ -71,7 +75,15 @@ class BotSpy(TelegramBot):
 
 
 def _make_bot(database: Database) -> BotSpy:
-    cfg = make_test_app_config(db_path="/tmp/cmd-test.db", allowed_user_ids=(1, 42))
+    cfg = make_test_app_config(
+        db_path="/tmp/cmd-test.db",
+        allowed_user_ids=(1, 42),
+        runtime=RuntimeConfig(
+            db_path="/tmp/cmd-test.db",
+            aggregate_coalesce_enabled=False,
+            url_worker_enqueue_enabled=False,
+        ),
+    )
     from app.adapters import telegram_bot as tbmod
 
     tbmod.Client = object

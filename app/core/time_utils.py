@@ -47,6 +47,8 @@ def isotime(dt_val: Any) -> str:
     """
     if dt_val is None:
         return ""
+    if isinstance(dt_val, datetime):
+        return format_iso_z(dt_val)
     if hasattr(dt_val, "isoformat"):
         return str(dt_val.isoformat()) + "Z"
     return str(dt_val)

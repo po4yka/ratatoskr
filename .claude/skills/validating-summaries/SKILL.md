@@ -25,27 +25,29 @@ See `app/core/summary_schema.py` for the full Pydantic model.
 | `summary_1000` | Hard cap 1000 chars, multi-sentence |
 | `topic_tags` | Leading `#`, deduplicated, max 10 recommended |
 | `entities` | Lists deduplicated case-insensitively; categories: people, organizations, locations |
-| `key_stats` | `value` numeric, `label` + `source_excerpt` required, `unit` optional |
+| `key_stats` | `label` required, `value` numeric, `unit` + `source_excerpt` optional |
 | `readability` | `method` string, `score` numeric, `level` mapped from score |
 
 Full details with code fix snippets: `references/validation-rules.md`
 
 ## Validation Scripts
 
-### Standalone validator
+### Strict provider-schema validation
 
-Checks required fields, character limits, tag format, and entity structure:
+Validates raw model output against the complete provider JSON Schema. It requires
+every schema field and rejects extra fields or invalid nested structures:
 
 ```bash
-python .claude/skills/validating-summaries/scripts/validate-summary.py summary.json
+.venv/bin/python .claude/skills/validating-summaries/scripts/validate-summary.py summary.json
 ```
 
-### Project-integrated validator
+### Compatibility shaping
 
-Uses `validate_summary_json()` from the project:
+Runs the tolerant project mapper used for legacy or partial payloads. Successful
+shaping is not evidence that the raw payload satisfied the strict provider schema:
 
 ```bash
-python .claude/skills/validating-summaries/scripts/validate-with-project.py summary.json
+.venv/bin/python .claude/skills/validating-summaries/scripts/validate-with-project.py summary.json
 ```
 
 ## Testing with CLI Runner
@@ -53,13 +55,14 @@ python .claude/skills/validating-summaries/scripts/validate-with-project.py summ
 Test URL processing and summary generation end-to-end:
 
 ```bash
-python -m app.cli.summary \
+.venv/bin/python -m app.cli.summary \
   --url https://example.com/article \
   --json-path output.json \
   --log-level DEBUG
 ```
 
-The CLI automatically validates summaries using `validate_summary_json()`.
+Use the strict script above on `output.json` when the test is meant to prove that
+raw provider output satisfies the generation contract.
 
 ## Reference Files
 
@@ -73,7 +76,8 @@ The CLI automatically validates summaries using `validate_summary_json()`.
 
 ## Important Notes
 
-- All validation happens in `app/core/summary_contract.py`
+- `get_summary_json_schema()` defines the strict provider-output contract
+- `validate_and_shape_summary()` is a tolerant compatibility mapper
 - JSON repair attempts to fix malformed LLM output (`json_repair` library)
 - Both English and Russian prompts must be kept in sync
 - Database stores verbatim JSON in `summaries.json_payload`

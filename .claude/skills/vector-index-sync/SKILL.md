@@ -13,8 +13,8 @@ Summary and repository embeddings live in two stores that must stay consistent: 
 
 | Writer | Where | When |
 | ------ | ----- | ---- |
-| **Fast path** | `persist` graph node → `SummaryEmbeddingGenerator` (summaries), GitHub repo analysis (repos) | Synchronously on summary creation / repo analysis -- the user gets a fresh vector immediately (read-your-writes guarantee for RAG grounding) |
-| **Taskiq reconciler** | `app/tasks/reconcile_vector_index.py` (`ratatoskr.vector.reconcile`) | Cron `VECTOR_RECONCILE_CRON` (default `*/30 * * * *`); scans rows where `last_indexed_at < summaries.updated_at` |
+| **Fast path** | `persist` graph node → `QdrantSummaryIndexAdapter` (summaries), `RepositoryEmbeddingGenerator` (repos) | Synchronously on summary creation / repo analysis -- the user gets a fresh vector immediately (read-your-writes guarantee for RAG grounding) |
+| **Taskiq reconciler** | `app/tasks/reconcile_vector_index.py` (`ratatoskr.vector.reconcile`) → `SummaryEmbeddingGenerator` / repository adapter | Cron `VECTOR_RECONCILE_CRON` (default `*/30 * * * *`); repairs missing, pending, or stale rows |
 
 The reconciler is the convergence/backfill/repair layer. The fast path covers steady-state writes and guarantees the new summary is retrievable immediately. Both writers produce byte-identical Qdrant points via `app/infrastructure/vector/summary_point.py` and shared deterministic point IDs.
 
@@ -76,8 +76,9 @@ This re-embeds and re-upserts everything. Slow but authoritative.
 | -------- | --- | ----- |
 | `local` | `EMBEDDING_PROVIDER=local` (default) | `sentence-transformers`, runs in-process |
 | `gemini` | `EMBEDDING_PROVIDER=gemini` + `GEMINI_API_KEY` | Google's Gemini Embedding 2 API |
+| `voyage` | `EMBEDDING_PROVIDER=voyage` + `VOYAGE_API_KEY` | Voyage AI text embeddings via direct HTTP |
 
-**Switching providers invalidates ALL existing vectors** -- the embedding dimensions and semantics differ. Run the backfill after switching, and consider truncating the Qdrant collection first.
+**Switching providers invalidates ALL existing vectors** -- the embedding dimensions and semantics differ. Remote providers are namespaced by model + dimension; run the backfill after switching and use a fresh collection/version or recreate the incompatible collection first.
 
 ## Failure Modes
 
@@ -89,7 +90,8 @@ This re-embeds and re-upserts everything. Slow but authoritative.
 
 ## Key Files
 
-- **Fast path (summaries)**: `app/infrastructure/embedding/summary_embedding_generator.py`
+- **Fast path (summaries)**: `app/infrastructure/vector/summary_index_adapter.py`
+- **Summary embedding generator (reconciler/backfill)**: `app/application/services/summary_embedding_generator.py`
 - **Fast path (repos)**: `app/agents/repo_analysis_agent.py`, `app/application/use_cases/analyze_repository.py`
 - **Summary point construction**: `app/infrastructure/vector/summary_point.py`
 - **Reconciler task**: `app/tasks/reconcile_vector_index.py`

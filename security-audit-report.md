@@ -1,5 +1,10 @@
 # Security Audit Report
 
+> Historical point-in-time report for the 2026-06-27 codebase. Findings,
+> file/line references, counts, and “clean” claims have not been revalidated
+> against the current tree and must not be used as a current security sign-off.
+> Reproduce any relevant finding in current code before acting on it.
+
 **Project**: Ratatoskr (backend — FastAPI + Telegram bot + Mobile API + MCP server + Taskiq worker)
 **Date**: 2026-06-27
 **Auditor**: Claude Security Audit

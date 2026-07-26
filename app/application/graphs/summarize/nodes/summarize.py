@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.application.dto.stream_enums import SUMMARY_TOKEN_EVENT
 from app.application.graphs.summarize.deps import SummarizeConfig
+from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.services.summarization.graph_llm import (
     summarize_streaming,
     summarize_with_instructor,
 )
+from app.application.services.summarization.graph_llm_guard import (
+    GraphLLMUsageBudgetExceeded,
+)
+from app.core.llm_call_budget import LLMCallCapExceeded
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -54,9 +59,21 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
     """
     messages = state.get("messages")
     if not messages:
-        return {}
+        # Bulk prompt channels are not checkpointed. Rebuild them from the
+        # request/crawl handles when a durable resume starts at this node.
+        from app.application.graphs.summarize.nodes.build_prompt import build_prompt
+
+        prompt_builder = getattr(build_prompt, "__wrapped__", build_prompt)
+        hydrated = await prompt_builder(state, deps=deps)
+        if not hydrated.get("messages"):
+            return {}
+        merged_state = dict(state)
+        merged_state.update(hydrated)
+        state = cast("SummarizeState", merged_state)
+        messages = state.get("messages")
 
     config = deps.config if isinstance(deps.config, SummarizeConfig) else None
+    provider = _provider_name(deps, config)
     model_override = (state.get("model_override") or "").strip() or None
     max_tokens = state.get("max_tokens") or None
     streamed = bool(state.get("stream"))
@@ -70,13 +87,13 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
             # Cache hit: no llm_calls row (mirrors legacy interactive path).
             return {
                 "summary": cached,
-                "call_count": state.get("call_count", 0) + 1,
+                "call_count": state.get("call_count", 0),
                 "llm_calls": [],
             }
 
     if streamed:
         try:
-            summary, call_meta = await summarize_streaming(
+            summary, call_metas, call_count = await summarize_streaming(
                 llm_client=deps.llm_client,
                 messages=messages,
                 source_content=state.get("content_for_summary") or "",
@@ -87,13 +104,17 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
                 on_token=_dispatch_summary_token,
                 request_id=state.get("request_id"),
                 correlation_id=state.get("correlation_id"),
+                guard=getattr(deps, "llm_guard", None),
+                current_call_count=state.get("call_count", 0),
             )
+        except (LLMCallCapExceeded, GraphLLMUsageBudgetExceeded) as exc:
+            raise CallBudgetExceeded(str(exc)) from exc
         except Exception as exc:
             # GAP 3a: attach failure record then re-raise.
-            raise _tag_failure(state, config, exc, structured=False) from exc
+            raise _tag_failure(state, config, exc, structured=False, provider=provider) from exc
     else:
         try:
-            summary, call_meta = await summarize_with_instructor(
+            summary, call_metas, call_count = await summarize_with_instructor(
                 llm_client=deps.llm_client,
                 messages=messages,
                 source_content=state.get("content_for_summary") or "",
@@ -104,15 +125,31 @@ async def summarize(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, 
                 sticky_fallback_enabled=config.sticky_fallback_enabled if config else True,
                 structured_output_mode=config.structured_output_mode if config else None,
                 correlation_id=state.get("correlation_id"),
+                request_id=state.get("request_id"),
+                guard=getattr(deps, "llm_guard", None),
+                current_call_count=state.get("call_count", 0),
             )
+        except (LLMCallCapExceeded, GraphLLMUsageBudgetExceeded) as exc:
+            raise CallBudgetExceeded(str(exc)) from exc
         except Exception as exc:
             # GAP 3a: attach failure record then re-raise.
-            raise _tag_failure(state, config, exc, structured=True) from exc
+            raise _tag_failure(state, config, exc, structured=True, provider=provider) from exc
 
     result: dict[str, Any] = {
         "summary": summary,
-        "call_count": state.get("call_count", 0) + 1,
-        "llm_calls": [_call_record(state, config, call_meta, status="ok", structured=not streamed)],
+        "call_count": call_count,
+        "llm_calls": [
+            _call_record(
+                state,
+                config,
+                call_meta,
+                status=str(call_meta.get("status") or "ok"),
+                structured=not streamed,
+                error_text=(str(call_meta["error_text"]) if call_meta.get("error_text") else None),
+                provider=provider,
+            )
+            for call_meta in call_metas
+        ],
     }
 
     return result
@@ -123,9 +160,8 @@ async def _dispatch_summary_token(delta: str) -> None:
 
     Best-effort, per-token side-channel: streamed tokens are ephemeral and must
     NEVER fail the authoritative summary (ADR-0011/0017). When invoked outside an
-    ``astream_events`` callback context (or without the graph extra installed),
-    the dispatch is silently skipped. langchain_core is imported lazily so this
-    node stays importable without the ``graph`` extra (no-graph-extra invariant).
+    ``astream_events`` callback context, the dispatch is silently skipped.
+    ``langchain_core`` is imported lazily so this node stays framework-independent.
     """
     if not delta:
         return
@@ -145,16 +181,18 @@ def _call_record(
     status: str,
     structured: bool = True,
     error_text: str | None = None,
+    provider: str = "unknown",
 ) -> dict[str, Any]:
     """Build the serializable ``llm_calls`` record (attempt_trigger='graph_node')."""
     rec: dict[str, Any] = {
         "request_id": state.get("request_id"),
-        "provider": config.llm_provider if config else "openrouter",
+        "provider": provider,
         "model": call_meta.get("model"),
         "tokens_prompt": call_meta.get("tokens_prompt"),
         "tokens_completion": call_meta.get("tokens_completion"),
         "cost_usd": call_meta.get("cost_usd"),
         "latency_ms": call_meta.get("latency_ms"),
+        "fallback_model_used": _fallback_model(config, call_meta),
         "status": status,
         "structured_output_used": structured,
         "structured_output_mode": config.structured_output_mode if config else None,
@@ -165,12 +203,21 @@ def _call_record(
     return rec
 
 
+def _fallback_model(config: SummarizeConfig | None, call_meta: dict[str, Any]) -> str | None:
+    """Persist a selected fallback when the provider returned a non-primary model."""
+    model = call_meta.get("model")
+    if not isinstance(model, str) or not model:
+        return None
+    return model if config is not None and model != config.model else None
+
+
 def _tag_failure(
     state: SummarizeState,
     config: SummarizeConfig | None,
     exc: Exception,
     *,
     structured: bool,
+    provider: str,
 ) -> Exception:
     """Attach an llm_calls failure record to ``exc`` and return it for re-raising.
 
@@ -188,6 +235,24 @@ def _tag_failure(
     reproduced here -- the instructor adapter collapses them into one result;
     a comment is left for future fidelity work.
     """
+    physical_attempts = getattr(exc, "__llm_physical_attempts__", None)
+    if isinstance(physical_attempts, list) and physical_attempts:
+        records = [
+            _call_record(
+                state,
+                config,
+                attempt,
+                status=str(attempt.get("status") or "error"),
+                structured=structured,
+                error_text=str(attempt.get("error_text") or exc),
+                provider=provider,
+            )
+            for attempt in physical_attempts
+            if isinstance(attempt, dict)
+        ]
+        exc.__dict__.setdefault("llm_failure_records", []).extend(records)
+        return exc
+
     # Surface the raw LLMCallResult from the exception when available.
     llm_result = getattr(exc, "__llm_result__", None)
     if llm_result is not None:
@@ -222,6 +287,14 @@ def _tag_failure(
         status="error",
         structured=structured,
         error_text=raw_error,
+        provider=provider,
     )
     exc.__dict__.setdefault("llm_failure_records", []).append(failure_record)
     return exc
+
+
+def _provider_name(deps: SummarizeDeps, config: SummarizeConfig | None) -> str:
+    provider = getattr(deps.llm_client, "provider_name", None)
+    if isinstance(provider, str) and provider:
+        return provider
+    return config.llm_provider if config else "unknown"

@@ -58,7 +58,7 @@ class VectorStore(Protocol):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None: ...
+    ) -> bool: ...
 
     def replace_request_notes(
         self,
@@ -68,7 +68,7 @@ class VectorStore(Protocol):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None: ...
+    ) -> bool: ...
 
     def replace_summary_point(
         self,
@@ -78,7 +78,17 @@ class VectorStore(Protocol):
         payload: dict[str, Any],
         *,
         wait: bool = True,
-    ) -> None: ...
+    ) -> bool: ...
+
+    def replace_summary_points(
+        self,
+        request_ids: Sequence[int | str],
+        raw_ids: Sequence[str],
+        vectors: Sequence[Sequence[float]],
+        payloads: Sequence[dict[str, Any]],
+    ) -> bool:
+        """Replace summary points as one acknowledged reconciliation batch."""
+        ...
 
     def query(
         self,
@@ -106,6 +116,8 @@ class VectorStore(Protocol):
     ) -> VectorQueryResult: ...
 
     def delete_by_request_id(self, request_id: int | str) -> None: ...
+
+    def delete_by_request_ids(self, request_ids: Sequence[int | str]) -> None: ...
 
     def get_indexed_summary_ids(
         self,

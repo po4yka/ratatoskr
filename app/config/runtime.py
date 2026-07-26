@@ -252,11 +252,15 @@ class RuntimeConfig(BaseModel):
         default=4,
         ge=1,
         le=16,
-        validation_alias="URL_WORKER_CONCURRENCY",
+        validation_alias=AliasChoices(
+            "TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS",
+            "URL_WORKER_CONCURRENCY",
+        ),
         description=(
-            "Maximum number of process_url_request tasks the worker may "
-            "execute concurrently.  Wire into Taskiq ``--max-async-tasks`` "
-            "at worker startup; see ops/docker/docker-compose.yml."
+            "Taskiq async-task limit per worker process. The worker startup "
+            "command wires this value into ``--max-async-tasks`` and "
+            "``--max-prefetch``. URL_WORKER_CONCURRENCY remains a backwards-"
+            "compatible alias; the limit is worker-wide, not URL-task-specific."
         ),
     )
 

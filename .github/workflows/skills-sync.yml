@@ -3,24 +3,8 @@ name: Skills sync
 on:
   push:
     branches: [ main, master ]
-    paths:
-      - ".claude/skills/**"
-      - ".codex/skills/**"
-      - ".agents/skills/**"
-      - ".claude/commands/**"
-      - ".codex/commands/**"
-      - "tools/scripts/check_skills_sync.py"
-      - ".github/workflows/skills-sync.yml"
   pull_request:
     branches: [ main, master ]
-    paths:
-      - ".claude/skills/**"
-      - ".codex/skills/**"
-      - ".agents/skills/**"
-      - ".claude/commands/**"
-      - ".codex/commands/**"
-      - "tools/scripts/check_skills_sync.py"
-      - ".github/workflows/skills-sync.yml"
 
 concurrency:
   group: skills-sync-${{ github.event.pull_request.number || github.ref }}

@@ -11,8 +11,9 @@ Graph state is checkpointed to Postgres (ADR-0004, msgpack-serialized). State mu
 
 ### State & serialization
 
-- `SummarizeState` is a `TypedDict` of **serializable primitives only** (str / int / list / dict). Required fields: `correlation_id`, `request_id`, `lang`; working fields: `grounding_ids`, `summary`, `validation_errors`, `repair_attempts`, `call_count`.
-- **Minimal state:** store IDs/handles, not bulk content. Source `content` / crawl text is **re-fetched from Postgres by `request_id`** on entry to the node that needs it — lighter checkpoints and less PII at rest (aligns with the ADR-0004 retention/redaction policy).
+- `SummarizeState` is the in-process `TypedDict` contract and contains serializable primitives only. Required fields are `correlation_id`, `request_id`, and `lang`; working fields include `grounding_ids`, `summary`, `validation_errors`, `repair_attempts`, and `call_count`.
+- **Durable checkpoints are ID-only.** Graph assembly maps the seven bulk runtime handoffs (`source_text`, requested prompt/feedback, `grounding_block`, assembled `system_prompt`, `messages`, and `content_for_summary`) to LangGraph `UntrackedValue` channels. Nodes can pass them to adjacent nodes during one process lifetime, but the Postgres saver never writes them.
+- On durable URL-run resume, nodes use `request_id` to re-fetch source/crawl text and deterministically rebuild grounding and prompt context. Content-only runs without a request row are transient and do not claim durable resume.
 - **Live dependencies are never stored in state.** The LLM port, retrieval port, repositories, and sessions are passed via graph `config` / `functools.partial` at compile time — they are not serializable and would break checkpointing.
 - `thread_id = correlation_id` (sacred), so resumable runs preserve the correlation ID.
 
@@ -28,11 +29,11 @@ Graph state is checkpointed to Postgres (ADR-0004, msgpack-serialized). State mu
 
 ## Consequences
 
-- Resume re-reads source content (cheap) instead of carrying it in the checkpoint; checkpoint rows stay small.
+- Resume re-reads source content instead of carrying it in the checkpoint; checkpoint rows stay small and exclude prompts/messages.
 - An Alembic migration adds `graph_node` to `llm_attempt_trigger` (Postgres enum `ALTER`).
 - Retry/graph-call analytics stay uniform with the existing `attempt_index` / `attempt_trigger` model.
 
 ## Alternatives rejected
 
-- **Full content + payloads in state** — heavier checkpoints and a PII-retention burden (rejected in the 0011 decision interview in favour of minimal state).
+- **Tracked content + payload channels** — heavier checkpoints and a PII-retention burden. Transient `UntrackedValue` handoffs preserve single-run node composition without weakening the durable-state decision.
 - **A graph-specific error/lifecycle** — would duplicate logic and risk dropping the correlation-ID error contract.

@@ -241,6 +241,7 @@ async def test_run_digest_pipeline_records_analysis_send_and_persist_errors() ->
     )
     result = await subject.generate_digest(10, "cid")
     assert result.errors == ["Send failed: send failed"]
+    assert _store.deliveries == []
 
     subject, sender, _store = _service(
         reader=_Reader(posts=[{"message_id": 1}]),

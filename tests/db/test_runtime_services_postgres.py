@@ -31,6 +31,7 @@ def _docker_postgres_available() -> bool:
 
 
 @pytest.mark.asyncio
+@pytest.mark.postgres
 async def test_runtime_services_against_postgres(tmp_path: Path) -> None:
     dsn = _test_dsn()
     if not dsn:
@@ -92,6 +93,7 @@ async def test_inspection_reports_bad_dsn() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.postgres
 async def test_backup_dump_round_trips_with_pg_restore(tmp_path: Path) -> None:
     dsn = _test_dsn()
     if not dsn:

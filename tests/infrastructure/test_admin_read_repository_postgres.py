@@ -266,7 +266,7 @@ async def test_admin_read_repository_reports_provider_diagnostics(database: Data
         "total_count": 2,
         "failure_count": 1,
         "last_error_code": "error",
-        "last_error_message": "token=[REDACTED] failed",
+        "last_error_message": "token=[REDACTED]",
         "last_failure_at": llm_openrouter["last_failure_at"],
     }
 
@@ -279,6 +279,6 @@ async def test_admin_read_repository_reports_provider_diagnostics(database: Data
         "total_count": 2,
         "failure_count": 1,
         "last_error_code": "AUTH",
-        "last_error_message": "Authorization=[REDACTED] failed",
+        "last_error_message": "Authorization=[REDACTED]",
         "last_failure_at": scraper_firecrawl["last_failure_at"],
     }

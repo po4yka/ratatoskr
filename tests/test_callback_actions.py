@@ -409,6 +409,7 @@ class TestExport:
             "app.adapters.external.formatting.export_formatter.ExportFormatter.export_summary",
             _fake_export_summary,
         )
+        monkeypatch.setattr(service._store, "summary_belongs_to_user", AsyncMock(return_value=True))
 
         handled = await service.handle_export(
             message,
@@ -428,6 +429,7 @@ class TestExport:
     async def test_handles_export_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         service, formatter = _make_service()
         monkeypatch.setattr(callback_actions_module.asyncio, "wait_for", _timeout_wait_for)
+        monkeypatch.setattr(service._store, "summary_belongs_to_user", AsyncMock(return_value=True))
 
         handled = await service.handle_export(
             SimpleNamespace(),
@@ -438,6 +440,30 @@ class TestExport:
 
         assert handled is True
         assert _last_reply_text(formatter) == t("cb_timeout", "en")
+
+    @pytest.mark.asyncio
+    async def test_export_denied_for_non_owner(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        service, formatter = _make_service()
+        monkeypatch.setattr(
+            service._store, "summary_belongs_to_user", AsyncMock(return_value=False)
+        )
+        export_spy = MagicMock()
+        monkeypatch.setattr(
+            "app.adapters.external.formatting.export_formatter.ExportFormatter.export_summary",
+            export_spy,
+        )
+
+        handled = await service.handle_export(
+            SimpleNamespace(),
+            uid=999,
+            parts=["export", "42", "pdf"],
+            correlation_id="cid-export-idor",
+        )
+
+        assert handled is True
+        # Non-owner sees a neutral "not found", and the exporter never runs.
+        assert _last_reply_text(formatter) == t("cb_summary_not_found", "en")
+        export_spy.assert_not_called()
 
 
 class TestSaveAndRate:

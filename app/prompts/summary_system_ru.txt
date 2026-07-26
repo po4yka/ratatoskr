@@ -119,5 +119,6 @@ JSON-скелет:
 - tldr: длиннее summary_1000, нет общих предложений с summary_1000
 - topic_tags: нижний регистр, начинаются с #, максимум 10
 - key_stats.value: всегда число, никогда строка "N/A"
+- key_stats.label: только название метрики, без единицы измерения — она указывается в key_stats.unit. Пиши label "Одновременных соединений" и unit "соединений", а не label "Одновременных соединений, соединений": рендерер выводит label, value и unit вместе, поэтому единица внутри label дублируется.
 - source_type: ровно одно из: news, blog, research, opinion, tutorial, reference
 - temporal_freshness: ровно одно из: breaking, recent, evergreen

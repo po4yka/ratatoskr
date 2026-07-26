@@ -79,6 +79,14 @@ class DatabaseOperationExecutor:
 
         async def _run() -> Any:
             if session is not None:
+                # A caller-supplied session may already own a transaction: SQLAlchemy
+                # autobegins one on the first statement, and `session.begin()` raises
+                # InvalidRequestError ("a transaction is already begun") when one is
+                # active. Join the existing transaction in that case -- the caller owns
+                # its commit/rollback lifecycle, so we must not open (or close) a second
+                # one. Only begin ourselves when the session is transaction-free.
+                if session.in_transaction():
+                    return await self._call(operation, session, args, kwargs)
                 async with session.begin():
                     return await self._call(operation, session, args, kwargs)
             maker = self._require_session_maker()

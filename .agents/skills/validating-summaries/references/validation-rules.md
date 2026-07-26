@@ -21,8 +21,8 @@ Detailed validation rules for the summary JSON contract.
 ## Key Stats
 
 - `value` must be numeric (int or float)
-- `label` and `source_excerpt` are required strings
-- `unit` is optional string
+- `label` is a required string
+- `unit` and `source_excerpt` are optional strings
 
 ## Readability
 

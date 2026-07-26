@@ -11,8 +11,9 @@
 #   non-secret YAML  >  os.environ  >  .env / ctor args  >  defaults
 #   secret env       >  defaults    (YAML secret keys are dropped with a warning)
 #
-# Missing file: if config/ratatoskr.yaml is absent, all fields fall back to
-# their Field(default=...) values. The file is entirely opt-in.
+# Missing file: fields with code defaults fall back, but required model/media
+# fields must then be supplied through environment overrides. Copy this file or
+# keep the checked-in config/ratatoskr.yaml for the normal deployment.
 #
 # Fields NOT in this file (set them in docker-compose environment instead):
 #   REDIS_ENABLED    -- set per-service in compose (worker/mobile-api need 1,
@@ -20,7 +21,9 @@
 #                       across services that need different settings.
 #   TEXTACY_ENABLED  -- same reason; worker and mobile-api set 1, bot uses 0.
 #
-# For a full list of all supported env vars see docs/reference/environment-variables.md.
+# For configuration ownership and common env overrides see
+# docs/reference/environment-variables.md; Pydantic validation_alias values are
+# the executable alias catalog.
 # For the YAML loader and search-order details see docs/reference/config-file.md.
 
 # ---------------------------------------------------------------------------
@@ -37,8 +40,8 @@ runtime:
   llm_call_timeout_sec: 420
   # Maximum concurrent in-flight summarization requests
   max_concurrent_calls: 4
-  # Active LLM provider. Only openrouter is currently wired into the bot/API runtime.
-  # Use OpenRouter model IDs such as "openai/..." or "anthropic/..." to route to upstream model families.
+  # Active LLM provider: openrouter, openai, anthropic, or ollama.
+  # OpenRouter remains the most feature-complete path.
   llm_provider: openrouter
 
 # ---------------------------------------------------------------------------
@@ -117,7 +120,8 @@ attachment:
   max_document_chars: 45000
 
 # ---------------------------------------------------------------------------
-# Ollama reachability experiments are available through the with-cloud-ollama Compose profile, but the main summarization runtime currently has no Ollama adapter.
+# Optional direct Ollama adapter. The with-cloud-ollama Compose profile only
+# assists reachability; set LLM_PROVIDER=ollama to select this adapter.
 # ---------------------------------------------------------------------------
 # ollama:
 #   base_url: http://localhost:11434/v1
@@ -199,18 +203,23 @@ vector_reconcile:
 scraper:
   # Tuning profile: fast | balanced | robust
   profile: balanced
-  # Master switch for browser-based providers (Playwright, Crawlee)
+  # Master switch for browser-based providers (CloakBrowser, Playwright, Crawlee)
   browser_enabled: true
-  # Provider execution order (omit to use the built-in default order)
+  # Provider execution order (omit to use the 13-position default order)
   # provider_order:
+  #   - reddit
+  #   - hn
   #   - scrapling
+  #   - direct_pdf
   #   - crawl4ai
   #   - firecrawl
   #   - defuddle
+  #   - cloakbrowser
   #   - playwright
   #   - crawlee
   #   - direct_html
   #   - scrapegraph_ai
+  #   - webwright
 
   # Individual provider switches (all default to enabled where applicable)
   defuddle_enabled: true
@@ -220,8 +229,7 @@ scraper:
   crawlee_enabled: false
 
 # ---------------------------------------------------------------------------
-# Firecrawl (web-search enrichment path only — not the scraper chain)
-# FIRECRAWL_API_KEY must stay in .env.
+# Firecrawl request tuning shared by self-hosted scraper/search clients.
 # ---------------------------------------------------------------------------
 # firecrawl:
 #   timeout_sec: 90

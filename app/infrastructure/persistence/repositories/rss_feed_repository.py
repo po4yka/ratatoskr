@@ -63,17 +63,26 @@ class RSSFeedRepositoryAdapter:
                 update(RSSFeed).where(RSSFeed.id == feed_id).values(**update_data)
             )
 
-    async def async_list_active_feeds(self) -> list[dict[str, Any]]:
-        """Return feeds that have at least one active subscription."""
+    async def async_list_active_feeds(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        """Return feeds that have at least one active subscription.
+
+        Ordered least-recently-fetched first (``last_fetched_at`` nulls first, then
+        ``id``): a positive ``limit`` therefore caps how many feeds a single poll
+        cycle loads while still rotating fairly across cycles -- a feed just
+        fetched sorts to the back and never-fetched feeds are picked up first.
+        Without a positive ``limit`` every active feed is returned (unbounded).
+        """
         async with self._database.session() as session:
-            rows = (
-                await session.execute(
-                    select(RSSFeed)
-                    .join(RSSFeedSubscription, RSSFeedSubscription.feed_id == RSSFeed.id)
-                    .where(RSSFeed.is_active.is_(True), RSSFeedSubscription.is_active.is_(True))
-                    .distinct()
-                )
-            ).scalars()
+            stmt = (
+                select(RSSFeed)
+                .join(RSSFeedSubscription, RSSFeedSubscription.feed_id == RSSFeed.id)
+                .where(RSSFeed.is_active.is_(True), RSSFeedSubscription.is_active.is_(True))
+                .distinct()
+                .order_by(RSSFeed.last_fetched_at.asc().nulls_first(), RSSFeed.id)
+            )
+            if limit is not None and limit > 0:
+                stmt = stmt.limit(limit)
+            rows = (await session.execute(stmt)).scalars()
             return [model_to_dict(row) or {} for row in rows]
 
     # --- Subscription CRUD ---
@@ -384,7 +393,8 @@ class RSSFeedRepositoryAdapter:
                     RSSItemDelivery.id.is_(None),
                 )
                 .order_by(
-                    RSSFeedItem.published_at.desc(),
+                    RSSFeedItem.published_at.asc().nulls_first(),
+                    RSSFeedItem.created_at.asc(),
                     RSSFeedSubscription.created_at.asc(),
                 )
             )

@@ -137,6 +137,7 @@ class URLHandler:
                 llm_client=llm_client,
                 batch_config=batch_config,
                 response_formatter=response_formatter,
+                llm_repo=getattr(url_processor, "llm_repo", None),
             )
         )
         self._batch_processor = batch_processor or URLBatchProcessor(
@@ -716,6 +717,21 @@ class URLHandler:
             )
             return URLProcessingFlowResult(success=True, request_id=request_id)
 
+        async def mark_enqueue_failed() -> None:
+            try:
+                await request_repo.async_update_request_error(
+                    request_id,
+                    RequestStatus.ERROR.value,
+                    error_type="enqueue_failed",
+                    error_message="Unable to enqueue URL processing. Please retry.",
+                )
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                logger.warning(
+                    "url_worker_enqueue_request_error_update_failed",
+                    extra={"cid": cid, "request_id": request_id, "error": str(exc)},
+                )
+
         message_persistence = getattr(self.url_processor, "message_persistence", None)
         persist_snapshot = getattr(message_persistence, "persist_message_snapshot", None)
         if callable(persist_snapshot):
@@ -739,9 +755,16 @@ class URLHandler:
                 "url_worker_enqueue_job_row_failed",
                 extra={"cid": cid, "request_id": request_id, "error": str(exc)},
             )
+            await mark_enqueue_failed()
+            record_url_enqueue(status="error")
+            return URLProcessingFlowResult(success=False, request_id=request_id)
 
         # 3. Send the placeholder reply and persist its message_id.
-        placeholder_text = f"Processing... (Error ID: {cid})"
+        # The correlation ID stays visible so a stuck request can be quoted
+        # straight back for triage, but this is a queued placeholder, not a
+        # failure -- labelling it "Error ID" made every successful request open
+        # by announcing an error that had not happened.
+        placeholder_text = f"Processing... (ID: {cid})"
         bot_reply_message_id: int | None = None
         try:
             bot_reply_message_id = await self.response_formatter.safe_reply_with_id(
@@ -780,8 +803,9 @@ class URLHandler:
                 "url_worker_enqueue_kiq_failed",
                 extra={"cid": cid, "request_id": request_id, "error": str(exc)},
             )
+            await mark_enqueue_failed()
             record_url_enqueue(status="error")
-            return URLProcessingFlowResult(success=False)
+            return URLProcessingFlowResult(success=False, request_id=request_id)
 
         # 5. Record metrics.
         record_url_enqueue(status="success")

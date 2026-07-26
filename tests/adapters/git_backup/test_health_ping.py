@@ -43,9 +43,9 @@ def _make_transport(handler=None):
 
 
 def _patch_client(transport: httpx.MockTransport):
-    """Context manager that replaces httpx.AsyncClient with one using *transport*."""
+    """Replace the safe-client factory with an isolated mock transport."""
     return patch(
-        "app.adapters.git_backup.health_ping.httpx.AsyncClient",
+        "app.adapters.git_backup.health_ping.make_safe_async_client",
         return_value=httpx.AsyncClient(transport=transport),
     )
 
@@ -115,3 +115,19 @@ async def test_ping_failure_no_body_sends_empty_content() -> None:
     with _patch_client(transport):
         await ping_failure(_BASE_URL, _TIMEOUT, body=None)
     assert captured["request"].content == b""
+
+
+@pytest.mark.asyncio
+async def test_ping_failure_log_does_not_expose_secret_url(caplog) -> None:
+    secret_url = "https://hc-ping.com/secret-check-uuid"
+
+    def _raise(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"failed to connect to {secret_url}")
+
+    transport, _captured = _make_transport(_raise)
+    with _patch_client(transport), caplog.at_level("WARNING"):
+        await ping_success(secret_url, _TIMEOUT)
+
+    assert "git_backup_health_ping_failed" in caplog.text
+    assert "secret-check-uuid" not in caplog.text
+    assert caplog.records[-1].error_type == "ConnectError"
