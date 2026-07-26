@@ -17,6 +17,37 @@ logger = get_logger(__name__)
 if TYPE_CHECKING:
     from app.adapters.external.formatting.protocols import ResponseSender
 
+# A new sentence opens with whitespace then an optional opening quote/bracket
+# and a capital letter. Requiring that after a period is what separates a real
+# sentence end from an abbreviation, a decimal, or a domain name.
+_SENTENCE_RESUME_RE = re.compile(r"\s+[\"'«“(\[]?[A-ZА-ЯЁ]")
+
+
+def _last_sentence_boundary(text: str) -> int:
+    """Index of the last terminator that plausibly ends a sentence, or ``-1``.
+
+    A bare ``.`` is ambiguous: it also ends abbreviations ("50 тыс.", "e.g."),
+    separates decimals ("3.14"), and appears in domains ("habr.com"). Taking
+    the last ``.`` unconditionally meant that trimming a truncated tail could
+    silently swallow real content -- "...на 50 тыс. потоков приведено без
+    указания источника" collapsed to "...на 50 тыс.".
+
+    ``!``, ``?`` and ``…`` are unambiguous terminators and are accepted
+    anywhere. A ``.`` counts only when the text resumes like a new sentence,
+    or when it ends the string. When nothing qualifies the caller leaves the
+    text alone -- under-trimming is recoverable, eating content is not.
+    """
+    best = -1
+    for match in re.finditer(r"[.!?…]", text):
+        index = match.start()
+        if (
+            text[index] in "!?…"
+            or _SENTENCE_RESUME_RE.match(text, index + 1)
+            or index == len(text) - 1
+        ):
+            best = index
+    return best
+
 
 class TextProcessorImpl:
     """Implementation of text processing and chunking operations."""
@@ -111,7 +142,7 @@ class TextProcessorImpl:
         s = s.strip()
 
         if s and s[-1] not in ".!?…":
-            last_sentence_end = max(s.rfind("."), s.rfind("!"), s.rfind("?"), s.rfind("…"))
+            last_sentence_end = _last_sentence_boundary(s)
             if last_sentence_end != -1 and last_sentence_end >= len(s) // 3:
                 s = s[: last_sentence_end + 1].rstrip()
             else:

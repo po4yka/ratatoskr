@@ -275,6 +275,7 @@ def test_postgres_backup_script_creates_metadata_and_optional_remote_copy() -> N
     assert "aws $endpoint_args s3 cp" in script
     assert "ratatoskr_pg_backup_last_success_timestamp_seconds" in script
     assert "umask 077" in script
+    assert 'chmod 0644 "$tmp_metric"' in script
     assert "${BACKUP_REQUIRE_ENCRYPTION:-true}" in script
     assert "${APP_ENV:-production}" in script
     assert "allowed only when APP_ENV=development or APP_ENV=test" in script
@@ -476,6 +477,24 @@ def test_pi_deploy_preserves_service_dns_alias_when_restoring_default_network() 
     script = _pi_deploy_script()
 
     assert "docker network connect --alias '${svc}' docker_default" in script
+
+
+def test_pi_deploy_safely_retires_legacy_qdrant_container() -> None:
+    script = _pi_deploy_script()
+    cleanup = script.split("retire_legacy_qdrant_container() {", maxsplit=1)[1].split(
+        "\n}", maxsplit=1
+    )[0]
+    restart_branch = script.split("elif [[ $RESTART -eq 1 ]]; then", maxsplit=1)[1]
+
+    assert "com.docker.compose.project" in cleanup
+    assert "com.docker.compose.service" in cleanup
+    assert "systemctl is-active --quiet qdrant.service" in cleanup
+    assert "http://127.0.0.1:6333/readyz" in cleanup
+    assert 'docker rm -f \\"\\$CID\\"' in cleanup
+    assert "docker rm -fv" not in cleanup
+    assert restart_branch.index("retire_legacy_qdrant_container") < restart_branch.index(
+        'restart_service_verified "$svc"'
+    )
 
 
 def test_local_docker_deploy_builds_the_compose_image_it_starts() -> None:

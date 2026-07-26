@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from app.api.models.responses import SummaryListSuccessResponse
 from app.api.routers.content.summaries import (
     _build_summary_compact,
     _safe_summary_quality,
@@ -259,7 +260,7 @@ async def test_summary_list_contract_uses_mapper_shape() -> None:
             "isRead": False,
             "isFavorited": True,
             "lang": "en",
-            "createdAt": "2026-05-21T00:00:00+00:00Z",
+            "createdAt": "2026-05-21T00:00:00Z",
             "confidence": 0.87,
             "hallucinationRisk": "medium",
             "imageUrl": None,
@@ -272,6 +273,7 @@ async def test_summary_list_contract_uses_mapper_shape() -> None:
     ]
     assert data["pagination"] == {"total": 1, "limit": 20, "offset": 0, "hasMore": False}
     assert data["stats"] == {"totalSummaries": 1, "unreadCount": 1}
+    assert SummaryListSuccessResponse.model_validate(response).data.summaries[0].request_id == 42
 
 
 def test_summary_list_quality_falls_back_to_quality_payload() -> None:

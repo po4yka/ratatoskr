@@ -12,45 +12,92 @@ from .common import PaginationInfo, SuccessResponse
 
 
 class SummaryCompact(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int = Field(description="Unique summary identifier")
-    request_id: int = Field(serialization_alias="requestId", description="Associated request ID")
+    request_id: int = Field(
+        validation_alias="requestId",
+        serialization_alias="requestId",
+        description="Associated request ID",
+    )
     title: str = Field(description="Article title")
     domain: str = Field(description="Source domain (e.g., example.com)")
     url: str = Field(description="Original article URL")
     tldr: str = Field(description="Concise multi-sentence summary")
     summary_250: str = Field(
-        serialization_alias="summary250", description="Short summary (<=250 chars)"
+        validation_alias="summary250",
+        serialization_alias="summary250",
+        description="Short summary (<=250 chars)",
     )
     reading_time_min: int = Field(
-        serialization_alias="readingTimeMin", description="Estimated reading time in minutes"
+        validation_alias="readingTimeMin",
+        serialization_alias="readingTimeMin",
+        description="Estimated reading time in minutes",
     )
-    topic_tags: list[str] = Field(serialization_alias="topicTags", description="Topic hashtags")
-    is_read: bool = Field(serialization_alias="isRead", description="User read status")
+    topic_tags: list[str] = Field(
+        validation_alias="topicTags",
+        serialization_alias="topicTags",
+        description="Topic hashtags",
+    )
+    is_read: bool = Field(
+        validation_alias="isRead",
+        serialization_alias="isRead",
+        description="User read status",
+    )
     is_favorited: bool = Field(
-        default=False, serialization_alias="isFavorited", description="User favorite status"
+        default=False,
+        validation_alias="isFavorited",
+        serialization_alias="isFavorited",
+        description="User favorite status",
     )
     lang: Literal["en", "ru", "auto"] = Field(description="Detected or preferred language")
     created_at: str = Field(
-        serialization_alias="createdAt", description="ISO 8601 creation timestamp"
+        validation_alias="createdAt",
+        serialization_alias="createdAt",
+        description="ISO 8601 creation timestamp",
     )
     confidence: float = Field(description="LLM confidence score (0.0-1.0)")
     hallucination_risk: Literal["low", "medium", "high", "unknown"] = Field(
-        serialization_alias="hallucinationRisk", description="Assessed hallucination risk level"
+        validation_alias="hallucinationRisk",
+        serialization_alias="hallucinationRisk",
+        description="Assessed hallucination risk level",
     )
-    image_url: str | None = Field(default=None, serialization_alias="imageUrl")
+    image_url: str | None = Field(
+        default=None,
+        validation_alias="imageUrl",
+        serialization_alias="imageUrl",
+    )
     source_coverage: Literal[
         "full",
         "partial",
         "abstract_only",
         "transcript_missing",
         "unknown",
-    ] = Field(default="unknown", serialization_alias="sourceCoverage")
-    repair_attempted: bool = Field(default=False, serialization_alias="repairAttempted")
-    repair_succeeded: bool = Field(default=False, serialization_alias="repairSucceeded")
-    prompt_injection_suspected: bool = Field(
-        default=False, serialization_alias="promptInjectionSuspected"
+    ] = Field(
+        default="unknown",
+        validation_alias="sourceCoverage",
+        serialization_alias="sourceCoverage",
     )
-    validation_warning_count: int = Field(default=0, serialization_alias="validationWarningCount")
+    repair_attempted: bool = Field(
+        default=False,
+        validation_alias="repairAttempted",
+        serialization_alias="repairAttempted",
+    )
+    repair_succeeded: bool = Field(
+        default=False,
+        validation_alias="repairSucceeded",
+        serialization_alias="repairSucceeded",
+    )
+    prompt_injection_suspected: bool = Field(
+        default=False,
+        validation_alias="promptInjectionSuspected",
+        serialization_alias="promptInjectionSuspected",
+    )
+    validation_warning_count: int = Field(
+        default=0,
+        validation_alias="validationWarningCount",
+        serialization_alias="validationWarningCount",
+    )
 
 
 class SummaryDetailEntities(BaseModel):
@@ -197,8 +244,16 @@ class SummaryContentData(BaseModel):
 
 
 class SummaryListStats(BaseModel):
-    total_summaries: int = Field(serialization_alias="totalSummaries")
-    unread_count: int = Field(serialization_alias="unreadCount")
+    model_config = ConfigDict(populate_by_name=True)
+
+    total_summaries: int = Field(
+        validation_alias="totalSummaries",
+        serialization_alias="totalSummaries",
+    )
+    unread_count: int = Field(
+        validation_alias="unreadCount",
+        serialization_alias="unreadCount",
+    )
 
 
 class SummaryListResponse(BaseModel):

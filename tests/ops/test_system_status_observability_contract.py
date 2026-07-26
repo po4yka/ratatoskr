@@ -120,11 +120,15 @@ def test_api_production_surfaces_use_metrics_aware_launcher() -> None:
     )
 
 
-def test_production_runtime_allows_internal_metrics_host() -> None:
+def test_production_runtime_allows_internal_and_public_hosts() -> None:
     services = _compose()["services"]
 
-    trusted_hosts = _environment(services["mobile-api"])["TRUSTED_HOSTS"]
-    assert "mobile-api" in trusted_hosts.split(",")
+    trusted_hosts = set(_environment(services["mobile-api"])["TRUSTED_HOSTS"].split(","))
+    assert {
+        "mobile-api",
+        "ratatoskr.po4yka.com",
+        "ratatoskr-api.po4yka.com",
+    } <= trusted_hosts
 
 
 def test_dependency_exporters_are_pinned_internal_and_bounded() -> None:

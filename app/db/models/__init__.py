@@ -50,6 +50,7 @@ from app.db.models.core import (
     XBookmarkMetadata,
     XCategory,
 )
+from app.db.models.credentials import CREDENTIAL_MODELS, ServiceCredential
 from app.db.models.digest import (
     DIGEST_MODELS,
     Channel,
@@ -133,6 +134,7 @@ ALL_MODELS: tuple[type[Base], ...] = (
     *AI_BACKUP_MODELS,
     *BATCH_MODELS,
     *COLLECTION_MODELS,
+    *CREDENTIAL_MODELS,
     *DIGEST_MODELS,
     *EXPORT_MODELS,
     *GIT_BACKUP_MODELS,
@@ -156,6 +158,7 @@ __all__ = [
     "BATCH_MODELS",
     "COLLECTION_MODELS",
     "CORE_MODELS",
+    "CREDENTIAL_MODELS",
     "DIGEST_MODELS",
     "EXPORT_MODELS",
     "GIT_BACKUP_MODELS",
@@ -223,6 +226,7 @@ __all__ = [
     "RuleExecutionLog",
     "SavedSearch",
     "SearchHistoryEntry",
+    "ServiceCredential",
     "SocialAuthState",
     "SocialAuthStateStatus",
     "SocialAuthType",

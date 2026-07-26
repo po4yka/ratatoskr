@@ -760,7 +760,11 @@ class URLHandler:
             return URLProcessingFlowResult(success=False, request_id=request_id)
 
         # 3. Send the placeholder reply and persist its message_id.
-        placeholder_text = f"Processing... (Error ID: {cid})"
+        # The correlation ID stays visible so a stuck request can be quoted
+        # straight back for triage, but this is a queued placeholder, not a
+        # failure -- labelling it "Error ID" made every successful request open
+        # by announcing an error that had not happened.
+        placeholder_text = f"Processing... (ID: {cid})"
         bot_reply_message_id: int | None = None
         try:
             bot_reply_message_id = await self.response_formatter.safe_reply_with_id(
