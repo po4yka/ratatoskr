@@ -223,9 +223,7 @@ class MultiSourceExtractionAgent(
                 await _persist_counts()
             except Exception as exc:
                 failed_count += 1
-                public_error = (
-                    f"Source extraction failed. Error ID: {input_data.correlation_id}"
-                )
+                public_error = f"Source extraction failed. Error ID: {input_data.correlation_id}"
                 item_failure = AggregationFailure(
                     code="source_extraction_failed",
                     message=public_error,
@@ -284,13 +282,10 @@ class MultiSourceExtractionAgent(
             partial_disallowed = successful_count > 0
             failure = AggregationFailure(
                 code=(
-                    "partial_success_not_allowed"
-                    if partial_disallowed
-                    else "no_extracted_sources"
+                    "partial_success_not_allowed" if partial_disallowed else "no_extracted_sources"
                 ),
                 message=(
-                    f"Partial source extraction is disabled. Error ID: "
-                    f"{input_data.correlation_id}"
+                    f"Partial source extraction is disabled. Error ID: {input_data.correlation_id}"
                     if partial_disallowed
                     else "No source extractions completed successfully"
                 ),

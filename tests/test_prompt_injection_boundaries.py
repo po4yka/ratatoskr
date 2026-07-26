@@ -75,15 +75,9 @@ def test_search_context_is_isolated_inside_its_own_untrusted_boundary() -> None:
 
     context_index = prompt.index("Retrieved result.")
     starts = [
-        index
-        for index in range(len(prompt))
-        if prompt.startswith(UNTRUSTED_SOURCE_START, index)
+        index for index in range(len(prompt)) if prompt.startswith(UNTRUSTED_SOURCE_START, index)
     ]
-    ends = [
-        index
-        for index in range(len(prompt))
-        if prompt.startswith(UNTRUSTED_SOURCE_END, index)
-    ]
+    ends = [index for index in range(len(prompt)) if prompt.startswith(UNTRUSTED_SOURCE_END, index)]
     assert len(starts) == len(ends) == 2
     assert starts[1] < context_index < ends[1]
     assert "prompt_injection_suspected=true" in prompt[: starts[0]]
