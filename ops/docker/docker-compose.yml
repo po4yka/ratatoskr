@@ -904,7 +904,20 @@ services:
     # default makes cloakserve's per-seed Chrome processes crash into <defunct>
     # zombies and the CDP endpoint never comes up (health probe 502/timeout).
     shm_size: "1gb"
+    # Docker restarts preserve the container writable layer. If Xvfb is killed
+    # before it removes its display lock, the upstream entrypoint sees
+    # /tmp/.X99-lock on the next start, fails to launch Xvfb, and still starts
+    # cloakserve. Chromium then returns 502 forever because DISPLAY=:99 has no
+    # server. The wrapper clears only that stale display state before delegating
+    # to the upstream entrypoint.
+    entrypoint:
+      [
+        "/bin/bash",
+        "/usr/local/bin/ratatoskr-cloakbrowser-entrypoint.sh",
+      ]
     command: ["cloakserve", "--host", "0.0.0.0", "--port", "9222"]
+    volumes:
+      - ./cloakbrowser/restart-safe-entrypoint.sh:/usr/local/bin/ratatoskr-cloakbrowser-entrypoint.sh:ro
     environment:
       # Reproducible deploys: never let the binary self-update inside the
       # container at runtime. Pinning the image digest is undone if the
