@@ -47,6 +47,7 @@ from app.api.routers import (
     auth,
     backups,
     collections,
+    credentials,
     custom_digests,
     digest,
     export_integrations,
@@ -237,7 +238,7 @@ app = FastAPI(
     description="RESTful API for Android/iOS mobile clients",
     version=API_CONTRACT_VERSION,
     servers=[
-        {"url": "https://ratatoskrapi.po4yka.com", "description": "Production"},
+        {"url": "https://ratatoskr-api.po4yka.com", "description": "Production"},
         {"url": "https://staging-ratatoskrapi.po4yka.com", "description": "Staging"},
         {"url": "http://localhost:8000", "description": "Local development"},
     ],
@@ -287,7 +288,8 @@ def _resolve_trusted_hosts() -> list[str]:
 
     hosts: set[str] = {"localhost", "127.0.0.1", "testserver"}
     for url in (
-        "https://ratatoskrapi.po4yka.com",
+        "https://ratatoskr.po4yka.com",
+        "https://ratatoskr-api.po4yka.com",
         "https://staging-ratatoskrapi.po4yka.com",
     ):
         host = urlparse(url).hostname
@@ -356,6 +358,7 @@ app.include_router(summaries.router, prefix="/v1/summaries", tags=["Summaries"])
 app.include_router(repositories.router)
 app.include_router(git_mirrors.router)
 app.include_router(ai_backups.router)
+app.include_router(credentials.router)
 app.include_router(summaries.router, prefix="/v1/articles", tags=["Articles"])
 app.include_router(requests.router, prefix="/v1/requests", tags=["Requests"])
 app.include_router(streams.router, prefix="/v1/requests", tags=["Streams"])

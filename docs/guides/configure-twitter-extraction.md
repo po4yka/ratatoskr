@@ -54,15 +54,22 @@ Configure the OAuth client used by Mobile API social connection endpoints:
 
 ```bash
 X_OAUTH_CLIENT_ID=...
-X_OAUTH_CLIENT_SECRET=...
-X_OAUTH_REDIRECT_URI=https://ratatoskr.example.com/v1/auth/x/callback
+X_OAUTH_CLIENT_SECRET=...        # optional -- X supports PKCE for public clients
+X_OAUTH_REDIRECT_URI=https://app.example.com/social/x/callback
 X_OAUTH_SCOPES='tweet.read users.read offline.access'
 ```
 
-Write scopes are rejected. Tokens are stored through the social-connection
-repository and resolved per requesting user. A 401 marks the connection as
-requiring reauthentication; rate-limit and provider metadata are persisted in
-the fetch attempt.
+`X_OAUTH_REDIRECT_URI` is a route on the frontend web app, not a backend API
+path -- the provider redirects the user's browser there directly, and the
+frontend then calls the backend's `POST /v1/social/x/callback`. It must match
+the callback URI registered with the X app exactly. `X_OAUTH_CLIENT_ID` alone
+is enough to activate the real client; only set the secret for a confidential
+client. Write scopes are rejected. Tokens are stored through the
+social-connection repository and resolved per requesting user. A 401 marks the
+connection as requiring reauthentication; rate-limit and provider metadata are
+persisted in the fetch attempt. See
+[Environment Variables Reference](../reference/environment-variables.md#connected-social-accounts-oauth)
+for the equivalent Threads and Instagram variables.
 
 This stage calls X API v2 for an individual post. It is not a generic home-feed
 or search extractor.

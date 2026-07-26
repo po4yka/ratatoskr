@@ -123,7 +123,6 @@ You want to integrate Ratatoskr with other tools or build a client.
 
 - **Enable YouTube support** → [How to configure YouTube download](guides/configure-youtube-download.md)
 - **Enable Twitter / X extraction** → [How to configure Twitter / X extraction](guides/configure-twitter-extraction.md)
-- **Upgrade across the project rename** → [Migrate from bite-size-reader](guides/migrate-from-bite-size-reader.md)
 - **Run mixed-source aggregation** → [SPEC.md § Data Model](SPEC.md#data-model)
 - **Onboard an external CLI or MCP client** → [External Access Quickstart](guides/external-access-quickstart.md)
 - **Enable web search enrichment** → [How to enable web search](guides/enable-web-search.md)
@@ -201,7 +200,6 @@ Step-by-step lessons and practical recipes, all in `docs/guides/`.
 | [Backup and Restore](guides/backup-and-restore.md) | Data protection | Operators | |
 | [Secret Rotation Runbook](runbooks/secret-rotation.md) | Secret rotation and quarterly drill checklist | Operators | |
 | [Migrate Versions](guides/migrate-versions.md) | Upgrade between versions | Operators | |
-| [Migrate from bite-size-reader](guides/migrate-from-bite-size-reader.md) | Operator checklist for upgrading across the project rename | Operators | |
 | [Migrate Telegram Sessions to Telethon](guides/migrate-telegram-sessions-to-telethon.md) | Session migration steps | Operators | |
 
 ### Reference (Information-Oriented)
