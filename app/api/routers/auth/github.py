@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.api.exceptions import APIException, ErrorCode, ErrorType
+from app.api.models.responses.common import AliasCompatibleResponseModel
 from app.api.routers.auth.dependencies import get_current_user
 from app.application.exceptions.github import InsufficientScopeError, InvalidGitHubTokenError
 from app.application.ports.github_integration import GitHubAuthMethod
@@ -178,7 +179,7 @@ class GitHubStatusResponse(BaseModel):
     repo_count: int
 
 
-class GitHubSyncResponse(BaseModel):
+class GitHubSyncResponse(AliasCompatibleResponseModel):
     status: Literal["queued"]
     sync_id: str = Field(serialization_alias="syncId")
 

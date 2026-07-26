@@ -7,7 +7,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasGenerator, BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 from app.api.context import correlation_id_ctx
 from app.api.exceptions import ErrorType
@@ -78,6 +79,15 @@ class RequestStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class AliasCompatibleResponseModel(BaseModel):
+    """Accept camelCase wire aliases without changing response serialization."""
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(validation_alias=to_camel),
+    )
+
+
 class PaginationInfo(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -110,7 +120,7 @@ API_CAPABILITIES = (
 )
 
 
-class SystemMetaResponse(BaseModel):
+class SystemMetaResponse(AliasCompatibleResponseModel):
     """Public backend/client compatibility metadata."""
 
     api_version: str = Field(

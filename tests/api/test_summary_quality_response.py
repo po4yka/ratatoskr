@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from app.api.models.responses import SummaryListSuccessResponse
+from app.api.models.responses import SummaryDetailSuccessResponse, SummaryListSuccessResponse
 from app.api.routers.content.summaries import (
     _build_summary_compact,
     _safe_summary_quality,
@@ -141,6 +141,9 @@ async def test_summary_detail_contract_includes_processing_quality() -> None:
     )
 
     data = response["data"]
+    validated = SummaryDetailSuccessResponse.model_validate(response)
+
+    assert validated.data.summary.summary_250 == "A short backend contract summary."
     assert data["summary"]["summary250"] == "A short backend contract summary."
     assert data["summary"]["keyStats"] == [
         {"label": "Contracts", "value": 3.0, "unit": None, "sourceExcerpt": None}

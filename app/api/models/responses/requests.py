@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .common import ProcessingStage, RequestStatus, SuccessResponse
+from .common import AliasCompatibleResponseModel, ProcessingStage, RequestStatus, SuccessResponse
 
 
 class RequestStatusData(BaseModel):
@@ -65,7 +65,7 @@ class ProgressEventData(BaseModel):
     correlation_id: str | None = Field(default=None, serialization_alias="correlationId")
 
 
-class SubmitRequestResponse(BaseModel):
+class SubmitRequestResponse(AliasCompatibleResponseModel):
     request_id: int = Field(serialization_alias="requestId")
     correlation_id: str = Field(serialization_alias="correlationId")
     type: Literal["url", "forward"]
@@ -90,7 +90,7 @@ class DuplicateCheckData(BaseModel):
     summary: dict[str, Any] | None = None
 
 
-class DuplicateDetectionResponse(BaseModel):
+class DuplicateDetectionResponse(AliasCompatibleResponseModel):
     is_duplicate: bool = Field(serialization_alias="isDuplicate")
     existing_request_id: int | None = Field(default=None, serialization_alias="existingRequestId")
     existing_summary_id: int | None = Field(default=None, serialization_alias="existingSummaryId")
@@ -98,14 +98,14 @@ class DuplicateDetectionResponse(BaseModel):
     summarized_at: str | None = Field(default=None, serialization_alias="summarizedAt")
 
 
-class RequestDetailCrawlResult(BaseModel):
+class RequestDetailCrawlResult(AliasCompatibleResponseModel):
     status: str | None = None
     http_status: int | None = Field(default=None, serialization_alias="httpStatus")
     latency_ms: int | None = Field(default=None, serialization_alias="latencyMs")
     error: str | None = None
 
 
-class RequestDetailLlmCall(BaseModel):
+class RequestDetailLlmCall(AliasCompatibleResponseModel):
     id: int
     model: str | None = None
     status: str | None = None
@@ -116,13 +116,13 @@ class RequestDetailLlmCall(BaseModel):
     created_at: str = Field(serialization_alias="createdAt")
 
 
-class RequestDetailSummary(BaseModel):
+class RequestDetailSummary(AliasCompatibleResponseModel):
     id: int
     status: str
     created_at: str = Field(serialization_alias="createdAt")
 
 
-class RequestDetailRequest(BaseModel):
+class RequestDetailRequest(AliasCompatibleResponseModel):
     id: int
     type: str
     status: RequestStatus
@@ -135,7 +135,7 @@ class RequestDetailRequest(BaseModel):
     lang_detected: str | None = Field(default=None, serialization_alias="langDetected")
 
 
-class RequestDetailResponse(BaseModel):
+class RequestDetailResponse(AliasCompatibleResponseModel):
     request: RequestDetailRequest
     crawl_result: RequestDetailCrawlResult | None = Field(
         default=None, serialization_alias="crawlResult"
@@ -146,7 +146,7 @@ class RequestDetailResponse(BaseModel):
     summary: RequestDetailSummary | None = None
 
 
-class RetryRequestResponse(BaseModel):
+class RetryRequestResponse(AliasCompatibleResponseModel):
     new_request_id: int = Field(serialization_alias="newRequestId")
     correlation_id: str = Field(serialization_alias="correlationId")
     status: RequestStatus

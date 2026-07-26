@@ -8,7 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .aggregation import AggregationSourceBundle
-from .common import PaginationInfo, SuccessResponse
+from .common import AliasCompatibleResponseModel, PaginationInfo, SuccessResponse
 
 
 class SummaryCompact(BaseModel):
@@ -100,26 +100,26 @@ class SummaryCompact(BaseModel):
     )
 
 
-class SummaryDetailEntities(BaseModel):
+class SummaryDetailEntities(AliasCompatibleResponseModel):
     people: list[str] = Field(default_factory=list)
     organizations: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
 
 
-class SummaryDetailReadability(BaseModel):
+class SummaryDetailReadability(AliasCompatibleResponseModel):
     method: str
     score: float
     level: str
 
 
-class SummaryDetailKeyStat(BaseModel):
+class SummaryDetailKeyStat(AliasCompatibleResponseModel):
     label: str
     value: float
     unit: str | None = None
     source_excerpt: str | None = Field(default=None, serialization_alias="sourceExcerpt")
 
 
-class SummaryDetailSummary(BaseModel):
+class SummaryDetailSummary(AliasCompatibleResponseModel):
     summary_250: str = Field(serialization_alias="summary250")
     summary_1000: str = Field(serialization_alias="summary1000")
     tldr: str
@@ -137,7 +137,7 @@ class SummaryDetailSummary(BaseModel):
     seo_keywords: list[str] = Field(default_factory=list, serialization_alias="seoKeywords")
 
 
-class SummaryDetailRequest(BaseModel):
+class SummaryDetailRequest(AliasCompatibleResponseModel):
     id: str
     type: str
     url: str | None = None
@@ -149,7 +149,7 @@ class SummaryDetailRequest(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
-class SummaryDetailSource(BaseModel):
+class SummaryDetailSource(AliasCompatibleResponseModel):
     url: str | None = None
     title: str | None = None
     domain: str | None = None
@@ -160,7 +160,7 @@ class SummaryDetailSource(BaseModel):
     transcript: str | None = None
 
 
-class SummaryDetailQuality(BaseModel):
+class SummaryDetailQuality(AliasCompatibleResponseModel):
     validation_warnings: list[str] = Field(
         default_factory=list, serialization_alias="validationWarnings"
     )
@@ -186,7 +186,7 @@ class SummaryDetailQuality(BaseModel):
     )
 
 
-class SummaryDetailProcessing(BaseModel):
+class SummaryDetailProcessing(AliasCompatibleResponseModel):
     model_used: str | None = Field(default=None, serialization_alias="modelUsed")
     tokens_used: int | None = Field(default=None, serialization_alias="tokensUsed")
     processing_time_ms: int | None = Field(default=None, serialization_alias="processingTimeMs")
@@ -198,7 +198,7 @@ class SummaryDetailProcessing(BaseModel):
     quality: SummaryDetailQuality | None = None
 
 
-class SummaryDetail(BaseModel):
+class SummaryDetail(AliasCompatibleResponseModel):
     summary: SummaryDetailSummary
     request: SummaryDetailRequest
     source: SummaryDetailSource
@@ -268,7 +268,7 @@ class SummaryRecommendationsResponse(BaseModel):
     count: int
 
 
-class RelatedRead(BaseModel):
+class RelatedRead(AliasCompatibleResponseModel):
     summary_id: int = Field(serialization_alias="summaryId")
     request_id: int = Field(serialization_alias="requestId")
     title: str
@@ -276,7 +276,7 @@ class RelatedRead(BaseModel):
     similarity_score: float = Field(serialization_alias="similarityScore")
 
 
-class SummaryRelatedReadsResponse(BaseModel):
+class SummaryRelatedReadsResponse(AliasCompatibleResponseModel):
     summary_id: int = Field(serialization_alias="summaryId")
     related: list[RelatedRead]
     count: int
@@ -311,7 +311,7 @@ class SearchResultsData(BaseModel):
     facets: dict[str, Any] | None = None
 
 
-class UpdateSummaryResponse(BaseModel):
+class UpdateSummaryResponse(AliasCompatibleResponseModel):
     id: int
     is_read: bool = Field(serialization_alias="isRead")
     updated_at: str = Field(serialization_alias="updatedAt")
@@ -323,17 +323,17 @@ class SaveReadingPositionResponse(BaseModel):
     last_read_offset: int
 
 
-class DeleteSummaryResponse(BaseModel):
+class DeleteSummaryResponse(AliasCompatibleResponseModel):
     id: int
     deleted_at: str = Field(serialization_alias="deletedAt")
 
 
-class ToggleFavoriteResponse(BaseModel):
+class ToggleFavoriteResponse(AliasCompatibleResponseModel):
     success: bool
     is_favorited: bool = Field(serialization_alias="isFavorited")
 
 
-class FeedbackResponse(BaseModel):
+class FeedbackResponse(AliasCompatibleResponseModel):
     id: str
     rating: int | None = None
     issues: list[str] | None = None

@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .common import PaginationInfo, SuccessResponse
+from .common import AliasCompatibleResponseModel, PaginationInfo, SuccessResponse
 
 
 class CollectionResponse(BaseModel):
@@ -94,7 +94,7 @@ class CollectionItemsMoveResponse(BaseModel):
     moved_summary_ids: list[int] = Field(serialization_alias="movedSummaryIds")
 
 
-class CollectionPublicLinkResponse(BaseModel):
+class CollectionPublicLinkResponse(AliasCompatibleResponseModel):
     token: str
     url: str
     collection_id: int = Field(serialization_alias="collectionId")
@@ -125,7 +125,7 @@ class CollectionPublicLinkRevocationSuccessResponse(SuccessResponse):
     data: CollectionPublicLinkRevocationResponse
 
 
-class PublicCollectionItemResponse(BaseModel):
+class PublicCollectionItemResponse(AliasCompatibleResponseModel):
     summary_id: int = Field(serialization_alias="summaryId")
     title: str
     url: str | None = None
@@ -134,7 +134,7 @@ class PublicCollectionItemResponse(BaseModel):
     created_at: str = Field(serialization_alias="createdAt")
 
 
-class PublicCollectionResponse(BaseModel):
+class PublicCollectionResponse(AliasCompatibleResponseModel):
     collection_id: int = Field(serialization_alias="collectionId")
     name: str
     description: str | None = None

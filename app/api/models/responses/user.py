@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .common import SuccessResponse
+from .common import AliasCompatibleResponseModel, SuccessResponse
 
 
 class PreferencesData(BaseModel):
@@ -42,7 +42,7 @@ class UserMeResponse(BaseModel):
     profile: UserProfileResponse
 
 
-class UserFeedTokenResponse(BaseModel):
+class UserFeedTokenResponse(AliasCompatibleResponseModel):
     token: str
     feed_url: str = Field(serialization_alias="feedUrl")
 
