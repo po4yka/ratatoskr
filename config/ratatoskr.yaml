@@ -105,8 +105,8 @@ github:
   sync_batch_size: 20
 
 vector_reconcile:
-  cron: "0 */6 * * *"
-  batch_size: 25
+  cron: "*/30 * * * *"
+  batch_size: 100
 
 scraper:
   profile: balanced
