@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -40,10 +41,12 @@ def _run_script(tmp_path: Path, **overrides: str) -> subprocess.CompletedProcess
 
 def test_missing_key_fails_closed_by_default(tmp_path: Path) -> None:
     result = _run_script(tmp_path)
+    metric = tmp_path / "metrics/ratatoskr_pg_backup.prom"
 
     assert result.returncode == 1
     assert "BACKUP_ENCRYPTION_KEY is required" in result.stdout
     assert not list((tmp_path / "backups").glob("ratatoskr-postgres-*"))
+    assert stat.S_IMODE(metric.stat().st_mode) == 0o644
 
 
 @pytest.mark.parametrize("value", ["maybe", "enabled"])

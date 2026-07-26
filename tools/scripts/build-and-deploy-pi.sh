@@ -44,11 +44,12 @@
 # project on the Pi with `-p ${COMPOSE_PROJECT}`, so `compose up` reuses the
 # shipped image instead of rebuilding it.
 #
-# The app-service restart uses `--no-deps --force-recreate ${SERVICE}` so we
-# never disturb postgres/redis/qdrant during recreation. A post-recreate
-# `docker network connect --alias <service> docker_default` works around a
-# compose quirk that occasionally drops the default-network attachment under
-# --no-deps while preserving Compose service-name discovery.
+# The app-service restart uses `--no-deps --force-recreate ${SERVICE}` so it
+# never disturbs active data services. A Pi-only preflight retires the obsolete
+# Compose Qdrant container only after the host-native qdrant.service passes
+# readiness; its named volume is preserved. A post-recreate network reconnect
+# works around a compose quirk that occasionally drops the default-network
+# attachment under --no-deps while preserving Compose service-name discovery.
 
 set -euo pipefail
 
@@ -291,6 +292,32 @@ COMPOSE_RUN=(
   -f ops/docker/docker-compose.pi.yml
 )
 
+retire_legacy_qdrant_container() {
+  echo "==> Checking for a legacy Compose Qdrant container on ${RASPI_HOST}"
+  ssh "$RASPI_HOST" "set -eu; \
+    CID=\$(docker inspect --format '{{.Id}}' ratatoskr-qdrant 2>/dev/null || true); \
+    if [ -z \"\$CID\" ]; then \
+      echo '    no legacy Qdrant container found'; \
+      exit 0; \
+    fi; \
+    PROJECT=\$(docker inspect --format '{{ index .Config.Labels \"com.docker.compose.project\" }}' \"\$CID\"); \
+    SERVICE=\$(docker inspect --format '{{ index .Config.Labels \"com.docker.compose.service\" }}' \"\$CID\"); \
+    if [ \"\$PROJECT\" != '${COMPOSE_PROJECT}' ] || [ \"\$SERVICE\" != 'qdrant' ]; then \
+      echo 'ERROR: ratatoskr-qdrant is not the expected Compose-managed legacy container; refusing to remove it' >&2; \
+      exit 1; \
+    fi; \
+    if ! systemctl is-active --quiet qdrant.service; then \
+      echo 'ERROR: native qdrant.service is not active; preserving the legacy container' >&2; \
+      exit 1; \
+    fi; \
+    if ! curl --fail --silent --show-error --max-time 5 http://127.0.0.1:6333/readyz >/dev/null; then \
+      echo 'ERROR: native Qdrant readiness check failed; preserving the legacy container' >&2; \
+      exit 1; \
+    fi; \
+    docker rm -f \"\$CID\" >/dev/null; \
+    echo '    removed legacy Qdrant container; its named volume was preserved'"
+}
+
 run_remote_migrations() {
   local -a migrate_args=()
   if [[ $APPLY_MIGRATIONS -eq 1 ]]; then
@@ -482,6 +509,7 @@ EOF
 if [[ $MIGRATE_ONLY -eq 1 ]]; then
   run_remote_migrations
 elif [[ $RESTART -eq 1 ]]; then
+  retire_legacy_qdrant_container
   for svc in "${SERVICES[@]}"; do
     if [[ $ROLLBACK -eq 1 ]]; then
       rollback_service_image "$svc"
