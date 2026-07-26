@@ -11641,6 +11641,10 @@ components:
             maxLength: 500
           - type: 'null'
           title: Description
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
       type: object
       required:
       - name
@@ -17135,6 +17139,15 @@ components:
           - type: boolean
           - type: 'null'
           title: Enabled
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - active
+            - paused
+            - disabled
+          - type: 'null'
+          title: Status
       type: object
       title: UpdateWebhookRequest
       description: Request body for updating a webhook subscription.

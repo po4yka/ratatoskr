@@ -144,6 +144,7 @@ class RuleRepositoryPort(Protocol):
         match_mode: str = "all",
         priority: int = 0,
         description: str | None = None,
+        enabled: bool = True,
     ) -> dict[str, Any]:
         """Create a rule and return the created record."""
 

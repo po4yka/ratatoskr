@@ -105,10 +105,15 @@ class TestUpdateWebhookRequest:
 
     def test_all_fields(self):
         req = UpdateWebhookRequest(
-            name="Updated", url="https://new.com", events=["e1"], enabled=True
+            name="Updated",
+            url="https://new.com",
+            events=["e1"],
+            enabled=True,
+            status="active",
         )
         assert req.name == "Updated"
         assert req.url == "https://new.com"
+        assert req.status == "active"
 
 
 class TestCreateRuleRequest:
@@ -118,8 +123,10 @@ class TestCreateRuleRequest:
             event_type="summary.created",
             conditions=[{"type": "domain_matches", "operator": "contains", "value": "test"}],
             actions=[{"type": "add_tag", "params": {"tag_name": "auto"}}],
+            enabled=False,
         )
         assert req.name == "Test Rule"
+        assert req.enabled is False
 
     def test_default_match_mode(self):
         req = CreateRuleRequest(

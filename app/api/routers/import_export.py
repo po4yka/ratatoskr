@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from pydantic import ValidationError as PydanticValidationError
 from starlette.responses import StreamingResponse
 
 from app.api.exceptions import APIException, ErrorCode
+from app.api.models.requests import ImportOptionsRequest
 from app.api.models.responses import success_response
 from app.api.routers.auth import get_current_user
 from app.api.services.import_export_service import ImportExportService
@@ -84,10 +85,10 @@ async def import_bookmarks(
 
     # Parse options
     try:
-        opts = json.loads(options)
-    except (json.JSONDecodeError, TypeError) as err:
+        opts = ImportOptionsRequest.model_validate_json(options).model_dump()
+    except (PydanticValidationError, TypeError, ValueError) as err:
         raise APIException(
-            message="Invalid JSON in options field",
+            message="Invalid import options",
             error_code=ErrorCode.VALIDATION_ERROR,
             status_code=400,
         ) from err

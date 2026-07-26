@@ -320,6 +320,7 @@ class UpdateWebhookRequest(BaseModel):
     url: str | None = None
     events: list[str] | None = None
     enabled: bool | None = None
+    status: Literal["active", "paused", "disabled"] | None = None
 
 
 class AggregationBundleItemRequest(BaseModel):
@@ -391,6 +392,7 @@ class CreateRuleRequest(BaseModel):
     match_mode: str = "all"
     priority: int = Field(default=0, ge=0, le=1000)
     description: str | None = Field(default=None, max_length=500)
+    enabled: bool = True
 
 
 class UpdateRuleRequest(BaseModel):

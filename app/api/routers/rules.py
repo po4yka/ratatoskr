@@ -118,6 +118,7 @@ async def create_rule(
         match_mode=body.match_mode,
         priority=body.priority,
         description=body.description,
+        enabled=body.enabled,
     )
     return success_response(_rule_to_response(rule))
 

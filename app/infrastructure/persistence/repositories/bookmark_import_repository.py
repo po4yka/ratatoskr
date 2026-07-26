@@ -77,37 +77,38 @@ class BookmarkImportAdapter:
             session.add(summary)
             await session.flush()
 
-            for raw_tag in bookmark.tags:
-                normalized = normalize_tag_name(raw_tag)
-                if not normalized:
-                    continue
-                tag_id = await session.scalar(
-                    insert(Tag)
-                    .values(
-                        user_id=user_id,
-                        normalized_name=normalized,
-                        name=raw_tag.strip(),
-                    )
-                    .on_conflict_do_nothing(index_elements=[Tag.user_id, Tag.normalized_name])
-                    .returning(Tag.id)
-                )
-                if tag_id is None:
+            if options.get("create_tags", True):
+                for raw_tag in bookmark.tags:
+                    normalized = normalize_tag_name(raw_tag)
+                    if not normalized:
+                        continue
                     tag_id = await session.scalar(
-                        select(Tag.id).where(
-                            Tag.user_id == user_id,
-                            Tag.normalized_name == normalized,
+                        insert(Tag)
+                        .values(
+                            user_id=user_id,
+                            normalized_name=normalized,
+                            name=raw_tag.strip(),
+                        )
+                        .on_conflict_do_nothing(index_elements=[Tag.user_id, Tag.normalized_name])
+                        .returning(Tag.id)
+                    )
+                    if tag_id is None:
+                        tag_id = await session.scalar(
+                            select(Tag.id).where(
+                                Tag.user_id == user_id,
+                                Tag.normalized_name == normalized,
+                            )
+                        )
+                    if tag_id is None:
+                        msg = f"failed to resolve tag {normalized!r}"
+                        raise RuntimeError(msg)
+                    await session.execute(
+                        insert(SummaryTag)
+                        .values(summary_id=summary.id, tag_id=tag_id, source="import")
+                        .on_conflict_do_nothing(
+                            index_elements=[SummaryTag.summary_id, SummaryTag.tag_id]
                         )
                     )
-                if tag_id is None:
-                    msg = f"failed to resolve tag {normalized!r}"
-                    raise RuntimeError(msg)
-                await session.execute(
-                    insert(SummaryTag)
-                    .values(summary_id=summary.id, tag_id=tag_id, source="import")
-                    .on_conflict_do_nothing(
-                        index_elements=[SummaryTag.summary_id, SummaryTag.tag_id]
-                    )
-                )
 
             target_collection_id = options.get("target_collection_id")
             if target_collection_id is not None:

@@ -206,8 +206,10 @@ async def update_subscription(
         update_fields["events"] = body.events
     if body.enabled is not None:
         update_fields["enabled"] = body.enabled
-        if body.enabled:
-            update_fields["status"] = "active"
+        update_fields["status"] = "active" if body.enabled else "disabled"
+    if body.status is not None:
+        update_fields["status"] = body.status
+        update_fields["enabled"] = body.status == "active"
 
     if not update_fields:
         raise APIException(

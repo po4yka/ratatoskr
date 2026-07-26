@@ -72,6 +72,7 @@ class RuleRepositoryAdapter:
         match_mode: str = "all",
         priority: int = 0,
         description: str | None = None,
+        enabled: bool = True,
     ) -> dict[str, Any]:
         """Create a rule and return the created record."""
         async with self._database.transaction() as session:
@@ -84,6 +85,7 @@ class RuleRepositoryAdapter:
                 match_mode=match_mode,
                 priority=priority,
                 description=description,
+                enabled=enabled,
             )
             session.add(rule)
             await session.flush()

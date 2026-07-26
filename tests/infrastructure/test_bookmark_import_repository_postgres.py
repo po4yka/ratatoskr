@@ -114,3 +114,24 @@ async def test_bookmark_import_repository_rejects_unowned_target_collection(
             user_id=9999,
             options={"target_collection_id": collection_id},
         )
+
+
+@pytest.mark.asyncio
+async def test_bookmark_import_repository_can_skip_source_tags(database: Database) -> None:
+    await _create_user_and_collection(database)
+    repo = BookmarkImportAdapter(database)
+
+    result = await repo.async_import_bookmark(
+        ImportedBookmark(
+            url="https://example.com/no-tags",
+            title="No tags",
+            tags=["source-tag"],
+        ),
+        user_id=9101,
+        options={"create_tags": False},
+    )
+
+    assert result.outcome == "created"
+    async with database.session() as session:
+        assert await session.scalar(select(func.count(Tag.id))) == 0
+        assert await session.scalar(select(func.count(SummaryTag.id))) == 0
