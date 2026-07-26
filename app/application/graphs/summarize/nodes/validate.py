@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.graphs.summarize.nodes._context import load_source_text
+from app.application.graphs.summarize.nodes._span import graph_node
 from app.core.summary_contract import validate_and_shape_summary
 from app.core.summary_contract_impl.quality_metadata import (
     infer_source_coverage,

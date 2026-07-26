@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.application.graphs.summarize.deps import SummarizeConfig
-from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.graphs.summarize.nodes._context import load_source_text
+from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.services.summarization.graph_llm import enrich_two_pass
 
 if TYPE_CHECKING:
