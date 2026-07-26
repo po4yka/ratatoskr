@@ -1034,7 +1034,7 @@ jobs:
   pr-summary:
     name: PR Summary
     if: github.event_name == 'pull_request'
-    needs: [prepare-environment, markdown-lint, link-check, browser-extension, fast-lint, openapi-contract, semgrep-scan, type-check, test, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, secrets, migration-smoke-test, restore-smoke-test]
+    needs: [prepare-environment, markdown-lint, docs-consistency, link-check, browser-extension, fast-lint, openapi-contract, semgrep-scan, type-check, import-linter, test, postgres-tests, integration-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1303,122 +1303,32 @@ jobs:
   status-check:
     name: CI Status Check
     if: always()
-    needs: [prepare-environment, markdown-lint, link-check, browser-extension, fast-lint, openapi-contract, semgrep-scan, type-check, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test, restore-smoke-test]
+    needs: [prepare-environment, markdown-lint, docs-consistency, link-check, browser-extension, fast-lint, openapi-contract, semgrep-scan, type-check, import-linter, test, postgres-tests, bandit-scan, pip-audit-scan, safety-scan, osv-scanner-scan, docker-build, docker-api-browser-smoke, compose-config-check, secrets, integration-tests, migration-smoke-test, restore-smoke-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Check all job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
-          echo "Checking CI status..."
+          python3 - <<'PY'
+          import json
+          import os
 
-          # Check critical jobs
-          if [[ "${{ needs.prepare-environment.result }}" != "success" ]]; then
-            echo "::error::prepare-environment job failed"
-            exit 1
-          fi
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          allowed_results = {
+              "integration-tests": {"success", "skipped"},
+          }
+          failures = {
+              job: details["result"]
+              for job, details in needs.items()
+              if details["result"] not in allowed_results.get(job, {"success"})
+          }
 
-          if [[ "${{ needs.fast-lint.result }}" != "success" ]]; then
-            echo "::error::fast-lint job failed"
-            exit 1
-          fi
+          if failures:
+              for job, result in sorted(failures.items()):
+                  print(f"::error::{job} job finished with {result}")
+              raise SystemExit(1)
 
-          if [[ "${{ needs.openapi-contract.result }}" != "success" ]]; then
-            echo "::error::openapi-contract job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.semgrep-scan.result }}" != "success" ]]; then
-            echo "::error::semgrep-scan job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.type-check.result }}" != "success" ]]; then
-            echo "::error::type-check job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.test.result }}" != "success" ]]; then
-            echo "::error::test job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.postgres-tests.result }}" != "success" ]]; then
-            echo "::error::postgres-tests job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.markdown-lint.result }}" != "success" ]]; then
-            echo "::error::markdown-lint job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.link-check.result }}" != "success" ]]; then
-            echo "::error::link-check job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.browser-extension.result }}" != "success" ]]; then
-            echo "::error::browser-extension job failed"
-            exit 1
-          fi
-
-          # Security scans (parallel)
-          if [[ "${{ needs.bandit-scan.result }}" != "success" ]]; then
-            echo "::error::bandit-scan job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.pip-audit-scan.result }}" != "success" ]]; then
-            echo "::error::pip-audit-scan job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.safety-scan.result }}" != "success" ]]; then
-            echo "::error::safety-scan job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.osv-scanner-scan.result }}" != "success" ]]; then
-            echo "::error::osv-scanner-scan job failed"
-            exit 1
-          fi
-
-          # docker-build is a build-only smoke test; treat skip as ok (paths
-          # filter elides the build when only non-Docker files changed).
-          if [[ "${{ needs.docker-build.result }}" == "failure" ]]; then
-            echo "::error::docker-build job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.docker-api-browser-smoke.result }}" == "failure" ]]; then
-            echo "::error::docker-api-browser-smoke job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.compose-config-check.result }}" != "success" ]]; then
-            echo "::error::compose-config-check job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.secrets.result }}" != "success" ]]; then
-            echo "::error::secrets job failed"
-            exit 1
-          fi
-
-          # Integration tests may be skipped when not required
-          if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
-            echo "::error::integration-tests job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.migration-smoke-test.result }}" != "success" ]]; then
-            echo "::error::migration-smoke-test job failed"
-            exit 1
-          fi
-
-          if [[ "${{ needs.restore-smoke-test.result }}" != "success" ]]; then
-            echo "::error::restore-smoke-test job failed"
-            exit 1
-          fi
-
-          echo "✅ All critical CI checks passed!"
+          print("✅ All required CI checks passed!")
+          PY
