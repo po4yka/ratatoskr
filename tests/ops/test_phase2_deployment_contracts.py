@@ -275,6 +275,7 @@ def test_postgres_backup_script_creates_metadata_and_optional_remote_copy() -> N
     assert "aws $endpoint_args s3 cp" in script
     assert "ratatoskr_pg_backup_last_success_timestamp_seconds" in script
     assert "umask 077" in script
+    assert 'chmod 0644 "$tmp_metric"' in script
     assert "${BACKUP_REQUIRE_ENCRYPTION:-true}" in script
     assert "${APP_ENV:-production}" in script
     assert "allowed only when APP_ENV=development or APP_ENV=test" in script

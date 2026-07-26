@@ -25,6 +25,10 @@ write_metric() {
     printf '# TYPE ratatoskr_pg_backup_last_failure_timestamp_seconds gauge\n'
     printf 'ratatoskr_pg_backup_last_failure_timestamp_seconds %s\n' "${3:-0}"
   } > "$tmp_metric"
+  # Backup artifacts stay private under umask 077, but node-exporter runs as a
+  # non-root user and must be able to read this public, non-secret telemetry.
+  # Set the mode before the atomic rename so collectors never observe 0600.
+  chmod 0644 "$tmp_metric"
   mv "$tmp_metric" "$metric_dir/ratatoskr_pg_backup.prom"
 }
 
