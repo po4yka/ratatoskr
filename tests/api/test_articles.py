@@ -1,6 +1,8 @@
 """Article endpoint tests using the direct-call pattern (no HTTP client)."""
 
+from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -9,6 +11,43 @@ from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.exceptions import ResourceNotFoundError
 from app.api.routers.content.summaries import get_summary, get_summary_by_url
 from app.db.models import Request, Summary
+
+
+def _summary_context(
+    *,
+    metadata: dict[str, Any],
+    crawl_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    now = datetime(2026, 7, 26, tzinfo=UTC)
+    return {
+        "summary": {
+            "id": 1402,
+            "json_payload": {
+                "summary_250": "Short summary",
+                "summary_1000": "Long summary",
+                "tldr": "TLDR",
+                "key_ideas": [],
+                "topic_tags": [],
+                "entities": {},
+                "estimated_reading_time_min": 12,
+                "metadata": metadata,
+            },
+        },
+        "request": {
+            "id": 42,
+            "type": "url",
+            "status": "completed",
+            "input_url": "https://example.com/article",
+            "normalized_url": "https://example.com/article",
+            "created_at": now,
+            "updated_at": now,
+        },
+        "request_id": 42,
+        "crawl_result": crawl_result,
+        "transcription_artifact": None,
+        "llm_calls": [],
+        "aggregation_source_bundle": None,
+    }
 
 
 @pytest_asyncio.fixture
@@ -100,6 +139,22 @@ async def test_get_article_by_id(db, article_data):
     assert "raw_prompt" not in quality
     assert "rawLlmOutput" not in quality
     assert "raw_llm_output" not in quality
+
+
+@pytest.mark.asyncio
+async def test_get_article_title_falls_back_to_summary_metadata():
+    use_case = AsyncMock()
+    use_case.get_summary_context_for_user.return_value = _summary_context(
+        metadata={"title": "Coroutine history"},
+    )
+
+    result = await get_summary(
+        summary_id=1402,
+        user={"user_id": 1},
+        use_case=use_case,
+    )
+
+    assert result["data"]["source"]["title"] == "Coroutine history"
 
 
 @pytest.mark.asyncio

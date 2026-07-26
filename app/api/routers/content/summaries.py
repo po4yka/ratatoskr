@@ -564,6 +564,8 @@ async def get_summary(
     crawl_result = context["crawl_result"]
     transcription_artifact = context.get("transcription_artifact")
     llm_calls = context["llm_calls"]
+    json_payload = ensure_mapping(summary.get("json_payload"))
+    summary_metadata = ensure_mapping(json_payload.get("metadata"))
 
     # Build source metadata
     source = {}
@@ -580,6 +582,8 @@ async def get_summary(
             or metadata.get("og:type")
             or metadata.get("type"),
         }
+    if not source.get("title"):
+        source["title"] = summary_metadata.get("title")
 
     # Build processing info
     processing = {}
@@ -594,7 +598,6 @@ async def get_summary(
         }
 
     # Build SummaryDetailSummary from json_payload
-    json_payload = ensure_mapping(summary.get("json_payload"))
     entities_raw = ensure_mapping(json_payload.get("entities"))
     readability_raw = ensure_mapping(json_payload.get("readability"))
 
