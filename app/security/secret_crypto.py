@@ -82,13 +82,15 @@ def encrypt_secret(plaintext: str) -> bytes:
     """Encrypt a non-empty secret string with the primary key."""
     if not plaintext:
         raise ValueError("Cannot encrypt empty plaintext")
-    return _get_multi_fernet().encrypt(plaintext.encode("utf-8"))
+    encrypted: bytes = _get_multi_fernet().encrypt(plaintext.encode("utf-8"))
+    return encrypted
 
 
 def decrypt_secret(ciphertext: bytes) -> str:
     """Decrypt previously encrypted ciphertext with the primary and previous keys."""
     try:
-        return _get_multi_fernet().decrypt(ciphertext).decode("utf-8")
+        decrypted: bytes = _get_multi_fernet().decrypt(ciphertext)
+        return decrypted.decode("utf-8")
     except InvalidToken as exc:
         raise InvalidEncryptedSecretError("Ciphertext could not be decrypted") from exc
 

@@ -172,7 +172,8 @@ def create_token(
     else:
         raise ValueError(f"Invalid token type: {token_type}")
 
-    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
+    encoded: str = jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
+    return encoded
 
 
 def create_access_token(
@@ -268,7 +269,7 @@ def _payload_audience_matches(value: Any) -> bool:
 
 
 def _decode_legacy_missing_aud_iss(token: str, secret: str) -> dict[str, Any]:
-    payload = jwt.decode(
+    payload: dict[str, Any] = jwt.decode(
         token,
         secret,
         algorithms=[ALGORITHM],
@@ -300,7 +301,7 @@ def _decode_legacy_missing_aud_iss(token: str, secret: str) -> dict[str, Any]:
 
 def _decode_token_with_contract(token: str, secret: str) -> dict[str, Any]:
     try:
-        return jwt.decode(
+        payload: dict[str, Any] = jwt.decode(
             token,
             secret,
             algorithms=[ALGORITHM],
@@ -308,6 +309,7 @@ def _decode_token_with_contract(token: str, secret: str) -> dict[str, Any]:
             issuer=JWT_ISSUER,
             options={"require": list(JWT_REQUIRED_CLAIMS)},
         )
+        return payload
     except jwt.MissingRequiredClaimError as err:
         if err.claim not in _JWT_LEGACY_CLAIMS or not _is_legacy_claim_grace_active():
             raise
