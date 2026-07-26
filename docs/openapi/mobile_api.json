@@ -11718,6 +11718,60 @@
       }
     },
     "/v1/summaries/{summary_id}/tags": {
+      "get": {
+        "tags": [
+          "Tags"
+        ],
+        "summary": "List Summary Tags",
+        "description": "List manual tags attached to an owned summary.",
+        "operationId": "list_summary_tags_v1_summaries__summary_id__tags_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Summary Tags V1 Summaries  Summary Id  Tags Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
       "post": {
         "tags": [
           "Tags"
@@ -11849,6 +11903,60 @@
       }
     },
     "/v1/articles/{summary_id}/tags": {
+      "get": {
+        "tags": [
+          "Article Tags"
+        ],
+        "summary": "List Summary Tags",
+        "description": "Alias for GET /v1/summaries/{summary_id}/tags. List manual tags attached to an owned summary.",
+        "operationId": "list_summary_tags_v1_articles__summary_id__tags_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Summary Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Summary Tags V1 Articles  Summary Id  Tags Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
       "post": {
         "tags": [
           "Article Tags"

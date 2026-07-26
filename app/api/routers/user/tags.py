@@ -209,6 +209,17 @@ async def merge_tags(
 # --- Summary-tag attachment endpoints ---
 
 
+@summary_tags_router.get("/{summary_id}/tags")
+async def list_summary_tags(
+    summary_id: int,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """List manual tags attached to an owned summary."""
+    await _ensure_summary_owned(summary_id, user["user_id"])
+    tags = await _get_tag_repo().async_get_tags_for_summary(summary_id)
+    return success_response(TagListResponse(tags=[_tag_to_response(tag) for tag in tags]))
+
+
 @summary_tags_router.post("/{summary_id}/tags", status_code=201)
 async def attach_tags(
     summary_id: int,
