@@ -203,6 +203,11 @@ class SummaryDetail(AliasCompatibleResponseModel):
     request: SummaryDetailRequest
     source: SummaryDetailSource
     processing: SummaryDetailProcessing
+    processing_results: dict[str, Any] = Field(
+        default_factory=dict,
+        serialization_alias="processingResults",
+        description="Complete canonical summary-processing result, keyed by SummaryModel field name.",
+    )
     source_bundle: AggregationSourceBundle | None = Field(
         default=None, serialization_alias="sourceBundle"
     )

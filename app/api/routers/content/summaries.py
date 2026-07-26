@@ -69,6 +69,7 @@ from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.config import load_config
 from app.core.html_utils import clean_markdown_article_text, html_to_text
 from app.core.logging_utils import get_logger
+from app.core.summary_schema import SummaryModel
 from app.core.time_utils import UTC
 
 logger = get_logger(__name__)
@@ -168,6 +169,15 @@ def _safe_compact_summary_quality(json_payload: dict[str, Any]) -> SummaryDetail
         **ensure_mapping(json_payload.get("summary_quality")),
     }
     return _safe_summary_quality(quality)
+
+
+def _safe_processing_results(json_payload: dict[str, Any]) -> dict[str, Any]:
+    """Return every canonical summary field without leaking unknown provider payload keys."""
+    try:
+        return SummaryModel.model_validate(json_payload).model_dump(mode="json")
+    except (TypeError, ValueError):
+        logger.warning("Could not normalize complete processing results for summary detail")
+        return {}
 
 
 def _format_summary_email_content(
@@ -300,8 +310,9 @@ def _build_summary_compact(summary_dict: dict[str, Any]) -> SummaryCompact:
 
 
 def _resolve_content(
-    crawl_result: dict[str, Any],
+    crawl_result: dict[str, Any] | None,
     request_data: dict[str, Any],
+    transcription_artifact: dict[str, Any] | None,
     output_format: str,
 ) -> tuple[str, str, str]:
     """Resolve article content for the requested output format.
@@ -309,6 +320,9 @@ def _resolve_content(
     Returns (content_value, content_mime, resolved_format).
     Raises ResourceNotFoundError (ValueError) if no content is available.
     """
+    crawl_result = crawl_result or {}
+    transcription_artifact = transcription_artifact or {}
+
     if crawl_result.get("content_markdown"):
         content_source: str = crawl_result["content_markdown"]
         source_format = "markdown"
@@ -319,6 +333,10 @@ def _resolve_content(
         content_type = "text/html"
     elif request_data.get("content_text"):
         content_source = request_data["content_text"]
+        source_format = "text"
+        content_type = "text/plain"
+    elif transcription_artifact.get("plain_text"):
+        content_source = transcription_artifact["plain_text"]
         source_format = "text"
         content_type = "text/plain"
     else:
@@ -598,9 +616,7 @@ async def get_summary(
         except ValueError:
             source["domain"] = None
     source["author"] = source.get("author") or summary_metadata.get("author")
-    source["published_at"] = (
-        source.get("published_at") or summary_metadata.get("published_at")
-    )
+    source["published_at"] = source.get("published_at") or summary_metadata.get("published_at")
 
     # Build processing info
     processing = {}
@@ -689,6 +705,7 @@ async def get_summary(
             request=SummaryDetailRequest(**request_detail),
             source=SummaryDetailSource(**source_detail),
             processing=SummaryDetailProcessing(**processing_detail),
+            processing_results=_safe_processing_results(json_payload),
             source_bundle=_build_summary_source_bundle(context.get("aggregation_source_bundle")),
             reading_progress=summary.get("reading_progress"),
             last_read_offset=summary.get("last_read_offset"),
@@ -750,14 +767,12 @@ async def get_summary_content(
     request_data = context["request"]
     request_id = context["request_id"]
     crawl_result = context["crawl_result"]
+    transcription_artifact = context.get("transcription_artifact")
 
-    if not crawl_result:
-        raise ResourceNotFoundError("Content", summary_id)
-
-    metadata = ensure_mapping(crawl_result.get("metadata_json"))
+    metadata = ensure_mapping(crawl_result.get("metadata_json")) if crawl_result else {}
     summary_metadata = ensure_mapping(ensure_mapping(summary.get("json_payload")).get("metadata"))
     source_url = (
-        crawl_result.get("source_url")
+        (crawl_result or {}).get("source_url")
         or request_data.get("input_url")
         or request_data.get("normalized_url")
     )
@@ -766,7 +781,7 @@ async def get_summary_content(
 
     try:
         content_value, content_mime, output_format = _resolve_content(
-            crawl_result, request_data, format
+            crawl_result, request_data, transcription_artifact, format
         )
     except ValueError as exc:
         raise ResourceNotFoundError("Content", summary_id) from exc
@@ -774,7 +789,13 @@ async def get_summary_content(
     checksum = sha256(content_value.encode("utf-8")).hexdigest() if content_value else None
     size_bytes = len(content_value.encode("utf-8")) if content_value else None
     retrieved_dt = (
-        crawl_result.get("updated_at") or crawl_result.get("created_at") or datetime.now(UTC)
+        (crawl_result or {}).get("updated_at")
+        or (crawl_result or {}).get("created_at")
+        or ensure_mapping(transcription_artifact).get("updated_at")
+        or ensure_mapping(transcription_artifact).get("created_at")
+        or request_data.get("updated_at")
+        or request_data.get("created_at")
+        or datetime.now(UTC)
     )
 
     return success_response(

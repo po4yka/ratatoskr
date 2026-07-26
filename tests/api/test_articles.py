@@ -9,7 +9,8 @@ import pytest_asyncio
 
 from app.api.dependencies.database import get_summary_read_model_use_case
 from app.api.exceptions import ResourceNotFoundError
-from app.api.routers.content.summaries import get_summary, get_summary_by_url
+from app.api.routers.content.summaries import get_summary, get_summary_by_url, get_summary_content
+from app.core.summary_schema import SummaryModel
 from app.db.models import Request, Summary
 
 
@@ -139,6 +140,9 @@ async def test_get_article_by_id(db, article_data):
     assert "raw_prompt" not in quality
     assert "rawLlmOutput" not in quality
     assert "raw_llm_output" not in quality
+    assert set(data["processingResults"]) == set(SummaryModel.model_fields)
+    assert data["processingResults"]["key_ideas"] == ["Idea 1", "Idea 2"]
+    assert "raw_prompt" not in data["processingResults"]["summary_quality"]
 
 
 @pytest.mark.asyncio
@@ -184,6 +188,46 @@ async def test_get_article_source_falls_back_without_a_crawl_result():
         "contentType": None,
         "transcript": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_get_article_content_uses_submitted_text_without_a_crawl_result():
+    use_case = AsyncMock()
+    context = _summary_context(metadata={"title": "Submitted note"})
+    context["request"]["content_text"] = "The complete submitted source text."
+    use_case.get_summary_context_for_user.return_value = context
+
+    result = await get_summary_content(
+        summary_id=1402,
+        format="markdown",
+        user={"user_id": 1},
+        use_case=use_case,
+    )
+
+    content = result["data"]["content"]
+    assert content["content"] == "The complete submitted source text."
+    assert content["format"] == "text"
+    assert content["contentType"] == "text/plain"
+
+
+@pytest.mark.asyncio
+async def test_get_article_content_uses_transcript_without_a_crawl_result():
+    use_case = AsyncMock()
+    context = _summary_context(metadata={"title": "Voice note"})
+    context["transcription_artifact"] = {"plain_text": "The complete voice transcript."}
+    use_case.get_summary_context_for_user.return_value = context
+
+    result = await get_summary_content(
+        summary_id=1402,
+        format="markdown",
+        user={"user_id": 1},
+        use_case=use_case,
+    )
+
+    content = result["data"]["content"]
+    assert content["content"] == "The complete voice transcript."
+    assert content["format"] == "text"
+    assert content["contentType"] == "text/plain"
 
 
 @pytest.mark.asyncio

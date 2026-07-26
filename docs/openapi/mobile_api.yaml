@@ -16162,6 +16162,11 @@ components:
           $ref: '#/components/schemas/SummaryDetailSource'
         processing:
           $ref: '#/components/schemas/SummaryDetailProcessing'
+        processingResults:
+          additionalProperties: true
+          description: Complete canonical summary-processing result, keyed by SummaryModel field name.
+          title: Processingresults
+          type: object
         sourceBundle:
           anyOf:
           - $ref: '#/components/schemas/AggregationSourceBundle'
