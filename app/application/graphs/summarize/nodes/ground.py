@@ -6,8 +6,8 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from app.application.dto.vector_search import EntityType, RetrievalScope
-from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.graphs.summarize.nodes._context import load_source_text
+from app.application.graphs.summarize.nodes._span import graph_node
 from app.core.content_cleaner import neutralize_literal_delimiters
 
 if TYPE_CHECKING:

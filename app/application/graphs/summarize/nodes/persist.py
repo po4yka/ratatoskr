@@ -7,8 +7,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from app.application.dto.vector_search import RetrievalScope
-from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.graphs.summarize.nodes._context import load_source_text
+from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.services.summarization.metadata_backfill import backfill_summary_metadata
 from app.domain.models.request import RequestStatus
 

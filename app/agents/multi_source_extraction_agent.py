@@ -16,18 +16,18 @@ from app.application.dto.aggregation import (
     SourceExtractionItemResult,
     SourceSubmission,
 )
+from app.core.logging_utils import redact_for_logging
 from app.domain.models.source import (
     AggregationItemStatus,
     AggregationRequest,
     AggregationSessionStatus,
     SourceItem,
 )
-from app.core.logging_utils import redact_for_logging
+from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 from app.observability.metrics import (
     record_aggregation_bundle,
     record_aggregation_extraction,
 )
-from app.observability.attributes import AGENT_ATTEMPT, AGENT_NAME, REQUEST_CORRELATION_ID
 
 if TYPE_CHECKING:
     from app.adapters.content.content_extractor import ContentExtractor

@@ -429,9 +429,7 @@ async def _load_request(*, request_id: int, db: Database) -> dict[str, Any] | No
 async def _load_summary(*, request_id: int, db: Database) -> dict[str, Any] | None:
     from sqlalchemy import select
 
-    from app.db.models.core import Summary
-
-    from app.db.models.core import LLMCall
+    from app.db.models.core import LLMCall, Summary
 
     async with db.session() as session:
         row = await session.scalar(select(Summary).where(Summary.request_id == request_id))

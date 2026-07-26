@@ -15,9 +15,9 @@ import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import app.tasks.langgraph_prune as lp
 from psycopg import sql as psycopg_sql
 
+import app.tasks.langgraph_prune as lp
 from app.tasks.langgraph_prune import CheckpointPruneStats, _prune_body, _run_prune
 
 

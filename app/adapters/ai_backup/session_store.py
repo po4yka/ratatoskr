@@ -8,9 +8,9 @@ to JSON and encrypted at rest. Plaintext never lands on disk and is never logged
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import delete, select, update

@@ -12,8 +12,8 @@ that are instantiated inside the route body rather than injected via Depends.
 
 from __future__ import annotations
 
-import importlib
 import datetime as dt
+import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
