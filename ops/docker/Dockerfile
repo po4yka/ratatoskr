@@ -33,11 +33,12 @@ COPY pyproject.toml uv.lock ./
 
 # Install dependencies with cache mounts for faster rebuilds
 # Bot/MCP need: ml, youtube, export, scheduler, mcp, api (mcp http_auth imports app.api.routers.auth.tokens)
-# graph: langgraph summarize pipeline + Postgres checkpointer — sole summarize path since T9, so required at runtime (pyproject opt-in).
+# monitoring: Prometheus/Sentry exporters used by the production metrics surface.
+# LangGraph and its Postgres checkpointer are base dependencies because this is the sole summarize path.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cache/pip \
-    echo "Starting uv sync with extras: ml youtube export scheduler mcp api browser_scraper attachment otel graph" && \
-    uv sync --compile-bytecode --frozen --no-dev --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra api --extra browser_scraper --extra attachment --extra otel --extra graph --verbose && \
+    echo "Starting uv sync with extras: ml youtube export scheduler mcp api browser_scraper attachment monitoring otel" && \
+    uv sync --compile-bytecode --frozen --no-dev --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra api --extra browser_scraper --extra attachment --extra monitoring --extra otel --verbose && \
     echo "uv sync completed successfully"
 
 # =============================================================================

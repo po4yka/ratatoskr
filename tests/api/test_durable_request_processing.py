@@ -705,6 +705,23 @@ class TestRecordSynchronousStart:
         assert "bot:sync" in sql
 
     @pytest.mark.asyncio
+    async def test_unexpired_running_lease_rejects_duplicate_claim(self) -> None:
+        class ContendedSession(FakeSession):
+            async def execute(self, statement: Any) -> Any:
+                self.executed.append(statement)
+                return SimpleNamespace(rowcount=0)
+
+        repo = RequestProcessingJobRepository(FakeDatabase(ContendedSession()))
+
+        claimed = await repo.record_synchronous_start(
+            request_id=99,
+            correlation_id="cid-duplicate",
+            lease_ttl_seconds=900,
+        )
+
+        assert claimed is False
+
+    @pytest.mark.asyncio
     async def test_calling_twice_refreshes_lease_not_duplicate(self) -> None:
         """Two calls for the same request_id both execute (upsert path)."""
         executed: list[Any] = []

@@ -93,9 +93,7 @@ class CrawlResultRepositoryAdapter:
             )
             return int(value) if value is not None else None
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Get all crawl results for a user, with request_id flattened.
 
         ``since`` pushes the sync cursor into the query so a poll only reads rows

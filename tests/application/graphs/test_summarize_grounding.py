@@ -8,8 +8,9 @@ assembly; summary + llm_calls persistence + freshness index).
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -61,7 +62,7 @@ class _FakeSummaries:
         self._summary_id = summary_id
         self.finalized: list[dict[str, Any]] = []
 
-    async def async_finalize_request_summary(self, **kwargs: Any) -> SummaryFinalizeResult:
+    async def async_persist_summary_with_llm_calls(self, **kwargs: Any) -> SummaryFinalizeResult:
         self.finalized.append(kwargs)
         # The UPSERT returns the id directly now (id lookup removed); ``_summary_id``
         # models "no row resolved" via None to exercise the index skip guard.
@@ -69,29 +70,6 @@ class _FakeSummaries:
 
     async def async_get_summary_id_by_request(self, request_id: int) -> int | None:
         return self._summary_id
-
-
-class _FakeLLMRepo:
-    def __init__(self, *, batch_error: Exception | None = None) -> None:
-        self.records: list[dict[str, Any]] = []
-        self.single_calls = 0
-        self.batch_calls = 0
-        self._batch_error = batch_error
-
-    async def async_insert_llm_call(self, record: dict[str, Any]) -> int:
-        self.single_calls += 1
-        self.records.append(dict(record))
-        return len(self.records)
-
-    async def async_insert_llm_calls_batch(self, calls: list[dict[str, Any]]) -> list[int]:
-        self.batch_calls += 1
-        if self._batch_error is not None:
-            raise self._batch_error
-        ids: list[int] = []
-        for record in calls:
-            self.records.append(dict(record))
-            ids.append(len(self.records))
-        return ids
 
 
 def _summary_hit(
@@ -117,7 +95,9 @@ def _deps(
     retrieval: Any = None,
     summary_index: Any = None,
     summaries: Any = None,
-    llm_repo: Any = None,
+    requests: Any = None,
+    crawl_repo: Any = None,
+    export_events: Any = None,
     rag_enabled: bool = False,
     rag_top_k: int = 5,
 ) -> SummarizeDeps:
@@ -130,11 +110,12 @@ def _deps(
         extraction=MagicMock(),
         stream_sink=MagicMock(),
         summaries=summaries_port,
-        requests=MagicMock(),
+        requests=requests or SimpleNamespace(async_update_request_status=AsyncMock()),
         summary_index=summary_index or _FakeSummaryIndex(),
-        llm_repo=llm_repo,
         rag_enabled=rag_enabled,
         rag_top_k=rag_top_k,
+        export_events=export_events,
+        crawl_repo=crawl_repo,
     )
 
 
@@ -270,6 +251,36 @@ async def test_build_prompt_appends_grounding_block_after_instructor_prompt() ->
     assert out["messages"][0]["content"] == out["system_prompt"]
 
 
+async def test_build_prompt_honours_custom_system_prompt_and_feedback() -> None:
+    out = await build_prompt(
+        _grounded_state(
+            requested_system_prompt="Custom application contract",
+            feedback_instructions="Emphasize operational risks",
+        ),
+        deps=_deps(),
+    )
+
+    assert out["system_prompt"] == "Custom application contract"
+    assert out["messages"][0]["content"] == "Custom application contract"
+    assert "Trusted correction instructions from the application" in out["messages"][1]["content"]
+    assert "Emphasize operational risks" in out["messages"][1]["content"]
+
+
+async def test_build_prompt_rehydrates_untracked_source_from_crawl_row() -> None:
+    crawl_repo = SimpleNamespace(
+        async_get_crawl_result_by_request=AsyncMock(
+            return_value={"content_markdown": "Persisted article body"}
+        )
+    )
+    state = _grounded_state()
+    state.pop("source_text")
+
+    out = await build_prompt(state, deps=_deps(crawl_repo=crawl_repo))
+
+    assert out["source_text"] == "Persisted article body"
+    assert "Persisted article body" in out["messages"][1]["content"]
+
+
 async def test_build_prompt_noop_when_no_content_and_no_block() -> None:
     # No extracted content and no grounding -> preserve the T6 grounding-only seam
     # (no prompt delta, byte-identical to the no-RAG no-content path).
@@ -301,25 +312,22 @@ async def test_ground_then_build_prompt_flag_parity(enabled: bool) -> None:
 async def test_persist_finalizes_summary_and_indexes_on_write() -> None:
     index = _FakeSummaryIndex()
     summaries = _FakeSummaries(summary_id=100)
-    llm_repo = _FakeLLMRepo()
     state = _grounded_state(
         summary={"tldr": "hi"},
         llm_calls=[{"request_id": 42, "provider": "openrouter", "attempt_trigger": "graph_node"}],
     )
-    out = await persist(
-        state, deps=_deps(summary_index=index, summaries=summaries, llm_repo=llm_repo)
-    )
+    out = await persist(state, deps=_deps(summary_index=index, summaries=summaries))
 
     assert out == {"summary_id": 100}
     # Summary finalized (request -> COMPLETED).
     assert len(summaries.finalized) == 1
     assert summaries.finalized[0]["request_id"] == 42
-    # llm_calls persisted with the graph_node trigger (persist-everything) via the
-    # single-transaction batch insert -- NOT one transaction per row.
-    assert len(llm_repo.records) == 1
-    assert llm_repo.records[0]["attempt_trigger"] == "graph_node"
-    assert llm_repo.batch_calls == 1
-    assert llm_repo.single_calls == 0
+    # The required attempt trail is part of the same repository transaction as
+    # the summary and receives deterministic indices for checkpoint resume.
+    calls = summaries.finalized[0]["llm_calls"]
+    assert len(calls) == 1
+    assert calls[0]["attempt_trigger"] == "graph_node"
+    assert calls[0]["attempt_index"] == 1
     # Read-your-writes index fired with the resolved summary id.
     assert len(index.calls) == 1
     call = index.calls[0]
@@ -334,7 +342,6 @@ async def test_persist_finalizes_summary_and_indexes_on_write() -> None:
 async def test_persist_batches_all_llm_calls_in_one_transaction() -> None:
     """All accumulated summarize + repair rows go out in ONE batch insert, not N."""
     summaries = _FakeSummaries(summary_id=100)
-    llm_repo = _FakeLLMRepo()
     state = _grounded_state(
         summary={"tldr": "hi"},
         llm_calls=[
@@ -344,18 +351,21 @@ async def test_persist_batches_all_llm_calls_in_one_transaction() -> None:
         ],
     )
 
-    await persist(state, deps=_deps(summaries=summaries, llm_repo=llm_repo))
+    await persist(state, deps=_deps(summaries=summaries))
 
-    assert llm_repo.batch_calls == 1  # exactly one transaction for all three rows
-    assert llm_repo.single_calls == 0
-    assert len(llm_repo.records) == 3
+    calls = summaries.finalized[0]["llm_calls"]
+    assert [call["attempt_index"] for call in calls] == [1, 2, 3]
 
 
-async def test_persist_falls_back_to_per_row_when_batch_fails() -> None:
-    """A batch is all-or-nothing; on batch failure the rows are retried individually
-    so one poison record cannot drop the rest, and completion is never blocked."""
-    summaries = _FakeSummaries(summary_id=100)
-    llm_repo = _FakeLLMRepo(batch_error=RuntimeError("batch insert failed"))
+async def test_persist_attempt_trail_failure_blocks_completion() -> None:
+    """The request cannot become terminal when the atomic audit write fails."""
+    summaries = SimpleNamespace(
+        async_persist_summary_with_llm_calls=AsyncMock(
+            side_effect=RuntimeError("attempt insert failed")
+        )
+    )
+    requests = SimpleNamespace(async_update_request_status=AsyncMock())
+    index = _FakeSummaryIndex()
     state = _grounded_state(
         summary={"tldr": "hi"},
         llm_calls=[
@@ -364,24 +374,55 @@ async def test_persist_falls_back_to_per_row_when_batch_fails() -> None:
         ],
     )
 
-    out = await persist(state, deps=_deps(summaries=summaries, llm_repo=llm_repo))
+    with pytest.raises(RuntimeError, match="attempt insert failed"):
+        await persist(
+            state,
+            deps=_deps(summaries=summaries, summary_index=index, requests=requests),
+        )
 
-    assert out == {"summary_id": 100}  # completion not blocked
-    assert llm_repo.batch_calls == 1
-    assert llm_repo.single_calls == 2  # per-row fallback wrote both rows
-    assert len(llm_repo.records) == 2
+    requests.async_update_request_status.assert_not_awaited()
+    assert index.calls == []
+
+
+async def test_persist_completes_only_after_downstream_effects_are_attempted() -> None:
+    order: list[str] = []
+
+    async def persist_atomic(**_kwargs: Any) -> SummaryFinalizeResult:
+        order.append("postgres")
+        return SummaryFinalizeResult(summary_id=100, version=1)
+
+    async def index_summary(**_kwargs: Any) -> None:
+        order.append("qdrant")
+
+    async def publish_summary_created(_summary_id: int) -> None:
+        order.append("export")
+
+    async def update_status(_request_id: int, _status: str) -> None:
+        order.append("completed")
+
+    await persist(
+        _grounded_state(summary={"tldr": "hi"}),
+        deps=_deps(
+            summaries=SimpleNamespace(async_persist_summary_with_llm_calls=persist_atomic),
+            requests=SimpleNamespace(async_update_request_status=update_status),
+            summary_index=SimpleNamespace(index_summary=index_summary),
+            export_events=SimpleNamespace(publish_summary_created=publish_summary_created),
+        ),
+    )
+
+    assert order[0] == "postgres"
+    assert set(order[1:3]) == {"qdrant", "export"}
+    assert order[-1] == "completed"
 
 
 async def test_persist_no_llm_calls_touches_neither_insert_path() -> None:
     """An empty llm_calls list issues no insert of either kind."""
     summaries = _FakeSummaries(summary_id=100)
-    llm_repo = _FakeLLMRepo()
     state = _grounded_state(summary={"tldr": "hi"}, llm_calls=[])
 
-    await persist(state, deps=_deps(summaries=summaries, llm_repo=llm_repo))
+    await persist(state, deps=_deps(summaries=summaries))
 
-    assert llm_repo.batch_calls == 0
-    assert llm_repo.single_calls == 0
+    assert summaries.finalized[0]["llm_calls"] == []
 
 
 async def test_persist_skips_index_when_no_summary_id() -> None:

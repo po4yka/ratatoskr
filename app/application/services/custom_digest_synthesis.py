@@ -59,16 +59,10 @@ class CustomDigestSynthesis(BaseModel):
         """Render cited structured synthesis as a portable Markdown digest."""
         sections = [
             "## Key claims",
-            *[
-                f"- {claim.text} {_citations(claim.summary_ids)}"
-                for claim in self.claims
-            ],
+            *[f"- {claim.text} {_citations(claim.summary_ids)}" for claim in self.claims],
             "## Disagreements",
             *(
-                [
-                    f"- {item.text} {_citations(item.summary_ids)}"
-                    for item in self.disagreements
-                ]
+                [f"- {item.text} {_citations(item.summary_ids)}" for item in self.disagreements]
                 or ["- No material disagreement identified in the selected summaries."]
             ),
             "## Complementary perspectives",
@@ -181,7 +175,9 @@ class CustomDigestSynthesizer:
                 claims.append(DigestClaim(text=idea, summary_ids=[summary_id]))
             perspective = ideas[0] if ideas else "Adds source context without a concise claim."
             perspectives.append(
-                DigestPerspective(text=f"{titles[summary_id]}: {perspective}", summary_ids=[summary_id])
+                DigestPerspective(
+                    text=f"{titles[summary_id]}: {perspective}", summary_ids=[summary_id]
+                )
             )
             reading_scores.append((summary_id, len(ideas)))
 
@@ -210,7 +206,9 @@ class CustomDigestSynthesizer:
             return fallback
         perspectives = _valid_cited_items(parsed.complementary_perspectives, valid_ids)
         disagreements = _valid_disagreements(parsed.disagreements, valid_ids)
-        reading_order = _complete_reading_order(parsed.reading_order, fallback.reading_order, valid_ids)
+        reading_order = _complete_reading_order(
+            parsed.reading_order, fallback.reading_order, valid_ids
+        )
         return CustomDigestSynthesis(
             claims=claims,
             disagreements=disagreements,
@@ -242,7 +240,9 @@ class CustomDigestSynthesizer:
     @staticmethod
     def _load_prompt(language: str) -> str:
         suffix = "ru" if language == "ru" else "en"
-        return read_prompt_text(_PROMPT_DIR / f"custom_digest_synthesis_system_{suffix}.txt", strip=True)
+        return read_prompt_text(
+            _PROMPT_DIR / f"custom_digest_synthesis_system_{suffix}.txt", strip=True
+        )
 
 
 def _mapping(value: object) -> dict[str, Any]:

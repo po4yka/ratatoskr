@@ -49,10 +49,46 @@ AI_BACKUP_HC_PING_URL=https://hc-ping.com/<uuid>   # dead-man switch
 `AI_BACKUP_DATA_PATH` must be bind-mounted writable into the container. Verify:
 
 ```bash
-docker exec -it ratatoskr ls -la /data/ai-backups
+docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr \
+  ls -la /data/ai-backups
 ```
 
 **Owner ID:** the task keys every backup row on the **first** Telegram user ID in `ALLOWED_USER_IDS`. Ensure that `ALLOWED_USER_IDS` is non-empty and that the first ID is the operator whose session will be submitted.
+
+### External acceptance gate (not reproducible with fixtures)
+
+The internal provider contracts and project-knowledge coverage cannot be
+certified from mocks. Treat live-account validation as blocked until an
+operator supplies all of the following:
+
+1. Explicit approval to access the operator's own ChatGPT and/or Claude account
+   through undocumented web APIs, acknowledging the Terms-of-Service and
+   account-suspension risk. Never use a third-party account.
+2. A disposable or otherwise risk-accepted account with a recorded expected
+   inventory. For ChatGPT include ordinary and archived conversations, one
+   Project with project instructions/knowledge, and at least one attachment. For
+   Claude include ordinary conversations, one Project with text knowledge, and
+   one Artifact. Record expected stable IDs and counts without copying content or
+   credentials into tickets.
+3. A freshly captured owner session containing the required service cookie and
+   `cf_clearance`, captured through the same CloakBrowser fingerprint and public
+   egress IP that will run the validation (Mode B when those differ).
+4. A non-production validation deployment with outbound access to only the
+   configured provider allowlist, both relevant feature flags enabled, a writable
+   empty backup root, enough disk headroom, and request/byte caps sized for the
+   recorded corpus. Keep Claude Compliance mode disabled unless a dedicated
+   sanctioned client is being validated; the current placeholder must fail closed.
+5. Authorization to retain redacted validation evidence: run correlation ID,
+   endpoint status codes, expected-versus-observed IDs/counts, manifest hashes,
+   file modes, and a restore/read-back check. Session blobs, cookie values,
+   access tokens, account identifiers, and conversation content must not enter
+   logs, screenshots, or repository artifacts.
+
+Completion requires observing both a full successful sweep and a second
+incremental sweep for each enabled provider, verifying project knowledge and
+attachments against the recorded inventory, then revoking the stored session.
+Until that evidence exists, report provider/project-knowledge compatibility as
+**unverified external blocker**, not as passed based on fixture tests.
 
 ## 3. Produce the session blob
 
@@ -74,6 +110,10 @@ python tools/scripts/capture_ai_session.py --service chatgpt --out chatgpt.json
 python tools/scripts/capture_ai_session.py --service claude --out claude.json
 ```
 
+The helper builds the storage state in memory and atomically writes the output
+with mode `0600`. It refuses a symlink destination. Keep the file on a trusted
+local filesystem, upload it over HTTPS, and delete it immediately after ingest.
+
 The script opens a Chromium window. Log in normally (including 2FA). After the dashboard loads, press Enter in the terminal; the script writes the `storage_state` blob to the output file and exits. The file will contain `__Secure-next-auth.session-token` and `cf_clearance` for ChatGPT, or `sessionKey` and `cf_clearance` for Claude.
 
 **`cf_clearance` fingerprint/IP risk.** Cloudflare binds `cf_clearance` to the TLS/JA3 fingerprint and source IP of the browser that solved the challenge. A blob captured from your laptop carries your laptop's fingerprint and IP. If the sidecar runs on a Raspberry Pi with a different public IP, that `cf_clearance` will be re-challenged on the first internal-API call and the run will fail with a `403 cf-mitigated` error. Mode B is the fix for this.
@@ -84,11 +124,11 @@ When the sidecar and the operator's workstation share a public IP (common for a 
 
 ```bash
 python tools/scripts/capture_ai_session.py --service chatgpt \
-    --cdp ws://cloakbrowser:9222 \
+    --cdp '<manager-exposed-cdp-websocket-url>' \
     --out chatgpt.json
 ```
 
-This requires a display; the sidecar runs headless by default. [CloakBrowser-Manager](https://github.com/CloakHQ/CloakBrowser-Manager) (early-alpha) provides a noVNC viewer that exposes the sidecar's display over HTTP so the operator can log in interactively from a browser tab. Consult its README for the `docker compose` overlay that enables noVNC. Once the manager is up, open the noVNC URL in a browser, log into the AI service manually inside that session, then pass the CDP WebSocket URL to the capture script via `--cdp`.
+This requires a display; the sidecar runs headless by default. [CloakBrowser-Manager](https://github.com/CloakHQ/CloakBrowser-Manager) (early-alpha) provides a noVNC viewer that exposes the sidecar's display over HTTP so the operator can log in interactively from a browser tab. Consult its README for the `docker compose` overlay that enables noVNC. Once the manager is up, open the noVNC URL in a browser, log into the AI service manually inside that session, then pass the manager-exposed CDP WebSocket URL to the capture script via `--cdp`. The compose hostname `cloakbrowser:9222` is internal-only and is intentionally not reachable from the host.
 
 ## 4. Ingest the session blob
 
@@ -96,12 +136,12 @@ The blob never transits Telegram (the bot surfaces only status commands). There 
 
 ### 4a. CLI ingest (recommended for single-tenant self-host — no JWT)
 
-Run inside the container; it validates the shape, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and lifts any `AUTH_EXPIRED` halt — no Mobile-API JWT needed:
+Run inside the container; it validates the provider session cookie, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and marks authorization `unverified` until the next provider check — no Mobile-API JWT needed:
 
 ```bash
-docker cp chatgpt.json ratatoskr:/tmp/chatgpt.json
-docker exec -it ratatoskr python -m app.cli.ai_backup --ingest /tmp/chatgpt.json --service chatgpt
-docker exec -it ratatoskr rm -f /tmp/chatgpt.json   # the blob holds live cookies
+docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
+  'set -eu; umask 077; tmp=$(mktemp /tmp/ai-backup-session.XXXXXX); trap "rm -f \"$tmp\"" EXIT HUP INT TERM; cat >"$tmp"; python -m app.cli.ai_backup --ingest "$tmp" --service chatgpt' \
+  < chatgpt.json
 ```
 
 It prints the cookie names found (never values). Exit code `0` on success, `2` on an unreadable/invalid blob or empty `ALLOWED_USER_IDS`.
@@ -122,10 +162,22 @@ curl -s -X POST https://<host>/v1/ai-backups/<service>/session \
 - **400** — malformed blob (missing required cookie or localStorage key for the service).
 - **401** — expired or invalid JWT.
 
+To remove Ratatoskr's stored authorization for a provider, use the same owner
+JWT. This is idempotent and does not sign the account out at the provider:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+    https://<host>/v1/ai-backups/<service>/session \
+    -H "Authorization: Bearer <token>"
+```
+
+Expect **204**, then verify the provider reports `authorization_status=missing`.
+
 Verify the row was persisted:
 
 ```bash
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
+docker compose -f ops/docker/docker-compose.yml exec -T postgres \
+  psql -U ratatoskr_app -d ratatoskr -c \
   "SELECT id, domain, created_at, updated_at FROM user_browser_sessions WHERE domain IN ('chatgpt.com','claude.ai') ORDER BY updated_at DESC LIMIT 5;"
 ```
 
@@ -134,7 +186,8 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
 ### Immediate (synchronous, full log output)
 
 ```bash
-docker exec -it ratatoskr python -m app.cli.ai_backup --service chatgpt
+docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr \
+  python -m app.cli.ai_backup --service chatgpt
 ```
 
 Logs stream to stdout. Use `--service claude` for the Claude path, or omit `--service` to run all enabled services in sequence.
@@ -144,13 +197,15 @@ Logs stream to stdout. Use `--service claude` for the Claude path, or omit `--se
 The Taskiq scheduler enqueues `ratatoskr.ai_backup.sync` at the `AI_BACKUP_SYNC_CRON` cadence (default `0 5 * * *` UTC) when `AI_BACKUP_ENABLED=true`. To force immediate dispatch via the broker:
 
 ```bash
-docker exec -it ratatoskr python -m taskiq kiq ratatoskr.ai_backup.sync
+docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr \
+  python -m taskiq kiq ratatoskr.ai_backup.sync
 ```
 
 Confirm the lock is not already held before dispatching:
 
 ```bash
-docker exec -i ratatoskr-redis redis-cli EXISTS task_lock:ai_backup_sync
+docker compose -f ops/docker/docker-compose.yml exec -T redis \
+  redis-cli EXISTS task_lock:ai_backup_sync
 ```
 
 A result of `1` means a run is already in progress (TTL 1800 s). Wait for it to finish or, if the owning worker is dead, delete the key after confirming the worker PID is gone.
@@ -163,7 +218,6 @@ A result of `1` means a run is already in progress (TTL 1800 s). Wait for it to 
 AI_BACKUP_DATA_PATH/<service>/<YYYY-MM-DD>/
   conversations/<conversation_id>.json
   projects/<project_id>/project.json
-  projects/<project_id>/knowledge/<file>
   files/<file_id>__<filename>
   artifacts/<conversation_id>/<artifact_id>.<ext>   # Claude only
   manifest.json
@@ -172,16 +226,57 @@ AI_BACKUP_DATA_PATH/<service>/<YYYY-MM-DD>/
 Check the run directory:
 
 ```bash
-docker exec -it ratatoskr ls -lh /data/ai-backups/chatgpt/$(date +%Y-%m-%d)/
-docker exec -it ratatoskr cat /data/ai-backups/chatgpt/$(date +%Y-%m-%d)/manifest.json | python -m json.tool
+docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr \
+  ls -lh /data/ai-backups/chatgpt/$(date +%Y-%m-%d)/
+docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr \
+  cat /data/ai-backups/chatgpt/$(date +%Y-%m-%d)/manifest.json | python -m json.tool
 ```
 
 `manifest.json` contains `counts`, `requests_made`, `skipped_incremental`, `incremental`, `correlation_id`, and the run timestamp.
 
+Before the run, create an owner-only expected-inventory file outside the
+repository. Values are the stable provider IDs recorded for the disposable
+validation corpus; never attach this file to a ticket or commit it:
+
+```json
+{
+  "service": "chatgpt",
+  "run_date": "2026-07-17",
+  "conversations": ["<conversation-id>"],
+  "projects": ["<project-id>"],
+  "files": ["<file-id>"],
+  "artifacts": []
+}
+```
+
+Verify the completed run offline. The verifier checks manifest schema v2,
+identity and counts, exact expected inventory, every payload SHA-256 by
+no-follow read-back, owner-only file/directory modes, and rejects symlinks or
+unhashed files. Its JSON output contains aggregate counts and the manifest hash, but no
+provider IDs, correlation ID, filenames, or content:
+
+```bash
+chmod 600 /secure/expected-chatgpt.json
+docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
+  'set -eu; umask 077; tmp=$(mktemp /tmp/ai-backup-inventory.XXXXXX); trap "rm -f \"$tmp\"" EXIT HUP INT TERM; cat >"$tmp"; python -m app.cli.verify_ai_backup --run-dir /data/ai-backups/chatgpt/$(date +%Y-%m-%d) --expected-inventory "$tmp"' \
+  < /secure/expected-chatgpt.json
+```
+
+Exit status `0` records `offline_integrity_passed`; any mismatch or unsafe path
+exits `1`. The output deliberately leaves `provider_compatibility` and
+`project_knowledge` as `unverified`. Run it after both the full and incremental
+sweeps, preserving each snapshot before a same-day run overwrites its manifest,
+and use the exact inventory expected in that run directory. This does not prove
+that a partial manifest came from a successful run: retain the lifecycle
+`status=ok` row and `ai_backup_run_complete` log marker alongside this evidence.
+It also does not replace the live provider-contract and project-knowledge checks
+in the external acceptance gate.
+
 ### Lifecycle row
 
 ```bash
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -x -c \
+docker compose -f ops/docker/docker-compose.yml exec -T postgres \
+  psql -U ratatoskr_app -d ratatoskr -x -c \
   "SELECT service, status, counts_json, last_backup_path, last_backed_up_at, consecutive_failures, last_error
    FROM ai_account_backups
    ORDER BY updated_at DESC;"
@@ -202,13 +297,13 @@ A successful run emits `ai_backup_run_complete` with a `counts` field. Absence o
 
 | Symptom | Likely cause | Resolution |
 |---|---|---|
-| `403 cf-mitigated` in logs or HTML Cloudflare interstitial in conversation JSON | `cf_clearance` captured from a different IP/fingerprint than the sidecar | Recapture the session using Mode B (`--cdp ws://cloakbrowser:9222`) so the clearance cookie matches the sidecar's fingerprint and IP |
-| `status=auth_expired` in `ai_account_backups` | Session cookie expired or rotated; the service halted to avoid hammering a login wall | Re-run Mode A or Mode B to capture a fresh blob, then re-ingest via `POST /v1/ai-backups/<service>/session`; the `auth_expired` halt clears automatically on successful ingest |
+| `403 cf-mitigated` in logs or HTML Cloudflare interstitial in conversation JSON | `cf_clearance` captured from a different IP/fingerprint than the sidecar | Recapture the session using Mode B through the manager-exposed CDP URL so the clearance cookie matches the sidecar's fingerprint and IP |
+| `authorization_status=expired` in `ai_account_backups` | Session cookie expired or rotated; the service halted to avoid hammering a login wall | Re-run Mode A or Mode B to capture a fresh blob, then re-ingest via `POST /v1/ai-backups/<service>/session`; it becomes `unverified` and changes to `valid` only after a successful provider run |
 | ChatGPT Projects return 404 (`gizmos/snorlax`) | The `snorlax` internal codename has changed; this endpoint is soft-fail by design | Check OpenAI web traffic for the updated path; update `chatgpt_client.py`; the run continues with conversations only until the path is fixed |
 | HTTP 429 / rate-limit errors during a run | Request cadence too aggressive, or a large account whose full sweep exceeds the provider's per-window quota (ChatGPT is far stricter than Claude) | Increase `AI_BACKUP_REQUEST_DELAY_MS` (default 1500 ms) and optionally lower `AI_BACKUP_MAX_REQUESTS_PER_RUN`. A 429 no longer discards progress: conversations already written stay on disk, a partial manifest is recorded, and the **next run resumes** — it skips conversations already saved for that run date and fetches only what is missing. So a large account converges across successive runs (manual re-run or the daily cron after the backoff window), each making far fewer requests, until one run completes with `status=ok`. |
 | `counts_json` is `{}` or all zeros after a successful run | Field-path mismatch in the internal-API response — the `TODO(live-validation)` markers in `chatgpt_client.py` and `claude_client.py` flag paths that have not yet been verified against live accounts | Inspect the raw conversation JSON saved to disk and compare field names with what the client extracts; update the client and file a follow-up under `docs/tasks/issues/ai-account-backup-cloakbrowser.md` |
 | `ai_backup_no_session` in logs, run exits immediately | No session blob has been ingested for this service | Run Mode A or B and POST the blob via `POST /v1/ai-backups/<service>/session` |
-| `ai_backup_sync_skipped_lock_held` and nothing runs | A previous run is still active (or the worker died while holding the lock) | Confirm whether a worker process is alive; if not, `docker exec -it ratatoskr-redis redis-cli DEL task_lock:ai_backup_sync` then re-trigger |
+| `ai_backup_sync_skipped_lock_held` and nothing runs | A previous run is still active (or the worker died while holding the lock) | Confirm whether a worker process is alive; if not, `docker compose -f ops/docker/docker-compose.yml exec -T redis redis-cli DEL task_lock:ai_backup_sync` then re-trigger |
 | `ai_backup_sync_no_owner` warning | `ALLOWED_USER_IDS` is empty | Set `ALLOWED_USER_IDS` to the operator's Telegram user ID |
 
 ## 8. Known limitations
@@ -216,8 +311,8 @@ A successful run emits `ai_backup_run_complete` with a `counts` field. Absence o
 - **`TODO(live-validation)` markers.** The field paths used by both `ChatGptBackupClient` (`app/adapters/ai_backup/chatgpt_client.py`) and `ClaudeBackupClient` (`app/adapters/ai_backup/claude_client.py`) are reverse-engineered from web-UI traffic and have **not yet been validated against live accounts**. Empty or misshapen output after a successful run is the primary symptom of a path drift.
 - **ChatGPT Deep Research structured citations.** Only the final report text is captured. The machine-readable `url_citation` objects and the reasoning trace are not exposed by the `/backend-api` surface; they require the paid developer Responses API.
 - **ChatGPT Custom GPT system prompts.** No confirmed internal endpoint has been identified that exposes these; they are not currently captured.
-- **Claude project binary files.** Project-knowledge text files are captured; binary attachments via the project-files path are not yet implemented.
-- **Claude Compliance API path.** `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is wired in config and parsed but the Claude client does not yet branch on it; the scrape path runs regardless. Claude Enterprise operators should treat this as a future escape hatch and leave the subsystem off (`AI_BACKUP_CLAUDE_ENABLED=false`) until the Compliance API branch is implemented.
+- **Claude project knowledge.** The current client stores Project metadata only. Text knowledge and binary attachments are not downloaded; both remain blocked on live validation of the project-doc/project-file contracts.
+- **Claude Compliance API path.** `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is reserved but the Compliance client is not implemented. Setting the key makes the client factory fail closed instead of running the browser scrape. Claude Enterprise operators should leave the subsystem off (`AI_BACKUP_CLAUDE_ENABLED=false`) until the sanctioned client is implemented.
 
 ## References
 

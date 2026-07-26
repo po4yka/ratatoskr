@@ -151,9 +151,7 @@ class RequestRepositoryAdapter:
             )
             return int(value) if value is not None else None
 
-    async def async_get_all_for_user(
-        self, user_id: int, *, since: int = 0
-    ) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         stmt = select(Request).where(Request.user_id == user_id)
         if since > 0:
             # Incremental sync: only rows changed past the client's cursor, pushed to

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from app.application.ports.summaries import SummaryRepositoryPort
     from app.application.ports.summary_cache import SummaryCachePort
     from app.application.ports.summary_index import SummaryIndexPort
+    from app.application.services.summarization.graph_llm_guard import GraphLLMGuard
     from app.core.content_classifier import ContentTier
 
 
@@ -100,6 +101,9 @@ class SummarizeDeps:
     # llm_calls writer for the persist node (persist-everything). Optional so a
     # bare-mock deps still constructs; production always supplies it.
     llm_repo: LLMRepositoryPort | None = None
+    # Uniform guard for every graph LLM call. Production always supplies it;
+    # optional for small node tests and no-provider graph fixtures.
+    llm_guard: GraphLLMGuard | None = None
     # RAG grounding knobs injected from RuntimeConfig at the composition root, so
     # nodes never import app.config (application-no-outward). ADR-0018: the flag
     # is transitional and retires at the T6 cutover.

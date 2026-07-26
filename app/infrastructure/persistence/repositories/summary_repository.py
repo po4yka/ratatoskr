@@ -90,6 +90,36 @@ class SummaryRepositoryAdapter:
             )
             return result
 
+    async def async_persist_summary_with_llm_calls(
+        self,
+        request_id: int,
+        lang: str,
+        json_payload: dict[str, Any],
+        llm_calls: list[dict[str, Any]],
+        insights_json: dict[str, Any] | None = None,
+        is_read: bool = False,
+    ) -> SummaryFinalizeResult:
+        """Persist summary + graph attempt trail atomically, without completing."""
+        from app.infrastructure.persistence.repositories.llm_repository import (
+            insert_llm_calls_in_session,
+        )
+
+        async with self._database.transaction() as session:
+            result = await self._upsert_summary_record(
+                request_id=request_id,
+                lang=lang,
+                json_payload=json_payload,
+                insights_json=insights_json,
+                is_read=is_read,
+                session=session,
+            )
+            await insert_llm_calls_in_session(
+                session,
+                llm_calls,
+                skip_existing_explicit_attempts=True,
+            )
+            return result
+
     async def async_update_summary_insights(
         self, request_id: int, insights_json: dict[str, Any]
     ) -> None:

@@ -7,7 +7,7 @@ Start with the user-visible Error ID. It is the correlation key for logs, reques
 ```bash
 docker compose -f ops/docker/docker-compose.yml ps
 docker compose -f ops/docker/docker-compose.yml logs --tail=200 ratatoskr worker scheduler mobile-api
-curl -fsS http://127.0.0.1:18000/healthz
+curl -fsS http://127.0.0.1:18000/health/ready
 ```
 
 Check the schema without changing it:
@@ -179,7 +179,7 @@ Never log or return the refresh token. See [Mobile API](mobile-api.md#authentica
 
 ## Mobile API Issues
 
-Use `/healthz`, the generated OpenAPI document, the HTTP status, error code, and correlation metadata. Check that the client uses the correct `/v1` route, authentication mode, `client_id`, content type, and current request/response schema.
+Use `/health/ready`, the generated OpenAPI document, the HTTP status, error code, and correlation metadata. Check that the client uses the correct `/v1` route, authentication mode, `client_id`, content type, and current request/response schema.
 
 For SSE, verify the request-specific stream route under `app/api/routers/content/streams.py`, proxy buffering/timeouts, reconnect behavior, and terminal event handling.
 

@@ -37,6 +37,7 @@ def _stub_taskiq(monkeypatch):
     taskiq_mod = sys.modules["taskiq"]
     taskiq_mod.AsyncBroker = object
     taskiq_mod.TaskiqDepends = lambda fn, **_kw: None
+    taskiq_mod.TaskiqEvents = SimpleNamespace(WORKER_SHUTDOWN="worker_shutdown")
     taskiq_mod.TaskiqMiddleware = object
     taskiq_mod.InMemoryBroker = MagicMock
 
@@ -59,6 +60,7 @@ def _stub_taskiq(monkeypatch):
 
 def _build_cfg():
     return SimpleNamespace(
+        langgraph_checkpoint=SimpleNamespace(enabled=False),
         runtime=SimpleNamespace(
             url_flow_lease_ttl_sec=900,
             max_concurrent_calls=2,
@@ -494,3 +496,32 @@ def test_worker_runtime_wires_vector_store_and_embeddings(monkeypatch):
 
     assert captured.get("vector_store") is sentinel_store
     assert captured.get("embedding_service") is sentinel_embed
+
+
+@pytest.mark.asyncio
+async def test_worker_runtime_threads_durable_checkpointer(monkeypatch):
+    """The Taskiq URL worker must compile its graph with the Postgres saver."""
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks import url_processing
+
+    saver = object()
+    built_runtime = MagicMock()
+    url_processing._url_processing_runtime_instance = None
+    monkeypatch.setattr(
+        url_processing,
+        "_start_url_processing_checkpointer",
+        AsyncMock(return_value=saver),
+    )
+    builder = MagicMock(return_value=built_runtime)
+    monkeypatch.setattr(url_processing, "_build_url_processing_runtime", builder)
+
+    result = await url_processing._get_url_processing_runtime(_build_cfg(), MagicMock())
+
+    assert result is built_runtime
+    assert builder.call_args.kwargs["checkpointer"] is saver

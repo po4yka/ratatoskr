@@ -9,10 +9,12 @@ Covers:
 
 from __future__ import annotations
 
+import time
+
 from app.observability._metrics_base import PROMETHEUS_AVAILABLE, REGISTRY
 
 if PROMETHEUS_AVAILABLE:
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Gauge, Histogram
 
     # Firecrawl metrics
     FIRECRAWL_REQUESTS = Counter(
@@ -54,6 +56,12 @@ if PROMETHEUS_AVAILABLE:
         buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 40.0, 60.0, 90.0, 120.0],
         registry=REGISTRY,
     )
+    SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS = Gauge(
+        "ratatoskr_scraper_chain_last_result_timestamp_seconds",
+        "Unix timestamp of the latest scraper-chain success or runtime failure",
+        ["outcome"],
+        registry=REGISTRY,
+    )
 
     # Per-provider failure breakdown by reason.
     SCRAPER_CHAIN_FAILURES_TOTAL = Counter(
@@ -91,6 +99,7 @@ else:
     SCRAPER_ATTEMPTS_TOTAL = None
     SCRAPER_ATTEMPT_LATENCY_SECONDS = None
     SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS = None
+    SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS = None
     SCRAPER_CHAIN_FAILURES_TOTAL = None
     SCRAPER_CHAIN_ATTEMPTS_TOTAL = None
     SCRAPER_CHAIN_SUCCESSES_TOTAL = None
@@ -153,7 +162,7 @@ def record_scraper_chain_total_latency(
         mode: ``serial`` (legacy ordered fallback) or ``tiered_race`` (the
             free/paid/browser tier-based race introduced in Tier 1 of the
             speedup plan).
-        outcome: ``success`` | ``empty`` | ``ssrf_blocked``.
+        outcome: ``success`` | ``empty`` | ``dns_failed`` | ``ssrf_blocked``.
         total_latency_seconds: Wall time from the chain entry to the
             returned ``FirecrawlResult`` (success or final error).
     """
@@ -164,6 +173,13 @@ def record_scraper_chain_total_latency(
     SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS.labels(mode=mode, outcome=outcome).observe(
         total_latency_seconds
     )
+    health_outcome = {
+        "success": "success",
+        "empty": "failure",
+        "dns_failed": "failure",
+    }.get(outcome)
+    if health_outcome is not None and SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS is not None:
+        SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS.labels(outcome=health_outcome).set(time.time())
 
 
 def record_scraper_chain_failure(*, provider: str, reason: str) -> None:

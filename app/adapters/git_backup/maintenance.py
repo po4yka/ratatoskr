@@ -77,9 +77,7 @@ def _default_runner(timeout_seconds: float) -> GitCommandRunner:
         except (subprocess.SubprocessError, OSError) as exc:
             # Timeout, spawn failure (git missing / not executable), etc. Logged and
             # swallowed -- the sync continues without this repo's maintenance.
-            logger.warning(
-                "git_maintenance_command_error argv=%s cwd=%s error=%s", argv, cwd, exc
-            )
+            logger.warning("git_maintenance_command_error argv=%s cwd=%s error=%s", argv, cwd, exc)
             return
         if completed.returncode != 0:
             # check=False means a non-zero exit does NOT raise; surface it explicitly

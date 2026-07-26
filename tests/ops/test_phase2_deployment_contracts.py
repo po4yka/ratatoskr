@@ -18,6 +18,10 @@ def _compose() -> dict[str, Any]:
     return yaml.safe_load((ROOT / "ops/docker/docker-compose.yml").read_text(encoding="utf-8"))
 
 
+def _dev_compose() -> dict[str, Any]:
+    return yaml.safe_load((ROOT / "ops/docker/docker-compose.dev.yml").read_text(encoding="utf-8"))
+
+
 def _pi_deploy_script() -> str:
     return PI_DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
@@ -50,6 +54,18 @@ def test_default_compose_stack_contains_core_services_without_profiles() -> None
         assert "profiles" not in services[name]
 
     assert services["mobile-api"]["ports"] == ["127.0.0.1:18000:8000"]
+
+
+def test_mobile_api_healthcheck_uses_real_readiness_route() -> None:
+    healthcheck = _compose()["services"]["mobile-api"]["healthcheck"]
+    command = " ".join(healthcheck["test"])
+
+    assert "/health/ready" in command
+    assert "/healthz" not in command
+
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "$(PI_SMOKE_PORT)/web/" not in makefile
+    assert "$(PI_SMOKE_PORT)/ 2>/dev/null" in makefile
 
 
 def test_scrapers_profile_uses_internal_services_not_host_gateway() -> None:
@@ -96,6 +112,43 @@ def test_monitoring_profile_is_in_primary_compose_file() -> None:
         assert services[name]["profiles"] == ["with-monitoring"]
 
 
+def test_prometheus_scrapes_every_application_process() -> None:
+    services = _compose()["services"]
+    prometheus_config = yaml.safe_load(
+        (ROOT / "ops/monitoring/prometheus.yml").read_text(encoding="utf-8")
+    )
+    jobs = {
+        job["job_name"]: job["static_configs"][0]["targets"]
+        for job in prometheus_config["scrape_configs"]
+    }
+
+    assert jobs["ratatoskr-mobile-api"] == ["mobile-api:8000"]
+    assert jobs["ratatoskr-bot"] == ["ratatoskr:9101"]
+    assert jobs["ratatoskr-worker"] == ["worker:9102"]
+    assert jobs["ratatoskr-scheduler"] == ["scheduler:9103"]
+
+    assert _env_map(services["ratatoskr"])["METRICS_HTTP_PORT"] == "9101"
+    assert services["ratatoskr"]["expose"] == ["9101"]
+    assert "ports" not in services["ratatoskr"]
+    worker_env = _env_map(services["worker"])
+    assert worker_env["METRICS_HTTP_PORT"] == "9102"
+    assert worker_env["PROMETHEUS_MULTIPROC_DIR"] == "/tmp/prometheus-worker"
+    assert services["worker"]["expose"] == ["9102"]
+    assert "ports" not in services["worker"]
+    assert _env_map(services["scheduler"])["METRICS_HTTP_PORT"] == "9103"
+    assert services["scheduler"]["expose"] == ["9103"]
+    assert "ports" not in services["scheduler"]
+
+    alerting = yaml.safe_load(
+        (ROOT / "ops/monitoring/alerting_rules.yml").read_text(encoding="utf-8")
+    )
+    rules = [rule for group in alerting["groups"] for rule in group["rules"]]
+    process_alert = next(
+        rule for rule in rules if rule.get("alert") == "RatatoskrApplicationProcessDown"
+    )
+    assert 'up{job=~"ratatoskr-(mobile-api|bot|worker|scheduler)"} == 0' in process_alert["expr"]
+
+
 def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
     services = _compose()["services"]
     prometheus = services["prometheus"]
@@ -132,10 +185,18 @@ def test_monitoring_alertmanager_routes_prometheus_and_loki_alerts() -> None:
     targets = prometheus_config["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"]
     assert targets == ["alertmanager:9093"]
     assert loki_config["ruler"]["alertmanager_url"] == "http://alertmanager:9093"
-    assert alertmanager_config["route"]["receiver"] == "webhook"
-    assert (
-        alertmanager_config["receivers"][0]["webhook_configs"][0]["url"] == "${ALERT_WEBHOOK_URL}"
-    )
+    assert alertmanager_config["route"]["receiver"] == "configured"
+    assert alertmanager_config["receivers"] == [{"name": "configured"}]
+
+    alertmanager_env = _env_map(alertmanager)
+    assert set(
+        {
+            "ALERT_WEBHOOK_URL",
+            "ALERT_SLACK_API_URL",
+            "ALERT_TELEGRAM_WEBHOOK_URL",
+            "ALERT_PAGERDUTY_ROUTING_KEY",
+        }
+    ).issubset(alertmanager_env)
 
 
 def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
@@ -146,6 +207,10 @@ def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
     assert "profiles" not in pg_backup
     assert pg_backup["build"]["dockerfile"] == "ops/docker/pg-backup/Dockerfile"
     assert pg_backup["depends_on"]["postgres"]["condition"] == "service_healthy"
+    healthcheck = " ".join(pg_backup["healthcheck"]["test"])
+    assert "[c]rond" in healthcheck
+    assert "test -w /backups" in healthcheck
+    assert "test -w /var/lib/node-exporter/textfile_collector" in healthcheck
     assert "${BACKUP_HOST_DIR:-../../data/postgres-backups}:/backups" in pg_backup["volumes"]
     assert "pg_backup_data" not in _compose()["volumes"]
 
@@ -154,9 +219,18 @@ def test_postgres_backup_sidecar_runs_in_default_compose_stack() -> None:
     assert env["POSTGRES_USER"] == "ratatoskr_app"
     assert env["BACKUP_CRON"] == "${BACKUP_CRON:-0 3 * * *}"
     assert env["BACKUP_RETENTION_DAYS"] == "${BACKUP_RETENTION_DAYS:-14}"
+    assert env["APP_ENV"] == "production"
     assert env["BACKUP_ENCRYPTION_KEY"] == "${BACKUP_ENCRYPTION_KEY:-}"
+    assert env["BACKUP_REQUIRE_ENCRYPTION"] == "true"
     assert env["BACKUP_S3_BUCKET"] == "${BACKUP_S3_BUCKET:-}"
     assert env["BACKUP_S3_ENDPOINT_URL"] == "${BACKUP_S3_ENDPOINT_URL:-}"
+
+
+def test_postgres_plaintext_backup_override_is_scoped_to_dev_overlay() -> None:
+    env = _env_map(_dev_compose()["services"]["pg-backup"])
+
+    assert env["APP_ENV"] == "development"
+    assert env["BACKUP_REQUIRE_ENCRYPTION"] == "${BACKUP_REQUIRE_ENCRYPTION:-true}"
 
 
 def test_pg_backup_image_matches_production_postgres_major() -> None:
@@ -200,6 +274,11 @@ def test_postgres_backup_script_creates_metadata_and_optional_remote_copy() -> N
     assert "BACKUP_S3_BUCKET" in script
     assert "aws $endpoint_args s3 cp" in script
     assert "ratatoskr_pg_backup_last_success_timestamp_seconds" in script
+    assert "umask 077" in script
+    assert "${BACKUP_REQUIRE_ENCRYPTION:-true}" in script
+    assert "${APP_ENV:-production}" in script
+    assert "allowed only when APP_ENV=development or APP_ENV=test" in script
+    assert "BACKUP_ENCRYPTION_KEY is required when BACKUP_S3_BUCKET is set" in script
 
 
 def test_postgres_backup_alert_fires_when_stale_or_absent() -> None:
@@ -370,7 +449,7 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     script = _pi_deploy_script()
     restart_branch = script.split("if [[ $RESTART -eq 1 ]]; then", maxsplit=1)[1]
 
-    restart_call = "up -d --no-deps --force-recreate ${svc}"
+    restart_call = "up -d --no-build --no-deps --force-recreate ${svc}"
     assert restart_call in script
     assert "tag_running_image_as_previous" in restart_branch
     assert restart_branch.index("tag_running_image_as_previous") < restart_branch.index(
@@ -379,17 +458,36 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     assert "run_remote_migrations" not in restart_branch
 
 
+def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> None:
+    script = _pi_deploy_script()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    pi_overlay = (ROOT / "ops/docker/docker-compose.pi.yml").read_text(encoding="utf-8")
+
+    assert "BACKUP_DOCKERFILE=ops/docker/pg-backup/Dockerfile" in script
+    assert "BACKUP_SERVICES=(pg-backup)" in script
+    assert 'build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"' in script
+    assert "up -d --no-build --no-deps --force-recreate ${svc}" in script
+    assert "--entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
+    assert '--services "ratatoskr worker scheduler mobile-api pg-backup"' in makefile
+    assert "BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}" in pi_overlay
+
+
+def test_pi_deploy_preserves_service_dns_alias_when_restoring_default_network() -> None:
+    script = _pi_deploy_script()
+
+    assert "docker network connect --alias '${svc}' docker_default" in script
+
+
 def test_local_docker_deploy_builds_the_compose_image_it_starts() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     target = makefile.split("docker-deploy:", maxsplit=1)[1].split("\n\n", maxsplit=1)[0]
 
     compose_build = "docker compose -f $(COMPOSE_FILE) build ratatoskr"
-    compose_down = "docker compose -f $(COMPOSE_FILE) down"
-    compose_up = "docker compose -f $(COMPOSE_FILE) up -d"
+    compose_up = "docker compose -f $(COMPOSE_FILE) up -d --no-deps --force-recreate ratatoskr"
     assert compose_build in target
-    assert compose_down in target
     assert compose_up in target
-    assert target.index(compose_build) < target.index(compose_down) < target.index(compose_up)
+    assert "docker compose -f $(COMPOSE_FILE) down" not in target
+    assert target.index(compose_build) < target.index(compose_up)
     assert "docker-build" not in target
 
 
@@ -418,7 +516,9 @@ def test_pi_deploy_has_explicit_migrate_apply_and_rollback_paths() -> None:
     assert "--migrate-only" in script
     assert "--apply" in script
     assert "run_remote_migrations" in script
-    assert "run --rm --no-build ${MIGRATE_SERVICE} ${migrate_args[*]}" in script
+    migrate_command = "run --rm ${MIGRATE_SERVICE} python -m app.cli.migrate_db ${migrate_args[*]}"
+    assert migrate_command in script
+    assert "run --rm --no-build ${MIGRATE_SERVICE}" not in script
     assert "--rollback" in script
     assert "rollback_service_image" in script
     assert "docker tag \\\"\\$PREVIOUS_ID\\\" '${latest_tag}'" in script

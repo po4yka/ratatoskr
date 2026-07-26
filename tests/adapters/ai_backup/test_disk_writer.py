@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
+import os
+import stat
+from types import SimpleNamespace
 
 import pytest
 
 from app.adapters.ai_backup.disk_writer import (
     AiBackupDiskWriter,
+    _enforce_private_file_mode,
     _safe_child,
     _sanitize_id,
+    _write_nofollow,
 )
 from app.adapters.ai_backup.errors import PathTraversalError
 
@@ -67,14 +73,49 @@ def test_load_saved_conversation_resume(tmp_path) -> None:
     assert _writer(tmp_path).load_saved_conversation("conv1") is None
 
 
-def test_write_file_idempotent_skips_existing(tmp_path) -> None:
+def test_write_file_replaces_changed_existing_bytes(tmp_path) -> None:
     w = _writer(tmp_path)
     w.write_file("file1", "photo.png", b"abc")
     path = next((w.run_dir / "files").iterdir())
-    mtime = path.stat().st_mtime_ns
-    w.write_file("file1", "photo.png", b"DIFFERENT")  # same id -> not rewritten
-    assert path.stat().st_mtime_ns == mtime
-    assert path.read_bytes() == b"abc"
+    w.write_file("file1", "photo.png", b"DIFFERENT")
+    assert path.read_bytes() == b"DIFFERENT"
+    manifest = w.finalize_manifest(
+        {"files": 1}, requests_made=2, skipped_incremental=0, incremental=False
+    )
+    assert manifest["files"]["file1"] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_write_nofollow_retries_short_writes(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "blob"
+    real_write = os.write
+
+    def _short_write(fd: int, data: bytes | memoryview) -> int:
+        chunk = data[: max(1, len(data) // 2)]
+        return real_write(fd, chunk)
+
+    monkeypatch.setattr(os, "write", _short_write)
+    _write_nofollow(target, b"complete payload")
+    assert target.read_bytes() == b"complete payload"
+
+
+def test_failed_replacement_preserves_previous_file(tmp_path, monkeypatch) -> None:
+    w = _writer(tmp_path)
+    w.write_file("file1", "photo.png", b"original")
+    path = next((w.run_dir / "files").iterdir())
+    real_write = os.write
+    calls = 0
+
+    def _fail_mid_write(fd: int, data: bytes | memoryview) -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return real_write(fd, data[:1])
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "write", _fail_mid_write)
+    with pytest.raises(OSError, match="disk full"):
+        w.write_file("file1", "photo.png", b"replacement")
+    assert path.read_bytes() == b"original"
 
 
 def test_write_artifact_separates_by_conv_and_id(tmp_path) -> None:
@@ -83,6 +124,69 @@ def test_write_artifact_separates_by_conv_and_id(tmp_path) -> None:
     w.write_artifact("convB", "art1", "py", b"print(2)")
     assert (w.run_dir / "artifacts" / "convA" / "art1.py").read_bytes() == b"print(1)"
     assert (w.run_dir / "artifacts" / "convB" / "art1.py").read_bytes() == b"print(2)"
+
+
+def test_backup_directories_are_owner_only(tmp_path) -> None:
+    data_root = tmp_path / "backups"
+    data_root.mkdir(mode=0o755)
+    legacy = data_root / "chatgpt" / _DATE.isoformat() / "legacy"
+    legacy.mkdir(parents=True, mode=0o755)
+    legacy_file = legacy / "old.json"
+    legacy_file.write_text("{}")
+    legacy_file.chmod(0o644)
+    w = AiBackupDiskWriter(data_root, "chatgpt", _DATE, "corr-1")
+    w.write_conversation("conv1", {"x": 1})
+    w.write_project("project1", {"x": 1})
+    w.write_file("file1", "one.bin", b"one")
+    w.write_artifact("conv1", "artifact1", "txt", b"one")
+    w.finalize_manifest(
+        {"conversations": 1, "projects": 1, "files": 1, "artifacts": 1},
+        requests_made=4,
+        skipped_incremental=0,
+        incremental=False,
+    )
+
+    directories = [
+        data_root,
+        data_root / "chatgpt",
+        w.run_dir,
+        w.run_dir / "conversations",
+        w.run_dir / "projects",
+        w.run_dir / "projects" / "project1",
+        w.run_dir / "files",
+        w.run_dir / "artifacts",
+        w.run_dir / "artifacts" / "conv1",
+        legacy,
+    ]
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in directories)
+    assert stat.S_IMODE(legacy_file.stat().st_mode) == 0o600
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o600
+        for path in w.run_dir.rglob("*")
+        if path.is_file()
+    )
+
+
+def test_directory_mode_enforcement_fails_closed(tmp_path, monkeypatch) -> None:
+    data_root = tmp_path / "backups"
+    data_root.mkdir(mode=0o755)
+    monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+
+    with pytest.raises(PermissionError, match="directory permissions"):
+        AiBackupDiskWriter(data_root, "chatgpt", _DATE, "corr-1")
+
+
+def test_file_mode_enforcement_fails_closed(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "legacy.json"
+    path.write_text("{}")
+    path.chmod(0o644)
+    fd = os.open(path, os.O_RDONLY)
+    monkeypatch.setattr(os, "fchmod", lambda _fd, _mode: None)
+    try:
+        with pytest.raises(PermissionError, match="file permissions"):
+            _enforce_private_file_mode(fd)
+    finally:
+        os.close(fd)
 
 
 @pytest.mark.parametrize("conv_id", ["../escape", "/absolute", "a\x00b", "a/b/c"])
@@ -106,8 +210,52 @@ def test_finalize_manifest_atomic_and_complete(tmp_path) -> None:
     on_disk = json.loads((w.run_dir / "manifest.json").read_text())
     assert on_disk == manifest
     assert not (w.run_dir / ".manifest.json.tmp").exists()
-    assert manifest["schema_version"] == "1"
+    assert manifest["schema_version"] == "2"
     assert manifest["counts"]["conversations"] == 1
     assert manifest["run_metadata"]["requests_made"] == 4
     assert manifest["run_metadata"]["skipped_incremental"] == 2
     assert "c1" in manifest["conversations"]
+
+
+def test_same_day_manifest_preserves_previous_entries(tmp_path) -> None:
+    first = AiBackupDiskWriter(tmp_path, "chatgpt", _DATE, "run-1")
+    first.write_conversation("c1", {"x": 1})
+    first.write_file("f1", "one.bin", b"one")
+    first.finalize_manifest(
+        {"conversations": 1, "files": 1},
+        requests_made=2,
+        skipped_incremental=0,
+        incremental=True,
+    )
+
+    second = AiBackupDiskWriter(tmp_path, "chatgpt", _DATE, "run-2")
+    assert second.partial_counts()["conversations"] == 1
+    manifest = second.finalize_manifest(
+        {"conversations": 0, "files": 0},
+        requests_made=1,
+        skipped_incremental=1,
+        incremental=True,
+    )
+
+    assert manifest["correlation_id"] == "run-2"
+    assert set(manifest["conversations"]) == {"c1"}
+    assert set(manifest["files"]) == {"f1"}
+    assert manifest["counts"]["conversations"] == 1
+    assert manifest["run_metadata"]["collected_counts"]["conversations"] == 0
+
+
+def test_invalid_existing_manifest_fails_closed(tmp_path) -> None:
+    first = _writer(tmp_path)
+    (first.run_dir / "manifest.json").write_text("not json")
+    with pytest.raises(ValueError, match="manifest is invalid JSON"):
+        _writer(tmp_path)
+
+
+def test_disk_free_reserve_fails_before_creating_run_dir(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.adapters.ai_backup.disk_writer.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=99),
+    )
+    with pytest.raises(OSError, match="requires 100 free bytes"):
+        AiBackupDiskWriter(tmp_path / "not-created", "chatgpt", _DATE, "corr", min_free_bytes=100)
+    assert not (tmp_path / "not-created").exists()

@@ -294,8 +294,5 @@ async def test_promotion_marks_request_error_when_durable_enqueue_fails() -> Non
     request_service.mark_enqueue_failed.assert_awaited_once_with(
         user_id=42,
         request_id=75,
-        error_message=(
-            "Unable to enqueue summary request. "
-            f"Error ID: {payload['correlation_id']}"
-        ),
+        error_message=(f"Unable to enqueue summary request. Error ID: {payload['correlation_id']}"),
     )

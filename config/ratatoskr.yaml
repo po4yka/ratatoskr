@@ -34,13 +34,9 @@ runtime:
   # Worker handoff knobs (Tier 2 of the URL-processing speedup plan).
   # Set url_worker_enqueue_enabled to false to fall back to the legacy
   # inline bot path without redeploying (safety valve).
-  #
-  # FLIPPED TO FALSE 2026-05-25 after discovering the worker silently
-  # fails to import `app/tasks/url_processing.py` (forward-ref
-  # NameError on URLProcessingTaskRuntime, swallowed by taskiq).
-  # Submitted URLs would queue but never run. Re-enable once the
-  # url_processing import is fixed.
-  url_worker_enqueue_enabled: false
+  # The Taskiq module import and worker-local durable checkpointer wiring are
+  # covered by tests; handoff is the committed production path.
+  url_worker_enqueue_enabled: true
   # Worker-wide Taskiq async/prefetch cap per process. Production defaults to
   # one worker process because LLM semaphores and DB pools are process-local.
   url_worker_concurrency: 4

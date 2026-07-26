@@ -16,6 +16,7 @@ if PROMETHEUS_AVAILABLE:
         "ratatoskr_circuit_breaker_state",
         "Circuit breaker state (0=closed, 1=half_open, 2=open)",
         ["service"],
+        multiprocess_mode="livemax",
         registry=REGISTRY,
     )
 

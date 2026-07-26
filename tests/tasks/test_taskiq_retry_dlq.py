@@ -66,6 +66,7 @@ def test_memory_broker_registers_retry_and_dead_letter_middlewares(monkeypatch) 
         assert type(broker_module.broker).__name__ == "InMemoryBroker"
         assert [type(middleware).__name__ for middleware in broker_module.broker.middlewares] == [
             "SimpleRetryMiddleware",
+            "TaskiqExecutionMetricsMiddleware",
             "ChronicFailureMiddleware",
             "TaskiqDeadLetterMiddleware",
             "OTelPropagationMiddleware",

@@ -35,6 +35,23 @@ class _FailingRedis:
         raise TimeoutError
 
 
+class _WritableRedis:
+    def __init__(self) -> None:
+        self.set_calls: list[tuple[str, str, int]] = []
+        self.scan_calls = 0
+
+    async def set(self, key: str, value: str, *, ex: int) -> None:
+        self.set_calls.append((key, value, ex))
+
+    async def scan(self, cursor: int, *, match: str, count: int) -> tuple[int, list[str]]:
+        del cursor, match, count
+        self.scan_calls += 1
+        return 0, ["test:llm:item"]
+
+    async def delete(self, *keys: str) -> int:
+        return len(keys)
+
+
 @pytest.mark.skipif(not metrics.PROMETHEUS_AVAILABLE, reason="prometheus_client not installed")
 def test_cache_metrics_bound_all_labels() -> None:
     registry = metrics.REGISTRY
@@ -102,3 +119,27 @@ async def test_redis_cache_records_get_errors(monkeypatch: pytest.MonkeyPatch) -
     assert calls[0]["outcome"] == "error"
     assert calls[0]["namespace"] == "auth"
     assert "key" not in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_redis_cache_records_set_and_clear_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        redis_cache_module,
+        "record_redis_cache_operation",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    cache = RedisCache(_config())
+    cache._client = _WritableRedis()
+
+    assert await cache.set_json(value={"ok": True}, ttl_seconds=60, parts=("llm", "item"))
+    assert await cache.clear_prefix("llm") == 1
+
+    assert [(call["operation"], call["outcome"]) for call in calls] == [
+        ("set", "success"),
+        ("clear", "success"),
+    ]
+    assert all(call["namespace"] == "llm" for call in calls)
+    assert all("key" not in call for call in calls)

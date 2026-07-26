@@ -50,6 +50,9 @@ def _build_llm_call_payload(call_data: dict[str, Any] | Any) -> dict[str, Any]:
     attempt_trigger = call_data.get("attempt_trigger")
     if attempt_trigger is not None:
         payload["attempt_trigger"] = attempt_trigger
+    attempt_index = call_data.get("attempt_index")
+    if attempt_index is not None:
+        payload["attempt_index"] = int(attempt_index)
 
     if provider == "openrouter":
         payload["openrouter_response_text"] = response_text
@@ -91,6 +94,59 @@ async def _resolve_initial_trigger(session: Any, request_id: int | None) -> str 
             select(Request.initial_attempt_trigger).where(Request.id == request_id)
         ),
     )
+
+
+async def insert_llm_calls_in_session(
+    session: Any,
+    calls: list[dict[str, Any]],
+    *,
+    skip_existing_explicit_attempts: bool = False,
+) -> list[int]:
+    """Insert a batch using the caller's transaction.
+
+    Explicit ``attempt_index`` values may be treated idempotently for checkpoint
+    resume: an already-present ``(request_id, attempt_index)`` means the same
+    graph attempt committed before the process stopped, so it is not inserted
+    twice.
+    """
+    if not calls:
+        return []
+
+    running_max: dict[int | None, int] = {}
+    existing: dict[int | None, set[int]] = {}
+    rows: list[LLMCall] = []
+    for call_data in calls:
+        payload = _build_llm_call_payload(call_data)
+        req_id: int | None = payload.get("request_id")
+        explicit_attempt = payload.get("attempt_index")
+        if explicit_attempt is None:
+            if req_id not in running_max:
+                running_max[req_id] = await _compute_next_attempt_index(session, req_id)
+            else:
+                running_max[req_id] += 1
+            payload["attempt_index"] = running_max[req_id]
+        else:
+            attempt_index = int(explicit_attempt)
+            payload["attempt_index"] = attempt_index
+            running_max[req_id] = max(running_max.get(req_id, 0), attempt_index)
+            if skip_existing_explicit_attempts:
+                if req_id not in existing:
+                    existing[req_id] = set(
+                        (
+                            await session.scalars(
+                                select(LLMCall.attempt_index).where(LLMCall.request_id == req_id)
+                            )
+                        ).all()
+                    )
+                if attempt_index in existing[req_id]:
+                    continue
+                existing[req_id].add(attempt_index)
+
+        rows.append(LLMCall(**payload))
+
+    session.add_all(rows)
+    await session.flush()
+    return [row.id for row in rows]
 
 
 class LLMRepositoryAdapter:
@@ -140,32 +196,8 @@ class LLMRepositoryAdapter:
 
         ``attempt_index`` is auto-computed per row when not provided.
         """
-        if not calls:
-            return []
-
         async with self._database.transaction() as session:
-            # Track the running max per request_id so that rows within the
-            # same batch are numbered correctly without extra round-trips.
-            running_max: dict[int | None, int] = {}
-            rows: list[LLMCall] = []
-            for call_data in calls:
-                payload = _build_llm_call_payload(call_data)
-                if "attempt_index" not in payload or payload.get("attempt_index") is None:
-                    req_id: int | None = payload.get("request_id")
-                    if req_id not in running_max:
-                        running_max[req_id] = await _compute_next_attempt_index(session, req_id)
-                    else:
-                        running_max[req_id] += 1
-                    payload["attempt_index"] = running_max[req_id]
-                else:
-                    # Caller provided explicit value; keep running_max in sync.
-                    req_id = payload.get("request_id")
-                    explicit = int(payload["attempt_index"])
-                    running_max[req_id] = max(running_max.get(req_id, 0), explicit)
-                rows.append(LLMCall(**payload))
-            session.add_all(rows)
-            await session.flush()
-            return [row.id for row in rows]
+            return await insert_llm_calls_in_session(session, calls)
 
     async def async_get_latest_llm_model_by_request_id(self, request_id: int) -> str | None:
         """Get the latest LLM model used for a request."""

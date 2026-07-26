@@ -74,7 +74,7 @@ python -m app.cli.migrate_db --check
 Then verify:
 
 - a whitelisted Telegram user can create a summary;
-- `/healthz` succeeds on the API;
+- `/health/ready` succeeds on the API;
 - a current MCP client can list tools/resources;
 - PostgreSQL contains the expected users and summaries;
 - configured Qdrant retrieval works or can be repaired with `python -m app.cli.reconcile_vector_index --repair`.

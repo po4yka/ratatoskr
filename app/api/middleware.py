@@ -17,6 +17,10 @@ from app.api.models.responses import error_response, make_error
 from app.config import AppConfig, load_config
 from app.core.logging_utils import get_logger, sanitize_correlation_id
 from app.infrastructure.redis import get_redis, redis_key
+from app.observability.metrics_http_requests import (
+    change_http_in_flight,
+    record_http_request,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -25,6 +29,36 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
 logger = get_logger(__name__)
+
+
+def _route_template(request: Request) -> str:
+    """Return a server-defined route template, never the raw request path."""
+    route = request.scope.get("route")
+    template = getattr(route, "path_format", None) or getattr(route, "path", None)
+    if not isinstance(template, str) or not template.startswith("/") or len(template) > 256:
+        return "unmatched"
+    return template
+
+
+async def http_red_metrics_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
+    """Record bounded FastAPI request rate, errors, duration, and in-flight work."""
+    method = request.method
+    started = time.perf_counter()
+    status_code = 500
+    change_http_in_flight(method, 1)
+    try:
+        response = cast("Response", await call_next(request))
+        status_code = response.status_code
+        return response
+    finally:
+        record_http_request(
+            route=_route_template(request),
+            method=method,
+            status_code=status_code,
+            duration_seconds=time.perf_counter() - started,
+        )
+        change_http_in_flight(method, -1)
+
 
 # Cached config for middleware usage. Lazy-initialized on the first
 # request rather than at startup because (1) middleware is loaded
@@ -157,7 +191,7 @@ async def correlation_id_middleware(request: Request, call_next: Callable[..., A
 _DEFAULT_FRAME_ANCESTORS = "'self' https://web.telegram.org https://*.telegram.org"
 _DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment=()"
 
-# CSP for the SPA (/web/*, /static/web/*) and the JSON API. ``frame-ancestors``
+# CSP for root SPA routes, compiled assets (/static/web/*), and the JSON API. ``frame-ancestors``
 # is appended separately below since it is env-overridable independently of
 # the rest of the policy.
 #

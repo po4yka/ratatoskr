@@ -7,7 +7,7 @@ allowed-tools: Bash, Read, Write, Edit, Grep
 
 # Web Frontend Development
 
-Editable frontend source lives in the separate sibling repository `../ratatoskr-web`. This repository owns the FastAPI `/web` serving contract, generated OpenAPI artifacts, a pinned frontend revision, and the reviewed release bundle.
+Editable frontend source lives in the separate sibling repository `../ratatoskr-web`. This repository owns the FastAPI root SPA serving contract, generated OpenAPI artifacts, a pinned frontend revision, and the reviewed release bundle.
 
 ## Repository boundaries
 
@@ -68,7 +68,7 @@ Docker release images consume the reviewed archive, not whatever happens to be i
 
 - Integration guide: `docs/reference/frontend-web.md`
 - FastAPI app and routers: `app/api/main.py`, `app/api/routers/`
-- Static serving: `app/api/main.py` (`/web` routes and `app/static/web/index.html`)
+- Static serving: `app/api/main.py` (root SPA routes and `app/static/web/index.html`)
 - Bundle builder: `tools/scripts/build_web_bundle.py`
 - Revision pin: `ops/docker/ratatoskr-web.commit`
 - OpenAPI workflow: `docs/reference/openapi-contract-workflow.md`

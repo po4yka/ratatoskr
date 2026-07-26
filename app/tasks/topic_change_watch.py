@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 from taskiq import TaskiqDepends
@@ -36,7 +37,10 @@ async def run_topic_change_watches(
             async with db.session() as session:
                 previous = await session.scalar(
                     select(DigestDelivery)
-                    .where(DigestDelivery.user_id == topic.user_id, DigestDelivery.digest_type == digest_type)
+                    .where(
+                        DigestDelivery.user_id == topic.user_id,
+                        DigestDelivery.digest_type == digest_type,
+                    )
                     .order_by(DigestDelivery.delivered_at.desc())
                     .limit(1)
                 )
@@ -48,7 +52,9 @@ async def run_topic_change_watches(
                         or_(UserSignal.topic_id == topic.id, UserSignal.topic_id.is_(None)),
                         UserSignal.status.in_(("candidate", "queued", "liked")),
                     )
-                    .order_by(UserSignal.final_score.desc().nulls_last(), UserSignal.updated_at.asc())
+                    .order_by(
+                        UserSignal.final_score.desc().nulls_last(), UserSignal.updated_at.asc()
+                    )
                 )
                 if previous is not None:
                     query = query.where(UserSignal.updated_at > previous.delivered_at)

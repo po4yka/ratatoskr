@@ -5,6 +5,7 @@
 # Usage:
 #   tools/scripts/build-and-deploy-pi.sh                                # build + ship + restart `ratatoskr`
 #   tools/scripts/build-and-deploy-pi.sh --service mobile-api
+#   tools/scripts/build-and-deploy-pi.sh --service pg-backup
 #   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --service worker --service scheduler
 #   tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler"
 #   tools/scripts/build-and-deploy-pi.sh --all                          # all supported services
@@ -15,8 +16,9 @@
 #   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --rollback # swap latest/previous and recreate
 #
 # Supported services: ratatoskr, worker, scheduler, mcp, mcp-write,
-# mcp-public, mobile-api. Services sharing ops/docker/Dockerfile (everything
-# except mobile-api) are built once and re-tagged for each requested service.
+# mcp-public, mobile-api, pg-backup. App services sharing ops/docker/Dockerfile
+# are built once and re-tagged; mobile-api and pg-backup use their dedicated
+# Dockerfiles.
 # Migration application is intentionally separate from deployment. Use
 # `--migrate-only` for a dry-run and `--migrate-only --apply` to mutate the
 # schema. Each Dockerfile group streams as a single tar so `docker load`
@@ -44,9 +46,9 @@
 #
 # The app-service restart uses `--no-deps --force-recreate ${SERVICE}` so we
 # never disturb postgres/redis/qdrant during recreation. A post-recreate
-# `docker network connect docker_default` works around a compose quirk that
-# occasionally drops the default-network attachment for mobile-api under
-# --no-deps.
+# `docker network connect --alias <service> docker_default` works around a
+# compose quirk that occasionally drops the default-network attachment under
+# --no-deps while preserving Compose service-name discovery.
 
 set -euo pipefail
 
@@ -73,10 +75,12 @@ done
 
 SHARED_DOCKERFILE=ops/docker/Dockerfile
 API_DOCKERFILE=ops/docker/Dockerfile.api
+BACKUP_DOCKERFILE=ops/docker/pg-backup/Dockerfile
 MIGRATE_SERVICE=migrate
 SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
-ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}")
+BACKUP_SERVICES=(pg-backup)
+ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
 
 SERVICES=()
 RESTART=1
@@ -150,6 +154,7 @@ fi
 # Validate and bucket each requested service by its Dockerfile.
 SHARED_TO_BUILD=()
 API_TO_BUILD=()
+BACKUP_TO_BUILD=()
 for svc in "${SERVICES[@]}"; do
   matched=0
   if [[ "$svc" == "$MIGRATE_SERVICE" ]]; then
@@ -165,6 +170,11 @@ for svc in "${SERVICES[@]}"; do
     done
   fi
   if [[ $matched -eq 0 ]]; then
+    for backup in "${BACKUP_SERVICES[@]}"; do
+      [[ "$svc" == "$backup" ]] && { BACKUP_TO_BUILD+=("$svc"); matched=1; break; }
+    done
+  fi
+  if [[ $matched -eq 0 ]]; then
     echo "unsupported service: $svc (expected: ${ALL_SERVICES[*]})" >&2
     exit 2
   fi
@@ -173,6 +183,7 @@ done
 if [[ $ROLLBACK -eq 1 ]]; then
   SHARED_TO_BUILD=()
   API_TO_BUILD=()
+  BACKUP_TO_BUILD=()
 fi
 
 command -v docker >/dev/null || { echo "docker is not on PATH" >&2; exit 1; }
@@ -268,6 +279,9 @@ fi
 if [[ ${#API_TO_BUILD[@]} -gt 0 ]]; then
   build_and_ship "$API_DOCKERFILE" "WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT}" -- "${API_TO_BUILD[@]}"
 fi
+if [[ ${#BACKUP_TO_BUILD[@]} -gt 0 ]]; then
+  build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"
+fi
 
 COMPOSE_RUN=(
   docker compose
@@ -328,7 +342,7 @@ restart_service_verified() {
   for attempt in 1 2 3; do
     # `|| true`: a transient ssh drop during recreate must not abort under
     # `set -e`; the verify below (NO_CONTAINER / MISMATCH) drives the retry.
-    ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}" || true
+    ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-build --no-deps --force-recreate ${svc}" || true
     verdict=$(ssh -o BatchMode=yes "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
       CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null); \
       [ -n \"\$CID\" ] || { echo NO_CONTAINER; exit 0; }; \
@@ -462,7 +476,7 @@ ratatoskr_deploy_version_info{service="${svc}",slot="previous",git_sha="${previo
 EOF
 )
   echo "==> Writing deploy version metric for ${svc}"
-  printf "%s\n" "$metrics" | ssh "$RASPI_HOST" "docker run --rm -i --user 0 -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile '${latest_tag}' sh -c 'cat > /textfile/ratatoskr_deploy_${svc}.prom'"
+  printf "%s\n" "$metrics" | ssh "$RASPI_HOST" "docker run --rm -i --user 0 --entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile '${latest_tag}' -c 'cat > /textfile/ratatoskr_deploy_${svc}.prom'"
 }
 
 if [[ $MIGRATE_ONLY -eq 1 ]]; then
@@ -479,15 +493,16 @@ elif [[ $RESTART -eq 1 ]]; then
 
     # Workaround for a `compose up --no-deps --force-recreate` quirk observed
     # 2026-05-24: mobile-api ended up attached to only the external
-    # `firecrawl_internal` network, with `docker_default` dropped. Bot didn't
-    # reproduce. `docker network connect` errors with "already exists" when
-    # correctly attached, so `|| true` keeps this idempotent across services
-    # that may or may not need docker_default.
+    # `firecrawl_internal` network, with `docker_default` dropped. A network
+    # connect errors with "already exists" when correctly attached, so `|| true`
+    # keeps this idempotent across services that may or may not need the default
+    # network. The explicit service alias is essential: Prometheus and status
+    # probes address exporters by Compose service name.
     echo "==> Ensuring ${svc} is attached to docker_default"
     ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
       CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null) && \
       [ -n \"\$CID\" ] && \
-      docker network connect docker_default \"\$CID\" 2>/dev/null \
+      docker network connect --alias '${svc}' docker_default \"\$CID\" 2>/dev/null \
       && echo '    attached docker_default' \
       || echo '    docker_default already attached or not declared'"
     wait_for_service_health "$svc"
@@ -496,7 +511,7 @@ elif [[ $RESTART -eq 1 ]]; then
 else
   echo "==> Skipping restart (--no-restart). To start manually on the Pi:"
   for svc in "${SERVICES[@]}"; do
-    echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-deps --force-recreate ${svc}'"
+    echo "    ssh ${RASPI_HOST} 'cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-build --no-deps --force-recreate ${svc}'"
   done
 fi
 

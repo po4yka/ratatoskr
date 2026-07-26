@@ -19,7 +19,9 @@ from urllib.parse import quote
 
 from app.adapters.ai_backup.errors import (
     AiBackupAuthExpiredError,
+    AiBackupError,
     AiBackupMaxRequestsError,
+    AiBackupParseError,
 )
 from app.adapters.content.browser_auth.authenticated_context import (
     FetchResponse,
@@ -100,11 +102,13 @@ class ChatGptClient:
         return headers
 
     @staticmethod
-    def _check_auth(resp: FetchResponse, url: str) -> None:
+    def _check_response(resp: FetchResponse, url: str) -> None:
         if resp.status in (401, 403):
             raise AiBackupAuthExpiredError(f"ChatGPT session expired: HTTP {resp.status} on {url}")
         if resp.status == 429:
             raise AiBackupMaxRequestsError(f"ChatGPT rate-limited: HTTP 429 on {url}")
+        if resp.status >= 400:
+            raise AiBackupError(f"ChatGPT request failed: HTTP {resp.status} on {url}")
 
     async def _get(self, url: str, *, auth: bool = True) -> FetchResponse:
         headers = (
@@ -114,8 +118,18 @@ class ChatGptClient:
             resp = await self._fetcher.get(url, headers=headers)
         except RequestCapExceededError as exc:
             raise AiBackupMaxRequestsError(str(exc)) from exc
-        self._check_auth(resp, url)
+        self._check_response(resp, url)
         return resp
+
+    @staticmethod
+    def _json_object(resp: FetchResponse, url: str) -> dict[str, Any]:
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise AiBackupParseError(f"ChatGPT returned invalid JSON on {url}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise AiBackupParseError(f"ChatGPT returned a non-object response on {url}")
+        return data
 
     # -- Auth ---------------------------------------------------------------
 
@@ -127,12 +141,10 @@ class ChatGptClient:
         """
         resp = await self._get(f"{_API}/api/auth/session", auth=False)
         try:
-            data = resp.json()
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise AiBackupAuthExpiredError(
-                f"ChatGPT session endpoint returned non-JSON: {exc}"
-            ) from exc
-        token = data.get("accessToken") if isinstance(data, dict) else None
+            data = self._json_object(resp, f"{_API}/api/auth/session")
+        except AiBackupParseError as exc:
+            raise AiBackupAuthExpiredError(str(exc)) from exc
+        token = data.get("accessToken")
         if not token:
             raise AiBackupAuthExpiredError("ChatGPT session has no accessToken (logged out)")
         self._access_token = token
@@ -163,13 +175,7 @@ class ChatGptClient:
         for is_archived in (False, True):
             await self._list_conversations(conv_index, is_archived=is_archived)
 
-        # Projects (best-effort: shape may drift; never lose the core chat backup).
-        try:
-            await self._collect_projects(conv_index, counts)
-        except (AiBackupAuthExpiredError, AiBackupMaxRequestsError):
-            raise
-        except Exception as exc:
-            logger.warning("chatgpt_projects_failed", extra={"error": str(exc)})
+        await self._collect_projects(conv_index, counts)
 
         file_refs: dict[str, str] = {}
         for conv_id, meta in conv_index.items():
@@ -177,10 +183,15 @@ class ChatGptClient:
                 self.skipped += 1
                 continue
             saved = self._writer.load_saved_conversation(conv_id)
-            if saved is not None:
+            listed_update = meta.get("update_time")
+            if (
+                saved is not None
+                and listed_update is not None
+                and saved.get("update_time") == listed_update
+            ):
                 # Already on disk from a prior (possibly interrupted) run today:
-                # skip the network fetch so an interrupted sweep resumes instead
-                # of re-fetching everything and re-tripping the rate limit.
+                # resume only when it is the same provider version. A later
+                # same-day update must replace the saved detail.
                 counts["conversations"] += 1
                 self._collect_file_refs(saved, conv_id, file_refs)
                 self.resumed += 1
@@ -191,12 +202,7 @@ class ChatGptClient:
             self._collect_file_refs(detail, conv_id, file_refs)
 
         if self._download_files and file_refs:
-            try:
-                await self._download_all(file_refs, counts)
-            except (AiBackupAuthExpiredError, AiBackupMaxRequestsError):
-                raise
-            except Exception as exc:
-                logger.warning("chatgpt_files_failed", extra={"error": str(exc)})
+            await self._download_all(file_refs, counts)
 
         return counts
 
@@ -205,33 +211,67 @@ class ChatGptClient:
     ) -> None:
         offset = 0
         consecutive_no_new = 0
+        seen_in_sweep: set[str] = set()
+        expected_total: int | None = None
         while True:
             url = (
                 f"{_API}/backend-api/conversations?offset={offset}&limit={_PAGE_SIZE}"
                 f"&order=updated&is_archived={str(is_archived).lower()}"
             )
-            data = (await self._get(url)).json()
-            items = data.get("items", []) if isinstance(data, dict) else []
+            data = self._json_object(await self._get(url), url)
+            items = data.get("items")
+            if not isinstance(items, list):
+                raise AiBackupParseError(f"ChatGPT conversation list has no items array on {url}")
+            if "total" in data:
+                page_total = data["total"]
+                if (
+                    isinstance(page_total, bool)
+                    or not isinstance(page_total, int)
+                    or page_total < 0
+                ):
+                    raise AiBackupParseError("ChatGPT conversation pagination has an invalid total")
+                if expected_total is None:
+                    expected_total = page_total
+                elif page_total != expected_total:
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination total changed during sweep"
+                    )
             new_this_page = 0
             for c in items:
+                if not isinstance(c, dict):
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination contains a non-object entry"
+                    )
                 cid = c.get("id")
-                if cid and cid not in conv_index:
-                    conv_index[cid] = {**c, "_archived": is_archived}
+                if not isinstance(cid, str) or not cid:
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination contains an entry without an id"
+                    )
+                if cid not in seen_in_sweep:
+                    seen_in_sweep.add(cid)
                     new_this_page += 1
+                if cid not in conv_index:
+                    conv_index[cid] = {**c, "_archived": is_archived}
             offset += len(items)
             if new_this_page == 0:
                 consecutive_no_new += 1
                 if consecutive_no_new >= 3:
-                    break
+                    raise AiBackupParseError(
+                        "ChatGPT conversation pagination made no progress across repeated full pages"
+                    )
             else:
                 consecutive_no_new = 0
             if len(items) < _PAGE_SIZE:
                 break
+        if expected_total is not None and len(seen_in_sweep) != expected_total:
+            raise AiBackupParseError(
+                "ChatGPT conversation pagination incomplete: "
+                f"received {len(seen_in_sweep)} of {expected_total} entries"
+            )
 
     async def _get_conversation(self, conv_id: str) -> dict[str, Any]:
-        return (
-            await self._get(f"{_API}/backend-api/conversation/{quote(conv_id, safe='')}")
-        ).json()
+        url = f"{_API}/backend-api/conversation/{quote(conv_id, safe='')}"
+        return self._json_object(await self._get(url), url)
 
     async def _collect_projects(
         self, conv_index: dict[str, dict[str, Any]], counts: dict[str, int]
@@ -241,8 +281,13 @@ class ChatGptClient:
             url = f"{_API}/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=0"
             if cursor:
                 url += f"&cursor={quote(cursor, safe='')}"
-            data = (await self._get(url)).json()
-            for item in data.get("items", []) if isinstance(data, dict) else []:
+            data = self._json_object(await self._get(url), url)
+            items = data.get("items")
+            if not isinstance(items, list):
+                raise AiBackupParseError(f"ChatGPT project list has no items array on {url}")
+            for item in items:
+                if not isinstance(item, dict):
+                    raise AiBackupParseError(f"ChatGPT project list contains a non-object on {url}")
                 inner = item.get("gizmo") or {}
                 gizmo = inner.get("gizmo") or inner
                 gid = gizmo.get("id") if isinstance(gizmo, dict) else None
@@ -264,8 +309,17 @@ class ChatGptClient:
                 f"{_API}/backend-api/gizmos/{quote(gizmo_id, safe='')}"
                 f"/conversations?cursor={quote(cursor, safe='')}"
             )
-            data = (await self._get(url)).json()
-            for c in data.get("items", []) if isinstance(data, dict) else []:
+            data = self._json_object(await self._get(url), url)
+            items = data.get("items")
+            if not isinstance(items, list):
+                raise AiBackupParseError(
+                    f"ChatGPT project conversation list has no items array on {url}"
+                )
+            for c in items:
+                if not isinstance(c, dict):
+                    raise AiBackupParseError(
+                        f"ChatGPT project conversation list contains a non-object on {url}"
+                    )
                 cid = c.get("id")
                 if cid and cid not in conv_index:
                     conv_index[cid] = {**c, "_gizmo_id": gizmo_id}
@@ -295,20 +349,19 @@ class ChatGptClient:
                 f"{_API}/backend-api/files/download/{quote(file_id, safe='')}"
                 f"?conversation_id={quote(conv_id, safe='')}&inline=false"
             )
-            meta = (await self._get(url)).json()
-            if not isinstance(meta, dict) or meta.get("status") != "success":
-                continue
+            meta = self._json_object(await self._get(url), url)
+            if meta.get("status") != "success":
+                raise AiBackupError(f"ChatGPT file metadata request was not successful on {url}")
             download_url = meta.get("download_url")
-            if not download_url:
-                continue
+            if not isinstance(download_url, str) or not download_url:
+                raise AiBackupParseError(f"ChatGPT file metadata has no download_url on {url}")
             # Signed CDN URL: access is by query-param signature, not the Bearer
             # token -- do NOT forward Authorization to oaiusercontent.com.
             resp = await self._get(download_url, auth=False)
-            if resp.status == 200:
-                await asyncio.to_thread(
-                    self._writer.write_file, file_id, meta.get("file_name") or file_id, resp.bytes()
-                )
-                counts["files"] += 1
+            await asyncio.to_thread(
+                self._writer.write_file, file_id, meta.get("file_name") or file_id, resp.bytes()
+            )
+            counts["files"] += 1
 
 
 __all__ = ["ChatGptClient"]

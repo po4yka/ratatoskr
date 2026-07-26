@@ -100,10 +100,10 @@ def mcp_rate_limit_exceeded(operation_name: str, context: Any) -> bool:
 
 if TYPE_CHECKING:
     from app.mcp.aggregation_service import AggregationMcpService
+    from app.mcp.archive_research_service import ArchiveResearchMcpService
     from app.mcp.article_service import ArticleReadService
     from app.mcp.catalog_service import CatalogReadService
     from app.mcp.context import McpServerContext
-    from app.mcp.archive_research_service import ArchiveResearchMcpService
     from app.mcp.semantic_service import SemanticSearchService
     from app.mcp.signal_service import SignalMcpService
     from app.mcp.x_search_service import XSearchService

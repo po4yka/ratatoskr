@@ -115,6 +115,7 @@ async def test_embedding_repository_upserts_and_reads(database: Database) -> Non
 async def test_mark_indexed_uses_content_hash_compare_and_swap(database: Database) -> None:
     repo = EmbeddingRepositoryAdapter(database)
     _request, summary = await _summary(database, suffix="cas")
+    _other_request, other_summary = await _summary(database, suffix="cas-other")
     await repo.async_create_or_update_summary_embedding(
         summary.id,
         b"vector-v1",
@@ -123,8 +124,18 @@ async def test_mark_indexed_uses_content_hash_compare_and_swap(database: Databas
         1,
         content_hash="content-v1",
     )
+    await repo.async_create_or_update_summary_embedding(
+        other_summary.id,
+        b"vector-v2",
+        "model-a",
+        "v1",
+        1,
+        content_hash="content-v2",
+    )
 
-    assert await repo.async_mark_summary_embeddings_indexed({summary.id: "content-v0"}) == []
+    assert await repo.async_mark_summary_embeddings_indexed(
+        {summary.id: "content-v0", other_summary.id: "content-v2"}
+    ) == [other_summary.id]
     pending = await repo.async_get_summary_embedding(summary.id)
     assert pending is not None
     assert pending["index_status"] == "pending"

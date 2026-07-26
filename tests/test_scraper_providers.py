@@ -300,9 +300,7 @@ class TestScraplingProvider:
         session.get.return_value = fake_resp
 
         with (
-            patch.object(
-                sp, "reject_unsafe_target_url", new_callable=AsyncMock, return_value=None
-            ),
+            patch.object(sp, "reject_unsafe_target_url", new_callable=AsyncMock, return_value=None),
             patch.object(
                 provider, "_ensure_async_session", new_callable=AsyncMock, return_value=session
             ),

@@ -9,8 +9,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from app.mcp.aggregation_service import AggregationMcpService
-from app.mcp.article_service import ArticleReadService
 from app.mcp.archive_research_service import ArchiveResearchMcpService
+from app.mcp.article_service import ArticleReadService
 from app.mcp.catalog_service import CatalogReadService
 from app.mcp.context import McpServerContext
 from app.mcp.http_auth import McpHttpAuthMiddleware

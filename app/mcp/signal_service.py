@@ -88,7 +88,9 @@ class SignalMcpService:
         correlation_id = f"mcp-promotion-{uuid4().hex}"
         user_id = self.context.user_id
         if user_id is None:
-            return self._promotion_error("Library promotion requires a scoped MCP user", correlation_id)
+            return self._promotion_error(
+                "Library promotion requires a scoped MCP user", correlation_id
+            )
         if source_type not in {"signal", "x_bookmark"}:
             return self._promotion_error(
                 f"Unsupported promotion source type: {source_type}", correlation_id

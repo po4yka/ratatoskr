@@ -49,6 +49,7 @@ async def test_route_terminal_failure_persists_and_returns_error_id(monkeypatch)
     assert kwargs["correlation_id"] == "corr-9"
     assert kwargs["request_repo"] is deps.requests
     assert kwargs["retryable"] is False
+    assert kwargs["raise_on_error"] is True
 
 
 async def test_route_terminal_failure_without_request_id_skips_persist(monkeypatch, caplog) -> None:

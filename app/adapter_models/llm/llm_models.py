@@ -145,6 +145,13 @@ class StructuredLLMResult(BaseModel, Generic[_T]):
     latency_ms: int | None = None
     retry_count: int = 0
     model_used: str | None = None
+    physical_attempts: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Every physical provider request made by Instructor/model fallback, "
+            "including failed validation reasks and the terminal successful attempt."
+        ),
+    )
 
 
 __all__ = ["ChatRequest", "LLMCallResult", "StructuredLLMResult"]

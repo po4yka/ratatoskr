@@ -10,13 +10,14 @@ Invariants (ADR-0011 / ADR-0018):
   ``LANGGRAPH_STRICT_MSGPACK`` (which only governs the pickle fallback for unknown
   types) -- so the real guard against a non-primitive leak is the JSON-primitive
   round-trip test, not msgpack-encodability alone (ADR-0011).
-- **Minimal / id-based by default.** Identity and extraction *handles* are ids, not
+- **Minimal / id-based checkpoints.** Identity and extraction *handles* are ids, not
   bulk content -- ``request_id`` / ``dedupe_hash`` / ``summary_id`` rather than the
   crawl row or persisted summary blob, so most checkpoints stay small and PII-light.
-  Five fields are a deliberate exception: ``source_text``, ``grounding_block``,
-  ``system_prompt``, ``messages`` and ``content_for_summary`` carry bulk text. They
-  are NOT redundant -- each is a single-run handoff between adjacent nodes that the
-  downstream node cannot cheaply re-derive:
+  Seven runtime fields are transient handoffs: ``source_text``, ``grounding_block``,
+  ``requested_system_prompt``, ``feedback_instructions``, ``system_prompt``,
+  ``messages`` and ``content_for_summary`` carry bulk text. Graph assembly maps
+  all seven to LangGraph ``UntrackedValue`` channels, so they remain available to
+  adjacent nodes in-process but never enter Postgres checkpoints:
 
   - ``source_text`` -- written by ``extract``, read by ``ground`` /
     ``build_prompt`` / ``enrich`` / ``persist``. The one bulk *seed* (the
@@ -29,10 +30,10 @@ Invariants (ADR-0011 / ADR-0018):
     ``summarize`` from ``source_text`` + ``grounding_block`` would duplicate prompt
     assembly and risk T9 parity drift, so they are passed through state instead.
 
-  Net effect: these fields can reach a Postgres checkpoint when
-  ``LANGGRAPH_CHECKPOINT_ENABLED`` is set, but only for the duration of one run; the
-  ``test_summarize_state`` allowlist guards against a *new* bulk field slipping in
-  unreviewed.
+  On durable resume, nodes re-fetch source content through ``request_id`` from the
+  crawl/request repositories and deterministically rebuild grounding/prompt context.
+  Content-only runs without a request row remain transient by definition. The state
+  tests guard both the reviewed bulk set and its untracked channel mapping.
 - **Live dependencies are never in state.** Ports/repositories are bound to nodes
   via ``functools.partial`` at graph-build time (see :mod:`deps` / :mod:`graph`),
   never serialized here.
@@ -51,7 +52,7 @@ MAX_REPAIR_ATTEMPTS = 3
 
 
 class SummarizeState(TypedDict, total=False):
-    """Checkpoint state for the summarize graph (serializable primitives only)."""
+    """Execution state; graph assembly excludes transient fields from checkpoints."""
 
     # Identity -- established at ingest; correlation_id == thread_id (sacred).
     # ``request_id`` is ``None`` for the content-only summarize path (the T9 facade
@@ -100,12 +101,12 @@ class SummarizeState(TypedDict, total=False):
     environment: str
     user_id: int
 
-    # ground's RAG query: the extracted source text the ground node embeds to
-    # find related prior summaries. A serializable str (not a live object), but
-    # the only bulk field here -- ground is the one node that needs the content
-    # and may only import the retrieval port, so it is handed the text via state
-    # (ponytail: a content handle could replace it once extract owns re-fetch).
+    # Runtime-only source handoff for grounding/prompt construction. Graph assembly
+    # maps it to UntrackedValue; durable resume re-fetches through request_id.
     source_text: str
+    # Trusted application-level prompt overrides supplied by PureSummaryRequest.
+    requested_system_prompt: str
+    feedback_instructions: str
 
     # Working fields populated as the graph advances.
     grounding_ids: list[str]
@@ -135,5 +136,5 @@ class SummarizeState(TypedDict, total=False):
     # call) the persist node writes to ``llm_calls`` with
     # ``attempt_trigger='graph_node'`` (persist-everything). ``operator.add`` is a
     # stdlib reducer so concurrent/sequential node updates append rather than
-    # overwrite -- no langgraph import (the no-graph-extra invariant, ADR-0018).
+    # overwrite -- no LangGraph type leaks into application state (ADR-0018).
     llm_calls: Annotated[list[dict[str, Any]], operator.add]

@@ -347,10 +347,8 @@ async def test_create_aggregation_bundle_endpoint_surfaces_processing_error_code
     payload = response.json()
     assert payload["error"]["code"] == "PROCESSING_ERROR"
     assert payload["error"]["details"]["reason_code"] == "AGGREGATION_UPSTREAM_FAILURE"
-    assert (
-        payload["error"]["details"]["upstream_error"]
-        == "No source extractions completed successfully"
-    )
+    assert "upstream_error" not in payload["error"]["details"]
+    assert "No source extractions" not in response.text
     metric_kwargs = metrics_mock.call_args.kwargs
     assert metric_kwargs["request_type"] == "aggregation.create"
     assert metric_kwargs["status"] == "error"
@@ -856,7 +854,8 @@ async def test_external_aggregation_detail_exposes_failed_source_provenance(
     assert source_items[1]["originalUrl"] == "https://example.com/failed"
     assert source_items[1]["normalizedUrl"] == "https://example.com/failed"
     assert source_items[1]["errorCode"] == "source_extraction_failed"
-    assert "source timed out" in source_items[1]["errorMessage"]
+    assert source_items[1]["errorMessage"].startswith("Source extraction failed. Error ID: ")
+    assert "source timed out" not in source_items[1]["errorMessage"]
     assert source_items[1]["summaryId"] is None
     coverage_by_id = {
         entry["source_item_id"]: entry

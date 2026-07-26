@@ -5,9 +5,10 @@ Usage:
     uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
 """
 
+import asyncio
 import os
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path as _Path
 from typing import Any
@@ -29,8 +30,10 @@ from app.api.error_handlers import (
     validation_exception_handler,
 )
 from app.api.exceptions import APIException
+from app.api.metrics_auth import require_metrics_bearer
 from app.api.middleware import (
     correlation_id_middleware,
+    http_red_metrics_middleware,
     rate_limit_middleware,
     security_headers_middleware,
     webapp_auth_middleware,
@@ -63,6 +66,7 @@ from app.api.routers import (
     search,
     signals,
     social_auth,
+    status,
     streams,
     summaries,
     sync,
@@ -94,6 +98,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     checkpointer_runtime = None
     durable_worker = None
     transcription_worker = None
+    status_refresh_task: asyncio.Task[None] | None = None
     try:
         from app.config import load_config as _load_config
         from app.observability.otel import init_tracing
@@ -129,6 +134,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 await checkpointer_runtime.start()
             except ImportError:
                 logger.warning("langgraph_checkpointer_not_installed")
+                checkpointer_runtime = None
             except Exception:
                 logger.exception("langgraph_checkpointer_startup_failed")
                 checkpointer_runtime = None
@@ -174,21 +180,54 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         except ImportError:
             pass
 
+        from app.api.services.status_refresh import (
+            run_public_status_refresh_loop,
+            status_refresh_interval_seconds,
+        )
+        from app.api.services.status_service import PublicStatusService
+
+        status_refresh_service = PublicStatusService(
+            deployment=runtime.cfg.deployment,
+            llm_provider=runtime.cfg.runtime.llm_provider,
+            database=runtime.db,
+            git_backup_enabled=runtime.cfg.git_backup.enabled,
+            ai_backup_enabled=runtime.cfg.ai_backup.enabled,
+            chatgpt_backup_enabled=runtime.cfg.ai_backup.chatgpt_enabled,
+            claude_backup_enabled=runtime.cfg.ai_backup.claude_enabled,
+        )
+        status_refresh_task = asyncio.create_task(
+            run_public_status_refresh_loop(
+                status_refresh_service,
+                interval_seconds=status_refresh_interval_seconds(runtime.cfg.deployment),
+                timeout_seconds=runtime.cfg.deployment.status_total_timeout_seconds,
+            ),
+            name="public-status-refresh",
+        )
+
         yield
     finally:
-        if durable_worker is not None:
-            await runtime.durable_request_queue.stop()
-        if transcription_worker is not None:
-            await runtime.durable_transcription_queue.stop()
-        if broker is not None and not broker.is_worker_process:
-            await broker.shutdown()
-        await close_redis()
-        if runtime is not None:
-            await close_api_runtime(runtime)
-            clear_current_api_runtime()
-        if checkpointer_runtime is not None:
-            await checkpointer_runtime.stop(timeout=10.0)
-        logger.info("database_closed")
+        try:
+            if status_refresh_task is not None:
+                status_refresh_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await status_refresh_task
+            if durable_worker is not None:
+                await runtime.durable_request_queue.stop()
+            if transcription_worker is not None:
+                await runtime.durable_transcription_queue.stop()
+            if broker is not None and not broker.is_worker_process:
+                await broker.shutdown()
+            await close_redis()
+            if runtime is not None:
+                await close_api_runtime(runtime)
+                clear_current_api_runtime()
+            if checkpointer_runtime is not None:
+                await checkpointer_runtime.stop(timeout=10.0)
+            logger.info("database_closed")
+        finally:
+            from app.observability.metrics_http import mark_process_dead
+
+            mark_process_dead()
 
 
 # FastAPI app instance
@@ -294,13 +333,14 @@ app.add_middleware(
 )
 
 # Custom middleware (order: last added = outermost = runs first)
-# correlation_id must run first, then auth, then rate limit. security_headers is
-# added last so it is the outermost layer and stamps headers on every response,
-# including rate-limit (429) and error responses.
+# correlation_id must run first, then auth, then rate limit. The HTTP metrics
+# wrapper is outermost; security_headers remains the outermost response-mutating
+# layer and stamps rate-limit (429) and error responses.
 app.middleware("http")(rate_limit_middleware)
 app.middleware("http")(webapp_auth_middleware)
 app.middleware("http")(correlation_id_middleware)
 app.middleware("http")(security_headers_middleware)
+app.middleware("http")(http_red_metrics_middleware)
 
 # Include routers
 app.include_router(auth.router, prefix="/v1/auth", tags=["Authentication"])
@@ -348,6 +388,7 @@ app.include_router(tts.router, prefix="/v1/articles", tags=["Article TTS"])
 app.include_router(tts.preferences_router, prefix="/v1/users", tags=["TTS"])
 app.include_router(rss.router, prefix="/v1/rss", tags=["RSS"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["Admin"])
+app.include_router(status.router, prefix="/v1/status", tags=["Status"])
 app.include_router(health.router, tags=["Health"])
 
 # Serve static files (Mini App HTML for session init, etc.)
@@ -356,6 +397,19 @@ if _static_dir.is_dir():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 _web_index = _static_dir / "web" / "index.html"
+_RESERVED_ROUTE_ROOTS = frozenset(
+    {
+        "api",
+        "docs",
+        "health",
+        "healthz",
+        "internal",
+        "metrics",
+        "openapi.json",
+        "redoc",
+        "v1",
+    }
+)
 
 
 def _serve_web_index() -> FileResponse:
@@ -435,12 +489,24 @@ async def metrics(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     )
 
 
+@app.get("/internal/metrics", include_in_schema=False)
+async def internal_metrics(_authorized: None = Depends(require_metrics_bearer)) -> Any:
+    """Prometheus scrape endpoint protected by a dedicated service token."""
+    from fastapi.responses import Response
+
+    from app.observability.metrics import get_metrics, get_metrics_content_type
+
+    return Response(content=get_metrics(), media_type=get_metrics_content_type())
+
+
 # SPA catch-all — MUST be registered last so explicit API routes win.
 @app.get("/", include_in_schema=False)
 @app.get("/{path:path}", include_in_schema=False)
 def web_interface(path: str = "") -> FileResponse:
     """Serve web SPA entrypoint for any non-API path."""
-    del path
+    route_root = path.partition("/")[0]
+    if route_root in _RESERVED_ROUTE_ROOTS:
+        raise HTTPException(status_code=404, detail="Not found")
     return _serve_web_index()
 
 

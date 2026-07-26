@@ -204,6 +204,12 @@ class AuthConfig(BaseModel):
             "memory used by password and client-secret authentication."
         ),
     )
+    metrics_bearer_token: str | None = Field(
+        default=None,
+        validation_alias="METRICS_BEARER_TOKEN",
+        description="Bearer token accepted by the internal Prometheus scrape endpoint",
+        json_schema_extra=SECRET_MARKER,
+    )
     apple_client_id: str | None = Field(
         default=None,
         validation_alias="APPLE_SIGNIN_CLIENT_ID",
@@ -366,6 +372,16 @@ class AuthConfig(BaseModel):
             msg = "CREDENTIALS_LOGIN_PEPPER appears too long"
             raise ValueError(msg)
         return pepper
+
+    @field_validator("metrics_bearer_token", mode="before")
+    @classmethod
+    def _validate_metrics_bearer_token(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        token = str(value).strip()
+        if len(token) < 32 or len(token) > 512:
+            raise ValueError("METRICS_BEARER_TOKEN must contain 32 to 512 characters")
+        return token
 
     @field_validator(
         "credentials_max_failed_attempts",

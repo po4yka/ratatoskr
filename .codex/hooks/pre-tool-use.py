@@ -8,7 +8,6 @@ import re
 import sys
 from typing import Any
 
-
 PROTECTED_PATH_PATTERNS = (
     "data/ratatoskr.db",
     "requirements.txt",
@@ -147,7 +146,10 @@ def main() -> None:
 
         for pattern, reason in WARNING_SHELL_PATTERNS:
             if re.search(pattern, command, re.IGNORECASE):
-                print(f"WARNING: Potentially risky operation: {reason}. Command: {command}", file=sys.stderr)
+                print(
+                    f"WARNING: Potentially risky operation: {reason}. Command: {command}",
+                    file=sys.stderr,
+                )
 
 
 if __name__ == "__main__":

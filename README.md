@@ -53,7 +53,7 @@ Compose profiles:
 - `with-scrapers` starts the full self-hosted scraper sidecar stack: `firecrawl-api` (port 3002), `crawl4ai` (port 11235), `defuddle-api` (port 3003), and `cloakbrowser` plus their dependencies. Cloud Firecrawl is not used for article extraction; there is no `FIRECRAWL_API_KEY` requirement. Set `FIRECRAWL_SELF_HOSTED_ENABLED=true` to activate the Firecrawl rung in the scraper chain.
 - `with-webwright` starts the Microsoft Webwright browser-agent sidecar (port 8090) — heavyweight LLM-driven Playwright agent. Opt-in only; see [Webwright Integration](docs/explanation/webwright.md) for cost gating and the two active integration paths (scraper rung and `/browse` Telegram command).
 - `with-cloud-ollama` adds a remote OpenAI-compatible Ollama reachability check for experiments and sidecar validation. Use it for summarization only when `LLM_PROVIDER=ollama` and `ollama.base_url` points at that endpoint.
-- `with-monitoring` starts Prometheus, Grafana, Loki, Promtail, node-exporter, and OpenTelemetry / Tempo.
+- `with-monitoring` starts Prometheus, Grafana, Loki, Promtail, node-exporter, pinned PostgreSQL/Redis exporters, Qdrant scraping, and OpenTelemetry / Tempo.
 - `mcp`, `mcp-write`, and `mcp-public` start the optional MCP server variants.
 
 For the guided walkthrough, see the [5-minute Quickstart Tutorial](docs/guides/quickstart.md). For the full setup including TLS, monitoring, and backups, see [Deploy to Production](docs/guides/deploy-production.md). The onboarding script is tracked in [Clone to First Summary](docs/guides/clone-to-first-summary.md) for repeatable 10-minute validation runs.
@@ -70,7 +70,8 @@ For the guided walkthrough, see the [5-minute Quickstart Tutorial](docs/guides/q
 
 ## What else it includes
 
-- **Web frontend** — A React + TypeScript UI at `/web/*`, served by FastAPI. Hybrid auth: Telegram WebApp, Telegram Login Widget, or nickname/email + password with Remember Me. Set `CREDENTIALS_LOGIN_PEPPER` (≥32 chars, generated separately from `JWT_SECRET_KEY`) and bootstrap the password once via `ratatoskr credentials set --user-id <your_telegram_id> --nickname <name>`. See [Web Frontend](docs/reference/frontend-web.md) · [ratatoskr-web repo](https://github.com/po4yka/ratatoskr-web).
+- **Web frontend** — A React + TypeScript UI at the application root, served by FastAPI with client-side route fallback. Hybrid auth: Telegram WebApp, Telegram Login Widget, or nickname/email + password with Remember Me. Set `CREDENTIALS_LOGIN_PEPPER` (≥32 chars, generated separately from `JWT_SECRET_KEY`) and bootstrap the password once via `ratatoskr credentials set --user-id <your_telegram_id> --nickname <name>`. See [Web Frontend](docs/reference/frontend-web.md) · [ratatoskr-web repo](https://github.com/po4yka/ratatoskr-web).
+- **Public status and full metrics** — `/status` renders a no-auth system status page backed by sanitized `GET /v1/status`; Prometheus independently scrapes every application process plus PostgreSQL, Redis, Qdrant, and the host. Grafana ships a provisioned system-status dashboard and alerts. See [Status Page and System Metrics](docs/reference/status-page.md).
 - **Mobile REST API** — JWT-authenticated REST API with device sync, collections, and aggregations. See [Mobile API Reference](docs/reference/mobile-api.md).
 - **Real-time progress streaming** — `GET /v1/requests/{id}/stream` is a Server-Sent Events stream of phase + section events for in-flight summaries. Consumed by the web SubmitPage and by the Telegram URL flow's progressive draft-message updates.
 - **MCP server** — Expose summaries and search to external AI agents via the Model Context Protocol. See [MCP Server](docs/reference/mcp-server.md).
@@ -126,7 +127,8 @@ A budget cap (`GITHUB_LLM_DAILY_BUDGET=100`) limits LLM analysis calls per run; 
 | Production deploy, monitoring, backups, TLS | [docs/guides/deploy-production.md](docs/guides/deploy-production.md) |
 | Architecture diagram, request lifecycle, subsystem index | [docs/explanation/architecture-overview.md](docs/explanation/architecture-overview.md) |
 | Mobile REST API (JWT auth, sync, aggregations) | [docs/reference/mobile-api.md](docs/reference/mobile-api.md) |
-| Web frontend (`/web/*`) | [docs/reference/frontend-web.md](docs/reference/frontend-web.md) · [ratatoskr-web](https://github.com/po4yka/ratatoskr-web) |
+| Web frontend (`/`) | [docs/reference/frontend-web.md](docs/reference/frontend-web.md) · [ratatoskr-web](https://github.com/po4yka/ratatoskr-web) |
+| Public status (`/status`) and monitoring | [docs/reference/status-page.md](docs/reference/status-page.md) · [ops/monitoring/README.md](ops/monitoring/README.md) |
 | MCP server for external AI agents | [docs/reference/mcp-server.md](docs/reference/mcp-server.md) |
 | FAQ / troubleshooting | [docs/explanation/faq.md](docs/explanation/faq.md) · [docs/reference/troubleshooting.md](docs/reference/troubleshooting.md) |
 | Full doc index | [docs/README.md](docs/README.md) |

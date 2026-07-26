@@ -19,7 +19,7 @@ Ratatoskr exposes operational entry points as Python modules under `app/cli/`. R
 | `python -m app.cli.repository` | Run repository-ingestion operations. |
 | `python -m app.cli.requeue_failed_task` | Requeue a persisted failed Taskiq job. |
 | `python -m app.cli.retry` | Retry a failed request workflow. |
-| `python -m app.cli.rotate_github_tokens` | Re-encrypt stored GitHub tokens with a new key. |
+| `python -m app.cli.rotate_github_tokens` | Re-encrypt stored GitHub tokens and browser sessions with a new primary key. |
 | `python -m app.cli.search` | Search indexed summaries from the terminal. |
 | `python -m app.cli.seed_demo_data` | Seed development/demo data. |
 | `python -m app.cli.signal_eval` | Evaluate signal-personalization behavior. |

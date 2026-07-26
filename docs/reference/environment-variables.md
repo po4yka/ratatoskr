@@ -91,6 +91,7 @@ validator, and whether the field is secret. YAML section names match the
 | OpenTelemetry and Sentry | `app/config/otel.py` |
 | LangGraph checkpointing | `app/config/langgraph.py` |
 | Worker/background capacity | `app/config/background.py`, `worker_capacity.py` |
+| Deployment safety and public status probes | `app/config/deployment.py` |
 
 When adding or renaming a setting, update the Pydantic field, checked-in YAML,
 Compose role overrides, `.env.example` if it is first-run critical, and the
@@ -184,17 +185,40 @@ See [YouTube](../guides/configure-youtube-download.md) and
 | Variable | Purpose |
 | --- | --- |
 | `ALLOWED_USER_IDS` | User allowlist; behavior differs by transport when empty. |
+| `TELEGRAM_SESSION_DIR` | Persistent Telethon bot-session directory; Compose defaults it to `/data`. |
 | `ALLOWED_CLIENT_IDS` | Client identifier allowlist. |
 | `AUTH_ALLOW_ANY_CLIENT_ID` | Explicit empty-allowlist override. |
 | `JWT_SECRET_KEY` | Current JWT signing secret. |
 | `JWT_SECRET_PREVIOUS_KEYS` | Decode-only keys during signing-key rotation. |
 | `SECRET_LOGIN_ENABLED` | Client-secret login surface. |
 | `AUTH_ARGON2_MAX_CONCURRENCY` | Per-API-process Argon2 admission limit; defaults to `2` to bound memory-hard password/client-secret work. |
+| `METRICS_BEARER_TOKEN` | Dedicated 32+ character bearer token shared by mobile-api and Prometheus for `/internal/metrics`; required when the monitoring profile is enabled. |
 | `API_RATE_LIMIT_DEFAULT` | Default API rate-limit policy. |
 | `API_RATE_LIMIT_AUTH` | Authentication endpoint limit. |
 
 See [Mobile API](mobile-api.md#authentication) and
 [Secret Rotation](../runbooks/secret-rotation.md).
+
+### Public status
+
+| Variable | Purpose |
+| --- | --- |
+| `STATUS_BOT_METRICS_URL` | Internal Telegram bot exporter URL. |
+| `STATUS_WORKER_METRICS_URL` | Internal aggregated Taskiq worker exporter URL. |
+| `STATUS_SCHEDULER_METRICS_URL` | Internal scheduler exporter URL. |
+| `STATUS_NODE_METRICS_URL` | Internal node-exporter URL used for PostgreSQL backup freshness. |
+| `STATUS_QDRANT_READY_URL` | Internal Qdrant `/readyz` URL used for a live vector-search readiness check. |
+| `STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS` | Maximum accepted age of extraction runtime telemetry; 5 minutes–7 days, default 24 hours. |
+| `STATUS_AI_SIGNAL_MAX_AGE_SECONDS` | Maximum accepted age of AI circuit-breaker telemetry; 5 minutes–7 days, default 24 hours. |
+| `STATUS_PROBE_TIMEOUT_SECONDS` | Per-component probe ceiling, at most five seconds. |
+| `STATUS_TOTAL_TIMEOUT_SECONDS` | Aggregate status collection ceiling, at most five seconds. |
+| `STATUS_CACHE_TTL_SECONDS` | Process-local public status cache, 15–30 seconds. |
+| `STATUS_REFRESH_AFTER_SECONDS` | Suggested client refresh interval, 15–300 seconds. |
+
+The primary Compose file supplies the four exporter URLs and the Qdrant
+readiness URL to `mobile-api`.
+They are credential-free internal HTTP URLs and are never returned by the
+public API. See [Status page and system metrics](status-page.md).
 
 ### Optional integrations
 
@@ -215,9 +239,21 @@ Some values are consumed by Compose or sidecars rather than `Settings`:
 | `POSTGRES_PASSWORD` | Bundled PostgreSQL, application DSN construction, backup sidecar. |
 | `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `QDRANT_HOST_PORT` | Development port overrides. |
 | `BACKUP_HOST_DIR`, `BACKUP_CRON`, `BACKUP_RUN_ON_START` | PostgreSQL backup sidecar. |
-| `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. |
+| `BACKUP_ENCRYPTION_KEY` | Required passphrase for encrypted PostgreSQL sidecar dumps. |
+| `BACKUP_REQUIRE_ENCRYPTION`, `BACKUP_S3_*` | Backup-sidecar policy/off-host copy. Production Compose hardcodes encryption as required. Plaintext requires both the explicit development overlay (or direct `APP_ENV=development`/`test` script context) and `BACKUP_REQUIRE_ENCRYPTION=false`; it remains forbidden for off-host copies. |
 | `GRAFANA_ADMIN_PASSWORD` | Monitoring profile. |
+| `ALERT_WEBHOOK_URL` | Generic Alertmanager webhook receiver. HTTP is supported for trusted internal delivery; use HTTPS for external delivery. |
+| `ALERT_SLACK_API_URL` | HTTPS Slack incoming-webhook URL rendered into the active Alertmanager receiver. |
+| `ALERT_TELEGRAM_WEBHOOK_URL` | HTTPS endpoint that accepts Alertmanager webhook payloads and delivers them to Telegram. |
+| `ALERT_PAGERDUTY_ROUTING_KEY` | PagerDuty Events API v2 integration routing key rendered into the active Alertmanager receiver. |
+| `RATATOSKR_DOCKER_NETWORK` | Existing core network joined by the standalone monitoring Compose file; defaults to `docker_default`. |
+| `RATATOSKR_PG_BACKUP_METRICS_VOLUME` | Existing core backup textfile volume mounted by standalone node-exporter; defaults to `docker_pg_backup_metrics`. |
 | `COMPOSE_PROFILES` | Optional scraper, monitoring, MCP, and related service groups. |
+
+When `RATATOSKR_ENV=production`, Alertmanager fails startup unless at least one
+of the four receiver variables is valid. Multiple configured variables fan out
+the same alert to every configured integration. Receiver values are written
+only to the container-private rendered config and must not be logged.
 
 Inspect the effective deployment after substitution:
 

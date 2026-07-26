@@ -214,9 +214,7 @@ def register_resources(
     async def vector_index_stats_resource() -> str:
         """Vector store index coverage compared to PostgreSQL summaries."""
         return to_json(
-            await _call_resource(
-                "vector_index_stats_resource", semantic_service.vector_index_stats
-            )
+            await _call_resource("vector_index_stats_resource", semantic_service.vector_index_stats)
         )
 
     @_contribute_resource(contributions, "ratatoskr://vector/sync-gap")

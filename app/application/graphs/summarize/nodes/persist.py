@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from app.application.dto.vector_search import RetrievalScope
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.graphs.summarize.nodes._context import load_source_text
 from app.application.services.summarization.metadata_backfill import backfill_summary_metadata
+from app.domain.models.request import RequestStatus
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
     from app.application.graphs.summarize.state import SummarizeState
-    from app.application.ports.requests import LLMCallRecord, LLMRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +23,11 @@ logger = logging.getLogger(__name__)
 async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any]:
     """Persist the summary, the llm_calls, and finalize the request.
 
-    persist-everything (ADR-0011): writes the ``summaries`` row + flips the
-    request to COMPLETED via ``async_finalize_request_summary``, then writes every
-    accumulated ``llm_calls`` record (``attempt_trigger='graph_node'``, correlation
-    id on each). No-ops when nothing was produced (no summary), so the skeleton
-    still drains under the generic node tests.
+    persist-everything (ADR-0011): atomically writes the ``summaries`` row and
+    every accumulated ``llm_calls`` record, then attempts the downstream index
+    and export effects before flipping the request to COMPLETED. A DB failure or
+    process stop therefore leaves the request resumable instead of terminal with
+    a missing audit trail.
 
     Then T6's read-your-writes vector fast-path (ADR-0012): once the summary row
     exists -- and BEFORE the request is considered done by downstream pollers --
@@ -57,6 +58,9 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     """
     summary = state.get("summary") or {}
     request_id = state.get("request_id")
+    source_text = await load_source_text(state, deps)
+    if source_text and not state.get("source_text"):
+        state = {**state, "source_text": source_text, "content_for_summary": source_text}
 
     await _write_summary_cache(state, deps, summary)
 
@@ -94,27 +98,39 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
 
     # The UPSERT returns the summary id (and version) directly, so there is no
     # follow-up async_get_summary_id_by_request round-trip.
-    finalize_result = await deps.summaries.async_finalize_request_summary(
+    llm_calls = _llm_calls_with_attempt_indices(state)
+    finalize_result = await deps.summaries.async_persist_summary_with_llm_calls(
         request_id=request_id,
         lang=lang,
         json_payload=summary,
+        llm_calls=llm_calls,
         insights_json=insights,
         is_read=False,
     )
     summary_id = finalize_result.summary_id
 
-    # These three post-write steps are independent -- different targets (Postgres
-    # llm_calls, the Qdrant freshness index, the export-event channel), no shared
-    # state, none consumes another's output -- so run them concurrently instead of
-    # serially. Each is internally best-effort (swallows its own expected
-    # failures); gather still propagates cancellation.
+    # Both downstream effects see the committed summary. They are independently
+    # best-effort, but cancellation/process death propagates and leaves the request
+    # non-terminal so checkpoint recovery can retry the persist node.
     await asyncio.gather(
-        _persist_llm_calls(state, deps),
         _index_summary_for_freshness(state, deps, summary_id=summary_id),
         _publish_summary_created(state, deps, summary_id=summary_id),
     )
+    await deps.requests.async_update_request_status(request_id, RequestStatus.COMPLETED)
 
     return {"summary_id": summary_id} if summary_id is not None else {}
+
+
+def _llm_calls_with_attempt_indices(state: SummarizeState) -> list[dict[str, Any]]:
+    """Give checkpointed graph calls deterministic, resume-idempotent indices."""
+    request_id = state.get("request_id")
+    records: list[dict[str, Any]] = []
+    for attempt_index, record in enumerate(state.get("llm_calls") or [], start=1):
+        normalized = dict(record)
+        normalized["request_id"] = request_id
+        normalized["attempt_index"] = attempt_index
+        records.append(normalized)
+    return records
 
 
 async def _write_summary_cache(
@@ -151,60 +167,6 @@ async def _write_summary_cache(
             },
             exc_info=True,
         )
-
-
-async def _persist_llm_calls(state: SummarizeState, deps: SummarizeDeps) -> None:
-    """Write the accumulated llm_calls in ONE transaction (batch insert).
-
-    persist-everything: the summarize + repair node calls accumulate in
-    ``state['llm_calls']``; write them all in a single DB transaction via
-    ``async_insert_llm_calls_batch`` instead of one transaction per row. Best-effort:
-    a batch failure is logged and, because a batch is all-or-nothing, retried row by
-    row so a single malformed record cannot drop the rest -- neither path ever blocks
-    request completion.
-    """
-    # No request row (content-only path) -> every llm_call record would FK-violate
-    # against ``requests.id``; skip persistence (the ``persist`` entry guard already
-    # short-circuits, this is defense-in-depth for direct callers).
-    llm_repo = deps.llm_repo
-    if llm_repo is None or state.get("request_id") is None:
-        return
-    records: list[dict[str, Any]] = list(state.get("llm_calls") or [])
-    if not records:
-        return
-    try:
-        await llm_repo.async_insert_llm_calls_batch(records)
-    except Exception:
-        logger.warning(
-            "graph_persist_llm_calls_batch_failed",
-            extra={
-                "correlation_id": state.get("correlation_id"),
-                "request_id": state.get("request_id"),
-                "count": len(records),
-            },
-            exc_info=True,
-        )
-        # A batch is all-or-nothing, so fall back to per-row inserts: one poison
-        # record must not drop the rest. Still best-effort -- never blocks completion.
-        await _persist_llm_calls_individually(records, llm_repo, state)
-
-
-async def _persist_llm_calls_individually(
-    records: list[dict[str, Any]], llm_repo: LLMRepositoryPort, state: SummarizeState
-) -> None:
-    """Per-row fallback for the batch insert (each row in its own transaction)."""
-    for record in records:
-        try:
-            await llm_repo.async_insert_llm_call(cast("LLMCallRecord", record))
-        except Exception:  # one bad row must not block the rest / completion
-            logger.warning(
-                "graph_persist_llm_call_failed",
-                extra={
-                    "correlation_id": state.get("correlation_id"),
-                    "request_id": state.get("request_id"),
-                },
-                exc_info=True,
-            )
 
 
 async def _index_summary_for_freshness(

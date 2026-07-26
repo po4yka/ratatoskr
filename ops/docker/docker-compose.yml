@@ -73,11 +73,16 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - METRICS_HTTP_PORT=9101
+      - METRICS_BEARER_TOKEN=${METRICS_BEARER_TOKEN:-}
+      - TELEGRAM_SESSION_DIR=${TELEGRAM_SESSION_DIR:-/data}
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       # Operator-side PostgreSQL backups are owned by the pg-backup sidecar
       # below. Keep the legacy bot-local loop opt-in to avoid duplicate dumps.
       - DB_BACKUP_ENABLED=${DB_BACKUP_ENABLED:-0}
       - RATATOSKR_PROCESS_ROLE=bot
+    expose:
+      - "9101"
     command:
       - sh
       - -c
@@ -173,7 +178,11 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - METRICS_HTTP_PORT=9102
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-worker
       - RATATOSKR_PROCESS_ROLE=worker
+    expose:
+      - "9102"
     volumes:
       - ${X_HOST_DATA_DIR:-/var/lib/x_bookmarks_stub}:/x_bookmarks:ro
       - ../../data:/data
@@ -199,7 +208,7 @@ services:
         required: false
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('redis', 6379), 5); s.close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9102/metrics', timeout=5).read(1)"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -258,7 +267,10 @@ services:
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - METRICS_HTTP_PORT=9103
       - RATATOSKR_PROCESS_ROLE=scheduler
+    expose:
+      - "9103"
     volumes:
       - /etc/localtime:/etc/localtime:ro
     tmpfs:
@@ -268,7 +280,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('redis', 6379), 5); s.close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9103/metrics', timeout=5).read(1)"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -305,6 +317,10 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - API_WORKERS=${API_WORKERS:-1}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api
+      # Prometheus reaches the API through its Compose DNS name. Keep the
+      # internal host in the allowlist without weakening Host-header checks.
+      - TRUSTED_HOSTS=${TRUSTED_HOSTS:-localhost,127.0.0.1,testserver,mobile-api,ratatoskrapi.po4yka.com,staging-ratatoskrapi.po4yka.com}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -315,6 +331,15 @@ services:
       - REDIS_ENABLED=1
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Internal metrics endpoints used by the API status aggregator. These
+      # names stay on the Compose network and are never published on the host.
+      - STATUS_BOT_METRICS_URL=http://ratatoskr:9101/metrics
+      - STATUS_WORKER_METRICS_URL=http://worker:9102/metrics
+      - STATUS_SCHEDULER_METRICS_URL=http://scheduler:9103/metrics
+      - STATUS_NODE_METRICS_URL=http://node-exporter:9100/metrics
+      - STATUS_QDRANT_READY_URL=http://qdrant:6333/readyz
+      - STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS=${STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS:-86400}
+      - STATUS_AI_SIGNAL_MAX_AGE_SECONDS=${STATUS_AI_SIGNAL_MAX_AGE_SECONDS:-86400}
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
       - SCRAPER_DEFUDDLE_API_BASE_URL=${SCRAPER_DEFUDDLE_API_BASE_URL:-http://defuddle-api:3003}
@@ -331,7 +356,7 @@ services:
       - -c
       - |
         python -m app.cli.migrate_db --check
-        exec uvicorn app.api.main:app --host "$${API_HOST:-0.0.0.0}" --port "$${API_PORT:-8000}" --workers "$${API_WORKERS:-1}"
+        exec python -m app.cli.api_server
     volumes:
       # App code, alembic.ini, and config/ are baked into the image -- see the
       # note on the ratatoskr service above.
@@ -358,12 +383,12 @@ services:
         required: false
     restart: unless-stopped
     healthcheck:
-      # HTTP probe against the live FastAPI app -- `/healthz` already calls
+      # HTTP probe against the live FastAPI app -- `/health/ready` calls
       # `db.healthcheck()` via `_check_database`, so this is strictly stronger
       # than the previous `python -m app.cli.healthcheck` (which was DB-only
       # and reported "healthy" while uvicorn was still warming up and refusing
       # TCP connections). curl is already in the runtime image.
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/healthz"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/health/ready"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -928,12 +953,18 @@ services:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../monitoring/alerting_rules.yml:/etc/prometheus/alerting_rules.yml:ro
       - prometheus_data:/prometheus
+    secrets:
+      - metrics_bearer_token
     ports:
       - "127.0.0.1:9090:9090"
     depends_on:
       alertmanager:
         condition: service_healthy
       mobile-api:
+        condition: service_healthy
+      postgres-exporter:
+        condition: service_healthy
+      redis-exporter:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
@@ -1060,6 +1091,75 @@ services:
       - /:/host/root:ro
       - pg_backup_metrics:/textfile:ro
 
+  postgres-exporter:
+    profiles:
+      - with-monitoring
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    container_name: ratatoskr-postgres-exporter
+    restart: unless-stopped
+    environment:
+      - DATA_SOURCE_URI=postgres:5432/ratatoskr?sslmode=disable
+      - DATA_SOURCE_USER=ratatoskr_app
+      - DATA_SOURCE_PASS=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    expose:
+      - "9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9187/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.10"
+        reservations:
+          memory: 16M
+          cpus: "0.02"
+
+  redis-exporter:
+    profiles:
+      - with-monitoring
+    image: oliver006/redis_exporter:v1.87.0-alpine@sha256:1a286dba9547b0aa3ebd4e4106fa52ad67c754dcd7cb744eb745e41d48b252ad
+    container_name: ratatoskr-redis-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    expose:
+      - "9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9121/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.10"
+        reservations:
+          memory: 16M
+          cpus: "0.02"
+
   qdrant:
     image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.13.6}
     container_name: ratatoskr-qdrant
@@ -1140,8 +1240,9 @@ services:
       - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-14}
       - BACKUP_DIR=/backups
       - BACKUP_METRICS_DIR=/var/lib/node-exporter/textfile_collector
+      - APP_ENV=production
       - BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY:-}
-      - BACKUP_REQUIRE_ENCRYPTION=${BACKUP_REQUIRE_ENCRYPTION:-}
+      - BACKUP_REQUIRE_ENCRYPTION=true
       - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
       - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-ratatoskr/postgres}
       - BACKUP_S3_REGION=${BACKUP_S3_REGION:-us-east-1}
@@ -1155,6 +1256,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "ps | grep -q '[c]rond' && test -w /backups && test -w /var/lib/node-exporter/textfile_collector",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5m
     restart: unless-stopped
     deploy:
       resources:
@@ -1233,3 +1344,6 @@ volumes:
   grafana_data:
   loki_data:
   git_mirrors_data:
+secrets:
+  metrics_bearer_token:
+    environment: METRICS_BEARER_TOKEN

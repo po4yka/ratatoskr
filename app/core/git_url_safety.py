@@ -24,13 +24,14 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 __all__ = [
     "assert_resolved_public_host",
     "assert_safe_git_url",
     "extract_git_host",
     "is_github_host",
+    "redact_git_url",
 ]
 
 # Hostnames that are never legitimate clone targets regardless of resolution.
@@ -56,6 +57,42 @@ _REMOTE_HELPER_TRANSPORT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*::")
 # ``gist.github.com`` is GitHub-owned and is used for gist clone URLs of the
 # form ``https://gist.github.com/<id>.git``.
 _GITHUB_HOSTS = frozenset({"github.com", "www.github.com", "gist.github.com"})
+
+
+def redact_git_url(url: str) -> str:
+    """Return a display-safe clone URL with embedded credentials hidden.
+
+    This is defense in depth for legacy database rows created before
+    credential-bearing URLs were rejected. The returned value is suitable for
+    API/Telegram responses and logs; callers must still reject the original URL
+    before invoking git.
+    """
+    try:
+        parsed = urlsplit(url)
+        netloc = parsed.netloc
+        has_sensitive_userinfo = parsed.password is not None or (
+            parsed.scheme.casefold() != "ssh" and parsed.username is not None
+        )
+        if has_sensitive_userinfo:
+            host = parsed.hostname or ""
+            if ":" in host and not host.startswith("["):
+                host = f"[{host}]"
+            if parsed.port is not None:
+                host = f"{host}:{parsed.port}"
+            netloc = f"***@{host}"
+
+        # Query strings and fragments are forbidden for newly registered clone
+        # URLs because their key space is open-ended (for example GitLab's
+        # ``private_token`` and AWS ``X-Amz-*`` signatures). Scrub the complete
+        # components for legacy rows instead of trying to maintain a credential
+        # key blacklist.
+        safe_query = "redacted" if parsed.query else ""
+        safe_fragment = "redacted" if parsed.fragment else ""
+        return urlunsplit((parsed.scheme, netloc, parsed.path, safe_query, safe_fragment))
+    except ValueError:
+        # Malformed ports and similar invalid URL syntax must not make a status
+        # endpoint fail or echo a possibly sensitive legacy value.
+        return "<redacted-invalid-git-url>"
 
 
 def is_github_host(url: str) -> bool:
@@ -122,10 +159,20 @@ def assert_safe_git_url(url: str) -> None:
         msg = "clone_url uses a disallowed git remote-helper transport"
         raise ValueError(msg)
     if "://" in stripped:
-        scheme = urlparse(stripped).scheme.lower()
+        parsed = urlparse(stripped)
+        scheme = parsed.scheme.lower()
         if scheme not in _ALLOWED_SCHEMES:
             msg = f"clone_url scheme {scheme!r} is not allowed"
             raise ValueError(msg)
+        if parsed.password is not None or (scheme != "ssh" and parsed.username is not None):
+            msg = "clone_url must not contain embedded credentials"
+            raise ValueError(msg)
+    # Clone URLs do not need query strings or fragments. Reject the delimiters
+    # themselves (including empty components and scp-like syntax) so an
+    # unrecognized credential name can never be persisted or returned.
+    if "?" in stripped or "#" in stripped:
+        msg = "clone_url must not contain a query string or fragment"
+        raise ValueError(msg)
     host = extract_git_host(url)
     if host is None:
         msg = "clone_url has no parseable host"

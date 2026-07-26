@@ -1,10 +1,9 @@
 """Unit tests for CheckpointerRuntime (no live DB, no real langgraph import).
 
 The langgraph / psycopg_pool modules are stubbed via sys.modules so the lazy
-imports inside ``start()`` resolve to mocks. (Importing the real
-``langgraph.checkpoint.*`` modules under pytest trips a pydantic schema-gen
-incompatibility unrelated to this code; the real ``.setup()`` path is exercised
-out-of-band against a live Postgres.) Asserts the pool is built with the
+imports inside ``start()`` resolve to mocks. The real setup/search-path/row-
+factory/resume/delete/concurrent-setup contracts live in the PostgreSQL-marked
+``test_checkpointer_runtime_postgres.py`` sibling. This module asserts the pool is built with the
 ADR-0004 settings, that strict_msgpack toggles the pickle fallback, that
 setup() runs, that stop() closes the pool, and that Database is never used
 (invariant 4 / ADR-0018).
@@ -40,6 +39,11 @@ def _cfg(*, schema="langgraph", dsn_override=None, strict_msgpack=True, pmin=1, 
 
 
 def _install_stubs(monkeypatch, *, guard_database=True, setup_error=None):
+    monkeypatch.setattr(
+        checkpoint_runtime,
+        "prune_expired_checkpoints",
+        AsyncMock(return_value=CheckpointPruneStats()),
+    )
     pool = MagicMock()
     pool.open = AsyncMock()
     pool.close = AsyncMock()
@@ -136,8 +140,23 @@ async def test_start_builds_isolated_pool_and_runs_setup(monkeypatch):
     schema_sql = m.schema_conn.execute.await_args_list[0].args[0]
     assert "CREATE SCHEMA IF NOT EXISTS" in schema_sql and "langgraph" in schema_sql
     assert m.serde_class.call_args.kwargs["pickle_fallback"] is False  # strict
+    assert m.saver_class.call_count == 2
+    assert m.saver_class.call_args_list[0].args[0] is m.schema_conn
+    assert m.saver_class.call_args_list[1].args[0] is m.pool
     m.saver.setup.assert_awaited_once()
     assert rt.saver is m.saver
+
+
+async def test_start_serializes_setup_with_advisory_lock(monkeypatch):
+    m = _install_stubs(monkeypatch)
+
+    await CheckpointerRuntime(cfg=_cfg(pmax=1)).start()
+
+    statements = [call.args[0] for call in m.schema_conn.execute.await_args_list]
+    lock_index = statements.index("SELECT pg_advisory_lock(%s)")
+    unlock_index = statements.index("SELECT pg_advisory_unlock(%s)")
+    assert lock_index < unlock_index
+    assert m.saver_class.call_args_list[0].args[0] is m.schema_conn
 
 
 async def test_start_cleans_checkpoints_before_exposing_saver(monkeypatch):

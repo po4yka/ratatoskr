@@ -44,6 +44,8 @@ IGNORED_APP_ROUTES = frozenset(
         ("GET", "/{path:path}"),
         # Mobile API metadata root
         ("GET", "/api"),
+        # Operator-only Prometheus endpoint, intentionally outside the public API contract
+        ("GET", "/internal/metrics"),
         # Static legal pages served by the web layer
         ("GET", "/privacy.html"),
         ("GET", "/terms.html"),

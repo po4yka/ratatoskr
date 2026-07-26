@@ -5123,7 +5123,7 @@
           "ai-backups"
         ],
         "summary": "Ingest Session",
-        "description": "Persist a Playwright browser session for (user, service) — Mode A ingest.\n\nOn success: 204. On bad shape: 400. The storage_state is never echoed back.\nClears an existing AUTH_EXPIRED halt so the next scheduled run fires.",
+        "description": "Persist a Playwright browser session for (user, service) — Mode A ingest.\n\nOn success: 204. On bad shape: 400. The storage_state is never echoed back.\nMarks the session unverified so the next scheduled run verifies it.",
         "operationId": "ingest_session_v1_ai_backups__service__session_post",
         "security": [
           {
@@ -5153,6 +5153,56 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "403": {
+            "description": "Owner permissions required"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Revoke Session",
+        "description": "Delete a stored provider session and mark authorization missing.\n\nThe operation is owner-only and idempotent. It revokes Ratatoskr's local\nability to use the session; it does not sign the account out at the provider.",
+        "operationId": "revoke_session_v1_ai_backups__service__session_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Owner permissions required"
           },
           "422": {
             "description": "Validation Error",
@@ -16335,13 +16385,38 @@
         }
       }
     },
+    "/v1/status": {
+      "get": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Get public system status",
+        "description": "Return aggregate component health without exposing infrastructure details.",
+        "operationId": "public_status_v1_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicStatusSuccessResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
     "/health/detailed": {
       "get": {
         "tags": [
           "Health"
         ],
         "summary": "Detailed Health Check",
-        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nComprehensive health check with component status.\n\nReturns detailed status of all system components:\n- Database connectivity and size\n- Redis availability\n- Circuit breaker states\n- Overall health score",
+        "description": "Health/probe contract carve-out: status code and endpoint-specific probe schema are authoritative; readiness failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.\n\nOwner-only comprehensive health check with component status.\n\nReturns detailed status of all system components:\n- Database connectivity and size\n- Redis availability\n- Circuit breaker states\n- Overall health score",
         "operationId": "detailed_health_check_health_detailed_get",
         "responses": {
           "200": {
@@ -16359,6 +16434,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -16939,7 +17017,29 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "pending | ok | failed | auth_expired | disabled"
+            "description": "Deprecated combined lifecycle state; use backup_status and authorization_status"
+          },
+          "backup_status": {
+            "type": "string",
+            "title": "Backup Status",
+            "description": "pending | ok | failed | disabled"
+          },
+          "authorization_status": {
+            "type": "string",
+            "title": "Authorization Status",
+            "description": "missing | unverified | valid | expired"
+          },
+          "authorization_checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Checked At"
           },
           "last_backed_up_at": {
             "anyOf": [
@@ -17008,7 +17108,9 @@
         "type": "object",
         "required": [
           "service",
-          "status"
+          "status",
+          "backup_status",
+          "authorization_status"
         ],
         "title": "AiBackupItem",
         "description": "Lifecycle state of one service's backup."
@@ -20864,6 +20966,213 @@
           "data"
         ],
         "title": "PublicCollectionSuccessResponse"
+      },
+      "PublicStatusComponent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicStatusLevel"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "checked_at"
+        ],
+        "title": "PublicStatusComponent",
+        "description": "One sanitized public component check."
+      },
+      "PublicStatusGroup": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicStatusLevel"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/PublicStatusComponent"
+            },
+            "type": "array",
+            "title": "Components"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "components"
+        ],
+        "title": "PublicStatusGroup",
+        "description": "A stable group of related components."
+      },
+      "PublicStatusLevel": {
+        "type": "string",
+        "enum": [
+          "operational",
+          "degraded",
+          "outage",
+          "unknown",
+          "disabled"
+        ],
+        "title": "PublicStatusLevel",
+        "description": "Stable public component and aggregate status values."
+      },
+      "PublicStatusResponse": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/PublicStatusLevel"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "refresh_after_seconds": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Refresh After Seconds"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PublicStatusSummary"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/PublicStatusGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "generated_at",
+          "refresh_after_seconds",
+          "summary",
+          "groups"
+        ],
+        "title": "PublicStatusResponse",
+        "description": "Public status page payload."
+      },
+      "PublicStatusSuccessResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/PublicStatusResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "PublicStatusSuccessResponse",
+        "description": "Standard success envelope for the public status endpoint."
+      },
+      "PublicStatusSummary": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "operational": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Operational"
+          },
+          "degraded": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Degraded"
+          },
+          "outage": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Outage"
+          },
+          "unknown": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unknown"
+          },
+          "disabled": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Disabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total",
+          "operational",
+          "degraded",
+          "outage",
+          "unknown",
+          "disabled"
+        ],
+        "title": "PublicStatusSummary",
+        "description": "Exact component counts by public status."
       },
       "QuickSaveRequest": {
         "properties": {

@@ -88,7 +88,7 @@ The bot, API, worker, and scheduler are separate containers built from the proje
 |---|---|
 | `with-scrapers` | Self-hosted Firecrawl and dependencies, Crawl4AI, Defuddle, and CloakBrowser. |
 | `with-webwright` | Microsoft Webwright browser-agent sidecar. |
-| `with-monitoring` | Prometheus, Alertmanager, Grafana, Loki, Promtail, node-exporter, and tracing services. |
+| `with-monitoring` | Prometheus, Alertmanager, Grafana, Loki, Promtail, node-exporter, PostgreSQL/Redis exporters, and tracing services. |
 | `with-cloud-ollama` | Reachability check for a remote OpenAI-compatible Ollama endpoint. |
 | `mcp`, `mcp-write`, `mcp-public` | MCP server variants with distinct exposure/write policies. |
 
@@ -104,7 +104,7 @@ The default generic chain has 13 positions: Reddit, Hacker News, Scrapling, dire
 
 ## HTTP exposure
 
-Keep `mobile-api` bound to loopback and terminate TLS at a reverse proxy. Proxy the required `/v1`, `/web`, `/static`, SSE, and auth callback routes without stripping correlation or authorization headers. Configure the externally reachable base/callback URLs for enabled OAuth and digest features.
+Keep `mobile-api` bound to loopback and terminate TLS at a reverse proxy. Proxy the application origin, including `/v1`, `/static`, SSE, auth callbacks, and root SPA routes, without stripping correlation or authorization headers. Configure the externally reachable base/callback URLs for enabled OAuth and digest features.
 
 Do not expose PostgreSQL, Redis, Qdrant, scraper sidecars, or Webwright directly to the public network.
 
@@ -113,7 +113,7 @@ Do not expose PostgreSQL, Redis, Qdrant, scraper sidecars, or Webwright directly
 ```bash
 docker compose -f ops/docker/docker-compose.yml ps
 docker compose -f ops/docker/docker-compose.yml logs --tail=100 ratatoskr worker scheduler mobile-api
-curl -fsS http://127.0.0.1:18000/healthz
+curl -fsS http://127.0.0.1:18000/health/ready
 ```
 
 Then send a URL from an allowed Telegram account and confirm:
@@ -125,7 +125,12 @@ Then send a URL from an allowed Telegram account and confirm:
 
 ## Backups
 
-The `pg-backup` service writes scheduled PostgreSQL dumps to the configured host directory. Also protect media/session directories, operator configuration, encryption keys, and any Qdrant snapshot you need for fast restoration. Redis is ephemeral in the default stack.
+The `pg-backup` service writes scheduled encrypted PostgreSQL dumps to the
+configured host directory. Set `BACKUP_ENCRYPTION_KEY` in the deployment secret
+store before starting the stack; the sidecar fails closed when it is missing.
+Also protect media/session directories, operator configuration, encryption
+keys, and any Qdrant snapshot you need for fast restoration. Redis is ephemeral
+in the default stack.
 
 Follow [Back Up and Restore](backup-and-restore.md) and rehearse [Disaster Recovery](../runbooks/disaster-recovery.md) before relying on the deployment.
 
@@ -148,10 +153,15 @@ The Pi workflow builds Linux/ARM64 images on the development machine, streams th
 ```bash
 make pi-migrate
 make pi-migrate APPLY=1
-make pi-deploy
+make pi-deploy-all
 ```
 
-Use `make pi-deploy SERVICE=mobile-api` for the API image and the project rollback targets for retained previous images. The Pi does not run `docker build`.
+`make pi-deploy-all` ships the bot, worker, scheduler, API, and `pg-backup`
+images, then recreates all five services. The backup sidecar runs one dump on
+startup so the backup directory and node-exporter textfile metric exist before
+the deploy reports it healthy. Use `make pi-deploy SERVICE=mobile-api` or
+`make pi-deploy SERVICE=pg-backup` for a targeted image and the project rollback
+targets for retained previous images. The Pi does not run `docker build`.
 
 ## Troubleshooting
 

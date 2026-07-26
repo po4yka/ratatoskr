@@ -482,15 +482,12 @@ class GitBackupConfig(BaseModel):
 
     # Failure propagation (exit_on_failure)
     exit_on_failure: bool = Field(
-        default=False,
+        default=True,
         validation_alias="GIT_BACKUP_EXIT_ON_FAILURE",
         description=(
-            "When true AND the sync summary reports at least one failed repo, "
-            "the Taskiq task raises a RuntimeError at the end of the try block "
-            "(after index/reconcile/metrics/notify steps have run). This causes "
-            "Taskiq to record the run as failed and fires the healthcheck failure ping. "
-            "Default false = current behavior (task always completes as success "
-            "regardless of how many repos failed). Opt-in."
+            "Deprecated compatibility setting. Partial mirror failures always "
+            "propagate after metrics and notifications so Taskiq and healthchecks "
+            "cannot report a successful backup run."
         ),
     )
 
@@ -545,6 +542,19 @@ class GitBackupConfig(BaseModel):
         if value in (None, ""):
             return None
         return str(value).strip() or None
+
+    @field_validator("extra_repos")
+    @classmethod
+    def _validate_extra_repo_urls(cls, value: dict[str, str]) -> dict[str, str]:
+        from app.core.git_url_safety import assert_safe_git_url
+
+        for name, url in value.items():
+            try:
+                assert_safe_git_url(url)
+            except ValueError as exc:
+                msg = f"GIT_BACKUP_EXTRA_REPOS entry {name!r} has an unsafe clone URL: {exc}"
+                raise ValueError(msg) from exc
+        return value
 
     @model_validator(mode="after")
     def _validate_metrics_export_path_within_data_path(self) -> GitBackupConfig:

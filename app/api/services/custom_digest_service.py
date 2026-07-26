@@ -72,7 +72,9 @@ class CustomDigestService:
             )
 
         if body.mode == "synthesized":
-            language = "ru" if summaries and all(item.get("lang") == "ru" for item in summaries) else "en"
+            language = (
+                "ru" if summaries and all(item.get("lang") == "ru" for item in summaries) else "en"
+            )
             try:
                 content = (
                     await self._synthesizer.synthesize(
@@ -90,7 +92,9 @@ class CustomDigestService:
                 json_payload = ensure_mapping(summary.get("json_payload"))
                 metadata = ensure_mapping(json_payload.get("metadata"))
                 heading = (
-                    metadata.get("title") or request.get("input_url") or f"Summary {summary.get('id')}"
+                    metadata.get("title")
+                    or request.get("input_url")
+                    or f"Summary {summary.get('id')}"
                 )
                 summary_text = json_payload.get("summary_250", "")
                 content_parts.append(f"## {heading}\n\n{summary_text}")

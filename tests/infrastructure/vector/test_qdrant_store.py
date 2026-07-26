@@ -17,6 +17,7 @@ class _Client:
         self.closed = False
         self.fail_upsert = False
         self.fail_query = False
+        self.delete_status = "completed"
         self.records = [
             SimpleNamespace(
                 id="point-1",
@@ -59,7 +60,7 @@ class _Client:
 
     def delete(self, **kwargs: Any) -> Any:
         self.deletes.append(kwargs)
-        return SimpleNamespace(status="completed")
+        return SimpleNamespace(status=self.delete_status)
 
     def scroll(self, **_kwargs: Any) -> tuple[list[Any], None]:
         return self.records, None
@@ -238,6 +239,15 @@ def test_delete_by_request_ids_chunks_match_any_filters() -> None:
     assert [len(chunk) for chunk in chunks] == [100, 100, 5]
     assert [request_id for chunk in chunks for request_id in chunk] == list(range(205))
     assert all(call["wait"] is True for call in client.deletes)
+
+
+def test_delete_by_request_ids_rejects_unacknowledged_response() -> None:
+    client = _Client()
+    client.delete_status = "acknowledged"
+    store = _store(client, required=True)
+
+    with pytest.raises(VectorStoreError, match="request batch delete"):
+        store.delete_by_request_ids([1, 2])
 
 
 def test_qdrant_store_failure_paths_respect_required_flag() -> None:
