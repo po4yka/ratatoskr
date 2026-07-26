@@ -1,6 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -85,6 +86,30 @@ class _FakeLLM:
         return None
 
 
+class _UsageResult:
+    """chat_structured result carrying token/cost usage metadata."""
+
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.parsed = _Parsed(payload)
+        self.tokens_prompt = 210
+        self.tokens_completion = 55
+        self.cost_usd = 0.0009
+        self.model_used = "openrouter/digest-model"
+        self.latency_ms = 12
+
+
+class _UsageLLM(_FakeLLM):
+    """Fake LLM whose structured result exposes usage metadata."""
+
+    _model = "openrouter/digest-model"
+
+    async def chat_structured(self, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
+        self.calls += 1
+        if self.exc is not None:
+            raise self.exc
+        return _UsageResult(self.payload)
+
+
 def _analyzer(llm: _FakeLLM, store: _FakeStore | None = None) -> DigestAnalyzer:
     subject = DigestAnalyzer(_Cfg(), llm)
     subject._store = store or _FakeStore()
@@ -148,6 +173,74 @@ async def test_analyze_single_persists_valid_llm_analysis(monkeypatch: pytest.Mo
     assert result["relevance_score"] == 1.0
     assert result["content_type"] == "other"
     assert store.persisted[0][0] == post
+
+
+@pytest.mark.asyncio
+async def test_analyze_single_persists_llm_call_metadata_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression: the underlying LLM call's cost/tokens/model must be recorded,
+    # not just the parsed analysis.
+    monkeypatch.setattr(
+        analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}")
+    )
+    repo = MagicMock()
+    repo.async_insert_llm_call = AsyncMock()
+    llm = _UsageLLM(
+        payload={
+            "real_topic": "Topic",
+            "tldr": "Short",
+            "key_insights": ["a"],
+            "relevance_score": "1",
+            "content_type": "news",
+            "is_ad": False,
+        }
+    )
+    subject = DigestAnalyzer(_Cfg(), llm, llm_repo=repo)
+    subject._store = _FakeStore()
+
+    result = await subject._analyze_single(
+        {"message_id": 1, "text": "body", "url": "https://example.test"}, "cid", "en"
+    )
+
+    assert result is not None
+    repo.async_insert_llm_call.assert_awaited_once()
+    payload = repo.async_insert_llm_call.await_args.args[0]
+    assert payload["status"] == "success"
+    assert payload["endpoint"] == "digest_analysis"
+    assert payload["request_id"] is None
+    assert payload["tokens_prompt"] == 210
+    assert payload["tokens_completion"] == 55
+    assert payload["cost_usd"] == 0.0009
+    assert payload["model"] == "openrouter/digest-model"
+
+
+@pytest.mark.asyncio
+async def test_analyze_single_persists_llm_call_metadata_on_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An errored LLM call is still recorded (with status=error) so the failure
+    # is queryable rather than silently discarded.
+    monkeypatch.setattr(
+        analyzer_module.DigestAnalyzer, "_load_prompt", staticmethod(lambda lang: "{post_text}")
+    )
+    repo = MagicMock()
+    repo.async_insert_llm_call = AsyncMock()
+    llm = _UsageLLM(exc=RuntimeError("provider down"))
+    subject = DigestAnalyzer(_Cfg(), llm, llm_repo=repo)
+    subject._store = _FakeStore()
+
+    result = await subject._analyze_single(
+        {"message_id": 1, "text": "body", "title": "t"}, "cid", "en"
+    )
+
+    assert result["analysis_status"] == ANALYSIS_FAILED_STATUS
+    repo.async_insert_llm_call.assert_awaited_once()
+    payload = repo.async_insert_llm_call.await_args.args[0]
+    assert payload["status"] == "error"
+    assert payload["endpoint"] == "digest_analysis"
+    assert payload["model"] == "openrouter/digest-model"
+    assert "provider down" in payload["error_text"]
 
 
 @pytest.mark.asyncio

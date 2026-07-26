@@ -250,11 +250,17 @@ class _FakeQdrantClient:
         collection.config = config
         return collection
 
-    def upsert(self, *, collection_name: str, points: list, wait: bool = True) -> None:
+    def upsert(self, *, collection_name: str, points: list, wait: bool = True) -> MagicMock:
         self.upserted.extend(points)
+        result = MagicMock()
+        result.status.value = "completed"
+        return result
 
-    def delete(self, *, collection_name: str, points_selector: Any, wait: bool = True) -> None:
+    def delete(self, *, collection_name: str, points_selector: Any, wait: bool = True) -> MagicMock:
         self.deleted.append(points_selector)
+        result = MagicMock()
+        result.status.value = "completed"
+        return result
 
     def query_points(
         self,

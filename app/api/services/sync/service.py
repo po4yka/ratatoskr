@@ -129,13 +129,17 @@ class SyncFacade:
     ) -> FullSyncResponseData:
         session = await self._load_session(session_id, user_id, client_id)
         resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
-        records = await self._collector.collect_records(user_id)
         since = int(session.get("next_since") or 0)
-        page, has_more, next_since = self._collector.paginate_records(
-            records,
+        # Pass the cursor into collection so the DB only returns rows past it -- a
+        # full-sync chunk must not re-read the whole history each poll (audit #2).
+        collected = await self._collector.collect_page(
+            user_id,
             since=since,
             limit=resolved_limit,
         )
+        page = collected.records
+        has_more = collected.has_more
+        next_since = collected.next_since
         session["next_since"] = next_since or since
         await self._store_session(session)
         return self._build_full(session_id, page, has_more, next_since, resolved_limit)
@@ -151,12 +155,16 @@ class SyncFacade:
     ) -> DeltaSyncResponseData:
         session = await self._load_session(session_id, user_id, client_id)
         resolved_limit = self._resolve_limit(limit or session.get("chunk_limit"))
-        records = await self._collector.collect_records(user_id)
-        page, has_more, next_since = self._collector.paginate_records(
-            records,
+        # Delta sync is inherently incremental: push the client's cursor into the
+        # query so only rows changed past it are read, not the whole history (audit #2).
+        collected = await self._collector.collect_page(
+            user_id,
             since=since,
             limit=resolved_limit,
         )
+        page = collected.records
+        has_more = collected.has_more
+        next_since = collected.next_since
         return self._build_delta(session_id, since, page, has_more, next_since, resolved_limit)
 
     async def apply_changes(
@@ -219,15 +227,33 @@ class SyncFacade:
         limit: int,
     ) -> DeltaSyncResponseData:
         _ = limit
-        created = [rec for rec in records if not rec.deleted_at]
-        deleted = [rec for rec in records if rec.deleted_at]
+        created: list[Any] = []
+        updated: list[Any] = []
+        deleted: list[Any] = []
+        for rec in records:
+            if rec.deleted_at:
+                deleted.append(rec)
+                continue
+            # server_version and created_at are both epoch-ms (see
+            # app.db.types._next_server_version), so the client cursor `since`
+            # (a server_version) compares directly against created_at-ms. A row
+            # created at/before the cursor was already seen by the client, so a
+            # later change is an update; one created after the cursor is new to
+            # the client (created). Unknown creation time -> created, preserving
+            # the pre-fix default without ever misrouting an edit that carries a
+            # created_at.
+            created_ms = getattr(rec, "_created_at_ms", None)
+            if created_ms is not None and created_ms <= since:
+                updated.append(rec)
+            else:
+                created.append(rec)
         return DeltaSyncResponseData(
             session_id=session_id,
             since=since,
             has_more=has_more,
             next_since=next_since,
             created=created,
-            updated=[],
+            updated=updated,
             deleted=deleted,
         )
 

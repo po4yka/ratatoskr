@@ -21,7 +21,7 @@ from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger
-from app.security.ssrf import is_url_safe
+from app.security.ssrf import is_dns_failure_reason, is_url_safe
 
 logger = get_logger(__name__)
 
@@ -293,8 +293,16 @@ class PlaywrightProvider:
                 req_url: str = route.request.url  # type: ignore[attr-defined]
                 safe, reason = is_url_safe(req_url)
                 if not safe:
+                    # Distinguish a transient DNS failure from a genuine SSRF
+                    # policy block so resolver hiccups don't masquerade as
+                    # security rejections in the logs.
+                    event = (
+                        "playwright_dns_failed"
+                        if is_dns_failure_reason(reason)
+                        else "playwright_ssrf_blocked"
+                    )
                     logger.warning(
-                        "playwright_ssrf_blocked",
+                        event,
                         extra={"url": req_url, "reason": reason},
                     )
                     route.abort("accessdenied")  # type: ignore[attr-defined]

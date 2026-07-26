@@ -17,6 +17,10 @@ from app.api.models.responses import error_response, make_error
 from app.config import AppConfig, load_config
 from app.core.logging_utils import get_logger, sanitize_correlation_id
 from app.infrastructure.redis import get_redis, redis_key
+from app.observability.metrics_http_requests import (
+    change_http_in_flight,
+    record_http_request,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -25,6 +29,36 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
 logger = get_logger(__name__)
+
+
+def _route_template(request: Request) -> str:
+    """Return a server-defined route template, never the raw request path."""
+    route = request.scope.get("route")
+    template = getattr(route, "path_format", None) or getattr(route, "path", None)
+    if not isinstance(template, str) or not template.startswith("/") or len(template) > 256:
+        return "unmatched"
+    return template
+
+
+async def http_red_metrics_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
+    """Record bounded FastAPI request rate, errors, duration, and in-flight work."""
+    method = request.method
+    started = time.perf_counter()
+    status_code = 500
+    change_http_in_flight(method, 1)
+    try:
+        response = cast("Response", await call_next(request))
+        status_code = response.status_code
+        return response
+    finally:
+        record_http_request(
+            route=_route_template(request),
+            method=method,
+            status_code=status_code,
+            duration_seconds=time.perf_counter() - started,
+        )
+        change_http_in_flight(method, -1)
+
 
 # Cached config for middleware usage. Lazy-initialized on the first
 # request rather than at startup because (1) middleware is loaded
@@ -157,14 +191,119 @@ async def correlation_id_middleware(request: Request, call_next: Callable[..., A
 _DEFAULT_FRAME_ANCESTORS = "'self' https://web.telegram.org https://*.telegram.org"
 _DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment=()"
 
+# CSP for root SPA routes, compiled assets (/static/web/*), and the JSON API. ``frame-ancestors``
+# is appended separately below since it is env-overridable independently of
+# the rest of the policy.
+#
+# - script-src allows https://telegram.org: the Telegram Login Widget
+#   (ratatoskr-web src/auth/TelegramLoginButton.tsx) injects
+#   <script src="https://telegram.org/js/telegram-widget.js">.
+# - style-src-attr (narrower than style-src) carries 'unsafe-inline' because
+#   every inline style in the SPA today is a `style={{...}}` attribute --
+#   tag color swatches (TagRow.tsx) and indent depth (CollectionTreeNode.tsx).
+#   Browsers without style-src-attr support (pre-16.4 Safari) ignore that
+#   directive and fall back to enforcing style-src for attributes too, which
+#   would block those two cosmetic sites on such browsers; accepted as a
+#   narrow residual. If stratum-web's ChartContainer
+#   (components/ui/chart.tsx, which injects a <style> block via
+#   dangerouslySetInnerHTML) is ever wired in, style-src will need
+#   'unsafe-inline' added as well.
+# - img-src allows any https origin plus data: because article cover images
+#   and markdown body images load directly from their third-party origin --
+#   the backend's /v1/proxy/image endpoint requires an Authorization: Bearer
+#   header a plain <img src> cannot send (see ratatoskr-web's
+#   src/features/reader/ReaderPage.tsx and src/features/library/adapters.ts).
+#   Known, accepted gap until a same-origin unauthenticated image proxy
+#   exists.
+# - frame-src allows https://oauth.telegram.org: the Telegram Login Widget
+#   renders its confirmation UI in an iframe from Telegram's documented
+#   widget embed domain.
+# - connect-src 'self' by default: the API base URL is same-origin in
+#   production builds (VITE_API_BASE_URL empty) and the SSE client
+#   (src/api/streamRequest.ts) hits the same origin. Crash telemetry
+#   (ratatoskr-web src/lib/telemetry.ts, gated on VITE_ERROR_REPORT_URL) is
+#   the one deliberately cross-origin exception: that env var explicitly
+#   accepts an absolute http(s) collector URL, not just a same-origin path
+#   (see validateErrorReportUrl in src/lib/config.ts), and sends via
+#   sendBeacon/fetch -- both governed by connect-src. When a deployment
+#   points VITE_ERROR_REPORT_URL at an external collector, it must also set
+#   CSP_CONNECT_SRC_EXTRA on this backend to the same origin, or the beacon
+#   is silently dropped by the browser (telemetry failures are swallowed by
+#   design -- see reportRenderCrash -- so this would fail invisibly).
+_DEFAULT_CSP_CONNECT_SRC_EXTRA = ""
+
+
+def _app_csp(connect_src_extra: str) -> str:
+    connect_src = "'self'" if not connect_src_extra else f"'self' {connect_src_extra}"
+    return (
+        "default-src 'self'; "
+        "script-src 'self' https://telegram.org; "
+        "style-src 'self'; "
+        "style-src-attr 'unsafe-inline'; "
+        "img-src 'self' https: data:; "
+        "font-src 'self'; "
+        f"connect-src {connect_src}; "
+        "frame-src https://oauth.telegram.org; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+
+
+# Path prefixes that get the FastAPI docs UI's own, looser CSP instead of
+# _app_csp(). Only reachable when API_DOCS_ENABLED=true (main.py). Swagger UI
+# and ReDoc are FastAPI's stock get_swagger_ui_html/get_redoc_html templates
+# (fastapi/openapi/docs.py), unmodified, so the external asset list below is
+# read from that installed template rather than assumed:
+#   - Swagger UI (/docs, /docs/oauth2-redirect): loads swagger-ui-bundle.js
+#     and swagger-ui.css from cdn.jsdelivr.net, a favicon from
+#     fastapi.tiangolo.com, and has an inline <script> that calls
+#     SwaggerUIBundle(...) -- needs script-src 'unsafe-inline'.
+#     swagger-ui-dist's bundled CSS also embeds icons as data: URIs.
+#   - ReDoc (/redoc): loads redoc.standalone.js from cdn.jsdelivr.net, Google
+#     Fonts CSS from fonts.googleapis.com (the font files themselves come
+#     from fonts.gstatic.com), a favicon from fastapi.tiangolo.com, and an
+#     inline <style> block -- needs style-src 'unsafe-inline' but no
+#     script-src 'unsafe-inline'.
+#
+# /openapi.json is deliberately NOT in this list even though Swagger UI and
+# ReDoc both fetch it: it is a plain JSON response, never rendered as HTML,
+# so it has no scripts/styles/images of its own to allowlist for. It falls
+# through to the hardened _app_csp() below instead -- granting it the docs
+# UI's 'unsafe-inline'/cdn.jsdelivr.net allowances would be pure downside
+# (a strictly larger attack surface for a content-type-confusion attack)
+# with no functional benefit, since a page's CSP governs what that page's
+# own document can load, not what a same-origin fetch('/openapi.json') from
+# /docs or /redoc is allowed to do (that is governed by /docs's or /redoc's
+# own connect-src 'self', unaffected by this).
+_DOCS_CSP_PATH_PREFIXES = ("/docs", "/redoc")
+_DOCS_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+    "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline'; "
+    "img-src 'self' https://cdn.jsdelivr.net https://fastapi.tiangolo.com data:; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
 
 async def security_headers_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
     """Attach baseline security response headers to every response.
 
     Uses ``setdefault`` so a handler that intentionally set its own value wins.
-    CSP is limited to ``frame-ancestors`` (clickjacking protection) rather than a
-    full ``default-src`` policy so the served SPA's scripts/styles keep loading.
-    HSTS is safe to always send: browsers ignore it over plain HTTP.
+    Two CSP profiles apply depending on path: ``_app_csp()`` for the SPA and
+    JSON API (including /openapi.json), ``_DOCS_CSP`` for the opt-in FastAPI
+    docs UI (see the constants above for the evidence behind each directive).
+    ``frame-ancestors`` is appended to both -- clickjacking protection is
+    independent of the rest of the policy and stays env-overridable via
+    ``CSP_FRAME_ANCESTORS``. ``_app_csp()``'s connect-src also takes an
+    env-overridable extra origin via ``CSP_CONNECT_SRC_EXTRA`` for deployments
+    that point the SPA's crash telemetry at an external collector (see the
+    comment above ``_app_csp`` for why). HSTS is safe to always send: browsers
+    ignore it over plain HTTP.
     """
     response = cast("Response", await call_next(request))
     headers = response.headers
@@ -175,7 +314,13 @@ async def security_headers_middleware(request: Request, call_next: Callable[...,
         os.getenv("PERMISSIONS_POLICY", _DEFAULT_PERMISSIONS_POLICY),
     )
     frame_ancestors = os.getenv("CSP_FRAME_ANCESTORS", _DEFAULT_FRAME_ANCESTORS)
-    headers.setdefault("Content-Security-Policy", f"frame-ancestors {frame_ancestors}")
+    connect_src_extra = os.getenv("CSP_CONNECT_SRC_EXTRA", _DEFAULT_CSP_CONNECT_SRC_EXTRA).strip()
+    base_csp = (
+        _DOCS_CSP
+        if request.url.path.startswith(_DOCS_CSP_PATH_PREFIXES)
+        else _app_csp(connect_src_extra)
+    )
+    headers.setdefault("Content-Security-Policy", f"{base_csp}; frame-ancestors {frame_ancestors}")
     headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
     return response
 

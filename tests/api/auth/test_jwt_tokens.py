@@ -40,6 +40,7 @@ from app.api.routers.auth.tokens import (
     validate_client_id,
 )
 from app.api.routers.auth.webapp_auth import verify_telegram_webapp_init_data
+from app.config import clear_config_cache
 from app.core.time_utils import UTC
 
 # ---------------------------------------------------------------------------
@@ -55,7 +56,12 @@ _ALLOWED_USER_ID = 123456789
 def _configure_jwt(monkeypatch: pytest.MonkeyPatch) -> None:
     """Point decode_token at our test secret and reset the lazy cache."""
     monkeypatch.setenv("JWT_SECRET_KEY", _JWT_SECRET)
+    monkeypatch.delenv("JWT_SECRET", raising=False)
     monkeypatch.delenv("JWT_SECRET_PREVIOUS_KEYS", raising=False)
+    # _load_secret_key now reads the validated AppConfig field, so the cached
+    # config must be rebuilt from this test's env rather than whatever a prior
+    # test left behind.
+    clear_config_cache()
     tokens_module._secret_key_holder[0] = None
     tokens_module._previous_secret_keys_holder[0] = None
     tokens_module._jwt_legacy_claim_grace_started_at_holder[0] = datetime.now(UTC)
@@ -65,6 +71,44 @@ def _configure_allowlist(monkeypatch: pytest.MonkeyPatch, client_ids: str) -> No
     """Set ALLOWED_CLIENT_IDS and reset the warned-once flag."""
     monkeypatch.setenv("ALLOWED_CLIENT_IDS", client_ids)
     tokens_module._allowlist_empty_warned_holder[0] = False
+
+
+def test_jwt_secret_alias_is_honored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Setting only the documented JWT_SECRET alias (not JWT_SECRET_KEY) must
+    configure signing/verification via the validated AppConfig field."""
+    alias_secret = "alias-secret-key-32-characters-long-abc789"
+    monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+    monkeypatch.setenv("JWT_SECRET", alias_secret)
+    monkeypatch.delenv("JWT_SECRET_PREVIOUS_KEYS", raising=False)
+    clear_config_cache()
+    tokens_module._secret_key_holder[0] = None
+    tokens_module._previous_secret_keys_holder[0] = None
+    try:
+        # The alias value flows through to signing/verification unchanged.
+        assert tokens_module._get_secret_key() == alias_secret
+
+        token = create_access_token(user_id=1, client_id="test-client")
+        payload = decode_token(token, expected_type="access")
+        assert payload["user_id"] == 1
+
+        # A token signed with a different secret must not verify.
+        foreign = jwt.encode(
+            {
+                "user_id": 1,
+                "type": "access",
+                "iat": datetime.now(UTC),
+                "exp": datetime.now(UTC) + timedelta(minutes=5),
+                "iss": JWT_ISSUER,
+                "aud": JWT_AUDIENCE,
+            },
+            "some-other-secret-32-characters-long-000",
+            algorithm=ALGORITHM,
+        )
+        with pytest.raises(TokenInvalidError):
+            decode_token(foreign, expected_type="access")
+    finally:
+        clear_config_cache()
+        tokens_module._secret_key_holder[0] = None
 
 
 def _build_init_data(

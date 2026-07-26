@@ -115,8 +115,9 @@ class FakeEmbeddingService:
 
 
 class FakeQdrantStore(QdrantVectorStore):
-    def __init__(self, available: bool = True) -> None:
+    def __init__(self, available: bool = True, *, acknowledged: bool = True) -> None:
         self._available = available
+        self._acknowledged = acknowledged
         self.upserted: list[tuple[list[Any], list[Any], list[Any]]] = []
 
     @property
@@ -130,9 +131,10 @@ class FakeQdrantStore(QdrantVectorStore):
         ids: Sequence[str] | None = None,
         *,
         wait: bool = True,
-    ) -> None:
+    ) -> bool:
         del wait
         self.upserted.append((list(vectors), list(metadatas), list(ids or [])))
+        return self._acknowledged
 
 
 def _make_db_with_transaction() -> MagicMock:
@@ -260,6 +262,33 @@ async def test_indexer_embeds_on_changed_hash() -> None:
 
     assert embedding_service.call_count == 1
     assert len(qdrant.upserted) == 1
+
+
+@pytest.mark.asyncio
+async def test_indexer_does_not_persist_hash_without_qdrant_ack() -> None:
+    from app.infrastructure.search.git_mirror_readme_indexer import GitMirrorReadmeIndexer
+
+    embedding_service = FakeEmbeddingService()
+    qdrant = FakeQdrantStore(acknowledged=False)
+    db = _make_db_with_transaction()
+    fake_extractor = MagicMock()
+    fake_extractor.extract.return_value = "# Updated README"
+    indexer = GitMirrorReadmeIndexer(
+        embedding_service=embedding_service,
+        qdrant_store=qdrant,
+        db=db,
+        environment="prod",
+        user_scope="owner",
+        readme_extractor=fake_extractor,
+    )
+
+    await indexer.index_mirror(
+        _make_mirror(readme_content_hash="old-hash-value"),
+        Path("/fake/path"),
+    )
+
+    assert len(qdrant.upserted) == 1
+    db.transaction.assert_not_called()
 
 
 @pytest.mark.asyncio

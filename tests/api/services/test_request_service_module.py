@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import func, select
 
 from app.api.background.progress_events import ProgressEventRecord
 from app.application.services.request_service import RequestService
@@ -35,7 +36,8 @@ class _ProgressEventRepository:
         self.get_latest = AsyncMock(return_value=event)
 
 
-def _create_request(
+async def _create_request(
+    db,
     *,
     user_id: int,
     status: str,
@@ -43,21 +45,25 @@ def _create_request(
     created_at: datetime | None = None,
 ) -> Request:
     url = f"https://{correlation_id}.example.com"
-    return Request.create(  # type: ignore[attr-defined]
-        user_id=user_id,
-        input_url=url,
-        normalized_url=url,
-        dedupe_hash=f"hash-{correlation_id}",
-        correlation_id=correlation_id,
-        status=status,
-        type="url",
-        created_at=created_at or datetime.now(UTC),
-    )
+    async with db.transaction() as session:
+        request = Request(
+            user_id=user_id,
+            input_url=url,
+            normalized_url=url,
+            dedupe_hash=f"hash-{correlation_id}",
+            correlation_id=correlation_id,
+            status=status,
+            type="url",
+            created_at=created_at or datetime.now(UTC),
+        )
+        session.add(request)
+        await session.flush()
+        return request
 
 
 @pytest.mark.asyncio
 async def test_create_url_request_and_duplicate_detection(db, user_factory) -> None:
-    user = user_factory(username="request-user", telegram_user_id=5001)
+    user = await user_factory(username="request-user", telegram_user_id=5001)
     service = build_request_service(db)
 
     created = await service.create_url_request(
@@ -65,11 +71,18 @@ async def test_create_url_request_and_duplicate_detection(db, user_factory) -> N
         "example.com/articles/123",
         lang_preference="en",
     )
-    Summary.create(  # type: ignore[attr-defined]
-        request=created.id,
-        lang="en",
-        json_payload={"tldr": "TLDR", "summary_250": "Summary text", "key_ideas": ["idea"]},
-    )
+    async with db.transaction() as session:
+        session.add(
+            Summary(
+                request_id=created.id,
+                lang="en",
+                json_payload={
+                    "tldr": "TLDR",
+                    "summary_250": "Summary text",
+                    "key_ideas": ["idea"],
+                },
+            )
+        )
 
     duplicate = await service.check_duplicate_url(user.telegram_user_id, "example.com/articles/123")
 
@@ -106,11 +119,37 @@ async def test_create_url_request_detects_atomic_duplicate_race() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mark_enqueue_failed_records_a_terminal_error_for_the_owner() -> None:
+    request_repo = AsyncMock()
+    request_repo.async_get_request_by_id.return_value = {"id": 42, "user_id": 5001}
+    service = RequestService(
+        db=None,
+        request_repository=cast("RequestRepositoryPort", request_repo),
+        summary_repository=AsyncMock(),
+        crawl_result_repository=AsyncMock(),
+        llm_repository=AsyncMock(),
+    )
+
+    await service.mark_enqueue_failed(
+        user_id=5001,
+        request_id=42,
+        error_message="Unable to enqueue summary request. Error ID: promotion-42",
+    )
+
+    request_repo.async_update_request_error.assert_awaited_once_with(
+        42,
+        "error",
+        error_type="enqueue_failed",
+        error_message="Unable to enqueue summary request. Error ID: promotion-42",
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_forward_request_and_get_request_by_id_with_related_records(
     db,
     user_factory,
 ) -> None:
-    user = user_factory(username="forward-user", telegram_user_id=5002)
+    user = await user_factory(username="forward-user", telegram_user_id=5002)
     service = build_request_service(db)
     request = await service.create_forward_request(
         user.telegram_user_id,
@@ -120,13 +159,26 @@ async def test_create_forward_request_and_get_request_by_id_with_related_records
         lang_preference="ru",
     )
 
-    CrawlResult.create(request=request.id, status="ok", source_url="https://example.com/post")  # type: ignore[attr-defined]
-    LLMCall.create(request=request.id, status="ok", response_text="LLM output")  # type: ignore[attr-defined]
-    Summary.create(  # type: ignore[attr-defined]
-        request=request.id,
-        lang="ru",
-        json_payload={"tldr": "TLDR", "summary_250": "Summary", "key_ideas": ["idea"]},
-    )
+    async with db.transaction() as session:
+        session.add_all(
+            [
+                CrawlResult(
+                    request_id=request.id,
+                    status="ok",
+                    source_url="https://example.com/post",
+                ),
+                LLMCall(request_id=request.id, status="ok", response_text="LLM output"),
+                Summary(
+                    request_id=request.id,
+                    lang="ru",
+                    json_payload={
+                        "tldr": "TLDR",
+                        "summary_250": "Summary",
+                        "key_ideas": ["idea"],
+                    },
+                ),
+            ]
+        )
 
     details = await service.get_request_by_id(user.telegram_user_id, request.id)
 
@@ -145,21 +197,24 @@ async def test_create_forward_request_and_get_request_by_id_with_related_records
 async def test_retry_failed_request_requires_error_status_and_copies_fields(
     db, user_factory
 ) -> None:
-    user = user_factory(username="retry-user", telegram_user_id=5003)
+    user = await user_factory(username="retry-user", telegram_user_id=5003)
     service = build_request_service(db)
-    failed = Request.create(  # type: ignore[attr-defined]
-        user_id=user.telegram_user_id,
-        input_url="https://retry.example.com",
-        normalized_url="https://retry.example.com",
-        dedupe_hash="hash-1",
-        content_text="payload",
-        fwd_from_chat_id=333,
-        fwd_from_msg_id=444,
-        lang_detected="en",
-        correlation_id="cid-1",
-        status="error",
-        type="url",
-    )
+    async with db.transaction() as session:
+        failed = Request(
+            user_id=user.telegram_user_id,
+            input_url="https://retry.example.com",
+            normalized_url="https://retry.example.com",
+            dedupe_hash="hash-1",
+            content_text="payload",
+            fwd_from_chat_id=333,
+            fwd_from_msg_id=444,
+            lang_detected="en",
+            correlation_id="cid-1",
+            status="error",
+            type="url",
+        )
+        session.add(failed)
+        await session.flush()
 
     retried = await service.retry_failed_request(user.telegram_user_id, failed.id)
 
@@ -167,13 +222,16 @@ async def test_retry_failed_request_requires_error_status_and_copies_fields(
     assert retried.input_url == failed.input_url
     assert retried.correlation_id == "cid-1-retry-1"
 
-    pending = Request.create(  # type: ignore[attr-defined]
-        user_id=user.telegram_user_id,
-        input_url="https://pending.example.com",
-        normalized_url="https://pending.example.com",
-        status="pending",
-        type="url",
-    )
+    async with db.transaction() as session:
+        pending = Request(
+            user_id=user.telegram_user_id,
+            input_url="https://pending.example.com",
+            normalized_url="https://pending.example.com",
+            status="pending",
+            type="url",
+        )
+        session.add(pending)
+        await session.flush()
 
     with pytest.raises(ValidationError, match="Only failed requests"):
         await service.retry_failed_request(user.telegram_user_id, pending.id)
@@ -184,66 +242,94 @@ async def test_get_request_status_covers_processing_queue_complete_cancelled_and
     db,
     user_factory,
 ) -> None:
-    user = user_factory(username="status-user", telegram_user_id=5004)
+    user = await user_factory(username="status-user", telegram_user_id=5004)
     service = build_request_service(db)
     now = datetime.now(UTC)
 
-    crawling = _create_request(
+    crawling = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="processing",
         correlation_id="cid-crawling",
         created_at=now,
     )
-    processing = _create_request(
+    processing = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="processing",
         correlation_id="cid-processing",
         created_at=now + timedelta(seconds=1),
     )
-    CrawlResult.create(  # type: ignore[attr-defined]
-        request=processing.id, status="ok", source_url="https://example.com/processing"
-    )
-    almost_done = _create_request(
+    async with db.transaction() as session:
+        session.add(
+            CrawlResult(
+                request_id=processing.id,
+                status="ok",
+                source_url="https://example.com/processing",
+            )
+        )
+    almost_done = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="processing",
         correlation_id="cid-almost-done",
         created_at=now + timedelta(seconds=2),
     )
-    CrawlResult.create(  # type: ignore[attr-defined]
-        request=almost_done.id, status="ok", source_url="https://example.com/almost-done"
-    )
-    LLMCall.create(request=almost_done.id, status="ok", response_text="Generated summary")  # type: ignore[attr-defined]
-    Summary.create(  # type: ignore[attr-defined]
-        request=almost_done.id,
-        lang="en",
-        json_payload={"tldr": "TLDR", "summary_250": "Summary", "key_ideas": ["idea"]},
-    )
+    async with db.transaction() as session:
+        session.add_all(
+            [
+                CrawlResult(
+                    request_id=almost_done.id,
+                    status="ok",
+                    source_url="https://example.com/almost-done",
+                ),
+                LLMCall(
+                    request_id=almost_done.id,
+                    status="ok",
+                    response_text="Generated summary",
+                ),
+                Summary(
+                    request_id=almost_done.id,
+                    lang="en",
+                    json_payload={
+                        "tldr": "TLDR",
+                        "summary_250": "Summary",
+                        "key_ideas": ["idea"],
+                    },
+                ),
+            ]
+        )
 
-    _create_request(
+    await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="pending",
         correlation_id="cid-older-pending",
         created_at=now + timedelta(seconds=3),
     )
-    queued = _create_request(
+    queued = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="pending",
         correlation_id="cid-queued",
         created_at=now + timedelta(seconds=4),
     )
-    complete = _create_request(
+    complete = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="ok",
         correlation_id="cid-complete",
         created_at=now + timedelta(seconds=5),
     )
-    cancelled = _create_request(
+    cancelled = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="cancelled",
         correlation_id="cid-cancelled",
         created_at=now + timedelta(seconds=6),
     )
-    unknown = _create_request(
+    unknown = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="mystery",
         correlation_id="cid-unknown",
@@ -285,9 +371,10 @@ async def test_get_request_status_falls_back_for_failed_requests_and_enforces_ac
     db,
     user_factory,
 ) -> None:
-    user = user_factory(username="status-error-user", telegram_user_id=5005)
+    user = await user_factory(username="status-error-user", telegram_user_id=5005)
     service = build_request_service(db)
-    failed = _create_request(
+    failed = await _create_request(
+        db,
         user_id=user.telegram_user_id,
         status="error",
         correlation_id="cid-error",
@@ -390,25 +477,34 @@ async def test_get_request_status_uses_durable_progress_projection() -> None:
 @pytest.mark.asyncio
 async def test_retry_creates_new_row_not_mutates_original(db, user_factory) -> None:
     """retry_failed_request must insert a fresh row, not overwrite the failed one."""
-    user = user_factory(username="retry-new-row", telegram_user_id=7001)
+    user = await user_factory(username="retry-new-row", telegram_user_id=7001)
     service = build_request_service(db)
-    failed = Request.create(  # type: ignore[attr-defined]
-        user_id=user.telegram_user_id,
-        input_url="https://new-row.example.com",
-        normalized_url="https://new-row.example.com",
-        dedupe_hash="hash-new-row",
-        status="error",
-        correlation_id="cid-new-row",
-        type="url",
-    )
-    count_before = Request.select().count()  # type: ignore[attr-defined]
+    async with db.transaction() as session:
+        failed = Request(
+            user_id=user.telegram_user_id,
+            input_url="https://new-row.example.com",
+            normalized_url="https://new-row.example.com",
+            dedupe_hash="hash-new-row",
+            status="error",
+            correlation_id="cid-new-row",
+            type="url",
+        )
+        session.add(failed)
+        await session.flush()
+    async with db.session() as session:
+        count_before = int(await session.scalar(select(func.count(Request.id))) or 0)
 
     await service.retry_failed_request(user.telegram_user_id, failed.id)
 
-    assert Request.select().count() == count_before + 1  # type: ignore[attr-defined]
-    original = Request.get_by_id(failed.id)  # type: ignore[attr-defined]
+    async with db.session() as session:
+        count_after = int(await session.scalar(select(func.count(Request.id))) or 0)
+        original = await session.scalar(select(Request).where(Request.id == failed.id))
+        retry_row = await session.scalar(
+            select(Request).where(Request.correlation_id == "cid-new-row-retry-1")
+        )
+    assert count_after == count_before + 1
+    assert original is not None
     assert original.status == "error", "original row must stay in error state"
-    retry_row = Request.select().where(Request.correlation_id == "cid-new-row-retry-1").first()  # type: ignore[attr-defined]
     assert retry_row is not None
     assert retry_row.id != failed.id
     assert retry_row.status == "pending"
@@ -417,20 +513,26 @@ async def test_retry_creates_new_row_not_mutates_original(db, user_factory) -> N
 @pytest.mark.asyncio
 async def test_retry_does_not_carry_dedupe_hash(db, user_factory) -> None:
     """Cloned retry row must have dedupe_hash=None so it never collides with the original."""
-    user = user_factory(username="retry-no-hash", telegram_user_id=7002)
+    user = await user_factory(username="retry-no-hash", telegram_user_id=7002)
     service = build_request_service(db)
-    failed = Request.create(  # type: ignore[attr-defined]
-        user_id=user.telegram_user_id,
-        input_url="https://no-hash.example.com",
-        normalized_url="https://no-hash.example.com",
-        dedupe_hash="hash-no-hash",
-        status="error",
-        correlation_id="cid-no-hash",
-        type="url",
-    )
+    async with db.transaction() as session:
+        failed = Request(
+            user_id=user.telegram_user_id,
+            input_url="https://no-hash.example.com",
+            normalized_url="https://no-hash.example.com",
+            dedupe_hash="hash-no-hash",
+            status="error",
+            correlation_id="cid-no-hash",
+            type="url",
+        )
+        session.add(failed)
+        await session.flush()
 
     await service.retry_failed_request(user.telegram_user_id, failed.id)
 
-    retry_row = Request.select().where(Request.correlation_id == "cid-no-hash-retry-1").first()  # type: ignore[attr-defined]
+    async with db.session() as session:
+        retry_row = await session.scalar(
+            select(Request).where(Request.correlation_id == "cid-no-hash-retry-1")
+        )
     assert retry_row is not None
     assert retry_row.dedupe_hash is None

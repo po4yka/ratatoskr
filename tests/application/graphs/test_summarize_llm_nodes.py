@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -13,6 +14,10 @@ from app.application.graphs.summarize.deps import SummarizeConfig, SummarizeDeps
 from app.application.graphs.summarize.lifecycle import CallBudgetExceeded
 from app.application.graphs.summarize.nodes import enrich, repair, summarize, validate
 from app.application.graphs.summarize.state import MAX_REPAIR_ATTEMPTS
+from app.application.services.summarization.graph_llm_guard import (
+    GraphLLMGuard,
+    GraphLLMGuardConfig,
+)
 from app.core.call_status import CallStatus
 from app.core.summary_schema import SummaryModel
 
@@ -40,7 +45,12 @@ def _config(**over: Any) -> SummarizeConfig:
     return SummarizeConfig(**base)
 
 
-def _deps(*, llm_client: Any = None, config: SummarizeConfig | None = None) -> SummarizeDeps:
+def _deps(
+    *,
+    llm_client: Any = None,
+    config: SummarizeConfig | None = None,
+    llm_guard: GraphLLMGuard | None = None,
+) -> SummarizeDeps:
     m = MagicMock()
     return SummarizeDeps(
         llm_client=llm_client or m,
@@ -51,6 +61,7 @@ def _deps(*, llm_client: Any = None, config: SummarizeConfig | None = None) -> S
         requests=m,
         summary_index=m,
         config=config,
+        llm_guard=llm_guard,
     )
 
 
@@ -86,6 +97,41 @@ async def test_summarize_node_produces_summary_and_graph_node_llm_call() -> None
     assert rec["status"] == "ok"
 
 
+async def test_summarize_node_persists_each_physical_structured_attempt() -> None:
+    result = _structured(_VALID, model="fallback-model")
+    result.physical_attempts = [
+        {
+            "model": "primary-model",
+            "status": "error",
+            "tokens_prompt": 20,
+            "tokens_completion": 3,
+            "cost_usd": 0.002,
+            "latency_ms": 40,
+            "error_text": "schema validation failed",
+        },
+        {
+            "model": "fallback-model",
+            "status": "ok",
+            "tokens_prompt": 22,
+            "tokens_completion": 5,
+            "cost_usd": 0.003,
+            "latency_ms": 50,
+            "error_text": None,
+        },
+    ]
+    llm = SimpleNamespace(chat_structured=AsyncMock(return_value=result))
+
+    out = await summarize(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
+
+    assert out["call_count"] == 2
+    assert [record["status"] for record in out["llm_calls"]] == ["error", "ok"]
+    assert [record["model"] for record in out["llm_calls"]] == [
+        "primary-model",
+        "fallback-model",
+    ]
+    assert [record["cost_usd"] for record in out["llm_calls"]] == [0.002, 0.003]
+
+
 async def test_summarize_node_noop_without_messages() -> None:
     out = await summarize({"request_id": 1}, deps=_deps(llm_client=MagicMock(), config=_config()))
     assert out == {}
@@ -95,6 +141,23 @@ async def test_summarize_node_failure_propagates() -> None:
     llm = SimpleNamespace(chat_structured=AsyncMock(side_effect=RuntimeError("boom")))
     with pytest.raises(ValueError, match="Instructor LLM call failed"):
         await summarize(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
+
+
+async def test_summarize_node_enforces_graph_call_cap() -> None:
+    llm = SimpleNamespace(chat_structured=AsyncMock(return_value=_structured(_VALID)))
+    guard = GraphLLMGuard(
+        sem=lambda: asyncio.Semaphore(1),
+        llm_repo=None,
+        config=GraphLLMGuardConfig(max_calls_per_request=1),
+    )
+
+    with pytest.raises(CallBudgetExceeded, match="call cap"):
+        await summarize(
+            _prompted_state(call_count=1),
+            deps=_deps(llm_client=llm, config=_config(), llm_guard=guard),
+        )
+
+    llm.chat_structured.assert_not_awaited()
 
 
 # --------------------------------------------------------------------------- #
@@ -141,9 +204,9 @@ async def test_validate_node_flags_invalid_summary() -> None:
     assert out["validation_errors"]  # non-empty -> routes to repair
 
 
-async def test_validate_node_empty_summary_is_valid_empty() -> None:
+async def test_validate_node_empty_summary_routes_to_repair() -> None:
     out = await validate({}, deps=MagicMock())
-    assert out == {"validation_errors": []}
+    assert out == {"validation_errors": ["Summary is missing"]}
 
 
 # --------------------------------------------------------------------------- #
@@ -160,11 +223,15 @@ async def test_repair_node_budget_exhaustion_raises() -> None:
 
 
 async def test_repair_node_reruns_and_records_call() -> None:
-    llm = SimpleNamespace(chat_structured=AsyncMock(return_value=_structured(_VALID)))
+    llm = SimpleNamespace(
+        provider_name="anthropic",
+        chat_structured=AsyncMock(return_value=_structured(_VALID)),
+    )
     out = await repair(_prompted_state(), deps=_deps(llm_client=llm, config=_config()))
     assert out["repair_attempts"] == 1
     assert out["summary"]["summary_250"] == "a summary"
     assert out["llm_calls"][0]["attempt_trigger"] == "graph_node"
+    assert out["llm_calls"][0]["provider"] == "anthropic"
 
 
 async def test_repair_node_records_failure_call_and_advances_budget() -> None:
@@ -207,13 +274,14 @@ async def test_enrich_node_noop_without_config() -> None:
 
 def _enriching_llm() -> Any:
     return SimpleNamespace(
+        provider_name="ollama",
         chat=AsyncMock(
             return_value=SimpleNamespace(
                 status=CallStatus.OK,
                 response_text='{"seo_keywords": ["x", "y"]}',
                 error_text=None,
             )
-        )
+        ),
     )
 
 
@@ -229,6 +297,7 @@ async def test_enrich_node_enabled_merges_keys() -> None:
         deps=_deps(llm_client=llm, config=_config(two_pass_enabled=True)),
     )
     assert out["summary"]["seo_keywords"] == ["x", "y"]
+    assert out["llm_calls"][0]["provider"] == "ollama"
 
 
 async def test_enrich_node_noop_when_not_eligible_even_if_enabled() -> None:

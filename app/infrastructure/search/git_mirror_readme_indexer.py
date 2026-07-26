@@ -159,12 +159,18 @@ class GitMirrorReadmeIndexer:
         point_id = git_mirror_point_id(self._environment, self._user_scope, mirror.id)
         payload = self._build_payload(mirror)
 
-        await asyncio.to_thread(
+        acknowledged = await asyncio.to_thread(
             self._qdrant.upsert_notes,
             [vector],
             [payload],
             [point_id],
         )
+        if acknowledged is not True:
+            logger.warning(
+                "git_mirror_readme_qdrant_unacknowledged",
+                extra={"mirror_id": mirror.id, "clone_url": mirror.clone_url},
+            )
+            return
 
         # 7. Persist hash + timestamp on the DB row.
         await self._persist_index_metadata(mirror.id, content_hash)

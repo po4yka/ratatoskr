@@ -24,6 +24,7 @@ from app.api.models.auth import (  # noqa: TC001 - FastAPI resolves these at run
 )
 from app.api.models.responses import AuthTokensResponse, TokenPair, success_response
 from app.api.routers.auth._fastapi import APIRouter, Depends
+from app.api.routers.auth.argon2_offload import run_argon2
 from app.api.routers.auth.cookies import set_refresh_cookie
 from app.api.routers.auth.credential_auth import (
     canonicalize_identifier,
@@ -104,13 +105,13 @@ async def credentials_login(
 
     # Decoy verify on the no-row-found path so timing matches the success path.
     if record is None:
-        run_decoy_verify(payload.password)
+        await run_argon2(run_decoy_verify, payload.password)
         logger.warning("credentials_login_unknown_identifier", extra={"kind": kind})
         raise _generic_failure()
 
     user_id = record.get("user_id")
     if user_id is None:
-        run_decoy_verify(payload.password)
+        await run_argon2(run_decoy_verify, payload.password)
         raise _generic_failure()
 
     # Allowlist check: a credential row that maps to a non-allowed user must
@@ -118,7 +119,7 @@ async def credentials_login(
     try:
         ensure_user_allowed(int(user_id))
     except Exception:
-        run_decoy_verify(payload.password)
+        await run_argon2(run_decoy_verify, payload.password)
         raise _generic_failure() from None
 
     # Lockout check: a still-locked row returns 401 + Retry-After. We do NOT
@@ -135,8 +136,8 @@ async def credentials_login(
 
     cfg = load_config(allow_stub_telegram=True)
     auth_cfg = cfg.auth
-    matched, needs_rehash = verify_password(
-        payload.password, record["password_hash"], record.get("pepper_version", 1)
+    matched, needs_rehash = await run_argon2(
+        verify_password, payload.password, record["password_hash"], record.get("pepper_version", 1)
     )
 
     if not matched:
@@ -160,7 +161,7 @@ async def credentials_login(
     await cred_repo.async_reset_failure(record["id"])
     await cred_repo.async_touch_last_login(record["id"], now)
     if needs_rehash:
-        new_phc, new_version = hash_password(payload.password)
+        new_phc, new_version = await run_argon2(hash_password, payload.password)
         await cred_repo.async_update_password_hash(
             record["id"], password_hash=new_phc, pepper_version=new_version
         )
@@ -222,13 +223,7 @@ async def change_password(
     user: dict[str, Any] = Depends(get_current_user),
     auth_repo: Any = Depends(get_auth_repository),
 ) -> Any:
-    """Change the current user's password (requires the current one).
-
-    Revokes every active refresh-token family for the user after a
-    successful change -- mirrors ``POST /v1/auth/logout-all`` -- so a
-    refresh token that leaked before the change cannot keep surviving on
-    it (previously it could ride out its full TTL, up to 30 days).
-    """
+    """Change the current user's password and revoke all active refresh-token families."""
     user_id = int(user["user_id"])
     ensure_user_allowed(user_id)
     validate_password(payload.new_password)
@@ -240,7 +235,8 @@ async def change_password(
         # don't disclose whether the owner has set up password auth.
         raise _generic_failure()
 
-    matched, _ = verify_password(
+    matched, _ = await run_argon2(
+        verify_password,
         payload.current_password,
         record["password_hash"],
         record.get("pepper_version", 1),
@@ -248,7 +244,7 @@ async def change_password(
     if not matched:
         raise _generic_failure()
 
-    new_phc, new_version = hash_password(payload.new_password)
+    new_phc, new_version = await run_argon2(hash_password, payload.new_password)
     await cred_repo.async_update_password_hash(
         record["id"], password_hash=new_phc, pepper_version=new_version
     )

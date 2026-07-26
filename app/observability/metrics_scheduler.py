@@ -27,6 +27,7 @@ if PROMETHEUS_AVAILABLE:
         "ratatoskr_scheduler_queue_depth",
         "Current depth of a named background job queue",
         ["queue"],
+        multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
 

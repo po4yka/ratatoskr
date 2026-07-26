@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.graphs.summarize.deps import SummarizeConfig
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.graphs.summarize.nodes._context import load_source_text
 from app.application.services.summarization.graph_llm import enrich_two_pass
 
 if TYPE_CHECKING:
@@ -43,38 +44,47 @@ async def enrich(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     if not summary:
         return {}
 
-    enriched, call_meta = await enrich_two_pass(
+    source_text = state.get("content_for_summary") or await load_source_text(state, deps)
+    enriched, call_metas, call_count = await enrich_two_pass(
         llm_client=deps.llm_client,
         summary=summary,
-        content_text=state.get("content_for_summary") or state.get("source_text") or "",
+        content_text=source_text,
         chosen_lang=state.get("lang") or "en",
         temperature=config.temperature,
         top_p=config.top_p,
         enrichment_max_tokens=config.enrichment_max_tokens,
         enrichment_content_max_chars=config.enrichment_content_max_chars,
         correlation_id=state.get("correlation_id"),
+        request_id=state.get("request_id"),
+        guard=getattr(deps, "llm_guard", None),
+        current_call_count=state.get("call_count", 0),
     )
 
-    result: dict[str, Any] = {"summary": enriched}
+    result: dict[str, Any] = {"summary": enriched, "call_count": call_count}
 
-    # GAP 3b: append enrichment call record when the LLM was actually called.
-    # FIX-5: call_meta is None on non-OK status (enrich_two_pass contract); use
-    # the real status from call_meta rather than a hardcoded "ok" literal.
-    if call_meta is not None:
+    # Append every physical enrichment attempt, including transport failures and
+    # provider fallbacks. The adapter's per-model telemetry is already normalized
+    # by ``enrich_two_pass``.
+    if call_metas:
+        provider = getattr(deps.llm_client, "provider_name", None)
+        if not isinstance(provider, str) or not provider:
+            provider = config.llm_provider
         result["llm_calls"] = [
             {
                 "request_id": state.get("request_id"),
-                "provider": "openrouter",
+                "provider": provider,
                 "model": call_meta.get("model"),
                 "tokens_prompt": call_meta.get("tokens_prompt"),
                 "tokens_completion": call_meta.get("tokens_completion"),
                 "cost_usd": call_meta.get("cost_usd"),
                 "latency_ms": call_meta.get("latency_ms"),
                 "status": call_meta.get("status") or "ok",
+                "error_text": call_meta.get("error_text"),
                 "structured_output_used": False,
                 "structured_output_mode": config.structured_output_mode,
                 "attempt_trigger": "graph_node",
             }
+            for call_meta in call_metas
         ]
 
     return result

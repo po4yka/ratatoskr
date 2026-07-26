@@ -295,6 +295,7 @@ async def test_connections_list_returns_safe_status_without_tokens(
     client: Any,
     db: Any,
     social_users: Any,
+    fake_oauth_clients: dict[str, FakeSocialOAuthClient],
 ) -> None:
     now = datetime.now(UTC)
     async with db.transaction() as session:

@@ -10,6 +10,12 @@ import pytest
 
 from app.adapters.external.response_formatter import ResponseFormatter
 
+# Marked so the integration CI job (`-m integration`) collects this suite. Files
+# under tests/integration/ are --ignored by the unit job, so an unmarked file
+# here runs in neither job and is silently excluded. See
+# tests/test_ci_workflow_excludes.py.
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_progress_message_editing():

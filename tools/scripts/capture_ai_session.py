@@ -34,7 +34,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import stat
 import sys
+import uuid
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -55,6 +58,7 @@ SERVICE_CONFIG: dict[str, dict[str, str]] = {
 }
 
 CF_CLEARANCE_COOKIE = "cf_clearance"
+_O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +145,41 @@ def _print_summary(out_path: Path, session_cookie_name: str) -> bool:
     return session_present
 
 
+def _write_session_state(out_path: Path, storage_state: dict) -> None:
+    """Atomically write live cookies to an owner-only, non-symlink file."""
+    try:
+        existing = out_path.lstat()
+    except FileNotFoundError:
+        existing = None
+    if existing is not None and stat.S_ISLNK(existing.st_mode):
+        raise OSError(f"Refusing to replace symlink output path: {out_path}")
+
+    payload = json.dumps(storage_state, ensure_ascii=False).encode("utf-8")
+    tmp_path = out_path.parent / f".{out_path.name}.{uuid.uuid4().hex}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_NOFOLLOW
+    fd: int | None = None
+    try:
+        fd = os.open(tmp_path, flags, 0o600)
+        os.fchmod(fd, 0o600)
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("write returned no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        os.replace(tmp_path, out_path)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Main async entrypoint
 # ---------------------------------------------------------------------------
@@ -202,7 +241,8 @@ async def run(args: argparse.Namespace) -> int:
             pass
 
         print("\nCapturing storage state ...")
-        await context.storage_state(path=str(out_path))
+        storage_state = await context.storage_state()
+        _write_session_state(out_path, dict(storage_state))
         print(f"Storage state written to: {out_path}")
 
         if browser is not None and not args.cdp:

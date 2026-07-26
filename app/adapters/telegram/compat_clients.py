@@ -235,14 +235,20 @@ class TelethonBotClient:
         *,
         scope: Any | None = None,
         language_code: str | None = None,
+        peer: int | None = None,
     ) -> None:
         if functions is None or types is None:
             return
-        scope_obj = (
-            types.BotCommandScopeUsers()
-            if isinstance(scope, BotCommandScopeAllPrivateChats)
-            else types.BotCommandScopeDefault()
-        )
+        if peer is not None:
+            # Per-chat scope: commands are advertised only in this peer's
+            # private chat with the bot. Used to expose admin/debug commands to
+            # the owner(s) without leaking them to every user's command menu.
+            input_peer = await self._client.get_input_entity(peer)
+            scope_obj = types.BotCommandScopePeer(peer=input_peer)
+        elif isinstance(scope, BotCommandScopeAllPrivateChats):
+            scope_obj = types.BotCommandScopeUsers()
+        else:
+            scope_obj = types.BotCommandScopeDefault()
         await self._client(
             functions.bots.SetBotCommandsRequest(
                 scope=scope_obj,

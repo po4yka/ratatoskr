@@ -1,16 +1,12 @@
 """End-to-end (ADR-0017): the real ``_dispatch_summary_token`` producer ->
 langgraph ``astream_events`` -> ``GraphEventBridge`` -> StreamSink section events.
 
-Requires the optional ``graph`` extra; skipped where langgraph is absent (the
-no-graph-extra CI invariant)."""
+LangGraph is a required dependency, so collection fails instead of silently
+skipping this real framework test when the runtime is missing."""
 
 from __future__ import annotations
 
 from typing import Any, TypedDict, cast
-
-import pytest
-
-pytest.importorskip("langgraph")
 
 from app.adapters.content.streaming.graph_event_bridge import GraphEventBridge
 from app.application.graphs.summarize.nodes.summarize import (

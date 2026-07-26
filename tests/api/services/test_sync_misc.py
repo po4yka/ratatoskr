@@ -15,15 +15,20 @@ def make_sync_envelope(
     entity_id: int = 1,
     server_version: int = 1,
     deleted_at: str | None = None,
+    created_at_ms: int | None = None,
 ) -> SyncEntityEnvelope:
     """Helper to create SyncEntityEnvelope instances for testing."""
-    return SyncEntityEnvelope(
+    envelope = SyncEntityEnvelope(
         entity_type=entity_type,
         id=entity_id,
         server_version=server_version,
         updated_at=datetime.now(UTC).isoformat() + "Z",
         deleted_at=deleted_at,
     )
+    # Mirrors SyncRecordCollector, which stamps creation time (epoch-ms) so the
+    # delta bucketer can distinguish a new row from an in-place edit.
+    envelope._created_at_ms = created_at_ms
+    return envelope
 
 
 @pytest.fixture
@@ -232,6 +237,55 @@ class TestBuildResponses:
         assert len(response.created) == 1
         assert len(response.updated) == 0
         assert len(response.deleted) == 1
+
+    def test_build_delta_splits_created_updated_and_deleted(self, sync_service):
+        """In-place edits land in `updated`, not `created` (the documented bucket
+        was previously always empty)."""
+        now = datetime.now(UTC)
+        since = 100
+        records = [
+            # Created after the cursor -> new to the client -> created.
+            make_sync_envelope(entity_id=5, server_version=150, created_at_ms=150),
+            # Created before the cursor, changed after -> in-place edit -> updated.
+            make_sync_envelope(entity_id=6, server_version=160, created_at_ms=50),
+            # Soft-deleted -> deleted (regardless of creation time).
+            make_sync_envelope(
+                entity_id=7,
+                server_version=170,
+                deleted_at=now.isoformat() + "Z",
+                created_at_ms=40,
+            ),
+        ]
+
+        response = sync_service._build_delta(
+            session_id="test-session",
+            since=since,
+            records=records,
+            has_more=False,
+            next_since=170,
+            limit=100,
+        )
+
+        assert [r.id for r in response.created] == [5]
+        assert [r.id for r in response.updated] == [6]
+        assert [r.id for r in response.deleted] == [7]
+
+    def test_build_delta_unknown_creation_time_defaults_to_created(self, sync_service):
+        """A record with no creation time keeps the pre-fix default (created),
+        so it is never silently dropped from the response."""
+        records = [make_sync_envelope(entity_id=9, server_version=200, created_at_ms=None)]
+
+        response = sync_service._build_delta(
+            session_id="test-session",
+            since=100,
+            records=records,
+            has_more=False,
+            next_since=200,
+            limit=100,
+        )
+
+        assert [r.id for r in response.created] == [9]
+        assert response.updated == []
 
 
 class TestCoerceIsoEdgeCases:

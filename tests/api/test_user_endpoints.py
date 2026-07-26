@@ -29,6 +29,7 @@ enum.StrEnum = StrEnum  # type: ignore[misc,assignment]
 from sqlalchemy import select
 
 from app.api.routers.user import get_current_user_profile, get_user_preferences, safe_isoformat
+from app.api.routers.user.user import get_user_stats, update_user_preferences
 from app.db.models import Request, Summary, User
 
 if TYPE_CHECKING:
@@ -65,6 +66,9 @@ async def _create_summary(
     is_read: bool = False,
     json_payload: dict | None = None,
 ) -> int:
+    payload = json_payload if isinstance(json_payload, dict) else {}
+    raw_reading_time = payload.get("estimated_reading_time_min")
+    raw_topic_tags = payload.get("topic_tags")
     async with db.transaction() as session:
         request = Request(
             user_id=user_id,
@@ -80,6 +84,8 @@ async def _create_summary(
             lang=lang,
             is_read=is_read,
             json_payload=json_payload,
+            reading_time=(int(raw_reading_time) if isinstance(raw_reading_time, int) else None),
+            topic_tags=raw_topic_tags if isinstance(raw_topic_tags, list) else None,
         )
         session.add(summary)
         await session.flush()
@@ -264,7 +270,6 @@ async def test_update_preferences_lang_preference(
     _configure_env(monkeypatch)
 
     from app.api.models.requests import UpdatePreferencesRequest
-    from app.api.routers.user import update_user_preferences  # type: ignore[attr-defined]
 
     response = await update_user_preferences(
         preferences=UpdatePreferencesRequest(lang_preference="ru"),
@@ -285,7 +290,6 @@ async def test_update_preferences_notification_settings(
     _configure_env(monkeypatch)
 
     from app.api.models.requests import UpdatePreferencesRequest
-    from app.api.routers.user import update_user_preferences  # type: ignore[attr-defined]
 
     response = await update_user_preferences(
         preferences=UpdatePreferencesRequest(
@@ -308,7 +312,6 @@ async def test_update_preferences_app_settings(
     _configure_env(monkeypatch)
 
     from app.api.models.requests import UpdatePreferencesRequest
-    from app.api.routers.user import update_user_preferences  # type: ignore[attr-defined]
 
     response = await update_user_preferences(
         preferences=UpdatePreferencesRequest(app_settings={"theme": "light", "font_size": "large"}),
@@ -327,7 +330,6 @@ async def test_update_preferences_all_fields(db: Database, monkeypatch: pytest.M
     _configure_env(monkeypatch)
 
     from app.api.models.requests import UpdatePreferencesRequest
-    from app.api.routers.user import update_user_preferences  # type: ignore[attr-defined]
 
     response = await update_user_preferences(
         preferences=UpdatePreferencesRequest(
@@ -359,7 +361,6 @@ async def test_update_preferences_merge_existing(
     )
 
     from app.api.models.requests import UpdatePreferencesRequest
-    from app.api.routers.user import update_user_preferences  # type: ignore[attr-defined]
 
     await update_user_preferences(
         preferences=UpdatePreferencesRequest(notification_settings={"enabled": False}),
@@ -379,7 +380,6 @@ async def test_update_preferences_empty_request(
     _configure_env(monkeypatch)
 
     from app.api.models.requests import UpdatePreferencesRequest
-    from app.api.routers.user import update_user_preferences  # type: ignore[attr-defined]
 
     response = await update_user_preferences(
         preferences=UpdatePreferencesRequest(),
@@ -403,7 +403,6 @@ async def test_update_preferences_app_settings_no_existing(
     )
 
     from app.api.models.requests import UpdatePreferencesRequest
-    from app.api.routers.user import update_user_preferences  # type: ignore[attr-defined]
 
     response = await update_user_preferences(
         preferences=UpdatePreferencesRequest(app_settings={"theme": "dark"}),
@@ -423,8 +422,6 @@ async def test_update_preferences_app_settings_no_existing(
 async def test_get_stats_no_summaries(db: Database, monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_env(monkeypatch)
     await _create_user(db, telegram_user_id=123456789, username="testuser")
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     response = await get_user_stats(user={"user_id": 123456789})
     data = response["data"]
@@ -457,8 +454,6 @@ async def test_get_stats_with_summaries(db: Database, monkeypatch: pytest.Monkey
             },
         )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert data["totalSummaries"] == 3
     assert data["unreadCount"] == 2
@@ -488,8 +483,6 @@ async def test_get_stats_language_distribution(
             },
         )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert data["languageDistribution"]["en"] == 2
     assert data["languageDistribution"]["ru"] == 1
@@ -511,8 +504,6 @@ async def test_get_stats_topic_counter(db: Database, monkeypatch: pytest.MonkeyP
                 "metadata": {"domain": "test.com"},
             },
         )
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     topics = {t["topic"]: t["count"] for t in data["favoriteTopics"]}
@@ -547,8 +538,6 @@ async def test_get_stats_domain_extraction(db: Database, monkeypatch: pytest.Mon
         },
     )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     domains = {d["domain"]: d["count"] for d in data["favoriteDomains"]}
     assert "example.com" in domains
@@ -572,8 +561,6 @@ async def test_get_stats_invalid_topic_tags_type(
         },
     )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert data["favoriteTopics"] == []
 
@@ -582,8 +569,6 @@ async def test_get_stats_none_json_payload(db: Database, monkeypatch: pytest.Mon
     _configure_env(monkeypatch)
     await _create_user(db, telegram_user_id=123456789, username="testuser")
     await _create_summary(db, user_id=123456789, url="http://test.com", json_payload=None)
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert data["totalSummaries"] == 1
@@ -605,8 +590,6 @@ async def test_get_stats_url_parse_error(db: Database, monkeypatch: pytest.Monke
         },
     )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     response = await get_user_stats(user={"user_id": 123456789})
     assert response["success"] is True
 
@@ -627,8 +610,6 @@ async def test_get_stats_last_summary_timestamp(
         },
     )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert "lastSummaryAt" in data
     if data["lastSummaryAt"]:
@@ -638,8 +619,6 @@ async def test_get_stats_last_summary_timestamp(
 async def test_get_stats_joined_at_timestamp(db: Database, monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_env(monkeypatch)
     await _create_user(db, telegram_user_id=123456789, username="testuser")
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert "joinedAt" in data
@@ -663,8 +642,6 @@ async def test_get_stats_topic_tags_with_none_values(
             "metadata": {"domain": "test.com"},
         },
     )
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     topics = {t["topic"] for t in data["favoriteTopics"]}
@@ -691,8 +668,6 @@ async def test_get_stats_language_other_than_en_ru(
         },
     )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert data["languageDistribution"]["en"] == 0
     assert data["languageDistribution"]["ru"] == 0
@@ -715,8 +690,6 @@ async def test_get_stats_domain_extraction_from_request(
             "metadata": {},
         },
     )
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     data = (await get_user_stats(user={"user_id": 123456789}))["data"]
     assert "favoriteDomains" in data

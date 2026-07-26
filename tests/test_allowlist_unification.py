@@ -259,6 +259,120 @@ def test_known_client_id_accepted_when_allowlist_configured(monkeypatch):
     tokens.validate_client_id("web-v1")
 
 
+_KNOWN_CLIENT_IDS_WARNING = (
+    "ALLOWED_CLIENT_IDS omits official client_ids listed in "
+    "KNOWN_CLIENT_IDS; those clients will be rejected at auth. "
+    "Add them to ALLOWED_CLIENT_IDS, or set "
+    "AUTH_ALLOW_ANY_CLIENT_ID=true if the omission is intentional."
+)
+
+
+def _warning_calls(warning_mock, event: str):
+    """Return every logger.warning call whose first positional arg is ``event``."""
+    return [c for c in warning_mock.call_args_list if c.args and c.args[0] == event]
+
+
+def test_explicit_allowlist_omitting_known_client_id_warns_at_startup():
+    """A non-empty ALLOWED_CLIENT_IDS that drops a KNOWN_CLIENT_IDS entry must
+    emit a startup warning naming exactly the missing official ids."""
+    from app.config import settings
+    from app.config.known_client_ids import KNOWN_CLIENT_IDS
+
+    known_sorted = sorted(KNOWN_CLIENT_IDS)
+    omitted = known_sorted[0]
+    allowed = known_sorted[1:]  # every known id except the first
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            **_MINIMAL_SETTINGS_ENV,
+            "APP_ENV": "development",
+            "ALLOWED_CLIENT_IDS": ",".join(allowed),
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with unittest.mock.patch.object(settings.logger, "warning") as warning:
+            settings.Settings(allow_stub_telegram=True)
+
+    warning.assert_any_call(
+        "auth_known_client_ids_not_allowlisted",
+        extra={
+            "app_env": "development",
+            "missing_known_client_ids": [omitted],
+            "warning": _KNOWN_CLIENT_IDS_WARNING,
+        },
+    )
+
+
+def test_allowlist_superset_of_known_client_ids_does_not_warn():
+    """When ALLOWED_CLIENT_IDS is a superset of KNOWN_CLIENT_IDS, the cross-check
+    stays silent (extra custom ids are allowed)."""
+    from app.config import settings
+    from app.config.known_client_ids import KNOWN_CLIENT_IDS
+
+    allowed = [*sorted(KNOWN_CLIENT_IDS), "extra-custom-client"]
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            **_MINIMAL_SETTINGS_ENV,
+            "APP_ENV": "development",
+            "ALLOWED_CLIENT_IDS": ",".join(allowed),
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with unittest.mock.patch.object(settings.logger, "warning") as warning:
+            settings.Settings(allow_stub_telegram=True)
+
+    assert _warning_calls(warning, "auth_known_client_ids_not_allowlisted") == []
+
+
+def test_allow_any_client_id_suppresses_known_client_id_cross_check():
+    """AUTH_ALLOW_ANY_CLIENT_ID=true accepts every valid client_id, so the
+    known-ids cross-check must not fire even when the allowlist omits them."""
+    from app.config import settings
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            **_MINIMAL_SETTINGS_ENV,
+            "APP_ENV": "development",
+            "ALLOWED_CLIENT_IDS": "custom-only",
+            "AUTH_ALLOW_ANY_CLIENT_ID": "true",
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with unittest.mock.patch.object(settings.logger, "warning") as warning:
+            settings.Settings(allow_stub_telegram=True)
+
+    assert _warning_calls(warning, "auth_known_client_ids_not_allowlisted") == []
+
+
+def test_empty_allowlist_skips_known_client_id_cross_check():
+    """An empty allowlist is fail-open (handled by the empty-allowlist validator);
+    the known-ids cross-check is meaningful only for an explicit allowlist and
+    must not fire when none is set."""
+    from app.config import settings
+
+    with unittest.mock.patch.dict(
+        os.environ,
+        {
+            **_MINIMAL_SETTINGS_ENV,
+            "APP_ENV": "development",
+            "ALLOWED_CLIENT_IDS": "",
+        },
+        clear=True,
+    ):
+        settings.clear_config_cache()
+        with unittest.mock.patch.object(settings.logger, "warning") as warning:
+            settings.Settings(allow_stub_telegram=True)
+
+    assert _warning_calls(warning, "auth_known_client_ids_not_allowlisted") == []
+
+
 def test_auth_posture_summary_is_redacted_counts_only(monkeypatch):
     from app.config import settings
 

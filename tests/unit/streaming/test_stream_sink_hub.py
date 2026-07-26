@@ -3,6 +3,8 @@ producer for every kind (ADR-0017 consumer-parity gate)."""
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 from app.adapters.content.streaming.events import StreamEvent
 from app.adapters.content.streaming.stream_hub import StreamHub
 from app.adapters.content.streaming.stream_sink_hub import StreamHubStreamSink
@@ -61,6 +63,32 @@ async def test_section_event_shape_matches_legacy() -> None:
     # Legacy SummaryDraftStreamCoordinator publishes partial=False always.
     assert event.payload == {"section": "summary_250", "content": "Hello world", "partial": False}
     assert event.correlation_id == _CID
+
+
+async def test_section_event_is_persisted_for_cross_process_sse() -> None:
+    hub = RecordingHub()
+    repo = AsyncMock()
+    sink = StreamHubStreamSink(hub=hub, progress_event_repo=repo)
+
+    await sink.section(
+        request_id=_RID,
+        correlation_id=_CID,
+        section="summary_250",
+        content="Durable preview",
+        partial=True,
+    )
+
+    repo.append.assert_awaited_once_with(
+        request_id=42,
+        kind="section",
+        stage=None,
+        status="processing",
+        message="Durable preview",
+        progress=None,
+        payload={"section": "summary_250", "content": "Durable preview", "partial": True},
+        correlation_id=_CID,
+    )
+    assert hub.events[0][1].kind == "section"
 
 
 async def test_warning_event_shape() -> None:

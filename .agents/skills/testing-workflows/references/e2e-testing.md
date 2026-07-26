@@ -5,14 +5,9 @@
 ### Build and Run
 
 ```bash
-# Build image
-docker build -t ratatoskr .
-
-# Run container
-docker run --env-file .env \
-  -v $(pwd)/data:/data \
-  --name ratatoskr \
-  ratatoskr
+# Build and run through the deployment source of truth
+docker compose -f ops/docker/docker-compose.yml build ratatoskr
+docker compose -f ops/docker/docker-compose.yml up -d ratatoskr
 ```
 
 ### Check Bot Health

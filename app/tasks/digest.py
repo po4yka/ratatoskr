@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+from typing import Any
 
 from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
+from app.infrastructure.locks.redis_lock import RedisDistributedLock
+from app.infrastructure.redis import get_redis
 from app.observability.metrics_digest import (
     record_digest_delivery,
     set_digest_active_subscription_users,
@@ -30,53 +28,11 @@ from app.tasks.deps import (
 logger = get_logger(__name__)
 
 _LOCK_KEY = "ratatoskr:digest:scheduled:lock"
-_LOCK_TTL_MS = 10 * 60 * 1000  # 10 minutes — exceeds expected max digest duration
-
-
-@asynccontextmanager
-async def _acquire_scheduled_lock(cfg: AppConfig, correlation_id: str) -> AsyncGenerator[bool]:
-    """Acquire a Redis distributed lock for scheduled digest runs.
-
-    Yields True when this instance should proceed (lock acquired, or Redis
-    unavailable → graceful degrade).  Yields False when another instance
-    already holds the lock — caller must skip this run.
-    """
-    from app.infrastructure.redis import get_redis
-
-    redis_client = None
-    lock_acquired = False
-
-    try:
-        redis_client = await get_redis(cfg)
-    except Exception:
-        redis_client = None
-
-    if redis_client is None:
-        logger.warning("digest_lock_redis_unavailable", extra={"cid": correlation_id})
-        yield True
-        return
-
-    try:
-        result = await redis_client.set(_LOCK_KEY, correlation_id, nx=True, px=_LOCK_TTL_MS)
-        lock_acquired = bool(result)
-        if not lock_acquired:
-            logger.warning("digest_lock_held_skipping", extra={"cid": correlation_id})
-        yield lock_acquired
-    finally:
-        if lock_acquired:
-            try:
-                current = await redis_client.get(_LOCK_KEY)
-                if current == correlation_id:
-                    await redis_client.delete(_LOCK_KEY)
-            except Exception:
-                # Don't fail the task on unlock error, but never swallow it
-                # silently: a stuck lock skips subsequent digest runs until TTL
-                # and must be observable (CWE-390).
-                logger.warning(
-                    "digest_lock_release_failed",
-                    extra={"cid": correlation_id},
-                    exc_info=True,
-                )
+# Base TTL (seconds). RedisDistributedLock renews it via a background heartbeat
+# (~every ttl/3) while the run is in progress, so a digest that outlives the TTL
+# keeps its lock instead of losing it to a second scheduled run — matching every
+# other task's lock. Release is an atomic compare-and-delete (no GET/DELETE race).
+_LOCK_TTL_SECONDS = 10 * 60
 
 
 @broker.task(task_name="ratatoskr.digest.run")
@@ -90,8 +46,10 @@ async def _channel_digest_body(cfg: AppConfig) -> None:
     correlation_id = f"digest_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     logger.info("scheduled_digest_starting", extra={"cid": correlation_id})
 
-    async with _acquire_scheduled_lock(cfg, correlation_id) as lock_acquired:
+    redis_client = await get_redis(cfg)
+    async with RedisDistributedLock(redis_client, _LOCK_KEY, _LOCK_TTL_SECONDS) as lock_acquired:
         if not lock_acquired:
+            logger.warning("digest_lock_held_skipping", extra={"cid": correlation_id})
             return
 
         userbot: Any | None = None

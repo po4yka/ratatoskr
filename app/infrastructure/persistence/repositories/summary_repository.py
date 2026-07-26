@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
+from app.application.ports.summaries import BulkSummaryDeleteResult, SummaryFinalizeResult
 from app.application.services.topic_search_utils import ensure_mapping, tokenize
 from app.core.logging_utils import get_logger
 from app.core.time_utils import coerce_datetime
@@ -50,13 +51,14 @@ class SummaryRepositoryAdapter:
         is_read: bool = False,
     ) -> int:
         """Create or update a summary and return its version."""
-        return await self._upsert_summary_record(
+        result = await self._upsert_summary_record(
             request_id=request_id,
             lang=lang,
             json_payload=json_payload,
             insights_json=insights_json,
             is_read=is_read,
         )
+        return result.version
 
     async def async_finalize_request_summary(
         self,
@@ -66,10 +68,14 @@ class SummaryRepositoryAdapter:
         insights_json: dict[str, Any] | None = None,
         is_read: bool = False,
         request_status: RequestStatus = RequestStatus.COMPLETED,
-    ) -> int:
-        """Persist a summary and update request status in one transaction."""
+    ) -> SummaryFinalizeResult:
+        """Persist a summary and update request status in one transaction.
+
+        Returns the summary's id and new version from the same UPSERT (RETURNING),
+        so the graph persist node no longer needs a follow-up id lookup.
+        """
         async with self._database.transaction() as session:
-            version = await self._upsert_summary_record(
+            result = await self._upsert_summary_record(
                 request_id=request_id,
                 lang=lang,
                 json_payload=json_payload,
@@ -82,7 +88,37 @@ class SummaryRepositoryAdapter:
                 .where(Request.id == request_id)
                 .values(status=_status_value(request_status), updated_at=_utcnow())
             )
-            return version
+            return result
+
+    async def async_persist_summary_with_llm_calls(
+        self,
+        request_id: int,
+        lang: str,
+        json_payload: dict[str, Any],
+        llm_calls: list[dict[str, Any]],
+        insights_json: dict[str, Any] | None = None,
+        is_read: bool = False,
+    ) -> SummaryFinalizeResult:
+        """Persist summary + graph attempt trail atomically, without completing."""
+        from app.infrastructure.persistence.repositories.llm_repository import (
+            insert_llm_calls_in_session,
+        )
+
+        async with self._database.transaction() as session:
+            result = await self._upsert_summary_record(
+                request_id=request_id,
+                lang=lang,
+                json_payload=json_payload,
+                insights_json=insights_json,
+                is_read=is_read,
+                session=session,
+            )
+            await insert_llm_calls_in_session(
+                session,
+                llm_calls,
+                skip_existing_explicit_attempts=True,
+            )
+            return result
 
     async def async_update_summary_insights(
         self, request_id: int, insights_json: dict[str, Any]
@@ -465,14 +501,14 @@ class SummaryRepositoryAdapter:
 
     async def async_bulk_soft_delete_summaries(
         self, *, user_id: int, summary_ids: list[int]
-    ) -> int:
-        """Bulk soft-delete scoped to *user_id*."""
+    ) -> BulkSummaryDeleteResult:
+        """Bulk soft-delete scoped to *user_id* and return owned request IDs."""
         if not summary_ids:
-            return 0
+            return BulkSummaryDeleteResult(0, ())
         now = _utcnow()
         async with self._database.transaction() as session:
             owned_rows = await session.execute(
-                select(Summary.id)
+                select(Summary.id, Summary.request_id)
                 .join(Request, Summary.request_id == Request.id)
                 .where(
                     Summary.id.in_(summary_ids),
@@ -480,15 +516,17 @@ class SummaryRepositoryAdapter:
                     Summary.is_deleted.is_(False),
                 )
             )
-            owned_ids = [row[0] for row in owned_rows]
+            owned_pairs = list(owned_rows)
+            owned_ids = [row[0] for row in owned_pairs]
             if not owned_ids:
-                return 0
+                return BulkSummaryDeleteResult(0, ())
             await session.execute(
                 update(Summary)
                 .where(Summary.id.in_(owned_ids))
                 .values(is_deleted=True, deleted_at=now, updated_at=now)
             )
-            return len(owned_ids)
+            request_ids = tuple(dict.fromkeys(int(row[1]) for row in owned_pairs))
+            return BulkSummaryDeleteResult(len(owned_ids), request_ids)
 
     async def async_mark_summary_as_read(self, summary_id: int) -> None:
         """Mark a summary as read."""
@@ -831,15 +869,18 @@ class SummaryRepositoryAdapter:
             topic_rows = (
                 await session.execute(
                     text(
-                        "SELECT lower(tag) AS tag, count(*) AS cnt "
+                        "SELECT lower(tags.value #>> '{}') AS tag, count(*) AS cnt "
                         "FROM summaries s "
-                        "JOIN requests r ON r.id = s.request_id, "
-                        "jsonb_array_elements_text(s.topic_tags) AS tag "
+                        "JOIN requests r ON r.id = s.request_id "
+                        "CROSS JOIN LATERAL jsonb_array_elements("
+                        "  CASE WHEN jsonb_typeof(s.topic_tags) = 'array' "
+                        "       THEN s.topic_tags ELSE '[]'::jsonb END"
+                        ") AS tags(value) "
                         "WHERE r.user_id = :user_id "
                         "  AND s.is_deleted = false "
-                        "  AND s.topic_tags IS NOT NULL "
-                        "  AND jsonb_typeof(s.topic_tags) = 'array' "
-                        "GROUP BY lower(tag) "
+                        "  AND jsonb_typeof(tags.value) = 'string' "
+                        "  AND btrim(tags.value #>> '{}') <> '' "
+                        "GROUP BY lower(tags.value #>> '{}') "
                         "ORDER BY cnt DESC "
                         "LIMIT 10"
                     ),
@@ -907,25 +948,32 @@ class SummaryRepositoryAdapter:
     # is bounded.
     _SYNC_PAGE_SIZE: int = 500
 
-    async def async_get_all_for_user(self, user_id: int) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Get all summaries for a user for sync operations.
 
         Pages internally in _SYNC_PAGE_SIZE-row batches ordered by id so that
         the full result set is collected without holding an unbounded SQLAlchemy
-        cursor open. Output is identical to the previous single-shot load:
-        every non-deleted AND deleted row (sync clients need tombstones) is
-        returned, ordered by id ascending.
+        cursor open. Every non-deleted AND deleted row (sync clients need
+        tombstones) is returned, ordered by id ascending.
+
+        ``since`` pushes the sync cursor into each batch's WHERE so a poll only
+        reads rows changed past it, instead of the user's entire lifetime history
+        (audit #2); server_version is a global monotonic counter, so this matches
+        the caller's server_version > since pagination filter.
         """
         results: list[dict[str, Any]] = []
         last_id = 0
         async with self._database.session() as session:
             while True:
+                conditions = [Request.user_id == user_id, Summary.id > last_id]
+                if since > 0:
+                    conditions.append(Summary.server_version > since)
                 rows = list(
                     (
                         await session.execute(
                             select(Summary)
                             .join(Request, Summary.request_id == Request.id)
-                            .where(Request.user_id == user_id, Summary.id > last_id)
+                            .where(*conditions)
                             .order_by(Summary.id)
                             .limit(self._SYNC_PAGE_SIZE)
                         )
@@ -1052,7 +1100,7 @@ class SummaryRepositoryAdapter:
         insights_json: dict[str, Any] | None = None,
         is_read: bool = False,
         session: Any | None = None,
-    ) -> int:
+    ) -> SummaryFinalizeResult:
         payload = prepare_json_payload(json_payload, default={})
         insights = prepare_json_payload(insights_json)
         # Extract denormalized metadata so list-view and smart-collection
@@ -1078,12 +1126,17 @@ class SummaryRepositoryAdapter:
                 "updated_at": _utcnow(),
                 **meta,
             },
-        ).returning(Summary.version)
+        ).returning(Summary.id, Summary.version)
 
+        # RETURNING id + version in the single UPSERT so callers never issue a
+        # second round-trip to look up the summary id (``version or 1`` preserves
+        # the legacy default when a stub session yields no counter).
         if session is not None:
-            return int(await session.scalar(stmt) or 1)
-        async with self._database.transaction() as new_session:
-            return int(await new_session.scalar(stmt) or 1)
+            row = (await session.execute(stmt)).one()
+        else:
+            async with self._database.transaction() as new_session:
+                row = (await new_session.execute(stmt)).one()
+        return SummaryFinalizeResult(summary_id=int(row[0] or 0), version=int(row[1] or 1))
 
     async def _set_summary_values(self, summary_id: int, **values: Any) -> None:
         values["updated_at"] = _utcnow()

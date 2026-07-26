@@ -161,3 +161,51 @@ async def test_async_validate_url_input_rejects_dns_rebinding_to_loopback() -> N
             ValueError, match=r"Hostname resolves to blocked IP address: 127\.0\.0\.1"
         ):
             await async_validate_url_input("https://not-loopback.example.com/path")
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed on DNS failure
+#
+# When DNS resolution fails, the validator must REJECT (fail closed), matching
+# the authoritative SSRF module (app/security/ssrf.py::is_url_safe). It used to
+# swallow the resolver error into an empty address list, and the "reject if any
+# resolved IP is blocked" loop then skipped it -- silently allowing an
+# unresolvable host through (SSRF fail-open).
+# ---------------------------------------------------------------------------
+
+
+def test_validate_url_input_rejects_when_dns_resolution_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sync validator rejects (not allows) a hostname whose DNS lookup errors."""
+
+    def _boom(*_a, **_kw):
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _boom)
+
+    with pytest.raises(ValueError, match=r"DNS resolution failed for unresolvable\.example\.com"):
+        validate_url_input("https://unresolvable.example.com/path")
+
+
+def test_validate_url_input_rejects_when_dns_returns_no_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sync validator rejects an empty resolution set (defensive fail-closed guard)."""
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_kw: [])
+
+    with pytest.raises(ValueError, match=r"No DNS records found for no-records\.example\.com"):
+        validate_url_input("https://no-records.example.com/path")
+
+
+@pytest.mark.asyncio
+async def test_async_validate_url_input_rejects_when_dns_resolution_fails() -> None:
+    """Async validator rejects a hostname whose DNS lookup errors."""
+    with patch(
+        "socket.getaddrinfo",
+        side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
+    ):
+        with pytest.raises(
+            ValueError, match=r"DNS resolution failed for unresolvable\.example\.com"
+        ):
+            await async_validate_url_input("https://unresolvable.example.com/path")

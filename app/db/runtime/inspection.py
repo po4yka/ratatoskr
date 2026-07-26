@@ -69,6 +69,12 @@ class DatabaseInspectionService:
                     count_stmt = select(func.count()).select_from(model)
                     overview["tables"][table_name] = int(await session.scalar(count_stmt) or 0)
                 except SQLAlchemyError as exc:
+                    # A failed statement aborts the PostgreSQL transaction; without a
+                    # rollback every subsequent query in this diagnostics call would
+                    # fail with "current transaction is aborted", cascading one table's
+                    # failure into a total failure. Reset so the remaining table counts
+                    # and the post-loop status/timestamp queries can still run.
+                    await session.rollback()
                     overview["errors"].append(f"Failed to count rows for table '{table_name}'")
                     self._logger.exception(
                         "db_table_count_failed",

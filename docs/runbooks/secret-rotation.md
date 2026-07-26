@@ -25,10 +25,10 @@ Rotation steps:
 
 1. Generate the new Fernet key: `python tools/scripts/generate_github_encryption_key.py`.
 2. Move the current `GITHUB_TOKEN_ENCRYPTION_KEY` value into `GITHUB_TOKEN_PREVIOUS_KEYS`; set the generated key as `GITHUB_TOKEN_ENCRYPTION_KEY`.
-3. Redeploy and verify that existing integrations still decrypt: `python -m app.cli.rotate_github_tokens --dry-run`.
-4. Backfill ciphertext with the new primary key: `python -m app.cli.rotate_github_tokens`.
+3. Redeploy and verify that existing GitHub integrations and browser sessions still decrypt: `python -m app.cli.rotate_github_tokens --dry-run`. Confirm both `github_tokens_processed` and `browser_sessions_processed` match the expected inventory.
+4. Backfill GitHub-token and browser-session ciphertext with the new primary key: `python -m app.cli.rotate_github_tokens`.
 5. Redeploy with `GITHUB_TOKEN_PREVIOUS_KEYS` removed.
-6. Verify: `python -m app.cli.rotate_github_tokens --dry-run` should report `failed: 0`; GitHub sync and authenticated mirror jobs should complete without decryption errors.
+6. Verify: `python -m app.cli.rotate_github_tokens --dry-run` should report `failed: 0`; GitHub sync, authenticated mirror jobs, and stored ChatGPT/Claude browser authorization should complete without decryption errors.
 
 Rollback: restore the previous key as primary and remove the new key from config if decrypt failures appear before backfill completes. If the old key is lost, users must reconnect integrations and browser sessions.
 

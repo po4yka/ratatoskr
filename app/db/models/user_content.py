@@ -72,6 +72,12 @@ class SummaryHighlight(Base):
     __table_args__ = (
         Index("ix_summary_highlights_user_id_summary_id", "user_id", "summary_id"),
         Index("ix_summary_highlights_updated_at", "updated_at"),
+        Index(
+            "ix_summary_highlights_user_server_version_id",
+            "user_id",
+            "server_version",
+            "id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -128,6 +134,7 @@ class Tag(Base):
     __tablename__ = "tags"
     __table_args__ = (
         Index("ix_tags_user_id_normalized_name", "user_id", "normalized_name", unique=True),
+        Index("ix_tags_user_server_version_id", "user_id", "server_version", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -160,6 +167,7 @@ class SummaryTag(Base):
     __table_args__ = (
         Index("ix_summary_tags_summary_id_tag_id", "summary_id", "tag_id", unique=True),
         Index("ix_summary_tags_tag_id", "tag_id"),
+        Index("ix_summary_tags_server_version_id", "server_version", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

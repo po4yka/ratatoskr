@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
 from app.api.routers.auth.tokens import create_access_token
+from app.config import Config
 from app.db.models import LLMCall, Request, User
 
 
@@ -14,24 +16,29 @@ def _headers(user_id: int) -> dict[str, str]:
 
 @pytest.mark.asyncio
 async def test_admin_llm_costs_requires_owner(client: TestClient, db) -> None:
+    user_id = int(Config.get_allowed_user_ids()[0])
     async with db.transaction() as session:
-        owner = User(telegram_user_id=1001, username="owner", is_owner=True)
-        non_owner = User(telegram_user_id=1002, username="non-owner", is_owner=False)
-        session.add_all([owner, non_owner])
+        session.add(User(telegram_user_id=user_id, username="non-owner", is_owner=False))
 
-    forbidden = client.get("/v1/admin/llm-costs", headers=_headers(1002))
+    forbidden = client.get("/v1/admin/llm-costs", headers=_headers(user_id))
     assert forbidden.status_code == 403
 
-    ok = client.get("/v1/admin/llm-costs", headers=_headers(1001))
+    async with db.transaction() as session:
+        await session.execute(
+            update(User).where(User.telegram_user_id == user_id).values(is_owner=True)
+        )
+
+    ok = client.get("/v1/admin/llm-costs", headers=_headers(user_id))
     assert ok.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_admin_llm_costs_returns_redacted_aggregates(client: TestClient, db) -> None:
+    user_id = int(Config.get_allowed_user_ids()[0])
     async with db.transaction() as session:
-        owner = User(telegram_user_id=2001, username="owner-costs", is_owner=True)
+        owner = User(telegram_user_id=user_id, username="owner-costs", is_owner=True)
         request = Request(type="url", status="completed", user_id=owner.telegram_user_id)
-        session.add(request)
+        session.add_all([owner, request])
         await session.flush()
         session.add(
             LLMCall(
@@ -48,7 +55,7 @@ async def test_admin_llm_costs_returns_redacted_aggregates(client: TestClient, d
             )
         )
 
-    response = client.get("/v1/admin/llm-costs?days=30", headers=_headers(2001))
+    response = client.get("/v1/admin/llm-costs?days=30", headers=_headers(user_id))
 
     assert response.status_code == 200
     data = response.json()["data"]

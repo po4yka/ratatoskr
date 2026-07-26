@@ -18,7 +18,11 @@ from app.application.services.multi_source_aggregation_service import (
 )
 from app.core.logging_utils import generate_correlation_id
 from app.core.url_utils import normalize_url
-from app.di.repositories import build_aggregation_session_repository, build_user_repository
+from app.di.repositories import (
+    build_aggregation_session_repository,
+    build_llm_repository,
+    build_user_repository,
+)
 from app.domain.models.source import AggregationSessionStatus
 
 logger = logging.getLogger("ratatoskr.mcp")
@@ -133,10 +137,12 @@ class AggregationMcpService:
                 aggregation_agent=MultiSourceAggregationAgent(
                     aggregation_session_repo=repo,
                     llm_client=runtime.core.llm_client,
+                    llm_repo=build_llm_repository(runtime.core.db),
                 ),
                 aggregation_session_repo=repo,
                 relationship_agent=RelationshipAnalysisAgent(
                     llm_client=runtime.core.llm_client,
+                    llm_repo=build_llm_repository(runtime.core.db),
                 )
                 if runtime.core.llm_client is not None
                 else None,

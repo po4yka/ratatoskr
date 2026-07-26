@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.dto.vector_search import EntityType, RetrievalScope
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.graphs.summarize.nodes._context import load_source_text
 from app.core.content_cleaner import neutralize_literal_delimiters
 
 if TYPE_CHECKING:
@@ -56,11 +57,13 @@ async def ground(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
     grounds on its own prior summary, and writes an anti-contamination block for
     ``build_prompt`` to concatenate. Imports only the retrieval port + its DTOs.
     """
+    source_text = await load_source_text(state, deps)
     empty: dict[str, Any] = {"grounding_ids": [], "grounding_block": ""}
+    if source_text and not state.get("source_text"):
+        empty["source_text"] = source_text
     if not deps.rag_enabled:
         return empty
 
-    source_text = (state.get("source_text") or "").strip()
     user_scope = state.get("user_scope")
     environment = state.get("environment")
     if not source_text or not user_scope or not environment:
@@ -79,7 +82,7 @@ async def ground(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         user_scope=user_scope,
         user_id=None,
     )
-    result = await deps.retrieval.retrieve(
+    retrieval_result = await deps.retrieval.retrieve(
         entity_type=EntityType.SUMMARY,
         scope=scope,
         query=source_text[: deps.rag_query_max_chars],
@@ -87,13 +90,16 @@ async def ground(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, Any
         exclude_request_id=state.get("request_id"),
         correlation_id=state.get("correlation_id"),
     )
-    if not result.hits:
+    if not retrieval_result.hits:
         return empty
 
-    return {
-        "grounding_ids": [hit.entity_id for hit in result.hits],
-        "grounding_block": _format_grounding_block(result.hits),
+    result: dict[str, Any] = {
+        "grounding_ids": [hit.entity_id for hit in retrieval_result.hits],
+        "grounding_block": _format_grounding_block(retrieval_result.hits),
     }
+    if source_text and not state.get("source_text"):
+        result["source_text"] = source_text
+    return result
 
 
 def _format_grounding_block(hits: list[RetrievalHit]) -> str:

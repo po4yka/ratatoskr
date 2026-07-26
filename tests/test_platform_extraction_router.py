@@ -177,11 +177,11 @@ async def test_extract_content_pure_uses_registered_fake_extractor() -> None:
     )
     fake_extractor = _FakePlatformExtractor(fake_result)
     extractor = _make_extractor(
-        platform_router=_router_for("https://fake.example/item", fake_extractor)
+        platform_router=_router_for("https://example.com/item", fake_extractor)
     )
 
     content_text, content_source, metadata = await extractor.extract_content_pure(
-        "https://fake.example/item",
+        "https://example.com/item",
         correlation_id="cid-fake",
         request_id=123,
     )
@@ -192,7 +192,7 @@ async def test_extract_content_pure_uses_registered_fake_extractor() -> None:
     fake_extractor.extract.assert_awaited_once()
     request = fake_extractor.extract.await_args.args[0]
     assert isinstance(request, PlatformExtractionRequest)
-    assert request.normalized_url == "https://fake.example/item"
+    assert request.normalized_url == "https://example.com/item"
     extractor.firecrawl.scrape_markdown.assert_not_awaited()  # type: ignore[attr-defined]
 
 
@@ -209,13 +209,13 @@ async def test_extract_content_pure_accepts_prebuilt_platform_router() -> None:
     fake_extractor = _FakePlatformExtractor(fake_result)
     router = PlatformExtractionRouter()
     router.register(
-        predicate=lambda normalized_url: normalized_url == "https://router.example/item",
+        predicate=lambda normalized_url: normalized_url == "https://example.com/item",
         factory=lambda: fake_extractor,
     )
     extractor = _make_extractor(platform_router=router)
 
     content_text, content_source, metadata = await extractor.extract_content_pure(
-        "https://router.example/item",
+        "https://example.com/item",
         correlation_id="cid-router",
         request_id=124,
     )

@@ -3,6 +3,8 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from pydantic import ValidationError
+
 from app.adapter_models.batch_analysis import (
     ArticleMetadata,
     ClusterInfo,
@@ -11,7 +13,7 @@ from app.adapter_models.batch_analysis import (
     RelationshipType,
     SeriesInfo,
 )
-from app.agents.combined_summary_agent import CombinedSummaryAgent
+from app.agents.combined_summary_agent import CombinedSummaryAgent, _CombinedSummaryLLMResponse
 
 
 class TestCombinedSummaryAgent(unittest.IsolatedAsyncioTestCase):
@@ -124,6 +126,20 @@ class TestCombinedSummaryAgent(unittest.IsolatedAsyncioTestCase):
             "combined_topic_tags": ["#python", "#tutorial", "#programming"],
             "total_reading_time_min": 12
         }"""
+
+    def test_structured_response_rejects_empty_payload(self):
+        with self.assertRaises(ValidationError):
+            _CombinedSummaryLLMResponse.model_validate({})
+
+    def test_structured_response_rejects_untyped_collection_items(self):
+        with self.assertRaises(ValidationError):
+            _CombinedSummaryLLMResponse.model_validate(
+                {
+                    "thematic_arc": "Shared arc",
+                    "synthesized_insights": [{"unexpected": "object"}],
+                    "recommended_reading_order": [1, 2],
+                }
+            )
 
     def _make_structured_result(self, parsed_dict: dict) -> MagicMock:
         """Build a StructuredLLMResult-compatible mock for chat_structured."""

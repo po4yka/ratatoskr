@@ -143,8 +143,15 @@ async def _validate_apple_id_token(
     token: str,
     *,
     audience: str,
-    nonce: str | None,
+    nonce: str,
 ) -> dict[str, Any]:
+    # Replay protection is non-negotiable: never proceed with a blank expected
+    # nonce, or the id_token would be accepted unbound to any authorization
+    # request. The request model already requires a non-empty nonce; this is a
+    # defense-in-depth guard so no caller can disable the check.
+    expected_nonce = nonce.strip()
+    if not expected_nonce:
+        raise AuthenticationError("Apple identity token nonce is required")
     # get_signing_key_from_jwt may perform a blocking HTTPS fetch when the kid
     # is not yet cached.  Offload it to a thread so the event loop is not
     # blocked.  The module-level client caches keys, so the fetch is rare.
@@ -159,11 +166,17 @@ async def _validate_apple_id_token(
             algorithms=["RS256"],
             audience=audience,
             issuer=_APPLE_ISSUER,
-            options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+            options={"require": ["exp", "iat", "iss", "aud", "sub", "nonce"]},
         )
     except jwt.PyJWTError as exc:
         raise AuthenticationError("Invalid Apple identity token") from exc
-    if nonce is not None and claims.get("nonce") != nonce:
+    # Always verify the token's nonce claim matches the value bound at /apple/start.
+    # Constant-time compare on the encoded bytes avoids both a timing side channel
+    # and the ASCII-only restriction of secrets.compare_digest on str inputs.
+    token_nonce = claims.get("nonce")
+    if not isinstance(token_nonce, str) or not secrets.compare_digest(
+        token_nonce.encode("utf-8"), expected_nonce.encode("utf-8")
+    ):
         raise AuthenticationError("Invalid Apple identity token nonce")
     return claims
 

@@ -3,6 +3,7 @@ Tests for favorites (direct calls).
 """
 
 import pytest
+from sqlalchemy import select
 
 from app.api.routers import summaries
 from app.db.models import Request, Summary
@@ -10,26 +11,29 @@ from app.db.models import Request, Summary
 
 @pytest.mark.asyncio
 async def test_toggle_favorite(db, user_factory):
-    user = user_factory(username="fav_user")
+    user = await user_factory(username="fav_user")
     user_context = {"user_id": user.telegram_user_id}
 
     # Manually create summary
-    req = Request.create(
-        user_id=user.telegram_user_id,
-        input_url="http://test1.com",
-        normalized_url="http://test1.com",
-        status="completed",
-        type="url",
-    )
-
-    summary = Summary.create(
-        request=req.id,
-        lang="en",
-        is_read=False,
-        version=1,
-        json_payload={},
-        # is_favorited default False
-    )
+    async with db.transaction() as session:
+        req = Request(
+            user_id=user.telegram_user_id,
+            input_url="http://test1.com",
+            normalized_url="http://test1.com",
+            status="completed",
+            type="url",
+        )
+        session.add(req)
+        await session.flush()
+        summary = Summary(
+            request_id=req.id,
+            lang="en",
+            is_read=False,
+            version=1,
+            json_payload={},
+        )
+        session.add(summary)
+        await session.flush()
 
     assert not summary.is_favorited
 
@@ -42,7 +46,9 @@ async def test_toggle_favorite(db, user_factory):
     assert response["success"] is True
     assert response["data"]["isFavorited"] is True
 
-    summary = Summary.get_by_id(summary.id)
+    async with db.session() as session:
+        summary = await session.scalar(select(Summary).where(Summary.id == summary.id))
+    assert summary is not None
     assert summary.is_favorited is True
 
     # Toggle OFF
@@ -51,22 +57,25 @@ async def test_toggle_favorite(db, user_factory):
     )
     assert response["data"]["isFavorited"] is False
 
-    summary = Summary.get_by_id(summary.id)
+    async with db.session() as session:
+        summary = await session.scalar(select(Summary).where(Summary.id == summary.id))
+    assert summary is not None
     assert summary.is_favorited is False
 
 
 @pytest.mark.asyncio
 async def test_get_summaries_filter(db, user_factory, summary_factory):
-    user = user_factory(username="fav_user_filter")
+    user = await user_factory(username="fav_user_filter")
     user_context = {"user_id": user.telegram_user_id}
 
     # S1: Favorited
-    s1 = summary_factory(user=user)
+    s1 = await summary_factory(user=user)
     s1.is_favorited = True
-    s1.save()
+    async with db.transaction() as session:
+        await session.merge(s1)
 
     # S2: Not Favorited
-    s2 = summary_factory(user=user)
+    s2 = await summary_factory(user=user)
 
     use_case = summaries._get_summary_use_case()
 
@@ -81,6 +90,7 @@ async def test_get_summaries_filter(db, user_factory, summary_factory):
         lang=None,
         start_date=None,
         end_date=None,
+        search=None,
         use_case=use_case,
     )
     data = resp["data"]["summaries"]
@@ -99,6 +109,7 @@ async def test_get_summaries_filter(db, user_factory, summary_factory):
         lang=None,
         start_date=None,
         end_date=None,
+        search=None,
         use_case=use_case,
     )
     data = resp["data"]["summaries"]
@@ -116,6 +127,7 @@ async def test_get_summaries_filter(db, user_factory, summary_factory):
         lang=None,
         start_date=None,
         end_date=None,
+        search=None,
         use_case=use_case,
     )
     data = resp["data"]["summaries"]

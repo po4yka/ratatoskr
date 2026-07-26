@@ -4,29 +4,51 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .common import ProcessingStage, RequestStatus, SuccessResponse
 
 
 class RequestStatusData(BaseModel):
-    request_id: int = Field(serialization_alias="requestId")
+    model_config = ConfigDict(populate_by_name=True)
+
+    request_id: int = Field(validation_alias="requestId", serialization_alias="requestId")
     status: RequestStatus
-    legacy_status: str | None = Field(default=None, serialization_alias="legacyStatus")
+    legacy_status: str | None = Field(
+        default=None, validation_alias="legacyStatus", serialization_alias="legacyStatus"
+    )
     stage: ProcessingStage
     progress: dict[str, Any] | None = None
     estimated_seconds_remaining: int | None = Field(
-        default=None, serialization_alias="estimatedSecondsRemaining"
+        default=None,
+        validation_alias="estimatedSecondsRemaining",
+        serialization_alias="estimatedSecondsRemaining",
     )
-    queue_position: int | None = Field(default=None, serialization_alias="queuePosition")
-    error_stage: str | None = Field(default=None, serialization_alias="errorStage")
-    error_type: str | None = Field(default=None, serialization_alias="errorType")
-    error_message: str | None = Field(default=None, serialization_alias="errorMessage")
-    error_reason_code: str | None = Field(default=None, serialization_alias="errorReasonCode")
-    retryable: bool | None = Field(default=None, serialization_alias="retryable")
-    can_retry: bool = Field(default=False, serialization_alias="canRetry")
-    correlation_id: str | None = Field(default=None, serialization_alias="correlationId")
-    updated_at: str = Field(serialization_alias="updatedAt")
+    queue_position: int | None = Field(
+        default=None, validation_alias="queuePosition", serialization_alias="queuePosition"
+    )
+    error_stage: str | None = Field(
+        default=None, validation_alias="errorStage", serialization_alias="errorStage"
+    )
+    error_type: str | None = Field(
+        default=None, validation_alias="errorType", serialization_alias="errorType"
+    )
+    error_message: str | None = Field(
+        default=None, validation_alias="errorMessage", serialization_alias="errorMessage"
+    )
+    error_reason_code: str | None = Field(
+        default=None, validation_alias="errorReasonCode", serialization_alias="errorReasonCode"
+    )
+    retryable: bool | None = Field(
+        default=None, validation_alias="retryable", serialization_alias="retryable"
+    )
+    can_retry: bool = Field(
+        default=False, validation_alias="canRetry", serialization_alias="canRetry"
+    )
+    correlation_id: str | None = Field(
+        default=None, validation_alias="correlationId", serialization_alias="correlationId"
+    )
+    updated_at: str = Field(validation_alias="updatedAt", serialization_alias="updatedAt")
 
 
 class ProgressEventData(BaseModel):

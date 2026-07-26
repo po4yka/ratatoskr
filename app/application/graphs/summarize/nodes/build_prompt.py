@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.application.graphs.summarize.deps import SummarizeConfig
 from app.application.graphs.summarize.nodes._span import graph_node
+from app.application.graphs.summarize.nodes._context import load_source_text
 from app.application.services.summarization.graph_prompt import (
     build_multimodal_user_content,
     build_summary_user_prompt,
@@ -40,8 +41,17 @@ async def build_prompt(state: SummarizeState, *, deps: SummarizeDeps) -> dict[st
     resolves a tier-specific model override. Mirrors legacy
     ``PureSummaryService.summarize`` lines 87-98 exactly.
     """
-    source_text = (state.get("source_text") or "").strip()
+    source_text = await load_source_text(state, deps)
     block = (state.get("grounding_block") or "").strip()
+
+    # On resume the bulk grounding block is intentionally absent from the
+    # checkpoint. Re-run the bounded retrieval only when the tracked ids prove
+    # the prior ground step had hits.
+    if not block and state.get("grounding_ids") and deps.rag_enabled:
+        from app.application.graphs.summarize.nodes.ground import ground
+
+        grounded = await ground({**state, "source_text": source_text}, deps=deps)
+        block = (grounded.get("grounding_block") or "").strip()
 
     if not source_text:
         # No content to summarize -> T6 grounding-only behavior (flag-off parity).
@@ -89,12 +99,16 @@ async def build_prompt(state: SummarizeState, *, deps: SummarizeDeps) -> dict[st
         tier = classify_content(content_for_summary)
         model_override = deps.model_router(tier, len(content_for_summary))
 
-    system_prompt = load_instructor_system_prompt(lang)
+    system_prompt = (state.get("requested_system_prompt") or "").strip()
+    if not system_prompt:
+        system_prompt = load_instructor_system_prompt(lang)
     if block:
         system_prompt = f"{system_prompt.rstrip()}\n\n{block}"
 
     user_prompt = build_summary_user_prompt(
-        content_for_summary=content_for_summary, chosen_lang=lang
+        content_for_summary=content_for_summary,
+        chosen_lang=lang,
+        feedback_instructions=(state.get("feedback_instructions") or "").strip() or None,
     )
     # Multimodal user message when vision is active; otherwise a plain text message.
     user_content: Any = (
@@ -106,6 +120,8 @@ async def build_prompt(state: SummarizeState, *, deps: SummarizeDeps) -> dict[st
     )
 
     return {
+        "source_text": source_text,
+        "grounding_block": block,
         "system_prompt": system_prompt,
         "messages": [
             {"role": "system", "content": system_prompt},

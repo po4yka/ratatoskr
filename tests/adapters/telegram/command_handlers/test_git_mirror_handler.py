@@ -256,6 +256,19 @@ def test_format_mirror_row_falls_back_to_question_mark_when_no_name_or_url() -> 
     assert "[9]" in line
 
 
+def test_format_mirror_row_redacts_legacy_credentials() -> None:
+    mirror = _make_mirror(
+        name=None,
+        clone_url="https://user:super-secret@example.com/repo.git?token=query-secret",
+    )
+
+    line = _format_mirror_row(mirror)
+
+    assert "super-secret" not in line
+    assert "query-secret" not in line
+    assert "https://***@example.com/repo.git" in line
+
+
 # ---------------------------------------------------------------------------
 # GitMirrorHandler.handle_mirror
 # ---------------------------------------------------------------------------
@@ -329,6 +342,46 @@ async def test_handle_mirror_ssrf_guard_rejects_private_ipv4() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_mirror_rejects_credentials_without_echoing_them() -> None:
+    fake_repo = AsyncMock()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
+    raw = _unwrap_mirror(handler)
+    ctx = _make_ctx(text="/mirror https://user:super-secret@example.com/repo.git")
+
+    await raw(handler, ctx)
+
+    _, reply_text = ctx.response_formatter.safe_reply.await_args.args
+    assert "super-secret" not in reply_text
+    assert "not allowed" in reply_text
+    fake_repo.upsert_target.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "clone_url",
+    [
+        "https://example.com/repo.git?private_token=secret",
+        "https://example.com/repo.git?X-Amz-Signature=secret",
+        "https://example.com/repo.git#oauth_token=secret",
+    ],
+)
+async def test_handle_mirror_rejects_queries_and_fragments_without_persisting(
+    clone_url: str,
+) -> None:
+    fake_repo = AsyncMock()
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
+    raw = _unwrap_mirror(handler)
+    ctx = _make_ctx(text=f"/mirror {clone_url}")
+
+    await raw(handler, ctx)
+
+    _, reply_text = ctx.response_formatter.safe_reply.await_args.args
+    assert "secret" not in reply_text
+    assert "not allowed" in reply_text
+    fake_repo.upsert_target.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_handle_mirror_queued_status_note_for_pending_mirror() -> None:
     pending_mirror = _make_mirror(status="pending", last_mirrored_at=None)
     fake_repo = AsyncMock()
@@ -343,12 +396,28 @@ async def test_handle_mirror_queued_status_note_for_pending_mirror() -> None:
     fake_repo.upsert_target.assert_awaited_once()
     call_kwargs = fake_repo.upsert_target.await_args.kwargs
     assert call_kwargs["clone_url"] == "https://github.com/foo/bar.git"
-    assert call_kwargs["source"] == GitMirrorSource.MANUAL
+    assert call_kwargs["source"] == GitMirrorSource.GITHUB
     assert call_kwargs["user_id"] == 42
 
     _, reply_text = ctx.response_formatter.safe_reply.await_args.args
     assert "Mirror registered" in reply_text
     assert "Queued" in reply_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mirror_preserves_manual_source_for_non_github_host() -> None:
+    pending_mirror = _make_mirror(status="pending", last_mirrored_at=None)
+    fake_repo = AsyncMock()
+    fake_repo.upsert_target = AsyncMock(return_value=pending_mirror)
+
+    handler = _handler(mirror_repo_factory=lambda: fake_repo)
+    raw = _unwrap_mirror(handler)
+    ctx = _make_ctx(text="/mirror https://gitlab.com/foo/bar.git")
+
+    await raw(handler, ctx)
+
+    call_kwargs = fake_repo.upsert_target.await_args.kwargs
+    assert call_kwargs["source"] == GitMirrorSource.MANUAL
 
 
 @pytest.mark.asyncio

@@ -359,7 +359,7 @@ paths:
       tags:
       - Authentication
       summary: Change Password
-      description: Change the current user's password (requires the current one).
+      description: Change the current user's password and revoke all active refresh-token families.
       operationId: change_password_v1_auth_credentials_change_password_post
       requestBody:
         content:
@@ -3230,7 +3230,7 @@ paths:
 
         On success: 204. On bad shape: 400. The storage_state is never echoed back.
 
-        Clears an existing AUTH_EXPIRED halt so the next scheduled run fires.'
+        Marks the session unverified so the next scheduled run verifies it.'
       operationId: ingest_session_v1_ai_backups__service__session_post
       security:
       - HTTPBearer: []
@@ -3249,6 +3249,42 @@ paths:
       responses:
         '204':
           description: Successful Response
+        '403':
+          description: Owner permissions required
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+      - ai-backups
+      summary: Revoke Session
+      description: 'Delete a stored provider session and mark authorization missing.
+
+
+        The operation is owner-only and idempotent. It revokes Ratatoskr''s local
+
+        ability to use the session; it does not sign the account out at the provider.'
+      operationId: revoke_session_v1_ai_backups__service__session_delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: service
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AiBackupService'
+      responses:
+        '204':
+          description: Successful Response
+        '403':
+          description: Owner permissions required
         '422':
           description: Validation Error
           content:
@@ -10084,6 +10120,79 @@ paths:
           $ref: '#/components/responses/ValidationError'
       security:
       - HTTPBearer: []
+  /v1/admin/graph-runs/{request_id}:
+    get:
+      tags:
+      - Admin
+      summary: Graph Run Ledger
+      description: Return a sanitized graph chronology, LLM attempts, and feedback signals.
+      operationId: graph_run_ledger_v1_admin_graph_runs__request_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphRunLedgerSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  /v1/admin/graph-runs:
+    get:
+      tags:
+      - Admin
+      summary: Graph Run Evaluations
+      description: List bounded privacy-safe run and feedback records for offline evaluation.
+      operationId: graph_run_evaluations_v1_admin_graph_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphRunEvaluationListSuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
   /v1/admin/audit-log:
     get:
       tags:
@@ -10160,6 +10269,22 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+  /v1/status:
+    get:
+      tags:
+      - Status
+      summary: Get public system status
+      description: Return aggregate component health without exposing infrastructure details.
+      operationId: public_status_v1_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicStatusSuccessResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /health/detailed:
     get:
       tags:
@@ -10169,7 +10294,7 @@ paths:
         failure may return a raw probe object instead of the standard business-response envelope. See docs/decisions/0019-health-endpoint-envelope-carveout.md.
 
 
-        Comprehensive health check with component status.
+        Owner-only comprehensive health check with component status.
 
 
         Returns detailed status of all system components:
@@ -10193,6 +10318,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '422':
           $ref: '#/components/responses/ValidationError'
       security:
@@ -10587,7 +10714,21 @@ components:
         status:
           type: string
           title: Status
-          description: pending | ok | failed | auth_expired | disabled
+          description: Deprecated combined lifecycle state; use backup_status and authorization_status
+        backup_status:
+          type: string
+          title: Backup Status
+          description: pending | ok | failed | disabled
+        authorization_status:
+          type: string
+          title: Authorization Status
+          description: missing | unverified | valid | expired
+        authorization_checked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Authorization Checked At
         last_backed_up_at:
           anyOf:
           - type: string
@@ -10624,6 +10765,8 @@ components:
       required:
       - service
       - status
+      - backup_status
+      - authorization_status
       title: AiBackupItem
       description: Lifecycle state of one service's backup.
     AiBackupListResponse:
@@ -10657,15 +10800,15 @@ components:
           minLength: 1
           title: Client Id
         nonce:
-          anyOf:
-          - type: string
-            maxLength: 256
-          - type: 'null'
+          type: string
+          maxLength: 256
+          minLength: 1
           title: Nonce
       type: object
       required:
       - id_token
       - client_id
+      - nonce
       title: AppleSignInCallbackRequest
       description: Request body for Apple Sign-In callback token validation.
     AppleSignInStartRequest:
@@ -11290,6 +11433,13 @@ components:
           - type: string
           - type: 'null'
           title: Title
+        mode:
+          type: string
+          enum:
+          - concatenated
+          - synthesized
+          title: Mode
+          default: concatenated
       type: object
       required:
       - summary_ids
@@ -12570,6 +12720,246 @@ components:
       - total
       - limit
       title: GitMirrorSearchResponse
+    GraphRunEvaluationListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GraphRunLedgerResponse'
+          type: array
+          title: Items
+        limit:
+          type: integer
+          title: Limit
+      type: object
+      required:
+      - limit
+      title: GraphRunEvaluationListResponse
+      description: Bounded, sanitized records suitable for offline prompt/model evaluation.
+    GraphRunEvaluationListSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/GraphRunEvaluationListResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: GraphRunEvaluationListSuccessResponse
+    GraphRunLedgerAttempt:
+      properties:
+        attemptIndex:
+          type: integer
+          title: Attemptindex
+        trigger:
+          type: string
+          title: Trigger
+        provider:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        latencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latencyms
+        totalLatencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Totallatencyms
+        promptTokens:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Prompttokens
+        completionTokens:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Completiontokens
+        costUsd:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Costusd
+        fallbackModel:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fallbackmodel
+        retryExhausted:
+          type: boolean
+          title: Retryexhausted
+        errorPresent:
+          type: boolean
+          title: Errorpresent
+      type: object
+      required:
+      - attemptIndex
+      - trigger
+      - retryExhausted
+      - errorPresent
+      title: GraphRunLedgerAttempt
+      description: Sanitized LLM attempt telemetry without prompt, response, or error text.
+    GraphRunLedgerChronologyEntry:
+      properties:
+        sequence:
+          type: integer
+          title: Sequence
+        kind:
+          type: string
+          title: Kind
+        stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stage
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        occurredAt:
+          type: string
+          format: date-time
+          title: Occurredat
+      type: object
+      required:
+      - sequence
+      - kind
+      - occurredAt
+      title: GraphRunLedgerChronologyEntry
+      description: A structural graph event with user content deliberately removed.
+    GraphRunLedgerFeedback:
+      properties:
+        feedbackCount:
+          type: integer
+          title: Feedbackcount
+        ratingAverage:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Ratingaverage
+        issueCount:
+          type: integer
+          title: Issuecount
+        latestFeedbackAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Latestfeedbackat
+      type: object
+      required:
+      - feedbackCount
+      - issueCount
+      title: GraphRunLedgerFeedback
+      description: Aggregate feedback labels; free-form feedback text is never exposed.
+    GraphRunLedgerMetrics:
+      properties:
+        nodeCount:
+          type: integer
+          title: Nodecount
+        attemptCount:
+          type: integer
+          title: Attemptcount
+        repairCount:
+          type: integer
+          title: Repaircount
+        fallbackCount:
+          type: integer
+          title: Fallbackcount
+        graphLatencyMs:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Graphlatencyms
+        llmLatencyMs:
+          type: integer
+          title: Llmlatencyms
+        promptTokens:
+          type: integer
+          title: Prompttokens
+        completionTokens:
+          type: integer
+          title: Completiontokens
+        totalCostUsd:
+          type: number
+          title: Totalcostusd
+      type: object
+      required:
+      - nodeCount
+      - attemptCount
+      - repairCount
+      - fallbackCount
+      - llmLatencyMs
+      - promptTokens
+      - completionTokens
+      - totalCostUsd
+      title: GraphRunLedgerMetrics
+    GraphRunLedgerResponse:
+      properties:
+        requestId:
+          type: integer
+          title: Requestid
+        requestStatus:
+          type: string
+          title: Requeststatus
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        chronology:
+          items:
+            $ref: '#/components/schemas/GraphRunLedgerChronologyEntry'
+          type: array
+          title: Chronology
+        attempts:
+          items:
+            $ref: '#/components/schemas/GraphRunLedgerAttempt'
+          type: array
+          title: Attempts
+        metrics:
+          $ref: '#/components/schemas/GraphRunLedgerMetrics'
+        feedback:
+          $ref: '#/components/schemas/GraphRunLedgerFeedback'
+      type: object
+      required:
+      - requestId
+      - requestStatus
+      - createdAt
+      - metrics
+      - feedback
+      title: GraphRunLedgerResponse
+    GraphRunLedgerSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/GraphRunLedgerResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: GraphRunLedgerSuccessResponse
     HTTPValidationError:
       properties:
         detail:
@@ -12744,7 +13134,6 @@ components:
       - offset
       - hasMore
       title: PaginationInfo
-      description: Pagination metadata.
     ProcessingStage:
       type: string
       enum:
@@ -12834,6 +13223,159 @@ components:
       required:
       - data
       title: PublicCollectionSuccessResponse
+    PublicStatusComponent:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        status:
+          $ref: '#/components/schemas/PublicStatusLevel'
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+        checked_at:
+          type: string
+          format: date-time
+          title: Checked At
+        latency_ms:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Latency Ms
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - name
+      - status
+      - checked_at
+      title: PublicStatusComponent
+      description: One sanitized public component check.
+    PublicStatusGroup:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        status:
+          $ref: '#/components/schemas/PublicStatusLevel'
+        components:
+          items:
+            $ref: '#/components/schemas/PublicStatusComponent'
+          type: array
+          title: Components
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - name
+      - status
+      - components
+      title: PublicStatusGroup
+      description: A stable group of related components.
+    PublicStatusLevel:
+      type: string
+      enum:
+      - operational
+      - degraded
+      - outage
+      - unknown
+      - disabled
+      title: PublicStatusLevel
+      description: Stable public component and aggregate status values.
+    PublicStatusResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/PublicStatusLevel'
+        message:
+          type: string
+          title: Message
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        refresh_after_seconds:
+          type: integer
+          minimum: 1.0
+          title: Refresh After Seconds
+        summary:
+          $ref: '#/components/schemas/PublicStatusSummary'
+        groups:
+          items:
+            $ref: '#/components/schemas/PublicStatusGroup'
+          type: array
+          title: Groups
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - message
+      - generated_at
+      - refresh_after_seconds
+      - summary
+      - groups
+      title: PublicStatusResponse
+      description: Public status page payload.
+    PublicStatusSuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        data:
+          $ref: '#/components/schemas/PublicStatusResponse'
+        meta:
+          $ref: '#/components/schemas/MetaInfo'
+      type: object
+      required:
+      - data
+      title: PublicStatusSuccessResponse
+      description: Standard success envelope for the public status endpoint.
+    PublicStatusSummary:
+      properties:
+        total:
+          type: integer
+          minimum: 0.0
+          title: Total
+        operational:
+          type: integer
+          minimum: 0.0
+          title: Operational
+        degraded:
+          type: integer
+          minimum: 0.0
+          title: Degraded
+        outage:
+          type: integer
+          minimum: 0.0
+          title: Outage
+        unknown:
+          type: integer
+          minimum: 0.0
+          title: Unknown
+        disabled:
+          type: integer
+          minimum: 0.0
+          title: Disabled
+      additionalProperties: false
+      type: object
+      required:
+      - total
+      - operational
+      - degraded
+      - outage
+      - unknown
+      - disabled
+      title: PublicStatusSummary
+      description: Exact component counts by public status.
     QuickSaveRequest:
       properties:
         url:
@@ -16569,7 +17111,6 @@ components:
       required:
       - api_version
     Pagination:
-      description: Pagination metadata.
       properties:
         total:
           title: Total

@@ -48,7 +48,9 @@ class _NullRepository:
     async def async_get_user_by_telegram_id(self, _user_id: int) -> dict[str, Any] | None:
         return None
 
-    async def async_get_all_for_user(self, _user_id: int) -> list[dict[str, Any]]:
+    async def async_get_all_for_user(
+        self, _user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]:
         return []
 
     async def async_get_summary_for_sync_apply(
@@ -61,13 +63,17 @@ class _NullRepository:
 
 
 class _NullSyncAuxReadPort:
-    async def get_highlights_for_user(self, _user_id: int) -> list[dict[str, Any]]:
+    async def get_highlights_for_user(
+        self, _user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]:
         return []
 
-    async def get_tags_for_user(self, _user_id: int) -> list[dict[str, Any]]:
+    async def get_tags_for_user(self, _user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         return []
 
-    async def get_summary_tags_for_user(self, _user_id: int) -> list[dict[str, Any]]:
+    async def get_summary_tags_for_user(
+        self, _user_id: int, *, since: int = 0
+    ) -> list[dict[str, Any]]:
         return []
 
 

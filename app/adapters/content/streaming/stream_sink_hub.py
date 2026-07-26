@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.adapters.content.streaming.events import StreamEvent
 from app.adapters.content.streaming.stream_hub import get_stream_hub
+from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
     from app.adapters.content.streaming.stream_hub import StreamHub
@@ -28,12 +29,36 @@ if TYPE_CHECKING:
 class StreamHubStreamSink:
     """Structural implementation of ``StreamSinkPort`` over ``StreamHub``."""
 
-    def __init__(self, hub: StreamHub | None = None) -> None:
+    def __init__(
+        self, hub: StreamHub | None = None, progress_event_repo: Any | None = None
+    ) -> None:
         self._hub = hub
+        self._progress_event_repo = progress_event_repo
 
-    def _publish(
+    async def _publish(
         self, request_id: str, kind: str, payload: dict[str, Any], correlation_id: str
     ) -> None:
+        if self._progress_event_repo is not None:
+            try:
+                await self._progress_event_repo.append(
+                    request_id=int(request_id),
+                    kind=kind,
+                    stage=str(payload.get("stage")) if payload.get("stage") is not None else None,
+                    status="completed"
+                    if kind == "done"
+                    else "failed"
+                    if kind == "error"
+                    else "processing",
+                    message=str(payload.get("content") or payload.get("message") or kind),
+                    progress=None,
+                    payload=payload,
+                    correlation_id=correlation_id,
+                )
+            except Exception as exc:
+                get_logger(__name__).warning(
+                    "graph_progress_event_persist_failed",
+                    extra={"request_id": request_id, "kind": kind, "error": str(exc)},
+                )
         hub = self._hub or get_stream_hub()
         hub.publish(request_id, StreamEvent.now(kind, payload, correlation_id))
 
@@ -43,7 +68,7 @@ class StreamHubStreamSink:
         # ProcessingStage is a StrEnum; StagePayload validation in StreamEvent.now
         # normalizes the enum and its str value to the same payload, so passing
         # either is byte-identical to the legacy producer.
-        self._publish(request_id, "stage", {"stage": stage}, correlation_id)
+        await self._publish(request_id, "stage", {"stage": stage}, correlation_id)
 
     async def section(
         self,
@@ -54,7 +79,7 @@ class StreamHubStreamSink:
         content: str,
         partial: bool = False,
     ) -> None:
-        self._publish(
+        await self._publish(
             request_id,
             "section",
             {"section": section, "content": content, "partial": partial},
@@ -64,7 +89,7 @@ class StreamHubStreamSink:
     async def warning(
         self, *, request_id: str, correlation_id: str, code: str, message: str
     ) -> None:
-        self._publish(
+        await self._publish(
             request_id,
             "warning",
             {"code": code, "message": message, "correlation_id": correlation_id},
@@ -72,7 +97,7 @@ class StreamHubStreamSink:
         )
 
     async def done(self, *, request_id: str, correlation_id: str, summary_id: str | None) -> None:
-        self._publish(
+        await self._publish(
             request_id,
             "done",
             {"summary_id": summary_id, "request_id": request_id},
@@ -80,7 +105,7 @@ class StreamHubStreamSink:
         )
 
     async def error(self, *, request_id: str, correlation_id: str, code: str, message: str) -> None:
-        self._publish(
+        await self._publish(
             request_id,
             "error",
             {"code": code, "message": message, "correlation_id": correlation_id},

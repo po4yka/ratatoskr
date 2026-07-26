@@ -111,3 +111,60 @@ async def test_sync_aux_read_adapter_reads_user_scoped_records(database: Databas
     assert [row["name"] for row in tags] == ["Sync"]
     assert len(summary_tags) == 1
     assert summary_tags[0]["tag_id"] == tag.id
+
+
+@pytest.mark.asyncio
+async def test_sync_page_applies_user_scope_cursor_order_and_limit(database: Database) -> None:
+    user_id = 8701
+    other_user_id = 8702
+    async with database.transaction() as session:
+        user = User(telegram_user_id=user_id, username="sync-page-owner")
+        other = User(telegram_user_id=other_user_id, username="sync-page-other")
+        session.add_all([user, other])
+        await session.flush()
+
+        requests = [
+            Request(
+                user_id=user_id,
+                type="url",
+                status="completed",
+                input_url=f"https://example.com/sync/{version}",
+                normalized_url=f"https://example.com/sync/{version}",
+                dedupe_hash=f"sync-page-{version}",
+                server_version=version,
+            )
+            for version in (10, 20, 30)
+        ]
+        requests.append(
+            Request(
+                user_id=other_user_id,
+                type="url",
+                status="completed",
+                input_url="https://example.com/sync/other",
+                normalized_url="https://example.com/sync/other",
+                dedupe_hash="sync-page-other",
+                server_version=15,
+            )
+        )
+        session.add_all(requests)
+
+    adapter = SyncAuxReadAdapter(database)
+
+    first = await adapter.get_sync_page(
+        "request",
+        user_id,
+        since=10,
+        limit=1,
+        through_version=None,
+    )
+    bounded = await adapter.get_sync_page(
+        "request",
+        user_id,
+        since=10,
+        limit=None,
+        through_version=20,
+    )
+
+    assert [row["server_version"] for row in first] == [20]
+    assert [row["server_version"] for row in bounded] == [20]
+    assert "content_text" not in first[0]

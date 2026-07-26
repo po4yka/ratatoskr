@@ -27,6 +27,19 @@ def test_redact_url_strips_all_occurrences_multiline() -> None:
     assert out.count("***@") == 2
 
 
+def test_redact_url_strips_unknown_query_and_fragment_credentials() -> None:
+    text = (
+        "fatal: https://example.com/repo.git?X-Amz-Signature=query-secret"
+        "#oauth_token=fragment-secret"
+    )
+
+    out = _redact_url(text)
+
+    assert "query-secret" not in out
+    assert "fragment-secret" not in out
+    assert out == "fatal: https://example.com/repo.git?redacted#redacted"
+
+
 def test_redact_url_leaves_clean_urls_untouched() -> None:
     clean = "cloning https://github.com/owner/repo.git"
     assert _redact_url(clean) == clean

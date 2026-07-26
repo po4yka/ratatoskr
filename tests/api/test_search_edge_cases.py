@@ -207,6 +207,49 @@ def test_semantic_search_response_includes_explanations(client, search_token):
         assert "scoreBreakdown" in results[0]
 
 
+def test_search_failure_returns_generic_message_not_internal_exception(client, search_token):
+    """CWE-209 regression: a failing FTS search returns a generic client message, never
+    the stringified internal exception (DB DSNs, hosts, secrets)."""
+    secret = "postgresql://admin:s3cr3t@internal-db.local:5432/ratatoskr timed out"
+    with patch.object(
+        SearchService, "search_summaries", AsyncMock(side_effect=RuntimeError(secret))
+    ):
+        response = client.get(
+            "/v1/search",
+            params={"q": "anything", "limit": 10, "offset": 0},
+            headers={"Authorization": f"Bearer {search_token}"},
+        )
+
+    assert response.status_code == 500
+    # The internal exception text must not appear anywhere in the client payload.
+    assert secret not in response.text
+    assert "s3cr3t" not in response.text
+    assert "internal-db.local" not in response.text
+    assert response.json()["error"]["message"] == "Search failed"
+
+
+def test_semantic_search_failure_returns_generic_message_not_internal_exception(
+    client, search_token
+):
+    """CWE-209 regression for the semantic search endpoint."""
+    secret = "Qdrant AuthError api_key=live_9f8a7b at internal cluster node-3"
+    with patch.object(
+        SearchService,
+        "semantic_search_summaries",
+        AsyncMock(side_effect=RuntimeError(secret)),
+    ):
+        response = client.get(
+            "/v1/search/semantic",
+            params={"q": "anything", "limit": 10, "offset": 0},
+            headers={"Authorization": f"Bearer {search_token}"},
+        )
+
+    assert response.status_code == 500
+    assert secret not in response.text
+    assert "live_9f8a7b" not in response.text
+    assert response.json()["error"]["message"] == "Semantic search failed"
+
+
 def test_search_insights_success(client, search_data, search_token):
     """Insights endpoint returns analytics blocks."""
     response = client.get(

@@ -13,6 +13,7 @@ sys.modules["redis"] = MagicMock()
 sys.modules["redis.asyncio"] = MagicMock()
 
 from app.api.routers import auth
+from app.api.routers.user.user import get_user_stats
 from app.db.models import Request, Summary, User
 
 if TYPE_CHECKING:
@@ -35,6 +36,9 @@ async def _create_user_request_summary(
     json_payload,
 ) -> int:
     """Insert a User, Request, and Summary; return the summary id."""
+    payload = json_payload if isinstance(json_payload, dict) else {}
+    reading_time = payload.get("estimated_reading_time_min")
+    topic_tags = payload.get("topic_tags")
     async with db.transaction() as session:
         session.add(User(telegram_user_id=user_id, username=username))
         await session.flush()
@@ -51,6 +55,8 @@ async def _create_user_request_summary(
             request_id=request.id,
             lang="en",
             json_payload=json_payload,
+            reading_time=reading_time if isinstance(reading_time, int) else None,
+            topic_tags=topic_tags if isinstance(topic_tags, list) else None,
         )
         session.add(summary)
         await session.flush()
@@ -74,8 +80,6 @@ async def test_user_stats_with_valid_json_payload(db: Database, monkeypatch: pyt
         },
     )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     response = await get_user_stats(user={"user_id": 123456789})
 
     assert response["data"]["totalSummaries"] == 1
@@ -94,8 +98,6 @@ async def test_user_stats_with_none_json_payload(db: Database, monkeypatch: pyte
         url="http://test2.com",
         json_payload=None,
     )
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     response = await get_user_stats(user={"user_id": 123456790})
 
@@ -133,8 +135,6 @@ async def test_user_stats_with_string_json_payload(db: Database, monkeypatch: py
             {"sid": summary_id},
         )
 
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
-
     response = await get_user_stats(user={"user_id": 123456791})
 
     assert response["data"]["totalSummaries"] == 1
@@ -156,8 +156,6 @@ async def test_user_stats_with_invalid_topic_tags(db: Database, monkeypatch: pyt
             "metadata": {"title": "Test"},
         },
     )
-
-    from app.api.routers.user import get_user_stats  # type: ignore[attr-defined]
 
     response = await get_user_stats(user={"user_id": 123456792})
 

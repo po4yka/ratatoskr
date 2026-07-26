@@ -90,9 +90,25 @@ services:
       firecrawl_internal: {}
       dns_net: {}
     depends_on:
+      # Ensure the caching resolver is created (and claims its static
+      # 10.224.0.2) before the bot, so the bot can never squat that IP and
+      # leave a dead DNS first-hop. service_started (not _healthy) keeps
+      # dnsmasq a pure enhancement -- the dns: list still falls back to
+      # 1.1.1.1/8.8.8.8 -- rather than a health-gated single point of failure.
+      dnsmasq:
+        condition: service_started
       qdrant:
         condition: service_started
         required: false
+    # OOM hardening: the base 1 GiB cap (docker-compose.yml) was hit exactly --
+    # memcg OOM, exit 137 -- when two concurrent scrapes (MAX_CONCURRENT_CALLS=2)
+    # each launched an in-container Chromium alongside the resident embedding
+    # model, orphaning the in-flight request. Raise the ceiling here; the Pi host
+    # has 15 GiB. Deep-merges over the base deploy block (keeps its cpus limit).
+    deploy:
+      resources:
+        limits:
+          memory: 3G
 
   worker:
     # Same Docker embedded-DNS concurrency mitigation as the bot (see above):
@@ -110,7 +126,8 @@ services:
       - MALLOC_ARENA_MAX=2
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
-      - TASKIQ_WORKER_CONCURRENCY=${TASKIQ_WORKER_CONCURRENCY:-1}
+      - TASKIQ_WORKER_PROCESSES=${TASKIQ_WORKER_PROCESSES:-1}
+      - TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS=${TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS:-2}
       - GITHUB_SYNC_LLM_CONCURRENCY=${GITHUB_SYNC_LLM_CONCURRENCY:-1}
       - GITHUB_SYNC_BATCH_SIZE=${GITHUB_SYNC_BATCH_SIZE:-20}
       - VECTOR_RECONCILE_BATCH_SIZE=${VECTOR_RECONCILE_BATCH_SIZE:-25}
@@ -130,6 +147,9 @@ services:
       firecrawl_internal: {}
       dns_net: {}
     depends_on:
+      # Same dnsmasq ordering guarantee as the bot (see above).
+      dnsmasq:
+        condition: service_started
       qdrant:
         condition: service_started
         required: false
@@ -140,7 +160,15 @@ services:
       - MALLOC_ARENA_MAX=2
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - API_WORKERS=${API_WORKERS:-1}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
+      - STATUS_BOT_METRICS_URL=http://ratatoskr:9101/metrics
+      - STATUS_WORKER_METRICS_URL=http://worker:9102/metrics
+      - STATUS_SCHEDULER_METRICS_URL=http://scheduler:9103/metrics
+      - STATUS_NODE_METRICS_URL=http://node-exporter:9100/metrics
+      - STATUS_QDRANT_READY_URL=http://host-gateway:6333/readyz
+      - STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS=${STATUS_EXTRACTION_SIGNAL_MAX_AGE_SECONDS:-86400}
+      - STATUS_AI_SIGNAL_MAX_AGE_SECONDS=${STATUS_AI_SIGNAL_MAX_AGE_SECONDS:-86400}
       - SCRAPER_PROFILE=${SCRAPER_PROFILE:-balanced}
       - SCRAPER_BROWSER_ENABLED=${SCRAPER_BROWSER_ENABLED:-true}
       - SCRAPER_SCRAPLING_STEALTH_FALLBACK=${SCRAPER_SCRAPLING_STEALTH_FALLBACK:-true}
@@ -159,6 +187,13 @@ services:
       qdrant:
         condition: service_started
         required: false
+
+  prometheus:
+    # The Pi runs Qdrant as a native systemd service rather than a Compose
+    # container. Preserve the normal `qdrant:6333` Prometheus target by mapping
+    # that name to Docker's host gateway only in this overlay.
+    extra_hosts:
+      - "qdrant:host-gateway"
 
   mcp:
     environment:
@@ -187,6 +222,24 @@ services:
 
   postgres:
     platform: linux/arm64
+
+  pg-backup:
+    # A Pi deploy must leave observable recovery evidence immediately instead
+    # of waiting until the next 03:00 UTC cron window. The entrypoint starts
+    # crond only after this initial dump and its textfile metric succeed, so
+    # the base healthcheck is also the deployment gate.
+    environment:
+      - BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}
+
+  # Pi 5 (16 GB) drives many distinct domains at once; the base 1.5 GB / 1 CPU
+  # floor thrashes Chrome-per-seed here (hung/502 CDP). Raise on the overlay, as
+  # the base compose note intends ("the Pi overlay uses more").
+  cloakbrowser:
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+          cpus: "2.0"
 
 networks:
   firecrawl_internal:

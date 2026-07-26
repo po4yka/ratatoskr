@@ -493,7 +493,7 @@ async def test_tier1b_sticky_drops_override_then_succeeds(sticky: str) -> None:
     """Case 1 (x3 substrings): sticky error on attempt 0 -> drop override -> retry OK."""
     sticky_exc = ValueError(f"{sticky}: model primary-model exceeded budget")
     client, call_log = _replay_client([sticky_exc, _ok_structured("fallback-model")])
-    summary, call_meta = await summarize_with_instructor(
+    summary, call_metas, call_count = await summarize_with_instructor(
         llm_client=client,
         messages=[{"role": "user", "content": "summarize"}],
         source_content="content",
@@ -508,7 +508,8 @@ async def test_tier1b_sticky_drops_override_then_succeeds(sticky: str) -> None:
     assert call_log[0]["model_override"] == "primary-model"
     assert call_log[1]["model_override"] is None  # exactly one override-drop
     assert summary["summary_250"] == "ok"
-    assert call_meta["model"] == "fallback-model"
+    assert call_metas[-1]["model"] == "fallback-model"
+    assert call_count == 2
 
 
 async def test_tier1b_sticky_flag_off_propagates_first_failure() -> None:
@@ -643,7 +644,7 @@ async def test_tier1b_enrich_matches_legacy_enrich_two_pass_helper() -> None:
 
     # Helper path (the legacy-equivalent application port the node delegates to).
     helper_client = SimpleNamespace(chat=AsyncMock(return_value=_ok_chat_result(payload)))
-    helper_summary, call_meta = await enrich_two_pass(
+    helper_summary, call_meta, _call_count = await enrich_two_pass(
         llm_client=helper_client,
         summary=dict(base_summary),
         content_text="content",
@@ -703,4 +704,5 @@ async def test_tier1b_enrich_fail_soft_returns_original_summary() -> None:
     }
     out = await enrich(state, deps=deps)
     assert out["summary"] == base_summary  # unchanged (fail-soft)
-    assert out.get("llm_calls") is None or out.get("llm_calls") == []
+    assert len(out["llm_calls"]) == 1
+    assert out["llm_calls"][0]["status"] == "error"

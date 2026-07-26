@@ -143,6 +143,7 @@ class SummarizationRuntime:
             cfg=cfg,
             openrouter=openrouter,
             topic_search=topic_search,
+            llm_repo=llm_repo,
         )
 
     async def aclose(self, timeout: float = 5.0) -> None:

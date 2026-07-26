@@ -6,11 +6,10 @@ pluggable checkpointer. This module and
 ``app/application/graphs/summarize/graph.py`` are the ONLY langgraph-coupled
 surfaces (ADR-0010/0018); nodes stay framework-free.
 
-langgraph is imported **lazily** inside :func:`build_summarize_graph_app` so this
-module stays importable in the import-linter / mypy / unit-test CI envs, which do
-not install the optional ``graph`` extra. T5 defaults the checkpointer to an
-in-memory saver; T2's ``AsyncPostgresSaver`` is injected at this same seam at
-cutover.
+LangGraph is a required runtime dependency and remains imported inside
+:func:`build_summarize_graph_app` to keep framework coupling at the composition
+seam. T5 defaults the checkpointer to an in-memory saver; T2's
+``AsyncPostgresSaver`` is injected at this same seam at cutover.
 """
 
 from __future__ import annotations
@@ -23,10 +22,14 @@ from app.application.graphs.summarize.graph import (
     DEFAULT_RECURSION_LIMIT,
     build_initial_state,
     build_summarize_graph,
+    cleanup_checkpoint_thread,
     invocation_config,
+    prepare_resumable_invocation,
     reason_code_for_exception,
+    recover_accumulated_llm_calls,
 )
 from app.application.graphs.summarize.lifecycle import (
+    error_id_message,
     notification_type_for_exception,
     route_terminal_failure,
 )
@@ -79,31 +82,51 @@ def build_summarize_config(cfg: AppConfig) -> SummarizeConfig:
     """
     from app.application.graphs.summarize.deps import SummarizeConfig
 
+    runtime = cfg.runtime
+    provider = str(runtime.llm_provider).lower()
     routing = cfg.model_routing
     openrouter = cfg.openrouter
-    runtime = cfg.runtime
     attachment = cfg.attachment
-    long_context_model = (
-        routing.long_context_model if routing.enabled else openrouter.long_context_model
-    )
-    threshold = routing.long_context_threshold_tokens if routing.enabled else 80000
+
+    if provider == "openrouter":
+        provider_config = openrouter
+        routing_enabled = bool(routing.enabled)
+        long_context_model = (
+            routing.long_context_model if routing_enabled else openrouter.long_context_model
+        )
+        threshold = routing.long_context_threshold_tokens if routing_enabled else 80000
+        structured_output_mode = openrouter.structured_output_mode
+    else:
+        provider_config = getattr(cfg, provider)
+        routing_enabled = False
+        long_context_model = None
+        threshold = routing.long_context_threshold_tokens
+        structured_output_mode = "json_object" if provider in {"openai", "ollama"} else None
+
+    model = getattr(provider_config, "model", None)
+    if not model:
+        raise ValueError(f"{provider.upper()}_MODEL is required for summarize graph wiring")
+
     return SummarizeConfig(
-        model=openrouter.model,
-        llm_provider=cfg.runtime.llm_provider,
-        temperature=openrouter.temperature,
-        structured_output_mode=openrouter.structured_output_mode,
+        model=str(model),
+        llm_provider=provider,
+        temperature=float(provider_config.temperature),
+        structured_output_mode=structured_output_mode,
         long_context_threshold_tokens=threshold,
         long_context_model=long_context_model,
-        configured_max_tokens=openrouter.max_tokens,
-        top_p=openrouter.top_p,
+        configured_max_tokens=provider_config.max_tokens,
+        top_p=openrouter.top_p if provider == "openrouter" else None,
         summarization_max_retries=int(getattr(runtime, "summarization_max_retries", 3)),
         sticky_fallback_enabled=bool(getattr(runtime, "llm_sticky_failure_force_fallback", True)),
         two_pass_enabled=bool(getattr(runtime, "summary_two_pass_enabled", False)),
-        routing_enabled=bool(routing.enabled),
+        routing_enabled=routing_enabled,
         preferred_lang=str(getattr(runtime, "preferred_lang", None) or "auto"),
-        article_vision_enabled=bool(getattr(attachment, "article_vision_enabled", False)),
+        article_vision_enabled=provider == "openrouter"
+        and bool(getattr(attachment, "article_vision_enabled", False)),
         article_vision_min_images=int(getattr(attachment, "article_vision_min_images", 1)),
-        vision_model=getattr(attachment, "vision_model", None),
+        vision_model=getattr(attachment, "vision_model", None)
+        if provider == "openrouter"
+        else None,
         enrichment_content_max_chars=int(getattr(runtime, "enrichment_content_max_chars", 30000)),
     )
 
@@ -126,6 +149,8 @@ def build_summarize_deps(
     summary_cache: Any | None = None,
     crawl_repo: Any | None = None,
     export_events: Any | None = None,
+    graph_run_ledger: Any | None = None,
+    llm_guard: Any | None = None,
 ) -> SummarizeDeps:
     """Pack already-constructed ports + config snapshot into the node dependency bundle.
 
@@ -160,7 +185,32 @@ def build_summarize_deps(
         summary_cache=summary_cache,
         crawl_repo=crawl_repo,
         export_events=export_events,
+        graph_run_ledger=graph_run_ledger,
+        llm_guard=llm_guard,
     )
+
+
+def build_graph_llm_guard(*, cfg: AppConfig, sem: Any, llm_repo: Any) -> Any:
+    """Build the shared execution guard used by every summarize-graph LLM call."""
+    from app.application.services.summarization.graph_llm_guard import (
+        GraphLLMGuard,
+        GraphLLMGuardConfig,
+    )
+
+    budget = cfg.llm_usage_budget
+    guard_config = GraphLLMGuardConfig(
+        semaphore_acquire_timeout_sec=float(cfg.runtime.semaphore_acquire_timeout_sec),
+        call_timeout_sec=float(cfg.runtime.llm_call_timeout_sec),
+        max_calls_per_request=int(cfg.runtime.llm_max_calls_per_request),
+        max_tokens_per_request=budget.max_tokens_per_request,
+        max_cost_usd_per_request=budget.max_cost_usd_per_request,
+        daily_soft_budget_usd=budget.daily_soft_budget_usd,
+        monthly_soft_budget_usd=budget.monthly_soft_budget_usd,
+        daily_hard_budget_usd=budget.daily_hard_budget_usd,
+        monthly_hard_budget_usd=budget.monthly_hard_budget_usd,
+        warning_threshold_ratio=budget.warning_threshold_ratio,
+    )
+    return GraphLLMGuard(sem=sem, llm_repo=llm_repo, config=guard_config)
 
 
 def build_summarize_graph_app(*, deps: SummarizeDeps, checkpointer: Any | None = None) -> Any:
@@ -183,7 +233,9 @@ def build_summarize_graph_app(*, deps: SummarizeDeps, checkpointer: Any | None =
     return build_summarize_graph(deps=deps, checkpointer=checkpointer)
 
 
-def build_stream_sink(*, hub: Any | None = None) -> StreamSinkPort:
+def build_stream_sink(
+    *, hub: Any | None = None, progress_event_repo: Any | None = None
+) -> StreamSinkPort:
     """Construct the StreamHub-backed stream sink (ADR-0017).
 
     Imported lazily so this module stays importable without the streaming stack
@@ -192,7 +244,7 @@ def build_stream_sink(*, hub: Any | None = None) -> StreamSinkPort:
     """
     from app.adapters.content.streaming.stream_sink_hub import StreamHubStreamSink
 
-    return StreamHubStreamSink(hub=hub)
+    return StreamHubStreamSink(hub=hub, progress_event_repo=progress_event_repo)
 
 
 def build_model_router(cfg: AppConfig) -> Any:
@@ -210,7 +262,7 @@ def build_model_router(cfg: AppConfig) -> Any:
     router is consulted ``model_override`` is already pinned when vision applies. The
     router therefore never needs to re-derive the vision model.
     """
-    if not cfg.model_routing.enabled:
+    if cfg.runtime.llm_provider != "openrouter" or not cfg.model_routing.enabled:
         return None
     from app.core.model_router import resolve_model_for_content
 
@@ -268,6 +320,7 @@ def build_graph_url_processor(
     summary_repo: Any | None = None,
     audit_func: Any | None = None,
     summarization_runtime: Any | None = None,
+    progress_event_repo: Any | None = None,
 ) -> Any:
     """Compose the graph-backed URL-flow facade (T9 cutover seam, ADR-0013).
 
@@ -298,10 +351,10 @@ def build_graph_url_processor(
 
     def _stream_sink_factory() -> StreamSinkPort:
         if hub_factory is not None:
-            return build_stream_sink(hub=hub_factory())
+            return build_stream_sink(hub=hub_factory(), progress_event_repo=progress_event_repo)
         from app.adapters.content.streaming import get_stream_hub
 
-        return build_stream_sink(hub=get_stream_hub())
+        return build_stream_sink(hub=get_stream_hub(), progress_event_repo=progress_event_repo)
 
     return GraphURLProcessor(
         cfg=cfg,
@@ -332,6 +385,10 @@ async def run_summarize_graph_streamed(
     request_id: int,
     lang: str,
     input_url: str = "",
+    source_text: str = "",
+    requested_system_prompt: str = "",
+    feedback_instructions: str = "",
+    two_pass_eligible: bool = True,
     user_scope: str | None = None,
     environment: str | None = None,
     recursion_limit: int | None = None,
@@ -345,9 +402,9 @@ async def run_summarize_graph_streamed(
     ``StreamHub`` progress; there is no separate ``ainvoke``.
 
     Streamed tokens are an ephemeral side-channel: the bridge's assembler is
-    local to this call and never enters checkpoint state (ADR-0011). Terminal
-    ``done`` / ``error`` are emitted by ``BackgroundProgressPublisher``, not here,
-    so each request_id stream terminates exactly once.
+    local to this call and never enters checkpoint state (ADR-0011). This runner
+    owns the interactive stream lifecycle, so it emits exactly one terminal
+    ``done`` or ``error`` event before returning.
 
     On any node/recursion/budget failure, routes to the single terminal-failure
     path and returns ``{"error": ...}``; otherwise returns the final graph state.
@@ -362,22 +419,38 @@ async def run_summarize_graph_streamed(
         request_id=request_id,
         lang=lang,
         input_url=input_url,
+        source_text=source_text,
+        requested_system_prompt=requested_system_prompt,
+        feedback_instructions=feedback_instructions,
         user_scope=user_scope,
         environment=environment,
         stream=True,
         # URL-flow (interactive streamed) runner: two-pass enrich is eligible
         # here, still AND-gated by config.two_pass_enabled (audit #20).
-        two_pass_eligible=True,
+        two_pass_eligible=two_pass_eligible,
     )
     config = invocation_config(correlation_id=correlation_id, recursion_limit=limit)
     bridge = GraphEventBridge(sink=sink, request_id=str(request_id), correlation_id=correlation_id)
     final_state: dict[str, Any] = {}
     try:
-        async for event in graph.astream_events(initial_state, config=config, version="v2"):
-            await bridge.dispatch(event)
-            captured = _final_state_from_event(event)
-            if captured is not None:
-                final_state = captured
+        graph_input, checkpointed_result = await prepare_resumable_invocation(
+            graph, config, initial_state
+        )
+        if checkpointed_result is not None:
+            final_state = checkpointed_result
+        else:
+            async for event in graph.astream_events(graph_input, config=config, version="v2"):
+                await bridge.dispatch(event)
+                captured = _final_state_from_event(event)
+                if captured is not None:
+                    final_state = captured
+        await cleanup_checkpoint_thread(graph, config)
+        summary_id = final_state.get("summary_id")
+        await sink.done(
+            request_id=str(request_id),
+            correlation_id=correlation_id,
+            summary_id=str(summary_id) if summary_id is not None else None,
+        )
         return final_state
     except Exception as exc:
         # Single terminal sink (ADR-0011), mirroring run_summarize_graph: a node
@@ -387,8 +460,31 @@ async def run_summarize_graph_streamed(
             "summarize_graph_streamed_terminal_failure",
             extra={"correlation_id": correlation_id, "error_type": type(exc).__name__},
         )
-        message = await route_terminal_failure(
-            initial_state, deps, exc, reason_code=reason_code_for_exception(exc)
+        # Recover accumulated llm_calls from the checkpoint (persist-everything,
+        # rule 3): the streamed runner drives the same graph via astream_events, so
+        # a terminal failure skips the persist node identically to the ainvoke path.
+        recovered_llm_calls = await recover_accumulated_llm_calls(graph, config)
+        try:
+            message = await route_terminal_failure(
+                initial_state,
+                deps,
+                exc,
+                reason_code=reason_code_for_exception(exc),
+                recovered_llm_calls=recovered_llm_calls,
+            )
+        except Exception:
+            logger.exception(
+                "summarize_graph_streamed_terminal_persistence_failed",
+                extra={"correlation_id": correlation_id, "request_id": request_id},
+            )
+            message = error_id_message(correlation_id, request_id)
+        else:
+            await cleanup_checkpoint_thread(graph, config)
+        await sink.error(
+            request_id=str(request_id),
+            correlation_id=correlation_id,
+            code=reason_code_for_exception(exc),
+            message=message,
         )
         return {
             "error": message,
@@ -431,6 +527,8 @@ def assemble_graph_url_processor(
     embedding_service: Any | None = None,
     redis_cache: Any | None = None,
     checkpointer: Any | None = None,
+    sem: Any | None = None,
+    progress_event_repo: Any | None = None,
 ) -> Any:
     """Assemble the full summarize graph + the graph-backed URL-flow facade (T9 cutover).
 
@@ -456,6 +554,7 @@ def assemble_graph_url_processor(
     """
     from app.adapters.export.dispatcher import SummaryExportDispatcher
     from app.di.extraction import build_extraction_port
+    from app.infrastructure.persistence.graph_run_ledger import ProgressEventGraphRunLedger
     from app.infrastructure.persistence.repositories.embedding_repository import (
         EmbeddingRepositoryAdapter,
     )
@@ -478,7 +577,7 @@ def assemble_graph_url_processor(
         llm_client=llm_client,
         retrieval=retrieval,
         extraction=extraction,
-        stream_sink=build_stream_sink(),
+        stream_sink=build_stream_sink(progress_event_repo=progress_event_repo),
         summaries=summary_repo,
         requests=request_repo,
         summary_index=summary_index,
@@ -491,6 +590,10 @@ def assemble_graph_url_processor(
         summary_cache=build_summary_cache_adapter(cfg, cache=redis_cache),
         crawl_repo=crawl_result_repo,
         export_events=SummaryExportDispatcher(db),
+        graph_run_ledger=ProgressEventGraphRunLedger(db),
+        llm_guard=(
+            build_graph_llm_guard(cfg=cfg, sem=sem, llm_repo=llm_repo) if sem is not None else None
+        ),
     )
     graph = build_summarize_graph_app(deps=deps, checkpointer=checkpointer)
     return build_graph_url_processor(
@@ -507,6 +610,7 @@ def assemble_graph_url_processor(
         summary_repo=summary_repo,
         audit_func=audit_func,
         summarization_runtime=summarization_runtime,
+        progress_event_repo=progress_event_repo,
     )
 
 

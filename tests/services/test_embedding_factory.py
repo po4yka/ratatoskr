@@ -3,16 +3,30 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from types import SimpleNamespace
 
 import pytest
 
 from app.config.integrations import EmbeddingConfig
+from app.infrastructure.embedding.cached_embedding_service import CachedEmbeddingService
 from app.infrastructure.embedding.embedding_factory import (
     create_embedding_service,
     reset_embedding_service_cache,
 )
 from app.infrastructure.embedding.embedding_protocol import EmbeddingServiceProtocol
 from app.infrastructure.embedding.embedding_service import EmbeddingService
+
+
+def _app_cfg(*, enabled: bool = True, cache_enabled: bool = True) -> SimpleNamespace:
+    """Minimal AppConfig stub exposing only the redis fields the factory reads."""
+    return SimpleNamespace(
+        redis=SimpleNamespace(
+            enabled=enabled,
+            cache_enabled=cache_enabled,
+            cache_timeout_sec=0.3,
+            embedding_cache_ttl_seconds=86400,
+        )
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -128,6 +142,47 @@ class TestServiceCaching:
         first = create_embedding_service(None)
         reset_embedding_service_cache()
         second = create_embedding_service(None)
+        assert first is not second
+
+
+class TestCacheWrapping:
+    """app_config wires the Redis EmbeddingCache in via CachedEmbeddingService."""
+
+    def test_redis_enabled_wraps_with_cache(self) -> None:
+        svc = create_embedding_service(EmbeddingConfig(provider="local"), app_config=_app_cfg())
+        assert isinstance(svc, CachedEmbeddingService)
+        assert isinstance(svc, EmbeddingServiceProtocol)
+
+    def test_wrapper_inner_is_the_process_cached_bare_service(self) -> None:
+        wrapped = create_embedding_service(EmbeddingConfig(provider="local"), app_config=_app_cfg())
+        bare = create_embedding_service(EmbeddingConfig(provider="local"))
+        assert isinstance(wrapped, CachedEmbeddingService)
+        # The heavy model instance is shared -- only the cheap wrapper is added.
+        assert wrapped.inner is bare
+
+    def test_wrapped_service_is_process_cached(self) -> None:
+        a = create_embedding_service(EmbeddingConfig(provider="local"), app_config=_app_cfg())
+        b = create_embedding_service(EmbeddingConfig(provider="local"), app_config=_app_cfg())
+        assert a is b
+
+    def test_redis_disabled_returns_bare_service(self) -> None:
+        svc = create_embedding_service(
+            EmbeddingConfig(provider="local"), app_config=_app_cfg(enabled=False)
+        )
+        assert not isinstance(svc, CachedEmbeddingService)
+        assert isinstance(svc, EmbeddingService)
+
+    def test_cache_disabled_flag_returns_bare_service(self) -> None:
+        svc = create_embedding_service(
+            EmbeddingConfig(provider="local"), app_config=_app_cfg(cache_enabled=False)
+        )
+        assert not isinstance(svc, CachedEmbeddingService)
+        assert isinstance(svc, EmbeddingService)
+
+    def test_reset_clears_wrapped_cache(self) -> None:
+        first = create_embedding_service(EmbeddingConfig(provider="local"), app_config=_app_cfg())
+        reset_embedding_service_cache()
+        second = create_embedding_service(EmbeddingConfig(provider="local"), app_config=_app_cfg())
         assert first is not second
 
 

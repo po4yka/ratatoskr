@@ -234,6 +234,12 @@ _BOILERPLATE_HEADINGS = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# Matches the start of any real markdown heading line. Precompiled once (like its
+# sibling _BOILERPLATE_HEADINGS) instead of being recompiled per line inside the
+# hot loop below. Applied to the raw line (no strip, no flags) to preserve the
+# original re.match semantics exactly.
+_HEADING_LINE = re.compile(r"^#{1,4}\s+\S")
+
 
 def _remove_boilerplate_sections(text: str) -> str:
     """Remove sections starting with boilerplate headings until next heading or EOF."""
@@ -246,7 +252,7 @@ def _remove_boilerplate_sections(text: str) -> str:
             skipping = True
             continue
         # Stop skipping at the next real heading
-        if skipping and re.match(r"^#{1,4}\s+\S", line):
+        if skipping and _HEADING_LINE.match(line):
             skipping = False
         if not skipping:
             result.append(line)

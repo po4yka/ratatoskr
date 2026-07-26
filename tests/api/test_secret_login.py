@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
 
-from app.api.exceptions import AuthenticationError, AuthorizationError
+from app.api.exceptions import AuthenticationError, AuthorizationError, ResourceNotFoundError
 from app.api.models.auth import (
     SecretKeyCreateRequest,
     SecretKeyRevokeRequest,
@@ -123,6 +123,90 @@ async def test_secret_login_lockout(db: Database, monkeypatch: pytest.MonkeyPatc
     assert record.status == "locked"
     assert record.failed_attempts >= 2
     assert record.locked_until is not None
+
+
+def test_run_decoy_secret_verify_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The decoy runs a real argon2 verify (constant cost) and never raises."""
+    _configure_env(monkeypatch)
+    secret_auth._decoy_phc_holder[0] = None
+
+    assert secret_auth._get_decoy_phc().startswith("$argon2")
+    # Always mismatches, result discarded, must return None without raising.
+    assert secret_auth.run_decoy_secret_verify("any-provided-secret") is None
+
+
+def _spy_decoy(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the decoy verify with a recorder and return the capture list.
+
+    Patches the name where secret_login uses it (imported into
+    endpoints_secret_keys), so calls on the not-found paths are observed.
+    """
+    called: list[str] = []
+    monkeypatch.setattr(
+        "app.api.routers.auth.endpoints_secret_keys.run_decoy_secret_verify",
+        lambda secret: called.append(secret),
+    )
+    return called
+
+
+def _patch_repos(
+    monkeypatch: pytest.MonkeyPatch, *, user: object | None, secret_record: object | None
+) -> None:
+    user_repo = MagicMock()
+    user_repo.async_get_user_by_telegram_id = AsyncMock(return_value=user)
+    auth_repo = MagicMock()
+    auth_repo.async_get_client_secret = AsyncMock(return_value=secret_record)
+    monkeypatch.setattr(
+        "app.api.routers.auth.endpoints_secret_keys.get_user_repository", lambda: user_repo
+    )
+    monkeypatch.setattr(
+        "app.api.routers.auth.endpoints_secret_keys.get_auth_repository", lambda: auth_repo
+    )
+
+
+async def test_secret_login_runs_decoy_verify_when_secret_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User exists but has no registered secret: the not-found path must still pay
+    the argon2 cost so it is timing-indistinguishable from a wrong-secret verify."""
+    _configure_env(monkeypatch)
+    _patch_repos(monkeypatch, user={"telegram_user_id": 123456789}, secret_record=None)
+    called = _spy_decoy(monkeypatch)
+
+    with pytest.raises(AuthenticationError):
+        await auth_endpoints.secret_login(
+            SecretLoginRequest(
+                user_id=123456789,
+                client_id="mobile-client",
+                secret="no-such-secret-strong",
+                username="owner",
+            ),
+            _mock_response(),
+        )
+
+    assert called == ["no-such-secret-strong"]
+
+
+async def test_secret_login_runs_decoy_verify_when_user_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No such user: still pay the argon2 cost before raising."""
+    _configure_env(monkeypatch)
+    _patch_repos(monkeypatch, user=None, secret_record=None)
+    called = _spy_decoy(monkeypatch)
+
+    with pytest.raises(ResourceNotFoundError):
+        await auth_endpoints.secret_login(
+            SecretLoginRequest(
+                user_id=123456789,
+                client_id="mobile-client",
+                secret="no-such-secret-strong",
+                username="owner",
+            ),
+            _mock_response(),
+        )
+
+    assert called == ["no-such-secret-strong"]
 
 
 async def test_secret_key_management(db: Database, monkeypatch: pytest.MonkeyPatch) -> None:
