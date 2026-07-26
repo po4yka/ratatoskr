@@ -35,6 +35,7 @@ from app.db.models.ai_backup import (
     AiBackupService,
     AiBackupStatus,
 )
+from app.db.models.core import LLMCall, Request as RequestRecord
 from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
 from app.observability.metrics_status import record_status_check
 
@@ -78,6 +79,9 @@ _PG_BACKUP_LAST_SUCCESS_METRIC = "ratatoskr_pg_backup_last_success_timestamp_sec
 _VECTOR_RECONCILE_RUNS_METRIC = "ratatoskr_vector_reconcile_runs_total"
 _VECTOR_RECONCILE_LAG_METRIC = "ratatoskr_vector_reconcile_oldest_lag_seconds"
 _EXTRACTION_LAST_RESULT_METRIC = "ratatoskr_scraper_chain_last_result_timestamp_seconds"
+_PERSISTED_SIGNAL_ROW_LIMIT = 20
+_SUCCESS_STATUSES = frozenset({"ok", "success", "completed", "succeeded"})
+_FAILURE_STATUSES = frozenset({"error", "failed", "failure", "timeout"})
 _BACKUP_STALE_AFTER = timedelta(hours=36)
 _BACKUP_OUTAGE_AFTER = timedelta(hours=48)
 _VECTOR_RECONCILE_LAG_WARNING_SECONDS = 3600
@@ -339,15 +343,20 @@ class PublicStatusService:
                 available = False
             return PublicStatusLevel.OPERATIONAL if available else PublicStatusLevel.UNKNOWN
 
-        async def _ai_summarization() -> PublicStatusLevel:
+        async def _ai_summarization() -> PublicStatusLevel | _StatusSignal:
             if self._llm_provider != "openrouter":
                 return PublicStatusLevel.UNKNOWN
             process_level, payload = await _worker_metrics()
             if process_level is not PublicStatusLevel.OPERATIONAL or payload is None:
                 return PublicStatusLevel.UNKNOWN
-            return self._parse_openrouter_status(
+            runtime_level = self._parse_openrouter_status(
                 payload,
                 max_age=timedelta(seconds=self._deployment.status_ai_signal_max_age_seconds),
+            )
+            if runtime_level is not PublicStatusLevel.UNKNOWN:
+                return runtime_level
+            return await self._persisted_ai_status(
+                max_age=timedelta(seconds=self._deployment.status_ai_signal_max_age_seconds)
             )
 
         async def _telegram_bot() -> PublicStatusLevel:
@@ -363,11 +372,16 @@ class PublicStatusService:
             ]
             if not payloads:
                 return _StatusSignal(PublicStatusLevel.UNKNOWN, "Extraction status unavailable")
-            return self._parse_extraction_status(
+            runtime_signal = self._parse_extraction_status(
                 b"\n".join(payloads),
                 max_age=timedelta(
                     seconds=self._deployment.status_extraction_signal_max_age_seconds
                 ),
+            )
+            if runtime_signal.level is not PublicStatusLevel.UNKNOWN:
+                return runtime_signal
+            return await self._persisted_extraction_status(
+                max_age=timedelta(seconds=self._deployment.status_extraction_signal_max_age_seconds)
             )
 
         async def _worker() -> PublicStatusLevel:
@@ -450,6 +464,52 @@ class PublicStatusService:
     async def _probe_process(self, url: str | None) -> PublicStatusLevel:
         level, _payload = await self._fetch_metrics(url)
         return level
+
+    async def _persisted_ai_status(self, *, max_age: timedelta) -> _StatusSignal:
+        if self._database is None:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "No AI request observed")
+        try:
+            async with self._database.session() as session:
+                rows = (
+                    await session.execute(
+                        select(LLMCall.status, LLMCall.updated_at)
+                        .where(LLMCall.provider == "openrouter")
+                        .order_by(LLMCall.id.desc())
+                        .limit(_PERSISTED_SIGNAL_ROW_LIMIT)
+                    )
+                ).all()
+        except Exception as exc:
+            logger.warning(
+                "public_status_persisted_signal_failed",
+                extra={"component": "ai_summarization", "error_type": type(exc).__name__},
+            )
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "AI status unavailable")
+        return self._persisted_ai_status_from_rows(list(rows), max_age=max_age)
+
+    async def _persisted_extraction_status(self, *, max_age: timedelta) -> _StatusSignal:
+        if self._database is None:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "No extraction run observed")
+        try:
+            async with self._database.session() as session:
+                rows = (
+                    await session.execute(
+                        select(
+                            RequestRecord.status,
+                            RequestRecord.updated_at,
+                            RequestRecord.error_context_json,
+                        )
+                        .where(RequestRecord.type == "url")
+                        .order_by(RequestRecord.id.desc())
+                        .limit(_PERSISTED_SIGNAL_ROW_LIMIT)
+                    )
+                ).all()
+        except Exception as exc:
+            logger.warning(
+                "public_status_persisted_signal_failed",
+                extra={"component": "extraction", "error_type": type(exc).__name__},
+            )
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "Extraction status unavailable")
+        return self._persisted_extraction_status_from_rows(list(rows), max_age=max_age)
 
     async def _probe_http_ready(self, url: str | None) -> PublicStatusLevel:
         """Probe an operator-configured internal readiness URL without reading its body."""
@@ -558,6 +618,88 @@ class PublicStatusService:
         if by_outcome["failure"] > by_outcome["success"]:
             return _StatusSignal(PublicStatusLevel.DEGRADED, "Latest extraction run failed")
         return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Recent extraction succeeded")
+
+    @classmethod
+    def _persisted_ai_status_from_rows(
+        cls,
+        rows: list[Any],
+        *,
+        max_age: timedelta,
+        now: datetime | None = None,
+    ) -> _StatusSignal:
+        for row in rows:
+            status = str(row.status or "").strip().lower()
+            if status in _SUCCESS_STATUSES:
+                return cls._persisted_result_signal(
+                    level=PublicStatusLevel.OPERATIONAL,
+                    observed_at=row.updated_at,
+                    max_age=max_age,
+                    now=now,
+                    fresh_message="Recent AI request succeeded",
+                    stale_message="No recent AI request observed",
+                )
+            if status in _FAILURE_STATUSES:
+                return cls._persisted_result_signal(
+                    level=PublicStatusLevel.DEGRADED,
+                    observed_at=row.updated_at,
+                    max_age=max_age,
+                    now=now,
+                    fresh_message="Latest AI request failed",
+                    stale_message="No recent AI request observed",
+                )
+        return _StatusSignal(PublicStatusLevel.UNKNOWN, "No AI request observed")
+
+    @classmethod
+    def _persisted_extraction_status_from_rows(
+        cls,
+        rows: list[Any],
+        *,
+        max_age: timedelta,
+        now: datetime | None = None,
+    ) -> _StatusSignal:
+        for row in rows:
+            status = str(row.status or "").strip().lower()
+            if status in _SUCCESS_STATUSES:
+                return cls._persisted_result_signal(
+                    level=PublicStatusLevel.OPERATIONAL,
+                    observed_at=row.updated_at,
+                    max_age=max_age,
+                    now=now,
+                    fresh_message="Recent extraction succeeded",
+                    stale_message="No recent extraction run observed",
+                )
+            context = row.error_context_json
+            if (
+                status in _FAILURE_STATUSES
+                and isinstance(context, Mapping)
+                and context.get("pipeline") == "url_extraction"
+            ):
+                return cls._persisted_result_signal(
+                    level=PublicStatusLevel.DEGRADED,
+                    observed_at=row.updated_at,
+                    max_age=max_age,
+                    now=now,
+                    fresh_message="Latest extraction run failed",
+                    stale_message="No recent extraction run observed",
+                )
+        return _StatusSignal(PublicStatusLevel.UNKNOWN, "No extraction run observed")
+
+    @staticmethod
+    def _persisted_result_signal(
+        *,
+        level: PublicStatusLevel,
+        observed_at: datetime,
+        max_age: timedelta,
+        now: datetime | None,
+        fresh_message: str,
+        stale_message: str,
+    ) -> _StatusSignal:
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        age = (now or datetime.now(UTC)) - observed_at
+        if age < timedelta(minutes=-5) or age > max_age:
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, stale_message)
+        return _StatusSignal(level, fresh_message)
 
     @staticmethod
     def _metric_values(payload: bytes, metric: str) -> list[tuple[str, float]]:

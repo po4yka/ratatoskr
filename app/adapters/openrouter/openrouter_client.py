@@ -136,6 +136,11 @@ class OpenRouterClient:
         circuit_breaker: CircuitBreaker | PerModelCircuitBreaker | None = None,
     ) -> None:
         cfg = config or OpenRouterClientConfig()
+        # Declared here (not only in _set_core_configuration) because
+        # apply_runtime_config reassigns both on a hot-reload; without a
+        # binding that precedes it in file order mypy cannot infer the type.
+        self._api_key: str = ""
+        self._base_url: str = ""
         self._validate_init_params(
             api_key,
             model,
@@ -240,13 +245,17 @@ class OpenRouterClient:
         )
 
     def apply_runtime_config(self, cfg: Any) -> None:
-        """Re-read the primary + fallback models after a config hot-reload.
+        """Re-read the primary + fallback models and API key after a hot-reload.
 
-        The model is frozen into ``self._model`` at construction, so a
-        ``/setmodel`` reload that swaps the ConfigHolder snapshot would never
-        reach live chat calls otherwise. Registered as a ConfigHolder listener
-        in ``build_core_dependencies``; a no-op when the openrouter section or
-        model is missing.
+        Both are frozen at construction, so a ``/setmodel`` reload or a
+        credential installed through the settings UI that swaps the ConfigHolder
+        snapshot would never reach live chat calls otherwise. Registered as a
+        ConfigHolder listener in ``build_core_dependencies``; a no-op when the
+        openrouter section or model is missing.
+
+        The key is also held by ``request_builder``, which is what actually
+        builds the Authorization header -- updating only ``self._api_key`` would
+        leave live requests authenticating with the old credential.
         """
         or_cfg = getattr(cfg, "openrouter", None)
         if or_cfg is None:
@@ -255,7 +264,19 @@ class OpenRouterClient:
         if new_model:
             self._model = new_model
         self._fallback_models = self._validate_fallback_models(list(or_cfg.fallback_models))
-        logger.info("openrouter_model_hot_reloaded", extra={"model": self._model})
+
+        raw_key = getattr(or_cfg, "api_key", None)
+        new_key = str(raw_key) if raw_key else ""
+        key_rotated = bool(new_key) and new_key != self._api_key
+        if key_rotated:
+            self._api_key = new_key
+            self.request_builder.set_api_key(new_key)
+
+        logger.info(
+            "openrouter_config_hot_reloaded",
+            # Never log the credential itself -- only that it changed.
+            extra={"model": self._model, "api_key_rotated": key_rotated},
+        )
 
     def _set_core_configuration(
         self,

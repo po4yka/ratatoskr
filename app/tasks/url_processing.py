@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from types import SimpleNamespace
 from typing import Any
 
 from taskiq import TaskiqDepends, TaskiqEvents
@@ -71,6 +72,7 @@ async def _get_url_processing_runtime(
 
 _url_processing_runtime_instance: URLProcessingTaskRuntime | None = None
 _url_processing_checkpointer_runtime: Any | None = None
+_credential_refresh_task: asyncio.Task[None] | None = None
 
 
 async def _start_url_processing_checkpointer(cfg: AppConfig) -> Any | None:
@@ -105,6 +107,45 @@ async def _stop_url_processing_checkpointer(_state: Any) -> None:
     _url_processing_checkpointer_runtime = None
     if runtime is not None:
         await runtime.stop(timeout=10.0)
+
+
+@broker.on_event(TaskiqEvents.WORKER_STARTUP)
+async def _start_credential_refresh(_state: Any) -> None:
+    """Start the per-process credential hot-reload loop.
+
+    A credential saved through the web UI lands in the API process; this
+    worker's LLM clients live here. Mirrors bot.py: poll CredentialStore and
+    swap changes into this process's ConfigHolder (``get_app_config``) so a
+    rotated key reaches live task runs without a worker restart. Skipped when
+    no owner is configured, exactly like bot.py.
+    """
+    global _credential_refresh_task
+    cfg = await get_app_config()
+    owner_id = next(iter(cfg.telegram.allowed_user_ids), None)
+    if owner_id is None:
+        return
+
+    from app.config.credential_reloader import start_credential_refresh_task
+    from app.infrastructure.persistence.credential_store import CredentialStore
+
+    db = await get_db(cfg)
+    _credential_refresh_task = start_credential_refresh_task(
+        cfg,  # type: ignore[arg-type]  # actually the ConfigHolder get_app_config hands out
+        CredentialStore(db),
+        owner_id=owner_id,
+    )
+
+
+@broker.on_event(TaskiqEvents.WORKER_SHUTDOWN)
+async def _stop_credential_refresh(_state: Any) -> None:
+    """Cancel the credential refresh loop during Taskiq shutdown."""
+    global _credential_refresh_task
+    task = _credential_refresh_task
+    _credential_refresh_task = None
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 # ── Task ─────────────────────────────────────────────────────────────────────
@@ -390,11 +431,24 @@ async def _load_summary(*, request_id: int, db: Database) -> dict[str, Any] | No
 
     from app.db.models.core import Summary
 
+    from app.db.models.core import LLMCall
+
     async with db.session() as session:
         row = await session.scalar(select(Summary).where(Summary.request_id == request_id))
         if row is None:
             return None
-        return {"json_payload": row.json_payload or {}}
+        # The worker has no LLM handle at edit time, so the model that actually
+        # produced this summary is read back from its call trail -- otherwise
+        # the card footer silently loses the model name. Highest attempt_index
+        # is the call that succeeded: the repair loop only advances on retry,
+        # so the last one is the one whose output was persisted.
+        model = await session.scalar(
+            select(LLMCall.model)
+            .where(LLMCall.request_id == request_id, LLMCall.model.is_not(None))
+            .order_by(LLMCall.attempt_index.desc())
+            .limit(1)
+        )
+        return {"json_payload": row.json_payload or {}, "model": model}
 
 
 def _format_summary_for_edit(
@@ -419,9 +473,15 @@ def _format_summary_for_edit(
     try:
         from app.adapters.external.formatting.summary.card_renderer import build_card_sections
 
+        # build_card_sections only reads `.model` off this, so a namespace
+        # carrying the model recovered from llm_calls restores the footer
+        # without giving the worker a real LLM client it has no use for.
+        model_name = summary_data.get("model")
+        llm_stub = SimpleNamespace(model=model_name) if model_name else None
+
         sections = build_card_sections(
             summary_json,
-            None,  # llm stub — not available at edit time; model info line is skipped when None
+            llm_stub,
             None,  # chunks
             reader=False,
             text_processor=runtime.response_formatter._text_processor,
@@ -555,6 +615,16 @@ def _build_url_processing_runtime(
     audit_func: Any = lambda *_a, **_kw: None  # noqa: E731
     sem_factory = LazySemaphoreFactory(cfg.runtime.max_concurrent_calls)
     llm_client = LLMClientFactory.create_from_config(cfg, audit=audit_func)
+    # cfg is this worker process's ConfigHolder (see get_app_config); llm_client
+    # froze its api_key/model at construction, so re-apply the swapped config on
+    # every credential-refresh tick (_start_credential_refresh) to this
+    # long-lived per-process client. Mirrors app/di/shared.py's
+    # build_core_dependencies -- this runtime builds its own llm_client instead
+    # of going through that helper, so the same wiring is repeated here.
+    register_listener = getattr(cfg, "register_listener", None)
+    apply_runtime_config = getattr(llm_client, "apply_runtime_config", None)
+    if callable(register_listener) and callable(apply_runtime_config):
+        register_listener(apply_runtime_config)
     response_formatter = build_response_formatter(cfg)
 
     # The worker single-URL path is the PRIMARY summarize entrypoint
