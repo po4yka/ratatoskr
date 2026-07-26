@@ -181,7 +181,7 @@ rfc3339-validator==0.1.4
     # via openapi-schema-validator
 rich==14.3.4
     # via import-linter
-rpds-py==0.30.0
+rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
