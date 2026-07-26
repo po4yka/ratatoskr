@@ -422,7 +422,7 @@ def _get_client_ip(request: Request) -> str:
     direct = request.client.host if request.client else None
     nets = _trusted_proxy_networks()
     if direct and nets and _ip_in_networks(direct, nets):
-        xff = request.headers.get("X-Forwarded-For")
+        xff: str | None = request.headers.get("X-Forwarded-For")
         if xff:
             for hop in reversed([h.strip() for h in xff.split(",") if h.strip()]):
                 if not _ip_in_networks(hop, nets):

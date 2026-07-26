@@ -575,9 +575,9 @@ jiter==0.13.0 \
     # via
     #   instructor
     #   openai
-json-repair==0.61.0 \
-    --hash=sha256:48759cc6c3052814c797d1d56787d9e1d451603a8760a55d619e97d2f49353d6 \
-    --hash=sha256:ee9fe5f95fcb2713d72d4495b67b794b62ff2cd24d6dba3bfb3173d9f7ab0f7d
+json-repair==0.61.5 \
+    --hash=sha256:766a712a05b5a2673212ca0df0e27e6dbb446c9b59ab837613a369304b222886 \
+    --hash=sha256:965cc39a7cddc84aad0a1b00a4ce44906cf14893bd0e3890a386d28ca21dd0f0
     # via ratatoskr
 jsonpatch==1.33 \
     --hash=sha256:0ae28c0cd062bbd8b8ecc26d7d164fbbea9652a1a3693f3b956c1eae5145dade \
@@ -591,9 +591,9 @@ justext==3.0.2 \
     --hash=sha256:13496a450c44c4cd5b5a75a5efcd9996066d2a189794ea99a49949685a0beb05 \
     --hash=sha256:62b1c562b15c3c6265e121cc070874243a443bfd53060e869393f09d6b6cc9a7
     # via trafilatura
-langchain-core==1.4.8 \
-    --hash=sha256:5bf1f8411077c904182ad8f975943d36adcbf579c4e017b3a118b719229ebf9a \
-    --hash=sha256:d84c28b05e3ba8d4271d0827aad5b592ccdaaf986e76768c23503f0a2045e8aa
+langchain-core==1.4.9 \
+    --hash=sha256:28e3909e2a10cc81504952d795ac0a9e014c0018121ef89d48dd396fa09ec624 \
+    --hash=sha256:f8078901145bed0466755277500a5a22822a7b628808c4c0a28d4fc88895fcf2
     # via
     #   langgraph
     #   langgraph-checkpoint
@@ -606,9 +606,9 @@ langchain-protocol==0.0.18 \
     # via
     #   langchain-core
     #   langgraph-sdk
-langgraph==1.2.6 \
-    --hash=sha256:1cf94d3ca124f84f77ce408fa1b06c3dee680a8aafffe364a8fd5d7d03eb8695 \
-    --hash=sha256:f9b45a34f13930c94d96cdb76277447ad2cc70ec2d18cd2764d7fdadb36cdc1b
+langgraph==1.2.9 \
+    --hash=sha256:385f87bc1802c35af7e0aa479278ecba8582d103515eb48256cb2ddcd42d0bd4 \
+    --hash=sha256:c2d98ad94333937922ba04148641c1da2bfe45b5b8e55d7b6dcb0bb2df809e76
     # via ratatoskr
 langgraph-checkpoint==4.1.1 \
     --hash=sha256:25d29144b082827218e7bc3f1e9b0566a4bb007895cd6cc26f66a8428739f56e \
@@ -960,9 +960,9 @@ numpy==2.4.4 \
     #   blis
     #   spacy
     #   thinc
-openai==2.44.0 \
-    --hash=sha256:0a2a3ab2e29aeda368700f662ff9ba0f9df17ba4c54577a64e08b8115a3cc0ad \
-    --hash=sha256:68a5a5ffad82b8ff7d451c437529fb64f7c3b8123aaf0c021966a882d9e3947d
+openai==2.46.0 \
+    --hash=sha256:0421e0735ac41451cad894af4cddf0435bfbf8cbc538ac0e15b3c062f2ddc06a \
+    --hash=sha256:672381db55efb3a1e2610f29304c130cccdd0b319bace4d492b2443cb64c1e7c
     # via
     #   instructor
     #   ratatoskr
@@ -1399,9 +1399,9 @@ rsa==4.9.1 \
     --hash=sha256:68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762 \
     --hash=sha256:e7bdbfdb5497da4c07dfd35530e1a902659db6ff241e39d9953cad06ebd0ae75
     # via telethon
-scrapling==0.4.9 \
-    --hash=sha256:00c7fae4641d948fb26486fd1da22143e5296dc86ef821b8426c0c2854c529ef \
-    --hash=sha256:e08afab736e5bd3337173e524fee99aea3073476e86d44d942af4bef9496a499
+scrapling==0.4.11 \
+    --hash=sha256:10b781f9214502f293a46048062c4d3c211e9a05a897559f674edcbea1876e56 \
+    --hash=sha256:92500fe60b601a52279842fa2505fcddd3954f14f657bd38d7e6ba09f02da947
     # via ratatoskr
 setuptools==81.0.0 \
     --hash=sha256:487b53915f52501f0a79ccfd0c02c165ffe06631443a886740b91af4b7a5845a \
