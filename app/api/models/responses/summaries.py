@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .aggregation import AggregationSourceBundle
 from .common import PaginationInfo, SuccessResponse
@@ -164,20 +164,32 @@ class SummaryDetail(BaseModel):
 
 
 class SummaryContent(BaseModel):
-    summary_id: int = Field(serialization_alias="summaryId")
-    request_id: int | None = Field(default=None, serialization_alias="requestId")
+    model_config = ConfigDict(populate_by_name=True)
+
+    summary_id: int = Field(validation_alias="summaryId", serialization_alias="summaryId")
+    request_id: int | None = Field(
+        default=None, validation_alias="requestId", serialization_alias="requestId"
+    )
     format: Literal["markdown", "text", "html"]
     content: str
     content_type: Literal["text/markdown", "text/plain", "text/html"] = Field(
-        serialization_alias="contentType"
+        validation_alias="contentType", serialization_alias="contentType"
     )
     lang: Literal["en", "ru", "auto"] | None = None
-    source_url: str | None = Field(default=None, serialization_alias="sourceUrl")
+    source_url: str | None = Field(
+        default=None, validation_alias="sourceUrl", serialization_alias="sourceUrl"
+    )
     title: str | None = None
     domain: str | None = None
-    retrieved_at: str = Field(serialization_alias="retrievedAt")
-    size_bytes: int | None = Field(default=None, serialization_alias="sizeBytes")
-    checksum_sha256: str | None = Field(default=None, serialization_alias="checksumSha256")
+    retrieved_at: str = Field(validation_alias="retrievedAt", serialization_alias="retrievedAt")
+    size_bytes: int | None = Field(
+        default=None, validation_alias="sizeBytes", serialization_alias="sizeBytes"
+    )
+    checksum_sha256: str | None = Field(
+        default=None,
+        validation_alias="checksumSha256",
+        serialization_alias="checksumSha256",
+    )
 
 
 class SummaryContentData(BaseModel):

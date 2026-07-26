@@ -1,455 +1,303 @@
 # Back Up and Restore
 
-Protect a Ratatoskr instance by backing up the durable host paths and the PostgreSQL database used by the current Docker Compose deployment.
+PostgreSQL is Ratatoskr's authoritative datastore. A recoverable instance backup
+also preserves operator configuration and any durable files that cannot or should
+not be fetched again. Qdrant and several media caches are derived and can be
+rebuilt when their snapshots are unavailable.
 
-**Audience:** Operators **Difficulty:** Intermediate **Estimated Time:** 20 minutes
+Run the examples from the repository root against
+`ops/docker/docker-compose.yml`.
 
----
+## What is durable
 
-## Scope
+| Data | Default location | Recovery role |
+| --- | --- | --- |
+| PostgreSQL | Compose volume `ratatoskr_postgres_data` | Authoritative; always back up. |
+| Application files | Host `data/`, mounted at `/data` | Sessions, exports, media, and other runtime files. |
+| Git mirrors | Compose volume mounted at `/data/git-mirrors` | Full cloned history; preserve when remote recovery is insufficient. |
+| Qdrant | Compose volume `qdrant_data` | Derived index; snapshot or rebuild from PostgreSQL. |
+| Redis | Compose volume with persistence disabled by the default command | Ephemeral cache/locks/rate state; not a recovery source. |
+| Configuration | `.env` and active `ratatoskr.yaml` | Required to reproduce a deployment; contains secrets. |
 
-The default Compose file is `ops/docker/docker-compose.yml`. Run these commands from the repository root.
+Per-user `/v1/backups` and Telegram `/backup` exports are portability artifacts,
+not full instance backups. They omit operational tables, configuration, and some
+runtime files.
 
-Durable data is split across these locations:
+## Automated PostgreSQL backups
 
-| Data | Location | Source |
-| ---- | -------- | ------ |
-| PostgreSQL database | `ratatoskr-postgres` Compose service (`postgres_data` volume) | `DATABASE_URL` |
-| Qdrant vector store | `qdrant_data/` on the host, `/qdrant/storage` in the Qdrant container | Qdrant volume mount |
-| YouTube downloads | `data/videos/` | `YOUTUBE_STORAGE_PATH` default `/data/videos` |
-| Attachments and non-YouTube media | `data/attachments/`, `data/video-sources/` | attachment defaults |
-| TTS audio cache | `data/audio/` | `ELEVENLABS_AUDIO_PATH` default `/data/audio` |
-| Telethon session files | `data/sessions/` | digest userbot session, plus a `.legacy.bak.session` after the Phase 6 cutover |
-| Config and secrets | `.env`, `ratatoskr.yaml`, `config/ratatoskr.yaml`, `config/models.yaml` when present | config search order |
-| Redis | no durable backup expected in default Compose | `redis-server --save "" --appendonly no` |
+The `pg-backup` Compose service runs `pg_dump --format=custom` on `BACKUP_CRON`
+(`0 3 * * *` UTC by default). It writes to the host directory selected by
+`BACKUP_HOST_DIR` (`data/postgres-backups` by default) and deletes local files
+older than `BACKUP_RETENTION_DAYS`.
 
-The API `/v1/backups` and Telegram `/backup` flows create per-user export ZIPs under `data/backups/<user_id>/`. They are useful for user data export, but they are not a full instance backup because they do not include Qdrant, media files, all operational tables, or config.
+On Raspberry Pi production, `make pi-deploy-all` builds this sidecar locally for
+Linux/ARM64, streams the exact Compose image to the Pi, and recreates it without
+building remotely. The Pi overlay defaults `BACKUP_RUN_ON_START=true`; the
+container becomes healthy only after that initial dump has created its artifact
+and `ratatoskr_pg_backup.prom` metric. Use
+`make pi-deploy SERVICE=pg-backup` to deploy only the sidecar.
 
----
-
-## Backup Encryption
-
-The per-user export ZIPs created by the `/v1/backups` API and the Telegram `/backup` command can be encrypted at rest using Fernet (AES-128-CBC + HMAC-SHA256). The `cryptography` package that ships with Ratatoskr provides this without extra dependencies.
-
-### Generating A Key
-
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Copy the 44-character output into `.env`:
-
-```bash
-BACKUP_ENCRYPTION_KEY=<your-44-char-key>
-```
-
-Encryption is enabled automatically when `BACKUP_ENCRYPTION_KEY` is present. Encrypted files are written with a `.zip.enc` extension; unencrypted files keep `.zip`.
-
-### Disabling Encryption Explicitly
-
-Set `BACKUP_ENCRYPTION_ENABLED=false` to skip encryption even when a key is configured — for example, during a migration window:
+Start the sidecar and run a backup immediately:
 
 ```bash
-BACKUP_ENCRYPTION_ENABLED=false
+POSTGRES_PASSWORD=... BACKUP_ENCRYPTION_KEY=... \
+docker compose -f ops/docker/docker-compose.yml up -d postgres pg-backup
+
+POSTGRES_PASSWORD=... BACKUP_ENCRYPTION_KEY=... \
+docker compose -f ops/docker/docker-compose.yml exec -T pg-backup \
+  ratatoskr-pg-backup-run
 ```
 
-This does not affect instance-level backups (PostgreSQL, Qdrant, media) described in this guide.
+Every successful run writes a dump plus JSON metadata containing size and
+SHA-256. `BACKUP_ENCRYPTION_KEY` encrypts sidecar dumps with the sidecar's OpenSSL
+format. `BACKUP_S3_*` settings optionally copy the artifacts to object storage.
+Keep the encryption key and object-store credentials outside the backed-up host.
+Encryption is required by default: a missing key or invalid
+`BACKUP_REQUIRE_ENCRYPTION` value makes the run fail before `pg_dump` starts,
+and off-host copies are never allowed without encryption. The production
+Compose service hardcodes `APP_ENV=production` and
+`BACKUP_REQUIRE_ENCRYPTION=true`; the backup script also rejects
+`BACKUP_REQUIRE_ENCRYPTION=false` unless `APP_ENV` is exactly `development` or
+`test`. A single environment override therefore cannot enable plaintext in
+production.
 
-### Restoring Encrypted Archives
-
-The restore endpoint auto-detects whether an uploaded archive is encrypted and decrypts it before extraction. Provide the same `BACKUP_ENCRYPTION_KEY` that was active when the backup was created. Old plaintext `.zip` archives remain restorable without a key.
-
-If the wrong key is active the restore returns without touching the database:
-
-```json
-{ "errors": ["Could not decrypt backup (wrong key or corrupted archive)"] }
-```
-
-If encryption was enabled when the backup was created but `BACKUP_ENCRYPTION_KEY` is missing on restore:
-
-```json
-{ "errors": ["Encrypted backup but BACKUP_ENCRYPTION_KEY is not configured"] }
-```
-
-### Safety Limits
-
-The restore endpoint validates ZIP metadata before extracting any bytes. These limits are configurable via environment variables:
-
-| Variable | Default | Description |
-|---|---|---|
-| `BACKUP_MAX_RESTORE_BYTES` | 100 MB | Upload size gate (returns 413 before reading body) |
-| `BACKUP_MAX_ZIP_ENTRIES` | 100 | Maximum number of entries in the archive |
-| `BACKUP_MAX_COMPRESSED_BYTES` | 100 MB | Maximum sum of compressed entry sizes |
-| `BACKUP_MAX_DECOMPRESSED_BYTES` | 500 MB | Maximum sum of uncompressed entry sizes |
-| `BACKUP_MAX_COMPRESSION_RATIO` | 100 | Per-entry ratio cap (zip bomb guard) |
-
----
-
-## Before You Start
-
-Set a backup timestamp once so every archive has matching names:
+For an isolated local-development plaintext artifact, use the explicit dev
+overlay and opt out of encryption there:
 
 ```bash
-export BACKUP_TS="$(date -u +%Y%m%dT%H%M%SZ)"
-export BACKUP_DIR="backups/$BACKUP_TS"
+POSTGRES_PASSWORD=... BACKUP_REQUIRE_ENCRYPTION=false \
+docker compose \
+  -f ops/docker/docker-compose.yml \
+  -f ops/docker/docker-compose.dev.yml \
+  up -d postgres pg-backup
+
+POSTGRES_PASSWORD=... BACKUP_REQUIRE_ENCRYPTION=false \
+docker compose \
+  -f ops/docker/docker-compose.yml \
+  -f ops/docker/docker-compose.dev.yml \
+  exec -T pg-backup ratatoskr-pg-backup-run
+```
+
+The dev overlay supplies `APP_ENV=development`; the base and Pi production
+paths do not expose this plaintext escape hatch.
+
+Verify the default encrypted dump by decrypting it only into `pg_restore`:
+
+```bash
+BACKUP_ENCRYPTION_KEY=... \
+openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY \
+  -in data/postgres-backups/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump.enc \
+| docker run --rm -i --entrypoint pg_restore postgres:17 --list >/dev/null
+```
+
+To inspect that explicit local-development plaintext dump, list it directly:
+
+```bash
+docker run --rm -i --entrypoint pg_restore postgres:17 --list \
+  < data/postgres-backups/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump \
+  >/dev/null
+```
+
+Also test retrieval and decryption of off-host copies. A successful upload log is
+not a restore rehearsal.
+
+## Manual full backup
+
+Choose one timestamp and restricted destination:
+
+```bash
+BACKUP_TS="$(date -u +%Y%m%dT%H%M%SZ)"
+BACKUP_DIR="backups/$BACKUP_TS"
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 ```
-
-Check the effective Compose services:
-
-```bash
-docker compose -f ops/docker/docker-compose.yml ps
-```
-
-For the most consistent backup, stop services that can write to Postgres or Qdrant:
-
-```bash
-docker compose -f ops/docker/docker-compose.yml stop ratatoskr mobile-api mcp mcp-write qdrant
-```
-
-`pg_dump` is online-safe (it takes a transactionally consistent snapshot without blocking writers), so the Postgres container can keep running for the database section below; only stop everything together if you also need to capture Qdrant + media at the same logical point in time.
-
----
-
-## Backup
-
-### Automated PostgreSQL Sidecar
-
-Production Compose includes a `pg-backup` sidecar that runs `pg_dump --format=custom` against the `postgres` service on `BACKUP_CRON` (`0 3 * * *` UTC by default). It writes artifacts to the host bind mount `BACKUP_HOST_DIR` (`data/postgres-backups` when running the primary Compose file from the repository root) and keeps local files for `BACKUP_RETENTION_DAYS` days (`14` by default).
-
-Start or refresh the sidecar with the rest of the stack:
-
-```bash
-POSTGRES_PASSWORD=... docker compose -f ops/docker/docker-compose.yml up -d postgres pg-backup
-```
-
-Run one backup immediately after configuration changes:
-
-```bash
-POSTGRES_PASSWORD=... docker compose -f ops/docker/docker-compose.yml exec pg-backup ratatoskr-pg-backup-run
-```
-
-Each successful run creates a `ratatoskr-postgres-<timestamp>.dump` file, or `.dump.enc` when `BACKUP_ENCRYPTION_KEY` is set, plus a sibling `.json` metadata file with `timestamp`, `size_bytes`, and `sha256`. Inspect the local backup directory from the host:
-
-```bash
-ls -lh "${BACKUP_HOST_DIR:-data/postgres-backups}"
-cat "${BACKUP_HOST_DIR:-data/postgres-backups}"/ratatoskr-postgres-*.json | tail -1
-```
-
-Verify an unencrypted automated dump:
-
-```bash
-docker run --rm -i --entrypoint pg_restore postgres:16 --list < "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump" | head
-```
-
-Verify an encrypted automated dump with the same passphrase that created it:
-
-```bash
-openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY -in "${BACKUP_HOST_DIR:-data/postgres-backups}/ratatoskr-postgres-YYYYMMDDTHHMMSSZ.dump.enc" | docker run --rm -i --entrypoint pg_restore postgres:16 --list | head
-```
-
-Set `BACKUP_S3_BUCKET` to upload each dump and metadata file after local creation. For S3-compatible storage such as Backblaze B2 or MinIO, also set `BACKUP_S3_ENDPOINT_URL`; credentials come from `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` or the corresponding AWS CLI environment variables inside the sidecar.
-
-The sidecar writes node-exporter textfile metrics to the shared `pg_backup_metrics` volume. Prometheus scrapes `ratatoskr_pg_backup_last_success_timestamp_seconds`, and the `RatatoskrPostgresBackupStale` critical alert fires when the metric is missing or older than 36 hours. Restore rehearsals are tracked through `docs/runbooks/disaster-recovery.md`; the restore commands below are the canonical manual path.
 
 ### PostgreSQL
 
-Run `pg_dump` inside the `ratatoskr-postgres` container and stream the dump out to the host:
+`pg_dump` provides a transactionally consistent database snapshot while the
+server is live:
 
 ```bash
-docker exec -t ratatoskr-postgres \
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml exec -T postgres \
   pg_dump --format=custom --no-owner --no-privileges \
-          -U ratatoskr_app -d ratatoskr \
+  -U ratatoskr_app -d ratatoskr \
   > "$BACKUP_DIR/ratatoskr.dump"
+
+docker run --rm -i --entrypoint pg_restore postgres:17 --list \
+  < "$BACKUP_DIR/ratatoskr.dump" >/dev/null
 ```
 
-Verify the dump is well-formed:
+The second command must exit successfully and the dump must be non-empty.
+
+### Application files and configuration
+
+For a point-in-time copy consistent with PostgreSQL, pause writers before copying
+files that may change:
 
 ```bash
-docker run --rm -i --entrypoint pg_restore postgres:16 \
-  --list < "$BACKUP_DIR/ratatoskr.dump" | head
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml stop \
+  ratatoskr worker scheduler mobile-api mcp-write
+
+tar -C . -czf "$BACKUP_DIR/data.tar.gz" data
+tar -C . -czf "$BACKUP_DIR/config.tar.gz" \
+  .env config/ratatoskr.yaml
 ```
 
-For a plain-text dump (larger but human-readable):
+If the active YAML is selected by `RATATOSKR_CONFIG`, back up that file instead.
+Review archive contents and encrypt this material before it leaves the host.
+
+The nested Git-mirror volume is not captured by the host `data/` archive. Copy it
+through an application container that mounts both locations:
 
 ```bash
-docker exec -t ratatoskr-postgres \
-  pg_dumpall -U ratatoskr_app --no-owner --no-privileges \
-  > "$BACKUP_DIR/ratatoskr.sql"
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm --no-deps \
+  --entrypoint sh ratatoskr -c \
+  'tar -C /data -czf /data/git-mirrors-backup.tar.gz git-mirrors'
+
+mv data/git-mirrors-backup.tar.gz "$BACKUP_DIR/"
 ```
+
+If all mirrors can be recreated from still-available remotes, recording that
+decision is an acceptable alternative to copying the volume.
 
 ### Qdrant
 
-The default Qdrant service persists its database through the host bind mount `qdrant_data:/qdrant/storage`. Back it up after stopping `qdrant`:
+Do not archive a guessed `qdrant_data/` host directory: the default is a Compose
+named volume. Either use Qdrant's collection snapshot API and store the downloaded
+snapshot with the backup, or treat Qdrant as derived and rebuild it after restore.
+
+Create a collection snapshot with the Qdrant API when exact vector recovery is
+required:
 
 ```bash
-tar -C . -czf "$BACKUP_DIR/qdrant_data.tar.gz" qdrant_data
+curl --fail -X POST \
+  http://127.0.0.1:6333/collections/summaries/snapshots
 ```
 
-Alternatively, use Qdrant's native snapshot API (can run while Qdrant is live):
+Collection names can vary with environment/version configuration. Confirm the
+active name before snapshotting.
+
+### Manifest and restart
 
 ```bash
-curl -X POST http://localhost:6333/collections/summaries/snapshots
-# Download the snapshot file from /collections/summaries/snapshots/{snapshot_name}
-```
+(cd "$BACKUP_DIR" && shasum -a 256 * > SHA256SUMS)
+tar -tzf "$BACKUP_DIR/data.tar.gz" >/dev/null
+tar -tzf "$BACKUP_DIR/config.tar.gz" >/dev/null
 
-Qdrant data is rebuildable from Postgres for summaries that have enough stored text and embedding inputs:
-
-```bash
-python -m app.cli.backfill_vector_store --force
-```
-
-Backing up `qdrant_data/` is still faster and preserves the exact current vector store. Rebuild when the archive is missing, corrupted, or intentionally stale after an embedding model or namespace change.
-
-### Redis
-
-Default Redis is internal-only and configured without RDB or AOF persistence:
-
-```yaml
-command: ["redis-server", "--save", "", "--appendonly", "no"]
-```
-
-Do not expect Redis data to survive container recreation, and do not include the `redis_data` volume in release-critical backups. Ratatoskr uses Redis for ephemeral caches, auth/sync/session TTLs, rate-limit state, batch progress, and similar recoverable data. After restore, users may need to sign in again, sync sessions may be gone, and caches will warm naturally.
-
-If you run an external persistent Redis with custom settings, use that deployment's normal `BGSAVE`, AOF, or managed snapshot process. That is outside the default Ratatoskr Compose contract.
-
-### Media Files
-
-Back up media directories that exist. The `video_downloads` table stores paths to downloaded YouTube videos, subtitles, and thumbnails, so restoring the files keeps cached video results usable.
-
-```bash
-for path in data/videos data/attachments data/video-sources data/audio; do
-  if [ -d "$path" ]; then
-    tar -C . -czf "$BACKUP_DIR/$(echo "$path" | tr / _).tar.gz" "$path"
-  fi
-done
-```
-
-Notes:
-
-- `data/videos/` can be large. It is optional if you accept re-downloading or losing cached video files.
-- `data/attachments/` and `data/video-sources/` are temporary by default, but include them for a byte-for-byte instance restore.
-- `data/audio/` is a cache for generated audio and can be regenerated if the provider and source text are still available.
-
-### Config And Secrets
-
-Back up config files separately from the database. These files may contain API keys and should be encrypted at rest.
-
-```bash
-CONFIG_FILES=()
-for path in .env ratatoskr.yaml config/ratatoskr.yaml config/models.yaml; do
-  [ -f "$path" ] && CONFIG_FILES+=("$path")
-done
-[ "${#CONFIG_FILES[@]}" -gt 0 ] && tar -C . -czf "$BACKUP_DIR/config.tar.gz" "${CONFIG_FILES[@]}"
-```
-
-For a single encrypted archive:
-
-```bash
-tar -C backups -czf - "$BACKUP_TS" | \
-  openssl enc -aes-256-cbc -pbkdf2 -salt -out "backups/$BACKUP_TS.tar.gz.enc"
-```
-
-Store the passphrase outside the host. Do not commit backup archives or copied `.env` files.
-
-### Verify The Backup
-
-```bash
-find "$BACKUP_DIR" -maxdepth 1 -type f -print -exec ls -lh {} \;
-docker run --rm -i --entrypoint pg_restore postgres:16 --list \
-  < "$BACKUP_DIR/ratatoskr.dump" >/dev/null
-[ ! -f "$BACKUP_DIR/qdrant_data.tar.gz" ] || tar -tzf "$BACKUP_DIR/qdrant_data.tar.gz" >/dev/null
-[ ! -f "$BACKUP_DIR/config.tar.gz" ] || tar -tzf "$BACKUP_DIR/config.tar.gz" >/dev/null
-```
-
-Restart services after the backup:
-
-```bash
+POSTGRES_PASSWORD=... \
 docker compose -f ops/docker/docker-compose.yml up -d
 ```
 
----
+Copy the backup and manifest off-host. Apply a retention policy only after at
+least one restore rehearsal succeeds.
 
-## Restore
+## Restore rehearsal
 
-### Restore On The Same Host
+Restore into an isolated host or project name first. Never rehearse against the
+only production database.
 
-Stop all services that can read or write restored state:
+1. Provision the target revision and its Compose dependencies.
+2. Verify `SHA256SUMS` and decrypt archives if necessary.
+3. Restore configuration deliberately; do not overwrite newer secrets blindly.
+4. Restore PostgreSQL into an empty database.
+5. Restore application files and, if retained, the Git-mirror volume.
+6. Apply reviewed Alembic migrations for the target application.
+7. Restore a compatible Qdrant snapshot or rebuild the vector index.
+8. Start services and verify old reads, new writes, search, and authentication.
 
-```bash
-docker compose -f ops/docker/docker-compose.yml stop ratatoskr mobile-api mcp mcp-write qdrant redis
-```
+### PostgreSQL restore
 
-Keep a pre-restore copy of the current state:
-
-```bash
-mkdir -p "restore-safety/$BACKUP_TS"
-docker exec -t ratatoskr-postgres \
-  pg_dump --format=custom --no-owner --no-privileges \
-          -U ratatoskr_app -d ratatoskr \
-  > "restore-safety/$BACKUP_TS/ratatoskr.before-restore.dump"
-[ -d qdrant_data ] && tar -C . -czf "restore-safety/$BACKUP_TS/qdrant_data.before-restore.tar.gz" qdrant_data
-```
-
-Restore PostgreSQL — drop and recreate the database, then load the dump:
+The following commands destroy the target database. Use them only on the chosen
+restore target after confirming the dump and target identity:
 
 ```bash
-docker exec -i ratatoskr-postgres \
-  psql -U postgres -c "DROP DATABASE IF EXISTS ratatoskr;"
-docker exec -i ratatoskr-postgres \
-  psql -U postgres -c "CREATE DATABASE ratatoskr OWNER ratatoskr_app;"
-docker exec -i ratatoskr-postgres \
-  pg_restore --no-owner --no-privileges --clean --if-exists \
-             -U ratatoskr_app -d ratatoskr \
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml stop \
+  ratatoskr worker scheduler mobile-api mcp mcp-write
+
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml exec -T postgres \
+  dropdb --force -U postgres ratatoskr
+
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml exec -T postgres \
+  createdb -U postgres -O ratatoskr_app ratatoskr
+
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml exec -T postgres \
+  pg_restore --no-owner --no-privileges \
+  -U ratatoskr_app -d ratatoskr \
   < "$BACKUP_DIR/ratatoskr.dump"
-docker exec -i ratatoskr-postgres \
-  psql -U ratatoskr_app -d ratatoskr -c "SELECT count(*) FROM requests;"
 ```
 
-Restore Qdrant if you backed it up:
+Restore `data/` only after reviewing the archive for the intended destination:
 
 ```bash
-if [ -f "$BACKUP_DIR/qdrant_data.tar.gz" ]; then
-  rm -rf qdrant_data
-  tar -C . -xzf "$BACKUP_DIR/qdrant_data.tar.gz"
-fi
+tar -tzf "$BACKUP_DIR/data.tar.gz" | less
+tar -C . -xzf "$BACKUP_DIR/data.tar.gz"
 ```
 
-Restore media archives that exist:
+Restore the nested Git-mirror archive through the same mounted service:
 
 ```bash
-for archive in "$BACKUP_DIR"/data_*.tar.gz; do
-  [ -e "$archive" ] || continue
-  tar -C . -xzf "$archive"
-done
+cp "$BACKUP_DIR/git-mirrors-backup.tar.gz" data/
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm --no-deps \
+  --entrypoint sh ratatoskr -c \
+  'tar -C /data -xzf /data/git-mirrors-backup.tar.gz'
+rm data/git-mirrors-backup.tar.gz
 ```
 
-Restore config files deliberately. Review before overwriting production secrets:
+Apply and verify the target schema:
 
 ```bash
-[ -f "$BACKUP_DIR/config.tar.gz" ] && tar -C . -xzf "$BACKUP_DIR/config.tar.gz"
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
+  python -m app.cli.migrate_db --apply
+
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm migrate \
+  python -m app.cli.migrate_db --status
 ```
 
-Start the stack:
+If no Qdrant snapshot was restored, start Qdrant and rebuild derived vectors:
 
 ```bash
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml up -d qdrant postgres
+
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml run --rm ratatoskr \
+  python -m app.cli.backfill_vector_store --force
+```
+
+Finally start the deployment and verify:
+
+```bash
+POSTGRES_PASSWORD=... \
 docker compose -f ops/docker/docker-compose.yml up -d
-docker compose -f ops/docker/docker-compose.yml ps
+
+curl --fail http://127.0.0.1:18000/health
 ```
 
-Run migrations for the restored image if needed (Alembic upgrades are idempotent):
+Confirm database counts, a known historical summary, a new end-to-end request,
+semantic search, Telegram/session behavior, and any deployment-specific optional
+integration. Record the rehearsal date, duration, artifact identifiers, and any
+manual corrections.
 
-```bash
-python -m app.cli.migrate_db --status
-python -m app.cli.migrate_db
-```
+## User-export encryption is separate
 
-If Qdrant was not restored, rebuild it after Qdrant is healthy:
+`BACKUP_ENCRYPTION_ENABLED` and `BACKUP_ENCRYPTION_KEY` control Fernet encryption
+for per-user export archives. Restore upload limits are configured with
+`BACKUP_RESTORE_MAX_UPLOAD_BYTES`, `BACKUP_MAX_ZIP_ENTRIES`,
+`BACKUP_MAX_COMPRESSED_BYTES`, `BACKUP_MAX_DECOMPRESSED_BYTES`, and
+`BACKUP_MAX_COMPRESSION_RATIO`.
 
-```bash
-python -m app.cli.backfill_vector_store --force
-```
+That application-level format is distinct from the PostgreSQL sidecar's optional
+OpenSSL encryption. Preserve the matching key and procedure for each artifact.
 
-### Restore To A New Host
-
-On the new host:
-
-```bash
-git clone <repo-url> ratatoskr
-cd ratatoskr
-mkdir -p data config backups
-cp <source>/.env .env  # or restore from config.tar.gz below
-docker compose -f ops/docker/docker-compose.yml up -d ratatoskr-postgres qdrant
-```
-
-Copy the backup directory or encrypted archive to `backups/`, then load the database and unpack the rest:
-
-```bash
-export BACKUP_TS=YYYYMMDDTHHMMSSZ
-export BACKUP_DIR="backups/$BACKUP_TS"
-
-# Database
-docker exec -i ratatoskr-postgres \
-  psql -U postgres -c "CREATE DATABASE ratatoskr OWNER ratatoskr_app;" || true
-docker exec -i ratatoskr-postgres \
-  pg_restore --no-owner --no-privileges --clean --if-exists \
-             -U ratatoskr_app -d ratatoskr \
-  < "$BACKUP_DIR/ratatoskr.dump"
-
-# Config + Qdrant + media
-[ -f "$BACKUP_DIR/config.tar.gz" ]      && tar -C . -xzf "$BACKUP_DIR/config.tar.gz"
-[ -f "$BACKUP_DIR/qdrant_data.tar.gz" ] && tar -C . -xzf "$BACKUP_DIR/qdrant_data.tar.gz"
-
-for archive in "$BACKUP_DIR"/data_*.tar.gz; do
-  [ -e "$archive" ] || continue
-  tar -C . -xzf "$archive"
-done
-```
-
-Validate and start:
-
-```bash
-docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT 1;"
-docker compose -f ops/docker/docker-compose.yml config
-docker compose -f ops/docker/docker-compose.yml up -d
-python -m app.cli.migrate_db --status
-```
-
-If the new host uses different paths, update `.env` or `ratatoskr.yaml` for `DATABASE_URL`, `YOUTUBE_STORAGE_PATH`, `ATTACHMENT_STORAGE_PATH`, `ATTACHMENT_VIDEO_STORAGE_PATH`, and `ELEVENLABS_AUDIO_PATH` before starting.
-
----
-
-## Restore Test Checklist
-
-Run this on a staging host or disposable VM before a release:
-
-1. Create a full backup with the `pg_dump`, Qdrant, media, and config sections.
-2. Restore it into an empty checkout following the "Restore To A New Host" flow.
-3. Run `docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT 1;"`.
-4. Run `docker compose -f ops/docker/docker-compose.yml config`.
-5. Start the stack with `docker compose -f ops/docker/docker-compose.yml up -d`.
-6. Confirm `ratatoskr`, `mobile-api`, `redis`, `ratatoskr-postgres`, and `qdrant` are healthy or intentionally disabled by profile/config.
-7. Open the web/API and verify existing summaries are visible.
-8. Run a semantic search. If Qdrant was rebuilt instead of restored, run `python -m app.cli.backfill_vector_store --force` to repopulate vectors from Postgres embeddings.
-9. Open a restored YouTube summary with a `video_file_path` and confirm the file path exists under `data/videos/`, or accept that the media cache was not restored.
-10. Send one known-good URL through the bot or CLI to confirm new writes work.
-
----
-
-## Maintenance Commands
-
-Reclaim space and update planner statistics:
-
-```bash
-docker exec -i ratatoskr-postgres \
-  psql -U ratatoskr_app -d ratatoskr -c "VACUUM (ANALYZE);"
-```
-
-For a full rebuild that also reclaims indexed space (briefly locks each table):
-
-```bash
-docker exec -i ratatoskr-postgres \
-  psql -U ratatoskr_app -d ratatoskr -c "VACUUM (FULL, ANALYZE);"
-```
-
-Check database size and table bloat:
-
-```bash
-docker exec -i ratatoskr-postgres \
-  psql -U ratatoskr_app -d ratatoskr -c \
-  "SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) AS size
-     FROM pg_catalog.pg_statio_user_tables
-    ORDER BY pg_total_relation_size(relid) DESC
-    LIMIT 20;"
-```
-
-If a database is unreachable or corrupted, follow the standard PostgreSQL recovery sequence: confirm the volume is intact, run `docker logs ratatoskr-postgres` for the underlying error, and restore the newest verified `pg_dump` archive using the steps in [Restore On The Same Host](#restore-on-the-same-host).
-
----
-
-## See Also
-
-- [Deployment](deploy-production.md)
-- [How to Migrate Versions](migrate-versions.md)
-- [Qdrant Vector Search](setup-qdrant-vector-search.md)
-- [YouTube Downloads](configure-youtube-download.md)
+See also [Disaster Recovery Runbook](../runbooks/disaster-recovery.md) and
+[Migrate Between Versions](migrate-versions.md).

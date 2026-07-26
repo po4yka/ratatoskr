@@ -124,7 +124,6 @@ class CallbackActionIOHandlers:
         parts: list[str],
         correlation_id: str,
     ) -> bool:
-        _ = uid
         if len(parts) < 3:
             logger.warning("export_missing_params", extra={"parts": parts, "cid": correlation_id})
             return False
@@ -142,6 +141,21 @@ class CallbackActionIOHandlers:
             await self._response_formatter.safe_reply(
                 message,
                 f"Unknown export format: {export_format}",
+            )
+            return True
+
+        # Defence-in-depth IDOR guard: summary_id comes straight from
+        # callback_data, so verify the requesting user owns this summary before
+        # exporting it. Reply "not found" (not "denied") so a non-owner cannot
+        # confirm the summary exists.
+        if not await self._store.summary_belongs_to_user(summary_id, uid):
+            logger.warning(
+                "export_access_denied",
+                extra={"uid": uid, "summary_id": summary_id, "cid": correlation_id},
+            )
+            await self._response_formatter.safe_reply(
+                message,
+                t("cb_summary_not_found", self._lang),
             )
             return True
 
@@ -301,7 +315,7 @@ class CallbackActionIOHandlers:
             return False
 
         original_cid = parts[1]
-        url = await self._store.lookup_retry_url(original_cid)
+        url = await self._store.lookup_retry_url(original_cid, uid)
         if not url:
             logger.warning(
                 "retry_url_not_found",

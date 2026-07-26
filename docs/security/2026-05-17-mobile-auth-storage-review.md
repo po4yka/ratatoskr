@@ -1,5 +1,11 @@
 # Security review note: mobile auth, secret-login, client storage
 
+> Historical draft captured on 2026-05-17. It is not a current security
+> assessment: several listed gaps, including logout-all and refresh-token family
+> metadata, were implemented later. Use
+> [Mobile API](../reference/mobile-api.md#authentication) and current tests/code
+> for the live contract; preserve this file only as review history.
+
 | field | value |
 | --- | --- |
 | date | 2026-05-17 |
@@ -16,7 +22,7 @@ This review is gated by the CTO decisions in [[decide-auth-security-second-wave-
 
 ## Flow inventory
 
-Mechanical inventory of auth/session/client-storage surfaces in this repo as of HEAD.
+Historical inventory of auth/session/client-storage surfaces as observed on 2026-05-17. It is retained as review evidence, not as a current file map.
 
 ### Backend (this repo)
 

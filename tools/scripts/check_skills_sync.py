@@ -1,11 +1,9 @@
-"""Enforce that agent skill mirrors stay aligned.
-
-A skill is a subdirectory containing a SKILL.md file. .claude/skills and .codex/skills must expose identical skill names; SKILL.md body contents are allowed to diverge because each host may need different trigger wording. .agents/skills is the Codex app import mirror, so it must match .codex/skills exactly. Claude slash commands must also have Codex prompt aliases with the same file stem.
-"""
+"""Enforce structural and semantic alignment across agent harness mirrors."""
 
 from __future__ import annotations
 
 import filecmp
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +25,64 @@ def _skill_names(root: Path) -> set[str]:
 
 def _relative_files(root: Path) -> set[Path]:
     return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
+
+
+def _normalize_host_text(text: str) -> str:
+    normalized = text.replace(".claude/skills/", ".host/skills/")
+    normalized = normalized.replace(".codex/skills/", ".host/skills/")
+    return re.sub(r"(?<!\w)[/@](ponytail(?:-[a-z-]+)?)", r"<command>\1", normalized)
+
+
+def _normalized_file(path: Path) -> str | bytes:
+    content = path.read_bytes()
+    try:
+        return _normalize_host_text(content.decode())
+    except UnicodeDecodeError:
+        return content
+
+
+def _semantic_tree_differences(
+    claude_root: Path, codex_root: Path
+) -> tuple[list[Path], list[Path], list[Path]]:
+    claude_files = _relative_files(claude_root)
+    codex_files = _relative_files(codex_root)
+    only_claude = sorted(claude_files - codex_files)
+    only_codex = sorted(codex_files - claude_files)
+    changed = sorted(
+        relative_path
+        for relative_path in claude_files & codex_files
+        if _normalized_file(claude_root / relative_path)
+        != _normalized_file(codex_root / relative_path)
+    )
+    return only_claude, only_codex, changed
+
+
+def _check_semantic_claude_codex_mirror() -> bool:
+    only_claude, only_codex, changed = _semantic_tree_differences(CLAUDE_SKILLS, CODEX_SKILLS)
+    if not only_claude and not only_codex and not changed:
+        count = len(_relative_files(CLAUDE_SKILLS))
+        print(f".claude/skills semantically mirrors .codex/skills ({count} files).")
+        return True
+
+    print(".claude/skills is semantically out of sync with .codex/skills.", file=sys.stderr)
+    if only_claude:
+        print("\nIn .claude/skills but missing from .codex/skills:", file=sys.stderr)
+        for relative_path in only_claude:
+            print(f"  - {relative_path}", file=sys.stderr)
+    if only_codex:
+        print("\nIn .codex/skills but missing from .claude/skills:", file=sys.stderr)
+        for relative_path in only_codex:
+            print(f"  - {relative_path}", file=sys.stderr)
+    if changed:
+        print("\nSemantically different files:", file=sys.stderr)
+        for relative_path in changed:
+            print(f"  - {relative_path}", file=sys.stderr)
+    print(
+        "\nHost skill paths and ponytail command prefixes are normalized; "
+        "all other shared content must match.",
+        file=sys.stderr,
+    )
+    return False
 
 
 def _markdown_stems(root: Path) -> set[str]:
@@ -107,36 +163,13 @@ def main() -> int:
         print(f"Missing directory: {CODEX_COMMANDS}", file=sys.stderr)
         return 1
 
-    claude = _skill_names(CLAUDE_SKILLS)
-    codex = _skill_names(CODEX_SKILLS)
-
-    only_claude = sorted(claude - codex)
-    only_codex = sorted(codex - claude)
-
-    skill_sets_match = not only_claude and not only_codex
+    semantic_mirror_matches = _check_semantic_claude_codex_mirror()
     mirror_matches = _check_exact_codex_agents_mirror()
     commands_match = _check_command_aliases()
-    if skill_sets_match and mirror_matches and commands_match:
-        print(f".claude/skills and .codex/skills expose the same {len(claude)} skills.")
+    if semantic_mirror_matches and mirror_matches and commands_match:
+        skill_count = len(_skill_names(CLAUDE_SKILLS))
+        print(f"All {skill_count} agent skills are synchronized.")
         return 0
-
-    if skill_sets_match:
-        return 1
-
-    print("Skill directories are out of sync between .claude and .codex.", file=sys.stderr)
-    if only_claude:
-        print("\nIn .claude/skills but missing from .codex/skills:", file=sys.stderr)
-        for name in only_claude:
-            print(f"  - {name}", file=sys.stderr)
-    if only_codex:
-        print("\nIn .codex/skills but missing from .claude/skills:", file=sys.stderr)
-        for name in only_codex:
-            print(f"  - {name}", file=sys.stderr)
-    print(
-        "\nEach skill must exist as <name>/SKILL.md under BOTH trees. "
-        "Body contents may differ; the directory set must match.",
-        file=sys.stderr,
-    )
     return 1
 
 

@@ -10,6 +10,7 @@ defaults, and TelegramMessage.is_forwarded detection.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -641,6 +642,10 @@ async def test_forward_caption_only_routes_to_forward_flow(database: Database) -
     from app.adapters.telegram.message_router import MessageRouter
 
     cfg = make_test_app_config(db_path="/tmp/forward-router.db")
+    cfg = replace(
+        cfg,
+        runtime=cfg.runtime.model_copy(update={"aggregate_coalesce_enabled": False}),
+    )
 
     url_handler: Any = SimpleNamespace(
         url_processor=MagicMock(),
@@ -696,6 +701,10 @@ async def test_channel_forward_missing_msg_id_falls_to_user_path(database: Datab
     from app.adapters.telegram.message_router import MessageRouter
 
     cfg = make_test_app_config(db_path="/tmp/forward-router2.db")
+    cfg = replace(
+        cfg,
+        runtime=cfg.runtime.model_copy(update={"aggregate_coalesce_enabled": False}),
+    )
 
     url_handler: Any = SimpleNamespace(
         url_processor=MagicMock(),

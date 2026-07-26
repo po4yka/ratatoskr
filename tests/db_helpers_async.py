@@ -102,11 +102,29 @@ async def create_request(
         return int(request.id)
 
     update_values = {k: v for k, v in values.items() if k != "dedupe_hash"}
+    if user_id is None:
+        # PostgreSQL treats NULL values as distinct in the scoped
+        # (user_id, dedupe_hash) unique index, so ON CONFLICT cannot match an
+        # anonymous request. Preserve the legacy test-helper contract with an
+        # explicit lookup/update; production requests normally carry user_id.
+        existing_id = await session.scalar(
+            select(Request.id).where(
+                Request.user_id.is_(None),
+                Request.dedupe_hash == dedupe_hash,
+            )
+        )
+        if existing_id is not None:
+            await session.execute(
+                update(Request).where(Request.id == existing_id).values(**update_values)
+            )
+            return int(existing_id)
+
     stmt = (
         pg_insert(Request)
         .values(**values)
         .on_conflict_do_update(
-            index_elements=[Request.dedupe_hash],
+            index_elements=[Request.user_id, Request.dedupe_hash],
+            index_where=Request.dedupe_hash.is_not(None),
             set_=update_values,
         )
         .returning(Request.id)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -29,7 +28,7 @@ def _auth_headers(user_id: int, client_id: str = "test") -> dict[str, str]:
 
 
 def _allow_public_urls():
-    return patch("app.api.routers.aggregation.is_url_safe", return_value=(True, None))
+    return patch("app.api.routers.content.aggregation.is_url_safe", return_value=(True, None))
 
 
 def _set_runtime(client, db) -> SimpleNamespace | None:
@@ -40,16 +39,18 @@ def _set_runtime(client, db) -> SimpleNamespace | None:
         background_processor=SimpleNamespace(
             url_processor=SimpleNamespace(content_extractor=MagicMock())
         ),
-        core=SimpleNamespace(llm_client=MagicMock()),
+        core=SimpleNamespace(db=db, llm_client=MagicMock()),
     )
     return runtime
 
 
-def test_create_aggregation_bundle_endpoint_returns_session_and_items(client, db, user_factory):
+async def test_create_aggregation_bundle_endpoint_returns_session_and_items(
+    client, db, user_factory
+):
 
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_api_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_api_user", telegram_user_id=user_id)
 
     fake_result = MultiSourceAggregationRunResult(
         extraction=MultiSourceExtractionOutput(
@@ -144,12 +145,12 @@ def test_create_aggregation_bundle_endpoint_returns_session_and_items(client, db
     ]
 
 
-def test_create_aggregation_bundle_endpoint_audits_and_passes_client_id_metadata(
+async def test_create_aggregation_bundle_endpoint_audits_and_passes_client_id_metadata(
     client, db, user_factory
 ):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_api_audit_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_api_audit_user", telegram_user_id=user_id)
 
     fake_result = MultiSourceAggregationRunResult(
         extraction=MultiSourceExtractionOutput(
@@ -202,7 +203,7 @@ def test_create_aggregation_bundle_endpoint_audits_and_passes_client_id_metadata
                 new=aggregate_mock,
             ),
             patch(
-                "app.api.routers.aggregation.build_async_audit_sink",
+                "app.api.routers.content.aggregation.build_async_audit_sink",
                 return_value=audit_mock,
             ),
             _allow_public_urls(),
@@ -233,10 +234,10 @@ def test_create_aggregation_bundle_endpoint_audits_and_passes_client_id_metadata
     assert audit_mock.call_args_list[1].args[2]["session_id"] == 701
 
 
-def test_create_aggregation_bundle_endpoint_accepts_single_item(client, db, user_factory):
+async def test_create_aggregation_bundle_endpoint_accepts_single_item(client, db, user_factory):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_api_single_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_api_single_user", telegram_user_id=user_id)
 
     fake_result = MultiSourceAggregationRunResult(
         extraction=MultiSourceExtractionOutput(
@@ -310,12 +311,12 @@ def test_create_aggregation_bundle_endpoint_accepts_single_item(client, db, user
     assert [item["sourceKind"] for item in payload["data"]["items"]] == ["web_article"]
 
 
-def test_create_aggregation_bundle_endpoint_surfaces_processing_error_code(
+async def test_create_aggregation_bundle_endpoint_surfaces_processing_error_code(
     client, db, user_factory
 ):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_api_error_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_api_error_user", telegram_user_id=user_id)
 
     runtime = _set_runtime(client, db)
     try:
@@ -326,7 +327,7 @@ def test_create_aggregation_bundle_endpoint_surfaces_processing_error_code(
                     side_effect=RuntimeError("No source extractions completed successfully")
                 ),
             ),
-            patch("app.api.routers.aggregation.record_request") as metrics_mock,
+            patch("app.api.routers.content.aggregation.record_request") as metrics_mock,
             _allow_public_urls(),
         ):
             response = client.post(
@@ -346,20 +347,20 @@ def test_create_aggregation_bundle_endpoint_surfaces_processing_error_code(
     payload = response.json()
     assert payload["error"]["code"] == "PROCESSING_ERROR"
     assert payload["error"]["details"]["reason_code"] == "AGGREGATION_UPSTREAM_FAILURE"
-    assert (
-        payload["error"]["details"]["upstream_error"]
-        == "No source extractions completed successfully"
-    )
+    assert "upstream_error" not in payload["error"]["details"]
+    assert "No source extractions" not in response.text
     metric_kwargs = metrics_mock.call_args.kwargs
     assert metric_kwargs["request_type"] == "aggregation.create"
     assert metric_kwargs["status"] == "error"
     assert metric_kwargs["source"] == "cli"
 
 
-def test_create_aggregation_bundle_endpoint_rejects_blocked_ssrf_url(client, db, user_factory):
+async def test_create_aggregation_bundle_endpoint_rejects_blocked_ssrf_url(
+    client, db, user_factory
+):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_api_ssrf_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_api_ssrf_user", telegram_user_id=user_id)
 
     aggregate_mock = AsyncMock()
     audit_mock = MagicMock()
@@ -371,14 +372,18 @@ def test_create_aggregation_bundle_endpoint_rejects_blocked_ssrf_url(client, db,
                 new=aggregate_mock,
             ),
             patch(
-                "app.api.routers.aggregation.build_async_audit_sink",
+                "app.api.routers.content.aggregation.is_url_safe",
+                return_value=(False, "Localhost is not allowed"),
+            ),
+            patch(
+                "app.api.routers.content.aggregation.build_async_audit_sink",
                 return_value=audit_mock,
             ),
         ):
             response = client.post(
                 "/v1/aggregations",
                 headers=_auth_headers(user_id, client_id="cli-ssrf-v1"),
-                json={"items": [{"url": "http://localhost/internal"}]},
+                json={"items": [{"url": "https://example.com/internal"}]},
             )
     finally:
         client.app.state.runtime = runtime
@@ -394,19 +399,17 @@ def test_create_aggregation_bundle_endpoint_rejects_blocked_ssrf_url(client, db,
     ]
 
 
-def test_get_aggregation_bundle_endpoint_returns_persisted_session(client, db, user_factory):
+async def test_get_aggregation_bundle_endpoint_returns_persisted_session(client, db, user_factory):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_lookup_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_lookup_user", telegram_user_id=user_id)
 
     repo = build_aggregation_session_repository(db)
-    session_id = asyncio.run(
-        repo.async_create_aggregation_session(
-            user_id=user_id,
-            correlation_id="cid-agg-fetch",
-            total_items=2,
-            bundle_metadata={"entrypoint": "api"},
-        )
+    session_id = await repo.async_create_aggregation_session(
+        user_id=user_id,
+        correlation_id="cid-agg-fetch",
+        total_items=2,
+        bundle_metadata={"entrypoint": "api"},
     )
     first_source = SourceItem.create(
         kind=SourceKind.WEB_ARTICLE,
@@ -416,34 +419,28 @@ def test_get_aggregation_bundle_endpoint_returns_persisted_session(client, db, u
         kind=SourceKind.X_POST,
         original_value="https://x.com/example/status/1",
     )
-    asyncio.run(repo.async_add_aggregation_session_item(session_id, first_source, 0))
-    asyncio.run(repo.async_add_aggregation_session_item(session_id, second_source, 1))
-    asyncio.run(
-        repo.async_update_aggregation_session_output(
-            session_id,
-            {
-                "session_id": session_id,
-                "correlation_id": "cid-agg-fetch",
-                "status": "completed",
-                "source_type": "mixed",
-                "total_items": 2,
-                "extracted_items": 2,
-                "used_source_count": 2,
-                "overview": "Persisted synthesis output",
-            },
-        )
+    await repo.async_add_aggregation_session_item(session_id, first_source, 0)
+    await repo.async_add_aggregation_session_item(session_id, second_source, 1)
+    await repo.async_update_aggregation_session_output(
+        session_id,
+        {
+            "session_id": session_id,
+            "correlation_id": "cid-agg-fetch",
+            "status": "completed",
+            "source_type": "mixed",
+            "total_items": 2,
+            "extracted_items": 2,
+            "used_source_count": 2,
+            "overview": "Persisted synthesis output",
+        },
     )
-    asyncio.run(
-        repo.async_update_aggregation_session_status(
-            session_id,
-            status=AggregationSessionStatus.PROCESSING,
-        )
+    await repo.async_update_aggregation_session_status(
+        session_id,
+        status=AggregationSessionStatus.PROCESSING,
     )
-    asyncio.run(
-        repo.async_update_aggregation_session_status(
-            session_id,
-            status=AggregationSessionStatus.COMPLETED,
-        )
+    await repo.async_update_aggregation_session_status(
+        session_id,
+        status=AggregationSessionStatus.COMPLETED,
     )
     runtime = getattr(client.app.state, "runtime", None)
     client.app.state.runtime = SimpleNamespace(db=db)
@@ -470,22 +467,20 @@ def test_get_aggregation_bundle_endpoint_returns_persisted_session(client, db, u
     ]
 
 
-def test_get_aggregation_bundle_endpoint_rejects_foreign_session_and_records_metric(
+async def test_get_aggregation_bundle_endpoint_rejects_foreign_session_and_records_metric(
     client, db, user_factory
 ):
     allowed_ids = Config.get_allowed_user_ids()
     owner_user_id = int(allowed_ids[0]) if allowed_ids else 424242
     foreign_user_id = int(allowed_ids[1]) if len(allowed_ids) > 1 else owner_user_id + 1
-    user_factory(username="aggregation_owner_user", telegram_user_id=owner_user_id)
-    user_factory(username="aggregation_foreign_user", telegram_user_id=foreign_user_id)
+    await user_factory(username="aggregation_owner_user", telegram_user_id=owner_user_id)
+    await user_factory(username="aggregation_foreign_user", telegram_user_id=foreign_user_id)
 
     repo = build_aggregation_session_repository(db)
-    session_id = asyncio.run(
-        repo.async_create_aggregation_session(
-            user_id=owner_user_id,
-            correlation_id="cid-agg-foreign",
-            total_items=1,
-        )
+    session_id = await repo.async_create_aggregation_session(
+        user_id=owner_user_id,
+        correlation_id="cid-agg-foreign",
+        total_items=1,
     )
 
     runtime = getattr(client.app.state, "runtime", None)
@@ -493,7 +488,7 @@ def test_get_aggregation_bundle_endpoint_rejects_foreign_session_and_records_met
     try:
         with (
             patch("app.api.routers.auth.dependencies.Config.is_user_allowed", return_value=True),
-            patch("app.api.routers.aggregation.record_request") as metrics_mock,
+            patch("app.api.routers.content.aggregation.record_request") as metrics_mock,
         ):
             response = client.get(
                 f"/v1/aggregations/{session_id}",
@@ -513,30 +508,28 @@ def test_get_aggregation_bundle_endpoint_rejects_foreign_session_and_records_met
     assert metric_kwargs["latency_seconds"] >= 0
 
 
-def test_delete_aggregation_bundle_endpoint_removes_owned_session_and_items(
+async def test_delete_aggregation_bundle_endpoint_removes_owned_session_and_items(
     client, db, user_factory
 ):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_delete_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_delete_user", telegram_user_id=user_id)
 
     repo = build_aggregation_session_repository(db)
-    session_id = asyncio.run(
-        repo.async_create_aggregation_session(
-            user_id=user_id,
-            correlation_id="cid-agg-delete",
-            total_items=1,
-        )
+    session_id = await repo.async_create_aggregation_session(
+        user_id=user_id,
+        correlation_id="cid-agg-delete",
+        total_items=1,
     )
     source = SourceItem.create(
         kind=SourceKind.WEB_ARTICLE,
         original_value="https://example.com/delete-me",
     )
-    asyncio.run(repo.async_add_aggregation_session_item(session_id, source, 0))
+    await repo.async_add_aggregation_session_item(session_id, source, 0)
 
     runtime = _set_runtime(client, db)
     try:
-        with patch("app.api.routers.aggregation.record_request") as metrics_mock:
+        with patch("app.api.routers.content.aggregation.record_request") as metrics_mock:
             response = client.delete(
                 f"/v1/aggregations/{session_id}",
                 headers=_auth_headers(user_id, client_id="cli-delete-v1"),
@@ -546,8 +539,8 @@ def test_delete_aggregation_bundle_endpoint_removes_owned_session_and_items(
 
     assert response.status_code == 204
     assert response.content == b""
-    assert asyncio.run(repo.async_get_aggregation_session(session_id)) is None
-    assert asyncio.run(repo.async_get_aggregation_session_items(session_id)) == []
+    assert await repo.async_get_aggregation_session(session_id) is None
+    assert await repo.async_get_aggregation_session_items(session_id) == []
     metrics_mock.assert_called_once()
     metric_kwargs = metrics_mock.call_args.kwargs
     assert metric_kwargs["request_type"] == "aggregation.delete"
@@ -556,29 +549,27 @@ def test_delete_aggregation_bundle_endpoint_removes_owned_session_and_items(
     assert metric_kwargs["latency_seconds"] >= 0
 
 
-def test_delete_aggregation_bundle_endpoint_returns_not_found_for_foreign_session(
+async def test_delete_aggregation_bundle_endpoint_returns_not_found_for_foreign_session(
     client, db, user_factory
 ):
     allowed_ids = Config.get_allowed_user_ids()
     owner_user_id = int(allowed_ids[0]) if allowed_ids else 424242
     foreign_user_id = int(allowed_ids[1]) if len(allowed_ids) > 1 else owner_user_id + 1
-    user_factory(username="aggregation_delete_owner", telegram_user_id=owner_user_id)
-    user_factory(username="aggregation_delete_foreign", telegram_user_id=foreign_user_id)
+    await user_factory(username="aggregation_delete_owner", telegram_user_id=owner_user_id)
+    await user_factory(username="aggregation_delete_foreign", telegram_user_id=foreign_user_id)
 
     repo = build_aggregation_session_repository(db)
-    session_id = asyncio.run(
-        repo.async_create_aggregation_session(
-            user_id=owner_user_id,
-            correlation_id="cid-agg-delete-foreign",
-            total_items=1,
-        )
+    session_id = await repo.async_create_aggregation_session(
+        user_id=owner_user_id,
+        correlation_id="cid-agg-delete-foreign",
+        total_items=1,
     )
 
     runtime = _set_runtime(client, db)
     try:
         with (
             patch("app.api.routers.auth.dependencies.Config.is_user_allowed", return_value=True),
-            patch("app.api.routers.aggregation.record_request") as metrics_mock,
+            patch("app.api.routers.content.aggregation.record_request") as metrics_mock,
         ):
             response = client.delete(
                 f"/v1/aggregations/{session_id}",
@@ -590,7 +581,7 @@ def test_delete_aggregation_bundle_endpoint_returns_not_found_for_foreign_sessio
     assert response.status_code == 404
     payload = response.json()
     assert payload["error"]["code"] == "NOT_FOUND"
-    assert asyncio.run(repo.async_get_aggregation_session(session_id)) is not None
+    assert await repo.async_get_aggregation_session(session_id) is not None
     metrics_mock.assert_called_once()
     metric_kwargs = metrics_mock.call_args.kwargs
     assert metric_kwargs["request_type"] == "aggregation.delete"
@@ -599,43 +590,35 @@ def test_delete_aggregation_bundle_endpoint_returns_not_found_for_foreign_sessio
     assert metric_kwargs["latency_seconds"] >= 0
 
 
-def test_list_aggregation_bundles_endpoint_returns_only_authenticated_user_sessions(
+async def test_list_aggregation_bundles_endpoint_returns_only_authenticated_user_sessions(
     client, db, user_factory
 ):
     allowed_ids = Config.get_allowed_user_ids()
     primary_user_id = int(allowed_ids[0]) if allowed_ids else 424242
     secondary_user_id = primary_user_id + 1
-    user_factory(username="aggregation_list_primary", telegram_user_id=primary_user_id)
-    user_factory(username="aggregation_list_secondary", telegram_user_id=secondary_user_id)
+    await user_factory(username="aggregation_list_primary", telegram_user_id=primary_user_id)
+    await user_factory(username="aggregation_list_secondary", telegram_user_id=secondary_user_id)
 
     repo = build_aggregation_session_repository(db)
-    first_session_id = asyncio.run(
-        repo.async_create_aggregation_session(
-            user_id=primary_user_id,
-            correlation_id="cid-agg-list-1",
-            total_items=3,
-        )
+    first_session_id = await repo.async_create_aggregation_session(
+        user_id=primary_user_id,
+        correlation_id="cid-agg-list-1",
+        total_items=3,
     )
-    asyncio.run(
-        repo.async_update_aggregation_session_counts(
-            first_session_id,
-            successful_count=2,
-            failed_count=1,
-            duplicate_count=0,
-        )
+    await repo.async_update_aggregation_session_counts(
+        first_session_id,
+        successful_count=2,
+        failed_count=1,
+        duplicate_count=0,
     )
-    asyncio.run(
-        repo.async_update_aggregation_session_status(
-            first_session_id,
-            status=AggregationSessionStatus.PARTIAL,
-        )
+    await repo.async_update_aggregation_session_status(
+        first_session_id,
+        status=AggregationSessionStatus.PARTIAL,
     )
-    asyncio.run(
-        repo.async_create_aggregation_session(
-            user_id=secondary_user_id,
-            correlation_id="cid-agg-list-2",
-            total_items=1,
-        )
+    await repo.async_create_aggregation_session(
+        user_id=secondary_user_id,
+        correlation_id="cid-agg-list-2",
+        total_items=1,
     )
 
     runtime = getattr(client.app.state, "runtime", None)
@@ -659,10 +642,10 @@ def test_list_aggregation_bundles_endpoint_returns_only_authenticated_user_sessi
     assert payload["meta"]["pagination"]["hasMore"] is False
 
 
-def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
+async def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_e2e_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_e2e_user", telegram_user_id=user_id)
 
     class FakeExtractor:
         cfg = SimpleNamespace(runtime=SimpleNamespace(aggregation_non_youtube_video_enabled=True))
@@ -699,13 +682,13 @@ def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
         background_processor=SimpleNamespace(
             url_processor=SimpleNamespace(content_extractor=FakeExtractor())
         ),
-        core=SimpleNamespace(llm_client=None),
+        core=SimpleNamespace(db=db, llm_client=None),
     )
 
     try:
         with (
             _allow_public_urls(),
-            patch("app.api.routers.aggregation.record_request") as metrics_mock,
+            patch("app.api.routers.content.aggregation.record_request") as metrics_mock,
         ):
             create_response = client.post(
                 "/v1/aggregations",
@@ -725,7 +708,7 @@ def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
                     "metadata": {"submitted_by": "e2e-test"},
                 },
             )
-            assert create_response.status_code == 200
+            assert create_response.status_code == 200, create_response.text
             create_payload = create_response.json()
             session_id = create_payload["data"]["session"]["sessionId"]
 
@@ -793,10 +776,12 @@ def test_external_aggregation_request_flow_end_to_end(client, db, user_factory):
     assert all(call.kwargs["latency_seconds"] >= 0 for call in metrics_mock.call_args_list)
 
 
-def test_external_aggregation_detail_exposes_failed_source_provenance(client, db, user_factory):
+async def test_external_aggregation_detail_exposes_failed_source_provenance(
+    client, db, user_factory
+):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_partial_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_partial_user", telegram_user_id=user_id)
 
     class FakeExtractor:
         cfg = SimpleNamespace(runtime=SimpleNamespace(aggregation_non_youtube_video_enabled=True))
@@ -808,7 +793,7 @@ def test_external_aggregation_detail_exposes_failed_source_provenance(client, db
             correlation_id: str,
             request_id: int | None = None,
         ) -> tuple[str, str, dict[str, str]]:
-            if "failed.example" in url:
+            if url.endswith("/failed"):
                 raise TimeoutError("source timed out")
             return (
                 "Successful article body with one source-grounded detail.",
@@ -828,7 +813,7 @@ def test_external_aggregation_detail_exposes_failed_source_provenance(client, db
         background_processor=SimpleNamespace(
             url_processor=SimpleNamespace(content_extractor=FakeExtractor())
         ),
-        core=SimpleNamespace(llm_client=None),
+        core=SimpleNamespace(db=db, llm_client=None),
     )
 
     try:
@@ -843,14 +828,14 @@ def test_external_aggregation_detail_exposes_failed_source_provenance(client, db
                             "source_kind_hint": "web_article",
                         },
                         {
-                            "url": "https://failed.example/article",
+                            "url": "https://example.com/failed",
                             "source_kind_hint": "web_article",
                         },
                     ],
                     "lang_preference": "en",
                 },
             )
-            assert create_response.status_code == 200
+            assert create_response.status_code == 200, create_response.text
             session_id = create_response.json()["data"]["session"]["sessionId"]
             get_response = client.get(
                 f"/v1/aggregations/{session_id}",
@@ -866,10 +851,11 @@ def test_external_aggregation_detail_exposes_failed_source_provenance(client, db
     assert source_items[0]["title"] == "Working source"
     assert source_items[0]["author"] == "Reporter"
     assert source_items[0]["publishedAt"] == "2026-05-20T10:00:00Z"
-    assert source_items[1]["originalUrl"] == "https://failed.example/article"
-    assert source_items[1]["normalizedUrl"] == "https://failed.example/article"
+    assert source_items[1]["originalUrl"] == "https://example.com/failed"
+    assert source_items[1]["normalizedUrl"] == "https://example.com/failed"
     assert source_items[1]["errorCode"] == "source_extraction_failed"
-    assert "source timed out" in source_items[1]["errorMessage"]
+    assert source_items[1]["errorMessage"].startswith("Source extraction failed. Error ID: ")
+    assert "source timed out" not in source_items[1]["errorMessage"]
     assert source_items[1]["summaryId"] is None
     coverage_by_id = {
         entry["source_item_id"]: entry
@@ -981,12 +967,12 @@ def test_aggregation_source_item_serializer_hides_deleted_summary_link() -> None
     assert item["summaryId"] is None
 
 
-def test_create_aggregation_bundle_endpoint_rejects_invalid_source_kind_hint(
+async def test_create_aggregation_bundle_endpoint_rejects_invalid_source_kind_hint(
     client, db, user_factory
 ):
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_invalid_hint_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_invalid_hint_user", telegram_user_id=user_id)
 
     runtime = _set_runtime(client, db)
     try:
@@ -1008,14 +994,14 @@ def test_create_aggregation_bundle_endpoint_rejects_invalid_source_kind_hint(
     assert response.status_code == 422
 
 
-def test_create_aggregation_bundle_endpoint_returns_404_when_rollout_disabled(
+async def test_create_aggregation_bundle_endpoint_returns_404_when_rollout_disabled(
     client, db, user_factory
 ):
-    from app.api.routers.aggregation import _get_rollout_gate
+    from app.api.routers.content.aggregation import _get_rollout_gate
 
     allowed_ids = Config.get_allowed_user_ids()
     user_id = int(allowed_ids[0]) if allowed_ids else 424242
-    user_factory(username="aggregation_api_rollout_user", telegram_user_id=user_id)
+    await user_factory(username="aggregation_api_rollout_user", telegram_user_id=user_id)
 
     async def _evaluate(_: int) -> AggregationRolloutDecision:
         return AggregationRolloutDecision(

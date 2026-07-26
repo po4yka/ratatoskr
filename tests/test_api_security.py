@@ -11,7 +11,7 @@ Tests critical security fixes:
 import hashlib
 import hmac
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -186,25 +186,39 @@ class TestAuthorizationChecks:
 class TestJWTSecretValidation:
     """Test JWT secret validation."""
 
-    def test_jwt_secret_required(self):
-        """Test that JWT_SECRET_KEY must be configured."""
+    def test_jwt_secret_required(self, monkeypatch):
+        """Neither JWT_SECRET_KEY nor its JWT_SECRET alias configured -> error."""
         from app.api.routers.auth import tokens
+        from app.config import clear_config_cache
 
-        with patch("app.api.routers.auth.tokens.Config.get", return_value=""):
-            tokens._secret_key_holder[0] = None
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        monkeypatch.delenv("JWT_SECRET", raising=False)
+        clear_config_cache()
+        tokens._secret_key_holder[0] = None
+        try:
             with pytest.raises(RuntimeError) as exc_info:
                 tokens._get_secret_key()
+        finally:
+            clear_config_cache()
+            tokens._secret_key_holder[0] = None
 
         assert "JWT_SECRET_KEY" in str(exc_info.value)
 
-    def test_jwt_secret_minimum_length(self):
-        """Test that JWT_SECRET_KEY must be at least 32 characters."""
+    def test_jwt_secret_minimum_length(self, monkeypatch):
+        """A too-short signing key is rejected by the validated AppConfig field."""
         from app.api.routers.auth import tokens
+        from app.config import clear_config_cache
 
-        with patch("app.api.routers.auth.tokens.Config.get", return_value="short"):
-            tokens._secret_key_holder[0] = None
+        monkeypatch.setenv("JWT_SECRET_KEY", "short")
+        monkeypatch.delenv("JWT_SECRET", raising=False)
+        clear_config_cache()
+        tokens._secret_key_holder[0] = None
+        try:
             with pytest.raises(RuntimeError) as exc_info:
                 tokens._get_secret_key()
+        finally:
+            clear_config_cache()
+            tokens._secret_key_holder[0] = None
 
         assert "at least 32 characters" in str(exc_info.value)
 

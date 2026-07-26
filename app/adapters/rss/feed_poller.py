@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from app.adapters.rss.feed_fetcher import fetch_feed
 from app.adapters.rss.signal_ingester import RssSignalIngester
@@ -24,6 +27,15 @@ logger = get_logger(__name__)
 
 MAX_FETCH_ERRORS = 10
 SIGNAL_SOURCE_BASE_BACKOFF_SECONDS = 300
+
+
+@dataclass(slots=True)
+class _FeedPollResult:
+    polled: int = 0
+    new_items: int = 0
+    errors: int = 0
+    skipped: int = 0
+    new_item_ids: list[int] = field(default_factory=list)
 
 
 def _feed_item_payload(item_result: Any) -> dict[str, Any]:
@@ -180,112 +192,144 @@ async def _sync_signal_subscriptions(
                 )
 
 
-async def poll_all_feeds(db: Database) -> dict:
-    """Poll all active RSS feeds for new items."""
+async def _poll_feed(
+    repo: RSSFeedRepositoryAdapter,
+    signal_repo: SignalSourceRepositoryAdapter,
+    feed: dict[str, Any],
+) -> _FeedPollResult:
+    signal_source: dict[str, Any] | None = None
+    try:
+        feed_url = str(feed.get("url") or "")
+        signal_source = await signal_repo.async_upsert_source(
+            kind="substack" if is_substack_url(feed_url) else "rss",
+            external_id=feed_url,
+            url=feed.get("url"),
+            title=feed.get("title"),
+            description=feed.get("description"),
+            site_url=feed.get("site_url"),
+            metadata={
+                "etag": feed.get("etag"),
+                "last_modified": feed.get("last_modified"),
+                "legacy_rss_feed_id": feed.get("id"),
+            },
+        )
+        run_state = await signal_repo.async_get_source_run_state(int(signal_source["id"]))
+        if not _legacy_rss_source_due(run_state):
+            return _FeedPollResult(skipped=1)
+
+        ingester = RssSignalIngester(feed, fetcher=fetch_feed)
+        result = await ingester.fetch()
+        signal_source = await signal_repo.async_upsert_source(
+            kind=result.source.kind,
+            external_id=result.source.external_id,
+            url=result.source.url,
+            title=result.source.title,
+            description=result.source.description,
+            site_url=result.source.site_url,
+            metadata=result.source.metadata,
+        )
+
+        if result.not_modified:
+            await signal_repo.async_record_source_fetch_success(int(signal_source["id"]))
+            return _FeedPollResult(skipped=1)
+
+        max_items_per_run = _max_items_per_run(run_state)
+        created_items = await _create_feed_items(
+            repo,
+            feed_id=int(feed["id"]),
+            item_results=list(result.items)[:max_items_per_run],
+        )
+        created_item_ids = [int(item["id"]) for item, _item_result in created_items]
+        await _mirror_signal_feed_items(
+            signal_repo,
+            source_id=int(signal_source["id"]),
+            feed_items=created_items,
+        )
+        await _sync_signal_subscriptions(
+            repo,
+            signal_repo,
+            source_id=int(signal_source["id"]),
+            item_ids=created_item_ids,
+        )
+
+        await repo.async_update_feed_fetch_success(
+            feed_id=int(feed["id"]),
+            title=result.source.title,
+            description=result.source.description,
+            site_url=result.source.site_url,
+            etag=result.source.metadata.get("etag"),
+            last_modified=result.source.metadata.get("last_modified"),
+        )
+        await signal_repo.async_record_source_fetch_success(int(signal_source["id"]))
+        return _FeedPollResult(
+            polled=1,
+            new_items=len(created_items),
+            new_item_ids=created_item_ids,
+        )
+    except Exception as exc:
+        await repo.async_record_feed_fetch_error(
+            feed_id=int(feed["id"]),
+            error=str(exc),
+            max_fetch_errors=MAX_FETCH_ERRORS,
+        )
+        if signal_source is not None:
+            await signal_repo.async_record_source_fetch_error(
+                source_id=int(signal_source["id"]),
+                error=str(exc),
+                max_errors=MAX_FETCH_ERRORS,
+                base_backoff_seconds=SIGNAL_SOURCE_BASE_BACKOFF_SECONDS,
+            )
+        logger.warning(
+            "rss_feed_poll_error",
+            extra={
+                "feed_id": feed.get("id"),
+                "url": feed.get("url"),
+                "error": str(exc)[:200],
+            },
+        )
+        return _FeedPollResult(errors=1)
+
+
+def _feed_host(feed: dict[str, Any]) -> str:
+    url = str(feed.get("url") or "")
+    return (urlparse(url).hostname or url).lower()
+
+
+async def poll_all_feeds(
+    db: Database,
+    *,
+    limit: int | None = None,
+    concurrency: int = 8,
+) -> dict:
+    """Poll active RSS feeds for new items.
+
+    ``limit`` caps how many feeds one cycle loads (least-recently-fetched first),
+    bounding memory and work per poll; ``None`` loads every active feed.
+    ``concurrency`` bounds total in-flight feed pipelines, while feeds sharing a
+    hostname remain serialized so parallel polling does not amplify origin load.
+    """
     repo = RSSFeedRepositoryAdapter(db)
     signal_repo = SignalSourceRepositoryAdapter(db)
-    feeds = await repo.async_list_active_feeds()
+    feeds = await repo.async_list_active_feeds(limit=limit)
 
-    new_item_ids: list[int] = []
-    stats: dict = {"polled": 0, "new_items": 0, "errors": 0, "skipped": 0}
+    semaphore = asyncio.Semaphore(max(1, int(concurrency)))
+    host_locks: dict[str, asyncio.Lock] = {}
 
-    for feed in feeds:
-        signal_source: dict | None = None
-        try:
-            feed_url = str(feed.get("url") or "")
-            signal_source = await signal_repo.async_upsert_source(
-                kind="substack" if is_substack_url(feed_url) else "rss",
-                external_id=feed_url,
-                url=feed.get("url"),
-                title=feed.get("title"),
-                description=feed.get("description"),
-                site_url=feed.get("site_url"),
-                metadata={
-                    "etag": feed.get("etag"),
-                    "last_modified": feed.get("last_modified"),
-                    "legacy_rss_feed_id": feed.get("id"),
-                },
-            )
-            run_state = await signal_repo.async_get_source_run_state(int(signal_source["id"]))
-            if not _legacy_rss_source_due(run_state):
-                stats["skipped"] += 1
-                continue
-            ingester = RssSignalIngester(feed, fetcher=fetch_feed)
-            result = await ingester.fetch()
-            signal_source = await signal_repo.async_upsert_source(
-                kind=result.source.kind,
-                external_id=result.source.external_id,
-                url=result.source.url,
-                title=result.source.title,
-                description=result.source.description,
-                site_url=result.source.site_url,
-                metadata=result.source.metadata,
-            )
+    async def _bounded_poll(feed: dict[str, Any]) -> _FeedPollResult:
+        host_lock = host_locks.setdefault(_feed_host(feed), asyncio.Lock())
+        # Serializing first by host prevents duplicate feeds from consuming all
+        # global permits while waiting for the same origin.
+        async with host_lock, semaphore:
+            return await _poll_feed(repo, signal_repo, feed)
 
-            if result.not_modified:
-                stats["skipped"] += 1
-                await signal_repo.async_record_source_fetch_success(int(signal_source["id"]))
-                continue
-
-            # Store new items
-            max_items_per_run = _max_items_per_run(run_state)
-            created_items = await _create_feed_items(
-                repo,
-                feed_id=int(feed["id"]),
-                item_results=list(result.items)[:max_items_per_run],
-            )
-            created_item_ids = [int(item["id"]) for item, _item_result in created_items]
-            new_item_ids.extend(created_item_ids)
-            await _mirror_signal_feed_items(
-                signal_repo,
-                source_id=int(signal_source["id"]),
-                feed_items=created_items,
-            )
-            await _sync_signal_subscriptions(
-                repo,
-                signal_repo,
-                source_id=int(signal_source["id"]),
-                item_ids=created_item_ids,
-            )
-
-            # Update feed metadata
-            await repo.async_update_feed_fetch_success(
-                feed_id=int(feed["id"]),
-                title=result.source.title,
-                description=result.source.description,
-                site_url=result.source.site_url,
-                etag=result.source.metadata.get("etag"),
-                last_modified=result.source.metadata.get("last_modified"),
-            )
-            await signal_repo.async_record_source_fetch_success(int(signal_source["id"]))
-
-            stats["polled"] += 1
-            stats["new_items"] += len(created_items)
-
-        except Exception as exc:
-            stats["errors"] += 1
-            await repo.async_record_feed_fetch_error(
-                feed_id=int(feed["id"]),
-                error=str(exc),
-                max_fetch_errors=MAX_FETCH_ERRORS,
-            )
-            if signal_source is not None:
-                await signal_repo.async_record_source_fetch_error(
-                    source_id=int(signal_source["id"]),
-                    error=str(exc),
-                    max_errors=MAX_FETCH_ERRORS,
-                    base_backoff_seconds=SIGNAL_SOURCE_BASE_BACKOFF_SECONDS,
-                )
-            logger.warning(
-                "rss_feed_poll_error",
-                extra={
-                    "feed_id": feed.get("id"),
-                    "url": feed.get("url"),
-                    "error": str(exc)[:200],
-                },
-            )
-
-    stats["new_item_ids"] = new_item_ids
+    results = await asyncio.gather(*(_bounded_poll(feed) for feed in feeds))
+    stats: dict[str, Any] = {
+        "polled": sum(result.polled for result in results),
+        "new_items": sum(result.new_items for result in results),
+        "errors": sum(result.errors for result in results),
+        "skipped": sum(result.skipped for result in results),
+        "new_item_ids": [item_id for result in results for item_id in result.new_item_ids],
+    }
     logger.info("rss_poll_complete", extra={k: v for k, v in stats.items() if k != "new_item_ids"})
     return stats
 

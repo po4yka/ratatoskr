@@ -26,18 +26,17 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 COPY pyproject.toml uv.lock ./
 
-# Build virtual environment with API dependencies
+# Build virtual environment with API and production monitoring dependencies
 # (includes sentence-transformers for /search/semantic)
 # --compile-bytecode: pre-build .pyc at image-build time. Without it (uv's
 # default, unlike pip) every container boot recompiles all imports from source,
 # which under the API's 0.3-CPU limit + PYTHONDONTWRITEBYTECODE never finishes
 # before uvicorn startup is killed (build_api_runtime hangs importing asyncpg).
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --compile-bytecode --frozen --no-dev --extra api --extra otel --extra scheduler --extra graph
+    uv sync --compile-bytecode --frozen --no-dev --extra api --extra monitoring --extra otel --extra scheduler
 
-# Stage 1.5: Web - Build Carbon Web App assets
-# Stage 2: Runtime - Minimal runtime environment (no build tools)
-FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS runtime
+# Stage 2: Runtime base - Minimal runtime environment (no build tools)
+FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS runtime-base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -83,12 +82,17 @@ COPY alembic.ini ./
 # app/config/_secret_marker.py.
 COPY config ./config
 
-# Web assets are built by ratatoskr-web and deployed into app/static/web/ via CI/CD.
+# Extract the reviewed bundle after application sources. app/static/web is
+# excluded from the context, so the image cannot inherit stale local assets.
+ADD ops/docker/ratatoskr-web.bundle.tar.gz ./app/static/web/
 
-# Create non-root user and data directory
-RUN useradd -r -u 1000 -m -d /home/appuser -s /sbin/nologin appuser \
-    && mkdir -p /data \
-    && chown -R appuser:appuser /app /data
+# Create the non-root runtime user and its writable data directory.  Keep the
+# application and virtualenv root-owned/read-only so source-only rebuilds do
+# not duplicate the virtualenv in a recursive ownership-change layer.
+RUN test -s /app/app/static/web/index.html \
+    && test -s /app/app/static/web/.source-commit \
+    && useradd -r -u 1000 -m -d /home/appuser -s /sbin/nologin appuser \
+    && install -d -o appuser -g appuser /data
 
 USER appuser
 
@@ -99,11 +103,38 @@ ENV DB_PATH=/data/ratatoskr.db \
     API_HOST=0.0.0.0 \
     API_PORT=8000 \
     API_WORKERS=1 \
+    PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api \
     RATATOSKR_PROCESS_ROLE=api
 
 EXPOSE 8000
 
-# Compose overrides the image CMD with a schema-head guard followed by uvicorn.
+# Compose overrides the image CMD with a schema-head guard followed by the same
+# API launcher. The launcher prepares the Prometheus multiprocess registry once
+# in the parent process before Uvicorn imports the application or forks workers.
 # Migration application is an explicit operator step (`make pi-migrate APPLY=1`)
 # instead of an automatic startup side effect.
-CMD ["sh", "-c", "exec uvicorn app.api.main:app --host \"${API_HOST:-0.0.0.0}\" --port \"${API_PORT:-8000}\" --workers \"${API_WORKERS:-1}\""]
+CMD ["python", "-m", "app.cli.api_server"]
+
+# CI-only target: resolve the browser while the image is still inside BuildKit.
+# This runs as appuser (inherited from runtime-base) and avoids exporting and
+# loading the multi-gigabyte runtime image merely to execute this assertion.
+FROM runtime-base AS browser-smoke
+RUN python - <<'PY'
+import os
+
+from playwright.sync_api import sync_playwright
+
+browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+assert browsers_path == "/ms-playwright", f"Wrong path: {browsers_path!r}"
+
+with sync_playwright() as playwright:
+    executable = playwright.chromium.executable_path
+    assert executable.startswith("/ms-playwright"), executable
+    assert os.path.isfile(executable), executable
+    assert os.access(executable, os.X_OK), executable
+
+print(f"Browser smoke passed as uid={os.getuid()}: {executable}")
+PY
+
+# Keep the production runtime as the Dockerfile's default final target.
+FROM runtime-base AS runtime

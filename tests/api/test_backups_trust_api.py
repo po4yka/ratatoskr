@@ -16,6 +16,9 @@ from app.api.routers import backups
 from app.api.routers.auth.tokens import create_access_token
 from app.db.models import Request, User, UserBackup
 
+_OWNER_ID = 123456789
+_OTHER_ALLOWED_ID = 987654321
+
 
 def _headers(user_id: int) -> dict[str, str]:
     token = create_access_token(user_id, client_id="test")
@@ -100,7 +103,7 @@ def test_verify_backup_api_enforces_backup_ownership_without_postgres(tmp_path: 
     repo = _FakeBackupRepository(
         {
             "id": 42,
-            "user": 1001,
+            "user_id": 1001,
             "type": "manual",
             "status": "completed",
             "file_path": str(backup_path),
@@ -127,12 +130,12 @@ async def test_restore_dry_run_reports_counts_without_mutating_db(
     db,
 ) -> None:
     async with db.transaction() as session:
-        session.add(User(telegram_user_id=8201, username="backup-dry-run"))
+        session.add(User(telegram_user_id=_OWNER_ID, username="backup-dry-run"))
 
     response = client.post(
         "/v1/backups/restore/dry-run",
         files={"file": ("backup.zip", _backup_zip(request_count=2), "application/zip")},
-        headers=_headers(8201),
+        headers=_headers(_OWNER_ID),
     )
 
     assert response.status_code == 200
@@ -144,7 +147,7 @@ async def test_restore_dry_run_reports_counts_without_mutating_db(
     assert data["estimatedAffectedRows"]["requests"] == 2
 
     async with db.session() as session:
-        request_count = await session.scalar(select(Request).where(Request.user_id == 8201))
+        request_count = await session.scalar(select(Request).where(Request.user_id == _OWNER_ID))
     assert request_count is None
 
 
@@ -154,9 +157,9 @@ async def test_verify_backup_is_owner_only_and_updates_metadata(
     db,
     tmp_path: Path,
 ) -> None:
-    owner_id = 8301
-    other_id = 8302
-    backup_path = tmp_path / "ratatoskr-backup-8301-test.zip"
+    owner_id = _OWNER_ID
+    other_id = _OTHER_ALLOWED_ID
+    backup_path = tmp_path / "ratatoskr-backup-owner-test.zip"
     backup_path.write_bytes(_backup_zip())
     async with db.transaction() as session:
         session.add_all(

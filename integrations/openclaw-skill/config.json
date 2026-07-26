@@ -1,30 +1,49 @@
 {
   "name": "ratatoskr",
-  "description": "Personal knowledge base of web article summaries with keyword search, semantic search (ChromaDB), collections, YouTube transcripts, and entity discovery",
-  "version": "1.2.0",
+  "description": "Scoped personal knowledge archive with PostgreSQL search, Qdrant semantic retrieval, aggregation, signals, collections, and transcripts",
+  "version": "2.0.0",
   "mcp": {
     "transport": "stdio",
-    "command": "python",
-    "args": ["-m", "app.cli.mcp_server"],
+    "command": ".venv/bin/python",
+    "args": ["-m", "app.cli.mcp_server", "--user-id", "<telegram-user-id>"],
+    "cwd": "/path/to/ratatoskr",
     "env": {
-      "DB_PATH": "/data/ratatoskr.db"
+      "DATABASE_URL": "postgresql+asyncpg://user:password@localhost:5432/ratatoskr"
     }
   },
   "tools": [
+    "create_aggregation_bundle",
+    "get_aggregation_bundle",
+    "list_aggregation_bundles",
+    "check_source_supported",
     "search_articles",
-    "semantic_search",
     "get_article",
     "list_articles",
     "get_article_content",
     "get_stats",
     "find_by_entity",
+    "x_search",
+    "ask_my_archive",
     "list_collections",
     "get_collection",
     "list_videos",
     "get_video_transcript",
-    "check_url"
+    "check_url",
+    "semantic_search",
+    "hybrid_search",
+    "find_similar_articles",
+    "list_signal_sources",
+    "list_user_signals",
+    "update_signal_feedback",
+    "promote_to_library",
+    "set_signal_source_active",
+    "vector_health",
+    "vector_index_stats",
+    "vector_sync_gap"
   ],
   "resources": [
+    "ratatoskr://aggregations/recent",
+    "ratatoskr://aggregations/{session_id}",
     "ratatoskr://articles/recent",
     "ratatoskr://articles/favorites",
     "ratatoskr://articles/unread",
@@ -34,7 +53,12 @@
     "ratatoskr://domains",
     "ratatoskr://collections",
     "ratatoskr://videos/recent",
-    "ratatoskr://processing/stats"
+    "ratatoskr://processing/stats",
+    "ratatoskr://vector/health",
+    "ratatoskr://vector/index-stats",
+    "ratatoskr://vector/sync-gap",
+    "ratatoskr://signals/recent",
+    "ratatoskr://sources"
   ],
-  "tags": ["knowledge-base", "articles", "summaries", "search", "semantic-search", "reading", "collections", "youtube", "transcripts"]
+  "tags": ["knowledge-base", "articles", "summaries", "search", "semantic-search", "aggregation", "signals", "collections", "youtube", "transcripts"]
 }

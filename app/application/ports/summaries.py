@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, runtime_checkable
 
 from app.domain.models.request import RequestStatus
 
@@ -11,6 +11,30 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from app.db.session import Database
+
+
+class SummaryFinalizeResult(NamedTuple):
+    """Outcome of a summary UPSERT: the row's id and its new version.
+
+    ``async_finalize_request_summary`` returns both from the single UPSERT so
+    callers that need the id (the graph ``persist`` node) do not issue a second
+    lookup round-trip, and callers that need the version (audit logging) keep
+    reading ``.version``.
+    """
+
+    summary_id: int
+    version: int
+
+
+class BulkSummaryDeleteResult(NamedTuple):
+    """Owned rows soft-deleted by one repository transaction.
+
+    Returning the request IDs found by the ownership query lets callers remove
+    the matching vector points without re-reading every summary individually.
+    """
+
+    deleted_count: int
+    request_ids: tuple[int, ...]
 
 
 @runtime_checkable
@@ -103,8 +127,8 @@ class SummaryRepositoryPort(Protocol):
     ) -> dict[int, dict[str, Any]]:
         """Return summaries mapped by request ID."""
 
-    async def async_get_all_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        """Return all summaries for sync operations."""
+    async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
+        """Return summaries for sync operations (``since>0`` filters by cursor)."""
 
     async def async_get_summary_for_sync_apply(
         self, summary_id: int, user_id: int
@@ -147,8 +171,8 @@ class SummaryRepositoryPort(Protocol):
 
     async def async_bulk_soft_delete_summaries(
         self, *, user_id: int, summary_ids: list[int]
-    ) -> int:
-        """Bulk soft-delete summaries; return rows updated. User-scoped."""
+    ) -> BulkSummaryDeleteResult:
+        """Bulk soft-delete summaries and return owned request IDs. User-scoped."""
 
     async def async_mark_summary_as_unread(self, summary_id: int) -> None:
         """Mark summary as unread."""
@@ -183,8 +207,19 @@ class SummaryRepositoryPort(Protocol):
         insights_json: dict[str, Any] | None = None,
         is_read: bool = False,
         request_status: RequestStatus = RequestStatus.COMPLETED,
-    ) -> int:
-        """Persist summary and update request status."""
+    ) -> SummaryFinalizeResult:
+        """Persist summary and update request status; return its id and version."""
+
+    async def async_persist_summary_with_llm_calls(
+        self,
+        request_id: int,
+        lang: str,
+        json_payload: dict[str, Any],
+        llm_calls: list[dict[str, Any]],
+        insights_json: dict[str, Any] | None = None,
+        is_read: bool = False,
+    ) -> SummaryFinalizeResult:
+        """Atomically persist a summary and its required LLM attempt trail."""
 
     async def async_update_summary_insights(
         self,

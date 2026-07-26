@@ -372,6 +372,7 @@ class DigestService:
             "phase",
             {"phase": "delivering", "chunks": len(message_chunks)},
         )
+        delivery_succeeded = False
         try:
             result.messages_sent = await self._deliver_digest_messages(
                 user_id=user_id,
@@ -381,6 +382,7 @@ class DigestService:
                 post_count=result.post_count,
                 channel_count=result.channel_count,
             )
+            delivery_succeeded = True
         except Exception as e:
             logger.warning(
                 "digest_send_failed",
@@ -389,50 +391,53 @@ class DigestService:
             )
             result.errors.append(f"Send failed: {e}")
 
-        _publish_digest_event(
-            correlation_id,
-            "delivered",
-            {
-                "messages_sent": result.messages_sent,
-                "post_count": result.post_count,
-                "channel_count": result.channel_count,
-            },
-        )
+        if delivery_succeeded:
+            _publish_digest_event(
+                correlation_id,
+                "delivered",
+                {
+                    "messages_sent": result.messages_sent,
+                    "post_count": result.post_count,
+                    "channel_count": result.channel_count,
+                },
+            )
 
         # 5. Persist delivery record
         post_ids = [p.get("message_id") for p in analyzed]
-        try:
-            await self._store.async_create_delivery(
-                user_id=user_id,
-                post_count=result.post_count,
-                channel_count=result.channel_count,
-                digest_type=result.digest_type,
-                correlation_id=correlation_id,
-                post_ids=post_ids,
-            )
-        except Exception as exc:
-            logger.error(
-                "digest_delivery_persist_failed",
+        if delivery_succeeded:
+            try:
+                await self._store.async_create_delivery(
+                    user_id=user_id,
+                    post_count=result.post_count,
+                    channel_count=result.channel_count,
+                    digest_type=result.digest_type,
+                    correlation_id=correlation_id,
+                    post_ids=post_ids,
+                )
+            except Exception as exc:
+                logger.error(
+                    "digest_delivery_persist_failed",
+                    extra={
+                        "cid": correlation_id,
+                        "uid": user_id,
+                        "post_ids_sample": post_ids[:5],
+                        "error": str(exc),
+                    },
+                )
+                result.errors.append(f"Delivery record not saved: {exc}")
+
+        if delivery_succeeded:
+            logger.info(
+                "digest_delivered",
                 extra={
                     "cid": correlation_id,
                     "uid": user_id,
-                    "post_ids_sample": post_ids[:5],
-                    "error": str(exc),
+                    "posts": result.post_count,
+                    "channels": result.channel_count,
+                    "messages": result.messages_sent,
+                    "type": result.digest_type,
                 },
             )
-            result.errors.append(f"Delivery record not saved: {exc}")
-
-        logger.info(
-            "digest_delivered",
-            extra={
-                "cid": correlation_id,
-                "uid": user_id,
-                "posts": result.post_count,
-                "channels": result.channel_count,
-                "messages": result.messages_sent,
-                "type": result.digest_type,
-            },
-        )
         status = "sent" if result.messages_sent > 0 and not result.errors else "failed"
         _publish_digest_event(
             correlation_id,

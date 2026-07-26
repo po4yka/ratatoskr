@@ -203,6 +203,11 @@ class VoyageEmbeddingService(EmbeddingSerializationMixin):
     def get_dimensions(self, language: str | None = None) -> int:
         return self._dimensions
 
+    async def get_dimensions_async(self, language: str | None = None) -> int:
+        # Remote provider: the dimension is a configured constant, so there is no
+        # blocking model load to offload -- delegate to the sync accessor.
+        return self._dimensions
+
     def close(self) -> None:
         """Not supported — VoyageEmbeddingService wraps an httpx.AsyncClient.
 

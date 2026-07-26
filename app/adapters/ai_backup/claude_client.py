@@ -45,8 +45,9 @@ _ATTR_RE = re.compile(r'(\w+)=["\']([^"\']*)["\']')
 
 # TODO(live-validation): Claude.ai internal API shapes extracted from OSS
 # exporters; live validation against a real account is required. Project
-# knowledge-base file downloads and the Enterprise Compliance API path
-# (AI_BACKUP_CLAUDE_COMPLIANCE_KEY) are intentionally not implemented in P1.
+# knowledge-base file downloads and the Enterprise Compliance API client are
+# intentionally not implemented in P1. The factory fails closed when the
+# reserved key is configured, so it never silently routes through this client.
 
 
 def _should_skip(updated_at: str | None, since: dt.datetime | None) -> bool:
@@ -120,20 +121,34 @@ class ClaudeClient:
         counts = {"conversations": 0, "projects": 0, "files": 0, "artifacts": 0}
         org = quote(await self._get_org_id(), safe="")
 
-        try:
-            for project in await self._get(f"{_API}/api/organizations/{org}/projects"):
-                pid = self._uuid(project)
-                if pid:
-                    await asyncio.to_thread(self._writer.write_project, pid, project)
-                    counts["projects"] += 1
-        except (AiBackupAuthExpiredError, AiBackupMaxRequestsError):
-            raise
-        except Exception as exc:
-            logger.warning("claude_projects_failed", extra={"error": str(exc)})
+        projects_url = f"{_API}/api/organizations/{org}/projects"
+        projects = await self._get(projects_url)
+        if not isinstance(projects, list):
+            raise AiBackupParseError(
+                f"Claude returned a non-list project response on {projects_url}"
+            )
+        for project in projects:
+            if not isinstance(project, dict):
+                raise AiBackupParseError(
+                    f"Claude project list contains a non-object on {projects_url}"
+                )
+            pid = self._uuid(project)
+            if pid:
+                await asyncio.to_thread(self._writer.write_project, pid, project)
+                counts["projects"] += 1
 
         seen: set[str] = set()
-        conversations = await self._get(f"{_API}/api/organizations/{org}/chat_conversations")
-        for conv in conversations if isinstance(conversations, list) else []:
+        conversations_url = f"{_API}/api/organizations/{org}/chat_conversations"
+        conversations = await self._get(conversations_url)
+        if not isinstance(conversations, list):
+            raise AiBackupParseError(
+                f"Claude returned a non-list conversation response on {conversations_url}"
+            )
+        for conv in conversations:
+            if not isinstance(conv, dict):
+                raise AiBackupParseError(
+                    f"Claude conversation list contains a non-object on {conversations_url}"
+                )
             uuid = conv.get("uuid")
             if not uuid or uuid in seen:
                 continue
@@ -142,8 +157,14 @@ class ClaudeClient:
                 self.skipped += 1
                 continue
             saved = self._writer.load_saved_conversation(uuid)
-            if saved is not None:
-                # Resume: already on disk from a prior interrupted run today.
+            listed_update = conv.get("updated_at")
+            if (
+                saved is not None
+                and listed_update is not None
+                and saved.get("updated_at") == listed_update
+            ):
+                # Resume only the same provider version. A later same-day
+                # update must replace the saved detail.
                 counts["conversations"] += 1
                 counts["artifacts"] += await self._write_artifacts(saved, uuid)
                 self.resumed += 1
@@ -152,6 +173,8 @@ class ClaudeClient:
                 f"{_API}/api/organizations/{org}/chat_conversations/{quote(uuid, safe='')}"
                 "?tree=True&rendering_mode=messages&render_all_tools=true"
             )
+            if not isinstance(detail, dict):
+                raise AiBackupParseError(f"Claude conversation {uuid} returned a non-object")
             await asyncio.to_thread(self._writer.write_conversation, uuid, detail)
             counts["conversations"] += 1
             counts["artifacts"] += await self._write_artifacts(detail, uuid)
@@ -173,8 +196,13 @@ class ClaudeClient:
             raise
         except Exception as exc:
             logger.debug("claude_account_probe_failed", extra={"error": str(exc)})
-        orgs = await self._get(f"{_API}/api/organizations")
-        org_list = orgs if isinstance(orgs, list) else []
+        orgs_url = f"{_API}/api/organizations"
+        orgs = await self._get(orgs_url)
+        if not isinstance(orgs, list):
+            raise AiBackupParseError(
+                f"Claude returned a non-list organization response on {orgs_url}"
+            )
+        org_list = orgs
         for org in org_list:
             if "chat" in (org.get("capabilities") or []):
                 self._org_id = org.get("uuid")

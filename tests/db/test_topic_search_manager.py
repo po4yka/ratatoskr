@@ -15,6 +15,8 @@ from app.db.topic_search_manager import TopicSearchIndexManager
 if TYPE_CHECKING:
     import logging
 
+pytestmark = pytest.mark.postgres
+
 
 class _Logger:
     def info(self, *_args: object, **_kwargs: object) -> None:

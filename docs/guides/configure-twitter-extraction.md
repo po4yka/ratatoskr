@@ -1,163 +1,159 @@
 # Configure Twitter / X Extraction
 
-Enable Twitter / X content extraction in Ratatoskr — tweets, threads, and X Articles.
+Twitter/X URLs use the dedicated platform extractor in `app/adapters/twitter/`.
+The coordinator can obtain a post through a connected user's X API token,
+self-hosted Firecrawl, or an opt-in authenticated Playwright session.
 
-**Audience:** Users, Operators. **Difficulty:** Beginner for Tier 1 (Firecrawl); Intermediate for Tier 2 (authenticated Playwright). **Estimated Time:** 5 minutes (Tier 1), 15 minutes (Tier 2).
+## Supported URLs
 
----
+- `x.com/<user>/status/<id>` and `twitter.com/<user>/status/<id>` posts;
+- public or authenticated threads when the selected tier exposes the replies;
+- X Article links resolved from path, redirect, or canonical metadata.
 
-## What Twitter / X content is supported
+Profiles, searches, and hashtag pages are not summary-entry contracts.
 
-| Content type | URL pattern | Tier 1 (Firecrawl) | Tier 2 (Playwright) |
-| --- | --- | --- | --- |
-| Single tweet | `https://twitter.com/<user>/status/<id>` or `https://x.com/...` | ✓ when public | ✓ (uses your cookies) |
-| Thread | `https://twitter.com/<user>/status/<id>` (root) | partial | ✓ |
-| X Article | `https://x.com/<user>/status/<id>` redirected from an article URL | partial | ✓ |
-| Profile / search / hashtag | various | ✗ | ✗ |
+## Extraction order
 
-For tweets and threads the extractor intercepts the GraphQL API response; for X Articles it falls back to DOM scraping. URL detection and routing live in [`app/adapters/twitter/url_patterns.py`](../../app/adapters/twitter/url_patterns.py).
+For a normal post, the coordinator runs:
 
----
-
-## Two-tier strategy
-
-Ratatoskr never authenticates against Twitter unless you opt in. The default is Tier 1 only; Tier 2 is gated behind explicit env-var consent.
-
-```
-Twitter URL
-  └─ Tier 1: Firecrawl /scrape   ← default, free, no Twitter login
-        success → return
-        failure ↓
-  └─ Tier 2: Playwright + cookies.txt   ← opt-in via TWITTER_PLAYWRIGHT_ENABLED=true
-        success → return
-        failure → mark request failed
+```text
+connected-user X API → self-hosted Firecrawl → optional Playwright
 ```
 
-`TWITTER_PREFER_FIRECRAWL=true` (default) keeps Firecrawl ahead of Playwright when both are enabled. `TWITTER_FORCE_TIER` lets you pin a specific tier (`auto` | `firecrawl` | `playwright`) for debugging or when you know one tier always works for a given account.
+The X API stage is skipped when the request has no user, no active X connection,
+or insufficient read scopes. X Articles skip the API stage. Firecrawl and
+Playwright are then controlled by `TWITTER_FORCE_TIER`,
+`TWITTER_PREFER_FIRECRAWL`, and `TWITTER_PLAYWRIGHT_ENABLED`.
 
----
+`TWITTER_FORCE_TIER` selects only between the Firecrawl/Playwright fallback
+tiers; it does not suppress a usable connected-user API stage.
 
-## Tier 1 — Firecrawl (default, no setup)
+## Base configuration
 
-If you already have a working Firecrawl deployment (cloud or self-hosted), Tier 1 is on out of the box.
+The checked-in defaults enable URL detection and the Firecrawl tier, while
+leaving Playwright off:
+
+```yaml
+twitter:
+  enabled: true
+  prefer_firecrawl: true
+  playwright_enabled: false
+  force_tier: auto
+```
+
+The Firecrawl tier requires the self-hosted client configured by
+`FIRECRAWL_SELF_HOSTED_ENABLED=true` and `FIRECRAWL_SELF_HOSTED_URL`. A cloud
+Firecrawl API key is not an active extraction path.
+
+Valid fallback tier modes are `auto`, `firecrawl`, and `playwright`.
+Configuration validation rejects a forced tier whose required gate is disabled.
+
+## Connected-user X API
+
+Configure the OAuth client used by Mobile API social connection endpoints:
 
 ```bash
-# .env
-TWITTER_ENABLED=true              # default
-TWITTER_PREFER_FIRECRAWL=true     # default
-TWITTER_PLAYWRIGHT_ENABLED=false  # default — Tier 2 stays off
+X_OAUTH_CLIENT_ID=...
+X_OAUTH_CLIENT_SECRET=...
+X_OAUTH_REDIRECT_URI=https://ratatoskr.example.com/v1/auth/x/callback
+X_OAUTH_SCOPES='tweet.read users.read offline.access'
 ```
 
-Send a tweet URL to the bot to verify:
+Write scopes are rejected. Tokens are stored through the social-connection
+repository and resolved per requesting user. A 401 marks the connection as
+requiring reauthentication; rate-limit and provider metadata are persisted in
+the fetch attempt.
 
+This stage calls X API v2 for an individual post. It is not a generic home-feed
+or search extractor.
+
+## Self-hosted Firecrawl
+
+Enable the shared self-hosted client and keep Firecrawl preferred:
+
+```bash
+FIRECRAWL_SELF_HOSTED_ENABLED=true
+FIRECRAWL_SELF_HOSTED_URL=http://firecrawl-api:3002
+TWITTER_PREFER_FIRECRAWL=true
 ```
-https://x.com/elonmusk/status/1234567890123456789
+
+Start the scraper profile when using the bundled sidecar:
+
+```bash
+POSTGRES_PASSWORD=... \
+docker compose -f ops/docker/docker-compose.yml \
+  --profile with-scrapers up -d firecrawl-api
 ```
 
-Expected: bot replies with a structured summary of the tweet text and any embedded article. If Firecrawl returns a paywall page or a Twitter login wall, summarisation will return a low-confidence result; that's your cue to enable Tier 2.
+Login-wall/thin UI output is treated as a quality failure so the coordinator can
+fall through instead of summarizing the sign-in page.
 
----
+## Authenticated Playwright fallback
 
-## Tier 2 — Playwright (opt-in, authenticated)
+Playwright is useful for content visible to a browser session but not to the API
+or Firecrawl. It is opt-in because the cookie file grants account access.
 
-Use this when public Firecrawl scraping cannot get past Twitter's login wall — typically for protected accounts, age-gated content, replies in deep threads, or X Articles that redirect through `t.co`.
-
-### 1. Install Chromium
-
-The browser ships with the optional `browser_scraper` extra:
+Local dependencies:
 
 ```bash
 uv sync --extra browser_scraper
-playwright install chromium
+uv run playwright install chromium
 ```
 
-Inside the Docker image Chromium is already present; no extra step is needed unless you rebuild without `--no-cache` after a Playwright package bump (in which case run `playwright install chromium` inside the container — same as the URL-pipeline note in [`CLAUDE.md`](../../CLAUDE.md)).
-
-### 2. Export your Twitter / X cookies
-
-Use a Netscape-format `cookies.txt` exporter (e.g. the `cookies.txt` extension for Firefox / Chrome). Export from a browser session that's already logged in to twitter.com or x.com.
+Export a Netscape-format `cookies.txt` from an authenticated X session, store it
+outside the repository, restrict its permissions, and mount it read-only at the
+configured path.
 
 ```bash
-# Place the file where Ratatoskr expects it
-cp ~/Downloads/cookies.txt /data/twitter_cookies.txt
-chmod 600 /data/twitter_cookies.txt
-```
-
-Default path: `/data/twitter_cookies.txt`. Override with `TWITTER_COOKIES_PATH=/some/other/path`.
-
-> **Security:** the cookies file grants full session access to your Twitter account. Mount it read-only into the container, never check it into git, and rotate by re-exporting whenever you change your Twitter password.
-
-### 3. Turn Tier 2 on
-
-```bash
-# .env
 TWITTER_PLAYWRIGHT_ENABLED=true
 TWITTER_COOKIES_PATH=/data/twitter_cookies.txt
-TWITTER_HEADLESS=true              # default; set false to see the browser
-TWITTER_PAGE_TIMEOUT_MS=15000      # default
-TWITTER_MAX_CONCURRENT_BROWSERS=2  # default; raise carefully — each is ~150 MB RAM
+TWITTER_HEADLESS=true
+TWITTER_PAGE_TIMEOUT_MS=15000
+TWITTER_MAX_CONCURRENT_BROWSERS=2
 ```
 
-Restart the bot. Send a tweet URL the way you'd send any other URL — no new command required. Tier 2 fires automatically when Tier 1 fails (or immediately if you set `TWITTER_FORCE_TIER=playwright`).
+`TWITTER_MAX_CONCURRENT_BROWSERS` accepts 1 through 20; increase it only after
+measuring RAM and provider throttling. Never log or persist cookie contents.
 
----
+## X Article resolution
 
-## Redirect-aware article resolver
+`app/adapters/twitter/article_link_resolver.py` checks direct article paths,
+redirect targets, and canonical links. It records one of:
 
-X Article links often arrive as `t.co` shortlinks or as wrapped redirects from third-party share buttons. Ratatoskr's resolver unwraps these before extraction so the canonical X Article URL is what hits the scraper. The resolver returns a structured `reason` code on every input:
+- `path_match`;
+- `redirect_match`;
+- `canonical_match`;
+- `not_article`;
+- `resolve_failed`.
 
-| reason | meaning | action |
-| --- | --- | --- |
-| `path_match` | The URL is already a canonical X Article path; no resolution needed. | Proceed to extraction. |
-| `redirect_match` | The URL was a shortlink / wrapper that redirected to a canonical X Article. | Extract using the redirect target. |
-| `canonical_match` | The page's `<link rel="canonical">` pointed at an X Article. | Extract using the canonical URL. |
-| `not_article` | The URL resolves to something that is not an X Article (a tweet, profile, error page). | Fall through to the regular tweet/thread extractor. |
-| `resolve_failed` | Network or HTTP error before we could decide. | Log and surface as a soft failure; no extraction attempt. |
+The resolver is controlled by
+`TWITTER_ARTICLE_REDIRECT_RESOLUTION_ENABLED` and
+`TWITTER_ARTICLE_RESOLUTION_TIMEOUT_SEC`. Leave it enabled unless the deployment
+intentionally blocks the required public egress.
 
-Configuration:
+## Verify and troubleshoot
 
-```bash
-TWITTER_ARTICLE_REDIRECT_RESOLUTION_ENABLED=true   # default
-TWITTER_ARTICLE_RESOLUTION_TIMEOUT_SEC=5           # default; soft cap
-```
+Send a known visible post and inspect the request's correlation ID. Persisted
+metadata includes `tier_outcomes` for `x_api`, `firecrawl`, and `playwright`, plus
+the selected `auth_strategy`.
 
-Disable only if your Firecrawl deployment cannot reach the public internet for a redirect-resolution probe.
-
----
-
-## Optional live smoke test
-
-A standalone script tests the full Twitter / X pipeline against a fixed list of public URLs. It is gated behind an explicit opt-in so CI doesn't accidentally hit Twitter on every run.
+An optional live diagnostic can exercise configured public URLs:
 
 ```bash
 TWITTER_ARTICLE_LIVE_SMOKE_ENABLED=true \
-  python tools/scripts/twitter_article_live_smoke.py
+uv run python tools/scripts/twitter_article_live_smoke.py
 ```
 
-Reports per-link JSON diagnostics including the resolver `reason`, the tier that succeeded, and timing. Useful when you suspect Twitter has changed an extractor invariant.
+Common failures:
 
----
+- `no_connection`/`skipped`: no usable connected-user X OAuth session;
+- login-wall quality failure: enable a permitted fallback or authenticated
+  Playwright;
+- 401 from X API: reconnect the user's X account;
+- Playwright 401/403: refresh the cookie export and verify its mount;
+- 429: reduce browser concurrency/request volume and respect reset metadata;
+- `resolve_failed`: inspect network/SSRF diagnostics for the resolver.
 
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| Bot replies but the summary is "Sign in to view this content" | Firecrawl hit a login wall and Tier 2 is off. | Set `TWITTER_PLAYWRIGHT_ENABLED=true` and add cookies. |
-| `TWITTER_FORCE_TIER=playwright requires TWITTER_PLAYWRIGHT_ENABLED=true` startup error | You pinned Tier 2 but didn't enable it. | Either set `TWITTER_PLAYWRIGHT_ENABLED=true` or change the force tier. |
-| Playwright reports HTTP 401 / 403 | Cookies expired or wrong account. | Re-export cookies; verify the file is mounted into the container. |
-| Captcha shown on first run after cookies refresh | Twitter's anti-bot triggered. | Run with `TWITTER_HEADLESS=false` once, solve manually, save cookies again. |
-| 429 rate limits | Concurrency too high. | Drop `TWITTER_MAX_CONCURRENT_BROWSERS` to 1 and lower request volume. |
-| Extraction succeeds but only the first tweet of a thread comes back | Thread continuation requires authenticated requests. | Ensure Tier 2 cookies belong to an account that can see the thread. |
-| `not_article` for every X Article URL | Redirect resolver could not reach the network. | Either enable network egress for the resolver or disable it with `TWITTER_ARTICLE_REDIRECT_RESOLUTION_ENABLED=false`. |
-
-For deeper logs, set `LOG_LEVEL=DEBUG` and grep for the request's correlation ID — every Twitter extraction stamps one.
-
----
-
-## Related
-
-- [Architecture Overview § Subsystem index](../explanation/architecture-overview.md#subsystem-index)
-- [Configure YouTube Download](configure-youtube-download.md)
-- [Enable Web Search](enable-web-search.md)
-- [`app/adapters/twitter/`](../../app/adapters/twitter/) — extraction source code (`extraction_coordinator.py` is the entry point).
-- [`app/config/twitter.py`](../../app/config/twitter.py) — full config schema with validation rules.
+See [Troubleshooting](../reference/troubleshooting.md#content-extraction-failures)
+and [Social Integrations](../reference/social-integrations.md) for connected-account
+setup.

@@ -16,13 +16,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.adapter_models.llm.llm_models import LLMCallResult
+from app.adapter_models.llm.llm_models import LLMCallResult, StructuredLLMResult
+from app.adapters.content.url_flow_models import URLFlowRequest
+from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.adapters.telegram.telegram_bot import TelegramBot
+from app.core.call_status import CallStatus
 from app.core.url_utils import normalize_url, url_hash_sha256
+from app.infrastructure.persistence.repositories.request_repository import RequestRepositoryAdapter
+from app.infrastructure.persistence.repositories.summary_repository import SummaryRepositoryAdapter
 from tests.conftest import make_test_app_config
 from tests.db_helpers_async import (
     create_request,
-    get_request_by_dedupe_hash,
     get_request_by_forward,
     get_summary_by_request,
     insert_crawl_result,
@@ -86,9 +90,24 @@ class FakeForwardMessage(FakeMessage):
 
 
 class FakeFirecrawl:
-    async def scrape_markdown(self, url: str, request_id: int | None = None) -> None:
-        msg = "Firecrawl should not be called on dedupe hit"
-        raise AssertionError(msg)
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def scrape_markdown(self, url: str, request_id: int | None = None) -> FirecrawlResult:
+        self.calls += 1
+        return FirecrawlResult(
+            status=CallStatus.OK,
+            http_status=200,
+            content_markdown=(
+                "# Cached article\n\n"
+                "This deterministic article body has enough useful words for the "
+                "content quality gate and exercises the current graph extraction path. " * 8
+            ),
+            metadata_json={"title": "Cached article"},
+            response_success=True,
+            latency_ms=1,
+            source_url=url,
+        )
 
 
 class FakeOpenRouter:
@@ -99,12 +118,13 @@ class FakeOpenRouter:
         self, messages: list[dict[str, Any]], request_id: int | None = None, **kwargs: Any
     ) -> LLMCallResult:
         self.calls += 1
-        content = json.dumps({"summary_250": "ok", "summary_1000": "ok", "tldr": "ok"})
+        payload = {"summary_250": "ok", "summary_1000": "ok", "tldr": "ok"}
+        content = json.dumps(payload)
         return LLMCallResult(
-            status="ok",  # type: ignore[arg-type]
+            status=CallStatus.OK,
             model="m",
             response_text=content,
-            response_json={"choices": [{"message": {"content": content}}]},
+            response_json=payload,
             tokens_prompt=1,
             tokens_completion=1,
             cost_usd=None,
@@ -114,8 +134,28 @@ class FakeOpenRouter:
             request_messages=messages,
         )
 
+    async def chat_structured(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        response_model: type[Any],
+        **_kwargs: Any,
+    ) -> StructuredLLMResult[Any]:
+        self.calls += 1
+        return StructuredLLMResult(
+            parsed=response_model.model_construct(
+                summary_250="ok",
+                summary_1000="ok",
+                tldr="ok",
+            ),
+            tokens_prompt=1,
+            tokens_completion=1,
+            latency_ms=1,
+            model_used="m",
+        )
 
-def _make_bot(database: Database) -> TelegramBot:
+
+def _make_bot(database: Database, *, llm_client: Any | None = None) -> TelegramBot:
     """Construct a TelegramBot wired against the supplied async Database."""
     cfg = make_test_app_config(db_path="/tmp/dedupe-test.db", allowed_user_ids=(1,))
 
@@ -124,8 +164,10 @@ def _make_bot(database: Database) -> TelegramBot:
     tbmod.Client = object
     tbmod.filters = None
 
-    with patch("app.adapters.openrouter.openrouter_client.OpenRouterClient") as mock_or:
-        mock_or.return_value = AsyncMock()
+    with patch(
+        "app.di.shared.LLMClientFactory.create_from_config",
+        return_value=llm_client or AsyncMock(),
+    ):
         return TelegramBot(
             cfg=cfg,
             db=database,
@@ -179,52 +221,69 @@ async def test_dedupe_and_summary_version_increment(
     )
     await session.commit()
 
-    bot = _make_bot(database)
-    bot_any = cast("Any", bot)
     fake_firecrawl = FakeFirecrawl()
     fake_or = FakeOpenRouter()
+    bot = _make_bot(database, llm_client=fake_or)
+    bot_any = cast("Any", bot)
 
-    # Wire fakes directly into the sub-components that use them.
+    # The extraction adapter retains this ContentExtractor instance, so replacing
+    # its public scraper alias exercises the current graph path without reaching
+    # into retired summarization-runtime internals.
     if hasattr(bot_any, "url_processor"):
         extractor = getattr(bot_any.url_processor, "content_extractor", None)
         if extractor is not None:
             extractor.firecrawl = fake_firecrawl
-        chunker = getattr(bot_any.url_processor, "content_chunker", None)
-        if chunker is not None:
-            chunker.openrouter = fake_or
-        runtime = getattr(bot_any.url_processor, "summarization_runtime", None)
-        if runtime is not None:
-            runtime.openrouter = fake_or
-            runtime.workflow.openrouter = fake_or
-            runtime.search_enricher._openrouter = fake_or
-            runtime.insights_generator._openrouter = fake_or
-            runtime.metadata_helper._openrouter = fake_or
-            runtime.article_generator._openrouter = fake_or
 
     msg = FakeMessage()
-    await bot._handle_url_flow(msg, url, correlation_id="cid1")
+    first_result = await bot.url_processor.handle_url_flow(
+        URLFlowRequest(
+            message=msg,
+            url_text=url,
+            correlation_id="cid1",
+            batch_mode=True,
+        )
+    )
+    assert first_result.success is True
+    assert first_result.cached is False
 
-    s1 = await get_summary_by_request(session, req_id)
+    # The graph and fixture use independent SQLAlchemy sessions. Read through the
+    # repositories so assertions never reuse stale identity-map objects.
+    summary_repo = SummaryRepositoryAdapter(database)
+    request_repo = RequestRepositoryAdapter(database)
+    s1 = await summary_repo.async_get_summary_by_request(req_id)
     assert s1 is not None
     version1 = int(s1["version"])
     assert version1 > 0
 
-    row = await get_request_by_dedupe_hash(session, dedupe)
+    row = await request_repo.async_get_request_by_dedupe_hash(dedupe)
     assert row is not None
     assert row["correlation_id"] == "cid1"
     first_pass_calls = fake_or.calls
     assert first_pass_calls >= 1  # summarization pipeline ran at least one LLM call
 
-    # Second run: dedupe again; summary version should not regress.
-    await bot._handle_url_flow(msg, url, correlation_id="cid2")
-    s2 = await get_summary_by_request(session, req_id)
+    assert fake_firecrawl.calls == 1
+
+    # Second run: the persisted summary is a real cache hit, so neither extraction
+    # nor the LLM runs and the summary version does not regress.
+    second_result = await bot.url_processor.handle_url_flow(
+        URLFlowRequest(
+            message=msg,
+            url_text=url,
+            correlation_id="cid2",
+            batch_mode=True,
+        )
+    )
+    assert second_result.success is True
+    assert second_result.cached is True
+    s2 = await summary_repo.async_get_summary_by_request(req_id)
     assert s2 is not None
     assert int(s2["version"]) >= version1
 
-    row2 = await get_request_by_dedupe_hash(session, dedupe)
+    row2 = await request_repo.async_get_request_by_dedupe_hash(dedupe)
     assert row2 is not None
     assert row2["correlation_id"] == "cid2"
-    assert fake_or.calls >= first_pass_calls
+    assert fake_or.calls == first_pass_calls
+    assert fake_firecrawl.calls == 1
 
 
 @pytest.mark.asyncio

@@ -125,8 +125,10 @@ class EmbeddingRepositoryPort(Protocol):
         successful Qdrant upsert.
         """
 
-    async def async_mark_summary_embeddings_indexed(self, summary_ids: list[int]) -> None:
-        """Mark summary embeddings as successfully written to the vector store."""
+    async def async_mark_summary_embeddings_indexed(
+        self, expected_content_hashes: dict[int, str | None]
+    ) -> list[int]:
+        """CAS-mark embeddings written to the vector store; return updated IDs."""
 
     async def async_get_summary_embedding(self, summary_id: int) -> dict[str, Any] | None:
         """Return summary embedding by summary ID."""

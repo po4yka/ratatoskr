@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, Mock
@@ -15,6 +16,10 @@ if TYPE_CHECKING:
 
 def _make_router(database: Database):
     cfg = make_test_app_config(db_path="/tmp/forward-routing.db")
+    cfg = replace(
+        cfg,
+        runtime=cfg.runtime.model_copy(update={"aggregate_coalesce_enabled": False}),
+    )
 
     command_processor = Mock()
     command_processor.has_active_init_session.return_value = False

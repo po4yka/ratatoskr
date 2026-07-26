@@ -222,9 +222,8 @@ redis-cli KEYS "llm:*" | xargs redis-cli DEL
 ## Important Notes
 
 - **langgraph is confined** to the graph-assembly seam (`graph.py`) plus
-  `app/di/graphs.py`; it is imported **lazily inside functions** so `app.*` modules
-  stay importable in the CI envs that lack the optional `graph` extra. Node bodies
-  must not import langgraph.
+  `app/di/graphs.py`; it is a base runtime dependency but remains imported at the
+  assembly seam so node bodies do not depend on LangGraph.
 - `attempt_trigger` is a Postgres enum -- adding a value needs a migration that
   `ALTER`s the type (see the `alembic-migrations` skill). `graph_node` is migration
   `0036`.

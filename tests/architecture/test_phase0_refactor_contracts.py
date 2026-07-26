@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,3 +79,17 @@ def test_generated_requirement_comments_use_current_project_name() -> None:
 
     assert "via bite-size-reader" not in requirements
     assert "#   bite-size-reader" not in requirements
+
+
+def test_sole_graph_runtime_is_installed_by_plain_uv_sync() -> None:
+    project = tomllib.loads(_read("pyproject.toml"))["project"]
+    base_names = {
+        dependency.split("[")[0].split("<")[0].split(">")[0]
+        for dependency in project["dependencies"]
+    }
+
+    assert {"langgraph", "langgraph-checkpoint-postgres", "psycopg", "psycopg-pool"} <= base_names
+    assert "graph" not in project["optional-dependencies"]
+    assert 'importorskip("langgraph' not in _read(
+        "tests/application/graphs/test_summarize_graph.py"
+    )

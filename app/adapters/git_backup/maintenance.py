@@ -9,15 +9,30 @@ Kotlin). The command runner is injectable so tests assert argv without spawning 
 
 from __future__ import annotations
 
-import contextlib
+import logging
 import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 # (argv, cwd) -> None
 GitCommandRunner = Callable[[list[str], Path], None]
+
+# Max characters of captured git stderr surfaced in a failure log line (avoids
+# flooding logs with a full repack/gc dump while keeping the actionable tail).
+_STDERR_LOG_LIMIT = 2000
+
+
+def _decode_stderr(raw: bytes | str | None) -> str:
+    """Decode + tail captured git stderr into a bounded, log-safe string."""
+    if raw is None:
+        return ""
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+    text = text.strip()
+    return text[-_STDERR_LOG_LIMIT:] if len(text) > _STDERR_LOG_LIMIT else text
 
 
 @dataclass
@@ -44,14 +59,35 @@ def _default_runner(timeout_seconds: float) -> GitCommandRunner:
             "GIT_ALLOW_PROTOCOL": "https:http:git:ssh",
             "GIT_PROTOCOL_FROM_USER": "0",
         }
-        with contextlib.suppress(Exception):
-            subprocess.run(
+        # Best-effort: a maintenance failure must NEVER abort the backup sync (callers
+        # invoke this via asyncio.to_thread with no try/except), but it MUST be
+        # observable. Previously the whole call was swallowed (check=False +
+        # contextlib.suppress(Exception)) so a failing gc/repack/commit-graph, or a
+        # timeout, vanished with no trace. argv here is fixed maintenance verbs on a
+        # local path (no URL / token), so it is safe to log unredacted.
+        try:
+            completed = subprocess.run(
                 argv,
                 cwd=str(cwd),
                 capture_output=True,
                 timeout=timeout_seconds,
                 check=False,
                 env=env,
+            )
+        except (subprocess.SubprocessError, OSError) as exc:
+            # Timeout, spawn failure (git missing / not executable), etc. Logged and
+            # swallowed -- the sync continues without this repo's maintenance.
+            logger.warning("git_maintenance_command_error argv=%s cwd=%s error=%s", argv, cwd, exc)
+            return
+        if completed.returncode != 0:
+            # check=False means a non-zero exit does NOT raise; surface it explicitly
+            # with the git stderr so a corrupt repo / failed repack is diagnosable.
+            logger.warning(
+                "git_maintenance_command_failed argv=%s cwd=%s rc=%s stderr=%s",
+                argv,
+                cwd,
+                completed.returncode,
+                _decode_stderr(completed.stderr),
             )
 
     return run

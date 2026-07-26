@@ -198,11 +198,14 @@ class TestQuickSaveRequest:
         assert req.summarize is True
 
     def test_with_tags(self):
-        req = QuickSaveRequest(url="https://test.com", tag_names=["a", "b"])
+        # Uses a resolvable host: QuickSaveRequest.url now validates via
+        # validate_url_input, which fails closed on DNS failure (test.com does
+        # not resolve in CI); this test exercises tag_names, not URL handling.
+        req = QuickSaveRequest(url="https://example.com", tag_names=["a", "b"])
         assert len(req.tag_names) == 2
 
     def test_with_note(self):
-        req = QuickSaveRequest(url="https://test.com", selected_text="important text")
+        req = QuickSaveRequest(url="https://example.com", selected_text="important text")
         assert req.selected_text == "important text"
 
     def test_defaults(self):

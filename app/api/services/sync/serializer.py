@@ -31,6 +31,9 @@ class SyncEnvelopeSerializer:
 
     @staticmethod
     def _resolve_request_id(record: dict[str, Any]) -> int | None:
+        direct_request_id = record.get("request_id")
+        if isinstance(direct_request_id, int):
+            return direct_request_id
         request_val = record.get("request")
         if isinstance(request_val, int):
             return request_val
@@ -153,7 +156,9 @@ class SyncEnvelopeSerializer:
 
     def serialize_highlight(self, highlight: dict[str, Any]) -> SyncEntityEnvelope:
         summary_val = highlight.get("summary")
-        summary_id = summary_val.get("id") if isinstance(summary_val, dict) else summary_val
+        summary_id = highlight.get("summary_id")
+        if summary_id is None:
+            summary_id = summary_val.get("id") if isinstance(summary_val, dict) else summary_val
         payload = {
             "id": str(highlight.get("id")),
             "summary_id": str(summary_id) if summary_id is not None else None,
@@ -213,9 +218,13 @@ class SyncEnvelopeSerializer:
 
     def serialize_summary_tag(self, st: dict[str, Any]) -> SyncEntityEnvelope:
         summary_val = st.get("summary")
-        summary_id = summary_val.get("id") if isinstance(summary_val, dict) else summary_val
+        summary_id = st.get("summary_id")
+        if summary_id is None:
+            summary_id = summary_val.get("id") if isinstance(summary_val, dict) else summary_val
         tag_val = st.get("tag")
-        tag_id = tag_val.get("id") if isinstance(tag_val, dict) else tag_val
+        tag_id = st.get("tag_id")
+        if tag_id is None:
+            tag_id = tag_val.get("id") if isinstance(tag_val, dict) else tag_val
         payload = {
             "id": st.get("id"),
             "summary_id": summary_id,

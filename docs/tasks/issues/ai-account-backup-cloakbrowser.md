@@ -7,7 +7,7 @@ owner: Backend
 blocks: []
 blocked_by: []
 created: 2026-06-27
-updated: 2026-06-27
+updated: 2026-07-18
 ---
 
 - [ ] #task Back up ChatGPT and Claude accounts via CloakBrowser authenticated sessions #repo/ratatoskr #area/ops #status/doing 🔼
@@ -39,17 +39,18 @@ Operator decisions recorded:
 
 ## Acceptance criteria
 
-- [ ] `AiBackupConfig` (`app/config/ai_backup.py`) wired into `AppConfig`; `AI_BACKUP_ENABLED` defaults false; data-path traversal validator present.
-- [ ] `AiAccountBackup` model + enums + Alembic migration; registered in `ALL_MODELS`; repository methods all carry the `user_id` filter.
-- [ ] `CloakBrowserProvider.authenticated_context()` loads/persists encrypted `storage_state`, keeps the SSRF guard, pins the per-domain fingerprint.
-- [ ] `ChatGPTBackupClient` walks conversations + gizmo Projects + file downloads; `ClaudeBackupClient` walks conversations + projects + artifacts.
-- [ ] Taskiq task `ratatoskr.ai_backup.sync` with Redis lock; scheduler emits it only when `cfg.ai_backup.enabled`.
+- [x] `AiBackupConfig` (`app/config/ai_backup.py`) wired into `AppConfig`; `AI_BACKUP_ENABLED` defaults false; data-path traversal validator present.
+- [x] `AiAccountBackup` model + enums + Alembic migration; registered in `ALL_MODELS`; repository methods all carry the `user_id` filter.
+- [x] `CloakBrowserProvider.authenticated_context()` loads/persists encrypted `storage_state`, keeps the SSRF guard, pins the per-domain fingerprint.
+- [x] `ChatGPTBackupClient` walks conversations + gizmo Projects + file downloads; `ClaudeBackupClient` walks conversations + projects + artifacts.
+- [x] Taskiq task `ratatoskr.ai_backup.sync` with Redis lock; scheduler emits it only when `cfg.ai_backup.enabled`.
 - [x] Mode A session ingest via `POST /v1/ai-backups/{service}/session` (REST/HTTPS only — Telegram ingest removed in security review: live cookies must not transit non-E2E chat); OpenAPI regenerated.
-- [ ] `/ai_backup` and `/ai_backups` status surfaces; `auth_expired` detection halts the service and notifies the operator.
-- [ ] On-disk layout with idempotent-by-id writes, `manifest.json`, and `AI_BACKUP_INCREMENTAL` skipping.
-- [ ] Host allowlist enforced on every internal-API URL; session secrets redacted from logs and never written to the backup tree.
-- [ ] Docs: env-reference rows for `AI_BACKUP_*`; CLAUDE.md Agent Map + Environment Variables rows; design doc kept in sync.
-- [ ] Unit tests (config validators, repository IDOR/lifecycle, client pagination/tree-walk against fixtures, allowlist rejection, auth-expiry classification); E2E-gated integration test for the authenticated-context round-trip.
+- [x] `/ai_backup` and `/ai_backups` status surfaces; `auth_expired` detection halts the service and notifies the operator.
+- [x] On-disk layout with idempotent-by-id writes, `manifest.json`, and `AI_BACKUP_INCREMENTAL` skipping.
+- [x] Host allowlist enforced on every internal-API URL; session secrets redacted from logs and never written to the backup tree.
+- [x] Docs: env-reference rows for `AI_BACKUP_*`; CLAUDE.md Agent Map + Environment Variables rows; design doc kept in sync.
+- [x] Unit tests cover config validators, repository IDOR/lifecycle, client pagination/tree-walk fixtures, allowlist rejection, and auth-expiry classification.
+- [ ] E2E-gated integration test passes for the authenticated-context round-trip against live provider sessions.
 
 ## Subtasks (phased)
 

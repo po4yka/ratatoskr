@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import select
 
 from app.api.services.digest_api_service import DigestAPIService
 from app.config.digest import ChannelDigestConfig
@@ -150,7 +151,10 @@ async def test_run_digest_task_executes_digest_service_and_closes_resources(
     assert channel_result is generated_channel_digest
     digest_service_instance.generate_digest.assert_awaited_once()
     digest_service_instance.generate_channel_digest.assert_awaited_once()
-    assert Channel.get(Channel.username == "examplechan").title == "examplechan"  # type: ignore[attr-defined]
+    async with db.session() as session:
+        channel = await session.scalar(select(Channel).where(Channel.username == "examplechan"))
+    assert channel is not None
+    assert channel.title == "examplechan"
     userbot_instance.start.assert_awaited()
     userbot_instance.stop.assert_awaited()
     llm_client_instance.aclose.assert_awaited()

@@ -12,9 +12,8 @@ swallowed. A failed ping MUST NOT affect the backup outcome.
 
 from __future__ import annotations
 
-import httpx
-
 from app.core.logging_utils import get_logger
+from app.security.ssrf import make_safe_async_client
 
 logger = get_logger(__name__)
 
@@ -22,13 +21,13 @@ logger = get_logger(__name__)
 async def _post(url: str, timeout: float, *, label: str, body: str | None = None) -> None:
     """POST to *url* and swallow all errors."""
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with make_safe_async_client(timeout=timeout) as client:
             content = body.encode() if body else None
             await client.post(url, content=content)
     except Exception as exc:  # intentional broad catch; must never raise
         logger.warning(
             "git_backup_health_ping_failed",
-            extra={"ping": label, "url": url, "error": str(exc)},
+            extra={"ping": label, "error_type": type(exc).__name__},
         )
 
 

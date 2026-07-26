@@ -33,11 +33,12 @@ COPY pyproject.toml uv.lock ./
 
 # Install dependencies with cache mounts for faster rebuilds
 # Bot/MCP need: ml, youtube, export, scheduler, mcp, api (mcp http_auth imports app.api.routers.auth.tokens)
-# graph: langgraph summarize pipeline + Postgres checkpointer — sole summarize path since T9, so required at runtime (pyproject opt-in).
+# monitoring: Prometheus/Sentry exporters used by the production metrics surface.
+# LangGraph and its Postgres checkpointer are base dependencies because this is the sole summarize path.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cache/pip \
-    echo "Starting uv sync with extras: ml youtube export scheduler mcp api browser_scraper attachment otel graph" && \
-    uv sync --compile-bytecode --frozen --no-dev --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra api --extra browser_scraper --extra attachment --extra otel --extra graph --verbose && \
+    echo "Starting uv sync with extras: ml youtube export scheduler mcp api browser_scraper attachment monitoring otel" && \
+    uv sync --compile-bytecode --frozen --no-dev --extra ml --extra youtube --extra export --extra scheduler --extra mcp --extra api --extra browser_scraper --extra attachment --extra monitoring --extra otel --verbose && \
     echo "uv sync completed successfully"
 
 # =============================================================================
@@ -95,12 +96,19 @@ COPY alembic.ini ./
 # app/config/_secret_marker.py.
 COPY config ./config
 
-# Web assets are built by ratatoskr-web and deployed into app/static/web/ via CI/CD.
+# Extract the reviewed frontend artifact last. app/static/web is excluded from
+# the build context, so stale local assets can neither leak into nor mutate the
+# image. The archive includes .source-commit for provenance.
+ADD ops/docker/ratatoskr-web.bundle.tar.gz ./app/static/web/
 
-# Create non-root user for security
-RUN useradd -r -u 1000 -m -d /home/appuser -s /sbin/nologin appuser \
-    && mkdir -p /data \
-    && chown -R appuser:appuser /app /data
+# Create the non-root runtime user and its writable data directory.  Keep the
+# application and virtualenv root-owned/read-only: recursively changing /app
+# would duplicate the multi-gigabyte virtualenv in a new image layer whenever
+# application sources change.
+RUN test -s /app/app/static/web/index.html \
+    && test -s /app/app/static/web/.source-commit \
+    && useradd -r -u 1000 -m -d /home/appuser -s /sbin/nologin appuser \
+    && install -d -o appuser -g appuser /data
 
 # Runtime configuration
 VOLUME ["/data"]

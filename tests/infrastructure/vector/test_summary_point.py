@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -61,11 +63,13 @@ def test_build_payload_has_exact_12_keys_and_defaults() -> None:
 
 
 class _RecordingStore:
-    def __init__(self) -> None:
+    def __init__(self, *, acknowledged: bool = True) -> None:
         self.calls: list[Any] = []
+        self.acknowledged = acknowledged
 
-    def replace_summary_point(self, *args: Any, **kwargs: Any) -> None:
+    def replace_summary_point(self, *args: Any, **kwargs: Any) -> bool:
         self.calls.append((args, kwargs))
+        return self.acknowledged
 
 
 class _FakeEmbedding:
@@ -86,3 +90,31 @@ async def test_index_adapter_skips_when_text_empty() -> None:
         scope=RetrievalScope(environment="test", user_scope="unit", user_id=None),
     )
     assert store.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("acknowledged", [True, False])
+async def test_index_adapter_marks_indexed_only_after_qdrant_ack(acknowledged: bool) -> None:
+    store = _RecordingStore(acknowledged=acknowledged)
+    embedding_repository = AsyncMock()
+    adapter = QdrantSummaryIndexAdapter(
+        vector_store=store,
+        embedding_service=_FakeEmbedding(),
+        embedding_repository=embedding_repository,
+    )
+
+    await adapter.index_summary(
+        request_id=1,
+        summary_id=2,
+        summary={"summary_250": "summary"},
+        lang="en",
+        scope=RetrievalScope(environment="test", user_scope="unit", user_id=None),
+    )
+
+    if acknowledged:
+        expected_hash = hashlib.sha256(b"summary").hexdigest()
+        embedding_repository.async_mark_summary_embeddings_indexed.assert_awaited_once_with(
+            {2: expected_hash}
+        )
+    else:
+        embedding_repository.async_mark_summary_embeddings_indexed.assert_not_awaited()

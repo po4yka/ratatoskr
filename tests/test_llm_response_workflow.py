@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from app.application.ports.summaries import SummaryFinalizeResult
 from app.application.services.summarization.llm_response_workflow import (
     LLMInteractionConfig,
     LLMRepairContext,
@@ -133,7 +134,9 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.workflow.request_repo.async_update_request_status = self.update_status_mock
 
         self.workflow.summary_repo = MagicMock()
-        self.upsert_summary_mock: AsyncMock = AsyncMock(return_value=1)
+        self.upsert_summary_mock: AsyncMock = AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=1, version=1)
+        )
         self.workflow.summary_repo.async_finalize_request_summary = self.upsert_summary_mock
 
         self.workflow.llm_repo = MagicMock()

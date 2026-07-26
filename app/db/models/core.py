@@ -53,6 +53,10 @@ class LLMAttemptTrigger(enum.StrEnum):
       code path writes this value yet (the graph runs behind a feature flag).
     - ``ru_translation``: structured Russian translation of a finished summary,
       issued by the bilingual post-summary step (``SUMMARY_BILINGUAL_ENABLED``).
+    - ``agent``: LLM call issued by a standalone agent path with no parent
+      ``Request`` (repo analysis, multi-source aggregation, signal judge). These
+      rows carry ``request_id IS NULL`` and are persisted via
+      ``app/agents/llm_call_persistence.py::persist_agent_llm_call``.
     """
 
     initial = "initial"
@@ -63,6 +67,7 @@ class LLMAttemptTrigger(enum.StrEnum):
     webwright_tool = "webwright_tool"
     graph_node = "graph_node"
     ru_translation = "ru_translation"
+    agent = "agent"
 
 
 _llm_attempt_trigger_enum = Enum(
@@ -387,6 +392,12 @@ class Request(Base):
         Index("ix_requests_status", "status"),
         Index("ix_requests_created_at", "created_at"),
         Index("ix_requests_user_id_created_at", "user_id", "created_at"),
+        Index(
+            "ix_requests_user_server_version_id",
+            "user_id",
+            "server_version",
+            "id",
+        ),
         # correlation_id is the cross-cutting trace key; index it for lookups.
         Index("ix_requests_correlation_id", "correlation_id"),
         Index(
@@ -500,6 +511,7 @@ class RequestProcessingJob(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     lease_owner: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lease_token: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     lease_expires_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -571,7 +583,10 @@ class TelegramMessage(Base):
 
 class CrawlResult(Base):
     __tablename__ = "crawl_results"
-    __table_args__ = (Index("ix_crawl_results_correlation_id", "correlation_id"),)
+    __table_args__ = (
+        Index("ix_crawl_results_correlation_id", "correlation_id"),
+        Index("ix_crawl_results_server_version_id", "server_version", "id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[int] = mapped_column(
@@ -623,11 +638,14 @@ class LLMCall(Base):
             "attempt_index",
             name="uq_llm_calls_request_id_attempt_index",
         ),
+        Index("ix_llm_calls_server_version_id", "server_version", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    request_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("requests.id", ondelete="CASCADE"), nullable=False
+    # Nullable: agent-originated calls (attempt_trigger='agent') have no parent
+    # Request. See migration 0051 and persist_agent_llm_call.
+    request_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("requests.id", ondelete="CASCADE"), nullable=True
     )
     attempt_index: Mapped[int] = mapped_column(
         Integer,
@@ -693,6 +711,7 @@ class Summary(Base):
         Index("ix_summaries_is_read", "is_read"),
         Index("ix_summaries_lang", "lang"),
         Index("ix_summaries_created_at", "created_at"),
+        Index("ix_summaries_server_version_id", "server_version", "id"),
         # Partial index for the reconciler's ORDER BY updated_at scan over
         # non-deleted rows. Added in migration 0010.
         Index(

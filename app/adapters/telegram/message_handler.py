@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
+import time
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.telegram.task_manager import UserTaskManager
 from app.core.async_utils import raise_if_cancelled
-from app.core.logging_utils import get_logger
+from app.core.logging_utils import generate_correlation_id, get_logger
 
 if TYPE_CHECKING:
     from app.adapters.telegram.access_controller import AccessController
@@ -72,6 +74,21 @@ class MessageHandler:
 
             uid = from_user.id
             callback_data = data.decode() if isinstance(data, bytes) else str(data)
+
+            # Access control: inline button taps must pass the same
+            # ALLOWED_USER_IDS gate as text/command messages. Callback queries do
+            # not go through MessageRouter.route_message, so without this check any
+            # Telegram user who can tap a button on one of the bot's messages could
+            # invoke privileged callback actions (export, retry, translate, ...)
+            # outside the allowlist, rate limiter, and audit hook.
+            correlation_id = generate_correlation_id()
+            if not await self.access_controller.check_access(
+                uid, message, correlation_id, 0, time.monotonic()
+            ):
+                with contextlib.suppress(Exception):
+                    await callback_query.answer("Access denied.", show_alert=True)
+                logger.warning("callback_access_denied", extra={"uid": uid, "cid": correlation_id})
+                return
 
             logger.info(
                 "callback_query_received",

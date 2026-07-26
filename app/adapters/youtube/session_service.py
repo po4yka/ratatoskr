@@ -345,12 +345,17 @@ class YouTubeDownloadSessionService:
             video_codec=video_metadata.get("vcodec"),
             audio_codec=video_metadata.get("acodec"),
             format_id=video_metadata.get("format_id"),
+            video_file_path=video_metadata.get("video_file_path"),
+            subtitle_file_path=video_metadata.get("subtitle_file_path"),
+            metadata_file_path=video_metadata.get("metadata_file_path"),
+            thumbnail_file_path=video_metadata.get("thumbnail_file_path"),
             transcript_text=transcript_text,
             subtitle_language=transcript_lang,
             auto_generated=auto_generated,
             transcript_source=transcript_source,
+            status="completed",
+            download_completed_at=datetime.now(UTC),
         )
-        await self.video_repo.async_update_video_download_status(download_id, "completed")
         await self.request_repo.async_update_request_status(req_id, RequestStatus.COMPLETED)
         await self.request_repo.async_update_request_lang_detected(req_id, detected_lang)
 

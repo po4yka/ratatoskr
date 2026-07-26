@@ -27,6 +27,7 @@ Sub-module layout
 - ``metrics_scraper``         — Firecrawl + scraper chain
 - ``metrics_llm``             — OpenRouter + LLM retry budget, per-model circuit breaker
 - ``metrics_auth``            — auth/session security decisions
+- ``metrics_cache``           — shared Redis JSON cache outcomes and latency
 - ``metrics_mcp``             — MCP exposure posture
 - ``metrics_circuit_breaker`` — service-level circuit breaker gauge
 - ``metrics_twitter``         — Twitter/X extraction + generic extraction pipeline
@@ -107,6 +108,26 @@ from app.observability.metrics_auth import (
 )
 
 # ---------------------------------------------------------------------------
+# Backups
+# ---------------------------------------------------------------------------
+from app.observability.metrics_backup import (
+    BACKUP_ITEMS,
+    BACKUP_RUNS_TOTAL,
+    record_backup_run,
+    set_backup_items,
+)
+
+# ---------------------------------------------------------------------------
+# Shared Redis cache
+# ---------------------------------------------------------------------------
+from app.observability.metrics_cache import (
+    REDIS_CACHE_OPERATION_LATENCY_SECONDS,
+    REDIS_CACHE_OPERATIONS_TOTAL,
+    cache_namespace_family,
+    record_redis_cache_operation,
+)
+
+# ---------------------------------------------------------------------------
 # Circuit breaker (service-level)
 # ---------------------------------------------------------------------------
 from app.observability.metrics_circuit_breaker import (
@@ -145,6 +166,19 @@ from app.observability.metrics_digest import (
 )
 
 # ---------------------------------------------------------------------------
+# HTTP RED
+# ---------------------------------------------------------------------------
+from app.observability.metrics_http_requests import (
+    HTTP_REQUEST_DURATION_SECONDS,
+    HTTP_REQUESTS_IN_FLIGHT,
+    HTTP_REQUESTS_TOTAL,
+    bucket_http_method,
+    bucket_status_class,
+    change_http_in_flight,
+    record_http_request,
+)
+
+# ---------------------------------------------------------------------------
 # LLM / OpenRouter
 # ---------------------------------------------------------------------------
 from app.observability.metrics_llm import (
@@ -159,6 +193,7 @@ from app.observability.metrics_llm import (
     LLM_REQUEST_TOTAL_LATENCY_SECONDS,
     LLM_TIMEOUTS_TOTAL,
     LLM_TOKENS_TOTAL,
+    OPENROUTER_CIRCUIT_BREAKER_LAST_UPDATE_TIMESTAMP_SECONDS,
     OPENROUTER_CIRCUIT_BREAKER_STATE,
     OPENROUTER_COST_USD,
     OPENROUTER_LATENCY,
@@ -224,6 +259,7 @@ from app.observability.metrics_scraper import (
     SCRAPER_CHAIN_ATTEMPTS_TOTAL,
     SCRAPER_CHAIN_DURATION_SECONDS,
     SCRAPER_CHAIN_FAILURES_TOTAL,
+    SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS,
     SCRAPER_CHAIN_SUCCESSES_TOTAL,
     SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS,
     record_firecrawl_request,
@@ -251,6 +287,16 @@ from app.observability.metrics_social import (
 )
 
 # ---------------------------------------------------------------------------
+# Public status checks
+# ---------------------------------------------------------------------------
+from app.observability.metrics_status import (
+    STATUS_CHECK_DURATION_SECONDS,
+    STATUS_CHECKS_TOTAL,
+    STATUS_COMPONENT_STATE,
+    record_status_check,
+)
+
+# ---------------------------------------------------------------------------
 # Streaming
 # ---------------------------------------------------------------------------
 from app.observability.metrics_streaming import (
@@ -268,6 +314,18 @@ from app.observability.metrics_stt import (
     STT_REQUESTS_TOTAL,
     record_stt_audio_seconds,
     record_stt_request,
+)
+
+# ---------------------------------------------------------------------------
+# Taskiq RED
+# ---------------------------------------------------------------------------
+from app.observability.metrics_taskiq import (
+    TASKIQ_EXECUTION_DURATION_SECONDS,
+    TASKIQ_EXECUTIONS_TOTAL,
+    TASKIQ_IN_FLIGHT,
+    bucket_taskiq_task,
+    change_taskiq_in_flight,
+    record_taskiq_execution,
 )
 
 # ---------------------------------------------------------------------------
@@ -343,7 +401,18 @@ def get_metrics() -> bytes:
     """
     if not PROMETHEUS_AVAILABLE or REGISTRY is None:
         return b"# Prometheus metrics not available (prometheus_client not installed)\n"
-    return generate_latest(REGISTRY)
+    from app.observability.metrics_http import (
+        build_multiprocess_registry,
+        configured_multiprocess_directory,
+    )
+
+    multiprocess_directory = configured_multiprocess_directory()
+    registry = (
+        build_multiprocess_registry(multiprocess_directory)
+        if multiprocess_directory is not None
+        else REGISTRY
+    )
+    return generate_latest(registry)
 
 
 def get_metrics_content_type() -> str:
@@ -389,6 +458,31 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_url_enqueue",
     "set_url_processing_queue_depth",
     "set_url_processor_in_flight",
+    # Backups
+    "BACKUP_ITEMS",
+    "BACKUP_RUNS_TOTAL",
+    "record_backup_run",
+    "set_backup_items",
+    # HTTP RED
+    "HTTP_REQUEST_DURATION_SECONDS",
+    "HTTP_REQUESTS_IN_FLIGHT",
+    "HTTP_REQUESTS_TOTAL",
+    "bucket_http_method",
+    "bucket_status_class",
+    "change_http_in_flight",
+    "record_http_request",
+    # Public status checks
+    "STATUS_CHECK_DURATION_SECONDS",
+    "STATUS_CHECKS_TOTAL",
+    "STATUS_COMPONENT_STATE",
+    "record_status_check",
+    # Taskiq RED
+    "TASKIQ_EXECUTION_DURATION_SECONDS",
+    "TASKIQ_EXECUTIONS_TOTAL",
+    "TASKIQ_IN_FLIGHT",
+    "bucket_taskiq_task",
+    "change_taskiq_in_flight",
+    "record_taskiq_execution",
     # Scraper chain
     "FIRECRAWL_LATENCY",
     "FIRECRAWL_REQUESTS",
@@ -397,6 +491,7 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "SCRAPER_CHAIN_ATTEMPTS_TOTAL",
     "SCRAPER_CHAIN_DURATION_SECONDS",
     "SCRAPER_CHAIN_FAILURES_TOTAL",
+    "SCRAPER_CHAIN_LAST_RESULT_TIMESTAMP_SECONDS",
     "SCRAPER_CHAIN_SUCCESSES_TOTAL",
     "SCRAPER_CHAIN_TOTAL_LATENCY_SECONDS",
     "record_firecrawl_request",
@@ -419,6 +514,7 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "LLM_REQUEST_TOTAL_LATENCY_SECONDS",
     "LLM_TIMEOUTS_TOTAL",
     "LLM_TOKENS_TOTAL",
+    "OPENROUTER_CIRCUIT_BREAKER_LAST_UPDATE_TIMESTAMP_SECONDS",
     "OPENROUTER_CIRCUIT_BREAKER_STATE",
     "OPENROUTER_COST_USD",
     "OPENROUTER_LATENCY",
@@ -441,6 +537,11 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "TOKEN_FAMILY_DECISIONS_TOTAL",
     "record_rate_limit_hit",
     "record_token_family_decision",
+    # Shared Redis cache
+    "REDIS_CACHE_OPERATIONS_TOTAL",
+    "REDIS_CACHE_OPERATION_LATENCY_SECONDS",
+    "cache_namespace_family",
+    "record_redis_cache_operation",
     # MCP
     "MCP_UNSCOPED_ENABLED",
     "set_mcp_unscoped_enabled",

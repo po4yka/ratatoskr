@@ -259,6 +259,49 @@ async def test_rss_feed_repository_items_and_delivery_targets(database: Database
 
 
 @pytest.mark.asyncio
+async def test_rss_feed_repository_active_feeds_limit_and_ordering(database: Database) -> None:
+    repo = RSSFeedRepositoryAdapter(database)
+    owner = await _create_user(database, telegram_user_id=8301, username="rss-limit")
+
+    base = dt.datetime(2026, 6, 1, tzinfo=UTC)
+    # Each feed gets an active subscription; distinct last_fetched_at values (one
+    # NULL) drive the least-recently-fetched-first ordering.
+    specs = [
+        ("https://example.com/a.xml", base + dt.timedelta(hours=4)),
+        ("https://example.com/b.xml", base + dt.timedelta(hours=1)),
+        ("https://example.com/never.xml", None),
+        ("https://example.com/c.xml", base + dt.timedelta(hours=3)),
+        ("https://example.com/d.xml", base + dt.timedelta(hours=2)),
+    ]
+    for url, fetched in specs:
+        feed = await repo.async_get_or_create_feed(url)
+        await repo.async_create_subscription(
+            user_id=owner.telegram_user_id, feed_id=int(feed["id"])
+        )
+        if fetched is not None:
+            await repo.async_update_feed(int(feed["id"]), last_fetched_at=fetched)
+
+    expected_order = [
+        "https://example.com/never.xml",  # never fetched -> nulls first
+        "https://example.com/b.xml",  # oldest fetch
+        "https://example.com/d.xml",
+        "https://example.com/c.xml",
+        "https://example.com/a.xml",  # most recent fetch
+    ]
+
+    # No limit -> every active feed, least-recently-fetched first.
+    unbounded = await repo.async_list_active_feeds()
+    assert [row["url"] for row in unbounded] == expected_order
+
+    # A positive limit caps the batch to the first N in that stable order.
+    limited = await repo.async_list_active_feeds(limit=3)
+    assert [row["url"] for row in limited] == expected_order[:3]
+
+    # A non-positive limit is treated as unbounded.
+    assert len(await repo.async_list_active_feeds(limit=0)) == len(specs)
+
+
+@pytest.mark.asyncio
 async def test_rss_feed_repository_fetch_status_updates(database: Database) -> None:
     repo = RSSFeedRepositoryAdapter(database)
     feed = await repo.async_get_or_create_feed("https://example.com/status.xml")

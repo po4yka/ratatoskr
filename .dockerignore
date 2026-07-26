@@ -63,6 +63,7 @@ logs/
 # Build artifacts
 build/
 dist/
+app/static/web/
 venv/
 .venv/
 env/

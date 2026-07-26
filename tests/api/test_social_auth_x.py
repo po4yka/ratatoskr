@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -13,7 +13,11 @@ from sqlalchemy import select
 from app.adapters.social.x import XOAuthClient, XOAuthConfig
 from app.api.routers.auth.tokens import create_access_token
 from app.application.ports.social_connections import SocialConnectionUpsert
-from app.application.services.social_auth_service import SocialAuthError, SocialAuthService
+from app.application.services.social_auth_service import (
+    SocialAuthConfig,
+    SocialAuthError,
+    SocialAuthService,
+)
 from app.config import clear_config_cache
 from app.db.models import SocialConnection
 from app.infrastructure.persistence.repositories.social_connection_repository import (
@@ -46,6 +50,34 @@ async def x_user(db: Any, user_factory: Any) -> Any:
     return await user_factory(telegram_user_id=_USER_ID, username="x-oauth-user")
 
 
+@pytest.fixture
+def x_social_auth_service(client: Any, db: Any) -> Generator[None]:
+    from app.api.routers import social_auth
+
+    scopes = ["tweet.read", "users.read", "offline.access"]
+    service = SocialAuthService(
+        repository=SocialConnectionRepositoryAdapter(db),
+        oauth_clients={
+            "x": XOAuthClient(
+                XOAuthConfig(
+                    client_id="x-client-id",
+                    redirect_uri=_REDIRECT_URI,
+                    scopes=scopes,
+                )
+            )
+        },
+        config=SocialAuthConfig(
+            provider_default_scopes={"x": scopes},
+            provider_redirect_uris={"x": _REDIRECT_URI},
+        ),
+    )
+    client.app.dependency_overrides[social_auth.get_social_auth_service] = lambda: service
+    try:
+        yield
+    finally:
+        client.app.dependency_overrides.pop(social_auth.get_social_auth_service, None)
+
+
 def _auth_headers() -> dict[str, str]:
     token = create_access_token(_USER_ID, client_id="test")
     return {"Authorization": f"Bearer {token}", "X-Correlation-ID": "cid-x-oauth-api-test"}
@@ -54,6 +86,7 @@ def _auth_headers() -> dict[str, str]:
 def test_x_connect_url_uses_configured_client_and_default_read_scopes(
     client: Any,
     x_user: Any,
+    x_social_auth_service: None,
 ) -> None:
     response = client.get(
         "/v1/social/x/connect-url",
@@ -76,6 +109,7 @@ async def test_x_callback_exchanges_code_and_stores_encrypted_tokens(
     client: Any,
     db: Any,
     x_user: Any,
+    x_social_auth_service: None,
     respx_mock: Any,
 ) -> None:
     token_route = respx_mock.post("https://api.x.com/2/oauth2/token").mock(

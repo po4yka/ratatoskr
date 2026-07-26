@@ -14,10 +14,10 @@ def main() -> None:
     raw = os.environ.get("ALLOWED_USER_IDS", "")
     allowed = {int(uid.strip()) for uid in raw.split(",") if uid.strip()}
 
-    # Test allowed user
-    print(f"User 123456789 allowed: {123456789 in allowed}")
+    assert 123456789 in allowed
+    assert 999999999 not in allowed
 
-    # Test blocked user
+    print(f"User 123456789 allowed: {123456789 in allowed}")
     print(f"User 999999999 allowed: {999999999 in allowed}")
 
     print(f"\nAllowed set: {allowed}")

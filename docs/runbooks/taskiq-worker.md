@@ -41,6 +41,18 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT 
 6. Drain/replay DLQ cautiously: inspect each row, fix the upstream cause, run `python -m app.cli.requeue_failed_task <id> --dry-run`, then replay one row and watch logs/metrics before replaying more.
 7. If the queue is overloaded by a noisy subsystem, disable that subsystem's scheduler/config flag temporarily, let critical queues drain, then re-enable after the upstream dependency is stable.
 
+## Capacity Tuning
+
+The production default is one Taskiq process with four concurrent async tasks. `TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS` is passed to both `--max-async-tasks` and `--max-prefetch`, so a worker cannot silently fall back to Taskiq's much larger defaults.
+
+`MAX_CONCURRENT_CALLS`, `DATABASE_POOL_SIZE`, and `DATABASE_MAX_OVERFLOW` are process-local. The worker-specific `TASKIQ_*_PER_PROCESS` overrides take precedence over the shared settings so the worker can be tuned independently. When increasing `TASKIQ_WORKER_PROCESSES`, budget aggregate capacity explicitly:
+
+- maximum Taskiq tasks = `TASKIQ_WORKER_PROCESSES * TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS`;
+- maximum external calls = `TASKIQ_WORKER_PROCESSES * MAX_CONCURRENT_CALLS`;
+- maximum PostgreSQL connections = `TASKIQ_WORKER_PROCESSES * (DATABASE_POOL_SIZE + DATABASE_MAX_OVERFLOW)`.
+
+Keep one process for the normal I/O-bound workload. Add processes only when CPU profiling justifies them and PostgreSQL/OpenRouter capacity has been raised accordingly. The worker prints both per-process and aggregate limits at startup. Dead-letter persistence reuses the process's shared database facade instead of opening a second pool.
+
 ## Escalation
 
 Page the maintainer if Redis data corruption is suspected, multiple unrelated tasks immediately dead-letter after restart, a non-idempotent task may have partially persisted data, or clearing locks/streams manually is required.

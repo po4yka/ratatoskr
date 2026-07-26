@@ -25,6 +25,15 @@ def test_build_claude() -> None:
     assert isinstance(client, ClaudeClient)
 
 
+def test_claude_compliance_key_fails_closed_without_browser_fallback() -> None:
+    cfg = AiBackupConfig(claude_compliance_key="compliance-secret")
+
+    with pytest.raises(RuntimeError, match="Compliance API backup is not implemented"):
+        build_client(AiBackupService.CLAUDE, object(), object(), cfg, last_backed_up_at=None)
+
+    assert "compliance-secret" not in repr(cfg)
+
+
 def test_unknown_service_raises() -> None:
     with pytest.raises(ValueError, match="Unknown AiBackupService"):
         build_client("nope", object(), object(), AiBackupConfig(), last_backed_up_at=None)  # type: ignore[arg-type]

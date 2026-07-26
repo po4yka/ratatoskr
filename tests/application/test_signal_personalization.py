@@ -25,6 +25,7 @@ class _FakeVectorStore:
 
     def upsert_notes(self, vectors, metadatas, ids=None):
         self.upserts.append({"vectors": vectors, "metadatas": metadatas, "ids": ids})
+        return True
 
 
 def test_signal_personalization_reports_unready_when_vector_store_is_down() -> None:

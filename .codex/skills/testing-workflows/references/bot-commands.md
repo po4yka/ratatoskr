@@ -15,7 +15,8 @@
 
 ## Command Processing
 
-- Commands are defined in `app/adapters/telegram/commands.py`
-- Routing logic in `app/adapters/telegram/message_router.py`
+- Commands are contributed in `app/di/telegram_commands.py`
+- Route dataclasses live in `app/adapters/telegram/command_dispatch/routes.py`
+- Routing entrypoint is `app/adapters/telegram/message_router.py`
 - State management in `app/adapters/telegram/task_manager.py`
-- Processor in `app/adapters/telegram/command_processor.py`
+- Dispatcher in `app/adapters/telegram/command_dispatcher.py`

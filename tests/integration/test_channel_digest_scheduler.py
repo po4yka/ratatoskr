@@ -102,6 +102,7 @@ def mock_service():
     svc = MagicMock()
     svc.get_users_with_subscriptions.return_value = []
     svc.async_get_users_with_subscriptions = AsyncMock(return_value=[])
+    svc.async_get_user_locale = AsyncMock(return_value="en")
     svc.generate_digest = AsyncMock(return_value=DigestResult(user_id=_TEST_UID))
     return svc
 
@@ -164,6 +165,9 @@ class TestSchedulerCronWiring:
         cfg.vector_reconcile.enabled = False
         cfg.retention.enabled = False
         cfg.x_bookmarks.enabled = False
+        cfg.git_backup.enabled = False
+        cfg.ai_backup.enabled = False
+        cfg.langgraph_checkpoint.enabled = False
         return cfg
 
     @pytest.mark.asyncio

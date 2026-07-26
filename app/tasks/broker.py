@@ -17,6 +17,7 @@ from app.tasks.middleware import (
     ChronicFailureMiddleware,
     OTelPropagationMiddleware,
     TaskiqDeadLetterMiddleware,
+    TaskiqExecutionMetricsMiddleware,
 )
 
 _simple_retry_middleware_cls: Any | None
@@ -42,6 +43,7 @@ _middlewares = [
         if _simple_retry_middleware_cls is not None
         else []
     ),
+    TaskiqExecutionMetricsMiddleware(),
     ChronicFailureMiddleware(),
     TaskiqDeadLetterMiddleware(),
     OTelPropagationMiddleware(),

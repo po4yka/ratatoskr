@@ -8,7 +8,6 @@ import re
 import sys
 from typing import Any
 
-
 PROTECTED_PATH_PATTERNS = (
     "data/ratatoskr.db",
     "requirements.txt",
@@ -55,7 +54,9 @@ def load_input() -> dict[str, Any]:
 
 def tool_input(data: dict[str, Any]) -> dict[str, Any]:
     value = data.get("tool_input") or data.get("tool_args") or {}
-    return value if isinstance(value, dict) else {}
+    if isinstance(value, dict):
+        return value
+    return {"patch": value} if isinstance(value, str) else {}
 
 
 def deny(reason: str) -> None:
@@ -77,17 +78,37 @@ def command_text(args: dict[str, Any]) -> str:
     return command if isinstance(command, str) else ""
 
 
-def edited_file_path(args: dict[str, Any]) -> str:
+def edited_file_paths(args: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
     for key in ("file_path", "path", "filename"):
         value = args.get(key)
         if isinstance(value, str) and value:
-            return value
-    return ""
+            paths.append(value)
+
+    edits = args.get("edits")
+    if isinstance(edits, list):
+        for edit in edits:
+            if isinstance(edit, dict):
+                paths.extend(edited_file_paths(edit))
+
+    for key in ("patch", "input"):
+        patch = args.get(key)
+        if isinstance(patch, str):
+            paths.extend(
+                match.group(1).strip()
+                for match in re.finditer(
+                    r"^\*\*\* (?:Add|Update|Delete) File: (.+)$",
+                    patch,
+                    re.MULTILINE,
+                )
+            )
+
+    return list(dict.fromkeys(paths))
 
 
 def edited_content(args: dict[str, Any]) -> str:
     parts = []
-    for key in ("new_string", "content", "patch"):
+    for key in ("new_string", "content", "patch", "input"):
         value = args.get(key)
         if isinstance(value, str):
             parts.append(value)
@@ -97,15 +118,18 @@ def edited_content(args: dict[str, Any]) -> str:
 def main() -> None:
     data = load_input()
     args = tool_input(data)
-    file_path = edited_file_path(args)
+    file_paths = edited_file_paths(args)
 
-    for pattern in PROTECTED_PATH_PATTERNS:
-        if pattern in file_path:
-            deny(f"Cannot modify protected file: {file_path} (matched {pattern}).")
-            return
+    for file_path in file_paths:
+        for pattern in PROTECTED_PATH_PATTERNS:
+            if pattern in file_path:
+                deny(f"Cannot modify protected file: {file_path} (matched {pattern}).")
+                return
 
-    if file_path.endswith(".py"):
-        content = edited_content(args)
+    content = edited_content(args)
+    for file_path in file_paths:
+        if not file_path.endswith(".py"):
+            continue
         for pattern, reason in DANGEROUS_PYTHON_PATTERNS:
             if pattern in content:
                 print(
@@ -122,7 +146,10 @@ def main() -> None:
 
         for pattern, reason in WARNING_SHELL_PATTERNS:
             if re.search(pattern, command, re.IGNORECASE):
-                print(f"WARNING: Potentially risky operation: {reason}. Command: {command}", file=sys.stderr)
+                print(
+                    f"WARNING: Potentially risky operation: {reason}. Command: {command}",
+                    file=sys.stderr,
+                )
 
 
 if __name__ == "__main__":

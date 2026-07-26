@@ -58,6 +58,7 @@ def _build_cfg(*, digest_enabled: bool = True):
         signal_ingestion=SimpleNamespace(enabled=False, any_enabled=False),
         openrouter=SimpleNamespace(api_key="k", model="m", fallback_models=[]),
         telegram=SimpleNamespace(api_id=1, api_hash="h", bot_token="t:tok", allowed_user_ids=[123]),
+        redis=SimpleNamespace(enabled=False),
     )
 
 
@@ -168,3 +169,45 @@ async def test_digest_body_stops_userbot_on_per_user_failure(monkeypatch):
 
     userbot.stop.assert_awaited_once()
     llm_client.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_digest_body_uses_distributed_lock_and_skips_when_held(monkeypatch):
+    # The scheduled digest must acquire the shared RedisDistributedLock -- which
+    # renews the TTL via a background heartbeat -- with the digest key and TTL, not
+    # a one-shot fixed-TTL lock. When another worker holds it, the run is skipped.
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    from app.tasks import digest as digest_mod
+
+    captured: dict[str, object] = {}
+
+    class _FakeLock:
+        def __init__(self, client, key, ttl):
+            captured["client"] = client
+            captured["key"] = key
+            captured["ttl"] = ttl
+
+        async def __aenter__(self):
+            return False  # another worker already holds the lock
+
+        async def __aexit__(self, *_args):
+            return False
+
+    sentinel_client = object()
+    create_userbot = MagicMock()
+    monkeypatch.setattr(digest_mod, "get_redis", AsyncMock(return_value=sentinel_client))
+    monkeypatch.setattr(digest_mod, "RedisDistributedLock", _FakeLock)
+    monkeypatch.setattr(digest_mod, "create_digest_userbot", create_userbot)
+
+    await digest_mod._channel_digest_body(_build_cfg())
+
+    assert captured["client"] is sentinel_client
+    assert captured["key"] == digest_mod._LOCK_KEY
+    assert captured["ttl"] == digest_mod._LOCK_TTL_SECONDS
+    assert digest_mod._LOCK_TTL_SECONDS == 600
+    # Lock held elsewhere -> the run short-circuits before any work.
+    create_userbot.assert_not_called()

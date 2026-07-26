@@ -76,7 +76,7 @@ async def test_tag_repository_crud_attach_detach_restore(database: Database) -> 
 
     tag = await repo.async_create_tag(16001, "Machine Learning", "machine-learning", "#fff")
     assert tag["summary_count"] == 0
-    updated = await repo.async_update_tag(tag["id"], "ML", "#000")
+    updated = await repo.async_update_tag(tag["id"], "ML", "#000", user_id=16001)
     assert updated["name"] == "ML"
     assert updated["normalized_name"] == "ml"
 
@@ -91,11 +91,11 @@ async def test_tag_repository_crud_attach_detach_restore(database: Database) -> 
     await repo.async_detach_tag(summary.id, tag["id"])
     assert await repo.async_get_tags_for_summary(summary.id) == []
 
-    await repo.async_delete_tag(tag["id"])
+    await repo.async_delete_tag(tag["id"], user_id=16001)
     assert await repo.async_get_tag_by_normalized_name(16001, "ml") is None
     deleted = await repo.async_get_tag_by_normalized_name(16001, "ml", include_deleted=True)
     assert deleted is not None
-    restored = await repo.async_restore_tag(tag["id"], name="Restored")
+    restored = await repo.async_restore_tag(tag["id"], user_id=16001, name="Restored")
     assert restored["name"] == "Restored"
     assert restored["is_deleted"] is False
 
@@ -112,7 +112,7 @@ async def test_tag_repository_tagged_summaries_and_merge(database: Database) -> 
     await repo.async_attach_tag(first_summary.id, target["id"], "manual")
     await repo.async_attach_tag(second_summary.id, source["id"], "manual")
     await repo.async_attach_tag(first_summary.id, duplicate_source["id"], "manual")
-    await repo.async_merge_tags([source["id"], duplicate_source["id"]], target["id"])
+    await repo.async_merge_tags([source["id"], duplicate_source["id"]], target["id"], user_id=16001)
 
     tags = await repo.async_get_user_tags(16001)
     target_row = next(row for row in tags if row["id"] == target["id"])

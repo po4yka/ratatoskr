@@ -105,6 +105,7 @@ def build_telegram_runtime(
     reply_json_func: Any,
     db_write_queue: DbWriteQueue | None = None,
     audit_task_registry: set[Any] | None = None,
+    checkpointer: Any | None = None,
 ) -> TelegramRuntime:
     """Build the full Telegram runtime graph from shared DI modules."""
     telegram_repositories = _build_telegram_repositories(db)
@@ -137,6 +138,7 @@ def build_telegram_runtime(
         search=search,
         repositories=telegram_repositories,
         db_write_queue=db_write_queue,
+        checkpointer=checkpointer,
     )
     application_services = build_application_services(
         db,
@@ -171,6 +173,7 @@ def build_telegram_runtime(
         forward_processor=processing.forward_processor,
         attachment_processor=processing.attachment_processor,
         message_handler=interface.message_handler,
+        summary_repository=telegram_repositories.summary_repository,
         durable_transcription_queue=interface.durable_transcription_queue,
         adaptive_timeout_service=interface.adaptive_timeout_service,
         verbosity_resolver=verbosity_resolver,
@@ -233,10 +236,12 @@ def build_summary_cli_runtime(
             aggregation_agent=MultiSourceAggregationAgent(
                 aggregation_session_repo=_agg_session_repo_cli,
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             ),
             aggregation_session_repo=_agg_session_repo_cli,
             relationship_agent=RelationshipAnalysisAgent(
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             )
             if core.llm_client is not None
             else None,
@@ -317,6 +322,7 @@ def _build_processing_stack(
     search: Any,
     repositories: TelegramRepositories,
     db_write_queue: DbWriteQueue | None,
+    checkpointer: Any | None = None,
 ) -> _TelegramProcessingStack:
     related_reads_service = _build_related_reads_service(cfg=cfg, db=db, search=search)
     url_processor = build_url_processor(
@@ -337,6 +343,7 @@ def _build_processing_stack(
         related_reads_service=related_reads_service,
         vector_store=search.vector_store,
         embedding_service=search.embedding_service,
+        checkpointer=checkpointer,
     )
     forward_processor = ForwardProcessor(
         cfg=cfg,
@@ -426,10 +433,12 @@ def _build_telegram_interface_stack(
             aggregation_agent=MultiSourceAggregationAgent(
                 aggregation_session_repo=_agg_session_repo,
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             ),
             aggregation_session_repo=_agg_session_repo,
             relationship_agent=RelationshipAnalysisAgent(
                 llm_client=core.llm_client,
+                llm_repo=build_llm_repository(core.db),
             )
             if core.llm_client is not None
             else None,
@@ -647,8 +656,9 @@ def _create_adaptive_timeout_service(
     cfg: AppConfig,
     db: Database,
 ) -> AdaptiveTimeoutService | None:
-    if cfg.adaptive_timeout is None:
-        return None
+    # cfg.adaptive_timeout is a non-Optional AdaptiveTimeoutConfig (default_factory
+    # on Settings), so it is never None; the service is built unconditionally and
+    # only a construction failure yields None.
     try:
         service = AdaptiveTimeoutService(
             config=cfg.adaptive_timeout,
