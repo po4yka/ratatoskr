@@ -77,8 +77,8 @@ def test_deployment_docs_match_current_firecrawl_compose_shape() -> None:
 def test_generated_requirement_comments_use_current_project_name() -> None:
     requirements = _read("requirements-all.txt")
 
-    assert "via bite-size-reader" not in requirements
-    assert "#   bite-size-reader" not in requirements
+    assert "# via ratatoskr" in requirements
+    assert "#   ratatoskr" in requirements
 
 
 def test_sole_graph_runtime_is_installed_by_plain_uv_sync() -> None:

@@ -21,6 +21,7 @@ from app.api.models.responses.status import (
 )
 from app.api.services.status_service import (
     PublicStatusService,
+    _StatusSignal,
     clear_status_cache,
     get_public_status_service,
 )
@@ -293,6 +294,141 @@ def test_extraction_status_uses_fresh_runtime_chain_results(
     )
 
     assert signal.level is expected
+
+
+def test_persisted_ai_status_uses_fresh_terminal_llm_call() -> None:
+    now = datetime.now(UTC)
+
+    successful = PublicStatusService._persisted_ai_status_from_rows(
+        [SimpleNamespace(status="ok", updated_at=now - timedelta(minutes=1))],
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+    failed = PublicStatusService._persisted_ai_status_from_rows(
+        [SimpleNamespace(status="error", updated_at=now - timedelta(minutes=1))],
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+    stale = PublicStatusService._persisted_ai_status_from_rows(
+        [SimpleNamespace(status="ok", updated_at=now - timedelta(hours=25))],
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+
+    assert successful.level is PublicStatusLevel.OPERATIONAL
+    assert failed.level is PublicStatusLevel.DEGRADED
+    assert stale.level is PublicStatusLevel.UNKNOWN
+
+
+def test_persisted_extraction_status_ignores_unrelated_request_failures() -> None:
+    now = datetime.now(UTC)
+    rows = [
+        SimpleNamespace(
+            status="error",
+            updated_at=now - timedelta(seconds=30),
+            error_context_json={"pipeline": "summary_validation"},
+        ),
+        SimpleNamespace(
+            status="ok",
+            updated_at=now - timedelta(minutes=1),
+            error_context_json=None,
+        ),
+    ]
+
+    signal = PublicStatusService._persisted_extraction_status_from_rows(
+        rows,
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+
+    assert signal.level is PublicStatusLevel.OPERATIONAL
+
+
+def test_persisted_extraction_status_reports_extraction_failure() -> None:
+    now = datetime.now(UTC)
+    signal = PublicStatusService._persisted_extraction_status_from_rows(
+        [
+            SimpleNamespace(
+                status="error",
+                updated_at=now - timedelta(minutes=1),
+                error_context_json={"pipeline": "url_extraction"},
+            )
+        ],
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+
+    assert signal.level is PublicStatusLevel.DEGRADED
+    assert signal.message == "Latest extraction run failed"
+
+
+@pytest.mark.asyncio
+async def test_empty_runtime_signals_fall_back_to_persisted_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = _probes()
+    probes.pop("extraction")
+    probes.pop("ai_summarization")
+    service = PublicStatusService(
+        deployment=DeploymentConfig(
+            STATUS_BOT_METRICS_URL="http://bot:9101/metrics",
+            STATUS_WORKER_METRICS_URL="http://worker:9102/metrics",
+        ),
+        component_probes=probes,
+        cache_enabled=False,
+    )
+
+    async def _fetch(_url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
+        return PublicStatusLevel.OPERATIONAL, b""
+
+    async def _successful_ai(*, max_age: timedelta) -> _StatusSignal:
+        assert max_age == timedelta(hours=24)
+        return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Recent AI request succeeded")
+
+    async def _successful_extraction(*, max_age: timedelta) -> _StatusSignal:
+        assert max_age == timedelta(hours=24)
+        return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Recent extraction succeeded")
+
+    monkeypatch.setattr(service, "_fetch_metrics", _fetch)
+    monkeypatch.setattr(service, "_persisted_ai_status", _successful_ai)
+    monkeypatch.setattr(service, "_persisted_extraction_status", _successful_extraction)
+
+    components = _components(await service.get_status())
+
+    assert components["ai_summarization"].status is PublicStatusLevel.OPERATIONAL
+    assert components["extraction"].status is PublicStatusLevel.OPERATIONAL
+
+
+@pytest.mark.asyncio
+async def test_unreachable_runtime_does_not_use_persisted_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = _probes()
+    probes.pop("extraction")
+    probes.pop("ai_summarization")
+    service = PublicStatusService(
+        deployment=DeploymentConfig(
+            STATUS_BOT_METRICS_URL="http://bot:9101/metrics",
+            STATUS_WORKER_METRICS_URL="http://worker:9102/metrics",
+        ),
+        component_probes=probes,
+        cache_enabled=False,
+    )
+
+    async def _fetch(_url: str | None) -> tuple[PublicStatusLevel, bytes | None]:
+        return PublicStatusLevel.OUTAGE, None
+
+    async def _unexpected_fallback(*, max_age: timedelta) -> _StatusSignal:
+        pytest.fail(f"fallback must not run for an unreachable process: {max_age}")
+
+    monkeypatch.setattr(service, "_fetch_metrics", _fetch)
+    monkeypatch.setattr(service, "_persisted_ai_status", _unexpected_fallback)
+    monkeypatch.setattr(service, "_persisted_extraction_status", _unexpected_fallback)
+
+    components = _components(await service.get_status())
+
+    assert components["ai_summarization"].status is PublicStatusLevel.UNKNOWN
+    assert components["extraction"].status is PublicStatusLevel.UNKNOWN
 
 
 @pytest.mark.asyncio

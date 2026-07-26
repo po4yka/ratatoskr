@@ -4,9 +4,6 @@ Ratatoskr upgrades are application, configuration, and Alembic migrations. No
 release class is assumed to be schema-free: read the release notes and inspect
 pending migrations for every upgrade.
 
-For the historical `bite-size-reader` rename, first read
-[Migrate from bite-size-reader](migrate-from-bite-size-reader.md).
-
 ## Before the maintenance window
 
 1. Record the currently deployed Git revision or image digest.

@@ -6,12 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-### Breaking — Project renamed to Ratatoskr
-
-The project has been renamed from `bite-size-reader` to `ratatoskr`. The rename touches Docker image/container names, the MCP protocol surface (`bsr://` URIs and `X-BSR-*` headers), the CLI package/config directory, legacy web storage keys and refresh cookies, `bsr_*` Prometheus metric names, and Loki/Promtail labels. The Karakeep integration is retired in the same release.
-
-**For the full breaking-change inventory and the operator checklist, see [docs/guides/migrate-from-bite-size-reader.md](docs/guides/migrate-from-bite-size-reader.md).** The migration page is the canonical source — historical-record discipline keeps this entry short so the breaking-change list does not drift from the operational guide.
-
 ### Breaking — Telegram runtime migrated to Telethon
 
 Ratatoskr now uses Telethon for both the BotFather-token bot adapter and the channel-digest userbot session. `pyrotgfork`/Pyrogram and `pytgcrypto` are no longer runtime dependencies. Existing digest userbot sessions must be recreated with `/init_session` or `python -m app.cli.init_userbot_session`; the migration flow keeps the previous `.session` file untouched until a new Telethon session authenticates successfully, then stores the old file as `<DIGEST_SESSION_NAME>.legacy.bak.session`.
@@ -131,5 +125,5 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 **Maintainers:** When cutting a release, move unreleased changes to a new version section with:
 - Version number and release date: `## [1.0.0] - 2026-02-09`
-- GitHub compare link at bottom: `[1.0.0]: https://github.com/po4yka/bite-size-reader/compare/v0.9.0...v1.0.0`
+- GitHub compare link at bottom: `[1.0.0]: https://github.com/po4yka/ratatoskr/compare/v0.9.0...v1.0.0`
 - Contributor acknowledgments
