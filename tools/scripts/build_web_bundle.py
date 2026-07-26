@@ -17,13 +17,20 @@ REVISION_FILE = ROOT / "ops/docker/ratatoskr-web.commit"
 DEFAULT_OUTPUT = ROOT / "ops/docker/ratatoskr-web.bundle.tar.gz"
 
 
-def _run(command: list[str], *, cwd: Path, capture: bool = False) -> str:
+def _run(
+    command: list[str],
+    *,
+    cwd: Path,
+    capture: bool = False,
+    env: dict[str, str] | None = None,
+) -> str:
     result = subprocess.run(
         command,
         cwd=cwd,
         check=True,
         text=True,
         capture_output=capture,
+        env=env,
     )
     return result.stdout.strip() if capture else ""
 
@@ -92,6 +99,16 @@ def main() -> int:
         raise RuntimeError(f"Frontend repository does not exist: {web_repo}")
 
     with tempfile.TemporaryDirectory(prefix="ratatoskr-web-bundle-") as temp_dir:
+        npm_env: dict[str, str] | None = None
+        if os.getenv("NODE_AUTH_TOKEN"):
+            npmrc = Path(temp_dir) / "npmrc"
+            npmrc.write_text(
+                "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n",
+                encoding="utf-8",
+            )
+            npmrc.chmod(0o600)
+            npm_env = {**os.environ, "NPM_CONFIG_USERCONFIG": str(npmrc)}
+
         build_repo = Path(temp_dir) / "ratatoskr-web"
         _run(
             [
@@ -118,7 +135,7 @@ def main() -> int:
             ["npm", "run", "test"],
             ["npm", "run", "build"],
         ):
-            _run(command, cwd=build_repo)
+            _run(command, cwd=build_repo, env=npm_env)
 
         dist = build_repo / "dist"
         if not (dist / "index.html").is_file():
