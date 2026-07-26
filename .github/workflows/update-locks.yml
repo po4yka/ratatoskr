@@ -154,7 +154,7 @@ jobs:
 
             - Updated `uv.lock` with `uv lock`.
             - Updated requirements.txt, requirements-dev.txt, and requirements-all.txt using `uv export`.
-          branch: chore/update-locks
+          branch: chore/update-locks/${{ github.ref_name }}
           delete-branch: true
           labels: dependencies, automated pr
           add-paths: |
@@ -176,7 +176,7 @@ jobs:
 
             - Updated `uv.lock` with `uv lock`.
             - Updated requirements.txt, requirements-dev.txt, and requirements-all.txt using `uv export`.
-          branch: chore/update-locks
+          branch: chore/update-locks/${{ github.ref_name }}
           delete-branch: true
           labels: dependencies, automated pr
           add-paths: |
