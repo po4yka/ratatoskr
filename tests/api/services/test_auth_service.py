@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select
 
+from app.api.dependencies.database import get_user_repository
 from app.api.exceptions import AuthorizationError, ResourceNotFoundError
 from app.api.services.auth_service import AuthService
 from app.core.time_utils import UTC
@@ -27,6 +28,42 @@ async def test_require_owner_allows_owner_and_rejects_non_owner(db, user_factory
 
     with pytest.raises(AuthorizationError):
         await AuthService.require_owner({"user_id": regular.telegram_user_id})  # type: ignore[typeddict-item]
+
+
+@pytest.mark.asyncio
+async def test_passive_user_metadata_upsert_preserves_owner_role(db, user_factory) -> None:
+    owner = await user_factory(
+        username="owner-before-message",
+        telegram_user_id=1011,
+        is_owner=True,
+    )
+
+    await get_user_repository().async_upsert_user(
+        telegram_user_id=owner.telegram_user_id,
+        username="owner-after-message",
+    )
+
+    owner_record = await AuthService.require_owner({"user_id": owner.telegram_user_id})  # type: ignore[typeddict-item]
+    assert owner_record["username"] == "owner-after-message"
+    assert owner_record["is_owner"] is True
+
+
+@pytest.mark.asyncio
+async def test_explicit_user_metadata_upsert_can_revoke_owner_role(db, user_factory) -> None:
+    owner = await user_factory(
+        username="owner-before-revoke",
+        telegram_user_id=1012,
+        is_owner=True,
+    )
+
+    await get_user_repository().async_upsert_user(
+        telegram_user_id=owner.telegram_user_id,
+        username="owner-after-revoke",
+        is_owner=False,
+    )
+
+    with pytest.raises(AuthorizationError):
+        await AuthService.require_owner({"user_id": owner.telegram_user_id})  # type: ignore[typeddict-item]
 
 
 @pytest.mark.asyncio

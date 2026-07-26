@@ -147,20 +147,32 @@ class UserRepositoryAdapter:
             await self._update_user(telegram_user_id, **filtered)
 
     async def async_upsert_user(
-        self, *, telegram_user_id: int, username: str | None = None, is_owner: bool = False
+        self,
+        *,
+        telegram_user_id: int,
+        username: str | None = None,
+        is_owner: bool | None = None,
     ) -> None:
-        """Upsert a user record."""
+        """Upsert user metadata without implicitly changing authorization state."""
+        insert_is_owner = False if is_owner is None else is_owner
+        update_fields: dict[str, Any] = {
+            "username": username,
+            "updated_at": _utcnow(),
+        }
+        if is_owner is not None:
+            update_fields["is_owner"] = is_owner
+
         async with self._database.transaction() as session:
             stmt = (
                 insert(User)
                 .values(
                     telegram_user_id=telegram_user_id,
                     username=username,
-                    is_owner=is_owner,
+                    is_owner=insert_is_owner,
                 )
                 .on_conflict_do_update(
                     index_elements=[User.telegram_user_id],
-                    set_={"username": username, "is_owner": is_owner, "updated_at": _utcnow()},
+                    set_=update_fields,
                 )
             )
             await session.execute(stmt)

@@ -45,9 +45,9 @@ class UserRepositoryPort(Protocol):
         *,
         telegram_user_id: int,
         username: str | None = None,
-        is_owner: bool = False,
+        is_owner: bool | None = None,
     ) -> None:
-        """Upsert a user row."""
+        """Upsert user metadata, changing the owner role only when explicitly supplied."""
 
     async def async_upsert_chat(
         self,
