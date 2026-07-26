@@ -115,9 +115,7 @@ async def test_driver_streams_stages_sections_and_captures_final_state() -> None
             {
                 "event": "on_chain_end",
                 "name": "LangGraph",
-                "data": {
-                    "output": {"request_id": _RID, "summary_id": 99, "summary": {"x": 1}}
-                },
+                "data": {"output": {"request_id": _RID, "summary_id": 99, "summary": {"x": 1}}},
             },
         ]
     )

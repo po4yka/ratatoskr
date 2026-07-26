@@ -160,7 +160,7 @@ async def _validate_apple_id_token(
             _APPLE_JWKS_CLIENT.get_signing_key_from_jwt,
             token,
         )
-        claims = jwt.decode(
+        claims: dict[str, Any] = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],

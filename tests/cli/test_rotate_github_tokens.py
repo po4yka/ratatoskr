@@ -174,9 +174,7 @@ async def test_reencrypts_all_browser_sessions_with_old_key(
 
     db = MagicMock()
     session = AsyncMock()
-    session.execute = AsyncMock(
-        side_effect=[_scalar_result([]), _scalar_result([first, second])]
-    )
+    session.execute = AsyncMock(side_effect=[_scalar_result([]), _scalar_result([first, second])])
     session.get = AsyncMock(side_effect=[first, second])
     db.session.return_value.__aenter__ = AsyncMock(return_value=session)
     db.session.return_value.__aexit__ = AsyncMock(return_value=False)

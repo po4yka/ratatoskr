@@ -74,7 +74,8 @@ def is_streaming_ciphertext(data: bytes) -> bool:
 
 def encrypt_backup(zip_bytes: bytes, key: SecretStr) -> bytes:
     """Fernet-encrypt *zip_bytes* and return opaque ciphertext bytes."""
-    return _fernet(key).encrypt(zip_bytes)
+    encrypted: bytes = _fernet(key).encrypt(zip_bytes)
+    return encrypted
 
 
 def decrypt_backup(data: bytes, key: SecretStr) -> bytes:
@@ -85,7 +86,8 @@ def decrypt_backup(data: bytes, key: SecretStr) -> bytes:
     from cryptography.fernet import InvalidToken
 
     try:
-        return _fernet(key).decrypt(data)
+        decrypted: bytes = _fernet(key).decrypt(data)
+        return decrypted
     except InvalidToken as exc:
         raise InvalidBackupCiphertextError(
             "Could not decrypt backup archive (wrong key or corrupted ciphertext)"

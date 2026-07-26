@@ -1027,7 +1027,8 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
                 collection_name=self._collection_name,
                 exact=True,
             )
-            return result.count
+            count: int = result.count
+            return count
         except Exception:
             return 0
 

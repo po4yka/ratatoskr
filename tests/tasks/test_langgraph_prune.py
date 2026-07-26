@@ -45,10 +45,7 @@ def _stub_psycopg(
     cursor = MagicMock()
     cursor.rowcount = rowcount
     cursor.fetchall = AsyncMock(
-        return_value=[
-            {"thread_id": tid} if dict_rows else (tid,)
-            for tid in thread_ids
-        ]
+        return_value=[{"thread_id": tid} if dict_rows else (tid,) for tid in thread_ids]
     )
     conn = MagicMock()
     conn.execute = AsyncMock(return_value=cursor)
