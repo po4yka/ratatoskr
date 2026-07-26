@@ -699,6 +699,14 @@ class TelegramBot:
     def __setattr__(self, name: str, value: Any) -> None:
         """Re-bind reply callbacks on the response formatter when they are replaced."""
         super().__setattr__(name, value)
+        message_handler = getattr(self, "message_handler", None)
+        if name == "url_processor" and message_handler is not None:
+            message_handler.url_processor = value
+            message_handler.command_processor.url_processor = value
+            # URLHandler owns the single-link command path. Keep it in sync
+            # with the public processor seam used by runtime replacements and
+            # legacy tests.
+            message_handler.url_handler.url_processor = value
         if name in {"_safe_reply", "_reply_json"} and hasattr(self, "response_formatter"):
             self.response_formatter.set_reply_callbacks(
                 safe_reply_func=getattr(self, "_safe_reply", None),

@@ -50,6 +50,7 @@ def _install_stubs(monkeypatch, *, guard_database=True, setup_error=None):
     schema_conn = MagicMock()
     cursor = MagicMock()
     cursor.fetchall = AsyncMock(return_value=[])
+    cursor.fetchone = AsyncMock(return_value={"acquired": True})
     schema_conn.execute = AsyncMock(return_value=cursor)
     tx = MagicMock()
     tx.__aenter__ = AsyncMock(return_value=None)
@@ -137,7 +138,11 @@ async def test_start_builds_isolated_pool_and_runs_setup(monkeypatch):
     assert "row_factory" in kw["kwargs"]
     assert callable(kw["configure"])
     m.pool.open.assert_awaited_once()
-    schema_sql = m.schema_conn.execute.await_args_list[0].args[0]
+    schema_sql = next(
+        call.args[0]
+        for call in m.schema_conn.execute.await_args_list
+        if call.args[0].startswith("CREATE SCHEMA")
+    )
     assert "CREATE SCHEMA IF NOT EXISTS" in schema_sql and "langgraph" in schema_sql
     assert m.serde_class.call_args.kwargs["pickle_fallback"] is False  # strict
     assert m.saver_class.call_count == 2
@@ -153,7 +158,7 @@ async def test_start_serializes_setup_with_advisory_lock(monkeypatch):
     await CheckpointerRuntime(cfg=_cfg(pmax=1)).start()
 
     statements = [call.args[0] for call in m.schema_conn.execute.await_args_list]
-    lock_index = statements.index("SELECT pg_advisory_lock(%s)")
+    lock_index = statements.index("SELECT pg_try_advisory_lock(%s) AS acquired")
     unlock_index = statements.index("SELECT pg_advisory_unlock(%s)")
     assert lock_index < unlock_index
     assert m.saver_class.call_args_list[0].args[0] is m.schema_conn

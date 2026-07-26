@@ -25,9 +25,23 @@ import pytest
 
 
 def _evict_app_tasks() -> None:
+    # A neighbouring unit module mutates the real ``taskiq`` module in place
+    # while installing its lightweight broker stub. Reload the real package so
+    # this lifecycle contract always exercises InMemoryBroker's decorators.
+    for mod in list(sys.modules):
+        if mod == "taskiq" or mod.startswith(("taskiq.", "taskiq_redis")):
+            sys.modules.pop(mod, None)
     for mod in list(sys.modules):
         if mod.startswith("app.tasks"):
             sys.modules.pop(mod, None)
+    # Evicting sys.modules alone leaves child modules cached as attributes on
+    # the package. xdist can otherwise reuse a version decorated by a test's
+    # lightweight Taskiq stub instead of importing the real memory broker.
+    import app.tasks as tasks_package
+
+    for name in tuple(vars(tasks_package)):
+        if name != "__path__" and name.startswith(("broker", "url_processing")):
+            delattr(tasks_package, name)
 
 
 def test_credential_refresh_hooks_registered_on_broker(monkeypatch):

@@ -5,7 +5,6 @@ from typing import Any
 
 import yaml
 
-
 WORKFLOW_PATH = Path(__file__).parents[2] / ".github" / "workflows" / "ci.yml"
 NON_GATING_JOBS = {"pr-summary", "status-check"}
 

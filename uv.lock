@@ -554,8 +554,7 @@ version = "1.2.4"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
     { name = "apify-fingerprint-datapoints" },
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "click", version = "8.3.3", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "click" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/78/6f/8975af88d203efd70cc69477ebac702babef38201d04621c9583f2508f25/browserforge-1.2.4.tar.gz", hash = "sha256:05686473793769856ebd3528c69071f5be0e511260993e8b2ba839863711a0c4", size = 36700, upload-time = "2026-02-03T02:52:09.721Z" }
 wheels = [
@@ -720,50 +719,14 @@ wheels = [
 
 [[package]]
 name = "click"
-version = "8.1.8"
+version = "8.4.2"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-resolution-markers = [
-    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version < '3.14' and sys_platform == 'darwin'",
-]
 dependencies = [
-    { name = "colorama", marker = "(sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
 ]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/b9/2e/0090cbf739cee7d23781ad4b89a9894a41538e4fcf4c31dcdd705b78eb8b/click-8.1.8.tar.gz", hash = "sha256:ed53c9d8990d83c2a27deae68e4ee337473f6330c040a31d4225c9574d16096a", size = 226593, upload-time = "2024-12-21T18:38:44.339Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz", hash = "sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6", size = 338000, upload-time = "2026-06-24T17:45:15.148Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/7e/d4/7ebdbd03970677812aac39c869717059dbb71a4cfc033ca6e5221787892c/click-8.1.8-py3-none-any.whl", hash = "sha256:63c132bbbed01578a06712a2d1f497bb62d9c1c0d329b7903a866228027263b2", size = 98188, upload-time = "2024-12-21T18:38:41.666Z" },
-]
-
-[[package]]
-name = "click"
-version = "8.3.3"
-source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-resolution-markers = [
-    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version < '3.14' and sys_platform == 'darwin'",
-]
-dependencies = [
-    { name = "colorama", marker = "(sys_platform == 'win32' and extra == 'extra-9-ratatoskr-mcp') or (sys_platform == 'win32' and extra == 'extra-9-ratatoskr-otel') or (sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-db') or (sys_platform == 'win32' and extra != 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/bb/63/f9e1ea081ce35720d8b92acde70daaedace594dc93b693c869e0d5910718/click-8.3.3.tar.gz", hash = "sha256:398329ad4837b2ff7cbe1dd166a4c0f8900c3ca3a218de04466f38f6497f18a2", size = 328061, upload-time = "2026-04-22T15:11:27.506Z" }
-wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl", hash = "sha256:a2bf429bb3033c89fa4936ffb35d5cb471e3719e1f3c8a7c3fff0b8314305613", size = 110502, upload-time = "2026-04-22T15:11:25.044Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/fb/e2/79c688af8b210d232694e31e59da9f6ec747bae31c3f5946e4e9b98860d5/click-8.4.2-py3-none-any.whl", hash = "sha256:e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76", size = 119243, upload-time = "2026-06-24T17:45:13.73Z" },
 ]
 
 [[package]]
@@ -771,7 +734,7 @@ name = "click-option-group"
 version = "0.5.9"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" } },
+    { name = "click" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ef/ff/d291d66595b30b83d1cb9e314b2c9be7cfc7327d4a0d40a15da2416ea97b/click_option_group-0.5.9.tar.gz", hash = "sha256:f94ed2bc4cf69052e0f29592bd1e771a1789bd7bfc482dd0bc482134aff95823", size = 22222, upload-time = "2025-10-09T09:38:01.474Z" }
 wheels = [
@@ -990,6 +953,41 @@ wheels = [
 ]
 
 [[package]]
+name = "cuda-bindings"
+version = "13.3.1"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+dependencies = [
+    { name = "cuda-pathfinder", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'darwin' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'darwin' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'darwin' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'darwin' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'darwin' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform == 'emscripten' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'emscripten' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'emscripten' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'emscripten' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'emscripten' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform == 'win32' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'win32' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform == 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+]
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/cc/6e/2394f8163360f8391f8f1b7e72d300a82724edb81a7b7084c799fbd4c91f/cuda_bindings-13.3.1-cp313-cp313-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:9efb21c1ee64981e184b9e0ba5eb3179e5ba3d4b51665a6cb52b8ef3d01a7cbf", size = 5920504, upload-time = "2026-05-29T23:11:56.883Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/34/c2/ef9b6a63f7dc432712a462c816662e662e00d38caa9b861c8c2588195d03/cuda_bindings-13.3.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2732904099e0a4d4db774a5fc6d91ee95fae065b4d2ecabb4968c5fe2406c9d7", size = 6476660, upload-time = "2026-05-29T23:11:59.188Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/0c/2f/6a0dd496550c6fafbf6aeb1bf40242eeabb2fd138a43892aabb4be8224c2/cuda_bindings-13.3.1-cp313-cp313-win_amd64.whl", hash = "sha256:18c8c167c8907b8f02531ca810534315c458dabef31f7965095619bf647b9202", size = 5830027, upload-time = "2026-05-29T23:12:01.205Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/b1/81/bff68ce829999c1e4209c761bbf903b1c06ec570416ddb25020864ad5907/cuda_bindings-13.3.1-cp314-cp314-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1ab2f74ed65bfef4163ba07a8db16f1085e0729291db12a2423aff84ee8278b8", size = 6013639, upload-time = "2026-05-29T23:12:03.509Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/d4/e0/c8a1f0c8f9ffdea4f5fe6dbab89b326cef4d85caf489dad39e209da89416/cuda_bindings-13.3.1-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:efd4c814d311ec08c981f6dded1dbe7d4b371067ee4f6c14cccec4bde9590f80", size = 6534419, upload-time = "2026-05-29T23:12:05.633Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/48/45/2734be44dbc80ac082ec23a86b41c8294992dcb90033645ed1bc50aafe4c/cuda_bindings-13.3.1-cp314-cp314-win_amd64.whl", hash = "sha256:8de12ef60bf40756852cb62bbb40460609269f6ece522903d1cc93d73a3ececb", size = 5961055, upload-time = "2026-05-29T23:12:07.971Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/52/b8/83b1f563925b290f2d11a01a77a84013ba56052fe3653a5bef3ccfbb43d6/cuda_bindings-13.3.1-cp314-cp314t-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c3c772dfff49681541d59630c90f858e173ac926b9c593a2b7123f2a1043cc76", size = 5809771, upload-time = "2026-05-29T23:12:10.422Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/12/20/e79b4bfe98f075195afb6343d41c498f9dbd2d161d7021d4d28bceb83581/cuda_bindings-13.3.1-cp314-cp314t-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:36febb7c1079d68a981dbbd8d5a67235b399802b82075c9388624719607e52b9", size = 6358584, upload-time = "2026-05-29T23:12:12.767Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/27/2a/b59bcac016ab9985d6b48a5d05b0d698461a159ca03ee11c4abd54da2ac4/cuda_bindings-13.3.1-cp314-cp314t-win_amd64.whl", hash = "sha256:61120b5e4f4a63f67efd7e7396914cb9ef871bb1f0021e990fb70277be240a4d", size = 6740329, upload-time = "2026-05-29T23:12:15.153Z" },
+]
+
+[[package]]
+name = "cuda-pathfinder"
+version = "1.6.0"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/fc/b4/d088047afe39827556df21118cac9ffd20cc3f968c99a7681494d1eb333c/cuda_pathfinder-1.6.0-py3-none-any.whl", hash = "sha256:1503af579d8379c24bdd65528379bc57039b0455be9f5f9686cf8e473a1fce51", size = 54591, upload-time = "2026-07-21T15:03:56.224Z" },
+]
+
+[[package]]
+name = "cuda-toolkit"
+version = "13.3.1"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/61/a1/54c1e9498ba0df91ca15a46f41af6320cb9faed6ec2dbb30b6cbff8887c4/cuda_toolkit-13.3.1-py2.py3-none-any.whl", hash = "sha256:2ceda460a540323d52469bcfde48b48c1861f6482e4b5ea3cb5bdac00a1b11bd", size = 2656, upload-time = "2026-06-29T17:23:23.848Z" },
+]
+
+[[package]]
 name = "curl-cffi"
 version = "0.15.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
@@ -1110,8 +1108,7 @@ name = "ddgs"
 version = "9.14.4"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "click", version = "8.3.3", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "click" },
     { name = "fake-useragent" },
     { name = "httpx", extra = ["brotli", "http2", "socks"] },
     { name = "lxml" },
@@ -1905,8 +1902,7 @@ dependencies = [
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "tqdm" },
-    { name = "typer", version = "0.23.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "typer", version = "0.25.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "typer" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/89/ff/ec7ed2eb43bd7ce8bb2233d109cc235c3e807ffe5e469dc09db261fac05e/huggingface_hub-1.13.0.tar.gz", hash = "sha256:f6df2dac5abe82ce2fe05873d10d5ff47bc677d616a2f521f4ee26db9415d9d0", size = 781788, upload-time = "2026-04-30T11:57:33.858Z" }
@@ -2022,8 +2018,7 @@ name = "import-linter"
 version = "2.13"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "click", version = "8.3.3", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "click" },
     { name = "grimp" },
     { name = "rich" },
     { name = "typing-extensions" },
@@ -2069,8 +2064,7 @@ dependencies = [
     { name = "requests" },
     { name = "rich" },
     { name = "tenacity" },
-    { name = "typer", version = "0.23.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "typer", version = "0.25.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "typer" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/9f/24/f6b28e83b3194c6223ed7c6eed5724687f6ecd378ec2ff24044f0cbf1f09/instructor-1.15.4.tar.gz", hash = "sha256:ea2280c3678d0f6891c4d826104f95624b680e69877113a6345b1d7c9027ba0f", size = 70049678, upload-time = "2026-06-28T07:36:43.458Z" }
 wheels = [
@@ -2738,8 +2732,7 @@ name = "magika"
 version = "0.6.3"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "click", version = "8.3.3", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "click" },
     { name = "numpy" },
     { name = "onnxruntime" },
     { name = "python-dotenv" },
@@ -3333,7 +3326,7 @@ name = "nltk"
 version = "3.10.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" } },
+    { name = "click" },
     { name = "defusedxml" },
     { name = "joblib" },
     { name = "regex" },
@@ -3401,6 +3394,83 @@ wheels = [
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ed/ad/483d9e262f4b831000062e5d8a45e342166ec8aaa1195264982bca267e62/numpy-2.4.4-cp314-cp314t-win32.whl", hash = "sha256:dddbbd259598d7240b18c9d87c56a9d2fb3b02fe266f49a7c101532e78c1d871", size = 6155500, upload-time = "2026-03-29T13:21:28.205Z" },
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/c7/03/2fc4e14c7bd4ff2964b74ba90ecb8552540b6315f201df70f137faa5c589/numpy-2.4.4-cp314-cp314t-win_amd64.whl", hash = "sha256:a7164afb23be6e37ad90b2f10426149fd75aee07ca55653d2aa41e66c4ef697e", size = 12637755, upload-time = "2026-03-29T13:21:31.107Z" },
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/58/78/548fb8e07b1a341746bfbecb32f2c268470f45fa028aacdbd10d9bc73aab/numpy-2.4.4-cp314-cp314t-win_arm64.whl", hash = "sha256:ba203255017337d39f89bdd58417f03c4426f12beed0440cfd933cb15f8669c7", size = 10566643, upload-time = "2026-03-29T13:21:34.339Z" },
+]
+
+[[package]]
+name = "nvidia-cublas"
+version = "13.6.0.2"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+dependencies = [
+    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+]
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/4f/22/7c08d8e93f6a2e4879ac83c12696aecaf17a0fc2c9e8d204caceaa3b8426/nvidia_cublas-13.6.0.2-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:946f6a252b1cc72d8de912c75975fd6d8ba44f67d4e5044fe764ddb909f4a688", size = 518599300, upload-time = "2026-06-29T16:54:56.859Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/fd/6c/173c7a3db77a6592210f73f194f0f8ed5e51b6ec61cfed7b1eee06ac5fd3/nvidia_cublas-13.6.0.2-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:b82c80c886cea6da6e149a5c3bdba274f12b7e4ec4b00a050b916b0446fb4153", size = 410473152, upload-time = "2026-06-29T16:55:54.297Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/08/8f/890a96ea1ff615100296977cce23296052dcb8c114d4e451201ec39df9bf/nvidia_cublas-13.6.0.2-py3-none-win_amd64.whl", hash = "sha256:3b5bcd6bfb6f65010ebf195851bcb9b2aa34b9fe08479432002991c1fe84b67d", size = 394568225, upload-time = "2026-06-29T17:15:46.911Z" },
+]
+
+[[package]]
+name = "nvidia-cuda-cccl"
+version = "13.3.3.4.1"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/96/bd/572971ffc14bd36676c821fc15d991b08fe6179cb09368250147475f954d/nvidia_cuda_cccl-13.3.3.4.1-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:067d19b4b3c9d0f2ebec9f29a311b2863db96bf98e058bbc331597d51ce818cf", size = 3454030, upload-time = "2026-06-29T16:41:49.092Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/f8/ab/049726d90147865a3ea53bae6cb7c35b98bf1fdf96cdb967101329625f83/nvidia_cuda_cccl-13.3.3.4.1-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:cc0adc188d570b09f4d606c7dc05a42aa3d8aa082e0d60f7bbfc5b6435f627c6", size = 3454034, upload-time = "2026-06-29T16:42:07.435Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/24/d3/b1afcd9c40ceca72022579215fcaf5318cd747fd896cb928d4a1de924ff8/nvidia_cuda_cccl-13.3.3.4.1-py3-none-win_amd64.whl", hash = "sha256:d7c92cc03047031fa7af30866636d35ce4af409c28fc7dd8f69cb17053741399", size = 3454014, upload-time = "2026-06-29T17:09:09.012Z" },
+]
+
+[[package]]
+name = "nvidia-cuda-nvrtc"
+version = "13.3.33"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/8b/2c/86916c8a34dcdb0c3ddd1c0e30545041bd781184e437b9cb76fcda70560b/nvidia_cuda_nvrtc-13.3.33-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:82530788b8c6164a54d3fd9ae8bcca8893d397c4aeb998861982a03bbe41e204", size = 51110910, upload-time = "2026-05-26T16:38:16.116Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/e7/b6/60a3641111d39ebfcfcd8b8bfd0290d7623c4b8b5f90952c2d84776f8ca4/nvidia_cuda_nvrtc-13.3.33-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:7b05ecda494c6dabc44231a608b060a71008a730d9dfda932cc508e6d29159e0", size = 49260054, upload-time = "2026-05-26T16:37:51.177Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a1/42/edce72f2c5a0f587168109c867f25f4a9a6cd7289ecf0d68ed2b1070f273/nvidia_cuda_nvrtc-13.3.33-py3-none-win_amd64.whl", hash = "sha256:7d2af818851c0c224d5f92221e9226e51ee23c236df4b51f9194563979c888be", size = 45319163, upload-time = "2026-05-26T17:02:49.217Z" },
+]
+
+[[package]]
+name = "nvidia-cudnn-cu13"
+version = "9.24.0.43"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+dependencies = [
+    { name = "nvidia-cublas", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+]
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ca/30/7c257e3d5cb4fecb147b93895c66e29c93f8e76d74b45bb418ff0587c4ec/nvidia_cudnn_cu13-9.24.0.43-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:a6812a554a1ff0413e9c52b84c26c050380649ab9615f9c16bded368ce9f421f", size = 650976863, upload-time = "2026-07-02T16:23:39.248Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5c/ba/791cffd048fe5b044e620df55267e3e95c0e6e07d50b41e377c03dfc910f/nvidia_cudnn_cu13-9.24.0.43-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:71f181cd810e90f9b6023b01186fe82d13d65f0ec098581ee201d39fad769e4b", size = 553099438, upload-time = "2026-07-02T16:27:42.58Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/31/23/1dd3aa15cc4ab62c8fc88f8049ef137bc44c17892f5577bc80d994941f77/nvidia_cudnn_cu13-9.24.0.43-py3-none-win_amd64.whl", hash = "sha256:67a7273b5cf062f9446fd76cf464351a1c0f66501e6cd78f6675c0d604d8ac87", size = 412314771, upload-time = "2026-07-02T16:31:07.973Z" },
+]
+
+[[package]]
+name = "nvidia-cusparselt-cu13"
+version = "0.9.1"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/6c/17/820aec6a5a3de1eff9e45739f0bc8f669be865b007fe9fa68dbc51321ed3/nvidia_cusparselt_cu13-0.9.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:49e54b7cecb049b039381d4cb8389afd2f18d83cdca285ba8231ee0ff4341dc1", size = 223702827, upload-time = "2026-04-29T18:36:59.207Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/c6/90/4a85f423459c4191c65d5ac2fbb2f3de43c86c75fb01795dfbb0779e8009/nvidia_cusparselt_cu13-0.9.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:514a84d71b4edb8609108253d3d9ea283542162a0861787f600b704ed663e58c", size = 171537569, upload-time = "2026-04-29T18:36:50.542Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a1/02/22ee8243eb74188a717e151ca6c6429daf4a4b64fdf389e82fa2c6c21183/nvidia_cusparselt_cu13-0.9.1-py3-none-win_amd64.whl", hash = "sha256:a7dd536f0fd2ea7c65395a6d63568bcd98c2522349112e1e61f8b1d19d559528", size = 157942751, upload-time = "2026-04-29T18:37:37.395Z" },
+]
+
+[[package]]
+name = "nvidia-nccl-cu13"
+version = "2.30.7"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/d1/21/a73174c6157101bdf1ffc22b517f76ff0082613989dd9bc8f43e8034caac/nvidia_nccl_cu13-2.30.7-py3-none-manylinux_2_18_aarch64.whl", hash = "sha256:ca786ffa5a647c75d4d1f5cc72a6c4f537947e2ba8823d7c8aaf768e7a7b9f77", size = 215983881, upload-time = "2026-06-09T03:23:15.633Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/3f/34/c500f90c7ae641b8e0f98965b36b8a7ac79cc8b296e8d251fe3eb592ee54/nvidia_nccl_cu13-2.30.7-py3-none-manylinux_2_18_x86_64.whl", hash = "sha256:cefa7fdb9710efd0f39c5f1be1d61ff6fc9a996c451265bd7fbdcf9455ed4b50", size = 215965170, upload-time = "2026-06-09T03:23:39.73Z" },
+]
+
+[[package]]
+name = "nvidia-nvshmem-cu13"
+version = "3.7.2"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+dependencies = [
+    { name = "nvidia-cuda-cccl", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'darwin' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'darwin' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'darwin' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'darwin' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'darwin' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform == 'emscripten' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'emscripten' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'emscripten' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'emscripten' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'emscripten' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform == 'win32' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'win32' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'win32' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform == 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform == 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform == 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+]
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/81/11/1767ef120299972822a43aceffbc81ac813aad2089d817e36e4e12aa4c9c/nvidia_nvshmem_cu13-3.7.2-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:0e748308b9e0a8a8d81859353f3e6c98fbe85a85f652a915a2ba60149a0bd124", size = 135174619, upload-time = "2026-07-17T19:24:15.404Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/4f/4a/037dfbbafc96ad1828ef62326f27970cae2c0eb271cf5b8e6922f32a7427/nvidia_nvshmem_cu13-3.7.2-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b9a4f843c62b5dded8ad33fd6d220e007dcd39f06cee549292f5ba14ce4c235c", size = 135397797, upload-time = "2026-07-17T19:25:26.4Z" },
 ]
 
 [[package]]
@@ -4642,11 +4712,11 @@ sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/44/66/2
 
 [[package]]
 name = "pyasn1"
-version = "0.6.3"
+version = "0.6.4"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5c/5f/6583902b6f79b399c9c40674ac384fd9cd77805f9e6205075f828ef11fb2/pyasn1-0.6.3.tar.gz", hash = "sha256:697a8ecd6d98891189184ca1fa05d1bb00e2f84b5977c481452050549c8a72cf", size = 148685, upload-time = "2026-03-17T01:06:53.382Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a4/9a/23310166d960def5897e91fe20e5b724601b02a22e84ba1f94232c0b7f67/pyasn1-0.6.4.tar.gz", hash = "sha256:9c447d8431c947fe4c8febc4ed9e760bc29011a5b01e5c74b67025bd9fb8ce81", size = 151262, upload-time = "2026-07-09T01:12:33.988Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5d/a0/7d793dce3fa811fe047d6ae2431c672364b462850c6235ae306c0efd025f/pyasn1-0.6.3-py3-none-any.whl", hash = "sha256:a80184d120f0864a52a073acc6fc642847d0be408e7c7252f31390c0f4eadcde", size = 83997, upload-time = "2026-03-17T01:06:52.036Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/9a/3b/6163796d69c3977d1e4287bea4a6979161cbbdd170ebb430511e8e1999ce/pyasn1-0.6.4-py3-none-any.whl", hash = "sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b", size = 84410, upload-time = "2026-07-09T01:12:32.92Z" },
 ]
 
 [[package]]
@@ -5166,8 +5236,8 @@ ml = [
     { name = "qdrant-client" },
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
-    { name = "torch", version = "2.13.0", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "torch", version = "2.13.0", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
     { name = "transformers" },
 ]
 monitoring = [
@@ -5776,7 +5846,7 @@ source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/rata
 dependencies = [
     { name = "authlib" },
     { name = "certifi" },
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" } },
+    { name = "click" },
     { name = "dparse" },
     { name = "filelock" },
     { name = "httpx" },
@@ -5790,7 +5860,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "tomlkit" },
     { name = "truststore" },
-    { name = "typer", version = "0.23.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" } },
+    { name = "typer" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/c2/7b/8e1d580c5178f0736b806b7199827e61e2a2569eec5b49ec75da6273bbdf/safety-3.8.1.tar.gz", hash = "sha256:e646123b976bbb6707cfaacae8c926e2f886b744a60e0f410e8610a3a4eaf7be", size = 412947, upload-time = "2026-05-29T15:09:33.355Z" }
@@ -5987,12 +6057,12 @@ wheels = [
 
 [[package]]
 name = "semgrep"
-version = "1.169.0"
+version = "1.171.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
     { name = "attrs" },
     { name = "boltons" },
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" } },
+    { name = "click" },
     { name = "click-option-group" },
     { name = "colorama" },
     { name = "exceptiongroup" },
@@ -6018,15 +6088,15 @@ dependencies = [
     { name = "urllib3" },
     { name = "wcmatch" },
 ]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/8d/0c/3f0bd4d2fac226c2c3f9acc4d8782806e0d593a14e22b2f16e12156a9a94/semgrep-1.169.0.tar.gz", hash = "sha256:46932f875b8dff4cb731cd4c908443a0f2f585edbb0a5baa92c4fc033246fdea", size = 499932, upload-time = "2026-07-10T16:49:23.956Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ce/eb/9a41faa086fc40bc0e7839e24252b96cbc4d5c826d13c11525c0b3d6503e/semgrep-1.171.0.tar.gz", hash = "sha256:0e1da44aa535fe5773ba20ec546c8f3c727af052a2244d2e957aa1d360023ada", size = 499332, upload-time = "2026-07-22T23:06:28.268Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/24/53/c64cc34ce1c9a41d69638cf0ea41108fe0ae517cf38aaafb8e50efe88f6a/semgrep-1.169.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-macosx_10_14_x86_64.whl", hash = "sha256:b8c776de8de61aeb59a5cd479276225a2325bf1195e4a4af1f9530e76bb5f827", size = 45013963, upload-time = "2026-07-10T16:50:39.515Z" },
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a8/be/723abdc06372373ebb40ffc922d97570c2e421f39173147e45805d438bf0/semgrep-1.169.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-macosx_11_0_arm64.whl", hash = "sha256:41c366ab1ecd04b5e55c8e2b67e0dfa50a744d79eb09be962353a8b98242b878", size = 49033137, upload-time = "2026-07-10T16:50:42.63Z" },
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/f5/b6/03559145888b9b99a411df90e54f321d9d012ef58dc541afd2e0a3916b45/semgrep-1.169.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-manylinux_2_34_aarch64.whl", hash = "sha256:ffc783021040bba9784289bcedf8719d7f5c52c73eee3b8bd1814e21422837ac", size = 70906982, upload-time = "2026-07-10T16:50:45.681Z" },
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/3c/c0/e76a28610aa5a0c2e3fb98cc3438009343013642e1d03563e5d4d68ae5c9/semgrep-1.169.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-manylinux_2_34_x86_64.whl", hash = "sha256:48d899e7e31803fcbf69e69a9876a7a1ade2eddb4ef85828b6576eaa0b4940da", size = 68766411, upload-time = "2026-07-10T16:50:49.386Z" },
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5c/4c/b1a95e8eb5e57ba1f8a7a8e9febf2fcc80f61a118f431ad1302cc449b644/semgrep-1.169.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-musllinux_1_2_aarch64.whl", hash = "sha256:ad0c8cb56f3e9ce5ac81795fc3395fd05d9a65726a2492d4ec64190ec5816911", size = 77653156, upload-time = "2026-07-10T16:50:52.769Z" },
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/1f/f2/12b3fbf368da3eb7ed5ce760bf002aea5b6404f9e42155d3904dd02708e6/semgrep-1.169.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-musllinux_1_2_x86_64.whl", hash = "sha256:c5ffdf474a40302281af43cc2f2eefb31de5f46a6dbffcc2f4099638ed3cbfa2", size = 75167351, upload-time = "2026-07-10T16:50:56.469Z" },
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/d8/6a/519c3b25dd3cb92659e9b97aa8070fe6d76093ebbb62030612f8e7d99622/semgrep-1.169.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-win_amd64.whl", hash = "sha256:54336981cab97b95a5f06694b2f10a36f0af86738bdc9a2050fa1865d2e44d06", size = 56940387, upload-time = "2026-07-10T16:51:00.493Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/12/cf/1e776b9eda23cba01129d106048b74752c617f8ad80153f3c06e252f3b44/semgrep-1.171.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-macosx_10_14_x86_64.whl", hash = "sha256:861090849a903e28d033ee9586155e9f9cb0a4645303df002379f56634c8e1bc", size = 45303065, upload-time = "2026-07-22T23:08:45.189Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/df/42/474d38efe0e677a0b8d1454bf02ff3b912906afb2efb549c2a033927960f/semgrep-1.171.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-macosx_11_0_arm64.whl", hash = "sha256:8683ecbceef6476402a23e1b7b39c6a98c55f11e0389974d160de48a0491e37c", size = 49305173, upload-time = "2026-07-22T23:08:48.986Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ab/99/0e99dff88b293c3841f90c1476f417ea9acf01291a1ad420396da223cf40/semgrep-1.171.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-manylinux_2_34_aarch64.whl", hash = "sha256:a3b08d3581ae4d3fc815fc34452e6d9cac91ca94885a4fce27ec96f92edc0dae", size = 71690152, upload-time = "2026-07-22T23:08:54.321Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/79/b9/269d27f2c7d03efaa28ec928d900ee650e581b8b05e7308dbe5d68ba78a7/semgrep-1.171.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-manylinux_2_34_x86_64.whl", hash = "sha256:3f12149e20e512289e517ae4e07e8db6bc3d251c9bdb59c3a59c0c385322893b", size = 69540171, upload-time = "2026-07-22T23:09:00.436Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/d2/81/0ca340087e88b378ef9fd06ec4c4bda0ef1069a6988bd159ca0c2bb03d9a/semgrep-1.171.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-musllinux_1_2_aarch64.whl", hash = "sha256:81ecc781bb964a22f92d7053e74b9afe534d7bdafcd3a0e44195872e560e355c", size = 78468596, upload-time = "2026-07-22T23:09:07.403Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a6/67/1c9a8eee4a0ee0702f4e295910ce93c0eae715c62fe505ea1b8c9f2cbc77/semgrep-1.171.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-musllinux_1_2_x86_64.whl", hash = "sha256:c5aa8db65daabfd9644dcb09b4651ab914f5beaa547ec2cb15c02a056a7bc0be", size = 75965791, upload-time = "2026-07-22T23:09:13.797Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ed/f5/4d12d31a8ba42dd0ee30ea7ddf1201095761c15b3c0528e0e1dbb414d143/semgrep-1.171.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-win_amd64.whl", hash = "sha256:69884518e14c4dae62ad1f7d78c14dd4dbd5c44c920962c772f59fba3f69046d", size = 57241691, upload-time = "2026-07-22T23:09:19.173Z" },
 ]
 
 [[package]]
@@ -6038,8 +6108,8 @@ dependencies = [
     { name = "numpy" },
     { name = "scikit-learn" },
     { name = "scipy" },
-    { name = "torch", version = "2.13.0", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "torch", version = "2.13.0", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
     { name = "tqdm" },
     { name = "transformers" },
     { name = "typing-extensions" },
@@ -6072,11 +6142,11 @@ loguru = [
 
 [[package]]
 name = "setuptools"
-version = "81.0.0"
+version = "83.0.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/0d/1c/73e719955c59b8e424d015ab450f51c0af856ae46ea2da83eba51cc88de1/setuptools-81.0.0.tar.gz", hash = "sha256:487b53915f52501f0a79ccfd0c02c165ffe06631443a886740b91af4b7a5845a", size = 1198299, upload-time = "2026-02-06T21:10:39.601Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/34/26/f5d29e25ffdb535afef2d35cdb55b325298f96debd670da4c325e08d70f4/setuptools-83.0.0.tar.gz", hash = "sha256:025bccbbf0fa05b6192bc64ae1e7b16e001fd6d6d4d5de03c97b1c1ade523bef", size = 1154254, upload-time = "2026-07-04T15:31:22.699Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/e1/e3/c164c88b2e5ce7b24d667b9bd83589cf4f3520d97cad01534cd3c4f55fdb/setuptools-81.0.0-py3-none-any.whl", hash = "sha256:fdd925d5c5d9f62e4b74b30d6dd7828ce236fd6ed998a08d81de62ce5a6310d6", size = 1062021, upload-time = "2026-02-06T21:10:37.175Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl", hash = "sha256:29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3", size = 1008090, upload-time = "2026-07-04T15:31:20.885Z" },
 ]
 
 [[package]]
@@ -6172,11 +6242,11 @@ wheels = [
 
 [[package]]
 name = "soupsieve"
-version = "2.8.3"
+version = "2.8.4"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/7b/ae/2d9c981590ed9999a0d91755b47fc74f74de286b0f5cee14c9269041e6c4/soupsieve-2.8.3.tar.gz", hash = "sha256:3267f1eeea4251fb42728b6dfb746edc9acaffc4a45b27e19450b676586e8349", size = 118627, upload-time = "2026-01-20T04:27:02.457Z" }
+sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/47/2c/0a5f6f8ee0d5589e48c7640213ed5175d52cf540a06725b628cc1a45d6ce/soupsieve-2.8.4.tar.gz", hash = "sha256:e121fd02e975c695e4e9e8774a5ee35d74714b59307868dcc5319ad2d9e3328e", size = 121110, upload-time = "2026-05-24T13:55:57.154Z" }
 wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/46/2c/1462b1d0a634697ae9e55b3cecdcb64788e8b7d63f54d923fcd0bb140aed/soupsieve-2.8.3-py3-none-any.whl", hash = "sha256:ed64f2ba4eebeab06cc4962affce381647455978ffc1e36bb79a545b91f45a95", size = 37016, upload-time = "2026-01-20T04:27:01.012Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5e/f5/0c41cb68dcae6b7de4fac4188a3a9589e21fb31df21ea3a2e888db95e6c9/soupsieve-2.8.4-py3-none-any.whl", hash = "sha256:e7e6b0769c8f51ed59acab6e994b00621096cfb1c640a7509295987388fbaf65", size = 37304, upload-time = "2026-05-24T13:55:55.406Z" },
 ]
 
 [[package]]
@@ -6200,8 +6270,7 @@ dependencies = [
     { name = "srsly" },
     { name = "thinc" },
     { name = "tqdm" },
-    { name = "typer", version = "0.23.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "typer", version = "0.25.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "typer" },
     { name = "wasabi" },
     { name = "weasel" },
 ]
@@ -6634,17 +6703,30 @@ name = "torch"
 version = "2.13.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
     "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "(python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
     "python_full_version < '3.14' and sys_platform == 'darwin'",
 ]
 dependencies = [
-    { name = "filelock", marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "fsspec", marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "jinja2", marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "networkx", marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "setuptools", marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "sympy", marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "typing-extensions", marker = "sys_platform == 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "cuda-bindings", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "cuda-toolkit", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "filelock", marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "fsspec", marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "jinja2", marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "networkx", marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "nvidia-cudnn-cu13", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "nvidia-cusparselt-cu13", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "nvidia-nccl-cu13", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "nvidia-nvshmem-cu13", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "setuptools", marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "sympy", marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "triton", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'x86_64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "typing-extensions", marker = "platform_machine != 'aarch64' or sys_platform != 'linux' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
 ]
 wheels = [
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/0d/fa/c1c10b7aff4a9a3e8956d4f0a5f468fa6db7abc3208805719076772b4833/torch-2.13.0-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:33449899ce5496c1b84b4853179d94fd102028ae1407314d9fb956bb79e70d09", size = 111213743, upload-time = "2026-07-08T16:03:28.579Z" },
@@ -6668,21 +6750,15 @@ source = { registry = "https://download.pytorch.org/whl/cpu" }
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
     "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
 ]
 dependencies = [
-    { name = "filelock", marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "fsspec", marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "jinja2", marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "networkx", marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "setuptools", marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "sympy", marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "typing-extensions", marker = "sys_platform != 'darwin' or (extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "filelock", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "fsspec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "jinja2", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "networkx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "setuptools", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "sympy", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "typing-extensions", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (platform_machine != 'aarch64' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-mcp' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'extra-9-ratatoskr-otel' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-db' and extra == 'group-9-ratatoskr-ci-security-tools') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (sys_platform != 'linux' and extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp313-cp313-linux_s390x.whl", hash = "sha256:966d020354f465672dc7dd10d3a5c6cd17d7eb48620aa1d265b48a1f78f06898", upload-time = "2026-07-08T19:29:30Z" },
@@ -6743,12 +6819,24 @@ dependencies = [
     { name = "safetensors" },
     { name = "tokenizers" },
     { name = "tqdm" },
-    { name = "typer", version = "0.23.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "typer", version = "0.25.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "typer" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/5a/fb/2a2ba88f325e68a921d8b69ff63b477830b2e73ade9a3c8c8cab2f06d741/transformers-5.14.1.tar.gz", hash = "sha256:60d196c27781eacf8637e2b533f517582907ad6f9ae142046d6b69431a5b2173", size = 9295927, upload-time = "2026-07-16T09:41:57.773Z" }
 wheels = [
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/6f/67/8d85ca2323233ae3c0365a659c4e52ee1f587b440e4bc577e7d8e4416d0f/transformers-5.14.1-py3-none-any.whl", hash = "sha256:9db974c4079ede2d1a3ea7ca5a240df33f2cc26fc2b36ba64c5f2a4f43b6e725", size = 11625234, upload-time = "2026-07-16T09:41:54.143Z" },
+]
+
+[[package]]
+name = "triton"
+version = "3.7.1"
+source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
+wheels = [
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/00/42/c5089d4d9327fcd1e862c599cc2927f39418f84dd11a84cb2ccff9d4787a/triton-3.7.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:cdbfc09d9ec58bc5e68321525653220de7515c199e7a8097a97c85e62b52cd0a", size = 184694629, upload-time = "2026-06-17T20:03:53.444Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/07/42/2c3ac59253ae8892b6f307875263dd23dc875cdf732d3aea40d6d41fb7cb/triton-3.7.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:58c0e131da05134a2a4788ccbcc0c1105cf0f54c8e98f19e34cd465396dc15eb", size = 197729241, upload-time = "2026-06-17T19:53:27.801Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/40/71/e01aa7ad573883ed9456f130226babdec70b005e098c4d6226a6238e761b/triton-3.7.1-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:fe4ea396a06171f1f1f58cbd39c70b09294398f7dd7c620939bab54ad6f934fa", size = 184705764, upload-time = "2026-06-17T20:03:59.064Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a4/09/5683146fda6a2b569deb78ccfd8fbfea8bfe55f726b081c0a6bb18dd6f28/triton-3.7.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2020153b08280415ec0da6607834e79166442147e78e144df06b508c75b186d2", size = 197729537, upload-time = "2026-06-17T19:53:35.516Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/e9/f8/448220c3092019f9fdfab39ec47985968181d67da34b44f6a7f6280a5cbb/triton-3.7.1-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c58e4c61f0c73b5dba3b5d19b4a7093c32f90dc18b2a7f121a7c16ccd31107b7", size = 184814760, upload-time = "2026-06-17T20:04:04.984Z" },
+    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/f0/ac/229b7d4589d2e5937310e72c6d46e89599d16a4a12b479ffa1499fee8eb8/triton-3.7.1-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:10ba85fa2cca4a2fbdeb36bf1cb082f2c252bda55bf9fccd74f65ec5bc647e68", size = 197824404, upload-time = "2026-06-17T19:53:42.772Z" },
 ]
 
 [[package]]
@@ -6764,54 +6852,15 @@ wheels = [
 name = "typer"
 version = "0.23.1"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-resolution-markers = [
-    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version < '3.14' and sys_platform == 'darwin'",
-]
 dependencies = [
-    { name = "annotated-doc", marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "rich", marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "shellingham", marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
+    { name = "annotated-doc" },
+    { name = "click" },
+    { name = "rich" },
+    { name = "shellingham" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/fd/07/b822e1b307d40e263e8253d2384cf98c51aa2368cc7ba9a07e523a1d964b/typer-0.23.1.tar.gz", hash = "sha256:2070374e4d31c83e7b61362fd859aa683576432fd5b026b060ad6b4cd3b86134", size = 120047, upload-time = "2026-02-13T10:04:30.984Z" }
 wheels = [
     { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/d5/91/9b286ab899c008c2cb05e8be99814807e7fbbd33f0c0c960470826e5ac82/typer-0.23.1-py3-none-any.whl", hash = "sha256:3291ad0d3c701cbf522012faccfbb29352ff16ad262db2139e6b01f15781f14e", size = 56813, upload-time = "2026-02-13T10:04:32.008Z" },
-]
-
-[[package]]
-name = "typer"
-version = "0.25.1"
-source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
-resolution-markers = [
-    "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
-    "python_full_version < '3.14' and sys_platform == 'darwin'",
-]
-dependencies = [
-    { name = "annotated-doc", marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "click", version = "8.3.3", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "rich", marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-    { name = "shellingham", marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
-]
-sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/e4/51/9aed62104cea109b820bbd6c14245af756112017d309da813ef107d42e7e/typer-0.25.1.tar.gz", hash = "sha256:9616eb8853a09ffeabab1698952f33c6f29ffdbceb4eaeecf571880e8d7664cc", size = 122276, upload-time = "2026-04-30T19:32:16.964Z" }
-wheels = [
-    { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/3f/f9/2b3ff4e56e5fa7debfaf9eb135d0da96f3e9a1d5b27222223c7296336e5f/typer-0.25.1-py3-none-any.whl", hash = "sha256:75caa44ed46a03fb2dab8808753ffacdbfea88495e74c85a28c5eefcf5f39c89", size = 58409, upload-time = "2026-04-30T19:32:18.271Z" },
 ]
 
 [[package]]
@@ -6935,8 +6984,7 @@ name = "uvicorn"
 version = "0.51.0"
 source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }
 dependencies = [
-    { name = "click", version = "8.1.8", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "click", version = "8.3.3", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "click" },
     { name = "h11" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/a2/65/b7c6c443ccc58678c91e1e973bbe2a878591538655d6e1d47f24ba1c51f3/uvicorn-0.51.0.tar.gz", hash = "sha256:f6f4b69b657c312f516dd2d268ab9ae6f254b11e4bac504f37b2ab58b24dd0b0", size = 94412, upload-time = "2026-07-08T10:59:05.962Z" }
@@ -7097,8 +7145,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "smart-open" },
     { name = "srsly" },
-    { name = "typer", version = "0.23.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'group-9-ratatoskr-ci-security-tools'" },
-    { name = "typer", version = "0.25.1", source = { registry = "https://pkgs.safetycli.com/repository/po4yka/project/ratatoskr/pypi/simple/" }, marker = "extra == 'extra-9-ratatoskr-mcp' or extra == 'extra-9-ratatoskr-otel' or extra == 'group-9-ratatoskr-ci-db' or extra != 'group-9-ratatoskr-ci-security-tools' or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-ci-test') or (extra == 'group-9-ratatoskr-ci-security-tools' and extra == 'group-9-ratatoskr-dev')" },
+    { name = "typer" },
     { name = "wasabi" },
 ]
 sdist = { url = "https://pkgs.safetycli.com/package/po4yka/pypi/packages/ce/e5/e272bb9a045105a1fdf4b798d8086f5932a178f4d738f17a74f5c9e0ae9a/weasel-1.0.0.tar.gz", hash = "sha256:7b129b44c90cc543b760532974ca1e4eb30dad2aa2026f57bdce66354ae610fc", size = 38682, upload-time = "2026-03-20T08:10:25.266Z" }

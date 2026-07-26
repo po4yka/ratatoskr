@@ -34,7 +34,9 @@ class DatabaseBackupService:
 
     def _run_host_pg_dump(self, destination: Path) -> None:
         url = make_url(self._dsn)
-        command_dsn = url.set(password=None).render_as_string(hide_password=False)
+        command_dsn = url.set(drivername="postgresql", password=None).render_as_string(
+            hide_password=False
+        )
         env = os.environ.copy()
         if url.password:
             env["PGPASSWORD"] = url.password
@@ -42,7 +44,7 @@ class DatabaseBackupService:
             "pg_dump",
             "--format=custom",
             f"--file={destination}",
-            command_dsn,
+            f"--dbname={command_dsn}",
         ]
         subprocess.run(command, check=True, env=env)
 

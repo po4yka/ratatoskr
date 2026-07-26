@@ -14,6 +14,7 @@ through ``app.db.session.Database``. LangGraph / psycopg imports remain local to
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
@@ -93,19 +94,31 @@ class CheckpointerRuntime:
         self._pool = pool
 
         try:
-            # Create the dedicated schema before setup() (the per-connection
-            # search_path may point at a not-yet-existing schema; CREATE SCHEMA is
-            # schema-name explicit). `schema` is validated to [A-Za-z0-9_] at
-            # config time, so the interpolation is injection-safe.
+            # Serialize both schema creation and setup(). If a concurrent
+            # process creates the schema before waiting for this lock, its DDL
+            # transaction can block setup() while it waits on the same lock.
+            # `schema` is validated to [A-Za-z0-9_] at config time, so the
+            # interpolation is injection-safe.
             # ``AsyncPostgresSaver.setup()`` reads the current migration version
             # and then inserts subsequent versions. Serialize that sequence across
             # bot/API processes. Run setup on the lock-owning connection itself so
             # a pool configured with max_size=1 cannot deadlock waiting for a
             # second connection.
             async with pool.connection() as conn:
-                await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-                await conn.execute("SELECT pg_advisory_lock(%s)", (_SETUP_ADVISORY_LOCK_ID,))
+                # Do not block inside ``pg_advisory_lock()``. A blocked advisory
+                # lock query keeps a virtual transaction open; that can deadlock
+                # with the lock holder while it creates this schema. Retrying the
+                # non-blocking form leaves no transaction open between attempts.
+                while True:
+                    cursor = await conn.execute(
+                        "SELECT pg_try_advisory_lock(%s) AS acquired",
+                        (_SETUP_ADVISORY_LOCK_ID,),
+                    )
+                    if (await cursor.fetchone())["acquired"]:
+                        break
+                    await asyncio.sleep(0.1)
                 try:
+                    await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
                     # strict_msgpack -> no pickle fallback (no arbitrary-module
                     # deserialization). Production always forces it off.
                     allow_pickle = not cp_cfg.strict_msgpack

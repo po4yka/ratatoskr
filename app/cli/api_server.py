@@ -34,7 +34,9 @@ def run_api_server(
 ) -> None:
     """Prepare metrics once in the parent, then start Uvicorn workers."""
     source = os.environ if environ is None else environ
-    host = source.get("API_HOST", "0.0.0.0").strip()
+    # Container deployments must listen on all interfaces; operators can still
+    # override this with API_HOST for a local-only development server.
+    host = source.get("API_HOST", "0.0.0.0").strip()  # nosec B104
     if not host:
         raise ValueError("API_HOST must not be empty")
     port = _bounded_int(source, "API_PORT", 8000, minimum=1, maximum=65535)

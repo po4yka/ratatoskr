@@ -393,8 +393,8 @@ class RSSFeedRepositoryAdapter:
                     RSSItemDelivery.id.is_(None),
                 )
                 .order_by(
-                    RSSFeedItem.published_at.asc().nulls_first(),
-                    RSSFeedItem.created_at.asc(),
+                    RSSFeedItem.published_at.desc().nulls_last(),
+                    RSSFeedItem.created_at.desc(),
                     RSSFeedSubscription.created_at.asc(),
                 )
             )

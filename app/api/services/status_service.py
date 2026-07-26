@@ -26,7 +26,6 @@ from app.api.routers.health import (
     _check_database,
     _check_redis,
 )
-from app.config import load_config
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.db.models.ai_backup import (
@@ -928,23 +927,3 @@ class PublicStatusService:
         ):
             return PublicStatusLevel.DEGRADED
         return PublicStatusLevel.OPERATIONAL
-
-
-def get_public_status_service() -> PublicStatusService:
-    """Build the public status service from validated application configuration."""
-    try:
-        from app.di.api import get_current_api_runtime
-
-        runtime = get_current_api_runtime()
-    except RuntimeError:
-        runtime = None
-    config = runtime.cfg if runtime is not None else load_config(allow_stub_telegram=True)
-    return PublicStatusService(
-        deployment=config.deployment,
-        llm_provider=config.runtime.llm_provider,
-        database=runtime.db if runtime is not None else None,
-        git_backup_enabled=config.git_backup.enabled,
-        ai_backup_enabled=config.ai_backup.enabled,
-        chatgpt_backup_enabled=config.ai_backup.chatgpt_enabled,
-        claude_backup_enabled=config.ai_backup.claude_enabled,
-    )

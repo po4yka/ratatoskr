@@ -89,7 +89,8 @@ async def main() -> None:
         # the LLM calls happen here. Polling carries the change across the
         # container boundary and reaches live clients via the ConfigHolder
         # listeners that /setmodel already established.
-        owner_id = next(iter(cfg.telegram.allowed_user_ids), None)
+        telegram_config = getattr(cfg, "telegram", None)
+        owner_id = next(iter(getattr(telegram_config, "allowed_user_ids", ())), None)
         if owner_id is not None:
             from app.config.credential_reloader import start_credential_refresh_task
             from app.infrastructure.persistence.credential_store import CredentialStore

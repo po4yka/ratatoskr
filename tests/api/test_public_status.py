@@ -19,11 +19,11 @@ from app.api.models.responses.status import (
     PublicStatusResponse,
     PublicStatusSummary,
 )
+from app.api.routers.status import get_public_status_service
 from app.api.services.status_service import (
     PublicStatusService,
     _StatusSignal,
     clear_status_cache,
-    get_public_status_service,
 )
 from app.config.deployment import DeploymentConfig
 from app.core.time_utils import UTC

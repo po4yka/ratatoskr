@@ -27,7 +27,7 @@ certifi==2026.4.22
     #   httpx
 cfgv==3.5.0
     # via pre-commit
-click==8.3.3
+click==8.4.2
     # via import-linter
 colorama==0.4.6
     # via

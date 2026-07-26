@@ -15,6 +15,7 @@ import functools
 import threading
 import weakref
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from app.config import load_config
@@ -25,14 +26,19 @@ if TYPE_CHECKING:
 P = ParamSpec("P")
 R = TypeVar("R")
 
-_executor_lock = threading.Lock()
-_executor: ThreadPoolExecutor | None = None
-_executor_limit: int | None = None
 
-_gate_lock = threading.Lock()
-_loop_gates: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]] = (
-    weakref.WeakKeyDictionary()
-)
+@dataclass
+class _Argon2OffloadState:
+    executor_lock: threading.Lock = field(default_factory=threading.Lock)
+    executor: ThreadPoolExecutor | None = None
+    executor_limit: int | None = None
+    gate_lock: threading.Lock = field(default_factory=threading.Lock)
+    loop_gates: weakref.WeakKeyDictionary[
+        asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]
+    ] = field(default_factory=weakref.WeakKeyDictionary)
+
+
+_state = _Argon2OffloadState()
 
 
 def _get_max_concurrency() -> int:
@@ -41,30 +47,29 @@ def _get_max_concurrency() -> int:
 
 def _get_executor(limit: int) -> ThreadPoolExecutor:
     """Return the process-wide executor, rebuilding it after a config reload."""
-    global _executor, _executor_limit
-    with _executor_lock:
-        if _executor is None or _executor_limit != limit:
-            previous = _executor
-            _executor = ThreadPoolExecutor(
+    with _state.executor_lock:
+        if _state.executor is None or _state.executor_limit != limit:
+            previous = _state.executor
+            _state.executor = ThreadPoolExecutor(
                 max_workers=limit,
                 thread_name_prefix="ratatoskr-argon2",
             )
-            _executor_limit = limit
+            _state.executor_limit = limit
             if previous is not None:
                 # Runtime config is immutable in production.  This branch is
                 # useful for tests/config reloads; already-running work is not
                 # cancelled and its executor exits after that work completes.
                 previous.shutdown(wait=False, cancel_futures=False)
-        return _executor
+        return _state.executor
 
 
 def _get_gate(loop: asyncio.AbstractEventLoop, limit: int) -> asyncio.Semaphore:
     """Return an event-loop-local gate backed by the process-wide limit."""
-    with _gate_lock:
-        current = _loop_gates.get(loop)
+    with _state.gate_lock:
+        current = _state.loop_gates.get(loop)
         if current is None or current[0] != limit:
             gate = asyncio.Semaphore(limit)
-            _loop_gates[loop] = (limit, gate)
+            _state.loop_gates[loop] = (limit, gate)
             return gate
         return current[1]
 
@@ -79,6 +84,7 @@ async def _await_worker(future: asyncio.Future[R]) -> R:
     """
     cancelled: asyncio.CancelledError | None = None
     while not future.done():
+        # nosemgrep: broad-except-base - preserve worker failure until cleanup
         try:
             await asyncio.shield(future)
         except asyncio.CancelledError as exc:
@@ -86,6 +92,7 @@ async def _await_worker(future: asyncio.Future[R]) -> R:
         except BaseException:
             break
 
+    # nosemgrep: broad-except-base - re-raise after cancellation handling
     try:
         result = future.result()
     except BaseException:
@@ -114,12 +121,11 @@ async def run_argon2(func: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs)
 
 def _reset_for_tests() -> None:
     """Release executor/gate state between tests that change the limit."""
-    global _executor, _executor_limit
-    with _executor_lock:
-        previous = _executor
-        _executor = None
-        _executor_limit = None
+    with _state.executor_lock:
+        previous = _state.executor
+        _state.executor = None
+        _state.executor_limit = None
     if previous is not None:
         previous.shutdown(wait=True, cancel_futures=True)
-    with _gate_lock:
-        _loop_gates.clear()
+    with _state.gate_lock:
+        _state.loop_gates.clear()

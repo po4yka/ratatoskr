@@ -378,7 +378,8 @@ def test_restore_smoke_ci_job_loads_dump_and_gates_status() -> None:
     assert "tools/scripts/restore_smoke.sh tests/fixtures/restore_smoke.dump" in restore_steps
     assert "restore-smoke-test" in status_job["needs"]
     status_steps = "\n".join(str(step) for step in status_job["steps"])
-    assert "needs.restore-smoke-test.result" in status_steps
+    assert "NEEDS_JSON" in status_steps
+    assert "restore-smoke-test" in status_job["needs"]
 
 
 def test_migration_smoke_ci_job_runs_full_roundtrip_not_single_step() -> None:
@@ -395,7 +396,8 @@ def test_migration_smoke_ci_job_runs_full_roundtrip_not_single_step() -> None:
     assert "downgrade -1" not in steps, "single-step downgrade must not return"
     assert "migration-smoke-test" in status_job["needs"]
     status_steps = "\n".join(str(step) for step in status_job["steps"])
-    assert "needs.migration-smoke-test.result" in status_steps
+    assert "NEEDS_JSON" in status_steps
+    assert "migration-smoke-test" in status_job["needs"]
 
 
 def test_migration_roundtrip_script_exercises_full_downgrade_with_data() -> None:

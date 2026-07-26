@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
@@ -35,6 +36,12 @@ class FakeMessage:
 
 def _make_bot(database: Database) -> TelegramBot:
     cfg = make_test_app_config(db_path="/tmp/cmd-errors.db", allowed_user_ids=(1,))
+    # This test exercises the inline failure boundary. Worker mode returns after
+    # enqueueing and intentionally cannot observe the processor exception here.
+    cfg = replace(
+        cfg,
+        runtime=cfg.runtime.model_copy(update={"url_worker_enqueue_enabled": False}),
+    )
     from app.adapters import telegram_bot as tbmod
 
     tbmod.Client = object

@@ -63,6 +63,17 @@ async def test_trending_payload_is_cached(monkeypatch):
     monkeypatch.setattr(trending_cache, "_fetch_trending_records", fake_fetch)
     monkeypatch.setattr(trending_cache, "TRENDING_CACHE_TTL_SECONDS", 60)
 
+    async def _redis_miss(*_args, **_kwargs):
+        return None
+
+    async def _skip_redis_write(*_args, **_kwargs):
+        return False
+
+    # The cache contract under test is process-local. A shared Redis entry from
+    # another xdist worker must not turn this deliberate first miss into a hit.
+    monkeypatch.setattr(trending_cache._cache_manager, "get_from_redis", _redis_miss)
+    monkeypatch.setattr(trending_cache._cache_manager, "set_to_redis", _skip_redis_write)
+
     first = await trending_cache.get_trending_payload(1, limit=5, days=30)
     second = await trending_cache.get_trending_payload(1, limit=5, days=30)
 

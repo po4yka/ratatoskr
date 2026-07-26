@@ -8,3 +8,18 @@ id = "GHSA-rrmf-rvhw-rf47"
 # optional `ml` extra (sentence-transformers embeddings) and is never exposed to
 # untrusted request input. Re-evaluate when an upstream fix ships.
 reason = "torch DoS GHSA-rrmf-rvhw-rf47: no upstream fix available; ml-extra only, not in request path"
+
+# Semgrep 1.171.0 pins this older MCP SDK exactly for its CI-only command-line
+# implementation. The application MCP extra resolves separately to >=1.28.1;
+# updating the transitive copy is impossible until Semgrep releases a new pin.
+[[IgnoredVulns]]
+id = "PYSEC-2026-3481"
+reason = "Semgrep CI-only transitive mcp==1.23.3 pin; no compatible Semgrep release is available"
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3482"
+reason = "Semgrep CI-only transitive mcp==1.23.3 pin; no compatible Semgrep release is available"
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3483"
+reason = "Semgrep CI-only transitive mcp==1.23.3 pin; no compatible Semgrep release is available"
