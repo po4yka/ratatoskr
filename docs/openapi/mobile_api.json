@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://ratatoskrapi.po4yka.com",
+      "url": "https://ratatoskr-api.po4yka.com",
       "description": "Production"
     },
     {

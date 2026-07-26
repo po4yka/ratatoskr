@@ -58,8 +58,8 @@ openrouter:
     - google/gemini-3-flash-preview
   # Routed to for very large inputs (see runtime long-context threshold).
   long_context_model: anthropic/claude-opus-4.8
-  http_referer: https://github.com/po4yka/bite-size-reader
-  x_title: Bite-Size Reader
+  http_referer: https://github.com/po4yka/ratatoskr
+  x_title: Ratatoskr
   # Behavioral tunables (REQUIRED — no code default).
   temperature: 0.2
   enable_stats: false
@@ -78,7 +78,7 @@ openrouter:
   transport_retry_max_wait_sec: 5.0
 
 telegram:
-  api_base_url: https://bitsizereaderapi.po4yka.com
+  api_base_url: https://ratatoskr-api.po4yka.com
 
 database:
   pool_size: 5

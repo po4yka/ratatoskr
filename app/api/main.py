@@ -238,7 +238,7 @@ app = FastAPI(
     description="RESTful API for Android/iOS mobile clients",
     version=API_CONTRACT_VERSION,
     servers=[
-        {"url": "https://ratatoskrapi.po4yka.com", "description": "Production"},
+        {"url": "https://ratatoskr-api.po4yka.com", "description": "Production"},
         {"url": "https://staging-ratatoskrapi.po4yka.com", "description": "Staging"},
         {"url": "http://localhost:8000", "description": "Local development"},
     ],
@@ -288,7 +288,8 @@ def _resolve_trusted_hosts() -> list[str]:
 
     hosts: set[str] = {"localhost", "127.0.0.1", "testserver"}
     for url in (
-        "https://ratatoskrapi.po4yka.com",
+        "https://ratatoskr.po4yka.com",
+        "https://ratatoskr-api.po4yka.com",
         "https://staging-ratatoskrapi.po4yka.com",
     ):
         host = urlparse(url).hostname

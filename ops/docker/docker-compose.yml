@@ -320,7 +320,7 @@ services:
       - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api
       # Prometheus reaches the API through its Compose DNS name. Keep the
       # internal host in the allowlist without weakening Host-header checks.
-      - TRUSTED_HOSTS=${TRUSTED_HOSTS:-localhost,127.0.0.1,testserver,mobile-api,ratatoskrapi.po4yka.com,staging-ratatoskrapi.po4yka.com}
+      - TRUSTED_HOSTS=${TRUSTED_HOSTS:-localhost,127.0.0.1,testserver,mobile-api,ratatoskr.po4yka.com,ratatoskr-api.po4yka.com,staging-ratatoskrapi.po4yka.com}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
