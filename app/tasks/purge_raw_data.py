@@ -48,6 +48,7 @@ class PurgeStats:
 
     telegram_raw: int = 0
     crawl_content: int = 0
+    reader_source_content: int = 0
     llm_payload: int = 0
     video_transcript: int = 0
     downloaded_media: int = 0
@@ -93,6 +94,12 @@ async def _purge_body(cfg: AppConfig, db: Database) -> PurgeStats:
         ),
         crawl_content=await _purge_crawl_content(
             db, now, _effective_days(ret, ret.crawl_content_days), batch
+        ),
+        reader_source_content=await _purge_reader_source_content(
+            db,
+            now,
+            _effective_days(ret, ret.reader_source_content_days),
+            batch,
         ),
         llm_payload=await _purge_llm_payload(
             db, now, _effective_days(ret, ret.llm_payload_days), batch
@@ -217,6 +224,35 @@ async def _purge_crawl_content(db: Database, now: dt.datetime, days: int, batch:
             metadata_json=None,
             links_json=None,
         )
+    )
+    return await _null_columns(db, stmt=stmt)
+
+
+async def _purge_reader_source_content(
+    db: Database,
+    now: dt.datetime,
+    days: int,
+    batch: int,
+) -> int:
+    """NULL the normalized Reader body on its independent retention schedule."""
+    if days == 0:
+        return 0
+    cutoff = _cutoff(now, days)
+    stmt = (
+        update(CrawlResult)
+        .where(
+            CrawlResult.id.in_(
+                select(CrawlResult.id)
+                .join(Request, Request.id == CrawlResult.request_id)
+                .where(
+                    Request.created_at < cutoff,
+                    CrawlResult.content_text.is_not(None),
+                )
+                .order_by(CrawlResult.id)
+                .limit(batch)
+            )
+        )
+        .values(content_text=None)
     )
     return await _null_columns(db, stmt=stmt)
 

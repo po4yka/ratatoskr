@@ -12,6 +12,7 @@ def test_retention_config_accepts_privacy_controls() -> None:
         {
             "RETENTION_PRIVACY_NO_RETENTION_MODE": "true",
             "RETENTION_RAW_EXTRACTED_CONTENT_DAYS": "2",
+            "RETENTION_READER_SOURCE_CONTENT_DAYS": "365",
             "RETENTION_LLM_PROMPT_RESPONSE_DAYS": "3",
             "RETENTION_LLM_PROMPT_RESPONSE_POLICY": "metadata-only",
             "RETENTION_DOWNLOADED_MEDIA_DAYS": "4",
@@ -21,12 +22,17 @@ def test_retention_config_accepts_privacy_controls() -> None:
 
     assert cfg.privacy_no_retention_mode is True
     assert cfg.crawl_content_days == 2
+    assert cfg.reader_source_content_days == 365
     assert cfg.llm_payload_days == 3
     assert cfg.llm_prompt_response_policy == "metadata_only"
     assert cfg.downloaded_media_days == 4
     assert cfg.export_temp_file_max_age_seconds == 18_000
     assert cfg.persist_raw_extracted_content is False
     assert cfg.persist_llm_prompt_response_payloads is False
+
+
+def test_reader_source_content_is_retained_by_default() -> None:
+    assert RetentionConfig().reader_source_content_days == 0
 
 
 def test_retention_config_rejects_unknown_llm_policy() -> None:

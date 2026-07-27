@@ -57,6 +57,7 @@ def _build_cfg(
     batch_size=100,
     telegram_raw_days=7,
     crawl_content_days=7,
+    reader_source_content_days=0,
     llm_payload_days=7,
     video_transcript_days=7,
     downloaded_media_days=7,
@@ -72,6 +73,7 @@ def _build_cfg(
             privacy_no_retention_mode=privacy_no_retention_mode,
             telegram_raw_days=telegram_raw_days,
             crawl_content_days=crawl_content_days,
+            reader_source_content_days=reader_source_content_days,
             llm_payload_days=llm_payload_days,
             video_transcript_days=video_transcript_days,
             downloaded_media_days=downloaded_media_days,
@@ -166,6 +168,26 @@ async def test_purge_crawl_content_returns_rowcount(monkeypatch):
     assert result == 3
     session = await mock_db.transaction.return_value.__aenter__()
     session.execute.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_purge_reader_source_content_returns_rowcount(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+    _evict_app_tasks()
+
+    from app.tasks.purge_raw_data import _purge_reader_source_content
+
+    mock_db = _make_mock_db(rowcount=4)
+    now = dt.datetime.now(dt.UTC)
+
+    result = await _purge_reader_source_content(mock_db, now, days=365, batch=100)
+
+    assert result == 4
+    session = await mock_db.transaction.return_value.__aenter__()
+    stmt = session.execute.await_args.args[0]
+    compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "content_text=NULL" in compiled.replace(" ", "")
 
 
 @pytest.mark.asyncio
@@ -275,6 +297,10 @@ async def test_purge_body_aggregates_subsystem_counts(monkeypatch):
         AsyncMock(return_value=2),
     )
     monkeypatch.setattr(
+        "app.tasks.purge_raw_data._purge_reader_source_content",
+        AsyncMock(return_value=9),
+    )
+    monkeypatch.setattr(
         "app.tasks.purge_raw_data._purge_llm_payload",
         AsyncMock(return_value=3),
     )
@@ -304,6 +330,7 @@ async def test_purge_body_aggregates_subsystem_counts(monkeypatch):
     assert result == PurgeStats(
         telegram_raw=1,
         crawl_content=2,
+        reader_source_content=9,
         llm_payload=3,
         video_transcript=4,
         downloaded_media=7,
@@ -323,6 +350,7 @@ async def test_no_retention_mode_uses_immediate_raw_ttl(monkeypatch):
 
     telegram = AsyncMock(return_value=0)
     crawl = AsyncMock(return_value=0)
+    reader_source = AsyncMock(return_value=0)
     llm = AsyncMock(return_value=0)
     video = AsyncMock(return_value=0)
     media = AsyncMock(return_value=0)
@@ -330,6 +358,7 @@ async def test_no_retention_mode_uses_immediate_raw_ttl(monkeypatch):
     request = AsyncMock(return_value=0)
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_telegram_raw", telegram)
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_crawl_content", crawl)
+    monkeypatch.setattr("app.tasks.purge_raw_data._purge_reader_source_content", reader_source)
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_llm_payload", llm)
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_video_transcript", video)
     monkeypatch.setattr("app.tasks.purge_raw_data._purge_downloaded_media", media)
@@ -341,7 +370,16 @@ async def test_no_retention_mode_uses_immediate_raw_ttl(monkeypatch):
 
     await _purge_body(_build_cfg(privacy_no_retention_mode=True), MagicMock())
 
-    for purge in (telegram, crawl, llm, video, media, interaction, request):
+    for purge in (
+        telegram,
+        crawl,
+        reader_source,
+        llm,
+        video,
+        media,
+        interaction,
+        request,
+    ):
         assert purge.await_args.args[2] == -1
 
 
@@ -363,3 +401,4 @@ async def test_purge_crawl_content_updates_raw_columns_without_summaries(monkeyp
     compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
     assert "crawl_results" in compiled
     assert "summaries" not in compiled
+    assert "content_text" not in compiled

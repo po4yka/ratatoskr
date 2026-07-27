@@ -47,6 +47,11 @@ class RetentionConfig(BaseModel):
         ),
         description="Days to keep extracted raw content columns. 0 = never purge.",
     )
+    reader_source_content_days: int = Field(
+        default=0,
+        validation_alias="RETENTION_READER_SOURCE_CONTENT_DAYS",
+        description="Days to keep normalized Reader source text. 0 = never purge.",
+    )
     llm_payload_days: int = Field(
         default=90,
         validation_alias=AliasChoices(
@@ -108,6 +113,7 @@ class RetentionConfig(BaseModel):
     @field_validator(
         "telegram_raw_days",
         "crawl_content_days",
+        "reader_source_content_days",
         "llm_payload_days",
         "video_transcript_days",
         "downloaded_media_days",
