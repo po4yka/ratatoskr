@@ -10,7 +10,6 @@ the summarize graph's persist node.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -32,7 +31,6 @@ from app.infrastructure.vector.point_ids import summary_point_id
 from app.infrastructure.vector.summary_point import (
     build_summary_qdrant_payload,
     coerce_summary_payload,
-    extract_indexable_text,
 )
 from app.observability.metrics import (
     compute_vector_reconcile_oldest_lag_seconds,
@@ -312,8 +310,7 @@ async def _sync_summary_vectors(
         payload, raw_fallback = coerce_summary_payload(row.get("json_payload"))
         if not payload and not raw_fallback:
             continue
-        text = extract_indexable_text(payload, raw_fallback=raw_fallback)
-        current_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        current_hash = runtime.embedding_generator.embedding_content_hash(row.get("json_payload"))
         if embedding_row.get("content_hash") != current_hash:
             logger.warning(
                 "vector_reconcile_embedding_hash_mismatch",

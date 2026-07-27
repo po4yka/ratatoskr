@@ -69,11 +69,20 @@ class SummaryEmbeddingGenerator:
         """Expose the embedding provider in use."""
         return self._embedding_service
 
-    def _prepare_text(self, payload: Any) -> str:
+    def prepare_embedding_text(self, payload: Any) -> str:
+        """Return the exact text used to generate and identify an embedding."""
         payload_dict, raw_fallback = coerce_summary_payload(payload)
         return extract_indexable_text(payload_dict, raw_fallback=raw_fallback)[
             : self._max_token_length
         ]
+
+    @staticmethod
+    def _content_hash(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def embedding_content_hash(self, payload: Any) -> str:
+        """Return the persisted content hash for a summary payload."""
+        return self._content_hash(self.prepare_embedding_text(payload))
 
     async def generate_embedding_for_summary(
         self,
@@ -85,12 +94,12 @@ class SummaryEmbeddingGenerator:
     ) -> bool:
         """Generate and store an embedding for a specific summary."""
         model_name = self._embedding_service.get_model_name(language)
-        text = self._prepare_text(payload)
+        text = self.prepare_embedding_text(payload)
         if not text.strip():
             logger.warning("empty_text_for_embedding", extra={"summary_id": summary_id})
             return False
 
-        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        content_hash = self._content_hash(text)
         if not force:
             existing = await self.embedding_repo.async_get_summary_embedding(summary_id)
             if existing and existing.get("model_name") == model_name:
@@ -168,11 +177,11 @@ class SummaryEmbeddingGenerator:
         if not isinstance(payload, dict):
             return None, True
         model_name = self._embedding_service.get_model_name(language)
-        text = self._prepare_text(payload)
+        text = self.prepare_embedding_text(payload)
         if not text.strip():
             logger.warning("empty_text_for_embedding", extra={"summary_id": summary_id})
             return None, True
-        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        content_hash = self._content_hash(text)
         return _PreparedRow(summary_id, text, model_name, content_hash), False
 
     async def generate_embeddings_for_summaries(

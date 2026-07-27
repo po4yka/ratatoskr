@@ -43,6 +43,14 @@ def generator_fixture():
     return generator, embedding_service, embedding_repo, request_repo, summary_repo
 
 
+def test_embedding_content_hash_uses_truncated_embedding_text(generator_fixture) -> None:
+    generator, _, _, _, _ = generator_fixture
+    payload = {"summary_250": "s" * 800}
+
+    assert generator.prepare_embedding_text(payload) == "s" * 512
+    assert generator.embedding_content_hash(payload) == _expected_hash(payload)
+
+
 @pytest.mark.asyncio
 async def test_generate_embedding_for_summary_skips_existing_matching_model(
     generator_fixture,
