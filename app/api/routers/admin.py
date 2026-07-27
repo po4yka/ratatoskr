@@ -15,6 +15,15 @@ from app.api.models.responses import (
     GraphRunLedgerSuccessResponse,
     success_response,
 )
+from app.api.models.responses.common import TypedSuccessResponse
+from app.api.models.responses.operational import (
+    AdminAuditLogData,
+    AdminContentHealthData,
+    AdminJobsData,
+    AdminLlmCostsData,
+    AdminSystemMetricsData,
+    AdminUsersData,
+)
 from app.api.routers.auth import AuthenticatedUser, get_current_user
 from app.api.services.admin_read_service import AdminReadService
 from app.api.services.auth_service import AuthService
@@ -79,7 +88,7 @@ def _resolve_vector_store(request: Any) -> Any | None:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/users")
+@router.get("/users", response_model=TypedSuccessResponse[AdminUsersData])
 async def list_users(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -98,7 +107,7 @@ async def list_users(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/jobs")
+@router.get("/jobs", response_model=TypedSuccessResponse[AdminJobsData])
 async def job_status(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -118,7 +127,7 @@ async def job_status(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/health/content")
+@router.get("/health/content", response_model=TypedSuccessResponse[AdminContentHealthData])
 async def content_health(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -137,7 +146,7 @@ async def content_health(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/metrics")
+@router.get("/metrics", response_model=TypedSuccessResponse[AdminSystemMetricsData])
 async def system_metrics(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -157,7 +166,7 @@ async def system_metrics(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/llm-costs")
+@router.get("/llm-costs", response_model=TypedSuccessResponse[AdminLlmCostsData])
 async def llm_costs(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
@@ -244,7 +253,7 @@ async def graph_run_evaluations(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/audit-log")
+@router.get("/audit-log", response_model=TypedSuccessResponse[AdminAuditLogData])
 async def audit_log(
     request: Request,
     user: AuthenticatedUser = Depends(get_current_user),

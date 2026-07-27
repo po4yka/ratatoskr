@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -34,6 +34,8 @@ from app.api.error_handlers import (
 )
 from app.api.exceptions import APIException
 from app.api.metrics_auth import require_metrics_bearer
+from app.api.models.responses.common import TypedSuccessResponse
+from app.api.models.responses.operational import BasicHealthData
 from app.api.middleware import (
     correlation_id_middleware,
     http_red_metrics_middleware,
@@ -465,7 +467,7 @@ def api_root(request: Request) -> dict[str, Any]:
     )
 
 
-@app.get("/health")
+@app.get("/health", response_model=TypedSuccessResponse[BasicHealthData])
 def health_check(request: Request) -> dict[str, Any]:
     """Health check endpoint."""
     return success_response(
@@ -477,14 +479,22 @@ def health_check(request: Request) -> dict[str, Any]:
     )
 
 
-@app.get("/metrics")
+@app.get(
+    "/metrics",
+    response_class=Response,
+    response_model=None,
+    responses={
+        200: {
+            "description": "Prometheus metrics exposition",
+            "content": {"text/plain": {"schema": {"type": "string"}}},
+        }
+    },
+)
 async def metrics(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Prometheus metrics endpoint (owner-only).
 
     Returns metrics in Prometheus text format for scraping.
     """
-    from fastapi.responses import Response
-
     from app.api.services.auth_service import AuthService
     from app.observability.metrics import get_metrics, get_metrics_content_type
 
@@ -498,8 +508,6 @@ async def metrics(user: dict[str, Any] = Depends(get_current_user)) -> Any:
 @app.get("/internal/metrics", include_in_schema=False)
 async def internal_metrics(_authorized: None = Depends(require_metrics_bearer)) -> Any:
     """Prometheus scrape endpoint protected by a dedicated service token."""
-    from fastapi.responses import Response
-
     from app.observability.metrics import get_metrics, get_metrics_content_type
 
     return Response(content=get_metrics(), media_type=get_metrics_content_type())

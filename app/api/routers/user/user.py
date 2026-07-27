@@ -13,10 +13,15 @@ from app.api.models.requests import (
 )
 from app.api.models.responses import (
     DomainStat,
+    GoalDeletionResponse,
+    GoalListResponse,
+    GoalProgressListResponse,
+    GoalResponse,
     PreferencesData,
     PreferencesUpdateResult,
     StreakResponse,
     TopicStat,
+    TypedSuccessResponse,
     UserMeResponse,
     UserProfileResponse,
     UserStatsData,
@@ -116,8 +121,8 @@ async def _get_or_create_current_user_record(user: dict[str, Any]) -> dict[str, 
     return user_record
 
 
-@profile_router.get("/me")
-@router.get("/me")
+@profile_router.get("/me", response_model=TypedSuccessResponse[UserMeResponse])
+@router.get("/me", response_model=TypedSuccessResponse[UserMeResponse])
 async def get_current_user_profile(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Get typed current-user profile."""
     user_record = await _get_or_create_current_user_record(user)
@@ -132,8 +137,8 @@ async def get_current_user_profile(user: dict[str, Any] = Depends(get_current_us
     )
 
 
-@profile_router.put("/me")
-@router.put("/me")
+@profile_router.put("/me", response_model=TypedSuccessResponse[UserMeResponse])
+@router.put("/me", response_model=TypedSuccessResponse[UserMeResponse])
 async def update_current_user_profile(
     profile: UpdateUserProfileRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -155,8 +160,14 @@ async def update_current_user_profile(
     )
 
 
-@profile_router.post("/me/onboarding/complete")
-@router.post("/me/onboarding/complete")
+@profile_router.post(
+    "/me/onboarding/complete",
+    response_model=TypedSuccessResponse[UserMeResponse],
+)
+@router.post(
+    "/me/onboarding/complete",
+    response_model=TypedSuccessResponse[UserMeResponse],
+)
 async def complete_onboarding(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Mark first-time onboarding as complete."""
     user_repo = get_user_repository()
@@ -177,7 +188,7 @@ async def complete_onboarding(user: dict[str, Any] = Depends(get_current_user)) 
     )
 
 
-@router.get("/preferences")
+@router.get("/preferences", response_model=TypedSuccessResponse[PreferencesData])
 async def get_user_preferences(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Get user preferences."""
     user_repo = get_user_repository()
@@ -221,7 +232,10 @@ async def get_user_preferences(user: dict[str, Any] = Depends(get_current_user))
     )
 
 
-@router.patch("/preferences")
+@router.patch(
+    "/preferences",
+    response_model=TypedSuccessResponse[PreferencesUpdateResult],
+)
 async def update_user_preferences(
     preferences: UpdatePreferencesRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -273,7 +287,7 @@ async def update_user_preferences(
     )
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=TypedSuccessResponse[UserStatsData])
 async def get_user_stats(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Get user statistics.
 
@@ -317,14 +331,14 @@ async def get_user_stats(user: dict[str, Any] = Depends(get_current_user)) -> An
     )
 
 
-@router.get("/goals")
+@router.get("/goals", response_model=TypedSuccessResponse[GoalListResponse])
 async def list_goals(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """List all reading goals for the current user."""
     goal_dicts = await UserGoalService().list_goals(user_id=user["user_id"])
     return success_response({"goals": goal_dicts})
 
 
-@router.post("/goals")
+@router.post("/goals", response_model=TypedSuccessResponse[GoalResponse])
 async def upsert_goal(
     body: CreateGoalRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -334,7 +348,10 @@ async def upsert_goal(
     return success_response(payload)
 
 
-@router.delete("/goals/{goal_type}")
+@router.delete(
+    "/goals/{goal_type}",
+    response_model=TypedSuccessResponse[GoalDeletionResponse],
+)
 async def delete_goal(
     goal_type: str,
     user: dict[str, Any] = Depends(get_current_user),
@@ -344,7 +361,10 @@ async def delete_goal(
     return success_response({"deleted": True})
 
 
-@router.delete("/goals/by-id/{goal_id}")
+@router.delete(
+    "/goals/by-id/{goal_id}",
+    response_model=TypedSuccessResponse[GoalDeletionResponse],
+)
 async def delete_goal_by_id(
     goal_id: str,
     user: dict[str, Any] = Depends(get_current_user),
@@ -354,7 +374,7 @@ async def delete_goal_by_id(
     return success_response({"deleted": True})
 
 
-@router.get("/streak")
+@router.get("/streak", response_model=TypedSuccessResponse[StreakResponse])
 async def get_streak(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Compute and return the user's reading streak data."""
     data = await UserActivityService().get_streak_data(user_id=user["user_id"])
@@ -375,7 +395,10 @@ async def get_streak(user: dict[str, Any] = Depends(get_current_user)) -> Any:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/goals/progress")
+@router.get(
+    "/goals/progress",
+    response_model=TypedSuccessResponse[GoalProgressListResponse],
+)
 async def get_goal_progress(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Return each goal with current progress."""
     progress = await UserGoalService().get_goal_progress(user_id=user["user_id"])

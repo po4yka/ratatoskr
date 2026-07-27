@@ -13,6 +13,8 @@ from starlette.responses import FileResponse
 from app.api.dependencies.database import get_session_manager
 from app.api.exceptions import APIException, ErrorCode
 from app.api.models.responses import success_response
+from app.api.models.responses.common import TypedSuccessResponse
+from app.api.models.responses.operational import CacheClearData, DatabaseInfoData
 from app.api.routers.auth import get_current_user
 from app.api.services.auth_service import AuthService
 from app.api.services.system_maintenance_service import SystemMaintenanceService, _silent_unlink
@@ -106,7 +108,17 @@ async def _enforce_db_dump_rate_limit(request: Request, user_id: int) -> None:
         )
 
 
-@router.get("/db-dump")
+@router.get(
+    "/db-dump",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            }
+        }
+    },
+)
 async def download_database(
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
@@ -135,7 +147,17 @@ async def download_database(
     )
 
 
-@router.head("/db-dump")
+@router.head(
+    "/db-dump",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            }
+        }
+    },
+)
 async def head_database(
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
@@ -160,7 +182,7 @@ async def head_database(
     )
 
 
-@router.get("/db-info")
+@router.get("/db-info", response_model=TypedSuccessResponse[DatabaseInfoData])
 async def get_db_info(
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
@@ -174,7 +196,7 @@ async def get_db_info(
     return success_response(await service.get_db_info())
 
 
-@router.post("/clear-cache")
+@router.post("/clear-cache", response_model=TypedSuccessResponse[CacheClearData])
 async def clear_cache(
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),

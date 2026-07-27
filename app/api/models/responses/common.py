@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import AliasGenerator, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -220,6 +220,15 @@ class SuccessResponse(BaseModel):
     success: bool = True
     data: Any
     meta: MetaInfo = Field(default_factory=MetaInfo)
+
+
+SuccessDataT = TypeVar("SuccessDataT")
+
+
+class TypedSuccessResponse(SuccessResponse, Generic[SuccessDataT]):
+    """Success envelope whose business payload is visible to OpenAPI/codegen."""
+
+    data: SuccessDataT
 
 
 class SystemMetaSuccessResponse(SuccessResponse):

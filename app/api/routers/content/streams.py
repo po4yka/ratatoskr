@@ -70,7 +70,11 @@ def _get_progress_event_repository(request: FastAPIRequest) -> Any | None:
     return None
 
 
-@router.get("/{request_id}/stream")
+@router.get(
+    "/{request_id}/stream",
+    response_class=EventSourceResponse,
+    response_model=None,
+)
 async def stream_request(
     request_id: int,
     fastapi_request: FastAPIRequest,

@@ -10,6 +10,8 @@ from app.api.models.responses import (
     DeltaSyncResponseData,
     FullSyncResponseData,
     SyncApplyResponseData,
+    SyncSessionData,
+    TypedSuccessResponse,
     success_response,
 )
 from app.api.routers.auth import get_current_user
@@ -39,7 +41,7 @@ def _build_delta_etag(
 
 
 # Behavior verified by test_full_sync_uses_default_limit_when_none in tests/api/test_sync_v2_contract.py
-@router.post("/sessions")
+@router.post("/sessions", response_model=TypedSuccessResponse[SyncSessionData])
 async def create_sync_session(
     body: SyncSessionRequest | None = None,
     user: dict[str, Any] = Depends(get_current_user),
@@ -55,7 +57,7 @@ async def create_sync_session(
     return success_response(session)
 
 
-@router.get("/full")
+@router.get("/full", response_model=TypedSuccessResponse[FullSyncResponseData])
 async def full_sync(
     session_id: str = Query(..., description="Sync session identifier"),
     limit: int | None = Query(None, ge=1, le=500),
@@ -72,7 +74,11 @@ async def full_sync(
     return success_response(page, pagination=page.pagination)
 
 
-@router.get("/delta", response_model=None)
+@router.get(
+    "/delta",
+    response_model=TypedSuccessResponse[DeltaSyncResponseData],
+    responses={304: {"description": "Not modified; ETag still current."}},
+)
 async def delta_sync(
     request: Request,
     response: Response,
@@ -127,7 +133,7 @@ async def delta_sync(
     return success_response(page, pagination=pagination)
 
 
-@router.post("/apply")
+@router.post("/apply", response_model=TypedSuccessResponse[SyncApplyResponseData])
 async def apply_changes(
     payload: SyncApplyRequest,
     user: dict[str, Any] = Depends(get_current_user),

@@ -22,7 +22,13 @@ from app.api.models.auth import (  # noqa: TC001 - FastAPI resolves these at run
     ChangePasswordRequest,
     CredentialsLoginRequest,
 )
-from app.api.models.responses import AuthTokensResponse, TokenPair, success_response
+from app.api.models.responses import (
+    AuthTokensResponse,
+    MessageResponse,
+    TokenPair,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth._fastapi import APIRouter, Depends
 from app.api.routers.auth.argon2_offload import run_argon2
 from app.api.routers.auth.cookies import set_refresh_cookie
@@ -78,7 +84,10 @@ def _coerce_naive(dt_value: datetime | None) -> datetime | None:
     return dt_value
 
 
-@router.post("/credentials-login")
+@router.post(
+    "/credentials-login",
+    response_model=TypedSuccessResponse[AuthTokensResponse],
+)
 async def credentials_login(
     payload: CredentialsLoginRequest,
     response: Response,
@@ -217,7 +226,10 @@ async def credentials_login(
     return success_response(AuthTokensResponse(tokens=tokens, session_id=session_id))
 
 
-@router.post("/credentials/change-password")
+@router.post(
+    "/credentials/change-password",
+    response_model=TypedSuccessResponse[MessageResponse],
+)
 async def change_password(
     payload: ChangePasswordRequest,
     user: dict[str, Any] = Depends(get_current_user),

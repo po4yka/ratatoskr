@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from .common import AliasCompatibleResponseModel, SuccessResponse
 
 
-class PreferencesData(BaseModel):
+class PreferencesData(AliasCompatibleResponseModel):
     user_id: int = Field(serialization_alias="userId")
     telegram_username: str | None = Field(default=None, serialization_alias="telegramUsername")
     lang_preference: str | None = Field(default=None, serialization_alias="langPreference")
@@ -19,12 +19,12 @@ class PreferencesData(BaseModel):
     app_settings: dict[str, Any] | None = Field(default=None, serialization_alias="appSettings")
 
 
-class PreferencesUpdateResult(BaseModel):
+class PreferencesUpdateResult(AliasCompatibleResponseModel):
     updated_fields: list[str] = Field(serialization_alias="updatedFields")
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
-class UserProfileResponse(BaseModel):
+class UserProfileResponse(AliasCompatibleResponseModel):
     user_id: int = Field(serialization_alias="userId")
     telegram_username: str | None = Field(default=None, serialization_alias="telegramUsername")
     display_name: str | None = Field(default=None, serialization_alias="displayName")
@@ -69,7 +69,7 @@ class DomainStat(BaseModel):
     count: int
 
 
-class UserStatsData(BaseModel):
+class UserStatsData(AliasCompatibleResponseModel):
     total_summaries: int = Field(serialization_alias="totalSummaries")
     unread_count: int = Field(serialization_alias="unreadCount")
     read_count: int = Field(serialization_alias="readCount")
@@ -86,7 +86,7 @@ class SessionListResponse(BaseModel):
     sessions: list[Any]
 
 
-class HighlightResponse(BaseModel):
+class HighlightResponse(AliasCompatibleResponseModel):
     id: str
     summary_id: str = Field(serialization_alias="summaryId")
     text: str
@@ -102,7 +102,12 @@ class HighlightListResponse(BaseModel):
     highlights: list[HighlightResponse]
 
 
-class TagResponse(BaseModel):
+class HighlightDeletionResponse(BaseModel):
+    deleted: bool
+    id: str
+
+
+class TagResponse(AliasCompatibleResponseModel):
     id: int
     name: str
     color: str | None = None
@@ -115,7 +120,23 @@ class TagListResponse(BaseModel):
     tags: list[TagResponse]
 
 
-class GoalResponse(BaseModel):
+class TagDeletionResponse(BaseModel):
+    deleted: bool
+    id: int
+
+
+class TagMergeResponse(AliasCompatibleResponseModel):
+    merged: bool
+    target_tag_id: int = Field(serialization_alias="targetTagId")
+
+
+class TagDetachResponse(AliasCompatibleResponseModel):
+    detached: bool
+    summary_id: int = Field(serialization_alias="summaryId")
+    tag_id: int = Field(serialization_alias="tagId")
+
+
+class GoalResponse(AliasCompatibleResponseModel):
     id: str = Field(serialization_alias="id")
     goal_type: str = Field(serialization_alias="goalType")
     target_count: int = Field(serialization_alias="targetCount")
@@ -126,7 +147,7 @@ class GoalResponse(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
-class GoalProgressResponse(BaseModel):
+class GoalProgressResponse(AliasCompatibleResponseModel):
     goal_type: str = Field(serialization_alias="goalType")
     target_count: int = Field(serialization_alias="targetCount")
     current_count: int = Field(serialization_alias="currentCount")
@@ -136,7 +157,19 @@ class GoalProgressResponse(BaseModel):
     scope_name: str | None = Field(default=None, serialization_alias="scopeName")
 
 
-class StreakResponse(BaseModel):
+class GoalListResponse(BaseModel):
+    goals: list[GoalResponse]
+
+
+class GoalProgressListResponse(BaseModel):
+    progress: list[GoalProgressResponse]
+
+
+class GoalDeletionResponse(BaseModel):
+    deleted: bool
+
+
+class StreakResponse(AliasCompatibleResponseModel):
     current_streak: int = Field(serialization_alias="currentStreak")
     longest_streak: int = Field(serialization_alias="longestStreak")
     last_activity_date: str | None = Field(default=None, serialization_alias="lastActivityDate")

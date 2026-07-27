@@ -187,12 +187,25 @@ class AppleSignInStartRequest(BaseModel):
 class AppleSignInStartResponse(BaseModel):
     """Apple Sign-In authorization parameters."""
 
-    authorization_url: str = Field(serialization_alias="authorizationUrl")
+    authorization_url: str = Field(
+        validation_alias="authorizationUrl",
+        serialization_alias="authorizationUrl",
+    )
     state: str
     nonce: str
-    code_verifier: str = Field(serialization_alias="codeVerifier")
-    code_challenge: str = Field(serialization_alias="codeChallenge")
-    code_challenge_method: str = Field(default="S256", serialization_alias="codeChallengeMethod")
+    code_verifier: str = Field(
+        validation_alias="codeVerifier",
+        serialization_alias="codeVerifier",
+    )
+    code_challenge: str = Field(
+        validation_alias="codeChallenge",
+        serialization_alias="codeChallenge",
+    )
+    code_challenge_method: str = Field(
+        default="S256",
+        validation_alias="codeChallengeMethod",
+        serialization_alias="codeChallengeMethod",
+    )
 
 
 class AppleSignInCallbackRequest(BaseModel):

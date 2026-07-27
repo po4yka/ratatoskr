@@ -6,8 +6,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .common import AliasCompatibleResponseModel
 
-class RuleResponse(BaseModel):
+
+class RuleResponse(AliasCompatibleResponseModel):
     id: int
     name: str
     description: str | None = None
@@ -23,7 +25,7 @@ class RuleResponse(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
-class RuleLogResponse(BaseModel):
+class RuleLogResponse(AliasCompatibleResponseModel):
     id: int
     rule_id: int = Field(serialization_alias="ruleId")
     summary_id: int | None = Field(default=None, serialization_alias="summaryId")
@@ -38,3 +40,22 @@ class RuleLogResponse(BaseModel):
     error: str | None = None
     duration_ms: int | None = Field(default=None, serialization_alias="durationMs")
     created_at: str = Field(serialization_alias="createdAt")
+
+
+class RuleListResponse(BaseModel):
+    rules: list[RuleResponse]
+
+
+class RuleDeletionResponse(BaseModel):
+    deleted: bool
+    id: int
+
+
+class RuleDryRunResponse(BaseModel):
+    matched: bool
+    conditions_result: list[dict[str, Any]]
+    would_execute_actions: list[dict[str, Any]]
+
+
+class RuleLogListResponse(BaseModel):
+    logs: list[RuleLogResponse]

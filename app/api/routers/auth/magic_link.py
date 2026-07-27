@@ -13,7 +13,12 @@ from app.adapters.email.service import EmailDeliveryService
 from app.api.dependencies.database import get_session_manager
 from app.api.exceptions import AuthenticationError
 from app.api.models.auth import MagicLinkRequest  # noqa: TC001 - FastAPI resolves this model
-from app.api.models.responses import success_response
+from app.api.models.responses import (
+    AuthTokensResponse,
+    MagicLinkDispatchResponse,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth._fastapi import APIRouter
 from app.api.routers.auth.credential_auth import canonicalize_email, ensure_user_allowed
 from app.api.routers.auth.identity_tokens import issue_auth_tokens
@@ -26,7 +31,10 @@ from app.infrastructure.persistence.repositories.user_identity_repository import
 router = APIRouter()
 
 
-@router.post("/magic-link/request")
+@router.post(
+    "/magic-link/request",
+    response_model=TypedSuccessResponse[MagicLinkDispatchResponse],
+)
 async def request_magic_link(payload: MagicLinkRequest) -> Any:
     """Send a one-time login link to an existing user's email address."""
     validate_client_id(payload.client_id)
@@ -66,7 +74,10 @@ async def request_magic_link(payload: MagicLinkRequest) -> Any:
     )
 
 
-@router.get("/magic-link/verify")
+@router.get(
+    "/magic-link/verify",
+    response_model=TypedSuccessResponse[AuthTokensResponse],
+)
 async def verify_magic_link(
     response: Response,
     token: str = Query(..., min_length=16, max_length=256),

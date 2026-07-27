@@ -16,7 +16,11 @@ from app.api.dependencies.database import (
     get_user_repository,
 )
 from app.api.exceptions import FeatureDisabledError, ResourceNotFoundError
-from app.api.models.responses import success_response
+from app.api.models.responses import (
+    AliasCompatibleResponseModel,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth import get_current_user
 from app.application.services.tts_service import TTSService
 from app.config import load_config
@@ -53,7 +57,7 @@ class TTSPreferencesUpdateRequest(BaseModel):
     language: str | None = Field(default=None, min_length=2, max_length=20)
 
 
-class TTSPreferencesResponse(BaseModel):
+class TTSPreferencesResponse(AliasCompatibleResponseModel):
     """Effective TTS preferences after applying server defaults."""
 
     model_config = ConfigDict(populate_by_name=True)
@@ -81,6 +85,39 @@ class TTSPlaylistRequest(BaseModel):
         validation_alias=AliasChoices("sourceField", "source_field"),
         serialization_alias="sourceField",
     )
+
+
+class TTSGenerationResponse(BaseModel):
+    summary_id: int = Field(
+        validation_alias=AliasChoices("summaryId", "summary_id"),
+        serialization_alias="summaryId",
+    )
+    status: str
+    char_count: int = Field(
+        validation_alias=AliasChoices("charCount", "char_count"),
+        serialization_alias="charCount",
+    )
+    file_size_bytes: int = Field(
+        validation_alias=AliasChoices("fileSizeBytes", "file_size_bytes"),
+        serialization_alias="fileSizeBytes",
+    )
+    latency_ms: int = Field(
+        validation_alias=AliasChoices("latencyMs", "latency_ms"),
+        serialization_alias="latencyMs",
+    )
+    error: str | None = None
+
+
+class TTSPlaylistItemResponse(TTSGenerationResponse):
+    position: int
+    audio_url: str | None = Field(
+        validation_alias=AliasChoices("audioUrl", "audio_url"),
+        serialization_alias="audioUrl",
+    )
+
+
+class TTSPlaylistResponse(BaseModel):
+    items: list[TTSPlaylistItemResponse]
 
 
 def _get_tts_config() -> Any:
@@ -165,7 +202,10 @@ def _audio_url(summary_id: int) -> str:
     return f"/v1/summaries/{summary_id}/audio"
 
 
-@preferences_router.get("/me/tts-preferences")
+@preferences_router.get(
+    "/me/tts-preferences",
+    response_model=TypedSuccessResponse[TTSPreferencesResponse],
+)
 async def get_tts_preferences(
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
@@ -175,7 +215,10 @@ async def get_tts_preferences(
     return success_response(preferences)
 
 
-@preferences_router.put("/me/tts-preferences")
+@preferences_router.put(
+    "/me/tts-preferences",
+    response_model=TypedSuccessResponse[TTSPreferencesResponse],
+)
 async def update_tts_preferences(
     preferences: TTSPreferencesUpdateRequest,
     request: Request,
@@ -209,7 +252,10 @@ async def update_tts_preferences(
     return success_response(_effective_tts_preferences_from_record(updated_record))
 
 
-@router.post("/{summary_id}/audio")
+@router.post(
+    "/{summary_id}/audio",
+    response_model=TypedSuccessResponse[TTSGenerationResponse],
+)
 async def generate_audio(
     summary_id: int,
     request: Request,
@@ -240,7 +286,10 @@ async def generate_audio(
     )
 
 
-@router.post("/audio/playlist")
+@router.post(
+    "/audio/playlist",
+    response_model=TypedSuccessResponse[TTSPlaylistResponse],
+)
 async def generate_audio_playlist(
     playlist: TTSPlaylistRequest,
     request: Request,
@@ -275,7 +324,11 @@ async def generate_audio_playlist(
     return success_response({"items": items})
 
 
-@router.get("/{summary_id}/audio")
+@router.get(
+    "/{summary_id}/audio",
+    response_class=FileResponse,
+    response_model=None,
+)
 async def get_audio(
     summary_id: int,
     request: Request,

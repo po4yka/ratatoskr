@@ -22,6 +22,22 @@ class ChannelSubscriptionResponse(BaseModel):
     created_at: datetime
 
 
+class ChannelSubscriptionsResponse(BaseModel):
+    """Channel subscriptions and the user's current slot usage."""
+
+    channels: list[ChannelSubscriptionResponse]
+    active_count: int
+    max_channels: int | None = None
+    unlimited_channels: bool
+
+
+class ChannelMutationResponse(BaseModel):
+    """Result of subscribing, unsubscribing, or updating a channel."""
+
+    status: str
+    username: str
+
+
 class SubscribeRequest(BaseModel):
     """Request to subscribe to a channel."""
 
@@ -94,6 +110,31 @@ class EmailAddressResponse(BaseModel):
     created_at: datetime
 
 
+class EmailAddressListResponse(BaseModel):
+    """Email addresses available for digest delivery."""
+
+    email_addresses: list[EmailAddressResponse]
+
+
+class EmailVerificationRequestResponse(BaseModel):
+    """Result of starting email address verification."""
+
+    id: int
+    email: str
+    status: str
+    email_sent: bool
+    verification_url: str | None = None
+
+
+class EmailVerificationResponse(BaseModel):
+    """Result of verifying an email address."""
+
+    id: int
+    email: str
+    is_verified: bool
+    verified_at: datetime | None = None
+
+
 class RequestEmailVerificationRequest(BaseModel):
     """Request a verification email for an address."""
 
@@ -122,11 +163,26 @@ class DigestDeliveryResponse(BaseModel):
     digest_type: str
 
 
+class DigestDeliveryListResponse(BaseModel):
+    """Paginated digest delivery history."""
+
+    deliveries: list[DigestDeliveryResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class TriggerDigestResponse(BaseModel):
     """Response for on-demand digest trigger."""
 
     status: str = "queued"
     correlation_id: str
+
+
+class TriggerChannelDigestResponse(TriggerDigestResponse):
+    """Response for an on-demand single-channel digest trigger."""
+
+    channel: str
 
 
 # --- Phase 2: Post preview models ---
@@ -180,6 +236,18 @@ class CategoryResponse(BaseModel):
     subscription_count: int = 0
 
 
+class CategoryListResponse(BaseModel):
+    """User-defined channel categories."""
+
+    categories: list[CategoryResponse]
+
+
+class StatusResponse(BaseModel):
+    """Status-only result for a completed mutation."""
+
+    status: str
+
+
 class AssignCategoryRequest(BaseModel):
     """Request to assign a subscription to a category."""
 
@@ -202,9 +270,18 @@ class BulkCategoryRequest(BaseModel):
     category_id: int | None = None
 
 
+class BulkOperationItem(BaseModel):
+    """Per-item result for a bulk channel operation."""
+
+    username: str | None = None
+    id: str | None = None
+    status: str
+    detail: str | None = None
+
+
 class BulkOperationResponse(BaseModel):
     """Response for bulk operations."""
 
-    results: list[dict[str, str]]
+    results: list[BulkOperationItem]
     success_count: int
     error_count: int

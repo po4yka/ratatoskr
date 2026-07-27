@@ -10,7 +10,12 @@ from fastapi import Header, HTTPException
 
 from app.api.dependencies.database import get_user_repository
 from app.api.exceptions import ProcessingError
-from app.api.models.responses import UserInfo, success_response
+from app.api.models.responses import (
+    SuccessFlagResponse,
+    TypedSuccessResponse,
+    UserInfo,
+    success_response,
+)
 from app.api.routers.auth._fastapi import APIRouter, Depends
 from app.api.routers.auth.dependencies import get_current_user
 from app.api.services.auth_service import AuthService
@@ -31,7 +36,7 @@ def _format_dt_z(dt_value: Any) -> str:
     return s if s.endswith("Z") else s + "Z"
 
 
-@router.get("/me")
+@router.get("/me", response_model=TypedSuccessResponse[UserInfo])
 async def get_current_user_info(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Get current authenticated user information."""
     user_repo = get_user_repository()
@@ -55,7 +60,7 @@ async def get_current_user_info(user: dict[str, Any] = Depends(get_current_user)
 _CONFIRM_DELETE_VALUE = "DELETE-MY-ACCOUNT"
 
 
-@router.delete("/me")
+@router.delete("/me", response_model=TypedSuccessResponse[SuccessFlagResponse])
 async def delete_account(
     user: dict[str, Any] = Depends(get_current_user),
     x_confirm_delete: str | None = Header(None),

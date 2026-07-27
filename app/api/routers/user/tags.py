@@ -12,7 +12,15 @@ from app.api.models.requests import (
     MergeTagsRequest,
     UpdateTagRequest,
 )
-from app.api.models.responses import TagListResponse, TagResponse, success_response
+from app.api.models.responses import (
+    TagDeletionResponse,
+    TagDetachResponse,
+    TagListResponse,
+    TagMergeResponse,
+    TagResponse,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
 from app.core.logging_utils import get_logger
@@ -82,7 +90,7 @@ async def _ensure_summary_owned(summary_id: int, user_id: int) -> None:
 # --- Tag CRUD endpoints ---
 
 
-@router.get("/")
+@router.get("/", response_model=TypedSuccessResponse[TagListResponse])
 async def list_tags(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -93,7 +101,11 @@ async def list_tags(
     return success_response(TagListResponse(tags=items))
 
 
-@router.post("/", status_code=201)
+@router.post(
+    "/",
+    status_code=201,
+    response_model=TypedSuccessResponse[TagResponse],
+)
 async def create_tag(
     body: CreateTagRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -124,7 +136,7 @@ async def create_tag(
     return success_response(_tag_to_response(tag))
 
 
-@router.get("/{tag_id}")
+@router.get("/{tag_id}", response_model=TypedSuccessResponse[TagResponse])
 async def get_tag(
     tag_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -136,7 +148,7 @@ async def get_tag(
     return success_response(_tag_to_response(tag))
 
 
-@router.patch("/{tag_id}")
+@router.patch("/{tag_id}", response_model=TypedSuccessResponse[TagResponse])
 async def update_tag(
     tag_id: int,
     body: UpdateTagRequest,
@@ -167,7 +179,10 @@ async def update_tag(
     return success_response(_tag_to_response(updated))
 
 
-@router.delete("/{tag_id}")
+@router.delete(
+    "/{tag_id}",
+    response_model=TypedSuccessResponse[TagDeletionResponse],
+)
 async def delete_tag(
     tag_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -181,7 +196,7 @@ async def delete_tag(
     return success_response({"deleted": True, "id": tag_id})
 
 
-@router.post("/merge")
+@router.post("/merge", response_model=TypedSuccessResponse[TagMergeResponse])
 async def merge_tags(
     body: MergeTagsRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -209,7 +224,10 @@ async def merge_tags(
 # --- Summary-tag attachment endpoints ---
 
 
-@summary_tags_router.get("/{summary_id}/tags")
+@summary_tags_router.get(
+    "/{summary_id}/tags",
+    response_model=TypedSuccessResponse[TagListResponse],
+)
 async def list_summary_tags(
     summary_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -220,7 +238,11 @@ async def list_summary_tags(
     return success_response(TagListResponse(tags=[_tag_to_response(tag) for tag in tags]))
 
 
-@summary_tags_router.post("/{summary_id}/tags", status_code=201)
+@summary_tags_router.post(
+    "/{summary_id}/tags",
+    status_code=201,
+    response_model=TypedSuccessResponse[TagListResponse],
+)
 async def attach_tags(
     summary_id: int,
     body: AttachTagsRequest,
@@ -274,7 +296,10 @@ async def attach_tags(
     return success_response(TagListResponse(tags=items))
 
 
-@summary_tags_router.delete("/{summary_id}/tags/{tag_id}")
+@summary_tags_router.delete(
+    "/{summary_id}/tags/{tag_id}",
+    response_model=TypedSuccessResponse[TagDetachResponse],
+)
 async def detach_tag(
     summary_id: int,
     tag_id: int,

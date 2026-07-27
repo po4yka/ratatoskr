@@ -276,7 +276,11 @@ async def refresh_feed(
 # --- OPML import/export ---
 
 
-@router.get("/export/opml")
+@router.get(
+    "/export/opml",
+    response_class=StreamingResponse,
+    response_model=None,
+)
 async def export_opml(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> StreamingResponse:

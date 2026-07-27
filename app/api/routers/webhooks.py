@@ -16,7 +16,13 @@ from app.api.models.requests import (  # noqa: TC001  # used at runtime in route
 )
 from app.api.models.responses import (
     PaginationInfo,
+    TypedSuccessResponse,
+    WebhookCreatedResponse,
+    WebhookDeletionResponse,
+    WebhookDeliveryListResponse,
     WebhookDeliveryResponse,
+    WebhookSecretResponse,
+    WebhookSubscriptionListResponse,
     WebhookSubscriptionResponse,
     success_response,
 )
@@ -113,7 +119,10 @@ def _validate_events(events: list[str]) -> None:
         )
 
 
-@router.get("/")
+@router.get(
+    "/",
+    response_model=TypedSuccessResponse[WebhookSubscriptionListResponse],
+)
 async def list_subscriptions(
     user: dict[str, Any] = Depends(get_current_user),
     webhook_repo: Any = Depends(get_webhook_repository),
@@ -124,7 +133,11 @@ async def list_subscriptions(
     return success_response({"subscriptions": [i.model_dump(by_alias=True) for i in items]})
 
 
-@router.post("/", status_code=201)
+@router.post(
+    "/",
+    status_code=201,
+    response_model=TypedSuccessResponse[WebhookCreatedResponse],
+)
 async def create_subscription(
     body: CreateWebhookRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -168,7 +181,10 @@ async def create_subscription(
     return success_response(data)
 
 
-@router.get("/{webhook_id}")
+@router.get(
+    "/{webhook_id}",
+    response_model=TypedSuccessResponse[WebhookSubscriptionResponse],
+)
 async def get_subscription(
     webhook_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -179,7 +195,10 @@ async def get_subscription(
     return success_response(_sub_to_response(sub))
 
 
-@router.patch("/{webhook_id}")
+@router.patch(
+    "/{webhook_id}",
+    response_model=TypedSuccessResponse[WebhookSubscriptionResponse],
+)
 async def update_subscription(
     webhook_id: int,
     body: UpdateWebhookRequest,
@@ -224,7 +243,10 @@ async def update_subscription(
     return success_response(_sub_to_response(updated))
 
 
-@router.delete("/{webhook_id}")
+@router.delete(
+    "/{webhook_id}",
+    response_model=TypedSuccessResponse[WebhookDeletionResponse],
+)
 async def delete_subscription(
     webhook_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -236,7 +258,10 @@ async def delete_subscription(
     return success_response({"deleted": True, "id": webhook_id})
 
 
-@router.post("/{webhook_id}/test")
+@router.post(
+    "/{webhook_id}/test",
+    response_model=TypedSuccessResponse[WebhookDeliveryResponse],
+)
 async def send_test_webhook(
     webhook_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -307,7 +332,10 @@ async def send_test_webhook(
     return success_response(_delivery_to_response(delivery))
 
 
-@router.get("/{webhook_id}/deliveries")
+@router.get(
+    "/{webhook_id}/deliveries",
+    response_model=TypedSuccessResponse[WebhookDeliveryListResponse],
+)
 async def list_deliveries(
     webhook_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -332,7 +360,10 @@ async def list_deliveries(
     )
 
 
-@router.post("/{webhook_id}/rotate-secret")
+@router.post(
+    "/{webhook_id}/rotate-secret",
+    response_model=TypedSuccessResponse[WebhookSecretResponse],
+)
 async def rotate_secret(
     webhook_id: int,
     user: dict[str, Any] = Depends(get_current_user),

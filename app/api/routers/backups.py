@@ -17,7 +17,16 @@ from app.api.dependencies.database import (
     get_user_repository,
 )
 from app.api.exceptions import APIException, ErrorCode, ResourceNotFoundError
-from app.api.models.responses import BackupResponse, RestoreDryRunResponse, success_response
+from app.api.models.responses import (
+    BackupDeletionResponse,
+    BackupListResponse,
+    BackupResponse,
+    BackupRestoreResponse,
+    BackupScheduleResponse,
+    RestoreDryRunResponse,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
 from app.config.backup import load_backup_config
@@ -96,7 +105,11 @@ async def _verify_ownership(repo: Any, backup_id: int, user_id: int) -> dict[str
 # ---------------------------------------------------------------------------
 
 
-@router.post("/", status_code=201)
+@router.post(
+    "/",
+    status_code=201,
+    response_model=TypedSuccessResponse[BackupResponse],
+)
 async def create_backup(
     background_tasks: BackgroundTasks,
     user: dict[str, Any] = Depends(get_current_user),
@@ -125,7 +138,7 @@ async def create_backup(
     return success_response(_backup_to_response(backup).model_dump(by_alias=True))
 
 
-@router.get("/")
+@router.get("/", response_model=TypedSuccessResponse[BackupListResponse])
 async def list_backups(
     user: dict[str, Any] = Depends(get_current_user),
     backup_repo: Any = Depends(get_backup_repository),
@@ -136,7 +149,10 @@ async def list_backups(
     return success_response({"backups": items})
 
 
-@router.post("/restore")
+@router.post(
+    "/restore",
+    response_model=TypedSuccessResponse[BackupRestoreResponse],
+)
 async def restore_backup(
     file: UploadFile,
     user: dict[str, Any] = Depends(get_current_user),
@@ -157,7 +173,10 @@ async def restore_backup(
     return success_response(summary)
 
 
-@router.post("/restore/dry-run")
+@router.post(
+    "/restore/dry-run",
+    response_model=TypedSuccessResponse[RestoreDryRunResponse],
+)
 async def dry_run_restore_backup(
     file: UploadFile,
     user: dict[str, Any] = Depends(get_current_user),
@@ -178,7 +197,10 @@ async def dry_run_restore_backup(
     return success_response(RestoreDryRunResponse(**summary).model_dump(by_alias=True))
 
 
-@router.patch("/schedule")
+@router.patch(
+    "/schedule",
+    response_model=TypedSuccessResponse[BackupScheduleResponse],
+)
 async def update_backup_schedule(
     body: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
@@ -223,7 +245,10 @@ async def update_backup_schedule(
     return success_response({"schedule": result})
 
 
-@router.get("/schedule")
+@router.get(
+    "/schedule",
+    response_model=TypedSuccessResponse[BackupScheduleResponse],
+)
 async def get_backup_schedule(
     user: dict[str, Any] = Depends(get_current_user),
     user_repo: Any = Depends(get_user_repository),
@@ -243,7 +268,7 @@ async def get_backup_schedule(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{backup_id}")
+@router.get("/{backup_id}", response_model=TypedSuccessResponse[BackupResponse])
 async def get_backup(
     backup_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -254,7 +279,11 @@ async def get_backup(
     return success_response(_backup_to_response(backup).model_dump(by_alias=True))
 
 
-@router.get("/{backup_id}/download")
+@router.get(
+    "/{backup_id}/download",
+    response_class=FileResponse,
+    response_model=None,
+)
 async def download_backup(
     backup_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -283,7 +312,10 @@ async def download_backup(
     return FileResponse(path=file_path, filename=filename, media_type=media_type)
 
 
-@router.post("/{backup_id}/verify")
+@router.post(
+    "/{backup_id}/verify",
+    response_model=TypedSuccessResponse[BackupResponse],
+)
 async def verify_backup(
     backup_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -328,7 +360,10 @@ async def verify_backup(
     return success_response(_backup_to_response(updated or backup).model_dump(by_alias=True))
 
 
-@router.delete("/{backup_id}")
+@router.delete(
+    "/{backup_id}",
+    response_model=TypedSuccessResponse[BackupDeletionResponse],
+)
 async def delete_backup(
     backup_id: int,
     user: dict[str, Any] = Depends(get_current_user),

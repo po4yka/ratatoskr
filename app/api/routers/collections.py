@@ -25,11 +25,14 @@ from app.api.models.responses import (
     CollectionAclResponse,
     CollectionIncomingInvite,
     CollectionIncomingInvitesResponse,
+    CollectionInviteResponse,
     CollectionItem,
+    CollectionEvaluationResponse,
     CollectionItemsMoveResponse,
     CollectionItemsResponse,
     CollectionListResponse,
     CollectionMoveResponse,
+    CollectionMutationResponse,
     CollectionPublicLinkListResponse,
     CollectionPublicLinkListSuccessResponse,
     CollectionPublicLinkResponse,
@@ -37,10 +40,12 @@ from app.api.models.responses import (
     CollectionPublicLinkRevocationSuccessResponse,
     CollectionPublicLinkSuccessResponse,
     CollectionResponse,
+    CollectionTreeResponse,
     PaginationInfo,
     PublicCollectionItemResponse,
     PublicCollectionResponse,
     PublicCollectionSuccessResponse,
+    TypedSuccessResponse,
     success_response,
 )
 from app.api.routers.auth import get_current_user
@@ -136,7 +141,7 @@ def _build_public_collection_response(payload: dict[str, Any]) -> PublicCollecti
     )
 
 
-@router.get("")
+@router.get("", response_model=TypedSuccessResponse[CollectionListResponse])
 async def get_collections(
     parent_id: int | None = Query(default=None, ge=1),
     membership: CollectionMembership = Query(default="any"),
@@ -172,7 +177,10 @@ async def get_collections(
     )
 
 
-@router.get("/invites/incoming")
+@router.get(
+    "/invites/incoming",
+    response_model=TypedSuccessResponse[CollectionIncomingInvitesResponse],
+)
 async def list_incoming_collection_invites(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -198,7 +206,7 @@ async def list_incoming_collection_invites(
     )
 
 
-@router.post("")
+@router.post("", response_model=TypedSuccessResponse[CollectionResponse])
 async def create_collection(
     body: CollectionCreateRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -222,7 +230,7 @@ async def create_collection(
     return success_response(_build_collection_response(collection))
 
 
-@router.get("/tree")
+@router.get("/tree", response_model=TypedSuccessResponse[CollectionTreeResponse])
 async def get_collection_tree(
     max_depth: int = Query(3, ge=1, le=10),
     user: dict[str, Any] = Depends(get_current_user),
@@ -240,7 +248,7 @@ async def get_collection_tree(
     return success_response({"collections": data})
 
 
-@router.get("/{collection_id}")
+@router.get("/{collection_id}", response_model=TypedSuccessResponse[CollectionResponse])
 async def get_collection(
     collection_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -252,7 +260,7 @@ async def get_collection(
     return success_response(_build_collection_response(collection))
 
 
-@router.patch("/{collection_id}")
+@router.patch("/{collection_id}", response_model=TypedSuccessResponse[CollectionResponse])
 async def update_collection(
     collection_id: int,
     body: CollectionUpdateRequest,
@@ -277,7 +285,10 @@ async def update_collection(
     return success_response(_build_collection_response(collection))
 
 
-@router.delete("/{collection_id}")
+@router.delete(
+    "/{collection_id}",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def delete_collection(
     collection_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -288,7 +299,10 @@ async def delete_collection(
     return success_response({"success": True})
 
 
-@router.post("/{collection_id}/items")
+@router.post(
+    "/{collection_id}/items",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def add_collection_item(
     collection_id: int,
     body: CollectionItemCreateRequest,
@@ -300,7 +314,10 @@ async def add_collection_item(
     return success_response({"success": True})
 
 
-@router.get("/{collection_id}/items")
+@router.get(
+    "/{collection_id}/items",
+    response_model=TypedSuccessResponse[CollectionItemsResponse],
+)
 async def list_collection_items(
     collection_id: int,
     limit: int = Query(50, ge=1, le=200),
@@ -329,7 +346,10 @@ async def list_collection_items(
     )
 
 
-@router.post("/{collection_id}/items/reorder")
+@router.post(
+    "/{collection_id}/items/reorder",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def reorder_collection_items(
     collection_id: int,
     body: CollectionItemReorderRequest,
@@ -344,7 +364,10 @@ async def reorder_collection_items(
     return success_response({"success": True})
 
 
-@router.post("/{collection_id}/items/move")
+@router.post(
+    "/{collection_id}/items/move",
+    response_model=TypedSuccessResponse[CollectionItemsMoveResponse],
+)
 async def move_collection_items(
     collection_id: int,
     body: CollectionItemMoveRequest,
@@ -361,7 +384,10 @@ async def move_collection_items(
     return success_response(CollectionItemsMoveResponse(moved_summary_ids=moved))
 
 
-@router.delete("/{collection_id}/items/{summary_id}")
+@router.delete(
+    "/{collection_id}/items/{summary_id}",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def remove_collection_item(
     collection_id: int,
     summary_id: int,
@@ -373,7 +399,10 @@ async def remove_collection_item(
     return success_response({"success": True})
 
 
-@router.post("/{collection_id}/reorder")
+@router.post(
+    "/{collection_id}/reorder",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def reorder_collections(
     collection_id: int,
     body: CollectionReorderRequest,
@@ -388,7 +417,10 @@ async def reorder_collections(
     return success_response({"success": True})
 
 
-@router.post("/{collection_id}/move")
+@router.post(
+    "/{collection_id}/move",
+    response_model=TypedSuccessResponse[CollectionMoveResponse],
+)
 async def move_collection(
     collection_id: int,
     body: CollectionMoveRequest,
@@ -415,7 +447,10 @@ async def move_collection(
     )
 
 
-@router.get("/{collection_id}/acl")
+@router.get(
+    "/{collection_id}/acl",
+    response_model=TypedSuccessResponse[CollectionAclResponse],
+)
 async def get_collection_acl(
     collection_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -455,7 +490,10 @@ async def get_collection_acl(
     return success_response(CollectionAclResponse(acl=payload))
 
 
-@router.post("/{collection_id}/share")
+@router.post(
+    "/{collection_id}/share",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def add_collection_collaborator(
     collection_id: int,
     body: CollectionShareRequest,
@@ -471,7 +509,10 @@ async def add_collection_collaborator(
     return success_response({"success": True})
 
 
-@router.delete("/{collection_id}/share/{target_user_id}")
+@router.delete(
+    "/{collection_id}/share/{target_user_id}",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def remove_collection_collaborator(
     collection_id: int,
     target_user_id: int,
@@ -548,7 +589,10 @@ async def revoke_collection_public_link(
     return success_response(CollectionPublicLinkRevocationResponse(revoked=True))
 
 
-@router.post("/{collection_id}/invite")
+@router.post(
+    "/{collection_id}/invite",
+    response_model=TypedSuccessResponse[CollectionInviteResponse],
+)
 async def create_collection_invite(
     collection_id: int,
     body: CollectionInviteRequest,
@@ -573,7 +617,10 @@ async def create_collection_invite(
     )
 
 
-@router.post("/invites/{token}/accept")
+@router.post(
+    "/invites/{token}/accept",
+    response_model=TypedSuccessResponse[CollectionMutationResponse],
+)
 async def accept_collection_invite(
     token: str,
     user: dict[str, Any] = Depends(get_current_user),
@@ -583,7 +630,10 @@ async def accept_collection_invite(
     return success_response({"success": True})
 
 
-@router.post("/{collection_id}/evaluate")
+@router.post(
+    "/{collection_id}/evaluate",
+    response_model=TypedSuccessResponse[CollectionEvaluationResponse],
+)
 async def evaluate_smart_collection(
     collection_id: int,
     user: dict[str, Any] = Depends(get_current_user),

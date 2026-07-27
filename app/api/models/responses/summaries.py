@@ -287,7 +287,7 @@ class SummaryRelatedReadsResponse(AliasCompatibleResponseModel):
     count: int
 
 
-class SearchResult(BaseModel):
+class SearchResult(AliasCompatibleResponseModel):
     request_id: int = Field(serialization_alias="requestId")
     summary_id: int = Field(serialization_alias="summaryId")
     url: str | None
@@ -307,7 +307,7 @@ class SearchResult(BaseModel):
     )
 
 
-class SearchResultsData(BaseModel):
+class SearchResultsData(AliasCompatibleResponseModel):
     results: list[SearchResult]
     pagination: PaginationInfo
     query: str

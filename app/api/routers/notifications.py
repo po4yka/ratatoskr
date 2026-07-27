@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies.database import get_device_repository
 from app.api.exceptions import ResourceNotFoundError
-from app.api.models.responses import success_response
+from app.api.models.responses import TypedSuccessResponse, success_response
 from app.api.routers.auth import get_current_user
 from app.core.logging_utils import get_logger
 
@@ -24,7 +24,14 @@ class DeviceRegistrationPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-@router.post("/device")
+class DeviceRegistrationResponse(BaseModel):
+    status: Literal["ok"]
+
+
+@router.post(
+    "/device",
+    response_model=TypedSuccessResponse[DeviceRegistrationResponse],
+)
 async def register_device(
     payload: DeviceRegistrationPayload,
     user_data: Annotated[dict[str, Any], Depends(get_current_user)],

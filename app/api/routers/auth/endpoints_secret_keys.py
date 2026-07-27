@@ -25,7 +25,12 @@ from app.api.models.auth import (
     SecretKeyRotateRequest,
     SecretLoginRequest,
 )
-from app.api.models.responses import AuthTokensResponse, TokenPair, success_response
+from app.api.models.responses import (
+    AuthTokensResponse,
+    TokenPair,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth._fastapi import APIRouter, Depends
 from app.api.routers.auth.argon2_offload import run_argon2
 from app.api.routers.auth.cookies import set_refresh_cookie
@@ -87,7 +92,7 @@ def _parse_naive_dt(value: Any) -> datetime | None:
     return None
 
 
-@router.post("/secret-login")
+@router.post("/secret-login", response_model=TypedSuccessResponse[AuthTokensResponse])
 async def secret_login(login_data: SecretLoginRequest, response: Response) -> Any:
     """Exchange a pre-registered client secret for JWT tokens."""
     ensure_secret_login_enabled()
@@ -202,7 +207,10 @@ async def secret_login(login_data: SecretLoginRequest, response: Response) -> An
     return success_response(AuthTokensResponse(tokens=tokens, session_id=session_id))
 
 
-@router.post("/secret-keys")
+@router.post(
+    "/secret-keys",
+    response_model=TypedSuccessResponse[SecretKeyCreateResponse],
+)
 async def create_secret_key(
     payload: SecretKeyCreateRequest, user: dict[str, Any] = Depends(get_current_user)
 ) -> Any:
@@ -245,7 +253,10 @@ async def create_secret_key(
     )
 
 
-@router.post("/secret-keys/{key_id}/rotate")
+@router.post(
+    "/secret-keys/{key_id}/rotate",
+    response_model=TypedSuccessResponse[SecretKeyCreateResponse],
+)
 async def rotate_secret_key(
     key_id: int, payload: SecretKeyRotateRequest, user: dict[str, Any] = Depends(get_current_user)
 ) -> Any:
@@ -312,7 +323,10 @@ async def rotate_secret_key(
     )
 
 
-@router.post("/secret-keys/{key_id}/revoke")
+@router.post(
+    "/secret-keys/{key_id}/revoke",
+    response_model=TypedSuccessResponse[SecretKeyActionResponse],
+)
 async def revoke_secret_key(
     key_id: int,
     payload: SecretKeyRevokeRequest | None = None,
@@ -362,7 +376,10 @@ async def revoke_secret_key(
     return success_response(SecretKeyActionResponse(key=serialize_secret(updated_record or {})))
 
 
-@router.get("/secret-keys")
+@router.get(
+    "/secret-keys",
+    response_model=TypedSuccessResponse[SecretKeyListResponse],
+)
 async def list_secret_keys(
     user: dict[str, Any] = Depends(get_current_user),
     user_id: int | None = None,

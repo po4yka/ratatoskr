@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from .common import AliasCompatibleResponseModel, PaginationInfo, SuccessResponse
 
 
-class CollectionResponse(BaseModel):
+class CollectionResponse(AliasCompatibleResponseModel):
     id: int
     name: str
     description: str | None = None
@@ -35,7 +35,7 @@ class CollectionListResponse(BaseModel):
     pagination: PaginationInfo | None = None
 
 
-class CollectionItem(BaseModel):
+class CollectionItem(AliasCompatibleResponseModel):
     collection_id: int = Field(serialization_alias="collectionId")
     summary_id: int = Field(serialization_alias="summaryId")
     position: int | None = None
@@ -47,7 +47,7 @@ class CollectionItemsResponse(BaseModel):
     pagination: PaginationInfo
 
 
-class CollectionAclEntry(BaseModel):
+class CollectionAclEntry(AliasCompatibleResponseModel):
     user_id: int | None = Field(default=None, serialization_alias="userId")
     role: Literal["owner", "editor", "viewer"]
     status: Literal["active", "pending", "revoked"]
@@ -60,13 +60,13 @@ class CollectionAclResponse(BaseModel):
     acl: list[CollectionAclEntry]
 
 
-class CollectionInviteResponse(BaseModel):
+class CollectionInviteResponse(AliasCompatibleResponseModel):
     token: str
     role: Literal["editor", "viewer"]
     expires_at: str | None = Field(default=None, serialization_alias="expiresAt")
 
 
-class CollectionIncomingInvite(BaseModel):
+class CollectionIncomingInvite(AliasCompatibleResponseModel):
     id: int
     token: str
     role: Literal["editor", "viewer"]
@@ -82,7 +82,7 @@ class CollectionIncomingInvitesResponse(BaseModel):
     pagination: PaginationInfo | None = None
 
 
-class CollectionMoveResponse(BaseModel):
+class CollectionMoveResponse(AliasCompatibleResponseModel):
     id: int
     parent_id: int | None = Field(serialization_alias="parentId")
     position: int
@@ -90,8 +90,20 @@ class CollectionMoveResponse(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
-class CollectionItemsMoveResponse(BaseModel):
+class CollectionItemsMoveResponse(AliasCompatibleResponseModel):
     moved_summary_ids: list[int] = Field(serialization_alias="movedSummaryIds")
+
+
+class CollectionMutationResponse(BaseModel):
+    success: bool
+
+
+class CollectionTreeResponse(BaseModel):
+    collections: list[CollectionResponse]
+
+
+class CollectionEvaluationResponse(AliasCompatibleResponseModel):
+    item_count: int = Field(serialization_alias="itemCount")
 
 
 class CollectionPublicLinkResponse(AliasCompatibleResponseModel):

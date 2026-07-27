@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .common import AliasCompatibleResponseModel
 
-class BackupResponse(BaseModel):
+
+class BackupResponse(AliasCompatibleResponseModel):
     id: int
     type: str
     status: str
@@ -23,7 +25,7 @@ class BackupResponse(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
-class RestoreDryRunResponse(BaseModel):
+class RestoreDryRunResponse(AliasCompatibleResponseModel):
     valid: bool
     compatible: bool
     schema_version: str | None = Field(default=None, serialization_alias="schemaVersion")
@@ -41,7 +43,7 @@ class RestoreDryRunResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
-class ImportJobResponse(BaseModel):
+class ImportJobResponse(AliasCompatibleResponseModel):
     id: int
     source_format: str = Field(serialization_alias="sourceFormat")
     file_name: str | None = Field(default=None, serialization_alias="fileName")
@@ -54,3 +56,37 @@ class ImportJobResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
     created_at: str = Field(serialization_alias="createdAt")
     updated_at: str = Field(serialization_alias="updatedAt")
+
+
+class BackupListResponse(BaseModel):
+    backups: list[BackupResponse]
+
+
+class BackupRestoreResponse(BaseModel):
+    restored: dict[str, int]
+    skipped: dict[str, int]
+    errors: list[str]
+
+
+class BackupSchedule(BaseModel):
+    backup_enabled: bool | None = None
+    backup_frequency: str | None = None
+    backup_retention_count: int | None = None
+
+
+class BackupScheduleResponse(BaseModel):
+    schedule: BackupSchedule
+
+
+class BackupDeletionResponse(BaseModel):
+    deleted: bool
+    id: int
+
+
+class ImportJobListResponse(BaseModel):
+    jobs: list[ImportJobResponse]
+
+
+class ImportJobDeletionResponse(BaseModel):
+    deleted: bool
+    id: int

@@ -15,8 +15,13 @@ from app.api.models.requests import (  # noqa: TC001  # used at runtime in route
 )
 from app.api.models.responses import (
     PaginationInfo,
+    RuleDeletionResponse,
+    RuleDryRunResponse,
+    RuleListResponse,
+    RuleLogListResponse,
     RuleLogResponse,
     RuleResponse,
+    TypedSuccessResponse,
     success_response,
 )
 from app.api.routers.auth import get_current_user
@@ -79,7 +84,7 @@ def _verify_rule_ownership(
     return rule
 
 
-@router.get("/")
+@router.get("/", response_model=TypedSuccessResponse[RuleListResponse])
 async def list_rules(
     user: dict[str, Any] = Depends(get_current_user),
     rule_repo: Any = Depends(get_rule_repository),
@@ -90,7 +95,11 @@ async def list_rules(
     return success_response({"rules": [i.model_dump(by_alias=True) for i in items]})
 
 
-@router.post("/", status_code=201)
+@router.post(
+    "/",
+    status_code=201,
+    response_model=TypedSuccessResponse[RuleResponse],
+)
 async def create_rule(
     body: CreateRuleRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -123,7 +132,7 @@ async def create_rule(
     return success_response(_rule_to_response(rule))
 
 
-@router.get("/{rule_id}")
+@router.get("/{rule_id}", response_model=TypedSuccessResponse[RuleResponse])
 async def get_rule(
     rule_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -135,7 +144,7 @@ async def get_rule(
     return success_response(_rule_to_response(rule))
 
 
-@router.patch("/{rule_id}")
+@router.patch("/{rule_id}", response_model=TypedSuccessResponse[RuleResponse])
 async def update_rule(
     rule_id: int,
     body: UpdateRuleRequest,
@@ -185,7 +194,10 @@ async def update_rule(
     return success_response(_rule_to_response(updated))
 
 
-@router.delete("/{rule_id}")
+@router.delete(
+    "/{rule_id}",
+    response_model=TypedSuccessResponse[RuleDeletionResponse],
+)
 async def delete_rule(
     rule_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -199,7 +211,10 @@ async def delete_rule(
     return success_response({"deleted": True, "id": rule_id})
 
 
-@router.post("/{rule_id}/test")
+@router.post(
+    "/{rule_id}/test",
+    response_model=TypedSuccessResponse[RuleDryRunResponse],
+)
 async def dry_run_rule(
     rule_id: int,
     body: TestRuleRequest,
@@ -259,7 +274,10 @@ async def dry_run_rule(
     )
 
 
-@router.get("/{rule_id}/logs")
+@router.get(
+    "/{rule_id}/logs",
+    response_model=TypedSuccessResponse[RuleLogListResponse],
+)
 async def list_execution_logs(
     rule_id: int,
     user: dict[str, Any] = Depends(get_current_user),

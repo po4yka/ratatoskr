@@ -12,6 +12,11 @@ from app.api.email_errors import raise_email_api_error
 from app.api.models.digest import SendEmailRequest  # noqa: TC001
 from app.api.models.requests import CreateCustomDigestRequest  # noqa: TC001
 from app.api.models.responses import success_response
+from app.api.models.responses.digest import (
+    CustomDigestListSuccessResponse,
+    CustomDigestSuccessResponse,
+    EmailDeliverySuccessResponse,
+)
 from app.api.routers.auth import get_current_user
 from app.api.services.custom_digest_service import CustomDigestService
 from app.config import load_config
@@ -35,7 +40,7 @@ def _get_custom_digest_service(request: Request) -> CustomDigestService:
     return CustomDigestService()
 
 
-@router.post("")
+@router.post("", response_model=CustomDigestSuccessResponse)
 async def create_custom_digest(
     body: CreateCustomDigestRequest,
     request: Request,
@@ -52,7 +57,7 @@ async def create_custom_digest(
     return success_response(payload, correlation_id=correlation_id)
 
 
-@router.get("")
+@router.get("", response_model=CustomDigestListSuccessResponse)
 async def list_custom_digests(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -61,7 +66,7 @@ async def list_custom_digests(
     return success_response({"digests": digests})
 
 
-@router.get("/{digest_id}")
+@router.get("/{digest_id}", response_model=CustomDigestSuccessResponse)
 async def get_custom_digest(
     digest_id: str,
     user: dict[str, Any] = Depends(get_current_user),
@@ -71,7 +76,7 @@ async def get_custom_digest(
     return success_response(digest)
 
 
-@router.post("/{digest_id}/email")
+@router.post("/{digest_id}/email", response_model=EmailDeliverySuccessResponse)
 async def email_custom_digest(
     digest_id: str,
     body: SendEmailRequest,

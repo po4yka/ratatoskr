@@ -18,6 +18,12 @@ from fastapi import APIRouter, Depends, Request
 
 from app.api.dependencies.database import get_session_manager
 from app.api.models.responses import success_response
+from app.api.models.responses.common import TypedSuccessResponse
+from app.api.models.responses.operational import (
+    DetailedHealthData,
+    LivenessData,
+    ReadinessData,
+)
 from app.api.routers.auth import AuthenticatedUser, get_current_user
 from app.api.services.auth_service import AuthService
 from app.config import load_config
@@ -260,7 +266,7 @@ def _get_circuit_breaker_states() -> dict[str, str]:
     return {"status": "managed_by_clients"}
 
 
-@router.get("/health/detailed")
+@router.get("/health/detailed", response_model=TypedSuccessResponse[DetailedHealthData])
 async def detailed_health_check(
     request: Request, user: AuthenticatedUser = Depends(get_current_user)
 ) -> Any:
@@ -340,7 +346,28 @@ async def detailed_health_check(
     )
 
 
-@router.get("/health/ready")
+@router.get(
+    "/health/ready",
+    response_model=TypedSuccessResponse[ReadinessData],
+    responses={
+        503: {
+            "description": "Database is not ready",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["ready", "error", "timestamp"],
+                        "properties": {
+                            "ready": {"type": "boolean", "const": False},
+                            "error": {"type": "string"},
+                            "timestamp": {"type": "string"},
+                        },
+                    }
+                }
+            },
+        }
+    },
+)
 async def readiness_check() -> Any:
     """Kubernetes readiness probe — intentionally unauthenticated.
 
@@ -373,7 +400,7 @@ async def readiness_check() -> Any:
     )
 
 
-@router.get("/health/live")
+@router.get("/health/live", response_model=TypedSuccessResponse[LivenessData])
 async def liveness_check() -> Any:
     """Kubernetes liveness probe — intentionally unauthenticated.
 

@@ -27,6 +27,23 @@ from app.api.models.digest import (  # noqa: TC001 - used at runtime by FastAPI
     VerifyEmailRequest,
 )
 from app.api.models.responses import success_response
+from app.api.models.responses.digest import (
+    BulkOperationSuccessResponse,
+    CategoryListSuccessResponse,
+    CategorySuccessResponse,
+    ChannelMutationSuccessResponse,
+    ChannelPostsSuccessResponse,
+    ChannelSubscriptionsSuccessResponse,
+    DigestDeliveryListSuccessResponse,
+    DigestPreferenceSuccessResponse,
+    EmailAddressListSuccessResponse,
+    EmailVerificationRequestSuccessResponse,
+    EmailVerificationSuccessResponse,
+    ResolveChannelSuccessResponse,
+    StatusSuccessResponse,
+    TriggerChannelDigestSuccessResponse,
+    TriggerDigestSuccessResponse,
+)
 from app.api.routers.auth.dependencies import get_webapp_user
 from app.api.routers.operation_streams import (
     DIGEST_RUN_STREAM_RESPONSES,
@@ -42,7 +59,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-@router.get("/channels")
+@router.get("/channels", response_model=ChannelSubscriptionsSuccessResponse)
 async def list_channels(
     user: dict[str, Any] = Depends(get_webapp_user),
     digest_facade: DigestFacade = Depends(get_digest_facade),
@@ -52,7 +69,7 @@ async def list_channels(
     return success_response(data)
 
 
-@router.post("/channels/subscribe")
+@router.post("/channels/subscribe", response_model=ChannelMutationSuccessResponse)
 async def subscribe_channel(
     body: SubscribeRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -65,7 +82,7 @@ async def subscribe_channel(
     return success_response(data)
 
 
-@router.post("/channels/unsubscribe")
+@router.post("/channels/unsubscribe", response_model=ChannelMutationSuccessResponse)
 async def unsubscribe_channel(
     body: SubscribeRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -78,7 +95,7 @@ async def unsubscribe_channel(
     return success_response(data)
 
 
-@router.post("/channels/resolve")
+@router.post("/channels/resolve", response_model=ResolveChannelSuccessResponse)
 async def resolve_channel(
     body: ResolveChannelRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -89,7 +106,10 @@ async def resolve_channel(
     return success_response(data)
 
 
-@router.patch("/channels/{username}/controls")
+@router.patch(
+    "/channels/{username}/controls",
+    response_model=ChannelMutationSuccessResponse,
+)
 def update_channel_controls(
     body: ChannelControlRequest,
     username: str = Path(..., min_length=5, max_length=32),
@@ -105,7 +125,7 @@ def update_channel_controls(
     return success_response(data)
 
 
-@router.post("/channels/{username}/retry")
+@router.post("/channels/{username}/retry", response_model=ChannelMutationSuccessResponse)
 async def retry_channel(
     username: str = Path(..., min_length=5, max_length=32),
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -117,7 +137,7 @@ async def retry_channel(
     return success_response(data)
 
 
-@router.get("/channels/{username}/posts")
+@router.get("/channels/{username}/posts", response_model=ChannelPostsSuccessResponse)
 def list_channel_posts(
     username: str = Path(..., min_length=5, max_length=32),
     limit: int = Query(10, ge=1, le=50),
@@ -130,7 +150,11 @@ def list_channel_posts(
     return success_response(data)
 
 
-@router.post("/channels/bulk-unsubscribe")
+@router.post(
+    "/channels/bulk-unsubscribe",
+    response_model=BulkOperationSuccessResponse,
+    response_model_exclude_none=True,
+)
 def bulk_unsubscribe(
     body: BulkUnsubscribeRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -141,7 +165,11 @@ def bulk_unsubscribe(
     return success_response(data)
 
 
-@router.patch("/channels/bulk-category")
+@router.patch(
+    "/channels/bulk-category",
+    response_model=BulkOperationSuccessResponse,
+    response_model_exclude_none=True,
+)
 def bulk_assign_category(
     body: BulkCategoryRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -154,7 +182,7 @@ def bulk_assign_category(
     return success_response(data)
 
 
-@router.get("/preferences")
+@router.get("/preferences", response_model=DigestPreferenceSuccessResponse)
 def get_preferences(
     user: dict[str, Any] = Depends(get_webapp_user),
     digest_facade: DigestFacade = Depends(get_digest_facade),
@@ -164,7 +192,7 @@ def get_preferences(
     return success_response(data)
 
 
-@router.patch("/preferences")
+@router.patch("/preferences", response_model=DigestPreferenceSuccessResponse)
 def update_preferences(
     body: UpdatePreferenceRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -176,7 +204,7 @@ def update_preferences(
     return success_response(data)
 
 
-@router.get("/email-addresses")
+@router.get("/email-addresses", response_model=EmailAddressListSuccessResponse)
 async def list_email_addresses(
     user: dict[str, Any] = Depends(get_webapp_user),
 ) -> dict[str, Any]:
@@ -186,7 +214,11 @@ async def list_email_addresses(
     return success_response({"email_addresses": data})
 
 
-@router.post("/email-addresses/request-verification")
+@router.post(
+    "/email-addresses/request-verification",
+    response_model=EmailVerificationRequestSuccessResponse,
+    response_model_exclude_none=True,
+)
 async def request_email_verification(
     body: RequestEmailVerificationRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -200,7 +232,7 @@ async def request_email_verification(
     return success_response(data)
 
 
-@router.post("/email-addresses/verify")
+@router.post("/email-addresses/verify", response_model=EmailVerificationSuccessResponse)
 async def verify_email_address(body: VerifyEmailRequest) -> dict[str, Any]:
     """Verify an email address with a one-time token."""
     service = EmailDeliveryService(load_config().email)
@@ -211,7 +243,7 @@ async def verify_email_address(body: VerifyEmailRequest) -> dict[str, Any]:
     return success_response(data)
 
 
-@router.get("/history")
+@router.get("/history", response_model=DigestDeliveryListSuccessResponse)
 def list_history(
     user: dict[str, Any] = Depends(get_webapp_user),
     limit: int = Query(20, ge=1, le=100),
@@ -223,7 +255,7 @@ def list_history(
     return success_response(data)
 
 
-@router.post("/trigger")
+@router.post("/trigger", response_model=TriggerDigestSuccessResponse)
 async def trigger_digest(
     user: dict[str, Any] = Depends(get_webapp_user),
     digest_facade: DigestFacade = Depends(get_digest_facade),
@@ -236,6 +268,7 @@ async def trigger_digest(
 
 @router.get(
     "/runs/{run_id}/stream",
+    response_model=None,
     response_class=EventSourceResponse,
     responses=DIGEST_RUN_STREAM_RESPONSES,
 )
@@ -247,7 +280,7 @@ async def stream_digest_run(
     return event_source_for_operation_topic(digest_run_topic(run_id))
 
 
-@router.post("/trigger-channel")
+@router.post("/trigger-channel", response_model=TriggerChannelDigestSuccessResponse)
 async def trigger_channel_digest(
     body: SubscribeRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -266,7 +299,7 @@ async def trigger_channel_digest(
 # --- Categories ---
 
 
-@router.get("/categories")
+@router.get("/categories", response_model=CategoryListSuccessResponse)
 def list_categories(
     user: dict[str, Any] = Depends(get_webapp_user),
     digest_facade: DigestFacade = Depends(get_digest_facade),
@@ -276,7 +309,7 @@ def list_categories(
     return success_response({"categories": data})
 
 
-@router.post("/categories")
+@router.post("/categories", response_model=CategorySuccessResponse)
 def create_category(
     body: CategoryRequest,
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -287,7 +320,7 @@ def create_category(
     return success_response(data)
 
 
-@router.patch("/categories/{category_id}")
+@router.patch("/categories/{category_id}", response_model=CategorySuccessResponse)
 def update_category(
     body: CategoryRequest,
     category_id: int = Path(...),
@@ -299,7 +332,7 @@ def update_category(
     return success_response(data)
 
 
-@router.delete("/categories/{category_id}")
+@router.delete("/categories/{category_id}", response_model=StatusSuccessResponse)
 def delete_category(
     category_id: int = Path(...),
     user: dict[str, Any] = Depends(get_webapp_user),
@@ -310,7 +343,10 @@ def delete_category(
     return success_response(data)
 
 
-@router.patch("/channels/{subscription_id}/category")
+@router.patch(
+    "/channels/{subscription_id}/category",
+    response_model=StatusSuccessResponse,
+)
 def assign_category(
     body: AssignCategoryRequest,
     subscription_id: int = Path(...),

@@ -11,6 +11,7 @@ from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel as _BulkBaseModel, Field
 
 from app.adapters.email.service import EmailDeliveryError, EmailDeliveryService
@@ -25,6 +26,7 @@ from app.api.exceptions import (
     ValidationError,
 )
 from app.api.models.digest import SendEmailRequest
+from app.api.models.responses.digest import EmailDeliverySuccessResponse
 from app.api.models.requests import (
     SaveReadingPositionRequest,
     SubmitFeedbackRequest,
@@ -812,7 +814,7 @@ async def get_summary(
     )
 
 
-@router.post("/{summary_id}/email")
+@router.post("/{summary_id}/email", response_model=EmailDeliverySuccessResponse)
 async def email_summary(
     summary_id: int,
     body: SendEmailRequest,
@@ -952,7 +954,11 @@ async def backfill_summary_content(
     )
 
 
-@router.get("/{summary_id}/export")
+@router.get(
+    "/{summary_id}/export",
+    response_class=FileResponse,
+    response_model=None,
+)
 async def export_summary(
     summary_id: int,
     format: str = Query("pdf", pattern="^(pdf|md|html)$"),
@@ -960,7 +966,6 @@ async def export_summary(
     use_case: SummaryReadModelUseCase = Depends(_get_summary_use_case),
 ) -> Any:
     """Export a summary as PDF, Markdown, or HTML."""
-    from fastapi.responses import FileResponse
     from starlette.background import BackgroundTask
 
     from app.adapters.external.formatting.export_formatter import ExportFormatter

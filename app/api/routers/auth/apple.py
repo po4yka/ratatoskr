@@ -19,7 +19,7 @@ from app.api.models.auth import (
     AppleSignInStartRequest,
     AppleSignInStartResponse,
 )
-from app.api.models.responses import success_response
+from app.api.models.responses import AuthTokensResponse, TypedSuccessResponse, success_response
 from app.api.routers.auth._fastapi import APIRouter
 from app.api.routers.auth.credential_auth import canonicalize_email, ensure_user_allowed
 from app.api.routers.auth.identity_tokens import issue_auth_tokens
@@ -44,7 +44,10 @@ _APPLE_JWKS_CLIENT: jwt.PyJWKClient = jwt.PyJWKClient(
 )
 
 
-@router.post("/apple/start")
+@router.post(
+    "/apple/start",
+    response_model=TypedSuccessResponse[AppleSignInStartResponse],
+)
 async def start_apple_sign_in(payload: AppleSignInStartRequest) -> Any:
     """Build Apple Sign-In authorization parameters for the client."""
     validate_client_id(payload.client_id)
@@ -76,7 +79,10 @@ async def start_apple_sign_in(payload: AppleSignInStartRequest) -> Any:
     )
 
 
-@router.post("/apple/callback")
+@router.post(
+    "/apple/callback",
+    response_model=TypedSuccessResponse[AuthTokensResponse],
+)
 async def apple_callback(payload: AppleSignInCallbackRequest, response: Response) -> Any:
     """Validate an Apple id_token and issue Ratatoskr JWTs."""
     validate_client_id(payload.client_id)

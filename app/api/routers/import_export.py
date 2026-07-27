@@ -10,7 +10,13 @@ from starlette.responses import StreamingResponse
 
 from app.api.exceptions import APIException, ErrorCode
 from app.api.models.requests import ImportOptionsRequest
-from app.api.models.responses import success_response
+from app.api.models.responses import (
+    ImportJobDeletionResponse,
+    ImportJobListResponse,
+    ImportJobResponse,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth import get_current_user
 from app.api.services.import_export_service import ImportExportService
 from app.config.settings import load_config
@@ -74,7 +80,11 @@ def _bookmark_to_dict(bookmark: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/import", status_code=201)
+@router.post(
+    "/import",
+    status_code=201,
+    response_model=TypedSuccessResponse[ImportJobResponse],
+)
 async def import_bookmarks(
     file: UploadFile = File(...),
     options: str = Form(default="{}"),
@@ -150,7 +160,10 @@ async def import_bookmarks(
     return success_response(job)
 
 
-@router.get("/import/{job_id}")
+@router.get(
+    "/import/{job_id}",
+    response_model=TypedSuccessResponse[ImportJobResponse],
+)
 async def get_import_job(
     job_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -160,7 +173,7 @@ async def get_import_job(
     return success_response(job)
 
 
-@router.get("/import")
+@router.get("/import", response_model=TypedSuccessResponse[ImportJobListResponse])
 async def list_import_jobs(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -169,7 +182,10 @@ async def list_import_jobs(
     return success_response({"jobs": jobs})
 
 
-@router.delete("/import/{job_id}")
+@router.delete(
+    "/import/{job_id}",
+    response_model=TypedSuccessResponse[ImportJobDeletionResponse],
+)
 async def delete_import_job(
     job_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -184,7 +200,11 @@ async def delete_import_job(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/export")
+@router.get(
+    "/export",
+    response_class=StreamingResponse,
+    response_model=None,
+)
 async def export_bookmarks(
     format: str = Query(default="json", pattern="^(json|csv|html)$"),
     tag: str | None = Query(default=None),

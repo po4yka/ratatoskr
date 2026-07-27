@@ -11,7 +11,11 @@ from sqlalchemy import select
 from app.adapters.export.dispatcher import SUPPORTED_EXPORT_PROVIDERS, SummaryExportDispatcher
 from app.api.dependencies.database import get_session_manager
 from app.api.exceptions import APIException, ErrorCode, ResourceNotFoundError
-from app.api.models.responses import success_response
+from app.api.models.responses import (
+    AliasCompatibleResponseModel,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
 from app.db.models import ExportDeliveryLog, UserExportIntegration
@@ -53,7 +57,7 @@ class ExportIntegrationUpdateRequest(BaseModel):
     enabled: bool | None = None
 
 
-class ExportIntegrationResponse(BaseModel):
+class ExportIntegrationResponse(AliasCompatibleResponseModel):
     id: int
     provider: str
     name: str | None
@@ -64,7 +68,7 @@ class ExportIntegrationResponse(BaseModel):
     updated_at: str = Field(serialization_alias="updatedAt")
 
 
-class ExportDeliveryLogResponse(BaseModel):
+class ExportDeliveryLogResponse(AliasCompatibleResponseModel):
     id: int
     integration_id: int = Field(serialization_alias="integrationId")
     provider: str
@@ -77,7 +81,28 @@ class ExportDeliveryLogResponse(BaseModel):
     created_at: str = Field(serialization_alias="createdAt")
 
 
-@router.get("/export-integrations")
+class ExportIntegrationListResponse(BaseModel):
+    integrations: list[ExportIntegrationResponse]
+
+
+class ExportIntegrationRevocationResponse(BaseModel):
+    revoked: bool
+    id: int
+
+
+class ExportDeliveryListResponse(BaseModel):
+    deliveries: list[ExportDeliveryLogResponse]
+
+
+class ExportQueuedResponse(AliasCompatibleResponseModel):
+    queued: bool
+    summary_id: int = Field(serialization_alias="summaryId")
+
+
+@router.get(
+    "/export-integrations",
+    response_model=TypedSuccessResponse[ExportIntegrationListResponse],
+)
 async def list_export_integrations(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -95,7 +120,11 @@ async def list_export_integrations(
         )
 
 
-@router.post("/export-integrations", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/export-integrations",
+    status_code=status.HTTP_201_CREATED,
+    response_model=TypedSuccessResponse[ExportIntegrationResponse],
+)
 async def create_export_integration(
     body: ExportIntegrationCreateRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -117,7 +146,10 @@ async def create_export_integration(
         return success_response(_integration_response(row))
 
 
-@router.patch("/export-integrations/{integration_id}")
+@router.patch(
+    "/export-integrations/{integration_id}",
+    response_model=TypedSuccessResponse[ExportIntegrationResponse],
+)
 async def update_export_integration(
     body: ExportIntegrationUpdateRequest,
     integration_id: int = Path(..., ge=1),
@@ -145,7 +177,10 @@ async def update_export_integration(
         return success_response(_integration_response(row))
 
 
-@router.delete("/export-integrations/{integration_id}")
+@router.delete(
+    "/export-integrations/{integration_id}",
+    response_model=TypedSuccessResponse[ExportIntegrationRevocationResponse],
+)
 async def revoke_export_integration(
     integration_id: int = Path(..., ge=1),
     user: dict[str, Any] = Depends(get_current_user),
@@ -159,7 +194,10 @@ async def revoke_export_integration(
     return success_response({"revoked": True, "id": integration_id})
 
 
-@router.get("/export-integrations/{integration_id}/deliveries")
+@router.get(
+    "/export-integrations/{integration_id}/deliveries",
+    response_model=TypedSuccessResponse[ExportDeliveryListResponse],
+)
 async def list_export_deliveries(
     integration_id: int = Path(..., ge=1),
     limit: int = Query(50, ge=1, le=100),
@@ -188,7 +226,10 @@ async def list_export_deliveries(
         )
 
 
-@router.post("/export-integrations/{integration_id}/test")
+@router.post(
+    "/export-integrations/{integration_id}/test",
+    response_model=TypedSuccessResponse[ExportQueuedResponse],
+)
 async def send_test_export_integration(
     integration_id: int = Path(..., ge=1),
     summary_id: int = Query(..., ge=1),

@@ -22,9 +22,15 @@ from app.api.exceptions import (
 from app.api.models.auth import (
     TelegramLinkBeginResponse,
     TelegramLinkCompleteRequest,
+    TelegramLinkStatus,
     TelegramLoginRequest,
 )
-from app.api.models.responses import AuthTokensResponse, TokenPair, success_response
+from app.api.models.responses import (
+    AuthTokensResponse,
+    TokenPair,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth._fastapi import APIRouter, Depends
 from app.api.routers.auth.cookies import set_refresh_cookie
 from app.api.routers.auth.dependencies import get_current_user
@@ -46,7 +52,7 @@ router = APIRouter()
 
 
 # Behavior verified by test_telegram_login_token_delivery in tests/api/test_auth_token_delivery.py
-@router.post("/telegram-login")
+@router.post("/telegram-login", response_model=TypedSuccessResponse[AuthTokensResponse])
 async def telegram_login(login_data: TelegramLoginRequest, response: Response) -> Any:
     """
     Exchange Telegram authentication data for JWT tokens.
@@ -112,14 +118,17 @@ async def telegram_login(login_data: TelegramLoginRequest, response: Response) -
         raise ProcessingError("Authentication failed. Please try again.") from e
 
 
-@router.get("/me/telegram")
+@router.get("/me/telegram", response_model=TypedSuccessResponse[TelegramLinkStatus])
 async def get_telegram_link_status(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Fetch current Telegram link status."""
     user_record = await AuthService.ensure_user(user["user_id"])
     return success_response(AuthService.build_link_status_payload(user_record))
 
 
-@router.post("/me/telegram/link")
+@router.post(
+    "/me/telegram/link",
+    response_model=TypedSuccessResponse[TelegramLinkBeginResponse],
+)
 async def begin_telegram_link(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Begin linking by issuing a nonce."""
     await AuthService.ensure_user(user["user_id"])
@@ -133,7 +142,10 @@ async def begin_telegram_link(user: dict[str, Any] = Depends(get_current_user)) 
     )
 
 
-@router.post("/me/telegram/complete")
+@router.post(
+    "/me/telegram/complete",
+    response_model=TypedSuccessResponse[TelegramLinkStatus],
+)
 async def complete_telegram_link(
     payload: TelegramLinkCompleteRequest, user: dict[str, Any] = Depends(get_current_user)
 ) -> Any:
@@ -195,7 +207,7 @@ async def complete_telegram_link(
     return success_response(AuthService.build_link_status_payload(updated_user))
 
 
-@router.delete("/me/telegram")
+@router.delete("/me/telegram", response_model=TypedSuccessResponse[TelegramLinkStatus])
 async def unlink_telegram(user: dict[str, Any] = Depends(get_current_user)) -> Any:
     """Unlink Telegram account."""
     user_id = user["user_id"]

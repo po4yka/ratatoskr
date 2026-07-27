@@ -5,12 +5,17 @@ from __future__ import annotations
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
+from pydantic import Field
 
 from app.api.exceptions import ValidationError
 from app.api.models.requests import (  # noqa: TC001  # used at runtime in route body annotation
     QuickSaveRequest,
 )
-from app.api.models.responses import success_response
+from app.api.models.responses import (
+    AliasCompatibleResponseModel,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth import get_current_user
 from app.application.services.request_service import RequestService
 from app.core.logging_utils import get_logger
@@ -20,6 +25,16 @@ from app.domain.services.tag_service import normalize_tag_name, validate_tag_nam
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+class QuickSaveResponse(AliasCompatibleResponseModel):
+    request_id: int | None = Field(serialization_alias="requestId")
+    status: str
+    title: str | None = None
+    url: str
+    duplicate: bool
+    summary_id: int | None = Field(default=None, serialization_alias="summaryId")
+    tags_pending: list[str] = Field(default_factory=list, serialization_alias="tagsPending")
 
 
 def _get_request_service(request: Request) -> RequestService:
@@ -62,7 +77,10 @@ def _get_tag_repo() -> Any:
     return runtime.tag_repo
 
 
-@router.post("/quick-save")
+@router.post(
+    "/quick-save",
+    response_model=TypedSuccessResponse[QuickSaveResponse],
+)
 async def quick_save(
     request: Request,
     body: QuickSaveRequest,

@@ -11,7 +11,13 @@ from sqlalchemy import delete, select
 
 from app.api.dependencies.database import get_search_read_model_use_case, get_session_manager
 from app.api.exceptions import ProcessingError, ResourceNotFoundError
-from app.api.models.responses import success_response
+from app.api.models.responses import (
+    AliasCompatibleResponseModel,
+    SearchResultsData,
+    TypedSuccessResponse,
+    success_response,
+)
+from app.api.models.responses.repositories import RepositorySearchResponse
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import SearchFilters
 from app.api.services.search_service import SearchService
@@ -59,7 +65,7 @@ class SavedSearchCreateRequest(BaseModel):
     )
 
 
-class SavedSearchResponse(BaseModel):
+class SavedSearchResponse(AliasCompatibleResponseModel):
     id: int
     name: str
     query: str
@@ -67,7 +73,7 @@ class SavedSearchResponse(BaseModel):
     created_at: str = Field(serialization_alias="createdAt")
 
 
-class SearchHistoryEntryResponse(BaseModel):
+class SearchHistoryEntryResponse(AliasCompatibleResponseModel):
     id: int
     query: str
     filters: dict[str, Any]
@@ -77,6 +83,112 @@ class SearchHistoryEntryResponse(BaseModel):
 class SearchHistoryListResponse(BaseModel):
     entries: list[SearchHistoryEntryResponse]
     enabled: bool
+
+
+class SavedSearchListResponse(BaseModel):
+    saved_searches: list[SavedSearchResponse]
+
+
+class SearchHistoryClearResponse(BaseModel):
+    cleared: bool
+
+
+class TrendingTopicResponse(AliasCompatibleResponseModel):
+    tag: str
+    count: int
+    trend: str
+    percentage_change: float = Field(serialization_alias="percentageChange")
+
+
+class TimeRangeResponse(BaseModel):
+    start: str
+    end: str
+
+
+class TrendingTopicsResponse(AliasCompatibleResponseModel):
+    tags: list[TrendingTopicResponse]
+    time_range: TimeRangeResponse = Field(serialization_alias="timeRange")
+
+
+class TopicTrendResponse(AliasCompatibleResponseModel):
+    tag: str
+    count: int
+    prev_count: int = Field(serialization_alias="prevCount")
+    trend_delta: int = Field(serialization_alias="trendDelta")
+    trend_score: float = Field(serialization_alias="trendScore")
+
+
+class EntityCountResponse(BaseModel):
+    entity: str
+    count: int
+
+
+class DomainCountResponse(BaseModel):
+    domain: str
+    count: int
+
+
+class SourceDiversityResponse(AliasCompatibleResponseModel):
+    unique_domains: int = Field(serialization_alias="uniqueDomains")
+    top_domains: list[DomainCountResponse] = Field(serialization_alias="topDomains")
+    shannon_entropy: float = Field(serialization_alias="shannonEntropy")
+
+
+class LanguageCountResponse(BaseModel):
+    language: str
+    count: int
+    ratio: float
+
+
+class LanguageMixResponse(BaseModel):
+    total: int
+    languages: list[LanguageCountResponse]
+
+
+class CoverageGapResponse(AliasCompatibleResponseModel):
+    term: str
+    mentions: int
+    tag_coverage: int = Field(serialization_alias="tagCoverage")
+    gap_score: float = Field(serialization_alias="gapScore")
+
+
+class SearchInsightsResponse(AliasCompatibleResponseModel):
+    period_days: int = Field(serialization_alias="periodDays")
+    window: TimeRangeResponse
+    topic_trends: list[TopicTrendResponse] = Field(serialization_alias="topicTrends")
+    rising_entities: list[EntityCountResponse] = Field(serialization_alias="risingEntities")
+    source_diversity: SourceDiversityResponse = Field(serialization_alias="sourceDiversity")
+    language_mix: LanguageMixResponse = Field(serialization_alias="languageMix")
+    coverage_gaps: list[CoverageGapResponse] = Field(serialization_alias="coverageGaps")
+
+
+class RelatedSummaryResponse(AliasCompatibleResponseModel):
+    summary_id: int = Field(serialization_alias="summaryId")
+    title: str
+    tldr: str
+    created_at: str = Field(serialization_alias="createdAt")
+
+
+class RelatedSummariesResponse(BaseModel):
+    tag: str
+    summaries: list[RelatedSummaryResponse]
+    pagination: dict[str, Any]
+
+
+class DuplicateSummaryResponse(BaseModel):
+    title: str
+    tldr: str
+    url: str | None = None
+
+
+class DuplicateCheckResponse(AliasCompatibleResponseModel):
+    is_duplicate: bool = Field(serialization_alias="isDuplicate")
+    normalized_url: str | None = Field(default=None, serialization_alias="normalizedUrl")
+    dedupe_hash: str | None = Field(default=None, serialization_alias="dedupeHash")
+    request_id: int | None = Field(default=None, serialization_alias="requestId")
+    summary_id: int | None = Field(default=None, serialization_alias="summaryId")
+    summarized_at: str | None = Field(default=None, serialization_alias="summarizedAt")
+    summary: DuplicateSummaryResponse | None = None
 
 
 def _get_search_service(request: Request) -> SearchService:
@@ -271,7 +383,10 @@ def _float_in_range(value: Any, *, default: float, minimum: float, maximum: floa
     return max(minimum, min(maximum, float(value)))
 
 
-@router.get("/searches/saved")
+@router.get(
+    "/searches/saved",
+    response_model=TypedSuccessResponse[SavedSearchListResponse],
+)
 async def list_saved_searches(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> Any:
@@ -294,7 +409,11 @@ async def list_saved_searches(
         )
 
 
-@router.post("/searches/saved", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/searches/saved",
+    status_code=status.HTTP_201_CREATED,
+    response_model=TypedSuccessResponse[SavedSearchResponse],
+)
 async def create_saved_search(
     body: SavedSearchCreateRequest,
     user: dict[str, Any] = Depends(get_current_user),
@@ -328,7 +447,10 @@ async def delete_saved_search(
         await session.delete(row)
 
 
-@router.post("/searches/saved/{saved_search_id}/run")
+@router.post(
+    "/searches/saved/{saved_search_id}/run",
+    response_model=TypedSuccessResponse[SearchResultsData],
+)
 async def run_saved_search(
     saved_search_id: int = Path(..., ge=1),
     user: dict[str, Any] = Depends(get_current_user),
@@ -363,7 +485,10 @@ async def run_saved_search(
         raise ProcessingError("Saved search run failed") from exc
 
 
-@router.get("/searches/history")
+@router.get(
+    "/searches/history",
+    response_model=TypedSuccessResponse[SearchHistoryListResponse],
+)
 async def list_search_history(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> Any:
@@ -389,7 +514,10 @@ async def list_search_history(
         )
 
 
-@router.delete("/searches/history")
+@router.delete(
+    "/searches/history",
+    response_model=TypedSuccessResponse[SearchHistoryClearResponse],
+)
 async def clear_search_history(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> Any:
@@ -402,7 +530,7 @@ async def clear_search_history(
     return success_response({"cleared": True})
 
 
-@router.get("/search")
+@router.get("/search", response_model=TypedSuccessResponse[SearchResultsData])
 async def search_summaries(
     q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(20, ge=1, le=100),
@@ -454,7 +582,10 @@ async def search_summaries(
         raise ProcessingError("Search failed") from exc
 
 
-@router.get("/search/semantic")
+@router.get(
+    "/search/semantic",
+    response_model=TypedSuccessResponse[SearchResultsData],
+)
 async def semantic_search_summaries(
     q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(20, ge=1, le=100),
@@ -486,7 +617,10 @@ async def semantic_search_summaries(
         raise ProcessingError("Semantic search failed") from exc
 
 
-@router.get("/topics/trending")
+@router.get(
+    "/topics/trending",
+    response_model=TypedSuccessResponse[TrendingTopicsResponse],
+)
 async def get_trending_topics(
     limit: int = Query(20, ge=1, le=100),
     days: int = Query(30, ge=1, le=365),
@@ -508,7 +642,10 @@ async def get_trending_topics(
     return success_response(payload, pagination=pagination)
 
 
-@router.get("/search/insights")
+@router.get(
+    "/search/insights",
+    response_model=TypedSuccessResponse[SearchInsightsResponse],
+)
 async def get_search_insights(
     days: int = Query(30, ge=7, le=365),
     limit: int = Query(20, ge=5, le=100),
@@ -524,7 +661,10 @@ async def get_search_insights(
     return success_response(payload, pagination=pagination)
 
 
-@router.get("/topics/related")
+@router.get(
+    "/topics/related",
+    response_model=TypedSuccessResponse[RelatedSummariesResponse],
+)
 async def get_related_summaries(
     tag: str = Query(..., min_length=1),
     limit: int = Query(20, ge=1, le=100),
@@ -542,7 +682,10 @@ async def get_related_summaries(
     return success_response(payload, pagination=payload["pagination"])
 
 
-@router.get("/urls/check-duplicate")
+@router.get(
+    "/urls/check-duplicate",
+    response_model=TypedSuccessResponse[DuplicateCheckResponse],
+)
 async def check_duplicate(
     url: str = Query(..., min_length=10),
     include_summary: bool = Query(False),
@@ -584,7 +727,10 @@ def _get_repo_correlation_id(request: Request) -> str:
     return getattr(request.state, "correlation_id", None) or str(uuid.uuid4())
 
 
-@router.get("/search/repositories")
+@router.get(
+    "/search/repositories",
+    response_model=TypedSuccessResponse[RepositorySearchResponse],
+)
 async def search_repositories(
     q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(20, ge=1, le=100),

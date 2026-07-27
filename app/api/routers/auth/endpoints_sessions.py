@@ -16,8 +16,12 @@ from app.api.exceptions import AuthorizationError, ResourceNotFoundError
 from app.api.models.auth import RefreshTokenRequest, SessionInfo
 from app.api.models.responses import (
     AuthTokensResponse,
+    LogoutAllResponse,
+    MessageResponse,
     SessionListResponse,
+    SessionRevocationResponse,
     TokenPair,
+    TypedSuccessResponse,
     success_response,
 )
 from app.api.routers.auth._fastapi import APIRouter, Depends
@@ -90,7 +94,7 @@ def _format_dt_z(dt_value: Any) -> str:
     return value if value.endswith("Z") else value + "Z"
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=TypedSuccessResponse[AuthTokensResponse])
 async def refresh_access_token(
     request: Request,
     response: Response,
@@ -254,7 +258,7 @@ async def refresh_access_token(
     return success_response(AuthTokensResponse(tokens=tokens, session_id=session_id))
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=TypedSuccessResponse[MessageResponse])
 async def logout(
     http_request: Request,
     response: Response,
@@ -286,7 +290,7 @@ async def logout(
     return success_response({"message": "Logged out successfully"})
 
 
-@router.get("/sessions")
+@router.get("/sessions", response_model=TypedSuccessResponse[SessionListResponse])
 async def list_sessions(
     current_user: dict[str, Any] = Depends(get_current_user),
     auth_repo: Any = Depends(get_auth_repository),
@@ -313,7 +317,10 @@ async def list_sessions(
     return success_response(SessionListResponse(sessions=formatted_sessions))
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete(
+    "/sessions/{session_id}",
+    response_model=TypedSuccessResponse[SessionRevocationResponse],
+)
 async def revoke_session(
     session_id: int,
     current_user: dict[str, Any] = Depends(get_current_user),
@@ -328,7 +335,7 @@ async def revoke_session(
     return success_response({"id": session_id, "revoked": True})
 
 
-@router.post("/logout-all")
+@router.post("/logout-all", response_model=TypedSuccessResponse[LogoutAllResponse])
 async def logout_all(
     response: Response,
     current_user: dict[str, Any] = Depends(get_current_user),
