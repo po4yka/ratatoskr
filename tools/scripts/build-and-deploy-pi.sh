@@ -82,6 +82,7 @@ API_SERVICES=(mobile-api)
 BACKUP_SERVICES=(pg-backup)
 DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)
 BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)
+MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt ai_backup_control_claude)
 ALL_SERVICES=("${DISPLAY_SERVICES[@]}" "${BROWSER_SERVICES[@]}" "${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
 READER_RELEASE_SERVICES=(ratatoskr worker scheduler mobile-api)
 
@@ -391,6 +392,29 @@ is_isolated_reauth_service() {
 is_pinned_browser_service() {
   local svc=$1
   [[ "$svc" == "cloakbrowser-reauth-chatgpt" || "$svc" == "cloakbrowser-reauth-claude" ]]
+}
+
+ensure_mobile_api_control_networks() {
+  local svc=$1
+  [[ "$svc" == "mobile-api" ]] || return 0
+
+  local logical_network network
+  for logical_network in "${MOBILE_API_CONTROL_NETWORKS[@]}"; do
+    network="${COMPOSE_PROJECT}_${logical_network}"
+    echo "==> Ensuring mobile-api is attached to ${network}"
+    ssh "$RASPI_HOST" "set -eu; \
+      cd ${RASPI_REMOTE_PATH}; \
+      CID=\$(${COMPOSE_RUN[*]} ps -q mobile-api 2>/dev/null); \
+      [ -n \"\$CID\" ]; \
+      docker network inspect '${network}' >/dev/null; \
+      if docker inspect --format '{{json .NetworkSettings.Networks}}' \"\$CID\" | grep -Fq '\"${network}\"'; then \
+        echo '    already attached'; \
+      else \
+        docker network connect --alias 'mobile-api' '${network}' \"\$CID\"; \
+        echo '    attached'; \
+      fi; \
+      docker inspect --format '{{json .NetworkSettings.Networks}}' \"\$CID\" | grep -Fq '\"${network}\"'"
+  done
 }
 
 verify_pinned_cloakbrowser_image() {
@@ -738,6 +762,7 @@ elif [[ $RESTART -eq 1 ]]; then
         && echo '    attached docker_default' \
         || echo '    docker_default already attached or not declared'"
     fi
+    ensure_mobile_api_control_networks "$svc"
     wait_for_service_health "$svc"
     if is_pinned_browser_service "$svc"; then
       verify_headed_browser_runtime "$svc"

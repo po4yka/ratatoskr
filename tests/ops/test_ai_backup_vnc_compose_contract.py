@@ -98,6 +98,18 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "verify_pinned_cloakbrowser_image" in script
     assert "verify_remote_checkout" in script
     assert "verify_headed_browser_runtime" in script
+    assert (
+        "MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt "
+        "ai_backup_control_claude)" in script
+    )
+    assert "ensure_mobile_api_control_networks" in script
+    assert "docker network connect --alias 'mobile-api'" in script
+    assert script.index('restart_service_verified "$svc"') < script.index(
+        'ensure_mobile_api_control_networks "$svc"'
+    )
+    assert script.index('ensure_mobile_api_control_networks "$svc"') < script.index(
+        'wait_for_service_health "$svc"'
+    )
     assert "/json/version?fingerprint=" in script
     assert "deadbeef0001" in script
     assert "deadbeef0002" in script
