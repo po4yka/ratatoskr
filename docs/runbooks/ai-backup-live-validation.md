@@ -90,7 +90,21 @@ attachments against the recorded inventory, then revoking the stored session.
 Until that evidence exists, report provider/project-knowledge compatibility as
 **unverified external blocker**, not as passed based on fixture tests.
 
-## 3. Produce the session blob
+## 3. Re-authorize interactively (primary)
+
+Open **Account Backups → AI Accounts** in Frost and press **Re-authorize ChatGPT** or **Re-authorize Claude**. An expiry notification opens the same page with `?service=<service>&reauth=1`, which starts the matching flow automatically.
+
+The owner-only page displays the existing CloakBrowser session as a live image. Click fields in the image, then type directly with a hardware keyboard or use the mobile text buffer and **Send text** / **Enter** controls. Complete password, passkey, 2FA, or provider challenge steps normally. Ratatoskr forwards bounded input events over authenticated HTTPS; it does not publish CDP/VNC, log input bodies, or persist credentials.
+
+After the provider accepts the login, the page advances automatically:
+
+```text
+waiting_for_user → verifying → resuming_backup → completed
+```
+
+`completed` means the fresh encrypted session was accepted by a real targeted provider backup (`ratatoskr.ai_backup.sync_one`), not merely that a cookie appeared. The interactive window expires after 15 minutes; start a new flow if needed.
+
+## 4. Manual session blob fallback
 
 The session blob is a Playwright `storage_state` JSON that contains the browser's cookies and localStorage for the service domain. It is the only credential the subsystem stores; no account password is ever persisted.
 
@@ -98,7 +112,7 @@ The session blob is a Playwright `storage_state` JSON that contains the browser'
 
 Both `chatgpt.com` and `claude.ai` set their session cookies with `HttpOnly`, which means JavaScript running in the page context — including a bookmarklet — cannot read `document.cookie`. The blob must be exported from the browser's DevTools storage panel or via the `capture_ai_session.py` helper, which runs Playwright in headful mode and reads `context.storage_state()` after a human completes login.
 
-### Mode A — local browser (primary)
+### Local browser capture
 
 Run the capture script on the operator's workstation (not inside Docker):
 
@@ -118,7 +132,7 @@ The script opens a Chromium window. Log in normally (including 2FA). After the d
 
 **`cf_clearance` fingerprint/IP risk.** Cloudflare binds `cf_clearance` to the TLS/JA3 fingerprint and source IP of the browser that solved the challenge. A blob captured from your laptop carries your laptop's fingerprint and IP. If the sidecar runs on a Raspberry Pi with a different public IP, that `cf_clearance` will be re-challenged on the first internal-API call and the run will fail with a `403 cf-mitigated` error. Mode B is the fix for this.
 
-### Mode B — capture inside the sidecar (preferred when Mode A blobs get 403)
+### Capture inside the sidecar (fallback when local blobs get 403)
 
 When the sidecar and the operator's workstation share a public IP (common for a home-lab Pi behind NAT) Mode A works fine. When they differ, capture the session from *inside* the sidecar so the `cf_clearance` fingerprint and IP match the profile that will make the backup requests:
 
@@ -130,13 +144,13 @@ python tools/scripts/capture_ai_session.py --service chatgpt \
 
 This requires a display; the sidecar runs headless by default. [CloakBrowser-Manager](https://github.com/CloakHQ/CloakBrowser-Manager) (early-alpha) provides a noVNC viewer that exposes the sidecar's display over HTTP so the operator can log in interactively from a browser tab. Consult its README for the `docker compose` overlay that enables noVNC. Once the manager is up, open the noVNC URL in a browser, log into the AI service manually inside that session, then pass the manager-exposed CDP WebSocket URL to the capture script via `--cdp`. The compose hostname `cloakbrowser:9222` is internal-only and is intentionally not reachable from the host.
 
-## 4. Ingest the session blob
+## 5. Ingest the session blob
 
 The blob never transits Telegram (the bot surfaces only status commands). There are two ways to store it.
 
-### 4a. CLI ingest (recommended for single-tenant self-host — no JWT)
+### 5a. CLI ingest (recommended for single-tenant self-host — no JWT)
 
-Run inside the container; it validates the provider session cookie, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and marks authorization `unverified` until the next provider check — no Mobile-API JWT needed:
+Run inside the container; it validates the provider session cookie, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and marks authorization `unverified` until the next provider check — no Mobile-API JWT needed. Unlike the REST/Frost fallback, the CLI does not enqueue a Taskiq run, so trigger one explicitly in section 6:
 
 ```bash
 docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
@@ -146,7 +160,7 @@ docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
 
 It prints the cookie names found (never values). Exit code `0` on success, `2` on an unreadable/invalid blob or empty `ALLOWED_USER_IDS`.
 
-### 4b. REST ingest (when posting from a remote host)
+### 5b. REST ingest (when posting from a remote host)
 
 Post the blob over HTTPS with a valid Mobile-API JWT for the owner user:
 
@@ -158,7 +172,7 @@ curl -s -X POST https://<host>/v1/ai-backups/<service>/session \
     -d @chatgpt.json
 ```
 
-- **204** — blob accepted and encrypted into `user_browser_sessions`.
+- **204** — blob accepted and encrypted into `user_browser_sessions`; an immediate targeted verification backup was queued.
 - **400** — malformed blob (missing required cookie or localStorage key for the service).
 - **401** — expired or invalid JWT.
 
@@ -181,7 +195,7 @@ docker compose -f ops/docker/docker-compose.yml exec -T postgres \
   "SELECT id, domain, created_at, updated_at FROM user_browser_sessions WHERE domain IN ('chatgpt.com','claude.ai') ORDER BY updated_at DESC LIMIT 5;"
 ```
 
-## 5. Trigger a run
+## 6. Trigger a run
 
 ### Immediate (synchronous, full log output)
 
@@ -210,7 +224,7 @@ docker compose -f ops/docker/docker-compose.yml exec -T redis \
 
 A result of `1` means a run is already in progress (TTL 1800 s). Wait for it to finish or, if the owning worker is dead, delete the key after confirming the worker PID is gone.
 
-## 6. Inspect output
+## 7. Inspect output
 
 ### On-disk tree
 

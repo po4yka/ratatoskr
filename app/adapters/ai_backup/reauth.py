@@ -127,7 +127,7 @@ class AiBackupReauthCoordinator:
         self._repo = repository or AiBackupRepository(db)
         self._browser_context_factory = browser_context_factory or authenticated_context
         self._auth_probe = auth_probe or _probe_authenticated
-        self._enqueue_backup = enqueue_backup or _enqueue_targeted_backup
+        self._enqueue_backup = enqueue_backup or enqueue_targeted_backup
         self._poll_interval = poll_interval_seconds
         self._timeout = flow_timeout_seconds
         self._flows: dict[str, _Flow] = {}
@@ -145,6 +145,7 @@ class AiBackupReauthCoordinator:
             expires_at=now + dt.timedelta(seconds=self._timeout),
         )
         async with self._registry_lock:
+            superseded: list[asyncio.Task[None]] = []
             for existing in self._flows.values():
                 if (
                     existing.user_id == user_id
@@ -152,6 +153,12 @@ class AiBackupReauthCoordinator:
                     and existing.state.value in _ACTIVE_STATES
                 ):
                     existing.cancelled.set()
+                    if existing.task is not None:
+                        superseded.append(existing.task)
+            if superseded:
+                _, pending = await asyncio.wait(superseded, timeout=5)
+                for task in pending:
+                    task.cancel()
             self._prune_terminal(now)
             self._flows[flow.id] = flow
             flow.task = asyncio.create_task(
@@ -164,9 +171,9 @@ class AiBackupReauthCoordinator:
 
     async def capture_frame(self, user_id: int, flow_id: str) -> bytes:
         flow = self._owned_flow(user_id, flow_id)
-        if flow.page is None or flow.state != ReauthFlowState.WAITING_FOR_USER:
-            raise RuntimeError("interactive browser is not ready")
         async with flow.browser_lock:
+            if flow.page is None or flow.state != ReauthFlowState.WAITING_FOR_USER:
+                raise RuntimeError("interactive browser is not ready")
             return bytes(
                 await flow.page.screenshot(
                     type="jpeg", quality=72, animations="disabled", caret="hide"
@@ -175,9 +182,9 @@ class AiBackupReauthCoordinator:
 
     async def send_input(self, user_id: int, flow_id: str, event: ReauthInputEvent) -> None:
         flow = self._owned_flow(user_id, flow_id)
-        if flow.page is None or flow.state != ReauthFlowState.WAITING_FOR_USER:
-            raise RuntimeError("interactive browser is not ready")
         async with flow.browser_lock:
+            if flow.page is None or flow.state != ReauthFlowState.WAITING_FOR_USER:
+                raise RuntimeError("interactive browser is not ready")
             await _apply_input(flow.page, event)
 
     async def cancel(self, user_id: int, flow_id: str) -> None:
@@ -231,7 +238,16 @@ class AiBackupReauthCoordinator:
 
     async def _run(self, flow: _Flow) -> None:
         try:
-            existing_state = await self._store.load(flow.user_id, flow.service)
+            from app.security.secret_crypto import InvalidEncryptedSecretError
+
+            try:
+                existing_state = await self._store.load(flow.user_id, flow.service)
+            except InvalidEncryptedSecretError:
+                existing_state = None
+                logger.warning(
+                    "ai_backup_reauth_ignoring_invalid_saved_session",
+                    extra={"user_id": flow.user_id, "service": flow.service.value},
+                )
             domain = urlparse(_LOGIN_URLS[flow.service]).hostname or ""
             refreshed_out: list[dict] = []
             authenticated = False
@@ -276,6 +292,9 @@ class AiBackupReauthCoordinator:
 
             flow.state = ReauthFlowState.RESUMING_BACKUP
             resumed_at = dt.datetime.now(tz=dt.UTC)
+            # A targeted run may wait behind the shared scheduled-backup lock
+            # for its full 30-minute TTL before it can verify the new session.
+            flow.expires_at = resumed_at + dt.timedelta(minutes=45)
             await self._enqueue_backup(flow.user_id, flow.service)
             await self._await_backup(flow, resumed_at)
         except asyncio.CancelledError:
@@ -315,7 +334,8 @@ class AiBackupReauthCoordinator:
                     or row.authorization_status == AiBackupAuthorizationStatus.EXPIRED
                 ):
                     flow.state = ReauthFlowState.FAILED
-                    flow.error = row.last_error or (f"Backup did not resume. Error ID: {flow.id}")
+                    reason = row.last_error or "Backup did not resume"
+                    flow.error = f"{reason}. Error ID: {flow.id}"
                     return
             await asyncio.sleep(self._poll_interval)
         flow.state = ReauthFlowState.EXPIRED
@@ -381,7 +401,7 @@ async def _probe_authenticated(page: Any, context: Any, service: AiBackupService
         return False
 
 
-async def _enqueue_targeted_backup(user_id: int, service: AiBackupService) -> None:
+async def enqueue_targeted_backup(user_id: int, service: AiBackupService) -> None:
     from app.tasks.ai_backup_sync import sync_one_ai_backup
 
     await sync_one_ai_backup.kiq(user_id, service.value)
@@ -392,4 +412,5 @@ __all__ = [
     "ReauthFlowSnapshot",
     "ReauthFlowState",
     "ReauthInputEvent",
+    "enqueue_targeted_backup",
 ]

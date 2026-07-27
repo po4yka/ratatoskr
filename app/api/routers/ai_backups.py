@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, model_validator
 
+from app.api.models.responses import TypedSuccessResponse, success_response
 from app.api.routers.auth import get_current_user
 from app.core.logging_utils import get_logger
 from app.db.models.ai_backup import (  # noqa: TC001 — FastAPI resolves path-param types at runtime
@@ -176,57 +177,72 @@ def _to_reauth_flow(snapshot: Any) -> AiBackupReauthFlow:
     )
 
 
-@router.get("", response_model=AiBackupListResponse)
+@router.get("", response_model=TypedSuccessResponse[AiBackupListResponse])
 async def list_ai_backups(
+    request: Request,
     user: dict[str, Any] = Depends(get_current_user),
     repo: AiBackupRepository = Depends(_get_repo),
-) -> AiBackupListResponse:
+) -> dict[str, Any]:
     """List the authenticated user's AI account backup status rows."""
     user_id: int = user["user_id"]
     rows = await repo.list_for_user(user_id)
-    return AiBackupListResponse(backups=[_to_item(r) for r in rows])
+    return success_response(
+        AiBackupListResponse(backups=[_to_item(r) for r in rows]),
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
 
 
-@router.get("/{service}", response_model=AiBackupItem)
+@router.get("/{service}", response_model=TypedSuccessResponse[AiBackupItem])
 async def get_ai_backup(
     service: AiBackupService,
+    request: Request,
     user: dict[str, Any] = Depends(get_current_user),
     repo: AiBackupRepository = Depends(_get_repo),
-) -> AiBackupItem:
+) -> dict[str, Any]:
     """Get the backup status for a single service (chatgpt | claude)."""
     user_id: int = user["user_id"]
     row = await repo.get(user_id, service)
     if row is None:
         raise HTTPException(status_code=404, detail="No backup status for this service")
-    return _to_item(row)
+    return success_response(
+        _to_item(row), correlation_id=getattr(request.state, "correlation_id", None)
+    )
 
 
 @router.post(
     "/{service}/reauth",
-    response_model=AiBackupReauthFlow,
+    response_model=TypedSuccessResponse[AiBackupReauthFlow],
     status_code=201,
     responses={403: {"description": "Owner permissions required"}},
 )
 async def start_reauth(
     service: AiBackupService,
+    request: Request,
     user: dict[str, Any] = Depends(get_ai_backup_owner),
     coordinator: Any = Depends(_get_reauth_coordinator),
-) -> AiBackupReauthFlow:
+) -> dict[str, Any]:
     """Start a short-lived interactive login in the private CloakBrowser."""
     try:
         snapshot = await coordinator.start(user["user_id"], service)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return _to_reauth_flow(snapshot)
+    return success_response(
+        _to_reauth_flow(snapshot),
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
 
 
-@router.get("/{service}/reauth/{flow_id}", response_model=AiBackupReauthFlow)
+@router.get(
+    "/{service}/reauth/{flow_id}",
+    response_model=TypedSuccessResponse[AiBackupReauthFlow],
+)
 async def get_reauth(
     service: AiBackupService,
     flow_id: str,
+    request: Request,
     user: dict[str, Any] = Depends(get_ai_backup_owner),
     coordinator: Any = Depends(_get_reauth_coordinator),
-) -> AiBackupReauthFlow:
+) -> dict[str, Any]:
     """Return progress without exposing cookies or browser endpoint details."""
     try:
         snapshot = await coordinator.get(user["user_id"], flow_id)
@@ -234,7 +250,10 @@ async def get_reauth(
         raise HTTPException(status_code=404, detail="Re-authorization flow not found") from exc
     if snapshot.service != service:
         raise HTTPException(status_code=404, detail="Re-authorization flow not found")
-    return _to_reauth_flow(snapshot)
+    return success_response(
+        _to_reauth_flow(snapshot),
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
 
 
 @router.get(
@@ -339,6 +358,13 @@ async def ingest_session(
     # Do not report the session as valid until the provider accepts it. Keeping
     # last_backed_up_at untouched also preserves the full outage window.
     await _get_repo(request).mark_authorization_unverified(user_id, service)
+
+    # Manual storage_state ingest is the recovery fallback for environments
+    # where the interactive browser cannot complete provider login. Verify the
+    # supplied session immediately instead of waiting for the next cron run.
+    from app.adapters.ai_backup.reauth import enqueue_targeted_backup
+
+    await enqueue_targeted_backup(user_id, service)
 
 
 @router.delete(

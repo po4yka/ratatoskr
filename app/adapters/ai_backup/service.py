@@ -130,6 +130,7 @@ class AiBackupOrchestrationService:
                 domain_for_service(service),
                 storage_state,
                 endpoint_url=self._cfg.scraper.cloakbrowser_url,
+                proxy=self._cfg.scraper.cloakbrowser_proxy,
                 refreshed_out=refreshed_out,
             ) as (page, _ctx):
                 fetcher = PlaywrightAuthedFetcher(

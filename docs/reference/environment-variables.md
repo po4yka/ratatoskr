@@ -214,6 +214,7 @@ See [YouTube](../guides/configure-youtube-download.md) and
 | `METRICS_BEARER_TOKEN` | Dedicated 32+ character bearer token shared by mobile-api and Prometheus for `/internal/metrics`; required when the monitoring profile is enabled. |
 | `API_RATE_LIMIT_DEFAULT` | Default API rate-limit policy. |
 | `API_RATE_LIMIT_AUTH` | Authentication endpoint limit. |
+| `API_RATE_LIMIT_AI_BACKUP_REAUTH` | Owner-only interactive AI backup re-authorization limit; defaults to `600` requests per window for live frame polling and input. |
 
 See [Mobile API](mobile-api.md#authentication) and
 [Secret Rotation](../runbooks/secret-rotation.md).

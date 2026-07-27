@@ -111,6 +111,8 @@ def test_auth_endpoints_resolve_to_route_specific_buckets() -> None:
         ("DELETE", "/v1/auth/github"): "auth_github_disconnect",
         ("POST", "/v1/auth/github/device/start"): "auth_github_device_start",
         ("POST", "/v1/auth/github/device/poll"): "auth_github_device_poll",
+        ("GET", "/v1/ai-backups/chatgpt/reauth/flow/frame"): "ai_backup_reauth",
+        ("POST", "/v1/ai-backups/claude/reauth/flow/input"): "ai_backup_reauth",
     }
 
     for (method, path), bucket in cases.items():
@@ -118,6 +120,9 @@ def test_auth_endpoints_resolve_to_route_specific_buckets() -> None:
         assert bucket != "auth"
 
     assert middleware._resolve_bucket("GET", "/v1/auth/unknown") == "auth_other"
+    assert middleware._resolve_limit_from_bucket(
+        cfg=DummyCfg(), bucket="ai_backup_reauth"
+    ) == 600
 
 
 @pytest.mark.asyncio

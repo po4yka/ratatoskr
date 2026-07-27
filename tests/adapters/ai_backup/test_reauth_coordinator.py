@@ -13,6 +13,7 @@ from app.db.models.ai_backup import (
     AiBackupService,
     AiBackupStatus,
 )
+from app.security.secret_crypto import InvalidEncryptedSecretError
 
 
 class _Mouse:
@@ -180,4 +181,75 @@ async def test_flow_is_owner_scoped_and_service_flags_are_enforced() -> None:
     started = await coordinator.start(42, AiBackupService.CHATGPT)
     with pytest.raises(KeyError):
         await coordinator.get(99, started.id)
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_invalid_saved_session_opens_clean_recovery_browser() -> None:
+    from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator
+
+    page = _Page()
+    received_states: list[dict | None] = []
+
+    @asynccontextmanager
+    async def browser_context(_domain: str, storage_state: dict | None, **_kwargs: object):
+        received_states.append(storage_state)
+        yield page, _Context({"cookies": []})
+
+    store = MagicMock()
+    store.load = AsyncMock(side_effect=InvalidEncryptedSecretError("old key"))
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=store,
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+
+    started = await coordinator.start(42, AiBackupService.CHATGPT)
+    await _wait_for_state(coordinator, started.id, "waiting_for_user")
+
+    assert received_states == [None]
+    await coordinator.cancel(42, started.id)
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_frame_rechecks_readiness_after_waiting_for_browser_lock() -> None:
+    from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator, ReauthFlowState
+
+    page = _Page()
+
+    @asynccontextmanager
+    async def browser_context(*_args: object, **_kwargs: object):
+        yield page, _Context({"cookies": []})
+
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=MagicMock(load=AsyncMock(return_value=None)),
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+    started = await coordinator.start(42, AiBackupService.CHATGPT)
+    await _wait_for_state(coordinator, started.id, "waiting_for_user")
+    flow = coordinator._flows[started.id]
+    await flow.browser_lock.acquire()
+    capture = asyncio.create_task(coordinator.capture_frame(42, started.id))
+    await asyncio.sleep(0)
+    flow.state = ReauthFlowState.VERIFYING
+    flow.page = None
+    flow.browser_lock.release()
+
+    with pytest.raises(RuntimeError, match="not ready"):
+        await capture
+    await coordinator.cancel(42, started.id)
     await coordinator.close()

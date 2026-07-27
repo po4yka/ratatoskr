@@ -9,6 +9,8 @@ See ``docs/explanation/ai-account-backup.md`` for the full design.
 
 from __future__ import annotations
 
+import asyncio
+
 from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
@@ -30,6 +32,8 @@ logger = get_logger(__name__)
 _AI_BACKUP_SYNC_LOCK_KEY = "task_lock:ai_backup_sync"
 # TTL covers the maximum expected run; 30 minutes default.
 _AI_BACKUP_SYNC_LOCK_TTL = 1800
+_TARGETED_LOCK_RETRY_INTERVAL_SECONDS = 5
+_TARGETED_LOCK_RETRY_ATTEMPTS = (_AI_BACKUP_SYNC_LOCK_TTL // 5) + 2
 
 
 def _enabled_services(cfg: AppConfig) -> list[AiBackupService]:
@@ -204,12 +208,17 @@ async def sync_one_ai_backup(
         raise RuntimeError(f"AI backup is disabled for {service_enum.value}")
 
     redis_client = await get_redis(cfg)
-    async with RedisDistributedLock(
-        redis_client, _AI_BACKUP_SYNC_LOCK_KEY, _AI_BACKUP_SYNC_LOCK_TTL
-    ) as acquired:
-        if not acquired:
-            raise RuntimeError("AI backup sync is already running")
-        await _run_sync(cfg, db, owner_id=owner_id, services=[service_enum])
+    for attempt in range(_TARGETED_LOCK_RETRY_ATTEMPTS):
+        async with RedisDistributedLock(
+            redis_client, _AI_BACKUP_SYNC_LOCK_KEY, _AI_BACKUP_SYNC_LOCK_TTL
+        ) as acquired:
+            if acquired:
+                await _run_sync(cfg, db, owner_id=owner_id, services=[service_enum])
+                return
+        if attempt + 1 < _TARGETED_LOCK_RETRY_ATTEMPTS:
+            await asyncio.sleep(_TARGETED_LOCK_RETRY_INTERVAL_SECONDS)
+
+    raise RuntimeError("AI backup sync remained busy until the re-authorization retry expired")
 
 
 async def _run_sync(

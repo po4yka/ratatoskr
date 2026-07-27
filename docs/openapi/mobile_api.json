@@ -4546,7 +4546,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AiBackupListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupListResponse_"
                 }
               }
             }
@@ -4597,7 +4597,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AiBackupItem"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupItem_"
                 }
               }
             }
@@ -4643,7 +4643,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AiBackupReauthFlow"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupReauthFlow_"
                 }
               }
             }
@@ -4701,7 +4701,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AiBackupReauthFlow"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupReauthFlow_"
                 }
               }
             }
@@ -31914,6 +31914,66 @@
           "data"
         ],
         "title": "TypedSuccessResponse[AdminUsersData]"
+      },
+      "TypedSuccessResponse_AiBackupItem_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupItem"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupItem]"
+      },
+      "TypedSuccessResponse_AiBackupListResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupListResponse]"
+      },
+      "TypedSuccessResponse_AiBackupReauthFlow_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupReauthFlow"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupReauthFlow]"
       },
       "TypedSuccessResponse_AppleSignInStartResponse_": {
         "properties": {

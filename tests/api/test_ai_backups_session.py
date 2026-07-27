@@ -99,6 +99,10 @@ def _patched_internals(
             "app.api.routers.ai_backups._get_repo",
             return_value=mock_repo,
         ),
+        patch(
+            "app.adapters.ai_backup.reauth.enqueue_targeted_backup",
+            new=AsyncMock(),
+        ),
     )
 
 
@@ -120,9 +124,9 @@ def _mock_store_and_repo() -> tuple[MagicMock, MagicMock]:
 def test_valid_session_returns_204_and_marks_authorization_unverified() -> None:
     """A service-bound session cookie is saved and the route returns 204."""
     mock_store, mock_repo = _mock_store_and_repo()
-    p1, p2, p3 = _patched_internals(mock_store, mock_repo)
+    p1, p2, p3, p4 = _patched_internals(mock_store, mock_repo)
 
-    with p1, p2, p3:
+    with p1, p2, p3, p4 as enqueue:
         resp = _make_client().post(_URL, json=_VALID_BODY)
 
     assert resp.status_code == 204
@@ -136,6 +140,7 @@ def test_valid_session_returns_204_and_marks_authorization_unverified() -> None:
     mock_repo.mark_authorization_unverified.assert_awaited_once_with(
         _USER_ID, AiBackupService.CHATGPT
     )
+    enqueue.assert_awaited_once_with(_USER_ID, AiBackupService.CHATGPT)
 
 
 def test_first_session_ingest_makes_pending_unverified_status_immediately_readable() -> None:
@@ -176,6 +181,10 @@ def test_first_session_ingest_makes_pending_unverified_status_immediately_readab
             return_value=mock_store,
         ),
         patch("app.api.routers.ai_backups._get_repo", return_value=repo),
+        patch(
+            "app.adapters.ai_backup.reauth.enqueue_targeted_backup",
+            new=AsyncMock(),
+        ),
     ):
         ingest_response = client.post(_URL, json=_VALID_BODY)
         status_response = client.get(f"/v1/ai-backups/{_SERVICE}")
@@ -184,8 +193,8 @@ def test_first_session_ingest_makes_pending_unverified_status_immediately_readab
     assert ingest_response.content == b""
     assert b"session-secret" not in ingest_response.content
     assert status_response.status_code == 200
-    assert status_response.json()["backup_status"] == "pending"
-    assert status_response.json()["authorization_status"] == "unverified"
+    assert status_response.json()["data"]["backup_status"] == "pending"
+    assert status_response.json()["data"]["authorization_status"] == "unverified"
 
 
 def test_bad_shape_missing_cookies_key_returns_400() -> None:
@@ -198,7 +207,7 @@ def test_bad_shape_missing_cookies_key_returns_400() -> None:
 
 def test_missing_service_session_cookie_returns_400_before_save() -> None:
     mock_store, mock_repo = _mock_store_and_repo()
-    p1, p2, p3 = _patched_internals(mock_store, mock_repo)
+    p1, p2, p3, p4 = _patched_internals(mock_store, mock_repo)
     body = {
         "storage_state": {
             "cookies": [
@@ -212,7 +221,7 @@ def test_missing_service_session_cookie_returns_400_before_save() -> None:
         }
     }
 
-    with p1, p2, p3:
+    with p1, p2, p3, p4:
         resp = _make_client().post(_URL, json=body)
 
     assert resp.status_code == 400
@@ -276,7 +285,7 @@ def test_response_exposes_backup_and_authorization_independently() -> None:
 def test_storage_state_never_echoed_in_response() -> None:
     """204 carries an empty body; the storage_state value is never returned."""
     mock_store, mock_repo = _mock_store_and_repo()
-    p1, p2, p3 = _patched_internals(mock_store, mock_repo)
+    p1, p2, p3, p4 = _patched_internals(mock_store, mock_repo)
     sensitive = {
         "cookies": [
             {
@@ -288,7 +297,7 @@ def test_storage_state_never_echoed_in_response() -> None:
         ]
     }
 
-    with p1, p2, p3:
+    with p1, p2, p3, p4:
         resp = _make_client().post(_URL, json={"storage_state": sensitive})
 
     assert resp.status_code == 204
@@ -298,9 +307,9 @@ def test_storage_state_never_echoed_in_response() -> None:
 
 def test_owner_can_revoke_session_and_mark_authorization_missing() -> None:
     mock_store, mock_repo = _mock_store_and_repo()
-    p1, p2, p3 = _patched_internals(mock_store, mock_repo)
+    p1, p2, p3, p4 = _patched_internals(mock_store, mock_repo)
 
-    with p1, p2, p3:
+    with p1, p2, p3, p4:
         resp = _make_client().delete(_URL)
 
     assert resp.status_code == 204
@@ -360,7 +369,8 @@ def test_owner_can_start_drive_and_cancel_secure_reauth_flow() -> None:
     cancelled = client.delete("/v1/ai-backups/chatgpt/reauth/flow-123")
 
     assert started.status_code == 201
-    assert started.json()["state"] == "waiting_for_user"
+    assert started.json()["data"]["state"] == "waiting_for_user"
+    assert started.json()["success"] is True
     assert status.status_code == 200
     assert frame.status_code == 200
     assert frame.content == b"jpeg-frame"
