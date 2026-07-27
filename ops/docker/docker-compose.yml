@@ -1004,7 +1004,6 @@ services:
       context: ../..
       dockerfile: ops/docker/ai-backup-display/Dockerfile
     container_name: ratatoskr-ai-backup-display-chatgpt
-    init: true
     volumes:
       - ai-backup-display-chatgpt:/tmp/.X11-unix
     networks: [ai_backup_control_chatgpt]
@@ -1036,7 +1035,6 @@ services:
       context: ../..
       dockerfile: ops/docker/ai-backup-display/Dockerfile
     container_name: ratatoskr-ai-backup-display-claude
-    init: true
     volumes:
       - ai-backup-display-claude:/tmp/.X11-unix
     networks: [ai_backup_control_claude]
