@@ -127,7 +127,7 @@ class RequestDetailRequest(AliasCompatibleResponseModel):
     type: str
     status: RequestStatus
     legacy_status: str | None = Field(default=None, serialization_alias="legacyStatus")
-    correlation_id: str = Field(serialization_alias="correlationId")
+    correlation_id: str | None = Field(serialization_alias="correlationId")
     input_url: str | None = Field(default=None, serialization_alias="inputUrl")
     normalized_url: str | None = Field(default=None, serialization_alias="normalizedUrl")
     dedupe_hash: str | None = Field(default=None, serialization_alias="dedupeHash")

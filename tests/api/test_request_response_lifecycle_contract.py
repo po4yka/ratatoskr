@@ -57,3 +57,15 @@ def test_detail_response_request_uses_canonical_status_and_legacy_status() -> No
 
     assert payload["status"] == "succeeded"
     assert payload["legacyStatus"] == "complete"
+
+
+def test_detail_response_allows_legacy_request_without_correlation_id() -> None:
+    payload = RequestDetailRequest(
+        id=13,
+        type="url",
+        status=RequestStatus.SUCCEEDED,
+        correlation_id=None,
+        created_at="2026-05-21T00:00:00Z",
+    ).model_dump(by_alias=True)
+
+    assert payload["correlationId"] is None

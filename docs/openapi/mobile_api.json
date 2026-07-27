@@ -21001,7 +21001,14 @@
             "title": "Legacystatus"
           },
           "correlationId": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Correlationid"
           },
           "inputUrl": {

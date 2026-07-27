@@ -44,6 +44,12 @@ def test_openapi_request_responses_preserve_legacy_status_field() -> None:
     assert "legacyStatus" in schemas["RetryRequestResponse"]["properties"]
 
 
+def test_openapi_request_detail_allows_null_correlation_id() -> None:
+    correlation_id = _schema()["RequestDetailRequest"]["properties"]["correlationId"]
+
+    assert correlation_id["anyOf"] == [{"type": "string"}, {"type": "null"}]
+
+
 def test_openapi_request_paths_reference_typed_success_envelopes() -> None:
     spec = yaml.safe_load(Path("docs/openapi/mobile_api.yaml").read_text())
 
