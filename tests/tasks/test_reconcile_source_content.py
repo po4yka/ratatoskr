@@ -117,6 +117,50 @@ async def test_reconcile_prefers_local_content_and_bounds_network_attempts(
 
 
 @pytest.mark.asyncio
+async def test_reconcile_counts_network_use_after_local_normalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_task(monkeypatch)
+    rows = [
+        {
+            "summary_id": 1,
+            "request_id": 11,
+            "user_id": 7,
+            "has_local_source": True,
+        },
+        {
+            "summary_id": 2,
+            "request_id": 22,
+            "user_id": 7,
+            "has_local_source": False,
+        },
+    ]
+    monkeypatch.setattr(module, "_fetch_missing_source_rows", AsyncMock(return_value=rows))
+    monkeypatch.setattr(
+        module,
+        "_get_missing_source_stats",
+        AsyncMock(return_value=(1, 120.0)),
+    )
+
+    async def backfill(**kwargs):
+        if kwargs["summary_id"] == 1:
+            if not kwargs["allow_reextract"]:
+                raise module.SourceContentBackfillUnavailableError("cleaned local source is empty")
+            assert kwargs["allow_reextract"] is True
+            return SimpleNamespace(reextracted=True)
+        assert kwargs["allow_reextract"] is False
+        raise module.SourceContentBackfillUnavailableError("budget")
+
+    service = SimpleNamespace(backfill=AsyncMock(side_effect=backfill))
+
+    summary = await module._reconcile_body(_cfg(), MagicMock(), service=service)
+
+    assert summary.reextracted == 1
+    assert summary.skipped == 1
+    assert service.backfill.await_count == 3
+
+
+@pytest.mark.asyncio
 async def test_reconcile_is_disabled_in_privacy_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

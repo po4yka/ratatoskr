@@ -128,36 +128,44 @@ async def _reconcile_body(
     skipped = 0
     failed = 0
     for row in rows:
-        allow_reextract = False
-        if not row["has_local_source"]:
-            allow_reextract = network_attempts < network_budget
-            if allow_reextract:
-                network_attempts += 1
-        try:
-            result = await service.backfill(
-                user_id=int(row["user_id"]),
-                summary_id=int(row["summary_id"]),
-                operation_correlation_id=cid,
-                allow_reextract=allow_reextract,
-            )
-        except SourceContentBackfillUnavailableError:
-            skipped += 1
-        except Exception as exc:
-            failed += 1
-            logger.warning(
-                "source_content_reconcile_row_failed",
-                extra={
-                    "summary_id": row["summary_id"],
-                    "request_id": row["request_id"],
-                    "cid": cid,
-                    "error_type": type(exc).__name__,
-                },
-            )
-        else:
-            if result.reextracted:
-                reextracted += 1
+        allow_reextract = not row["has_local_source"] and network_attempts < network_budget
+        if allow_reextract:
+            network_attempts += 1
+        while True:
+            try:
+                result = await service.backfill(
+                    user_id=int(row["user_id"]),
+                    summary_id=int(row["summary_id"]),
+                    operation_correlation_id=cid,
+                    allow_reextract=allow_reextract,
+                )
+            except SourceContentBackfillUnavailableError:
+                if (
+                    row["has_local_source"]
+                    and not allow_reextract
+                    and network_attempts < network_budget
+                ):
+                    allow_reextract = True
+                    network_attempts += 1
+                    continue
+                skipped += 1
+            except Exception as exc:
+                failed += 1
+                logger.warning(
+                    "source_content_reconcile_row_failed",
+                    extra={
+                        "summary_id": row["summary_id"],
+                        "request_id": row["request_id"],
+                        "cid": cid,
+                        "error_type": type(exc).__name__,
+                    },
+                )
             else:
-                local_repaired += 1
+                if result.reextracted:
+                    reextracted += 1
+                else:
+                    local_repaired += 1
+            break
 
     missing_remaining, oldest_missing_age_seconds = await _get_missing_source_stats(db)
     summary = SourceContentReconcileSummary(
