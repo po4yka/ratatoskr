@@ -853,7 +853,7 @@ class ContentScraperChain:
         # The packaged public-suffix snapshot is sufficient for telemetry and
         # keeps no-network test runs from attempting a live suffix-list fetch.
         extracted = tldextract.TLDExtract(suffix_list_urls=())(url)
-        url_domain = extracted.registered_domain or extracted.domain or "unknown"
+        url_domain = extracted.top_domain_under_public_suffix or extracted.domain or "unknown"
         total_ms = int(max(0.0, time.monotonic() - chain_started) * 1000)
         logger.info(
             "scraper_chain_complete",
