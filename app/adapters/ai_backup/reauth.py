@@ -115,7 +115,7 @@ class AiBackupReauthCoordinator:
         browser_context_factory: BrowserContextFactory | None = None,
         auth_probe: AuthProbe | None = None,
         enqueue_backup: EnqueueBackup | None = None,
-        poll_interval_seconds: float = 1.0,
+        poll_interval_seconds: float = 5.0,
         flow_timeout_seconds: float = 15 * 60,
     ) -> None:
         from app.adapters.ai_backup.repository import AiBackupRepository
@@ -385,7 +385,38 @@ async def _probe_authenticated(page: Any, context: Any, service: AiBackupService
             const response = await fetch('/api/auth/session', {credentials: 'include', cache: 'no-store'});
             if (!response.ok) return false;
             const body = await response.json();
-            return Boolean(body && body.accessToken);
+            const accessToken = body && body.accessToken;
+            if (!accessToken) return false;
+
+            const headers = {
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+            };
+            try {
+                const encoded = accessToken.split('.')[1];
+                const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/');
+                const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+                const claims = JSON.parse(atob(padded));
+                const auth = claims && claims['https://api.openai.com/auth'];
+                if (
+                    auth &&
+                    (auth.chatgpt_plan_type === 'team' || auth.chatgpt_plan_type === 'enterprise') &&
+                    auth.chatgpt_account_id
+                ) {
+                    headers['chatgpt-account-id'] = auth.chatgpt_account_id;
+                }
+            } catch (_) {
+                // Personal sessions do not require an account header.  The
+                // real API probe below remains the source of truth.
+            }
+
+            const probe = await fetch(
+                '/backend-api/conversations?offset=0&limit=1&order=updated&is_archived=false',
+                {credentials: 'include', cache: 'no-store', headers},
+            );
+            if (!probe.ok) return false;
+            const payload = await probe.json();
+            return Boolean(payload && Array.isArray(payload.items));
         }"""
         if service == AiBackupService.CHATGPT
         else """async () => {

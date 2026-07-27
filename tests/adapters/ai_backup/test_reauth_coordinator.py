@@ -219,6 +219,36 @@ async def test_invalid_saved_session_opens_clean_recovery_browser() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chatgpt_probe_rejects_stale_token_when_backup_endpoint_is_unauthorized() -> None:
+    from app.adapters.ai_backup.reauth import _probe_authenticated
+
+    class _ProbePage:
+        url = "https://chatgpt.com/"
+
+        async def evaluate(self, script: str) -> bool:
+            # Production can still return an accessToken after the token has
+            # stopped authorizing the conversations API.  Model that split:
+            # the old session-only probe passes, while a real backup-endpoint
+            # probe receives 401 and must fail closed.
+            return "/backend-api/conversations" not in script
+
+    context = MagicMock()
+    context.cookies = AsyncMock(
+        return_value=[
+            {
+                "name": "__Secure-next-auth.session-token",
+                "domain": ".chatgpt.com",
+                "value": "stale-session",
+            }
+        ]
+    )
+
+    assert not await _probe_authenticated(
+        _ProbePage(), context, AiBackupService.CHATGPT
+    )
+
+
+@pytest.mark.asyncio
 async def test_frame_rechecks_readiness_after_waiting_for_browser_lock() -> None:
     from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator, ReauthFlowState
 
