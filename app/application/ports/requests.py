@@ -145,6 +145,13 @@ class RequestRepositoryPort(Protocol):
     async def async_update_request_status(self, request_id: int, status: str) -> None:
         """Update request status."""
 
+    async def async_complete_with_source_artifact(
+        self,
+        request_id: int,
+        artifact_id: int,
+    ) -> bool:
+        """Atomically complete a request only when its durable source body exists."""
+
     async def async_update_request_status_with_correlation(
         self,
         request_id: int,

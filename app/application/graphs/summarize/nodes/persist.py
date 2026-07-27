@@ -116,7 +116,17 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
         _index_summary_for_freshness(state, deps, summary_id=summary_id),
         _publish_summary_created(state, deps, summary_id=summary_id),
     )
-    await deps.requests.async_update_request_status(request_id, RequestStatus.COMPLETED)
+    if state.get("durable_source_required"):
+        artifact_id = state.get("source_artifact_id")
+        if artifact_id is None:
+            raise RuntimeError(f"Durable source artifact is missing for request_id={request_id}")
+        completed = await deps.requests.async_complete_with_source_artifact(request_id, artifact_id)
+        if not completed:
+            raise RuntimeError(
+                f"Durable source artifact failed completion guard for request_id={request_id}"
+            )
+    else:
+        await deps.requests.async_update_request_status(request_id, RequestStatus.COMPLETED)
 
     return {"summary_id": summary_id} if summary_id is not None else {}
 

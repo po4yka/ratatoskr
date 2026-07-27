@@ -95,6 +95,36 @@ async def test_request_repository_create_update_and_read(database: Database) -> 
 
 
 @pytest.mark.asyncio
+async def test_request_completion_requires_matching_durable_source(database: Database) -> None:
+    repo = RequestRepositoryAdapter(database)
+    request_id = await repo.async_create_request(
+        type_="url",
+        status=RequestStatus.PENDING,
+        correlation_id="guarded-completion",
+        user_id=44,
+        input_url="https://example.com/guarded",
+        normalized_url="https://example.com/guarded",
+        dedupe_hash="guarded-completion-hash",
+    )
+    async with database.transaction() as session:
+        artifact = CrawlResult(
+            request_id=request_id,
+            firecrawl_success=True,
+            content_text="Durable article body.",
+            status="ok",
+        )
+        session.add(artifact)
+        await session.flush()
+        artifact_id = artifact.id
+
+    assert await repo.async_complete_with_source_artifact(request_id, artifact_id + 1) is False
+    assert await repo.async_complete_with_source_artifact(request_id, artifact_id) is True
+    row = await repo.async_get_request_by_id(request_id)
+    assert row is not None
+    assert row["status"] == RequestStatus.COMPLETED.value
+
+
+@pytest.mark.asyncio
 async def test_request_repository_context_and_telegram_message(database: Database) -> None:
     repo = RequestRepositoryAdapter(database)
     request_id, created = await repo.async_create_minimal_request(

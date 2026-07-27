@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.json_utils import prepare_json_payload
@@ -422,6 +422,32 @@ class RequestRepositoryAdapter:
 
     async def async_update_request_status(self, request_id: int, status: str) -> None:
         await self._update_request(request_id, status=status)
+
+    async def async_complete_with_source_artifact(
+        self,
+        request_id: int,
+        artifact_id: int,
+    ) -> bool:
+        """Set terminal success only when the referenced normalized source exists."""
+        source_exists = exists(
+            select(CrawlResult.id).where(
+                CrawlResult.id == artifact_id,
+                CrawlResult.request_id == request_id,
+                CrawlResult.is_deleted.is_(False),
+                func.length(func.btrim(func.coalesce(CrawlResult.content_text, ""))) > 0,
+            )
+        )
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(Request)
+                .where(Request.id == request_id, source_exists)
+                .values(
+                    status=RequestStatus.COMPLETED.value,
+                    updated_at=_utcnow(),
+                    server_version=_next_server_version(),
+                )
+            )
+            return bool(getattr(result, "rowcount", 0))
 
     async def async_update_request_status_with_correlation(
         self, request_id: int, status: str, correlation_id: str | None

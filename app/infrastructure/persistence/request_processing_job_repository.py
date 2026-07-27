@@ -17,12 +17,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select, update
+from sqlalchemy import Select, and_, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.logging_utils import get_logger, log_exception
-from app.db.models import Request, RequestProcessingJob, Summary, model_to_dict
+from app.db.models import CrawlResult, Request, RequestProcessingJob, Summary, model_to_dict
 from app.db.types import _utcnow
+from app.domain.models.request import RequestStatus
 
 logger = get_logger(__name__)
 
@@ -244,6 +245,19 @@ class RequestProcessingJobRepository:
     ) -> bool:
         now = _utcnow()
         async with self._database.transaction() as session:
+            if request_id is not None:
+                durable_source_exists = await session.scalar(
+                    select(
+                        exists().where(
+                            CrawlResult.request_id == request_id,
+                            CrawlResult.is_deleted.is_(False),
+                            func.length(func.btrim(func.coalesce(CrawlResult.content_text, "")))
+                            > 0,
+                        )
+                    )
+                )
+                if not durable_source_exists:
+                    return False
             result = await session.execute(
                 update(RequestProcessingJob)
                 .where(
@@ -269,7 +283,7 @@ class RequestProcessingJobRepository:
                     update(Request)
                     .where(Request.id == request_id)
                     .values(
-                        status="success",
+                        status=RequestStatus.COMPLETED.value,
                         error_type=None,
                         error_message=None,
                         error_timestamp=None,
@@ -483,6 +497,23 @@ class RequestProcessingJobRepository:
             "created_at": now,
         }
         async with self._database.transaction() as session:
+            if status == "succeeded":
+                durable_source_exists = await session.scalar(
+                    select(
+                        exists().where(
+                            CrawlResult.request_id == request_id,
+                            CrawlResult.is_deleted.is_(False),
+                            func.length(func.btrim(func.coalesce(CrawlResult.content_text, "")))
+                            > 0,
+                        )
+                    )
+                )
+                if not durable_source_exists:
+                    msg = (
+                        "Refusing synchronous success without durable source "
+                        f"for request_id={request_id}"
+                    )
+                    raise RuntimeError(msg)
             stmt = (
                 insert(RequestProcessingJob)
                 .values(**base_values)
@@ -851,21 +882,29 @@ class DurableRequestProcessingQueue:
     async def _process_leased_job(self, job: LeasedRequestJob) -> None:
         try:
             if await self._repo.has_summary(job.request_id):
-                await self._repo.mark_succeeded(
+                completed = await self._repo.mark_succeeded(
                     job.id,
                     lease_owner=self._owner,
                     lease_token=job.lease_token,
                     request_id=job.request_id,
                 )
+                if not completed:
+                    raise RuntimeError(
+                        f"Durable source completion guard rejected request_id={job.request_id}"
+                    )
                 return
             await self._execute_request_with_lease_renewal(job)
             if await self._repo.has_summary(job.request_id):
-                await self._repo.mark_succeeded(
+                completed = await self._repo.mark_succeeded(
                     job.id,
                     lease_owner=self._owner,
                     lease_token=job.lease_token,
                     request_id=job.request_id,
                 )
+                if not completed:
+                    raise RuntimeError(
+                        f"Durable source completion guard rejected request_id={job.request_id}"
+                    )
                 return
             request_status, error_message = await self._repo.get_request_status(job.request_id)
             if request_status in {"success", "complete", "completed", "ok"}:

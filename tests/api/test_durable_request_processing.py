@@ -71,10 +71,11 @@ class FakeJobRepository:
         lease_owner: str,
         lease_token: int,
         request_id: int | None = None,
-    ) -> None:
+    ) -> bool:
         self.succeeded.append(job_id)
         if request_id is not None:
             self.finalized_requests.append(request_id)
+        return True
 
     async def renew_lease(
         self,
@@ -477,6 +478,22 @@ async def test_repository_completion_is_fenced_by_token_and_expiry() -> None:
     sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
     assert "lease_token" in sql
     assert "lease_expires_at" in sql
+
+
+@pytest.mark.asyncio
+async def test_repository_completion_rejects_missing_durable_source() -> None:
+    session = FakeSession(scalar_results=[False])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    completed = await repository.mark_succeeded(
+        7,
+        lease_owner="worker-1",
+        lease_token=3,
+        request_id=42,
+    )
+
+    assert completed is False
+    assert len(session.executed) == 1
 
 
 @pytest.mark.asyncio

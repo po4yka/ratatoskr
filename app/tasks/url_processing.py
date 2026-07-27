@@ -308,12 +308,14 @@ async def _run_url_task(
                 cid=cid,
                 runtime=runtime,
             )
-        await job_repo.mark_succeeded(
+        completed = await job_repo.mark_succeeded(
             job.id,
             lease_owner=lease_owner,
             lease_token=job.lease_token,
             request_id=request_id,
         )
+        if not completed:
+            raise RuntimeError(f"Durable source completion guard rejected request_id={request_id}")
         return
 
     # Run the full URL processing pipeline (silent=True so URLProcessor does
@@ -356,12 +358,14 @@ async def _run_url_task(
             runtime=runtime,
         )
 
-    await job_repo.mark_succeeded(
+    completed = await job_repo.mark_succeeded(
         job.id,
         lease_owner=lease_owner,
         lease_token=job.lease_token,
         request_id=request_id,
     )
+    if not completed:
+        raise RuntimeError(f"Durable source completion guard rejected request_id={request_id}")
     logger.info(
         "process_url_request_succeeded",
         extra={"request_id": request_id, "cid": cid},

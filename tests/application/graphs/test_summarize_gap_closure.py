@@ -721,6 +721,65 @@ async def test_gap4_persist_skipped_when_crawl_repo_none() -> None:
     summary_repo.async_persist_summary_with_llm_calls.assert_awaited_once()
 
 
+async def test_persist_completes_url_only_through_durable_source_guard() -> None:
+    complete = AsyncMock(return_value=True)
+    update_status = AsyncMock()
+    request_repo = SimpleNamespace(
+        async_get_request_by_id=AsyncMock(return_value=None),
+        async_complete_with_source_artifact=complete,
+        async_update_request_status=update_status,
+    )
+    summary_repo = SimpleNamespace(
+        async_persist_summary_with_llm_calls=AsyncMock(
+            return_value=SummaryFinalizeResult(summary_id=99, version=1)
+        )
+    )
+    deps = _deps(
+        crawl_repo=SimpleNamespace(async_get_crawl_result_by_request=AsyncMock(return_value=None)),
+        requests=request_repo,
+        summaries=summary_repo,
+        summary_index=SimpleNamespace(index_summary=AsyncMock()),
+    )
+    state = _state(
+        summary={"summary_250": "s"},
+        input_url="https://example.com/article",
+        durable_source_required=True,
+        source_artifact_id=17,
+    )
+
+    await persist(state, deps=deps)
+
+    complete.assert_awaited_once_with(42, 17)
+    update_status.assert_not_awaited()
+
+
+async def test_persist_rejects_url_when_durable_source_guard_fails() -> None:
+    complete = AsyncMock(return_value=False)
+    deps = _deps(
+        crawl_repo=SimpleNamespace(async_get_crawl_result_by_request=AsyncMock(return_value=None)),
+        requests=SimpleNamespace(
+            async_get_request_by_id=AsyncMock(return_value=None),
+            async_complete_with_source_artifact=complete,
+            async_update_request_status=AsyncMock(),
+        ),
+        summaries=SimpleNamespace(
+            async_persist_summary_with_llm_calls=AsyncMock(
+                return_value=SummaryFinalizeResult(summary_id=99, version=1)
+            )
+        ),
+        summary_index=SimpleNamespace(index_summary=AsyncMock()),
+    )
+    state = _state(
+        summary={"summary_250": "s"},
+        input_url="https://example.com/article",
+        durable_source_required=True,
+        source_artifact_id=17,
+    )
+
+    with pytest.raises(RuntimeError, match="failed completion guard"):
+        await persist(state, deps=deps)
+
+
 async def test_gap4_backfill_crawl_metadata_applied() -> None:
     """Firecrawl metadata_json title fills title field."""
     summary: dict[str, Any] = {"metadata": {}}
