@@ -56,6 +56,8 @@ _DELTA_KEYS = {
     "lang",
     "source_text",
     "content_source",
+    "source_artifact_id",
+    "durable_source_required",
     "detected_lang",
     "dedupe_hash",
     "title",

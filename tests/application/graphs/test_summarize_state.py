@@ -96,6 +96,8 @@ _EXPECTED_NON_BULK_FIELDS = frozenset(
         "two_pass_eligible",
         "dedupe_hash",
         "content_source",
+        "source_artifact_id",
+        "durable_source_required",
         "detected_lang",
         "title",
         "images",

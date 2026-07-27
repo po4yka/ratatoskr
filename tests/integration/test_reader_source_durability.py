@@ -25,6 +25,8 @@ from app.infrastructure.persistence.repositories.summary_repository import (
     SummaryRepositoryAdapter,
 )
 
+pytestmark = pytest.mark.integration
+
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 

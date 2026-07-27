@@ -119,6 +119,13 @@ def _make_content_extractor(
 ) -> tuple[ContentExtractor, AsyncMock]:
     scrape_markdown = AsyncMock()
     scraper = SimpleNamespace(scrape_markdown=scrape_markdown)
+    crawl_repo = SimpleNamespace(
+        async_upsert_crawl_result=AsyncMock(return_value=456),
+    )
+    message_persistence = cast(
+        "Any",
+        SimpleNamespace(crawl_repo=crawl_repo),
+    )
     cfg = _cfg()
     router = build_platform_extraction_router((descriptor,), _context(cfg))
     extractor = ContentExtractor(
@@ -132,6 +139,7 @@ def _make_content_extractor(
         audit_func=lambda *args, **kwargs: None,
         sem=_dummy_sem,
         platform_router=router,
+        message_persistence=message_persistence,
     )
     return extractor, scrape_markdown
 
