@@ -266,6 +266,44 @@ async def test_reauth_uses_pinned_operator_browser_profile() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reauth_exposes_viewer_after_navigation_commits() -> None:
+    from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator
+
+    page = _Page()
+
+    async def goto(_url: str, *, wait_until: str, timeout: int) -> None:
+        assert timeout == 60_000
+        if wait_until != "commit":
+            raise TimeoutError("provider never reached DOMContentLoaded")
+
+    page.goto = AsyncMock(side_effect=goto)
+
+    @asynccontextmanager
+    async def browser_context(*_args: object, **_kwargs: object):
+        yield page, _Context({"cookies": []})
+
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=MagicMock(load=AsyncMock(return_value=None)),
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+
+    started = await coordinator.start(42, AiBackupService.CHATGPT)
+    await _wait_for_state(coordinator, started.id, "waiting_for_user")
+
+    page.goto.assert_awaited_once_with("https://chatgpt.com/", wait_until="commit", timeout=60_000)
+    page.bring_to_front.assert_awaited_once_with()
+    await coordinator.cancel(42, started.id)
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
 async def test_provider_flows_use_separate_browser_and_vnc_targets() -> None:
     from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator
 

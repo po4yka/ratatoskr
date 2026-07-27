@@ -378,7 +378,7 @@ class AiBackupReauthCoordinator:
                 flow.context = context
                 await page.goto(
                     _LOGIN_URLS[flow.service],
-                    wait_until="domcontentloaded",
+                    wait_until="commit",
                     timeout=60_000,
                 )
                 await page.bring_to_front()
