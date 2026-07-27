@@ -555,3 +555,22 @@ def test_pi_deploy_emits_deploy_version_textfile_metric() -> None:
     assert "org.opencontainers.image.created" in script
     assert "ratatoskr_deploy_version_info" in script
     assert "${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
+
+
+def test_pi_deploy_gates_reader_services_and_verifies_release_metadata() -> None:
+    script = _pi_deploy_script()
+
+    assert "READER_RELEASE_SERVICES=(ratatoskr worker scheduler mobile-api)" in script
+    assert 'SERVICES=("${READER_RELEASE_SERVICES[@]}")' in script
+    assert "reader-compatible services must deploy together" in script
+    assert '"APP_BUILD=${GIT_SHA}"' in script
+    assert "verify_reader_release_metadata" in script
+    assert "http://127.0.0.1:18000/v1/meta" in script
+    assert '"summaries.content-backfill.v1"' in script
+    assert 'data.get("backendRevision")' in script
+    assert 'data.get("frontendRevision")' in script
+
+    for dockerfile_path in RUNTIME_DOCKERFILES:
+        dockerfile = dockerfile_path.read_text(encoding="utf-8")
+        assert "ARG APP_BUILD=unknown" in dockerfile
+        assert "APP_BUILD=${APP_BUILD}" in dockerfile

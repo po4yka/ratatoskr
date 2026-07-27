@@ -6,7 +6,8 @@ from app.api.main import app
 from app.api.models.responses.common import API_CONTRACT_VERSION, MIN_SUPPORTED_CLIENT_API_VERSION
 
 
-def test_meta_endpoint_returns_public_compatibility_contract():
+def test_meta_endpoint_returns_public_compatibility_contract(monkeypatch):
+    monkeypatch.setenv("APP_BUILD", "b" * 40)
     response = TestClient(app).get("/v1/meta")
 
     assert response.status_code == 200
@@ -17,6 +18,9 @@ def test_meta_endpoint_returns_public_compatibility_contract():
     assert data["appVersion"]
     assert data["minSupportedClientApiVersion"] == MIN_SUPPORTED_CLIENT_API_VERSION
     assert "sync.v1" in data["capabilities"]
+    assert "summaries.content-backfill.v1" in data["capabilities"]
+    assert data["backendRevision"] == "b" * 40
+    assert data["frontendRevision"]
     assert isinstance(data["featureFlags"], dict)
     assert isinstance(data["deprecatedRoutes"], list)
     assert body["meta"]["api_version"] == API_CONTRACT_VERSION

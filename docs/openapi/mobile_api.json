@@ -26659,6 +26659,30 @@
             "title": "Build",
             "description": "Build identifier when supplied by deployment."
           },
+          "backendRevision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backendrevision",
+            "description": "Immutable backend git revision baked into the running image."
+          },
+          "frontendRevision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frontendrevision",
+            "description": "Immutable frontend git revision embedded in the served web bundle."
+          },
           "minSupportedClientApiVersion": {
             "type": "string",
             "title": "Minsupportedclientapiversion",
@@ -27834,6 +27858,30 @@
             ],
             "description": "Build identifier when supplied by deployment.",
             "title": "Build"
+          },
+          "backendRevision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Immutable backend git revision baked into the running image.",
+            "title": "Backendrevision"
+          },
+          "frontendRevision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Immutable frontend git revision embedded in the served web bundle.",
+            "title": "Frontendrevision"
           },
           "minSupportedClientApiVersion": {
             "default": "1.0.0",

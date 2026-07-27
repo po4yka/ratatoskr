@@ -3,7 +3,7 @@
 # Raspberry Pi over SSH so the Pi never has to perform the heavy build.
 #
 # Usage:
-#   tools/scripts/build-and-deploy-pi.sh                                # build + ship + restart `ratatoskr`
+#   tools/scripts/build-and-deploy-pi.sh                                # deploy the compatible reader stack
 #   tools/scripts/build-and-deploy-pi.sh --service mobile-api
 #   tools/scripts/build-and-deploy-pi.sh --service pg-backup
 #   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --service worker --service scheduler
@@ -82,6 +82,7 @@ SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
 BACKUP_SERVICES=(pg-backup)
 ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
+READER_RELEASE_SERVICES=(ratatoskr worker scheduler mobile-api)
 
 SERVICES=()
 RESTART=1
@@ -89,7 +90,8 @@ NO_CACHE=0
 ROLLBACK=0
 MIGRATE_ONLY=0
 APPLY_MIGRATIONS=0
-GIT_SHA=$(git rev-parse --short=12 HEAD 2>/dev/null || echo "unknown")
+GIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+FRONTEND_SHA=$(tr -d '[:space:]' < ops/docker/ratatoskr-web.commit)
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 usage() {
@@ -145,8 +147,9 @@ if [[ $APPLY_MIGRATIONS -eq 1 && $MIGRATE_ONLY -eq 0 ]]; then
   exit 2
 fi
 
-# Default: build the bot only (backward-compat with the old single-service script).
-[[ ${#SERVICES[@]} -eq 0 ]] && SERVICES=(ratatoskr)
+# Default: deploy the compatibility group atomically. These processes share
+# the source-artifact schema/capability and must never run mixed revisions.
+[[ ${#SERVICES[@]} -eq 0 ]] && SERVICES=("${READER_RELEASE_SERVICES[@]}")
 
 if [[ $MIGRATE_ONLY -eq 1 ]]; then
   SERVICES=("$MIGRATE_SERVICE")
@@ -185,6 +188,27 @@ if [[ $ROLLBACK -eq 1 ]]; then
   SHARED_TO_BUILD=()
   API_TO_BUILD=()
   BACKUP_TO_BUILD=()
+fi
+
+release_group_requested=0
+if [[ $MIGRATE_ONLY -eq 0 ]]; then
+  missing_release_services=()
+  for required in "${READER_RELEASE_SERVICES[@]}"; do
+    present=0
+    for requested in "${SERVICES[@]}"; do
+      [[ "$requested" == "$required" ]] && present=1
+    done
+    if [[ $present -eq 1 ]]; then
+      release_group_requested=1
+    else
+      missing_release_services+=("$required")
+    fi
+  done
+  if [[ $release_group_requested -eq 1 && ${#missing_release_services[@]} -gt 0 ]]; then
+    echo "ERROR: reader-compatible services must deploy together; missing: ${missing_release_services[*]}" >&2
+    echo "       use --services \"${READER_RELEASE_SERVICES[*]}\"" >&2
+    exit 2
+  fi
 fi
 
 command -v docker >/dev/null || { echo "docker is not on PATH" >&2; exit 1; }
@@ -275,10 +299,10 @@ build_and_ship() {
 
 # Build each Dockerfile group at most once.
 if [[ ${#SHARED_TO_BUILD[@]} -gt 0 ]]; then
-  build_and_ship "$SHARED_DOCKERFILE" -- "${SHARED_TO_BUILD[@]}"
+  build_and_ship "$SHARED_DOCKERFILE" "APP_BUILD=${GIT_SHA}" -- "${SHARED_TO_BUILD[@]}"
 fi
 if [[ ${#API_TO_BUILD[@]} -gt 0 ]]; then
-  build_and_ship "$API_DOCKERFILE" "WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT}" -- "${API_TO_BUILD[@]}"
+  build_and_ship "$API_DOCKERFILE" "APP_BUILD=${GIT_SHA}" "WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT}" -- "${API_TO_BUILD[@]}"
 fi
 if [[ ${#BACKUP_TO_BUILD[@]} -gt 0 ]]; then
   build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"
@@ -506,6 +530,41 @@ EOF
   printf "%s\n" "$metrics" | ssh "$RASPI_HOST" "docker run --rm -i --user 0 --entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile '${latest_tag}' -c 'cat > /textfile/ratatoskr_deploy_${svc}.prom'"
 }
 
+verify_reader_release_metadata() {
+  local expected_backend=$GIT_SHA
+  local expected_frontend=$FRONTEND_SHA
+  local payload
+  if [[ $ROLLBACK -eq 1 ]]; then
+    expected_backend=$(remote_image_label "${COMPOSE_PROJECT}-mobile-api:latest" "org.opencontainers.image.revision")
+    expected_frontend=$(ssh "$RASPI_HOST" "docker exec ratatoskr-mobile-api cat /app/app/static/web/.source-commit")
+  fi
+  echo "==> Verifying reader release metadata"
+  payload=$(ssh "$RASPI_HOST" "curl --fail --silent --show-error --max-time 10 http://127.0.0.1:18000/v1/meta")
+  META_PAYLOAD="$payload" \
+  EXPECTED_BACKEND_SHA="$expected_backend" \
+  EXPECTED_FRONTEND_SHA="$expected_frontend" \
+    python3 - <<'PY'
+import json
+import os
+
+data = json.loads(os.environ["META_PAYLOAD"])["data"]
+expected_backend = os.environ["EXPECTED_BACKEND_SHA"]
+expected_frontend = os.environ["EXPECTED_FRONTEND_SHA"]
+capability = "summaries.content-backfill.v1"
+if data.get("backendRevision") != expected_backend:
+    raise SystemExit(
+        f"backend revision mismatch: {data.get('backendRevision')!r} != {expected_backend!r}"
+    )
+if data.get("frontendRevision") != expected_frontend:
+    raise SystemExit(
+        f"frontend revision mismatch: {data.get('frontendRevision')!r} != {expected_frontend!r}"
+    )
+if capability not in data.get("capabilities", []):
+    raise SystemExit(f"required capability missing: {capability}")
+print(f"    backend={expected_backend} frontend={expected_frontend} capability={capability}")
+PY
+}
+
 if [[ $MIGRATE_ONLY -eq 1 ]]; then
   run_remote_migrations
 elif [[ $RESTART -eq 1 ]]; then
@@ -536,6 +595,9 @@ elif [[ $RESTART -eq 1 ]]; then
     wait_for_service_health "$svc"
     write_deploy_metrics "$svc"
   done
+  if [[ $release_group_requested -eq 1 ]]; then
+    verify_reader_release_metadata
+  fi
 else
   echo "==> Skipping restart (--no-restart). To start manually on the Pi:"
   for svc in "${SERVICES[@]}"; do

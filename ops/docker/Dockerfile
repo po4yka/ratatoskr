@@ -46,8 +46,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # =============================================================================
 FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS runtime
 
+ARG APP_BUILD=unknown
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    APP_BUILD=${APP_BUILD} \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app"
 

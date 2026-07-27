@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from pydantic import AliasGenerator, BaseModel, ConfigDict, Field
@@ -115,9 +116,25 @@ API_CAPABILITIES = (
     "auth.telegram",
     "sync.v1",
     "summaries.v1",
+    "summaries.content-backfill.v1",
     "collections.v1",
     "search.v1",
 )
+
+
+def _frontend_revision() -> str | None:
+    app_root = Path(__file__).resolve().parents[3]
+    for revision_path in (
+        app_root / "static" / "web" / ".source-commit",
+        app_root.parent / "ops" / "docker" / "ratatoskr-web.commit",
+    ):
+        try:
+            revision = revision_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if revision:
+            return revision
+    return None
 
 
 class SystemMetaResponse(AliasCompatibleResponseModel):
@@ -136,6 +153,16 @@ class SystemMetaResponse(AliasCompatibleResponseModel):
     build: str | None = Field(
         default_factory=lambda: os.getenv("APP_BUILD") or None,
         description="Build identifier when supplied by deployment.",
+    )
+    backend_revision: str | None = Field(
+        default_factory=lambda: os.getenv("APP_BUILD") or None,
+        serialization_alias="backendRevision",
+        description="Immutable backend git revision baked into the running image.",
+    )
+    frontend_revision: str | None = Field(
+        default_factory=_frontend_revision,
+        serialization_alias="frontendRevision",
+        description="Immutable frontend git revision embedded in the served web bundle.",
     )
     min_supported_client_api_version: str = Field(
         default=MIN_SUPPORTED_CLIENT_API_VERSION,
