@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import delete
 
+import app.application.graphs.summarize.graph as graph_mod
+from app.adapters.content.extraction_adapter import ContentExtractionAdapter
 from app.api.routers.content.summaries import get_summary_content
+from app.application.graphs.summarize.deps import SummarizeDeps
+from app.application.graphs.summarize.graph import (
+    build_summarize_graph,
+    run_summarize_graph,
+)
 from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.config.database import DatabaseConfig
 from app.db.models import CrawlResult, LLMCall, Request, Summary
@@ -29,6 +38,44 @@ pytestmark = pytest.mark.integration
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
+
+_SOURCE_TEXT = "The normalized article survives a completely fresh database session."
+
+
+class _PersistingContentExtractor:
+    """Minimal real persistence seam used by the compiled extraction node."""
+
+    def __init__(self, crawls: CrawlResultRepositoryAdapter) -> None:
+        self._crawls = crawls
+
+    async def extract_content_pure(
+        self,
+        url: str,
+        correlation_id: str | None = None,
+        request_id: int | None = None,
+    ) -> tuple[str, str, dict[str, object]]:
+        assert request_id is not None
+        artifact_id = await self._crawls.async_upsert_crawl_result(
+            request_id=request_id,
+            success=True,
+            content_text=_SOURCE_TEXT,
+            markdown="# Provider-specific raw payload",
+            source_url=url,
+            status="ok",
+            endpoint="integration-test",
+            correlation_id=correlation_id,
+            winning_provider="integration-test",
+        )
+        return (
+            _SOURCE_TEXT,
+            "integration-test",
+            {
+                "artifact_id": artifact_id,
+                "detected_lang": "en",
+                "content_length": len(_SOURCE_TEXT),
+            },
+        )
 
 
 @pytest.fixture
@@ -56,7 +103,12 @@ async def database() -> AsyncGenerator[Database]:
 
 
 @pytest.mark.asyncio
-async def test_completed_url_keeps_reader_source_after_fresh_session(database: Database) -> None:
+async def test_completed_url_keeps_reader_source_after_fresh_session(
+    database: Database,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from langgraph.checkpoint.memory import InMemorySaver
+
     requests = RequestRepositoryAdapter(database)
     crawls = CrawlResultRepositoryAdapter(database)
     summaries = SummaryRepositoryAdapter(database)
@@ -69,23 +121,49 @@ async def test_completed_url_keeps_reader_source_after_fresh_session(database: D
         normalized_url="https://example.com/durable-reader",
         dedupe_hash="reader-durability",
     )
-    artifact_id = await crawls.async_upsert_crawl_result(
-        request_id=request_id,
-        success=True,
-        content_text="The normalized article survives a completely fresh database session.",
-        markdown="# Provider-specific raw payload",
-        source_url="https://example.com/durable-reader",
-        status="ok",
-        winning_provider="integration-test",
+
+    async def no_op(_state: object, *, deps: object) -> dict[str, object]:
+        return {}
+
+    async def summarize(_state: object, *, deps: object) -> dict[str, object]:
+        return {"summary": {"summary_250": "Durability regression summary."}}
+
+    async def validate(_state: object, *, deps: object) -> dict[str, object]:
+        return {"validation_errors": []}
+
+    patched_nodes = dict(graph_mod._NODES)
+    for node_name in ("ground", "build_prompt", "repair", "enrich", "notify"):
+        patched_nodes[node_name] = no_op
+    patched_nodes["summarize"] = summarize
+    patched_nodes["validate"] = validate
+    monkeypatch.setattr(graph_mod, "_NODES", patched_nodes)
+
+    extraction = ContentExtractionAdapter(
+        content_extractor=_PersistingContentExtractor(crawls),  # type: ignore[arg-type]
+        request_repo=requests,
     )
-    finalized = await summaries.async_persist_summary_with_llm_calls(
+    deps = SummarizeDeps(
+        llm_client=SimpleNamespace(),
+        retrieval=SimpleNamespace(),
+        extraction=extraction,
+        stream_sink=SimpleNamespace(),
+        summaries=summaries,
+        requests=requests,
+        summary_index=SimpleNamespace(index_summary=AsyncMock()),
+        crawl_repo=crawls,
+    )
+    graph = build_summarize_graph(deps=deps, checkpointer=InMemorySaver())
+    result = await run_summarize_graph(
+        graph=graph,
+        deps=deps,
+        correlation_id="reader-durability",
         request_id=request_id,
         lang="en",
-        json_payload={"summary_250": "Durability regression summary."},
-        llm_calls=[],
+        input_url="https://example.com/durable-reader",
     )
-    assert finalized.summary_id is not None
-    assert await requests.async_complete_with_source_artifact(request_id, artifact_id) is True
+    assert "error" not in result
+    summary_id = result.get("summary_id")
+    assert isinstance(summary_id, int)
 
     # Drop every pooled connection so the Reader read cannot observe in-memory
     # ORM state from the write phase.
@@ -101,7 +179,7 @@ async def test_completed_url_keeps_reader_source_after_fresh_session(database: D
     )
     try:
         response = await get_summary_content(
-            summary_id=finalized.summary_id,
+            summary_id=summary_id,
             format="markdown",
             user={"user_id": 1402},
             use_case=use_case,
@@ -110,8 +188,6 @@ async def test_completed_url_keeps_reader_source_after_fresh_session(database: D
         await fresh_database.dispose()
 
     content = response["data"]["content"]
-    assert content["content"] == (
-        "The normalized article survives a completely fresh database session."
-    )
+    assert content["content"] == _SOURCE_TEXT
     assert content["format"] == "text"
     assert content["contentType"] == "text/plain"
