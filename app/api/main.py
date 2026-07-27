@@ -27,6 +27,7 @@ from app.api.error_handlers import (
     api_exception_handler,
     database_exception_handler,
     global_exception_handler as global_error_handler,
+    pydantic_validation_exception_handler,
     validation_exception_handler,
 )
 from app.api.exceptions import APIException
@@ -517,7 +518,7 @@ def web_interface(path: str = "") -> FileResponse:
 app.add_exception_handler(APIException, api_exception_handler)
 app.add_exception_handler(
     PydanticValidationError,
-    validation_exception_handler,
+    pydantic_validation_exception_handler,
 )
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, database_exception_handler)

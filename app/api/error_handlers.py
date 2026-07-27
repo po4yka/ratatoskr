@@ -69,9 +69,9 @@ def _format_validation_errors(errors: list[dict]) -> list[dict]:
 
 
 async def validation_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle Pydantic and FastAPI request validation errors without echoing secrets."""
+    """Handle FastAPI request validation errors without echoing secrets."""
     # Type narrowing for FastAPI compatibility
-    if not isinstance(exc, (PydanticValidationError, RequestValidationError)):
+    if not isinstance(exc, RequestValidationError):
         raise exc
 
     correlation_id = getattr(request.state, "correlation_id", None)
@@ -102,6 +102,35 @@ async def validation_exception_handler(request: Request, exc: Exception) -> Resp
 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=error_response(detail, correlation_id=correlation_id),
+    )
+
+
+async def pydantic_validation_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle internal Pydantic model validation failures as server errors."""
+    # Type narrowing for FastAPI compatibility
+    if not isinstance(exc, PydanticValidationError):
+        raise exc
+
+    correlation_id = getattr(request.state, "correlation_id", None)
+
+    # Response-model failures are implementation errors, not invalid client
+    # requests. Keep both the response and log entry free of rejected values.
+    logger.error(
+        "Internal model validation failed",
+        extra={"correlation_id": correlation_id, "path": request.url.path},
+    )
+
+    detail = make_error(
+        code=ErrorCode.INTERNAL_ERROR.value,
+        message="An internal server error occurred",
+        error_type=ErrorType.INTERNAL,
+        retryable=False,
+    )
+    detail.correlation_id = correlation_id
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=error_response(detail, correlation_id=correlation_id),
     )
 
