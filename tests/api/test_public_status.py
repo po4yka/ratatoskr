@@ -317,7 +317,18 @@ def test_persisted_ai_status_uses_fresh_terminal_llm_call() -> None:
 
     assert successful.level is PublicStatusLevel.OPERATIONAL
     assert failed.level is PublicStatusLevel.DEGRADED
-    assert stale.level is PublicStatusLevel.UNKNOWN
+    assert stale.level is PublicStatusLevel.OPERATIONAL
+    assert stale.message == "Idle; no recent AI request observed"
+
+
+def test_persisted_ai_status_treats_no_history_as_idle() -> None:
+    signal = PublicStatusService._persisted_ai_status_from_rows(
+        [],
+        max_age=timedelta(hours=24),
+    )
+
+    assert signal.level is PublicStatusLevel.OPERATIONAL
+    assert signal.message == "Idle; no AI request observed"
 
 
 def test_persisted_extraction_status_ignores_unrelated_request_failures() -> None:
@@ -360,6 +371,43 @@ def test_persisted_extraction_status_reports_extraction_failure() -> None:
 
     assert signal.level is PublicStatusLevel.DEGRADED
     assert signal.message == "Latest extraction run failed"
+
+
+def test_persisted_extraction_status_treats_stale_or_absent_history_as_idle() -> None:
+    now = datetime.now(UTC)
+    stale = PublicStatusService._persisted_extraction_status_from_rows(
+        [
+            SimpleNamespace(
+                status="error",
+                updated_at=now - timedelta(hours=25),
+                error_context_json={"pipeline": "url_extraction"},
+            )
+        ],
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+    absent = PublicStatusService._persisted_extraction_status_from_rows(
+        [],
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+
+    assert stale.level is PublicStatusLevel.OPERATIONAL
+    assert stale.message == "Idle; no recent extraction run observed"
+    assert absent.level is PublicStatusLevel.OPERATIONAL
+    assert absent.message == "Idle; no extraction run observed"
+
+
+def test_persisted_result_with_future_timestamp_is_unknown() -> None:
+    now = datetime.now(UTC)
+    signal = PublicStatusService._persisted_ai_status_from_rows(
+        [SimpleNamespace(status="ok", updated_at=now + timedelta(minutes=6))],
+        max_age=timedelta(hours=24),
+        now=now,
+    )
+
+    assert signal.level is PublicStatusLevel.UNKNOWN
+    assert signal.message == "Status timestamp unavailable"
 
 
 @pytest.mark.asyncio

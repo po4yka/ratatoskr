@@ -635,7 +635,7 @@ class PublicStatusService:
                     max_age=max_age,
                     now=now,
                     fresh_message="Recent AI request succeeded",
-                    stale_message="No recent AI request observed",
+                    idle_message="Idle; no recent AI request observed",
                 )
             if status in _FAILURE_STATUSES:
                 return cls._persisted_result_signal(
@@ -644,9 +644,9 @@ class PublicStatusService:
                     max_age=max_age,
                     now=now,
                     fresh_message="Latest AI request failed",
-                    stale_message="No recent AI request observed",
+                    idle_message="Idle; no recent AI request observed",
                 )
-        return _StatusSignal(PublicStatusLevel.UNKNOWN, "No AI request observed")
+        return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Idle; no AI request observed")
 
     @classmethod
     def _persisted_extraction_status_from_rows(
@@ -665,7 +665,7 @@ class PublicStatusService:
                     max_age=max_age,
                     now=now,
                     fresh_message="Recent extraction succeeded",
-                    stale_message="No recent extraction run observed",
+                    idle_message="Idle; no recent extraction run observed",
                 )
             context = row.error_context_json
             if (
@@ -679,9 +679,9 @@ class PublicStatusService:
                     max_age=max_age,
                     now=now,
                     fresh_message="Latest extraction run failed",
-                    stale_message="No recent extraction run observed",
+                    idle_message="Idle; no recent extraction run observed",
                 )
-        return _StatusSignal(PublicStatusLevel.UNKNOWN, "No extraction run observed")
+        return _StatusSignal(PublicStatusLevel.OPERATIONAL, "Idle; no extraction run observed")
 
     @staticmethod
     def _persisted_result_signal(
@@ -691,13 +691,15 @@ class PublicStatusService:
         max_age: timedelta,
         now: datetime | None,
         fresh_message: str,
-        stale_message: str,
+        idle_message: str,
     ) -> _StatusSignal:
         if observed_at.tzinfo is None:
             observed_at = observed_at.replace(tzinfo=UTC)
         age = (now or datetime.now(UTC)) - observed_at
-        if age < timedelta(minutes=-5) or age > max_age:
-            return _StatusSignal(PublicStatusLevel.UNKNOWN, stale_message)
+        if age < timedelta(minutes=-5):
+            return _StatusSignal(PublicStatusLevel.UNKNOWN, "Status timestamp unavailable")
+        if age > max_age:
+            return _StatusSignal(PublicStatusLevel.OPERATIONAL, idle_message)
         return _StatusSignal(level, fresh_message)
 
     @staticmethod
