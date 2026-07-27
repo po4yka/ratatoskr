@@ -6,6 +6,7 @@ Provides CRUD operations for summaries.
 
 from datetime import datetime
 from hashlib import sha256
+from math import isfinite
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
@@ -134,8 +135,10 @@ class _RelatedReadsVectorAdapter:
         ]
 
 
-def _normalize_hallucination_risk(raw: str) -> Literal["low", "medium", "high", "unknown"]:
+def _normalize_hallucination_risk(raw: Any) -> Literal["low", "medium", "high", "unknown"]:
     """Map internal short-form values to the API contract enum."""
+    if not isinstance(raw, str):
+        return "unknown"
     result = _HR_NORMALIZE.get(raw, raw)
     if result not in {"low", "medium", "high", "unknown"}:
         return "unknown"
@@ -296,31 +299,92 @@ def _extract_request_fields(
     )
 
 
+def _normalize_compact_summary_payload(
+    json_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize legacy JSON fields before building the strict API model."""
+    metadata = ensure_mapping(json_payload.get("metadata"))
+
+    def _text(value: Any, default: str = "") -> str:
+        return value if isinstance(value, str) else default
+
+    reading_time_raw = json_payload.get("estimated_reading_time_min")
+    if isinstance(reading_time_raw, bool):
+        reading_time = 0
+    elif isinstance(reading_time_raw, int):
+        reading_time = max(reading_time_raw, 0)
+    elif isinstance(reading_time_raw, float) and reading_time_raw.is_integer():
+        reading_time = max(int(reading_time_raw), 0)
+    elif isinstance(reading_time_raw, str):
+        try:
+            reading_time = max(int(reading_time_raw), 0)
+        except ValueError:
+            reading_time = 0
+    else:
+        reading_time = 0
+
+    confidence_raw = json_payload.get("confidence")
+    if isinstance(confidence_raw, bool):
+        confidence = 0.0
+    else:
+        try:
+            confidence = float(confidence_raw)
+        except (TypeError, ValueError):
+            confidence = 0.0
+    if not isfinite(confidence):
+        confidence = 0.0
+
+    topic_tags_raw = json_payload.get("topic_tags")
+    topic_tags = (
+        [tag for tag in topic_tags_raw if isinstance(tag, str)]
+        if isinstance(topic_tags_raw, list)
+        else []
+    )
+    image_url = next(
+        (
+            value
+            for key in ("image", "og:image", "ogImage")
+            if isinstance((value := metadata.get(key)), str) and value
+        ),
+        None,
+    )
+
+    return {
+        "title": _text(metadata.get("title"), "Untitled"),
+        "domain": _text(metadata.get("domain")),
+        "tldr": _text(json_payload.get("tldr")),
+        "summary_250": _text(json_payload.get("summary_250")),
+        "reading_time_min": reading_time,
+        "topic_tags": topic_tags,
+        "confidence": confidence,
+        "hallucination_risk": _normalize_hallucination_risk(json_payload.get("hallucination_risk")),
+        "image_url": image_url,
+    }
+
+
 def _build_summary_compact(summary_dict: dict[str, Any]) -> SummaryCompact:
     """Build a SummaryCompact response model from a joined summary dict."""
     request_id, input_url, normalized_url = _extract_request_fields(summary_dict)
     json_payload = ensure_mapping(summary_dict.get("json_payload"))
-    metadata = ensure_mapping(json_payload.get("metadata"))
+    payload = _normalize_compact_summary_payload(json_payload)
     quality = _safe_compact_summary_quality(json_payload)
     return SummaryCompact(
         id=summary_dict.get("id"),
         request_id=request_id,
-        title=metadata.get("title", "Untitled"),
-        domain=metadata.get("domain") or "",
+        title=payload["title"],
+        domain=payload["domain"],
         url=input_url or normalized_url or "",
-        tldr=json_payload.get("tldr", ""),
-        summary_250=json_payload.get("summary_250", ""),
-        reading_time_min=json_payload.get("estimated_reading_time_min", 0),
-        topic_tags=json_payload.get("topic_tags", []),
+        tldr=payload["tldr"],
+        summary_250=payload["summary_250"],
+        reading_time_min=payload["reading_time_min"],
+        topic_tags=payload["topic_tags"],
         is_read=summary_dict.get("is_read", False),
         is_favorited=summary_dict.get("is_favorited", False),
         lang=summary_dict.get("lang") or "auto",
         created_at=isotime(summary_dict.get("created_at")),
-        confidence=json_payload.get("confidence", 0.0),
-        hallucination_risk=_normalize_hallucination_risk(
-            json_payload.get("hallucination_risk", "unknown")
-        ),
-        image_url=metadata.get("image") or metadata.get("og:image") or metadata.get("ogImage"),
+        confidence=payload["confidence"],
+        hallucination_risk=payload["hallucination_risk"],
+        image_url=payload["image_url"],
         source_coverage=quality.source_coverage,
         repair_attempted=quality.repair_attempted,
         repair_succeeded=quality.repair_succeeded,

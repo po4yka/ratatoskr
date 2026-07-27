@@ -314,7 +314,7 @@ def test_summary_list_quality_falls_back_to_quality_payload() -> None:
     assert compact["validationWarningCount"] == 1
 
 
-def test_summary_list_normalizes_null_domain() -> None:
+def test_summary_list_normalizes_null_title_and_domain() -> None:
     compact = _build_summary_compact(
         {
             "id": 101,
@@ -325,7 +325,7 @@ def test_summary_list_normalizes_null_domain() -> None:
                 "estimated_reading_time_min": 1,
                 "topic_tags": [],
                 "metadata": {
-                    "title": "Source without a domain",
+                    "title": None,
                     "domain": None,
                 },
             },
@@ -338,5 +338,84 @@ def test_summary_list_normalizes_null_domain() -> None:
         }
     ).model_dump(by_alias=True)
 
+    assert compact["title"] == "Untitled"
     assert compact["domain"] == ""
     assert compact["url"] == ""
+
+
+def test_summary_list_normalizes_null_and_invalid_payload_fields() -> None:
+    compact = _build_summary_compact(
+        {
+            "id": 102,
+            "lang": "en",
+            "json_payload": {
+                "summary_250": None,
+                "tldr": None,
+                "estimated_reading_time_min": None,
+                "topic_tags": [None, "valid", 42],
+                "confidence": {"invalid": True},
+                "hallucination_risk": [],
+                "metadata": {
+                    "title": "Legacy summary",
+                    "domain": 42,
+                    "image": {"invalid": True},
+                },
+            },
+            "request": {
+                "id": 52,
+                "input_url": "https://example.com/legacy",
+                "normalized_url": "https://example.com/legacy",
+            },
+            "created_at": datetime(2026, 7, 27, tzinfo=UTC),
+        }
+    ).model_dump(by_alias=True)
+
+    assert compact["domain"] == ""
+    assert compact["tldr"] == ""
+    assert compact["summary250"] == ""
+    assert compact["readingTimeMin"] == 0
+    assert compact["topicTags"] == ["valid"]
+    assert compact["confidence"] == 0.0
+    assert compact["hallucinationRisk"] == "unknown"
+    assert compact["imageUrl"] is None
+
+
+@pytest.mark.asyncio
+async def test_summary_list_keeps_valid_rows_when_one_payload_is_legacy() -> None:
+    use_case = FakeSummaryReadModelUseCase()
+    valid = {**use_case.summary, "request": use_case.request}
+    base_payload = use_case.summary["json_payload"]
+    assert isinstance(base_payload, dict)
+    legacy = {
+        **use_case.summary,
+        "id": 100,
+        "json_payload": {
+            **base_payload,
+            "metadata": {"title": None, "domain": None},
+            "tldr": None,
+            "summary_250": None,
+            "estimated_reading_time_min": None,
+            "topic_tags": None,
+            "confidence": None,
+        },
+        "request": {**use_case.request, "id": 43},
+    }
+
+    async def get_user_summaries(**_kwargs: Any) -> tuple[list[dict[str, Any]], int, int]:
+        return [valid, legacy], 2, 2
+
+    use_case.get_user_summaries = get_user_summaries  # type: ignore[method-assign]
+
+    response = await get_summaries(
+        limit=20,
+        offset=0,
+        user={"user_id": 7},
+        use_case=use_case,  # type: ignore[arg-type]
+    )
+    validated = SummaryListSuccessResponse.model_validate(response)
+
+    assert [summary.title for summary in validated.data.summaries] == [
+        "Backend Contract",
+        "Untitled",
+    ]
+    assert validated.data.summaries[1].topic_tags == []
