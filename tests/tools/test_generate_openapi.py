@@ -21,6 +21,23 @@ def test_generated_openapi_version_matches_contract_version() -> None:
     assert spec["info"]["version"] == API_CONTRACT_VERSION
 
 
+def test_generated_422_responses_use_project_error_envelope() -> None:
+    spec = generate_spec()
+    expected = {"$ref": "#/components/responses/ValidationError"}
+
+    mismatches = []
+    for path, path_item in spec["paths"].items():
+        for method, operation in path_item.items():
+            if method.upper() not in {"DELETE", "GET", "HEAD", "PATCH", "POST", "PUT"}:
+                continue
+            if operation["responses"]["422"] != expected:
+                mismatches.append(f"{method.upper()} {path}")
+
+    assert mismatches == []
+    assert "HTTPValidationError" not in spec["components"]["schemas"]
+    assert "ValidationError" not in spec["components"]["schemas"]
+
+
 def test_committed_openapi_docs_match_generator() -> None:
     env = {
         **os.environ,

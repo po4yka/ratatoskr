@@ -337,9 +337,13 @@ def _apply_contract_postprocessing(spec: dict[str, Any]) -> None:
                 responses_for_operation.setdefault(
                     "403", {"$ref": "#/components/responses/ForbiddenError"}
                 )
-            responses_for_operation.setdefault(
-                "422", {"$ref": "#/components/responses/ValidationError"}
-            )
+            responses_for_operation["422"] = {"$ref": "#/components/responses/ValidationError"}
+
+    # FastAPI adds its stock request-validation schemas before the project
+    # response envelope is applied. Once every 422 response points at the
+    # project contract these components are unused and would mislead codegen.
+    schemas.pop("HTTPValidationError", None)
+    schemas.pop("ValidationError", None)
 
 
 def _render_yaml(spec: dict[str, Any]) -> str:

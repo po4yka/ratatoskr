@@ -35,11 +35,7 @@ paths:
               schema:
                 title: Response Telegram Login V1 Auth Telegram Login Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
   /v1/auth/me/telegram:
     get:
       tags:
@@ -126,11 +122,7 @@ paths:
               schema:
                 title: Response Complete Telegram Link V1 Auth Me Telegram Complete Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -158,11 +150,7 @@ paths:
               schema:
                 title: Response Secret Login V1 Auth Secret Login Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
   /v1/auth/secret-keys:
     post:
       tags:
@@ -186,11 +174,7 @@ paths:
               schema:
                 title: Response Create Secret Key V1 Auth Secret Keys Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -236,11 +220,7 @@ paths:
               schema:
                 title: Response List Secret Keys V1 Auth Secret Keys Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -275,11 +255,7 @@ paths:
               schema:
                 title: Response Rotate Secret Key V1 Auth Secret Keys  Key Id  Rotate Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -316,11 +292,7 @@ paths:
               schema:
                 title: Response Revoke Secret Key V1 Auth Secret Keys  Key Id  Revoke Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -349,11 +321,7 @@ paths:
               schema:
                 title: Response Credentials Login V1 Auth Credentials Login Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
   /v1/auth/credentials/change-password:
     post:
       tags:
@@ -375,11 +343,7 @@ paths:
               schema:
                 title: Response Change Password V1 Auth Credentials Change Password Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -407,11 +371,7 @@ paths:
               schema:
                 title: Response Request Magic Link V1 Auth Magic Link Request Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -442,11 +402,7 @@ paths:
               schema:
                 title: Response Verify Magic Link V1 Auth Magic Link Verify Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -505,11 +461,7 @@ paths:
               schema:
                 title: Response Delete Account V1 Auth Me Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -535,11 +487,7 @@ paths:
               schema:
                 title: Response Refresh Access Token V1 Auth Refresh Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
   /v1/auth/logout:
     post:
       tags:
@@ -561,11 +509,7 @@ paths:
               schema:
                 title: Response Logout V1 Auth Logout Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -622,11 +566,7 @@ paths:
                 additionalProperties: true
                 title: Response Revoke Session V1 Auth Sessions  Session Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -683,11 +623,7 @@ paths:
               schema:
                 title: Response Start Apple Sign In V1 Auth Apple Start Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -715,11 +651,7 @@ paths:
               schema:
                 title: Response Apple Callback V1 Auth Apple Callback Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -747,11 +679,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PATSubmitResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -892,11 +820,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DeviceFlowPollResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -926,11 +850,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregationCreateResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -977,11 +897,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregationListResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1010,11 +926,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregationDetailResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1038,11 +950,7 @@ paths:
         '204':
           description: Successful Response
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1102,11 +1010,7 @@ paths:
               schema:
                 title: Response Get Collections V1 Collections Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1133,11 +1037,7 @@ paths:
               schema:
                 title: Response Create Collection V1 Collections Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1177,11 +1077,7 @@ paths:
               schema:
                 title: Response List Incoming Collection Invites V1 Collections Invites Incoming Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1212,11 +1108,7 @@ paths:
               schema:
                 title: Response Get Collection Tree V1 Collections Tree Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1245,11 +1137,7 @@ paths:
               schema:
                 title: Response Get Collection V1 Collections  Collection Id  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1283,11 +1171,7 @@ paths:
               schema:
                 title: Response Update Collection V1 Collections  Collection Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1315,11 +1199,7 @@ paths:
               schema:
                 title: Response Delete Collection V1 Collections  Collection Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1354,11 +1234,7 @@ paths:
               schema:
                 title: Response Add Collection Item V1 Collections  Collection Id  Items Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1402,11 +1278,7 @@ paths:
               schema:
                 title: Response List Collection Items V1 Collections  Collection Id  Items Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1440,11 +1312,7 @@ paths:
               schema:
                 title: Response Reorder Collection Items V1 Collections  Collection Id  Items Reorder Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1478,11 +1346,7 @@ paths:
               schema:
                 title: Response Move Collection Items V1 Collections  Collection Id  Items Move Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1517,11 +1381,7 @@ paths:
               schema:
                 title: Response Remove Collection Item V1 Collections  Collection Id  Items  Summary Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1555,11 +1415,7 @@ paths:
               schema:
                 title: Response Reorder Collections V1 Collections  Collection Id  Reorder Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1593,11 +1449,7 @@ paths:
               schema:
                 title: Response Move Collection V1 Collections  Collection Id  Move Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1625,11 +1477,7 @@ paths:
               schema:
                 title: Response Get Collection Acl V1 Collections  Collection Id  Acl Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1663,11 +1511,7 @@ paths:
               schema:
                 title: Response Add Collection Collaborator V1 Collections  Collection Id  Share Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1701,11 +1545,7 @@ paths:
               schema:
                 title: Response Remove Collection Collaborator V1 Collections  Collection Id  Share  Target User Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1739,11 +1579,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CollectionPublicLinkSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1770,11 +1606,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CollectionPublicLinkListSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1808,11 +1640,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CollectionPublicLinkRevocationSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1846,11 +1674,7 @@ paths:
               schema:
                 title: Response Create Collection Invite V1 Collections  Collection Id  Invite Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1878,11 +1702,7 @@ paths:
               schema:
                 title: Response Accept Collection Invite V1 Collections Invites  Token  Accept Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1911,11 +1731,7 @@ paths:
               schema:
                 title: Response Evaluate Smart Collection V1 Collections  Collection Id  Evaluate Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -1953,11 +1769,7 @@ paths:
         '404':
           description: Unknown, expired, revoked, or password-protected link.
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
       security: []
   /v1/summaries:
     get:
@@ -2073,11 +1885,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryListSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2108,11 +1916,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2144,11 +1948,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryRecommendationsSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2182,11 +1982,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryRelatedReadsSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2215,11 +2011,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2253,11 +2045,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/UpdateSummarySuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2285,11 +2073,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DeleteSummarySuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2324,11 +2108,7 @@ paths:
               schema:
                 title: Response Email Summary V1 Summaries  Summary Id  Email Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2365,11 +2145,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryContentSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2398,11 +2174,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryContentSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2439,11 +2211,7 @@ paths:
               schema:
                 title: Response Export Summary V1 Summaries  Summary Id  Export Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2478,11 +2246,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SaveReadingPositionSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2515,11 +2279,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2552,11 +2312,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2584,11 +2340,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2619,11 +2371,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ToggleFavoriteSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2658,11 +2406,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FeedbackSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2753,11 +2497,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RepositoryListResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2784,11 +2524,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/IngestRepositoryResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2828,11 +2564,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RepositoryWatchListResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2861,11 +2593,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RepositoryDetail'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2889,11 +2617,7 @@ paths:
         '204':
           description: Successful Response
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2930,11 +2654,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RepositoryWatch'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2958,11 +2678,7 @@ paths:
         '204':
           description: Successful Response
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -2991,11 +2707,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RepositoryDetail'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3035,11 +2747,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/GitMirrorListResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3071,11 +2779,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RegisterMirrorResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3123,11 +2827,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/GitMirrorSearchResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3156,11 +2856,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/GitMirrorDetail'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3190,11 +2886,7 @@ paths:
         '204':
           description: Successful Response
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3244,11 +2936,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AiBackupItem'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3285,11 +2973,7 @@ paths:
         '403':
           description: Owner permissions required
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3319,11 +3003,7 @@ paths:
         '403':
           description: Owner permissions required
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3380,11 +3060,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CredentialSetResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3412,11 +3088,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CredentialDeleteResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3535,11 +3207,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryListSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3570,11 +3238,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3607,11 +3271,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryRecommendationsSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3645,11 +3305,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryRelatedReadsSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3678,11 +3334,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryDetailSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3716,11 +3368,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/UpdateSummarySuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3748,11 +3396,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DeleteSummarySuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3787,11 +3431,7 @@ paths:
               schema:
                 title: Response Email Summary V1 Articles  Summary Id  Email Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3828,11 +3468,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryContentSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3862,11 +3498,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SummaryContentSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3903,11 +3535,7 @@ paths:
               schema:
                 title: Response Export Summary V1 Articles  Summary Id  Export Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3943,11 +3571,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SaveReadingPositionSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -3980,11 +3604,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4017,11 +3637,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4049,11 +3665,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/BulkSummaryUpdateSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4084,11 +3696,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ToggleFavoriteSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4123,11 +3731,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FeedbackSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4156,11 +3760,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SubmitRequestSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4191,11 +3791,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RequestDetailSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4224,11 +3820,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RequestStatusSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4257,11 +3849,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RetryRequestSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4317,11 +3905,7 @@ paths:
             application/json:
               schema: {}
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4368,11 +3952,7 @@ paths:
               schema:
                 title: Response Create Saved Search V1 Searches Saved Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4400,11 +3980,7 @@ paths:
         '204':
           description: Successful Response
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4434,11 +4010,7 @@ paths:
               schema:
                 title: Response Run Saved Search V1 Searches Saved  Saved Search Id  Run Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4623,11 +4195,7 @@ paths:
               schema:
                 title: Response Search Summaries V1 Search Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4760,11 +4328,7 @@ paths:
               schema:
                 title: Response Semantic Search Summaries V1 Search Semantic Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4805,11 +4369,7 @@ paths:
               schema:
                 title: Response Get Trending Topics V1 Topics Trending Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4850,11 +4410,7 @@ paths:
               schema:
                 title: Response Get Search Insights V1 Search Insights Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4901,11 +4457,7 @@ paths:
               schema:
                 title: Response Get Related Summaries V1 Topics Related Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -4942,11 +4494,7 @@ paths:
               schema:
                 title: Response Check Duplicate V1 Urls Check Duplicate Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5042,11 +4590,7 @@ paths:
               schema:
                 title: Response Search Repositories V1 Search Repositories Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5143,11 +4687,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SignalUpdatedSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5181,11 +4721,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SignalUpdatedSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5213,11 +4749,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SignalQueuedSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5251,11 +4783,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SignalUpdatedSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5280,11 +4808,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SignalTopicSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5357,11 +4881,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SocialConnectUrlSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5396,11 +4916,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SocialCallbackSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5429,11 +4945,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SocialDisconnectSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5463,11 +4975,7 @@ paths:
                 type: object
                 title: Response Create Sync Session V1 Sync Sessions Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5512,11 +5020,7 @@ paths:
                 additionalProperties: true
                 title: Response Full Sync V1 Sync Full Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5565,11 +5069,7 @@ paths:
             application/json:
               schema: {}
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5597,11 +5097,7 @@ paths:
                 type: object
                 title: Response Apply Changes V1 Sync Apply Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5650,11 +5146,7 @@ paths:
               schema:
                 title: Response Update Current User Profile V1 User Me Put
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5725,11 +5217,7 @@ paths:
               schema:
                 title: Response Update User Preferences V1 User Preferences Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5807,11 +5295,7 @@ paths:
               schema:
                 title: Response Upsert Goal V1 User Goals Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5842,11 +5326,7 @@ paths:
               schema:
                 title: Response Delete Goal V1 User Goals  Goal Type  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5875,11 +5355,7 @@ paths:
               schema:
                 title: Response Delete Goal By Id V1 User Goals By Id  Goal Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -5970,11 +5446,7 @@ paths:
               schema:
                 title: Response Update Current User Profile V1 Users Me Put
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6111,11 +5583,7 @@ paths:
         '401':
           description: Missing or invalid feed token.
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
       security: []
   /v1/system/db-dump:
     get:
@@ -6248,11 +5716,7 @@ paths:
               schema:
                 title: Response Proxy Image V1 Proxy Image Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6296,11 +5760,7 @@ paths:
                 additionalProperties: true
                 title: Response Register Device V1 Notifications Device Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6352,11 +5812,7 @@ paths:
                 type: object
                 title: Response Subscribe Channel V1 Digest Channels Subscribe Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6386,11 +5842,7 @@ paths:
                 type: object
                 title: Response Unsubscribe Channel V1 Digest Channels Unsubscribe Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6420,11 +5872,7 @@ paths:
                 type: object
                 title: Response Resolve Channel V1 Digest Channels Resolve Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6463,11 +5911,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Channel Controls V1 Digest Channels  Username  Controls Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6500,11 +5944,7 @@ paths:
                 additionalProperties: true
                 title: Response Retry Channel V1 Digest Channels  Username  Retry Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6554,11 +5994,7 @@ paths:
                 additionalProperties: true
                 title: Response List Channel Posts V1 Digest Channels  Username  Posts Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6588,11 +6024,7 @@ paths:
                 type: object
                 title: Response Bulk Unsubscribe V1 Digest Channels Bulk Unsubscribe Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6622,11 +6054,7 @@ paths:
                 type: object
                 title: Response Bulk Assign Category V1 Digest Channels Bulk Category Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6679,11 +6107,7 @@ paths:
                 type: object
                 title: Response Update Preferences V1 Digest Preferences Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6737,11 +6161,7 @@ paths:
                 type: object
                 title: Response Request Email Verification V1 Digest Email Addresses Request Verification Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6771,11 +6191,7 @@ paths:
                 type: object
                 title: Response Verify Email Address V1 Digest Email Addresses Verify Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6817,11 +6233,7 @@ paths:
                 additionalProperties: true
                 title: Response List History V1 Digest History Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6876,11 +6288,7 @@ paths:
                 description: Server-Sent Events stream. Each event data field is JSON with kind, payload, timestamp, and correlation_id
                   fields.
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6910,11 +6318,7 @@ paths:
                 type: object
                 title: Response Trigger Channel Digest V1 Digest Trigger Channel Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -6967,11 +6371,7 @@ paths:
                 type: object
                 title: Response Create Category V1 Digest Categories Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7008,11 +6408,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Category V1 Digest Categories  Category Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7042,11 +6438,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Category V1 Digest Categories  Category Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7083,11 +6475,7 @@ paths:
                 additionalProperties: true
                 title: Response Assign Category V1 Digest Channels  Subscription Id  Category Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7140,11 +6528,7 @@ paths:
                 type: object
                 title: Response Create Custom Digest V1 Digests Custom Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7177,11 +6561,7 @@ paths:
                 additionalProperties: true
                 title: Response Get Custom Digest V1 Digests Custom  Digest Id  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7218,11 +6598,7 @@ paths:
                 additionalProperties: true
                 title: Response Email Custom Digest V1 Digests Custom  Digest Id  Email Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7273,11 +6649,7 @@ paths:
                 type: object
                 title: Response Create Tag V1 Tags  Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7310,11 +6682,7 @@ paths:
                 additionalProperties: true
                 title: Response Get Tag V1 Tags  Tag Id  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7350,11 +6718,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Tag V1 Tags  Tag Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7384,11 +6748,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Tag V1 Tags  Tag Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7416,11 +6776,7 @@ paths:
                 type: object
                 title: Response Merge Tags V1 Tags Merge Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7453,11 +6809,7 @@ paths:
                 additionalProperties: true
                 title: Response List Summary Tags V1 Summaries  Summary Id  Tags Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7493,11 +6845,7 @@ paths:
                 additionalProperties: true
                 title: Response Attach Tags V1 Summaries  Summary Id  Tags Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7534,11 +6882,7 @@ paths:
                 additionalProperties: true
                 title: Response Detach Tag V1 Summaries  Summary Id  Tags  Tag Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7569,11 +6913,7 @@ paths:
                 additionalProperties: true
                 title: Response List Summary Tags V1 Articles  Summary Id  Tags Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7610,11 +6950,7 @@ paths:
                 additionalProperties: true
                 title: Response Attach Tags V1 Articles  Summary Id  Tags Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7651,11 +6987,7 @@ paths:
                 additionalProperties: true
                 title: Response Detach Tag V1 Articles  Summary Id  Tags  Tag Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7693,11 +7025,7 @@ paths:
                 additionalProperties: true
                 title: Response List Subscriptions V1 Webhooks  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7740,11 +7068,7 @@ paths:
                 additionalProperties: true
                 title: Response Create Subscription V1 Webhooks  Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7788,11 +7112,7 @@ paths:
                 additionalProperties: true
                 title: Response Get Subscription V1 Webhooks  Webhook Id  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7841,11 +7161,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Subscription V1 Webhooks  Webhook Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7888,11 +7204,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Subscription V1 Webhooks  Webhook Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -7936,11 +7248,7 @@ paths:
                 additionalProperties: true
                 title: Response Send Test Webhook V1 Webhooks  Webhook Id  Test Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8001,11 +7309,7 @@ paths:
                 additionalProperties: true
                 title: Response List Deliveries V1 Webhooks  Webhook Id  Deliveries Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8049,11 +7353,7 @@ paths:
                 additionalProperties: true
                 title: Response Rotate Secret V1 Webhooks  Webhook Id  Rotate Secret Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8091,11 +7391,7 @@ paths:
                 additionalProperties: true
                 title: Response Create Backup V1 Backups  Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8132,11 +7428,7 @@ paths:
                 additionalProperties: true
                 title: Response List Backups V1 Backups  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8164,11 +7456,7 @@ paths:
                 type: object
                 title: Response Restore Backup V1 Backups Restore Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8198,11 +7486,7 @@ paths:
                 type: object
                 title: Response Dry Run Restore Backup V1 Backups Restore Dry Run Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8250,11 +7534,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Backup Schedule V1 Backups Schedule Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8291,11 +7571,7 @@ paths:
                 additionalProperties: true
                 title: Response Get Backup Schedule V1 Backups Schedule Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8339,11 +7615,7 @@ paths:
                 additionalProperties: true
                 title: Response Get Backup V1 Backups  Backup Id  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8386,11 +7658,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Backup V1 Backups  Backup Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8431,11 +7699,7 @@ paths:
             application/json:
               schema: {}
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8479,11 +7743,7 @@ paths:
                 additionalProperties: true
                 title: Response Verify Backup V1 Backups  Backup Id  Verify Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8521,11 +7781,7 @@ paths:
                 additionalProperties: true
                 title: Response List Rules V1 Rules  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8568,11 +7824,7 @@ paths:
                 additionalProperties: true
                 title: Response Create Rule V1 Rules  Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8616,11 +7868,7 @@ paths:
                 additionalProperties: true
                 title: Response Get Rule V1 Rules  Rule Id  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8669,11 +7917,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Rule V1 Rules  Rule Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8716,11 +7960,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Rule V1 Rules  Rule Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8770,11 +8010,7 @@ paths:
                 additionalProperties: true
                 title: Response Dry Run Rule V1 Rules  Rule Id  Test Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8835,11 +8071,7 @@ paths:
                 additionalProperties: true
                 title: Response List Execution Logs V1 Rules  Rule Id  Logs Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8888,11 +8120,7 @@ paths:
                 type: object
                 title: Response Create Export Integration V1 Export Integrations Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8931,11 +8159,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Export Integration V1 Export Integrations  Integration Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -8965,11 +8189,7 @@ paths:
                 additionalProperties: true
                 title: Response Revoke Export Integration V1 Export Integrations  Integration Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9017,11 +8237,7 @@ paths:
                 additionalProperties: true
                 title: Response List Export Deliveries V1 Export Integrations  Integration Id  Deliveries Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9059,11 +8275,7 @@ paths:
                 additionalProperties: true
                 title: Response Send Test Export Integration V1 Export Integrations  Integration Id  Test Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9114,11 +8326,7 @@ paths:
                 type: object
                 title: Response Import Bookmarks V1 Import Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9151,11 +8359,7 @@ paths:
                 additionalProperties: true
                 title: Response Get Import Job V1 Import  Job Id  Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9185,11 +8389,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Import Job V1 Import  Job Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9235,11 +8435,7 @@ paths:
             application/json:
               schema: {}
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9286,11 +8482,7 @@ paths:
               schema:
                 title: Response Quick Save V1 Quick Save Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9323,11 +8515,7 @@ paths:
                 description: Server-Sent Events stream. Each event data field is JSON with kind, payload, timestamp, and correlation_id
                   fields.
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9358,11 +8546,7 @@ paths:
                 description: Server-Sent Events stream. Each event data field is JSON with kind, payload, timestamp, and correlation_id
                   fields.
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9393,11 +8577,7 @@ paths:
                 additionalProperties: true
                 title: Response List Highlights V1 Summaries  Summary Id  Highlights Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9433,11 +8613,7 @@ paths:
                 additionalProperties: true
                 title: Response Create Highlight V1 Summaries  Summary Id  Highlights Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9480,11 +8656,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Highlight V1 Summaries  Summary Id  Highlights  Highlight Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9520,11 +8692,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Highlight V1 Summaries  Summary Id  Highlights  Highlight Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9555,11 +8723,7 @@ paths:
                 additionalProperties: true
                 title: Response List Highlights V1 Articles  Summary Id  Highlights Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9595,11 +8759,7 @@ paths:
                 additionalProperties: true
                 title: Response Create Highlight V1 Articles  Summary Id  Highlights Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9642,11 +8802,7 @@ paths:
                 additionalProperties: true
                 title: Response Update Highlight V1 Articles  Summary Id  Highlights  Highlight Id  Patch
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9682,11 +8838,7 @@ paths:
                 additionalProperties: true
                 title: Response Delete Highlight V1 Articles  Summary Id  Highlights  Highlight Id  Delete
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9725,11 +8877,7 @@ paths:
                 additionalProperties: true
                 title: Response Generate Audio V1 Summaries  Summary Id  Audio Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9756,11 +8904,7 @@ paths:
             application/json:
               schema: {}
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9788,11 +8932,7 @@ paths:
                 type: object
                 title: Response Generate Audio Playlist V1 Summaries Audio Playlist Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9834,11 +8974,7 @@ paths:
                 additionalProperties: true
                 title: Response Generate Audio V1 Articles  Summary Id  Audio Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9865,11 +9001,7 @@ paths:
             application/json:
               schema: {}
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9897,11 +9029,7 @@ paths:
                 type: object
                 title: Response Generate Audio Playlist V1 Articles Audio Playlist Post
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -9954,11 +9082,7 @@ paths:
                 type: object
                 title: Response Update Tts Preferences V1 Users Me Tts Preferences Put
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10010,11 +9134,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RssSubscribeSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10045,11 +9165,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RssDeleteSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10095,11 +9211,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RssFeedItemsSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10128,11 +9240,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RssRefreshSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10179,11 +9287,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RssImportSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10313,11 +9417,7 @@ paths:
               schema:
                 title: Response Llm Costs V1 Admin Llm Costs Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10372,11 +9472,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/GraphRunLedgerSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10410,11 +9506,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/GraphRunEvaluationListSuccessResponse'
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -10486,11 +9578,7 @@ paths:
               schema:
                 title: Response Audit Log V1 Admin Audit Log Get
         '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
@@ -13289,15 +12377,6 @@ components:
       required:
       - data
       title: GraphRunLedgerSuccessResponse
-    HTTPValidationError:
-      properties:
-        detail:
-          items:
-            $ref: '#/components/schemas/ValidationError'
-          type: array
-          title: Detail
-      type: object
-      title: HTTPValidationError
     IngestRepositoryRequest:
       properties:
         url:
@@ -17353,32 +16432,6 @@ components:
       required:
       - data
       title: UserFeedTokenSuccessResponse
-    ValidationError:
-      properties:
-        loc:
-          items:
-            anyOf:
-            - type: string
-            - type: integer
-          type: array
-          title: Location
-        msg:
-          type: string
-          title: Message
-        type:
-          type: string
-          title: Error Type
-        input:
-          title: Input
-        ctx:
-          type: object
-          title: Context
-      type: object
-      required:
-      - loc
-      - msg
-      - type
-      title: ValidationError
     VerifyEmailRequest:
       properties:
         token:
