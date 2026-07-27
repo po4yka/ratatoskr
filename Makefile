@@ -271,7 +271,7 @@ pi-rollback:
 # PostgreSQL backup sidecar in one pass. The image includes the reviewed SPA
 # archive, then the smoke check verifies / and /health/ready from the Pi host.
 pi-deploy-all:
-	bash tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api pg-backup"
+	bash tools/scripts/build-and-deploy-pi.sh --services "ai-backup-display-chatgpt ai-backup-display-claude cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler mobile-api pg-backup"
 	$(MAKE) pi-smoke
 
 # Smoke-test mobile-api on the Pi via its mapped host port. /health/ready exercises

@@ -1,6 +1,6 @@
 # AI Account Backup (ChatGPT + Claude) via CloakBrowser
 
-How Ratatoskr holds an authenticated session for the operator's own ChatGPT and Claude web accounts and periodically mirrors conversations, Project metadata, ChatGPT attachments, and Claude Artifacts to disk, reusing the CloakBrowser stealth sidecar that already ships in the scraper chain. Project-knowledge download remains an explicitly unimplemented, live-contract-blocked target.
+How Ratatoskr holds an authenticated session for the operator's own ChatGPT and Claude web accounts and periodically mirrors conversations, Project metadata, ChatGPT attachments, and Claude Artifacts to disk. Background collection uses the existing CloakBrowser integration; interactive login uses provider-dedicated headed CloakBrowser/TigerVNC pairs. Project-knowledge download remains an explicitly unimplemented, live-contract-blocked target.
 
 **Audience:** The operator deciding whether to run this, and contributors implementing it.
 **Type:** Explanation + design (forward-looking).
@@ -25,7 +25,7 @@ CloakBrowser is already integrated as a stealth-Chromium **sidecar** (`cloakhq/c
 ```mermaid
 flowchart TB
     subgraph Operator["Operator"]
-        Login["Frost secure browser\nmouse + keyboard over owner-only HTTPS"]
+        Login["Frost noVNC viewer\nmouse, keyboard, touch, clipboard"]
     end
     subgraph Backend["Ratatoskr backend"]
         Store[(user_browser_sessions\nFernet-encrypted)]
@@ -34,12 +34,14 @@ flowchart TB
         Prov["CloakBrowserProvider\n.authenticated_context()"]
         State[(ai_account_backups\nbackup + authorization state)]
     end
-    subgraph Sidecar["cloakbrowser sidecar"]
-        CDP["cloakserve CDP\n(stable per-domain fingerprint)"]
+    subgraph Sidecar["Provider-isolated re-auth pair"]
+        CDP["headed cloakserve CDP\n(stable per-domain fingerprint)"]
+        VNC["TigerVNC Xvnc + Openbox\n1920x1080"]
     end
     Disk[(AI_BACKUP_DATA_PATH\n/service/date/...)]
 
-    Login -- "screenshots/input (no public CDP)" --> Prov
+    Login -- "owner-ticketed WSS / opaque RFB" --> VNC
+    VNC --- CDP
     Prov -- "verified storage_state, encrypted" --> Store
     Task --> Svc
     Svc -- decrypt storage_state --> Store
@@ -55,7 +57,7 @@ flowchart TB
 
 The hard problem is not reading the APIs — it is establishing and keeping a session past 2FA and Cloudflare. The primary path is now an interactive browser owned by the API process; manual ingest remains a recovery path.
 
-- **Interactive re-auth (primary).** `POST /v1/ai-backups/{service}/reauth` creates a 15-minute owner-scoped flow in the existing deterministic CloakBrowser context. Frost polls JPEG frames and sends bounded mouse/keyboard events over authenticated HTTPS; the unauthenticated CDP endpoint stays private and no VNC port is added. The coordinator detects a real provider session (`/api/auth/session` for ChatGPT, `/api/organizations` for Claude), encrypts the resulting `storage_state`, and enqueues `ratatoskr.ai_backup.sync_one`. The UI advances through `waiting_for_user → verifying → resuming_backup → completed`. Typed credentials exist only in request memory and browser fields: they are not logged or persisted by Ratatoskr.
+- **Interactive re-auth (primary).** `POST /v1/ai-backups/{service}/reauth` creates a 15-minute owner-scoped flow in a dedicated headed CloakBrowser for that provider. Frost requests a 60-second, one-use `Secure`/`HttpOnly` viewer cookie and connects noVNC to an owner-scoped WebSocket. Mobile API relays opaque binary RFB bytes to the matching internal TigerVNC display; it does not parse or log keyboard, clipboard, or framebuffer payloads. CDP and VNC remain un-published on an internal Docker network. The coordinator detects a real provider session (`/api/auth/session` for ChatGPT, `/api/organizations` for Claude), encrypts the resulting `storage_state`, and enqueues `ratatoskr.ai_backup.sync_one`. The UI advances through `waiting_for_user → verifying → resuming_backup → completed`.
 - **Manual session ingest (fallback).** The owner may still export Playwright `storage_state` and submit it to `POST /v1/ai-backups/{service}/session` over HTTPS. The JSON form is intentionally secondary and never transits Telegram.
 - **Mode C — automated credential login (explicit non-goal).** Storing email/password + a TOTP secret and logging in headlessly. Highest detection surface, most brittle, and the worst ban signal. Documented as out of scope.
 
@@ -107,7 +109,7 @@ class AiAccountBackup(Base):
 
 A frozen pydantic `AiBackupConfig` with `validation_alias` env vars, validators following `GitBackupConfig`:
 
-`AI_BACKUP_ENABLED` (default `false`), `AI_BACKUP_SYNC_CRON` (`0 5 * * *`), `AI_BACKUP_DATA_PATH` (`/data/ai-backups`, with the same resolve-inside-data-path traversal guard git-backup uses), `AI_BACKUP_CHATGPT_ENABLED` / `AI_BACKUP_CLAUDE_ENABLED`, `AI_BACKUP_BROWSER_LOCALE` (`en-US`) / `AI_BACKUP_BROWSER_TIMEZONE` (`Asia/Tbilisi`), `AI_BACKUP_REQUEST_DELAY_MS` (cadence with jitter), `AI_BACKUP_MAX_REQUESTS_PER_RUN` (hard request cap), `AI_BACKUP_MAX_RESPONSE_BYTES` and `AI_BACKUP_MAX_RUN_BYTES` (per-response and aggregate transfer caps), `AI_BACKUP_MIN_FREE_BYTES` (reserved disk headroom), `AI_BACKUP_DOWNLOAD_FILES`, `AI_BACKUP_INCREMENTAL` (skip conversations whose `update_time` is unchanged since the last run), `AI_BACKUP_HOST_ALLOWLIST` (default `chatgpt.com,*.oaiusercontent.com,claude.ai,*.anthropic.com`), `AI_BACKUP_HC_PING_URL`, `AI_BACKUP_NOTIFY_CHAT_ID`, and `AI_BACKUP_NOTIFY_ON`. `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is reserved for a future sanctioned Enterprise client: setting it currently fails closed and never falls back to browser scraping. Crypto reuses `GITHUB_TOKEN_ENCRYPTION_KEY` — no new key surface.
+`AI_BACKUP_ENABLED` (default `false`), `AI_BACKUP_SYNC_CRON` (`0 5 * * *`), `AI_BACKUP_DATA_PATH` (`/data/ai-backups`, with the same resolve-inside-data-path traversal guard git-backup uses), `AI_BACKUP_CHATGPT_ENABLED` / `AI_BACKUP_CLAUDE_ENABLED`, `AI_BACKUP_BROWSER_LOCALE` (`en-US`) / `AI_BACKUP_BROWSER_TIMEZONE` (`Asia/Tbilisi`), provider-specific re-auth CDP/VNC targets, viewer-ticket TTL, VNC connect timeout, `AI_BACKUP_REQUEST_DELAY_MS` (cadence with jitter), `AI_BACKUP_MAX_REQUESTS_PER_RUN` (hard request cap), `AI_BACKUP_MAX_RESPONSE_BYTES` and `AI_BACKUP_MAX_RUN_BYTES` (per-response and aggregate transfer caps), `AI_BACKUP_MIN_FREE_BYTES` (reserved disk headroom), `AI_BACKUP_DOWNLOAD_FILES`, `AI_BACKUP_INCREMENTAL` (skip conversations whose `update_time` is unchanged since the last run), `AI_BACKUP_HOST_ALLOWLIST` (default `chatgpt.com,*.oaiusercontent.com,claude.ai,*.anthropic.com`), `AI_BACKUP_HC_PING_URL`, `AI_BACKUP_NOTIFY_CHAT_ID`, and `AI_BACKUP_NOTIFY_ON`. `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` is reserved for a future sanctioned Enterprise client: setting it currently fails closed and never falls back to browser scraping. Crypto reuses `GITHUB_TOKEN_ENCRYPTION_KEY` — no new key surface.
 
 ## Internal APIs walked
 
@@ -145,12 +147,21 @@ Writes are idempotent by id; existing bytes are hash-checked, changed payloads a
 
 The scheduled task wraps its body in `RedisDistributedLock("task_lock:ai_backup_sync", ttl=1800)`, loops enabled services, records lifecycle state, pings Healthchecks, and notifies Telegram. The re-auth coordinator enqueues `ratatoskr.ai_backup.sync_one` with the same lock so a fresh login is verified by a real provider backup immediately rather than waiting for cron. REST exposes list/status, owner-only interactive re-auth, manual session ingest, and local revoke. Telegram status commands remain read-only; expiry notifications carry only a Frost Web App link, never session secrets.
 
+The pinned CloakBrowser 0.3.30 parser recognizes headed mode but mistakenly
+forwards its `--headless=false` control flag to Chromium, where the presence of
+the flag enables headless mode. The dedicated startup wrapper patches only this
+verified parser line in a temporary copy and fails closed if the pinned source
+changes; it does not modify the image or relax its digest pin.
+
 ## Security checklist
 
 - `user_id` IDOR filter on every query; SSRF guard retained on navigations; host allowlist enforced on every internal-API URL; `AI_BACKUP_DATA_PATH` traversal validator reused from git-backup.
 - Only the encrypted `storage_state` is persisted; `Authorization` / `Cookie` / `sessionKey` are redacted before logging; the session blob is never written into the backup tree.
 - cloakserve digest pinned ≥ 0.3.28 (path-traversal fix `GHSA-mf33-gv72-w2h5`); the compose pin (0.3.30) already satisfies this. `CLOAKBROWSER_AUTO_UPDATE=false` stays (v148+ is Pro-licensed).
 - Correlation IDs thread through the run for log and DB traceability.
+- Viewer tickets are 256-bit one-use values; only SHA-256 digests live in the active flow. One viewer is allowed at a time, and cancel, expiry, successful login, or terminal failure closes the tunnel.
+- ChatGPT and Claude have different X11 volumes, displays, CDP endpoints, and VNC targets. Their windows cannot share a desktop. The browser alone also joins an egress bridge; displays have no internet route.
+- noVNC is pinned to `1.7.0`. The old JPEG `/frame` and REST `/input` routes remain deprecated for one release but Frost no longer calls them.
 
 ## Known gaps and escape hatches
 
@@ -158,13 +169,14 @@ The scheduled task wraps its body in `RedisDistributedLock("task_lock:ai_backup_
 - **ChatGPT Custom GPT system prompts** are not confirmed retrievable via any internal endpoint.
 - **Claude project knowledge** is not downloaded. The client currently stores Project metadata only; project-doc and project-file endpoints require live contract validation before implementation.
 - **Claude Enterprise** Compliance API support is not implemented. Setting `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` makes the client factory fail closed; it never falls back to the consumer browser-scrape path. Keep Claude backup disabled until a dedicated sanctioned client is implemented.
+- Local Touch ID/WebAuthn passkeys do not cross VNC. Use provider password/email/OAuth/OTP fallback. File-transfer and download export are intentionally not exposed through the viewer.
 
 ## Phased delivery
 
 1. **P0** — `AiAccountBackup` model + migration, `AiBackupConfig`, repository, task skeleton + scheduler block, REST/Telegram stubs. No scraping yet.
 2. **P1/P2 (parallel)** — `authenticated_context()` plus both `ChatGPTBackupClient` and `ClaudeBackupClient` on the shared scaffolding, Mode A session ingest, on-disk writer, incremental skipping.
 3. **P3** — auth-expiry detection + notify, Healthchecks, rate-cap + jitter, docs and env-reference rows, OpenAPI regen, tests.
-4. **P4** — owner-only interactive re-auth over the existing private CDP sidecar; git-versioned backup tree remains optional.
+4. **P4** — owner-only noVNC interactive re-auth over provider-isolated headed CDP/VNC pairs; git-versioned backup tree remains optional.
 
 ## Top risks
 

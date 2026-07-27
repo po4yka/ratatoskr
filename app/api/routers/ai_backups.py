@@ -374,10 +374,17 @@ async def reauth_viewer(
         except Exception:
             pass
     finally:
-        if writer is not None:
-            writer.close()
-            await writer.wait_closed()
-        await coordinator.release_viewer(flow_id)
+        try:
+            if writer is not None:
+                writer.close()
+                await writer.wait_closed()
+        except OSError:
+            logger.info(
+                "ai_backup_vnc_writer_close_failed",
+                extra={"cid": correlation_id, "service": service.value, "flow_id": flow_id},
+            )
+        finally:
+            await coordinator.release_viewer(flow_id)
 
 
 @router.get(

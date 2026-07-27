@@ -528,6 +528,54 @@ def test_viewer_websocket_releases_lease_when_vnc_is_unavailable() -> None:
     coordinator.release_viewer.assert_awaited_once_with("flow-123")
 
 
+@pytest.mark.asyncio
+async def test_viewer_releases_lease_when_writer_close_fails() -> None:
+    from app.adapters.ai_backup.vnc_gateway import VncTarget
+
+    class _Writer:
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            raise ConnectionResetError("already gone")
+
+    class _WebSocket:
+        app = SimpleNamespace(
+            state=SimpleNamespace(
+                ai_backup_reauth_coordinator=MagicMock(),
+                ai_backup_vnc_connector=MagicMock(),
+            )
+        )
+        cookies = {"ratatoskr_ai_backup_viewer": "viewer-secret"}
+        scope = {"subprotocols": []}
+
+        async def accept(self, **_kwargs: object) -> None:
+            return None
+
+        async def close(self, **_kwargs: object) -> None:
+            return None
+
+    websocket = _WebSocket()
+    coordinator = websocket.app.state.ai_backup_reauth_coordinator
+    coordinator.consume_viewer_ticket = AsyncMock(
+        return_value=SimpleNamespace(target=VncTarget("display", 5900), stop_event=asyncio.Event())
+    )
+    coordinator.release_viewer = AsyncMock()
+    coordinator.vnc_connect_timeout_seconds = 5.0
+    websocket.app.state.ai_backup_vnc_connector.connect = AsyncMock(
+        return_value=(MagicMock(), _Writer())
+    )
+
+    with patch("app.adapters.ai_backup.vnc_gateway.relay_vnc", new=AsyncMock()):
+        await _ai_backups.reauth_viewer(
+            websocket,
+            AiBackupService.CHATGPT,
+            "flow-123",  # type: ignore[arg-type]
+        )
+
+    coordinator.release_viewer.assert_awaited_once_with("flow-123")
+
+
 def test_reauth_input_is_bounded_before_it_reaches_browser() -> None:
     coordinator = MagicMock()
     app = FastAPI()

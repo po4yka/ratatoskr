@@ -504,7 +504,11 @@ def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> No
     assert 'build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"' in script
     assert "up -d --no-build --no-deps --force-recreate ${svc}" in script
     assert "--entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
-    assert '--services "ratatoskr worker scheduler mobile-api pg-backup"' in makefile
+    assert (
+        '--services "ai-backup-display-chatgpt ai-backup-display-claude '
+        'cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler '
+        'mobile-api pg-backup"' in makefile
+    )
     assert "BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}" in pi_overlay
 
 

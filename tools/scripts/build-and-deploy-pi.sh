@@ -13,10 +13,10 @@
 #   tools/scripts/build-and-deploy-pi.sh --migrate-only --apply         # apply Alembic migrations on the Pi
 #   tools/scripts/build-and-deploy-pi.sh --rollback                      # roll back the compatible reader stack
 #
-# Supported services: ratatoskr, worker, scheduler, mcp, mcp-write,
-# mcp-public, mobile-api, pg-backup. App services sharing ops/docker/Dockerfile
-# are built once and re-tagged; mobile-api and pg-backup use their dedicated
-# Dockerfiles.
+# Supported services include the app processes, pg-backup, and the two isolated
+# AI re-auth display/browser pairs. App and display services sharing a
+# Dockerfile are built once and re-tagged; the pinned CloakBrowser image is
+# pulled and verified rather than rebuilt.
 # Migration application is intentionally separate from deployment. Use
 # `--migrate-only` for a dry-run and `--migrate-only --apply` to mutate the
 # schema. Each Dockerfile group streams as a single tar so `docker load`
@@ -74,11 +74,15 @@ done
 SHARED_DOCKERFILE=ops/docker/Dockerfile
 API_DOCKERFILE=ops/docker/Dockerfile.api
 BACKUP_DOCKERFILE=ops/docker/pg-backup/Dockerfile
+DISPLAY_DOCKERFILE=ops/docker/ai-backup-display/Dockerfile
+PINNED_CLOAKBROWSER_IMAGE=cloakhq/cloakbrowser@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1
 MIGRATE_SERVICE=migrate
 SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
 BACKUP_SERVICES=(pg-backup)
-ALL_SERVICES=("${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
+DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)
+BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)
+ALL_SERVICES=("${DISPLAY_SERVICES[@]}" "${BROWSER_SERVICES[@]}" "${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
 READER_RELEASE_SERVICES=(ratatoskr worker scheduler mobile-api)
 
 SERVICES=()
@@ -162,6 +166,8 @@ fi
 SHARED_TO_BUILD=()
 API_TO_BUILD=()
 BACKUP_TO_BUILD=()
+DISPLAY_TO_BUILD=()
+BROWSER_TO_START=()
 for svc in "${SERVICES[@]}"; do
   matched=0
   if [[ "$svc" == "$MIGRATE_SERVICE" ]]; then
@@ -182,15 +188,35 @@ for svc in "${SERVICES[@]}"; do
     done
   fi
   if [[ $matched -eq 0 ]]; then
+    for display in "${DISPLAY_SERVICES[@]}"; do
+      [[ "$svc" == "$display" ]] && { DISPLAY_TO_BUILD+=("$svc"); matched=1; break; }
+    done
+  fi
+  if [[ $matched -eq 0 ]]; then
+    for browser in "${BROWSER_SERVICES[@]}"; do
+      [[ "$svc" == "$browser" ]] && { BROWSER_TO_START+=("$svc"); matched=1; break; }
+    done
+  fi
+  if [[ $matched -eq 0 ]]; then
     echo "unsupported service: $svc (expected: ${ALL_SERVICES[*]})" >&2
     exit 2
   fi
 done
 
 if [[ $ROLLBACK -eq 1 ]]; then
+  for svc in "${SERVICES[@]}"; do
+    case "$svc" in
+      cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
+        echo "ERROR: rollback is not supported for digest-pinned CloakBrowser services" >&2
+        exit 2
+        ;;
+    esac
+  done
   SHARED_TO_BUILD=()
   API_TO_BUILD=()
   BACKUP_TO_BUILD=()
+  DISPLAY_TO_BUILD=()
+  BROWSER_TO_START=()
 fi
 
 release_group_requested=0
@@ -223,6 +249,35 @@ echo "    remote arch: $REMOTE_ARCH"
 if [[ "$REMOTE_ARCH" != "aarch64" && "$REMOTE_ARCH" != "arm64" ]]; then
   echo "WARNING: remote arch '$REMOTE_ARCH' is not aarch64/arm64; the linux/arm64 image will not run there." >&2
 fi
+
+verify_remote_checkout() {
+  local remote_checkout remote_sha remote_provenance
+  remote_checkout=$(ssh -o BatchMode=yes "$RASPI_HOST" \
+    "cd ${RASPI_REMOTE_PATH} && \
+      SHA=\$(git rev-parse HEAD) && \
+      if git diff --quiet -- ops/docker/cloakbrowser-reauth/entrypoint.sh ops/docker/docker-compose.yml && \
+         git diff --cached --quiet -- ops/docker/cloakbrowser-reauth/entrypoint.sh ops/docker/docker-compose.yml; then \
+        printf '%s clean\\n' \"\$SHA\"; \
+      else \
+        printf '%s dirty\\n' \"\$SHA\"; \
+      fi")
+  read -r remote_sha remote_provenance <<<"$remote_checkout"
+  if [[ "$remote_sha" != "$GIT_SHA" ]]; then
+    echo "ERROR: ${RASPI_HOST}:${RASPI_REMOTE_PATH} is at ${remote_sha:-<unknown>}, expected ${GIT_SHA}" >&2
+    echo "       update the clean remote checkout to the exact pushed commit before deploying" >&2
+    exit 1
+  fi
+  if [[ "$remote_provenance" != clean ]]; then
+    echo "ERROR: ${RASPI_HOST}:${RASPI_REMOTE_PATH} has local changes to the re-auth compose/wrapper" >&2
+    echo "       restore or commit those tracked files before deploying their bind-mounted contents" >&2
+    exit 1
+  fi
+  ssh -o BatchMode=yes "$RASPI_HOST" \
+    "cd ${RASPI_REMOTE_PATH} && test -r ops/docker/cloakbrowser-reauth/entrypoint.sh"
+  echo "    remote checkout: ${remote_sha}"
+}
+
+verify_remote_checkout
 
 # build_and_ship <dockerfile> [KEY=VAL ...] -- <service> [service ...]
 # Builds the dockerfile once, tags the resulting image as
@@ -310,14 +365,72 @@ fi
 if [[ ${#BACKUP_TO_BUILD[@]} -gt 0 ]]; then
   build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"
 fi
+if [[ ${#DISPLAY_TO_BUILD[@]} -gt 0 ]]; then
+  build_and_ship "$DISPLAY_DOCKERFILE" -- "${DISPLAY_TO_BUILD[@]}"
+fi
 
 COMPOSE_RUN=(
   docker compose
   --env-file "${COMPOSE_ENV_FILE}"
+  --profile ai-backup-reauth
   -p "${COMPOSE_PROJECT}"
   -f ops/docker/docker-compose.yml
   -f ops/docker/docker-compose.pi.yml
 )
+
+is_isolated_reauth_service() {
+  local svc=$1
+  case "$svc" in
+    ai-backup-display-chatgpt|ai-backup-display-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+is_pinned_browser_service() {
+  local svc=$1
+  [[ "$svc" == "cloakbrowser-reauth-chatgpt" || "$svc" == "cloakbrowser-reauth-claude" ]]
+}
+
+verify_pinned_cloakbrowser_image() {
+  [[ ${#BROWSER_TO_START[@]} -gt 0 ]] || return 0
+  echo "==> Verifying exact pinned CloakBrowser image on ${RASPI_HOST}"
+  ssh "$RASPI_HOST" "set -eu; \
+    cd ${RASPI_REMOTE_PATH}; \
+    IMAGES=\$(${COMPOSE_RUN[*]} config --images); \
+    printf '%s\\n' \"\$IMAGES\" | grep -Fqx '${PINNED_CLOAKBROWSER_IMAGE}' || { \
+      echo 'ERROR: compose CLOAKBROWSER_IMAGE does not match the deployment pin' >&2; exit 1; }; \
+    docker pull --platform linux/arm64 '${PINNED_CLOAKBROWSER_IMAGE}' >/dev/null; \
+    docker image inspect '${PINNED_CLOAKBROWSER_IMAGE}' >/dev/null"
+  echo "    ${PINNED_CLOAKBROWSER_IMAGE}"
+}
+
+verify_headed_browser_runtime() {
+  local svc=$1
+  local smoke_seed
+  case "$svc" in
+    cloakbrowser-reauth-chatgpt) smoke_seed=deadbeef0001 ;;
+    cloakbrowser-reauth-claude) smoke_seed=deadbeef0002 ;;
+    *) return 0 ;;
+  esac
+
+  echo "==> Verifying headed Chromium/X11 runtime for ${svc}"
+  if ! ssh "$RASPI_HOST" "set -u; \
+    CID=\$(docker inspect --format '{{.Id}}' 'ratatoskr-${svc}' 2>/dev/null); \
+    STATUS=0; \
+    docker exec \"\$CID\" python -c \"import json,urllib.request; url='http://localhost:9222/json/version?fingerprint=${smoke_seed}&timezone=UTC&locale=en-US'; data=json.load(urllib.request.urlopen(url, timeout=20)); assert data.get('webSocketDebuggerUrl'), data\" || STATUS=1; \
+    ARGS=\$(docker exec \"\$CID\" ps -eo args 2>/dev/null) || STATUS=1; \
+    printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' >/dev/null || STATUS=1; \
+    if printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' | grep -F -- '--headless' >/dev/null; then STATUS=1; fi; \
+    printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' | grep -F -- '--ozone-platform=x11' >/dev/null || STATUS=1; \
+    docker exec \"\$CID\" sh -c \"pkill -TERM -f '[/]chrome' || true; i=0; while pgrep -f '[/]chrome' >/dev/null && [ \\\$i -lt 50 ]; do i=\\\$((i + 1)); sleep 0.1; done; if pgrep -f '[/]chrome' >/dev/null; then pkill -KILL -f '[/]chrome' || true; fi; ! pgrep -f '[/]chrome' >/dev/null\" || STATUS=1; \
+    [ \"\$STATUS\" -eq 0 ]"; then
+    diagnose_service_health "$svc"
+    return 1
+  fi
+  echo "    ${svc} launched headed Chromium on X11 and removed its disposable smoke process"
+}
 
 retire_legacy_qdrant_container() {
   echo "==> Checking for a legacy Compose Qdrant container on ${RASPI_HOST}"
@@ -392,6 +505,9 @@ restart_service_verified() {
   # compare the container's .Image to the :latest .Id directly.
   local svc=$1
   local latest_tag="${COMPOSE_PROJECT}-${svc}:latest"
+  if is_pinned_browser_service "$svc"; then
+    latest_tag=$PINNED_CLOAKBROWSER_IMAGE
+  fi
   local attempt verdict
   for attempt in 1 2 3; do
     # `|| true`: a transient ssh drop during recreate must not abort under
@@ -590,11 +706,18 @@ if [[ $MIGRATE_ONLY -eq 1 ]]; then
   run_remote_migrations
 elif [[ $RESTART -eq 1 ]]; then
   retire_legacy_qdrant_container
+  verify_pinned_cloakbrowser_image
   for svc in "${SERVICES[@]}"; do
     if [[ $ROLLBACK -eq 1 ]]; then
+      if is_pinned_browser_service "$svc"; then
+        echo "ERROR: rollback is not supported for digest-pinned CloakBrowser services" >&2
+        exit 2
+      fi
       rollback_service_image "$svc"
     else
-      tag_running_image_as_previous "$svc"
+      if ! is_pinned_browser_service "$svc"; then
+        tag_running_image_as_previous "$svc"
+      fi
     fi
     echo "==> Restarting ${svc} on ${RASPI_HOST} (project: ${COMPOSE_PROJECT})"
     restart_service_verified "$svc"
@@ -606,15 +729,22 @@ elif [[ $RESTART -eq 1 ]]; then
     # keeps this idempotent across services that may or may not need the default
     # network. The explicit service alias is essential: Prometheus and status
     # probes address exporters by Compose service name.
-    echo "==> Ensuring ${svc} is attached to docker_default"
-    ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
-      CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null) && \
-      [ -n \"\$CID\" ] && \
-      docker network connect --alias '${svc}' docker_default \"\$CID\" 2>/dev/null \
-      && echo '    attached docker_default' \
-      || echo '    docker_default already attached or not declared'"
+    if ! is_isolated_reauth_service "$svc"; then
+      echo "==> Ensuring ${svc} is attached to docker_default"
+      ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+        CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null) && \
+        [ -n \"\$CID\" ] && \
+        docker network connect --alias '${svc}' docker_default \"\$CID\" 2>/dev/null \
+        && echo '    attached docker_default' \
+        || echo '    docker_default already attached or not declared'"
+    fi
     wait_for_service_health "$svc"
-    write_deploy_metrics "$svc"
+    if is_pinned_browser_service "$svc"; then
+      verify_headed_browser_runtime "$svc"
+    fi
+    if ! is_pinned_browser_service "$svc"; then
+      write_deploy_metrics "$svc"
+    fi
   done
   if [[ $release_group_requested -eq 1 ]]; then
     verify_reader_release_metadata
