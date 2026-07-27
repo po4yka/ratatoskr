@@ -8,7 +8,11 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.content.quality_filters import best_content_text, detect_low_value_content
+from app.adapters.content.quality_filters import (
+    best_content_text,
+    detect_low_value_content,
+    extract_content_text_candidates,
+)
 from app.adapters.content.scraper.attempt_log import (
     ScraperAttemptEntry,
     ScraperAttemptRecorder,
@@ -66,6 +70,18 @@ _ERROR_PAGE_PATTERNS = re.compile(
 # Only flag as error page if content is suspiciously short.
 _ERROR_PAGE_MAX_LENGTH = 1500
 
+# High-confidence publisher tombstones remain errors even when a provider
+# appends enough navigation/footer text to exceed the generic short-page limit.
+_TERMINAL_PAGE_PATTERNS = re.compile(
+    r"("
+    r"материал\s+снят\s+с\s+публикации.{0,600}"
+    r"(?:публикация|материал)\s+может\s+(?:быть\s+)?"
+    r"(?:восстановлен|появиться|опубликован)"
+    r"|(?:article|post)\s+(?:has\s+been\s+)?removed\s+by\s+(?:its\s+)?author"
+    r")",
+    re.IGNORECASE | re.DOTALL,
+)
+
 # Provider tiering for the racing fallback chain. Free providers are pure-HTTP
 # scrapes that cost nothing; the paid tier is Firecrawl (managed API or
 # self-hosted, both treated as cost-bearing); the browser tier spins up real
@@ -89,9 +105,25 @@ _PDF_PROVIDERS = frozenset({"direct_pdf"})
 
 def _is_error_page(text: str) -> bool:
     """Detect if extracted text is an HTTP error page rather than article content."""
-    if not text or len(text) > _ERROR_PAGE_MAX_LENGTH:
+    if not text:
+        return False
+    if _TERMINAL_PAGE_PATTERNS.search(text):
+        return True
+    if len(text) > _ERROR_PAGE_MAX_LENGTH:
         return False
     return bool(_ERROR_PAGE_PATTERNS.search(text))
+
+
+def _error_page_candidate(result: FirecrawlResult) -> str | None:
+    """Return the first error-like representation from a provider response."""
+    return next(
+        (
+            candidate
+            for candidate in extract_content_text_candidates(result)
+            if _is_error_page(candidate)
+        ),
+        None,
+    )
 
 
 class ContentScraperChain:
@@ -678,8 +710,9 @@ class ContentScraperChain:
 
             if has_content:
                 text = best_content_text(result)
+                error_page = _error_page_candidate(result)
 
-                if _is_error_page(text):
+                if error_page is not None:
                     _finalize(
                         provider_span,
                         outcome="error_page",
@@ -691,17 +724,17 @@ class ContentScraperChain:
                         extra={
                             "provider": name,
                             "url": redact_url_for_logging(url),
-                            "content_len": len(text),
+                            "content_len": len(error_page),
                             "request_id": request_id,
                         },
                     )
                     _record(
                         "error",
                         "error_page",
-                        error_message=f"error page detected ({len(text)} chars)",
+                        error_message=f"error page detected ({len(error_page)} chars)",
                         bytes_extracted=_bytes_extracted(result, text),
                     )
-                    return None, f"{name}: error page detected ({len(text)} chars)"
+                    return None, f"{name}: error page detected ({len(error_page)} chars)"
 
                 if self._min_content_length > 0 and len(text) < self._min_content_length:
                     _finalize(

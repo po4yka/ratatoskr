@@ -210,6 +210,51 @@ async def test_chain_skips_error_page_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chain_skips_error_page_when_html_candidate_is_longer() -> None:
+    """A rich-looking HTML shell must not rescue an explicit error markdown."""
+    error_page = _FakeProvider(
+        "error_page",
+        FirecrawlResult(
+            status=CallStatus.OK,
+            content_markdown="404 not found",
+            content_html="<nav>" + ("navigation link " * 200) + "</nav>",
+            source_url="x",
+        ),
+    )
+    good = _FakeProvider("good", _ok_result())
+
+    chain = ContentScraperChain(providers=[error_page, good])
+    result = await chain.scrape_markdown("https://example.com/e")
+
+    assert result.status == CallStatus.OK
+    assert result.content_markdown == "Article body that is plenty long."
+
+
+@pytest.mark.asyncio
+async def test_chain_skips_long_publisher_tombstone() -> None:
+    """Publisher tombstones stay errors when navigation makes the page long."""
+    tombstone = _FakeProvider(
+        "tombstone",
+        FirecrawlResult(
+            status=CallStatus.OK,
+            content_markdown=(
+                "Материал снят с публикации автором. "
+                "Публикация может быть восстановлена после доработки."
+                + (" Навигация и ссылки на другие разделы." * 80)
+            ),
+            source_url="x",
+        ),
+    )
+    good = _FakeProvider("good", _ok_result())
+
+    chain = ContentScraperChain(providers=[tombstone, good])
+    result = await chain.scrape_markdown("https://habr.com/ru/articles/766086/")
+
+    assert result.status == CallStatus.OK
+    assert result.content_markdown == "Article body that is plenty long."
+
+
+@pytest.mark.asyncio
 async def test_chain_respects_min_content_length() -> None:
     short = _FakeProvider(
         "short",
