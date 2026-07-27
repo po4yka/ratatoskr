@@ -4614,6 +4614,265 @@
         }
       }
     },
+    "/v1/ai-backups/{service}/reauth": {
+      "post": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Start Reauth",
+        "description": "Start a short-lived interactive login in the private CloakBrowser.",
+        "operationId": "start_reauth_v1_ai_backups__service__reauth_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiBackupReauthFlow"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner permissions required"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth/{flow_id}": {
+      "get": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Get Reauth",
+        "description": "Return progress without exposing cookies or browser endpoint details.",
+        "operationId": "get_reauth_v1_ai_backups__service__reauth__flow_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiBackupReauthFlow"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Cancel Reauth",
+        "description": "Close an active interactive login flow.",
+        "operationId": "cancel_reauth_v1_ai_backups__service__reauth__flow_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth/{flow_id}/frame": {
+      "get": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Get Reauth Frame",
+        "description": "Capture the current private browser frame for the owning user only.",
+        "operationId": "get_reauth_frame_v1_ai_backups__service__reauth__flow_id__frame_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "image/jpeg": {}
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth/{flow_id}/input": {
+      "post": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Send Reauth Input",
+        "description": "Forward one bounded mouse/keyboard event; input is never logged or stored.",
+        "operationId": "send_reauth_input_v1_ai_backups__service__reauth__flow_id__input_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthInputRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/ai-backups/{service}/session": {
       "post": {
         "tags": [
@@ -15926,6 +16185,54 @@
         "title": "AiBackupListResponse",
         "description": "All AI account backups for the authenticated user."
       },
+      "AiBackupReauthFlow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "description": "starting | waiting_for_user | verifying | resuming_backup | completed | failed | expired | cancelled"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "service",
+          "state",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "AiBackupReauthFlow",
+        "description": "Public, secret-free state of one temporary interactive login flow."
+      },
       "AiBackupService": {
         "type": "string",
         "enum": [
@@ -23856,6 +24163,105 @@
           "timestamp"
         ],
         "title": "ReadinessData"
+      },
+      "ReauthInputRequest": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "click",
+              "move",
+              "wheel",
+              "key",
+              "text"
+            ],
+            "title": "Type"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1366.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 768.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "delta_x": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 5000.0,
+                "minimum": -5000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta X"
+          },
+          "delta_y": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 5000.0,
+                "minimum": -5000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Y"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "ReauthInputRequest",
+        "description": "One bounded input event for the owner-only remote browser surface."
       },
       "RecentContentFailureData": {
         "properties": {

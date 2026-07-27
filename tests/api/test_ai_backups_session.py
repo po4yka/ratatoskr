@@ -26,6 +26,7 @@ from app.db.models.ai_backup import (
     AiBackupService,
     AiBackupStatus,
 )
+from app.adapters.ai_backup.reauth import ReauthFlowSnapshot, ReauthFlowState
 
 # Load the router module directly to avoid triggering app.api.routers.__init__,
 # which pulls in heavy adapter/di imports (same rationale as test_git_mirrors_router.py).
@@ -325,3 +326,61 @@ def test_authenticated_non_owner_cannot_revoke_session() -> None:
         resp = TestClient(app, raise_server_exceptions=False).delete(_URL)
 
     assert resp.status_code == 403
+
+
+def test_owner_can_start_drive_and_cancel_secure_reauth_flow() -> None:
+    now = dt.datetime.now(tz=dt.UTC)
+    snapshot = ReauthFlowSnapshot(
+        id="flow-123",
+        service=AiBackupService.CHATGPT,
+        state=ReauthFlowState.WAITING_FOR_USER,
+        created_at=now,
+        expires_at=now + dt.timedelta(minutes=15),
+    )
+    coordinator = MagicMock()
+    coordinator.start = AsyncMock(return_value=snapshot)
+    coordinator.get = AsyncMock(return_value=snapshot)
+    coordinator.capture_frame = AsyncMock(return_value=b"jpeg-frame")
+    coordinator.send_input = AsyncMock()
+    coordinator.cancel = AsyncMock()
+
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.dependency_overrides[_ai_backups.get_ai_backup_owner] = lambda: {"user_id": _USER_ID}
+    app.dependency_overrides[_ai_backups._get_reauth_coordinator] = lambda: coordinator
+    client = TestClient(app, raise_server_exceptions=False)
+
+    started = client.post("/v1/ai-backups/chatgpt/reauth")
+    status = client.get("/v1/ai-backups/chatgpt/reauth/flow-123")
+    frame = client.get("/v1/ai-backups/chatgpt/reauth/flow-123/frame")
+    input_response = client.post(
+        "/v1/ai-backups/chatgpt/reauth/flow-123/input",
+        json={"type": "text", "text": "sensitive-but-not-echoed"},
+    )
+    cancelled = client.delete("/v1/ai-backups/chatgpt/reauth/flow-123")
+
+    assert started.status_code == 201
+    assert started.json()["state"] == "waiting_for_user"
+    assert status.status_code == 200
+    assert frame.status_code == 200
+    assert frame.content == b"jpeg-frame"
+    assert frame.headers["cache-control"] == "no-store, private"
+    assert input_response.status_code == 204
+    assert b"sensitive-but-not-echoed" not in input_response.content
+    assert cancelled.status_code == 204
+
+
+def test_reauth_input_is_bounded_before_it_reaches_browser() -> None:
+    coordinator = MagicMock()
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.dependency_overrides[_ai_backups.get_ai_backup_owner] = lambda: {"user_id": _USER_ID}
+    app.dependency_overrides[_ai_backups._get_reauth_coordinator] = lambda: coordinator
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/v1/ai-backups/claude/reauth/flow-123/input",
+        json={"type": "click", "x": 2000, "y": 10},
+    )
+
+    assert response.status_code == 422
+    coordinator.send_input.assert_not_called()

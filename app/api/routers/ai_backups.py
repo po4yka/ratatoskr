@@ -8,10 +8,10 @@ backup itself runs in the Taskiq ``ratatoskr.ai_backup.sync`` job.
 from __future__ import annotations
 
 import datetime as dt  # noqa: TC003 — used at runtime by the FastAPI response schema
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.routers.auth import get_current_user
 from app.core.logging_utils import get_logger
@@ -68,6 +68,44 @@ class SessionIngestRequest(BaseModel):
     )
 
 
+class AiBackupReauthFlow(BaseModel):
+    """Public, secret-free state of one temporary interactive login flow."""
+
+    id: str
+    service: str
+    state: str = Field(
+        description=(
+            "starting | waiting_for_user | verifying | resuming_backup | completed | "
+            "failed | expired | cancelled"
+        )
+    )
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    error: str | None = None
+
+
+class ReauthInputRequest(BaseModel):
+    """One bounded input event for the owner-only remote browser surface."""
+
+    type: Literal["click", "move", "wheel", "key", "text"]
+    x: float | None = Field(default=None, ge=0, le=1366)
+    y: float | None = Field(default=None, ge=0, le=768)
+    delta_x: float | None = Field(default=None, ge=-5000, le=5000)
+    delta_y: float | None = Field(default=None, ge=-5000, le=5000)
+    key: str | None = Field(default=None, min_length=1, max_length=64)
+    text: str | None = Field(default=None, min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_event_fields(self) -> ReauthInputRequest:
+        if self.type in {"click", "move"} and (self.x is None or self.y is None):
+            raise ValueError(f"{self.type} requires x and y")
+        if self.type == "key" and self.key is None:
+            raise ValueError("key requires a key value")
+        if self.type == "text" and self.text is None:
+            raise ValueError("text requires a text value")
+        return self
+
+
 def _get_db(request: Request) -> Database:
     from app.api.dependencies.database import get_session_manager
 
@@ -84,6 +122,13 @@ def _get_app_config(request: Request) -> AppConfig:
     from app.di.api import resolve_api_runtime
 
     return resolve_api_runtime(request).cfg
+
+
+def _get_reauth_coordinator(request: Request) -> Any:
+    coordinator = getattr(request.app.state, "ai_backup_reauth_coordinator", None)
+    if coordinator is None:
+        raise HTTPException(status_code=503, detail="AI backup re-authorization is unavailable")
+    return coordinator
 
 
 def get_ai_backup_owner(
@@ -120,6 +165,17 @@ def _to_item(row: AiAccountBackup) -> AiBackupItem:
     )
 
 
+def _to_reauth_flow(snapshot: Any) -> AiBackupReauthFlow:
+    return AiBackupReauthFlow(
+        id=snapshot.id,
+        service=snapshot.service.value,
+        state=snapshot.state.value,
+        created_at=snapshot.created_at,
+        expires_at=snapshot.expires_at,
+        error=snapshot.error,
+    )
+
+
 @router.get("", response_model=AiBackupListResponse)
 async def list_ai_backups(
     user: dict[str, Any] = Depends(get_current_user),
@@ -143,6 +199,111 @@ async def get_ai_backup(
     if row is None:
         raise HTTPException(status_code=404, detail="No backup status for this service")
     return _to_item(row)
+
+
+@router.post(
+    "/{service}/reauth",
+    response_model=AiBackupReauthFlow,
+    status_code=201,
+    responses={403: {"description": "Owner permissions required"}},
+)
+async def start_reauth(
+    service: AiBackupService,
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
+    coordinator: Any = Depends(_get_reauth_coordinator),
+) -> AiBackupReauthFlow:
+    """Start a short-lived interactive login in the private CloakBrowser."""
+    try:
+        snapshot = await coordinator.start(user["user_id"], service)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _to_reauth_flow(snapshot)
+
+
+@router.get("/{service}/reauth/{flow_id}", response_model=AiBackupReauthFlow)
+async def get_reauth(
+    service: AiBackupService,
+    flow_id: str,
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
+    coordinator: Any = Depends(_get_reauth_coordinator),
+) -> AiBackupReauthFlow:
+    """Return progress without exposing cookies or browser endpoint details."""
+    try:
+        snapshot = await coordinator.get(user["user_id"], flow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Re-authorization flow not found") from exc
+    if snapshot.service != service:
+        raise HTTPException(status_code=404, detail="Re-authorization flow not found")
+    return _to_reauth_flow(snapshot)
+
+
+@router.get(
+    "/{service}/reauth/{flow_id}/frame",
+    response_class=Response,
+    responses={200: {"content": {"image/jpeg": {}}}},
+)
+async def get_reauth_frame(
+    service: AiBackupService,
+    flow_id: str,
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
+    coordinator: Any = Depends(_get_reauth_coordinator),
+) -> Response:
+    """Capture the current private browser frame for the owning user only."""
+    try:
+        snapshot = await coordinator.get(user["user_id"], flow_id)
+        if snapshot.service != service:
+            raise KeyError(flow_id)
+        frame = await coordinator.capture_frame(user["user_id"], flow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Re-authorization flow not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(
+        content=frame,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
+    )
+
+
+@router.post("/{service}/reauth/{flow_id}/input", status_code=204)
+async def send_reauth_input(
+    service: AiBackupService,
+    flow_id: str,
+    body: ReauthInputRequest,
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
+    coordinator: Any = Depends(_get_reauth_coordinator),
+) -> None:
+    """Forward one bounded mouse/keyboard event; input is never logged or stored."""
+    from app.adapters.ai_backup.reauth import ReauthInputEvent
+
+    try:
+        snapshot = await coordinator.get(user["user_id"], flow_id)
+        if snapshot.service != service:
+            raise KeyError(flow_id)
+        await coordinator.send_input(
+            user["user_id"], flow_id, ReauthInputEvent(**body.model_dump())
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Re-authorization flow not found") from exc
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete("/{service}/reauth/{flow_id}", status_code=204)
+async def cancel_reauth(
+    service: AiBackupService,
+    flow_id: str,
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
+    coordinator: Any = Depends(_get_reauth_coordinator),
+) -> None:
+    """Close an active interactive login flow."""
+    try:
+        snapshot = await coordinator.get(user["user_id"], flow_id)
+        if snapshot.service != service:
+            raise KeyError(flow_id)
+        await coordinator.cancel(user["user_id"], flow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Re-authorization flow not found") from exc
 
 
 @router.post(
