@@ -34,6 +34,7 @@ class _Page:
     def __init__(self) -> None:
         self.url = "https://chatgpt.com/"
         self.goto = AsyncMock()
+        self.bring_to_front = AsyncMock()
         self.screenshot = AsyncMock(return_value=b"jpeg-frame")
         self.mouse = _Mouse()
         self.keyboard = _Keyboard()
@@ -56,6 +57,13 @@ def _cfg() -> MagicMock:
     cfg.ai_backup.claude_enabled = True
     cfg.ai_backup.browser_locale = "en-US"
     cfg.ai_backup.browser_timezone = "Asia/Tbilisi"
+    cfg.ai_backup.reauth_chatgpt_browser_url = "http://cloakbrowser-reauth-chatgpt:9222"
+    cfg.ai_backup.reauth_claude_browser_url = "http://cloakbrowser-reauth-claude:9222"
+    cfg.ai_backup.reauth_chatgpt_vnc_host = "ai-backup-display-chatgpt"
+    cfg.ai_backup.reauth_chatgpt_vnc_port = 5900
+    cfg.ai_backup.reauth_claude_vnc_host = "ai-backup-display-claude"
+    cfg.ai_backup.reauth_claude_vnc_port = 5900
+    cfg.ai_backup.reauth_viewer_ticket_ttl_seconds = 60
     return cfg
 
 
@@ -251,7 +259,166 @@ async def test_reauth_uses_pinned_operator_browser_profile() -> None:
     assert received_kwargs[0]["locale"] == "en-US"
     assert received_kwargs[0]["timezone"] == "Asia/Tbilisi"
     assert received_kwargs[0]["fingerprint_seed"] == seed_for_url("https://chatgpt.com")
+    assert received_kwargs[0]["endpoint_url"] == "http://cloakbrowser-reauth-chatgpt:9222"
+    page.bring_to_front.assert_awaited_once_with()
     await coordinator.cancel(42, started.id)
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_provider_flows_use_separate_browser_and_vnc_targets() -> None:
+    from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator
+
+    received_endpoints: list[str] = []
+
+    @asynccontextmanager
+    async def browser_context(*_args: object, **kwargs: object):
+        received_endpoints.append(str(kwargs["endpoint_url"]))
+        yield _Page(), _Context({"cookies": []})
+
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=MagicMock(load=AsyncMock(return_value=None)),
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+
+    chatgpt = await coordinator.start(42, AiBackupService.CHATGPT)
+    claude = await coordinator.start(42, AiBackupService.CLAUDE)
+    await _wait_for_state(coordinator, chatgpt.id, "waiting_for_user")
+    await _wait_for_state(coordinator, claude.id, "waiting_for_user")
+
+    assert set(received_endpoints) == {
+        "http://cloakbrowser-reauth-chatgpt:9222",
+        "http://cloakbrowser-reauth-claude:9222",
+    }
+    assert coordinator.vnc_target(chatgpt.id).host == "ai-backup-display-chatgpt"
+    assert coordinator.vnc_target(claude.id).host == "ai-backup-display-claude"
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_viewer_ticket_is_owner_scoped_single_use_and_single_viewer() -> None:
+    from app.adapters.ai_backup.reauth import (
+        AiBackupReauthCoordinator,
+        InvalidViewerTicketError,
+    )
+
+    @asynccontextmanager
+    async def browser_context(*_args: object, **_kwargs: object):
+        yield _Page(), _Context({"cookies": []})
+
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=MagicMock(load=AsyncMock(return_value=None)),
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+    started = await coordinator.start(42, AiBackupService.CHATGPT)
+    await _wait_for_state(coordinator, started.id, "waiting_for_user")
+
+    with pytest.raises(KeyError):
+        await coordinator.issue_viewer_ticket(99, AiBackupService.CHATGPT, started.id)
+    with pytest.raises(KeyError):
+        await coordinator.issue_viewer_ticket(42, AiBackupService.CLAUDE, started.id)
+
+    issued = await coordinator.issue_viewer_ticket(42, AiBackupService.CHATGPT, started.id)
+    assert issued.token not in repr(coordinator._flows[started.id])
+    lease = await coordinator.consume_viewer_ticket(
+        AiBackupService.CHATGPT, started.id, issued.token
+    )
+    assert lease.target.host == "ai-backup-display-chatgpt"
+
+    with pytest.raises(InvalidViewerTicketError):
+        await coordinator.consume_viewer_ticket(AiBackupService.CHATGPT, started.id, issued.token)
+
+    with pytest.raises(RuntimeError, match="still connected"):
+        await coordinator.issue_viewer_ticket(42, AiBackupService.CHATGPT, started.id)
+
+    await coordinator.release_viewer(started.id)
+    replacement = await coordinator.issue_viewer_ticket(42, AiBackupService.CHATGPT, started.id)
+    second_lease = await coordinator.consume_viewer_ticket(
+        AiBackupService.CHATGPT, started.id, replacement.token
+    )
+    assert second_lease.stop_event is lease.stop_event
+    await coordinator.cancel(42, started.id)
+    assert second_lease.stop_event.is_set()
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_only_one_outstanding_viewer_ticket_can_be_issued() -> None:
+    from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator, ViewerTicket
+
+    @asynccontextmanager
+    async def browser_context(*_args: object, **_kwargs: object):
+        yield _Page(), _Context({"cookies": []})
+
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=MagicMock(load=AsyncMock(return_value=None)),
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+    started = await coordinator.start(42, AiBackupService.CHATGPT)
+    await _wait_for_state(coordinator, started.id, "waiting_for_user")
+
+    results = await asyncio.gather(
+        coordinator.issue_viewer_ticket(42, AiBackupService.CHATGPT, started.id),
+        coordinator.issue_viewer_ticket(42, AiBackupService.CHATGPT, started.id),
+        return_exceptions=True,
+    )
+
+    assert sum(isinstance(result, ViewerTicket) for result in results) == 1
+    assert sum(isinstance(result, RuntimeError) for result in results) == 1
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_expired_viewer_ticket_is_rejected() -> None:
+    from app.adapters.ai_backup.reauth import (
+        AiBackupReauthCoordinator,
+        InvalidViewerTicketError,
+    )
+
+    @asynccontextmanager
+    async def browser_context(*_args: object, **_kwargs: object):
+        yield _Page(), _Context({"cookies": []})
+
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=MagicMock(load=AsyncMock(return_value=None)),
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+    started = await coordinator.start(42, AiBackupService.CHATGPT)
+    await _wait_for_state(coordinator, started.id, "waiting_for_user")
+    ticket = await coordinator.issue_viewer_ticket(42, AiBackupService.CHATGPT, started.id)
+    coordinator._flows[started.id].viewer_ticket_expires_at = dt.datetime.now(tz=dt.UTC)
+
+    with pytest.raises(InvalidViewerTicketError):
+        await coordinator.consume_viewer_ticket(AiBackupService.CHATGPT, started.id, ticket.token)
+
     await coordinator.close()
 
 

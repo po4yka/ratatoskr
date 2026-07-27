@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import enum
+import hashlib
+import secrets
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
@@ -26,6 +28,7 @@ from app.db.models.ai_backup import (
 )
 
 if TYPE_CHECKING:
+    from app.adapters.ai_backup.vnc_gateway import VncTarget
     from app.config import AppConfig
     from app.db.session import Database
 
@@ -71,6 +74,26 @@ class ReauthFlowSnapshot:
     error: str | None = None
 
 
+class InvalidViewerTicketError(Exception):
+    """The viewer ticket is absent, expired, mismatched, or already consumed."""
+
+
+class DuplicateViewerError(Exception):
+    """A flow already has its single permitted active viewer."""
+
+
+@dataclass(frozen=True, slots=True)
+class ViewerTicket:
+    token: str
+    expires_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ViewerLease:
+    target: VncTarget
+    stop_event: asyncio.Event
+
+
 @dataclass(slots=True)
 class _Flow:
     id: str
@@ -85,6 +108,10 @@ class _Flow:
     task: asyncio.Task[None] | None = None
     cancelled: asyncio.Event = field(default_factory=asyncio.Event)
     browser_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    viewer_ticket_digest: bytes | None = None
+    viewer_ticket_expires_at: dt.datetime | None = None
+    viewer_connected: bool = False
+    viewer_stop: asyncio.Event = field(default_factory=asyncio.Event)
 
     def snapshot(self) -> ReauthFlowSnapshot:
         return ReauthFlowSnapshot(
@@ -153,6 +180,7 @@ class AiBackupReauthCoordinator:
                     and existing.state.value in _ACTIVE_STATES
                 ):
                     existing.cancelled.set()
+                    existing.viewer_stop.set()
                     if existing.task is not None:
                         superseded.append(existing.task)
             if superseded:
@@ -168,6 +196,84 @@ class AiBackupReauthCoordinator:
 
     async def get(self, user_id: int, flow_id: str) -> ReauthFlowSnapshot:
         return self._owned_flow(user_id, flow_id).snapshot()
+
+    @property
+    def vnc_connect_timeout_seconds(self) -> float:
+        return self._cfg.ai_backup.reauth_vnc_connect_timeout_seconds
+
+    def vnc_target(self, flow_id: str) -> VncTarget:
+        from app.adapters.ai_backup.vnc_gateway import VncTarget
+
+        flow = self._flows.get(flow_id)
+        if flow is None:
+            raise KeyError(flow_id)
+        ai = self._cfg.ai_backup
+        if flow.service == AiBackupService.CHATGPT:
+            return VncTarget(ai.reauth_chatgpt_vnc_host, ai.reauth_chatgpt_vnc_port)
+        return VncTarget(ai.reauth_claude_vnc_host, ai.reauth_claude_vnc_port)
+
+    async def issue_viewer_ticket(
+        self, user_id: int, service: AiBackupService, flow_id: str
+    ) -> ViewerTicket:
+        flow = self._owned_flow(user_id, flow_id)
+        if flow.service != service:
+            raise KeyError(flow_id)
+        async with self._registry_lock:
+            now = dt.datetime.now(tz=dt.UTC)
+            if flow.state != ReauthFlowState.WAITING_FOR_USER:
+                raise RuntimeError("interactive browser is not ready")
+            if flow.viewer_connected:
+                raise RuntimeError("viewer is still connected")
+            if (
+                flow.viewer_ticket_digest is not None
+                and flow.viewer_ticket_expires_at is not None
+                and now < flow.viewer_ticket_expires_at
+            ):
+                raise RuntimeError("viewer ticket is already pending")
+            token = secrets.token_urlsafe(32)
+            expires_at = min(
+                flow.expires_at,
+                now + dt.timedelta(seconds=self._cfg.ai_backup.reauth_viewer_ticket_ttl_seconds),
+            )
+            flow.viewer_ticket_digest = hashlib.sha256(token.encode()).digest()
+            flow.viewer_ticket_expires_at = expires_at
+        return ViewerTicket(token=token, expires_at=expires_at)
+
+    async def consume_viewer_ticket(
+        self, service: AiBackupService, flow_id: str, token: str | None
+    ) -> ViewerLease:
+        flow = self._flows.get(flow_id)
+        if flow is None or flow.service != service:
+            raise KeyError(flow_id)
+        now = dt.datetime.now(tz=dt.UTC)
+        supplied_digest = hashlib.sha256((token or "").encode()).digest()
+        async with self._registry_lock:
+            expected = flow.viewer_ticket_digest
+            expires_at = flow.viewer_ticket_expires_at
+            if (
+                expected is None
+                or expires_at is None
+                or now >= expires_at
+                or not secrets.compare_digest(supplied_digest, expected)
+            ):
+                raise InvalidViewerTicketError
+            # Consume before checking viewer occupancy, so even a rejected
+            # duplicate attempt cannot replay the bearer ticket later.
+            flow.viewer_ticket_digest = None
+            flow.viewer_ticket_expires_at = None
+            if flow.viewer_connected:
+                raise DuplicateViewerError
+            if flow.state != ReauthFlowState.WAITING_FOR_USER:
+                raise InvalidViewerTicketError
+            flow.viewer_connected = True
+        return ViewerLease(target=self.vnc_target(flow_id), stop_event=flow.viewer_stop)
+
+    async def release_viewer(self, flow_id: str) -> None:
+        flow = self._flows.get(flow_id)
+        if flow is None:
+            return
+        async with self._registry_lock:
+            flow.viewer_connected = False
 
     async def capture_frame(self, user_id: int, flow_id: str) -> bytes:
         flow = self._owned_flow(user_id, flow_id)
@@ -192,6 +298,7 @@ class AiBackupReauthCoordinator:
         if flow.state.value in _TERMINAL_STATES:
             return
         flow.cancelled.set()
+        flow.viewer_stop.set()
         if flow.task is not None:
             try:
                 await asyncio.wait_for(asyncio.shield(flow.task), timeout=5)
@@ -205,6 +312,7 @@ class AiBackupReauthCoordinator:
         for flow in self._flows.values():
             if flow.task is not None and not flow.task.done():
                 flow.cancelled.set()
+                flow.viewer_stop.set()
                 tasks.append(flow.task)
         if tasks:
             _, pending = await asyncio.wait(tasks, timeout=5)
@@ -253,10 +361,15 @@ class AiBackupReauthCoordinator:
 
             refreshed_out: list[dict] = []
             authenticated = False
+            browser_endpoint = (
+                self._cfg.ai_backup.reauth_chatgpt_browser_url
+                if flow.service == AiBackupService.CHATGPT
+                else self._cfg.ai_backup.reauth_claude_browser_url
+            )
             async with self._browser_context_factory(
                 domain,
                 existing_state,
-                endpoint_url=self._cfg.scraper.cloakbrowser_url,
+                endpoint_url=browser_endpoint,
                 proxy=self._cfg.scraper.cloakbrowser_proxy,
                 refreshed_out=refreshed_out,
                 **browser_profile(domain, self._cfg.ai_backup),
@@ -268,6 +381,7 @@ class AiBackupReauthCoordinator:
                     wait_until="domcontentloaded",
                     timeout=60_000,
                 )
+                await page.bring_to_front()
                 flow.state = ReauthFlowState.WAITING_FOR_USER
 
                 while dt.datetime.now(tz=dt.UTC) < flow.expires_at:
@@ -277,6 +391,7 @@ class AiBackupReauthCoordinator:
                     async with flow.browser_lock:
                         authenticated = await self._auth_probe(page, context, flow.service)
                     if authenticated:
+                        flow.viewer_stop.set()
                         flow.state = ReauthFlowState.VERIFYING
                         storage_state = dict(await context.storage_state())
                         from app.adapters.ai_backup.session_store import validate_storage_state
@@ -290,6 +405,7 @@ class AiBackupReauthCoordinator:
             flow.page = None
             flow.context = None
             if not authenticated:
+                flow.viewer_stop.set()
                 flow.state = ReauthFlowState.EXPIRED
                 return
 
@@ -311,6 +427,8 @@ class AiBackupReauthCoordinator:
             flow.state = ReauthFlowState.FAILED
             flow.error = f"Re-authorization failed. Error ID: {flow.id}"
         finally:
+            if flow.state.value in _TERMINAL_STATES:
+                flow.viewer_stop.set()
             flow.page = None
             flow.context = None
 
@@ -443,8 +561,12 @@ async def enqueue_targeted_backup(user_id: int, service: AiBackupService) -> Non
 
 __all__ = [
     "AiBackupReauthCoordinator",
+    "DuplicateViewerError",
+    "InvalidViewerTicketError",
     "ReauthFlowSnapshot",
     "ReauthFlowState",
     "ReauthInputEvent",
+    "ViewerLease",
+    "ViewerTicket",
     "enqueue_targeted_backup",
 ]

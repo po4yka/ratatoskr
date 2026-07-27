@@ -12,21 +12,24 @@ that are instantiated inside the route body rather than injected via Depends.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import importlib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
+from app.adapters.ai_backup.reauth import ReauthFlowSnapshot, ReauthFlowState
 from app.db.models.ai_backup import (
     AiAccountBackup,
     AiBackupAuthorizationStatus,
     AiBackupService,
     AiBackupStatus,
 )
-from app.adapters.ai_backup.reauth import ReauthFlowSnapshot, ReauthFlowState
 
 # Load the router module directly to avoid triggering app.api.routers.__init__,
 # which pulls in heavy adapter/di imports (same rationale as test_git_mirrors_router.py).
@@ -378,6 +381,151 @@ def test_owner_can_start_drive_and_cancel_secure_reauth_flow() -> None:
     assert input_response.status_code == 204
     assert b"sensitive-but-not-echoed" not in input_response.content
     assert cancelled.status_code == 204
+
+
+def test_owner_gets_http_only_single_path_viewer_cookie_without_token_in_body() -> None:
+    now = dt.datetime.now(tz=dt.UTC)
+    coordinator = MagicMock()
+    coordinator.issue_viewer_ticket = AsyncMock(
+        return_value=SimpleNamespace(
+            token="viewer-secret", expires_at=now + dt.timedelta(seconds=60)
+        )
+    )
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.dependency_overrides[_ai_backups.get_ai_backup_owner] = lambda: {"user_id": _USER_ID}
+    app.dependency_overrides[_ai_backups._get_reauth_coordinator] = lambda: coordinator
+
+    response = TestClient(app, base_url="https://testserver").post(
+        "/v1/ai-backups/chatgpt/reauth/flow-123/viewer-session"
+    )
+
+    assert response.status_code == 201
+    assert response.json()["data"]["websocket_path"] == (
+        "/v1/ai-backups/chatgpt/reauth/flow-123/viewer"
+    )
+    assert "viewer-secret" not in response.text
+    cookie = response.headers["set-cookie"]
+    assert "ratatoskr_ai_backup_viewer=viewer-secret" in cookie
+    assert "HttpOnly" in cookie
+    assert "Secure" in cookie
+    assert "SameSite=strict" in cookie
+    assert "Path=/v1/ai-backups/chatgpt/reauth/flow-123/viewer" in cookie
+    coordinator.issue_viewer_ticket.assert_awaited_once_with(
+        _USER_ID, AiBackupService.CHATGPT, "flow-123"
+    )
+
+
+def test_frame_and_input_routes_are_marked_deprecated_in_openapi() -> None:
+    schema = _make_client().get("/openapi.json").json()
+
+    assert schema["paths"]["/v1/ai-backups/{service}/reauth/{flow_id}/frame"]["get"]["deprecated"]
+    assert schema["paths"]["/v1/ai-backups/{service}/reauth/{flow_id}/input"]["post"]["deprecated"]
+
+
+def test_viewer_websocket_relays_binary_bytes_with_binary_subprotocol() -> None:
+    from app.adapters.ai_backup.vnc_gateway import VncTarget
+
+    sent_to_vnc = asyncio.Event()
+
+    class _Reader:
+        calls = 0
+
+        async def read(self, _size: int) -> bytes:
+            await sent_to_vnc.wait()
+            self.calls += 1
+            return b"from-vnc" if self.calls == 1 else b""
+
+    class _Writer:
+        chunks: list[bytes] = []
+
+        def write(self, data: bytes) -> None:
+            self.chunks.append(data)
+            sent_to_vnc.set()
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    coordinator = MagicMock()
+    coordinator.consume_viewer_ticket = AsyncMock(
+        return_value=SimpleNamespace(target=VncTarget("display", 5900), stop_event=asyncio.Event())
+    )
+    coordinator.release_viewer = AsyncMock()
+    coordinator.vnc_connect_timeout_seconds = 5.0
+    connector = MagicMock()
+    writer = _Writer()
+    connector.connect = AsyncMock(return_value=(_Reader(), writer))
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.state.ai_backup_reauth_coordinator = coordinator
+    app.state.ai_backup_vnc_connector = connector
+    client = TestClient(app)
+
+    with client.websocket_connect(
+        "/v1/ai-backups/chatgpt/reauth/flow-123/viewer",
+        subprotocols=["binary"],
+        headers={"cookie": "ratatoskr_ai_backup_viewer=viewer-secret"},
+    ) as websocket:
+        assert websocket.accepted_subprotocol == "binary"
+        websocket.send_bytes(b"from-websocket")
+        assert websocket.receive_bytes() == b"from-vnc"
+
+    assert writer.chunks == [b"from-websocket"]
+    coordinator.consume_viewer_ticket.assert_awaited_once_with(
+        AiBackupService.CHATGPT, "flow-123", "viewer-secret"
+    )
+    coordinator.release_viewer.assert_awaited_once_with("flow-123")
+
+
+def test_viewer_websocket_rejects_replayed_or_invalid_ticket() -> None:
+    from app.adapters.ai_backup.reauth import InvalidViewerTicketError
+
+    coordinator = MagicMock()
+    coordinator.consume_viewer_ticket = AsyncMock(side_effect=InvalidViewerTicketError)
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.state.ai_backup_reauth_coordinator = coordinator
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with TestClient(app).websocket_connect("/v1/ai-backups/chatgpt/reauth/flow-123/viewer"):
+            pass
+
+    assert exc_info.value.code == 4401
+    assert "Error ID:" in exc_info.value.reason
+
+
+def test_viewer_websocket_releases_lease_when_vnc_is_unavailable() -> None:
+    from app.adapters.ai_backup.vnc_gateway import VncTarget
+
+    coordinator = MagicMock()
+    coordinator.consume_viewer_ticket = AsyncMock(
+        return_value=SimpleNamespace(target=VncTarget("display", 5900), stop_event=asyncio.Event())
+    )
+    coordinator.release_viewer = AsyncMock()
+    coordinator.vnc_connect_timeout_seconds = 5.0
+    connector = MagicMock()
+    connector.connect = AsyncMock(side_effect=OSError("refused"))
+    app = FastAPI()
+    app.include_router(_ai_backups.router)
+    app.state.ai_backup_reauth_coordinator = coordinator
+    app.state.ai_backup_vnc_connector = connector
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with TestClient(app).websocket_connect(
+            "/v1/ai-backups/chatgpt/reauth/flow-123/viewer",
+            headers={"cookie": "ratatoskr_ai_backup_viewer=viewer-secret"},
+        ):
+            pass
+
+    assert exc_info.value.code == 1011
+    assert "Error ID:" in exc_info.value.reason
+    coordinator.release_viewer.assert_awaited_once_with("flow-123")
 
 
 def test_reauth_input_is_bounded_before_it_reaches_browser() -> None:

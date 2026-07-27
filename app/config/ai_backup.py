@@ -15,6 +15,7 @@ own-account-only, single-tenant tool. See
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
@@ -80,6 +81,47 @@ class AiBackupConfig(BaseModel):
         min_length=1,
         validation_alias="AI_BACKUP_BROWSER_TIMEZONE",
         description="IANA timezone pinned for ChatGPT and Claude browser contexts.",
+    )
+
+    # Dedicated interactive re-authorization browsers. These addresses are
+    # Docker-internal control-plane targets and must never be host-published.
+    reauth_chatgpt_browser_url: str = Field(
+        default="http://cloakbrowser-reauth-chatgpt:9222",
+        validation_alias="AI_BACKUP_REAUTH_CHATGPT_BROWSER_URL",
+    )
+    reauth_claude_browser_url: str = Field(
+        default="http://cloakbrowser-reauth-claude:9222",
+        validation_alias="AI_BACKUP_REAUTH_CLAUDE_BROWSER_URL",
+    )
+    reauth_chatgpt_vnc_host: str = Field(
+        default="ai-backup-display-chatgpt",
+        validation_alias="AI_BACKUP_REAUTH_CHATGPT_VNC_HOST",
+    )
+    reauth_chatgpt_vnc_port: int = Field(
+        default=5900,
+        ge=1,
+        le=65535,
+        validation_alias="AI_BACKUP_REAUTH_CHATGPT_VNC_PORT",
+    )
+    reauth_claude_vnc_host: str = Field(
+        default="ai-backup-display-claude",
+        validation_alias="AI_BACKUP_REAUTH_CLAUDE_VNC_HOST",
+    )
+    reauth_claude_vnc_port: int = Field(
+        default=5900,
+        ge=1,
+        le=65535,
+        validation_alias="AI_BACKUP_REAUTH_CLAUDE_VNC_PORT",
+    )
+    reauth_viewer_ticket_ttl_seconds: int = Field(
+        default=60,
+        gt=0,
+        validation_alias="AI_BACKUP_REAUTH_VIEWER_TICKET_TTL_SECONDS",
+    )
+    reauth_vnc_connect_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        validation_alias="AI_BACKUP_REAUTH_VNC_CONNECT_TIMEOUT_SECONDS",
     )
 
     # Cadence / anti-bot shaping.
@@ -223,6 +265,23 @@ class AiBackupConfig(BaseModel):
             msg = f"AI_BACKUP_BROWSER_TIMEZONE must be a valid IANA timezone, got {timezone!r}"
             raise ValueError(msg) from exc
         return timezone
+
+    @field_validator("reauth_chatgpt_browser_url", "reauth_claude_browser_url", mode="before")
+    @classmethod
+    def _validate_reauth_browser_url(cls, value: Any) -> str:
+        url = str(value or "").strip()
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("AI backup reauth browser URL must be an http(s) URL with a host")
+        return url
+
+    @field_validator("reauth_chatgpt_vnc_host", "reauth_claude_vnc_host", mode="before")
+    @classmethod
+    def _validate_reauth_vnc_host(cls, value: Any) -> str:
+        host = str(value or "").strip()
+        if not host:
+            raise ValueError("AI backup reauth VNC host must not be blank")
+        return host
 
     @field_validator("sync_cron", mode="before")
     @classmethod

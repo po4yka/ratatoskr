@@ -7,10 +7,11 @@ backup itself runs in the Taskiq ``ratatoskr.ai_backup.sync`` job.
 
 from __future__ import annotations
 
-import datetime as dt  # noqa: TC003 — used at runtime by the FastAPI response schema
+import datetime as dt
+import uuid
 from typing import TYPE_CHECKING, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
 from pydantic import BaseModel, Field, model_validator
 
 from app.api.models.responses import TypedSuccessResponse, success_response
@@ -31,6 +32,11 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/ai-backups", tags=["ai-backups"])
+_VIEWER_COOKIE_NAME = "ratatoskr_ai_backup_viewer"
+
+
+def _error_with_id(message: str, correlation_id: str | None) -> str:
+    return f"{message}. Error ID: {correlation_id or uuid.uuid4()}"
 
 
 class AiBackupItem(BaseModel):
@@ -83,6 +89,13 @@ class AiBackupReauthFlow(BaseModel):
     created_at: dt.datetime
     expires_at: dt.datetime
     error: str | None = None
+
+
+class AiBackupViewerSession(BaseModel):
+    """Secret-free metadata for connecting noVNC to the active browser."""
+
+    websocket_path: str
+    expires_at: dt.datetime
 
 
 class ReauthInputRequest(BaseModel):
@@ -256,10 +269,122 @@ async def get_reauth(
     )
 
 
+@router.post(
+    "/{service}/reauth/{flow_id}/viewer-session",
+    response_model=TypedSuccessResponse[AiBackupViewerSession],
+    status_code=201,
+)
+async def create_reauth_viewer_session(
+    service: AiBackupService,
+    flow_id: str,
+    request: Request,
+    response: Response,
+    user: dict[str, Any] = Depends(get_ai_backup_owner),
+    coordinator: Any = Depends(_get_reauth_coordinator),
+) -> dict[str, Any]:
+    """Issue a short-lived, one-use viewer cookie scoped to one WebSocket path."""
+
+    try:
+        ticket = await coordinator.issue_viewer_ticket(user["user_id"], service, flow_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=_error_with_id(
+                "Re-authorization flow not found",
+                getattr(request.state, "correlation_id", None),
+            ),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=_error_with_id(str(exc), getattr(request.state, "correlation_id", None)),
+        ) from exc
+    websocket_path = f"/v1/ai-backups/{service.value}/reauth/{flow_id}/viewer"
+    ttl = max(1, int((ticket.expires_at - dt.datetime.now(tz=dt.UTC)).total_seconds()))
+    response.set_cookie(
+        key=_VIEWER_COOKIE_NAME,
+        value=ticket.token,
+        max_age=ttl,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path=websocket_path,
+    )
+    return success_response(
+        AiBackupViewerSession(websocket_path=websocket_path, expires_at=ticket.expires_at),
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
+
+
+@router.websocket("/{service}/reauth/{flow_id}/viewer")
+async def reauth_viewer(
+    websocket: WebSocket,
+    service: AiBackupService,
+    flow_id: str,
+) -> None:
+    """Relay an opaque binary RFB stream for a single authenticated viewer."""
+
+    from app.adapters.ai_backup.reauth import DuplicateViewerError, InvalidViewerTicketError
+    from app.adapters.ai_backup.vnc_gateway import TcpVncConnector, relay_vnc
+
+    correlation_id = str(uuid.uuid4())
+
+    async def close_with_error(code: int, message: str) -> None:
+        await websocket.close(code=code, reason=_error_with_id(message, correlation_id))
+
+    coordinator = getattr(websocket.app.state, "ai_backup_reauth_coordinator", None)
+    if coordinator is None:
+        await close_with_error(4404, "Re-authorization flow not found")
+        return
+    try:
+        lease = await coordinator.consume_viewer_ticket(
+            service, flow_id, websocket.cookies.get(_VIEWER_COOKIE_NAME)
+        )
+    except KeyError:
+        await close_with_error(4404, "Re-authorization flow not found")
+        return
+    except InvalidViewerTicketError:
+        await close_with_error(4401, "Invalid or expired viewer ticket")
+        return
+    except DuplicateViewerError:
+        await close_with_error(4409, "Viewer already connected")
+        return
+
+    connector = getattr(websocket.app.state, "ai_backup_vnc_connector", None) or TcpVncConnector()
+    writer = None
+    try:
+        try:
+            reader, writer = await connector.connect(
+                lease.target, coordinator.vnc_connect_timeout_seconds
+            )
+        except (OSError, TimeoutError):
+            await close_with_error(1011, "VNC unavailable")
+            return
+
+        requested_protocols = websocket.scope.get("subprotocols", [])
+        await websocket.accept(subprotocol="binary" if "binary" in requested_protocols else None)
+        await relay_vnc(websocket, reader, writer, lease.stop_event)
+    except Exception:
+        logger.exception(
+            "ai_backup_vnc_relay_failed",
+            extra={"cid": correlation_id, "service": service.value, "flow_id": flow_id},
+        )
+        try:
+            await close_with_error(1011, "Remote browser connection failed")
+        except Exception:
+            pass
+    finally:
+        if writer is not None:
+            writer.close()
+            await writer.wait_closed()
+        await coordinator.release_viewer(flow_id)
+
+
 @router.get(
     "/{service}/reauth/{flow_id}/frame",
     response_class=Response,
     responses={200: {"content": {"image/jpeg": {}}}},
+    deprecated=True,
 )
 async def get_reauth_frame(
     service: AiBackupService,
@@ -284,7 +409,7 @@ async def get_reauth_frame(
     )
 
 
-@router.post("/{service}/reauth/{flow_id}/input", status_code=204)
+@router.post("/{service}/reauth/{flow_id}/input", status_code=204, deprecated=True)
 async def send_reauth_input(
     service: AiBackupService,
     flow_id: str,

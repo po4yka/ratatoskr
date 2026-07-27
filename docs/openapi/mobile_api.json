@@ -4764,6 +4764,61 @@
         }
       }
     },
+    "/v1/ai-backups/{service}/reauth/{flow_id}/viewer-session": {
+      "post": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Create Reauth Viewer Session",
+        "description": "Issue a short-lived, one-use viewer cookie scoped to one WebSocket path.",
+        "operationId": "create_reauth_viewer_session_v1_ai_backups__service__reauth__flow_id__viewer_session_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupViewerSession_"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/ai-backups/{service}/reauth/{flow_id}/frame": {
       "get": {
         "tags": [
@@ -4772,6 +4827,7 @@
         "summary": "Get Reauth Frame",
         "description": "Capture the current private browser frame for the owning user only.",
         "operationId": "get_reauth_frame_v1_ai_backups__service__reauth__flow_id__frame_get",
+        "deprecated": true,
         "security": [
           {
             "HTTPBearer": []
@@ -4823,6 +4879,7 @@
         "summary": "Send Reauth Input",
         "description": "Forward one bounded mouse/keyboard event; input is never logged or stored.",
         "operationId": "send_reauth_input_v1_ai_backups__service__reauth__flow_id__input_post",
+        "deprecated": true,
         "security": [
           {
             "HTTPBearer": []
@@ -16241,6 +16298,26 @@
         ],
         "title": "AiBackupService",
         "description": "Which AI web account this backup row tracks."
+      },
+      "AiBackupViewerSession": {
+        "properties": {
+          "websocket_path": {
+            "type": "string",
+            "title": "Websocket Path"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "websocket_path",
+          "expires_at"
+        ],
+        "title": "AiBackupViewerSession",
+        "description": "Secret-free metadata for connecting noVNC to the active browser."
       },
       "AppleSignInCallbackRequest": {
         "properties": {
@@ -31974,6 +32051,26 @@
           "data"
         ],
         "title": "TypedSuccessResponse[AiBackupReauthFlow]"
+      },
+      "TypedSuccessResponse_AiBackupViewerSession_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupViewerSession"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupViewerSession]"
       },
       "TypedSuccessResponse_AppleSignInStartResponse_": {
         "properties": {
