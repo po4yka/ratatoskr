@@ -13,11 +13,20 @@ from app.application.services.summarization.llm_response_workflow_storage import
 )
 
 
-def _cfg(*, no_retention: bool = True, llm_policy: str = "full") -> SimpleNamespace:
+def _cfg(
+    *,
+    no_retention: bool = True,
+    llm_policy: str = "full",
+    retain_reader_source: bool | None = None,
+) -> SimpleNamespace:
+    retain_raw = not no_retention
     return SimpleNamespace(
         openrouter=SimpleNamespace(model="fallback-model"),
         retention=SimpleNamespace(
-            persist_raw_extracted_content=not no_retention,
+            persist_raw_extracted_content=retain_raw,
+            persist_reader_source_content=(
+                retain_raw if retain_reader_source is None else retain_reader_source
+            ),
             persist_llm_prompt_response_payloads=not no_retention and llm_policy == "full",
         ),
     )
@@ -77,10 +86,45 @@ async def test_crawl_persistence_strips_raw_content_in_no_retention_mode() -> No
     await mixin._persist_crawl_result(10, crawl, "cid")
 
     kwargs = crawl_repo.async_insert_crawl_result.await_args.kwargs
+    assert kwargs["content_text"] is None
     assert kwargs["markdown"] is None
     assert kwargs["html"] is None
     assert kwargs["metadata_json"] == {"title": "Saved title", "raw_payload_persisted": False}
     assert kwargs["source_url"] == "https://example.test/post"
+
+
+@pytest.mark.asyncio
+async def test_crawl_persistence_keeps_reader_source_without_raw_payloads() -> None:
+    mixin = ContentExtractorRequestsMixin()
+    mixin.cfg = _cfg(no_retention=True, retain_reader_source=True)
+    crawl_repo = AsyncMock()
+    mixin.message_persistence = SimpleNamespace(crawl_repo=crawl_repo)
+    crawl = SimpleNamespace(
+        response_success=True,
+        content_markdown="# Normalized article",
+        content_html="<h1>Raw provider HTML</h1>",
+        error_text=None,
+        metadata_json={"title": "Saved title"},
+        source_url="https://example.test/post",
+        http_status=200,
+        status="ok",
+        endpoint="firecrawl",
+        latency_ms=50,
+        correlation_id="cid",
+        options_json={},
+    )
+
+    await mixin._persist_crawl_result(
+        10,
+        crawl,
+        "cid",
+        content_text="Normalized article body",
+    )
+
+    kwargs = crawl_repo.async_insert_crawl_result.await_args.kwargs
+    assert kwargs["content_text"] == "Normalized article body"
+    assert kwargs["markdown"] is None
+    assert kwargs["html"] is None
 
 
 @pytest.mark.asyncio

@@ -140,7 +140,13 @@ class ContentExtractor(
 
     def _persist_source_content_enabled(self) -> bool:
         retention = getattr(self.cfg, "retention", None)
-        return bool(getattr(retention, "persist_raw_extracted_content", True))
+        return bool(
+            getattr(
+                retention,
+                "persist_reader_source_content",
+                getattr(retention, "persist_raw_extracted_content", True),
+            )
+        )
 
     async def extract_content_pure(
         self,

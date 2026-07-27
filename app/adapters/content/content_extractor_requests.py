@@ -83,6 +83,13 @@ async def persist_crawl_result(
                 True,
             )
         )
+        retain_reader_source = bool(
+            getattr(
+                getattr(cfg, "retention", None),
+                "persist_reader_source_content",
+                retain_raw,
+            )
+        )
         options_json = dict(crawl.options_json or {})
         attempt_log = options_json.pop("_chain_attempt_log", None)
         winning_provider = options_json.pop("_chain_winning_provider", None)
@@ -94,7 +101,7 @@ async def persist_crawl_result(
         return await persist(
             request_id=req_id,
             success=crawl.response_success,
-            content_text=content_text if retain_raw else None,
+            content_text=content_text if retain_reader_source else None,
             markdown=crawl.content_markdown if retain_raw else None,
             html=crawl.content_html if retain_raw else None,
             error=crawl.error_text,

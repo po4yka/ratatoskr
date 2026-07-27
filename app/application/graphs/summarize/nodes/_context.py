@@ -20,9 +20,18 @@ async def load_source_text(state: SummarizeState, deps: SummarizeDeps) -> str:
         return ""
 
     if deps.crawl_repo is not None:
-        crawl = await _call_optional(
-            getattr(deps.crawl_repo, "async_get_crawl_result_by_request", None), request_id
-        )
+        artifact_id = state.get("source_artifact_id")
+        crawl = None
+        if artifact_id is not None:
+            crawl = await _call_optional(
+                getattr(deps.crawl_repo, "async_get_crawl_result_by_id", None), artifact_id
+            )
+            if isinstance(crawl, dict) and crawl.get("request_id") != request_id:
+                crawl = None
+        if crawl is None:
+            crawl = await _call_optional(
+                getattr(deps.crawl_repo, "async_get_crawl_result_by_request", None), request_id
+            )
         if isinstance(crawl, dict):
             for field in ("content_text", "content_markdown", "content_html"):
                 value = crawl.get(field)

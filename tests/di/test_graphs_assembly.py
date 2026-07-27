@@ -212,7 +212,7 @@ def test_assemble_graph_url_processor_uses_null_retrieval_when_no_vectors() -> N
             patch(
                 "app.di.extraction.build_extraction_port",
                 return_value=MagicMock(),
-            ),
+            ) as build_extraction,
             patch.object(graphs_mod, "build_graph_url_processor") as build_facade,
         ):
             assemble_graph_url_processor(
@@ -224,6 +224,9 @@ def test_assemble_graph_url_processor_uses_null_retrieval_when_no_vectors() -> N
                 **collaborators,
             )
 
+        assert build_extraction.call_args.kwargs["require_durable_source"] is (
+            cfg.retention.persist_reader_source_content
+        )
         # The facade builder received the deps carrying the null retrieval port.
         assert build_facade.call_count == 1
         deps = build_facade.call_args.kwargs["deps"]

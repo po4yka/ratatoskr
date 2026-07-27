@@ -89,7 +89,12 @@ class CrawlResultRepositoryAdapter:
     async def async_get_crawl_result_by_id(self, artifact_id: int) -> dict[str, Any] | None:
         """Get a durable crawl artifact by primary key."""
         async with self._database.session() as session:
-            result = await session.scalar(select(CrawlResult).where(CrawlResult.id == artifact_id))
+            result = await session.scalar(
+                select(CrawlResult).where(
+                    CrawlResult.id == artifact_id,
+                    CrawlResult.is_deleted.is_(False),
+                )
+            )
             return model_to_dict(result)
 
     async def async_upsert_crawl_result(
