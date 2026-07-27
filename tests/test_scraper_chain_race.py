@@ -70,6 +70,31 @@ class TestFreeTierRace:
         assert cancelled == ["defuddle"]
 
     @pytest.mark.asyncio(loop_scope="function")
+    async def test_attempt_log_preserves_configured_order_when_second_provider_wins(self):
+        cancelled: list[str] = []
+        scrapling = _SlowProvider(
+            name="scrapling",
+            result=_ok_result(markdown="# Scrapling slow"),
+            delay_sec=0.5,
+            cancelled_flag=cancelled,
+        )
+        defuddle = _MockProvider(
+            name="defuddle",
+            result=_ok_result(markdown="# Defuddle fast"),
+        )
+
+        chain = ContentScraperChain([scrapling, defuddle], race_enabled=True)
+        result = await chain.scrape_markdown("https://example.com")
+
+        assert result.content_markdown == "# Defuddle fast"
+        assert result.options_json["_chain_winning_provider"] == "defuddle"
+        assert [entry["provider"] for entry in result.options_json["_chain_attempt_log"]] == [
+            "scrapling",
+            "defuddle",
+        ]
+        assert cancelled == ["scrapling"]
+
+    @pytest.mark.asyncio(loop_scope="function")
     async def test_simultaneous_successes_select_configured_winner_in_telemetry(self):
         """A race may finish twice in one loop tick; payload and winner must agree."""
         scrapling = _MockProvider(

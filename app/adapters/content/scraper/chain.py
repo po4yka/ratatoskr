@@ -318,6 +318,7 @@ class ContentScraperChain:
             return self._attach_attempt_telemetry(blocked_result, recorder)
 
         effective = self._filter_supported_providers(self._effective_providers(url), url)
+        recorder.set_provider_order([provider.provider_name for provider in effective])
         errors: list[str] = []
 
         with _tracer.start_as_current_span(
@@ -397,7 +398,7 @@ class ContentScraperChain:
         columns get populated. See content_extractor_requests.persist_crawl_result.
         """
         options = dict(result.options_json or {})
-        options["_chain_attempt_log"] = serialize_attempt_log(recorder.entries)
+        options["_chain_attempt_log"] = serialize_attempt_log(recorder.ordered_entries())
         options["_chain_winning_provider"] = recorder.winner()
         return result.model_copy(update={"options_json": options})
 

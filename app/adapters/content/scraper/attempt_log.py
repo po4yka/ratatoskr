@@ -37,9 +37,24 @@ class ScraperAttemptRecorder:
     def __init__(self) -> None:
         self.entries: list[ScraperAttemptEntry] = []
         self._selected_winner: str | None = None
+        self._provider_order: dict[str, int] = {}
 
     def record(self, entry: ScraperAttemptEntry) -> None:
         self.entries.append(entry)
+
+    def set_provider_order(self, providers: list[str]) -> None:
+        """Set the configured chain order used for persisted attempt telemetry."""
+        self._provider_order = {
+            provider: index for index, provider in enumerate(dict.fromkeys(providers))
+        }
+
+    def ordered_entries(self) -> list[ScraperAttemptEntry]:
+        """Return attempts in configured provider order, stable for unknown names."""
+        fallback = len(self._provider_order)
+        return sorted(
+            self.entries,
+            key=lambda entry: self._provider_order.get(entry.provider, fallback),
+        )
 
     def select_winner(self, provider: str) -> None:
         """Record the provider whose acceptable response the chain returned."""
