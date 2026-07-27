@@ -306,7 +306,7 @@ def _build_summary_compact(summary_dict: dict[str, Any]) -> SummaryCompact:
         id=summary_dict.get("id"),
         request_id=request_id,
         title=metadata.get("title", "Untitled"),
-        domain=metadata.get("domain", ""),
+        domain=metadata.get("domain") or "",
         url=input_url or normalized_url or "",
         tldr=json_payload.get("tldr", ""),
         summary_250=json_payload.get("summary_250", ""),

@@ -312,3 +312,31 @@ def test_summary_list_quality_falls_back_to_quality_payload() -> None:
     assert compact["repairSucceeded"] is True
     assert compact["promptInjectionSuspected"] is True
     assert compact["validationWarningCount"] == 1
+
+
+def test_summary_list_normalizes_null_domain() -> None:
+    compact = _build_summary_compact(
+        {
+            "id": 101,
+            "lang": "en",
+            "json_payload": {
+                "summary_250": "An image summary.",
+                "tldr": "A source without a URL still belongs in the library.",
+                "estimated_reading_time_min": 1,
+                "topic_tags": [],
+                "metadata": {
+                    "title": "Source without a domain",
+                    "domain": None,
+                },
+            },
+            "request": {
+                "id": 51,
+                "input_url": None,
+                "normalized_url": None,
+            },
+            "created_at": datetime(2026, 7, 27, tzinfo=UTC),
+        }
+    ).model_dump(by_alias=True)
+
+    assert compact["domain"] == ""
+    assert compact["url"] == ""
