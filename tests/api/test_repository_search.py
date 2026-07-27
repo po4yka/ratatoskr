@@ -5,6 +5,7 @@ Requires TEST_DATABASE_URL (skipped otherwise).
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -48,6 +49,7 @@ def _fake_search_result(count: int = 3) -> Any:
             stars=10 * (i + 1),
             is_starred=False,
             pushed_at=datetime(2024, 1, i + 1, tzinfo=timezone.utc),
+            last_synced_at=datetime(2024, 2, i + 1, tzinfo=timezone.utc),
             distance=0.1 * (i + 1),
         )
         for i in range(count)
@@ -83,6 +85,30 @@ async def test_search_returns_results(client: Any, db: Any) -> None:
     assert data["query"] == "machine learning"
     assert len(data["results"]) == 3
     assert data["pagination"]["total"] == 3
+
+
+async def test_search_preserves_sync_timestamp_when_repository_was_never_pushed(
+    client: Any,
+    db: Any,
+) -> None:
+    search_result = _fake_search_result(1)
+    search_result.items[0] = replace(search_result.items[0], pushed_at=None)
+    mock_service = MagicMock()
+    mock_service.search = AsyncMock(return_value=search_result)
+
+    from app.api.main import app
+    from app.api.routers.content.search import _get_repo_search_service
+
+    app.dependency_overrides[_get_repo_search_service] = lambda: mock_service
+    try:
+        resp = client.get("/v1/search/repositories?q=python", headers=_auth())
+    finally:
+        app.dependency_overrides.pop(_get_repo_search_service, None)
+
+    assert resp.status_code == 200
+    result = resp.json()["data"]["results"][0]
+    assert result["pushedAt"] is None
+    assert result["lastSyncedAt"] == "2024-02-01T00:00:00Z"
 
 
 # ---------------------------------------------------------------------------

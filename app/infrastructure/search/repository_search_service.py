@@ -31,6 +31,7 @@ class RepositorySearchResult:
     stars: int
     is_starred: bool
     pushed_at: datetime | None
+    last_synced_at: datetime
     distance: float  # 1 - cosine similarity (lower = more similar)
 
 
@@ -258,6 +259,7 @@ class RepositorySearchService:
                     stars=row.stars,
                     is_starred=row.is_starred,
                     pushed_at=row.pushed_at,
+                    last_synced_at=row.last_synced_at,
                     distance=distance,
                 )
             )

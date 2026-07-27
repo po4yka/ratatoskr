@@ -643,7 +643,7 @@ async def search_repositories(
                 is_starred=item.is_starred,
                 is_archived=False,
                 pushed_at=item.pushed_at,
-                last_synced_at=item.pushed_at,  # best effort
+                last_synced_at=item.last_synced_at,
                 pending_analysis=False,
                 has_analysis=False,
                 source="manual",
