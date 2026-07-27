@@ -562,6 +562,7 @@ def assemble_graph_url_processor(
     extraction = build_extraction_port(
         content_extractor=content_extractor,
         request_repo=request_repo,
+        require_durable_source=cfg.retention.persist_raw_extracted_content,
     )
     summary_index = build_summary_index_adapter(
         vector_store=vector_store,

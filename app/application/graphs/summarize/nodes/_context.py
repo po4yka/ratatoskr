@@ -24,7 +24,7 @@ async def load_source_text(state: SummarizeState, deps: SummarizeDeps) -> str:
             getattr(deps.crawl_repo, "async_get_crawl_result_by_request", None), request_id
         )
         if isinstance(crawl, dict):
-            for field in ("content_markdown", "content_html"):
+            for field in ("content_text", "content_markdown", "content_html"):
                 value = crawl.get(field)
                 if isinstance(value, str) and value.strip():
                     return value.strip()

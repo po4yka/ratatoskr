@@ -169,13 +169,23 @@ def _existing_content(context: dict[str, Any]) -> tuple[str, str] | None:
     crawl_result = context.get("crawl_result") or {}
     request_data = context.get("request") or {}
     transcription_artifact = context.get("transcription_artifact") or {}
+    request_urls = {
+        str(value).strip()
+        for value in (request_data.get("input_url"), request_data.get("normalized_url"))
+        if value
+    }
     candidates = (
+        ("text", crawl_result.get("content_text")),
         ("markdown", crawl_result.get("content_markdown")),
         ("html", crawl_result.get("content_html")),
         ("text", request_data.get("content_text")),
         ("transcript", transcription_artifact.get("plain_text")),
     )
     for content_source, value in candidates:
-        if isinstance(value, str) and value.strip():
+        if (
+            isinstance(value, str)
+            and value.strip()
+            and not (content_source == "text" and value.strip() in request_urls)
+        ):
             return content_source, value
     return None

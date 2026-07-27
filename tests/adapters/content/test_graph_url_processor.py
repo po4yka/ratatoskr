@@ -878,7 +878,7 @@ async def test_create_request_row_owner_id_snapshot_content_and_route_version(mo
     assert kwargs["user_id"] == 30
     assert kwargs["chat_id"] == 10
     assert kwargs["input_message_id"] == 20
-    assert kwargs["content_text"] == "https://example.com/article"
+    assert "content_text" not in kwargs
     assert kwargs["route_version"] == URL_ROUTE_VERSION
     assert kwargs["initial_attempt_trigger"] == "initial"
 

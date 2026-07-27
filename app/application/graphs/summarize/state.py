@@ -85,6 +85,8 @@ class SummarizeState(TypedDict, total=False):
     # Extraction handles written by the extract node (id-based; bulk content lives
     # in source_text / the crawl row, not duplicated here). ADR-0015.
     dedupe_hash: str
+    source_artifact_id: int | None
+    durable_source_required: bool
     content_source: str
     detected_lang: str
     title: str

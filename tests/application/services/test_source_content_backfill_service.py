@@ -94,6 +94,18 @@ async def test_backfill_is_idempotent_when_content_already_exists() -> None:
 
 
 @pytest.mark.asyncio
+async def test_backfill_does_not_treat_legacy_url_as_source_content() -> None:
+    context = _context(content_text="https://example.com/article")
+    service, extract, update = _service(context=context)
+
+    result = await service.backfill(user_id=7, summary_id=1402)
+
+    assert result.reextracted is True
+    extract.assert_awaited_once()
+    update.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_backfill_rejects_unowned_or_missing_summary() -> None:
     service, _extract, _update = _service(context=None)
 

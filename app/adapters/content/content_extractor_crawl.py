@@ -75,7 +75,7 @@ class ContentExtractorCrawlMixin:
     _audit: Callable[..., None]
     _cache: Any
     _quality_llm_client: Any | None  # optional LLM client for quality classification
-    _schedule_crawl_persistence: Callable[..., asyncio.Task[None] | None]
+    _schedule_crawl_persistence: Callable[..., asyncio.Task[int] | None]
     _sem: Callable[..., Any]
     cfg: AppConfig
     scraper: ContentScraperProtocol
@@ -213,7 +213,7 @@ class ContentExtractorCrawlMixin:
         silent: bool = False,
     ) -> tuple[str, str, str | None, list[str]]:
         """Perform new content extraction through the scraper chain."""
-        persist_task: asyncio.Task[None] | None = None
+        persist_task: asyncio.Task[int] | None = None
 
         cached_crawl = await self._get_cached_crawl(dedupe_hash, correlation_id)
         if cached_crawl:
@@ -305,7 +305,7 @@ class ContentExtractorCrawlMixin:
 
     async def _await_persist_task(
         self,
-        persist_task: asyncio.Task[None] | None,
+        persist_task: asyncio.Task[int] | None,
         *,
         correlation_id: str | None,
         event_name: str,
@@ -475,7 +475,7 @@ class ContentExtractorCrawlMixin:
         dedupe_hash: str,
         correlation_id: str | None,
         interaction_id: int | None,
-        persist_task: asyncio.Task[None] | None,
+        persist_task: asyncio.Task[int] | None,
         has_markdown: bool,
         has_html: bool,
         silent: bool,

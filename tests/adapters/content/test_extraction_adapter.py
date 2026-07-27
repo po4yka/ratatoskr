@@ -22,6 +22,7 @@ class _FakeContentExtractor:
         *,
         result: tuple[str, str, dict[str, Any]] | None = None,
         raises: Exception | None = None,
+        persisted: bool = True,
     ) -> None:
         self._result = result or (
             "body text",
@@ -29,6 +30,7 @@ class _FakeContentExtractor:
             {"detected_lang": "en", "firecrawl_metadata": {"title": "Headline"}},
         )
         self._raises = raises
+        self._persisted = persisted
         self.calls: list[dict[str, Any]] = []
 
     async def extract_content_pure(
@@ -37,7 +39,11 @@ class _FakeContentExtractor:
         self.calls.append({"url": url, "correlation_id": correlation_id, "request_id": request_id})
         if self._raises is not None:
             raise self._raises
-        return self._result
+        content_text, content_source, metadata = self._result
+        result_metadata = dict(metadata)
+        if request_id is not None and self._persisted:
+            result_metadata.setdefault("artifact_id", 17)
+        return content_text, content_source, result_metadata
 
 
 class _FakeRequestRepo:
@@ -76,6 +82,7 @@ async def test_extract_maps_pure_result_to_result_and_persists_lang() -> None:
     assert result.detected_lang == "en"
     assert result.title == "Headline"
     assert result.dedupe_hash  # sha256 of normalized url, non-empty
+    assert result.artifact_id == 17
     # pure path routed with the existing request_id + correlation id.
     assert extractor.calls[0]["request_id"] == 7
     assert extractor.calls[0]["correlation_id"] == "cid-9"
@@ -141,6 +148,14 @@ async def test_extract_propagates_extraction_failure() -> None:
     # the adapter must let it propagate to the terminal-failure path.
     extractor = _FakeContentExtractor(raises=ValueError("Extraction failed: boom"))
     with pytest.raises(ValueError, match="Extraction failed"):
+        await _adapter(extractor, _FakeRequestRepo()).extract(
+            ExtractionRequest(url="https://example.com", request_id=1)
+        )
+
+
+async def test_extract_rejects_missing_durable_artifact() -> None:
+    extractor = _FakeContentExtractor(persisted=False)
+    with pytest.raises(RuntimeError, match="no durable source artifact"):
         await _adapter(extractor, _FakeRequestRepo()).extract(
             ExtractionRequest(url="https://example.com", request_id=1)
         )

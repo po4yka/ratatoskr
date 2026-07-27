@@ -310,11 +310,13 @@ async def test_extract_content_pure_passes_request_id_to_generic_scraper() -> No
     assert content_text
     assert content_source == "markdown"
     assert metadata["request_id"] == 777
+    assert metadata["artifact_id"] == 1
     extractor.scraper.scrape_markdown.assert_awaited_once_with(  # type: ignore[attr-defined]
         "https://example.com/article",
         request_id=777,
     )
     crawl_repo.async_upsert_crawl_result.assert_awaited_once()
+    assert crawl_repo.async_upsert_crawl_result.await_args.kwargs["content_text"] == content_text
 
 
 @pytest.mark.asyncio

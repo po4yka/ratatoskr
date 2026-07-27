@@ -39,9 +39,11 @@ class ContentExtractionAdapter:
         *,
         content_extractor: ContentExtractor,
         request_repo: RequestRepositoryPort,
+        require_durable_source: bool = True,
     ) -> None:
         self._content_extractor = content_extractor
         self._request_repo = request_repo
+        self._require_durable_source = require_durable_source
 
     async def extract(self, request: ExtractionRequest) -> ExtractionResult:
         """Extract content for ``request`` via the pure router+chain path.
@@ -57,6 +59,11 @@ class ContentExtractionAdapter:
         )
 
         detected_lang = str(metadata.get("detected_lang") or detect_language(content_text or ""))
+        artifact_id_raw = metadata.get("artifact_id")
+        artifact_id = int(artifact_id_raw) if artifact_id_raw is not None else None
+        if request.request_id is not None and self._require_durable_source and artifact_id is None:
+            msg = f"Extraction returned no durable source artifact for request_id={request.request_id}"
+            raise RuntimeError(msg)
 
         # Persist detected language against the request row -- parity with the
         # interactive path (extract_and_process_content) which the pure path omits.
@@ -82,6 +89,7 @@ class ContentExtractionAdapter:
             content_source=content_source,
             detected_lang=detected_lang,
             dedupe_hash=dedupe_hash,
+            artifact_id=artifact_id,
             title=_extract_title(metadata),
             canonical_url=canonical_url,
             # Article-vision (audit #2): the pure extractor already quality-filtered +

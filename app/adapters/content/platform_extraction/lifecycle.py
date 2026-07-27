@@ -125,7 +125,6 @@ class PlatformRequestLifecycle:
             dedupe_hash=dedupe_hash,
             paper_canonical_id=paper_canonical_id,
             input_message_id=request.message_id,
-            content_text=request.url_text,
             route_version=self._route_version,
         )
 

@@ -230,6 +230,7 @@ class CrawlResultRepositoryPort(Protocol):
         self,
         request_id: int,
         success: bool,
+        content_text: str | None = None,
         markdown: str | None = None,
         html: str | None = None,
         error: str | None = None,
@@ -250,10 +251,14 @@ class CrawlResultRepositoryPort(Protocol):
     async def async_get_crawl_result_by_request(self, request_id: int) -> dict[str, Any] | None:
         """Return crawl result by request ID."""
 
+    async def async_get_crawl_result_by_id(self, artifact_id: int) -> dict[str, Any] | None:
+        """Return one durable crawl artifact by its primary key."""
+
     async def async_upsert_crawl_result(
         self,
         request_id: int,
         success: bool,
+        content_text: str | None = None,
         markdown: str | None = None,
         html: str | None = None,
         error: str | None = None,

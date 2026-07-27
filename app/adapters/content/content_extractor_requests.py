@@ -29,7 +29,7 @@ def schedule_crawl_persistence_task(
     req_id: int,
     crawl: Any,
     correlation_id: str | None,
-) -> asyncio.Task[None] | None:
+) -> asyncio.Task[int] | None:
     """Run crawl persistence off the network path."""
     try:
         task = asyncio.create_task(
@@ -72,7 +72,8 @@ async def persist_crawl_result(
     correlation_id: str | None,
     *,
     replace_existing: bool = False,
-) -> None:
+    content_text: str | None = None,
+) -> int:
     """Persist crawl result; exceptions propagate so task callbacks can log and meter them."""
     try:
         retain_raw = bool(
@@ -90,9 +91,10 @@ async def persist_crawl_result(
             if replace_existing
             else message_persistence.crawl_repo.async_insert_crawl_result
         )
-        await persist(
+        return await persist(
             request_id=req_id,
             success=crawl.response_success,
+            content_text=content_text if retain_raw else None,
             markdown=crawl.content_markdown if retain_raw else None,
             html=crawl.content_html if retain_raw else None,
             error=crawl.error_text,
@@ -122,7 +124,7 @@ class ContentExtractorRequestsMixin:
 
     def _schedule_crawl_persistence(
         self, req_id: int, crawl: Any, correlation_id: str | None
-    ) -> asyncio.Task[None] | None:
+    ) -> asyncio.Task[int] | None:
         """Run crawl persistence off the network path."""
         try:
             task = asyncio.create_task(self._persist_crawl_result(req_id, crawl, correlation_id))
@@ -161,15 +163,17 @@ class ContentExtractorRequestsMixin:
         correlation_id: str | None,
         *,
         replace_existing: bool = False,
-    ) -> None:
+        content_text: str | None = None,
+    ) -> int:
         """Persist crawl result; exceptions propagate so the task callback can log and meter them."""
-        await persist_crawl_result(
+        return await persist_crawl_result(
             self.cfg,
             self.message_persistence,
             req_id,
             crawl,
             correlation_id,
             replace_existing=replace_existing,
+            content_text=content_text,
         )
 
     async def _handle_request_dedupe_or_create(
@@ -237,7 +241,6 @@ class ContentExtractorRequestsMixin:
             normalized_url=norm,
             dedupe_hash=dedupe,
             input_message_id=input_message_id,
-            content_text=url_text,
             route_version=URL_ROUTE_VERSION,
         )
 

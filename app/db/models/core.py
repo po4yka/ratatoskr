@@ -601,6 +601,10 @@ class CrawlResult(Base):
     status: Mapped[str | None] = mapped_column(Text, nullable=True)
     options_json: Mapped[JSONValue] = _json_column()
     correlation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Normalized, reader-ready source body. Unlike the provider-specific raw
+    # markdown/html payloads, this is the durable extraction artifact consumed
+    # by graph resume and Reader.
+    content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     structured_json: Mapped[JSONValue] = _json_column()

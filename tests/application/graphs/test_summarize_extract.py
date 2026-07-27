@@ -67,6 +67,7 @@ def _result(**over: Any) -> ExtractionResult:
         "content_source": "markdown",
         "detected_lang": "en",
         "dedupe_hash": "abc123",
+        "artifact_id": 77,
         "title": "A Title",
     }
     base.update(over)
@@ -99,6 +100,8 @@ async def test_extract_writes_minimal_serializable_state_delta() -> None:
         "content_source": "html",
         "detected_lang": "en",
         "dedupe_hash": "abc123",
+        "source_artifact_id": 77,
+        "durable_source_required": True,
         "title": "T2",
         "images": [],
     }
@@ -157,6 +160,8 @@ async def test_extract_uniform_state_delta_per_source_kind(
         "content_source",
         "detected_lang",
         "dedupe_hash",
+        "source_artifact_id",
+        "durable_source_required",
         "title",
         "images",
     }

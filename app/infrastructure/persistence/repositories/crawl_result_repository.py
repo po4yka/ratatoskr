@@ -25,6 +25,7 @@ class CrawlResultRepositoryAdapter:
         self,
         request_id: int,
         success: bool,
+        content_text: str | None = None,
         markdown: str | None = None,
         html: str | None = None,
         error: str | None = None,
@@ -44,6 +45,7 @@ class CrawlResultRepositoryAdapter:
         payload = {
             "request_id": request_id,
             "firecrawl_success": success,
+            "content_text": content_text,
             "content_markdown": markdown,
             "content_html": html,
             "error_text": error,
@@ -84,10 +86,17 @@ class CrawlResultRepositoryAdapter:
             )
             return model_to_dict(result)
 
+    async def async_get_crawl_result_by_id(self, artifact_id: int) -> dict[str, Any] | None:
+        """Get a durable crawl artifact by primary key."""
+        async with self._database.session() as session:
+            result = await session.scalar(select(CrawlResult).where(CrawlResult.id == artifact_id))
+            return model_to_dict(result)
+
     async def async_upsert_crawl_result(
         self,
         request_id: int,
         success: bool,
+        content_text: str | None = None,
         markdown: str | None = None,
         html: str | None = None,
         error: str | None = None,
@@ -107,6 +116,7 @@ class CrawlResultRepositoryAdapter:
         payload = {
             "request_id": request_id,
             "firecrawl_success": success,
+            "content_text": content_text,
             "content_markdown": markdown,
             "content_html": html,
             "error_text": error,
@@ -122,6 +132,11 @@ class CrawlResultRepositoryAdapter:
             "winning_provider": winning_provider,
         }
         update_payload = {key: value for key, value in payload.items() if key != "request_id"}
+        # A normalized/platform-only refresh must not destroy richer raw payloads
+        # already attached to the request.
+        for content_key in ("content_text", "content_markdown", "content_html"):
+            if update_payload[content_key] is None:
+                update_payload.pop(content_key)
         update_payload.update(
             updated_at=_utcnow(),
             server_version=_next_server_version(),

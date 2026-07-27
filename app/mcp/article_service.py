@@ -250,13 +250,29 @@ class ArticleReadService:
                 if not crawl:
                     return {"error": f"No crawl content found for summary {summary_id}"}
 
-                content = crawl.content_markdown or crawl.content_html or request.content_text or ""
+                request_content = request.content_text or ""
+                if request_content.strip() in {
+                    (request.input_url or "").strip(),
+                    (request.normalized_url or "").strip(),
+                }:
+                    request_content = ""
+                content = (
+                    crawl.content_text
+                    or crawl.content_markdown
+                    or crawl.content_html
+                    or request_content
+                    or ""
+                )
                 metadata = ensure_mapping(crawl.metadata_json)
                 return {
                     "summary_id": summary_id,
                     "url": getattr(request, "input_url", ""),
                     "title": metadata.get("title", "Untitled"),
-                    "content_format": "markdown" if crawl.content_markdown else "text",
+                    "content_format": (
+                        "text"
+                        if crawl.content_text
+                        else ("markdown" if crawl.content_markdown else "text")
+                    ),
                     "content": content[:50000],
                     "content_length": len(content),
                     "truncated": len(content) > 50000,

@@ -30,7 +30,7 @@ See [Data Model Reference](reference/data-model.md).
 
 ## Database Schema
 
-Field definitions, foreign keys, enums, indexes, and constraints are authoritative in the owning model plus its Alembic revision. The maintained table catalog and core ER diagram are in [Data Model Reference](reference/data-model.md). Telethon session SQLite files and the read-only external X bookmarks SQLite database are integration stores, not Ratatoskr's relational schema.
+Field definitions, foreign keys, enums, indexes, and constraints are authoritative in the owning model plus its Alembic revision. The maintained table catalog and core ER diagram are in [Data Model Reference](reference/data-model.md). `crawl_results.content_text` is the normalized, reader-ready durable source artifact; provider-native markdown and HTML remain raw crawl payloads, while graph state carries only the `crawl_results.id` handle. Telethon session SQLite files and the read-only external X bookmarks SQLite database are integration stores, not Ratatoskr's relational schema.
 
 ## Summary JSON Contract
 

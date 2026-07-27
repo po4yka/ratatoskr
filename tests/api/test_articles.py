@@ -220,6 +220,30 @@ async def test_get_article_content_uses_submitted_text_without_a_crawl_result():
 
 
 @pytest.mark.asyncio
+async def test_get_article_content_prefers_normalized_durable_artifact():
+    use_case = AsyncMock()
+    context = _summary_context(
+        metadata={"title": "Normalized article"},
+        crawl_result={
+            "content_text": "Normalized complete article.",
+            "content_markdown": "# Provider raw article",
+        },
+    )
+    use_case.get_summary_context_for_user.return_value = context
+
+    result = await get_summary_content(
+        summary_id=1402,
+        format="markdown",
+        user={"user_id": 1},
+        use_case=use_case,
+    )
+
+    content = result["data"]["content"]
+    assert content["content"] == "Normalized complete article."
+    assert content["format"] == "text"
+
+
+@pytest.mark.asyncio
 async def test_get_article_content_uses_transcript_without_a_crawl_result():
     use_case = AsyncMock()
     context = _summary_context(metadata={"title": "Voice note"})

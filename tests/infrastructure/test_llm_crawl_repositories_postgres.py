@@ -155,6 +155,7 @@ async def test_crawl_result_repository_is_idempotent(database: Database) -> None
     first_id = await repo.async_insert_crawl_result(
         request.id,
         success=True,
+        content_text="Normalized article body.",
         markdown="# Title",
         metadata_json={"source": "test"},
         source_url=request.normalized_url,
@@ -167,7 +168,9 @@ async def test_crawl_result_repository_is_idempotent(database: Database) -> None
     row = await repo.async_get_crawl_result_by_request(request.id)
     assert row is not None
     assert row["request_id"] == request.id
+    assert row["content_text"] == "Normalized article body."
     assert row["metadata_json"] == {"source": "test"}
+    assert (await repo.async_get_crawl_result_by_id(first_id) or {})["request_id"] == request.id
     assert await repo.async_get_max_server_version(request.user_id or 0) is not None
     rows = await repo.async_get_all_for_user(request.user_id or 0)
     assert [item["id"] for item in rows] == [first_id]
@@ -188,6 +191,7 @@ async def test_crawl_result_repository_backfill_replaces_missing_body(database: 
     upserted_id = await repo.async_upsert_crawl_result(
         request.id,
         success=True,
+        content_text="Restored Complete article body.",
         markdown="# Restored\n\nComplete article body.",
         metadata_json={"title": "Restored title"},
         source_url=request.normalized_url,
@@ -200,6 +204,7 @@ async def test_crawl_result_repository_backfill_replaces_missing_body(database: 
     assert upserted_id == original_id
     row = await repo.async_get_crawl_result_by_request(request.id)
     assert row is not None
+    assert row["content_text"] == "Restored Complete article body."
     assert row["content_markdown"] == "# Restored\n\nComplete article body."
     assert row["metadata_json"] == {"title": "Restored title"}
     assert row["winning_provider"] == "scrapling"

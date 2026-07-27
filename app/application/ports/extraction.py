@@ -54,6 +54,10 @@ class ExtractionResult:
     content_source: str
     detected_lang: str
     dedupe_hash: str
+    # Primary-key handle of the durable crawl artifact containing the normalized
+    # source body. Required for persisted URL requests unless retention policy
+    # explicitly disables source persistence.
+    artifact_id: int | None = None
     title: str | None = None
     canonical_url: str | None = None
     images: list[str] = field(default_factory=list)

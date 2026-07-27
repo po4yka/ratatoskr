@@ -342,17 +342,32 @@ def _resolve_content(
     """
     crawl_result = crawl_result or {}
     transcription_artifact = transcription_artifact or {}
+    request_content = request_data.get("content_text")
+    request_urls = {
+        str(value).strip()
+        for value in (request_data.get("input_url"), request_data.get("normalized_url"))
+        if value
+    }
+    content_source: str
 
-    if crawl_result.get("content_markdown"):
-        content_source: str = crawl_result["content_markdown"]
+    if crawl_result.get("content_text"):
+        content_source = crawl_result["content_text"]
+        source_format = "text"
+        content_type = "text/plain"
+    elif crawl_result.get("content_markdown"):
+        content_source = crawl_result["content_markdown"]
         source_format = "markdown"
         content_type = "text/markdown"
     elif crawl_result.get("content_html"):
         content_source = crawl_result["content_html"]
         source_format = "html"
         content_type = "text/html"
-    elif request_data.get("content_text"):
-        content_source = request_data["content_text"]
+    elif (
+        isinstance(request_content, str)
+        and request_content.strip()
+        and request_content.strip() not in request_urls
+    ):
+        content_source = request_content
         source_format = "text"
         content_type = "text/plain"
     elif transcription_artifact.get("plain_text"):

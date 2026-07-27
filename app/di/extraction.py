@@ -21,6 +21,7 @@ def build_extraction_port(
     *,
     content_extractor: ContentExtractor,
     request_repo: RequestRepositoryPort,
+    require_durable_source: bool = True,
 ) -> ExtractionPort:
     """Construct the ``ExtractionPort`` from an already-built ``ContentExtractor``.
 
@@ -35,4 +36,5 @@ def build_extraction_port(
     return ContentExtractionAdapter(
         content_extractor=content_extractor,
         request_repo=request_repo,
+        require_durable_source=require_durable_source,
     )

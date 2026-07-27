@@ -855,7 +855,6 @@ class GraphURLProcessor:
             normalized_url=normalized,
             dedupe_hash=dedupe_hash,
             input_message_id=input_message_id,
-            content_text=request.url_text,
             route_version=URL_ROUTE_VERSION,
             initial_attempt_trigger="initial",
         )

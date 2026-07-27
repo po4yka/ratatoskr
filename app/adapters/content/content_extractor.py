@@ -138,6 +138,10 @@ class ContentExtractor(
     def _get_platform_router(self) -> PlatformExtractionRouter:
         return self._platform_router
 
+    def _persist_source_content_enabled(self) -> bool:
+        retention = getattr(self.cfg, "retention", None)
+        return bool(getattr(retention, "persist_raw_extracted_content", True))
+
     async def extract_content_pure(
         self,
         url: str,
@@ -171,6 +175,29 @@ class ContentExtractor(
                     "normalized_source_document",
                     platform_result.normalized_document.model_dump(mode="json"),
                 )
+            if request_id is not None:
+                platform_artifact_id = (
+                    await self.message_persistence.crawl_repo.async_upsert_crawl_result(
+                        request_id=request_id,
+                        success=True,
+                        content_text=(
+                            platform_result.content_text
+                            if self._persist_source_content_enabled()
+                            else None
+                        ),
+                        metadata_json=metadata,
+                        source_url=normalized_url,
+                        status=CallStatus.OK.value,
+                        endpoint=str(
+                            metadata.get("extraction_method")
+                            or metadata.get("endpoint")
+                            or platform_result.content_source
+                        ),
+                        correlation_id=correlation_id,
+                    )
+                )
+                if self._persist_source_content_enabled() and platform_result.content_text.strip():
+                    metadata["artifact_id"] = platform_artifact_id
             return platform_result.content_text, platform_result.content_source, metadata
 
         logger.info(
@@ -233,14 +260,6 @@ class ContentExtractor(
                 )
             raise ValueError(f"Extraction failed: {error_msg}") from None
 
-        if request_id is not None:
-            await self._persist_crawl_result(
-                request_id,
-                crawl,
-                correlation_id,
-                replace_existing=True,
-            )
-
         if crawl.content_markdown and crawl.content_markdown.strip():
             content_text = clean_markdown_article_text(crawl.content_markdown)
             content_source = "markdown"
@@ -250,6 +269,18 @@ class ContentExtractor(
         else:
             content_text = ""
             content_source = "none"
+
+        artifact_id: int | None = None
+        if request_id is not None:
+            persisted_id = await self._persist_crawl_result(
+                request_id,
+                crawl,
+                correlation_id,
+                replace_existing=True,
+                content_text=content_text,
+            )
+            if self._persist_source_content_enabled() and content_text.strip():
+                artifact_id = persisted_id
 
         metadata = {
             "extraction_method": crawl.endpoint or "scraper_chain",
@@ -261,6 +292,8 @@ class ContentExtractor(
         }
         if request_id is not None:
             metadata["request_id"] = request_id
+        if artifact_id is not None:
+            metadata["artifact_id"] = artifact_id
 
         if crawl.metadata_json:
             metadata["firecrawl_metadata"] = crawl.metadata_json

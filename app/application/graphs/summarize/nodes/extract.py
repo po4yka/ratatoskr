@@ -60,6 +60,8 @@ async def extract(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
         "content_source": result.content_source,
         "detected_lang": result.detected_lang,
         "dedupe_hash": result.dedupe_hash,
+        "source_artifact_id": result.artifact_id,
+        "durable_source_required": bool(request_id is not None and result.artifact_id is not None),
         "title": result.title or "",
         # Article-vision (audit #2): carry the extracted image URLs so build_prompt
         # can route image-rich content to the vision model. A serializable list[str].
