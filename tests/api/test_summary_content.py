@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import select
 
 from app.api.routers.auth.tokens import create_access_token
 from app.db.models import CrawlResult, Request, Summary
@@ -105,3 +106,49 @@ async def test_get_summary_content_not_found(client, db, user_factory, monkeypat
     )
 
     assert response.status_code == 404
+
+
+async def test_backfill_ownerless_summary_remains_inaccessible_to_authenticated_user(
+    client,
+    db,
+    user_factory,
+    monkeypatch,
+):
+    user = await user_factory()
+    monkeypatch.setenv("ALLOWED_USER_IDS", str(user.telegram_user_id))
+    monkeypatch.setenv("REDIS_ENABLED", "0")
+    async with db.transaction() as session:
+        req = Request(
+            user_id=None,
+            type="url",
+            status="ok",
+            input_url="https://example.com/ownerless",
+            normalized_url="https://example.com/ownerless",
+        )
+        session.add(req)
+        await session.flush()
+        summary = Summary(request_id=req.id, lang="en")
+        crawl_result = CrawlResult(
+            request_id=req.id,
+            source_url=req.input_url,
+            content_markdown="# Ownerless legacy article",
+            content_text=None,
+        )
+        session.add_all([summary, crawl_result])
+        await session.flush()
+        summary_id = summary.id
+        request_id = req.id
+
+    token = create_access_token(user.telegram_user_id, client_id="test")
+    response = client.post(
+        f"/v1/summaries/{summary_id}/content/backfill",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 404
+    async with db.session() as session:
+        persisted = await session.scalar(
+            select(CrawlResult).where(CrawlResult.request_id == request_id)
+        )
+    assert persisted is not None
+    assert persisted.content_text is None

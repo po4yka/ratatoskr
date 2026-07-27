@@ -50,7 +50,7 @@ async def database() -> AsyncGenerator[Database]:
         await db.dispose()
 
 
-async def _request(database: Database, *, user_id: int = 1001) -> Request:
+async def _request(database: Database, *, user_id: int | None = 1001) -> Request:
     async with database.transaction() as session:
         request = Request(
             type="url",
@@ -298,13 +298,23 @@ async def test_source_reconcile_scan_finds_only_missing_normalized_content(
     local_request = await _request(database, user_id=1101)
     network_request = await _request(database, user_id=1102)
     durable_request = await _request(database, user_id=1103)
+    ownerless_request = await _request(database, user_id=None)
     async with database.transaction() as session:
         await session.execute(
             update(Request)
-            .where(Request.id.in_([local_request.id, network_request.id, durable_request.id]))
+            .where(
+                Request.id.in_(
+                    [
+                        local_request.id,
+                        network_request.id,
+                        durable_request.id,
+                        ownerless_request.id,
+                    ]
+                )
+            )
             .values(status="ok")
         )
-        for request in (local_request, network_request, durable_request):
+        for request in (local_request, network_request, durable_request, ownerless_request):
             session.add(
                 Summary(
                     request_id=request.id,
@@ -332,12 +342,14 @@ async def test_source_reconcile_scan_finds_only_missing_normalized_content(
     assert {row["request_id"] for row in rows} == {
         local_request.id,
         network_request.id,
+        ownerless_request.id,
     }
     by_request = {row["request_id"]: row for row in rows}
     assert by_request[local_request.id]["has_local_source"] is True
     assert by_request[network_request.id]["has_local_source"] is False
+    assert by_request[ownerless_request.id]["user_id"] is None
     missing_total, oldest_missing_age_seconds = await _get_missing_source_stats(database)
-    assert missing_total == 2
+    assert missing_total == 3
     assert oldest_missing_age_seconds >= 0
 
     rows_after_cursor = await _fetch_missing_source_rows(
@@ -345,4 +357,6 @@ async def test_source_reconcile_scan_finds_only_missing_normalized_content(
         limit=10,
         after_summary_id=int(rows[0]["summary_id"]),
     )
-    assert [row["summary_id"] for row in rows_after_cursor] == [rows[1]["summary_id"]]
+    assert [row["summary_id"] for row in rows_after_cursor] == [
+        row["summary_id"] for row in rows[1:]
+    ]
