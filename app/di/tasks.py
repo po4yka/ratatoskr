@@ -70,6 +70,13 @@ class VectorReconcileTaskRuntime:
 
 
 @dataclass(frozen=True)
+class SourceContentReconcileTaskRuntime:
+    cfg: AppConfig
+    db: Database
+    service: Any
+
+
+@dataclass(frozen=True)
 class XBookmarksTaskRuntime:
     cfg: AppConfig
     db: Database
@@ -357,5 +364,69 @@ def build_vector_reconcile_task_runtime(
             summary_repository=SummaryRepositoryAdapter(db),
             embedding_service=embedding_service,
             max_token_length=cfg.embedding.max_token_length,
+        ),
+    )
+
+
+def build_source_content_reconcile_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> SourceContentReconcileTaskRuntime:
+    from app.adapters.content.content_extractor import ContentExtractor
+    from app.application.services.source_content_backfill_service import (
+        SourceContentBackfillService,
+    )
+    from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
+    from app.di.platform_extractors import build_registered_platform_router
+    from app.di.shared import build_core_dependencies
+    from app.infrastructure.persistence.repositories.crawl_result_repository import (
+        CrawlResultRepositoryAdapter,
+    )
+    from app.infrastructure.persistence.repositories.llm_repository import (
+        LLMRepositoryAdapter,
+    )
+    from app.infrastructure.persistence.repositories.request_repository import (
+        RequestRepositoryAdapter,
+    )
+    from app.infrastructure.persistence.repositories.summary_repository import (
+        SummaryRepositoryAdapter,
+    )
+
+    core = build_core_dependencies(cfg, db)
+    source_extractor = ContentExtractor(
+        cfg=cfg,
+        db=db,
+        firecrawl=core.scraper_chain,
+        response_formatter=core.response_formatter,
+        audit_func=core.audit_sink,
+        sem=core.semaphore_factory,
+        quality_llm_client=core.llm_client,
+        platform_router=build_registered_platform_router(
+            cfg=cfg,
+            db=db,
+            scraper=core.scraper_chain,
+            response_formatter=core.response_formatter,
+            audit_func=core.audit_sink,
+            sem=core.semaphore_factory,
+            quality_llm_client=core.llm_client,
+        ),
+    )
+    summary_repository = SummaryRepositoryAdapter(db)
+    request_repository = RequestRepositoryAdapter(db)
+    crawl_repository = CrawlResultRepositoryAdapter(db)
+    summary_reader = SummaryReadModelUseCase(
+        summary_repository,
+        request_repository,
+        crawl_repository,
+        LLMRepositoryAdapter(db),
+    )
+    return SourceContentReconcileTaskRuntime(
+        cfg=cfg,
+        db=db,
+        service=SourceContentBackfillService(
+            summary_reader=summary_reader,
+            source_extractor=source_extractor,
+            source_writer=crawl_repository,
+            persist_source_content=cfg.retention.persist_reader_source_content,
         ),
     )

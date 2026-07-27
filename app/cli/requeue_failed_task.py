@@ -27,6 +27,7 @@ _TASK_MODULES = (
     "app.tasks.langgraph_prune",
     "app.tasks.purge_raw_data",
     "app.tasks.reconcile_vector_index",
+    "app.tasks.reconcile_source_content",
     "app.tasks.rss",
     "app.tasks.url_processing",
     "app.tasks.x_bookmarks_sync",

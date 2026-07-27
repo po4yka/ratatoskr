@@ -31,3 +31,6 @@ def test_source_artifact_violation_has_critical_alert() -> None:
     alert = alerts["RatatoskrSourceArtifactInvariantViolation"]
     assert alert["expr"] == "increase(ratatoskr_source_artifact_invariant_violations_total[5m]) > 0"
     assert alert["labels"]["severity"] == "critical"
+    assert alerts["RatatoskrSourceContentBacklog"]["expr"] == (
+        "ratatoskr_source_content_missing > 0"
+    )

@@ -127,6 +127,15 @@ groups:
           summary: "A URL request tried to complete without durable source content"
           description: "The source-artifact completion guard rejected at least one request at stage {{ $labels.stage }}. Inspect the summarization and persistence logs before retrying it."
 
+      - alert: RatatoskrSourceContentBacklog
+        expr: ratatoskr_source_content_missing > 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Completed summaries still lack Reader source content"
+          description: "{{ $value }} missing source rows remained after scheduled reconciliation. Inspect ratatoskr.source_content.reconcile task logs."
+
   - name: ratatoskr_circuit_breakers
     rules:
       # Circuit breaker open

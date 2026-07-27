@@ -52,6 +52,26 @@ class RetentionConfig(BaseModel):
         validation_alias="RETENTION_READER_SOURCE_CONTENT_DAYS",
         description="Days to keep normalized Reader source text. 0 = never purge.",
     )
+    source_content_reconcile_enabled: bool = Field(
+        default=True,
+        validation_alias="SOURCE_CONTENT_RECONCILE_ENABLED",
+        description="Periodically repair completed summaries missing normalized Reader content.",
+    )
+    source_content_reconcile_cron: str = Field(
+        default="20 4 * * *",
+        validation_alias="SOURCE_CONTENT_RECONCILE_CRON",
+        description="UTC cron expression for Reader source-content reconciliation.",
+    )
+    source_content_reconcile_batch_size: int = Field(
+        default=25,
+        validation_alias="SOURCE_CONTENT_RECONCILE_BATCH_SIZE",
+        description="Maximum missing Reader rows scanned per reconciliation run.",
+    )
+    source_content_reconcile_network_limit: int = Field(
+        default=5,
+        validation_alias="SOURCE_CONTENT_RECONCILE_NETWORK_LIMIT",
+        description="Maximum network re-extractions per reconciliation run.",
+    )
     llm_payload_days: int = Field(
         default=90,
         validation_alias=AliasChoices(
@@ -101,12 +121,42 @@ class RetentionConfig(BaseModel):
             raise ValueError(msg)
         return cron
 
+    @field_validator("source_content_reconcile_cron", mode="before")
+    @classmethod
+    def _validate_source_content_reconcile_cron(cls, value: Any) -> str:
+        if value in (None, ""):
+            return "20 4 * * *"
+        cron = str(value).strip()
+        if len(cron.split()) != 5:
+            msg = "Source content reconcile cron must be a valid 5-field expression"
+            raise ValueError(msg)
+        return cron
+
     @field_validator("batch_size", mode="before")
     @classmethod
     def _validate_batch_size(cls, value: Any) -> int:
         parsed = int(str(value)) if value not in (None, "") else 500
         if parsed < 1 or parsed > 10_000:
             msg = "Retention batch_size must be between 1 and 10000"
+            raise ValueError(msg)
+        return parsed
+
+    @field_validator(
+        "source_content_reconcile_batch_size",
+        "source_content_reconcile_network_limit",
+        mode="before",
+    )
+    @classmethod
+    def _validate_source_content_reconcile_limits(
+        cls,
+        value: Any,
+        info: ValidationInfo,
+    ) -> int:
+        default = cls.model_fields[info.field_name].default
+        parsed = int(str(value)) if value not in (None, "") else default
+        minimum = 1 if info.field_name == "source_content_reconcile_batch_size" else 0
+        if parsed < minimum or parsed > 10_000:
+            msg = f"{info.field_name} must be between {minimum} and 10000"
             raise ValueError(msg)
         return parsed
 
@@ -154,6 +204,11 @@ class RetentionConfig(BaseModel):
     @property
     def persist_raw_extracted_content(self) -> bool:
         """Whether new crawl-result rows should store raw markdown/html payloads."""
+        return not self.privacy_no_retention_mode
+
+    @property
+    def persist_reader_source_content(self) -> bool:
+        """Whether normalized Reader source bodies may be persisted."""
         return not self.privacy_no_retention_mode
 
     @property

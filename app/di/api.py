@@ -219,8 +219,8 @@ async def build_api_runtime(
     source_content_backfill_service = SourceContentBackfillService(
         summary_reader=summary_read_model_use_case,
         source_extractor=url_processor.content_extractor,
-        request_writer=request_repository,
-        persist_source_content=app_cfg.retention.persist_raw_extracted_content,
+        source_writer=crawl_result_repository,
+        persist_source_content=app_cfg.retention.persist_reader_source_content,
     )
     search_read_model_use_case = SearchReadModelUseCase(
         topic_search_repository=build_topic_search_repository(database),

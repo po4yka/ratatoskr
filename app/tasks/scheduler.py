@@ -130,6 +130,17 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
+        if cfg.retention.source_content_reconcile_enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.source_content.reconcile",
+                    cron=cfg.retention.source_content_reconcile_cron,
+                    labels={"job": "source_content_reconcile"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+
         if cfg.x_bookmarks.enabled:
             tasks.append(
                 ScheduledTask(

@@ -175,6 +175,32 @@ def test_vector_reconcile_schedule_skipped_when_disabled(monkeypatch):
     assert not any(t.task_name == "ratatoskr.vector.reconcile" for t in tasks)
 
 
+def test_source_content_reconcile_schedule_uses_retention_config(monkeypatch):
+    mod = _load_scheduler_module(monkeypatch)
+
+    cfg = MagicMock()
+    cfg.digest.enabled = False
+    cfg.rss.enabled = False
+    cfg.signal_ingestion.any_enabled = False
+    cfg.github.sync_enabled = False
+    cfg.vector_reconcile.enabled = False
+    cfg.retention.enabled = False
+    cfg.retention.source_content_reconcile_enabled = True
+    cfg.retention.source_content_reconcile_cron = "20 4 * * *"
+    cfg.x_bookmarks.enabled = False
+    cfg.git_backup.enabled = False
+    cfg.ai_backup.enabled = False
+    cfg.langgraph_checkpoint.enabled = False
+
+    monkeypatch.setattr(mod, "load_config", lambda: cfg)
+    tasks = mod._AppConfigScheduleSource()._build_tasks()
+
+    reconcile = [task for task in tasks if task.task_name == "ratatoskr.source_content.reconcile"]
+    assert len(reconcile) == 1
+    assert reconcile[0].cron == "20 4 * * *"
+    assert reconcile[0].labels == {"job": "source_content_reconcile"}
+
+
 def test_x_bookmarks_sync_schedule_added_when_enabled(monkeypatch):
     mod = _load_scheduler_module(monkeypatch)
 

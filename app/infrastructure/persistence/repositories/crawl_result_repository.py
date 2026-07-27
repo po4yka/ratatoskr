@@ -159,6 +159,52 @@ class CrawlResultRepositoryAdapter:
                 raise RuntimeError(msg)
             return int(row_id)
 
+    async def async_materialize_source_content(
+        self,
+        request_id: int,
+        content_text: str,
+        *,
+        source_url: str | None = None,
+        correlation_id: str | None = None,
+        content_source: str | None = None,
+    ) -> int:
+        """Persist normalized content while preserving existing provider payloads."""
+        now = _utcnow()
+        insert_values = {
+            "request_id": request_id,
+            "firecrawl_success": None,
+            "content_text": content_text,
+            "source_url": source_url,
+            "correlation_id": correlation_id,
+            "winning_provider": content_source,
+            "status": "ok",
+        }
+        update_values: dict[str, Any] = {
+            "content_text": content_text,
+            "updated_at": now,
+            "server_version": _next_server_version(),
+            "is_deleted": False,
+            "deleted_at": None,
+        }
+        if source_url is not None:
+            update_values["source_url"] = source_url
+        if correlation_id is not None:
+            update_values["correlation_id"] = correlation_id
+        async with self._database.transaction() as session:
+            row_id = await session.scalar(
+                insert(CrawlResult)
+                .values(**insert_values)
+                .on_conflict_do_update(
+                    index_elements=[CrawlResult.request_id],
+                    set_=update_values,
+                )
+                .returning(CrawlResult.id)
+            )
+            if row_id is None:
+                msg = f"source content materialization returned no id for request_id={request_id}"
+                raise RuntimeError(msg)
+            return int(row_id)
+
     async def async_get_max_server_version(self, user_id: int) -> int | None:
         """Return the maximum server_version across crawl results owned by *user_id*."""
         async with self._database.session() as session:

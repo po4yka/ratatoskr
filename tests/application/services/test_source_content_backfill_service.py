@@ -45,16 +45,16 @@ def _service(
             return_value=extracted,
         )
     )
-    request_writer = SimpleNamespace(async_update_request_content_text=AsyncMock(return_value=None))
+    source_writer = SimpleNamespace(async_materialize_source_content=AsyncMock(return_value=17))
     return (
         SourceContentBackfillService(
             summary_reader=summary_reader,
             source_extractor=source_extractor,
-            request_writer=request_writer,
+            source_writer=source_writer,
             persist_source_content=persist_source_content,
         ),
         source_extractor.extract_content_pure,
-        request_writer.async_update_request_content_text,
+        source_writer.async_materialize_source_content,
     )
 
 
@@ -77,12 +77,19 @@ async def test_backfill_reextracts_and_persists_missing_source_content() -> None
         request_id=42,
         update_request_on_failure=False,
     )
-    update.assert_awaited_once_with(42, "Restored article body.")
+    update.assert_awaited_once_with(
+        42,
+        "Restored article body.",
+        source_url="https://example.com/article",
+        correlation_id="source-cid",
+        content_source="network:markdown",
+    )
 
 
 @pytest.mark.asyncio
 async def test_backfill_is_idempotent_when_content_already_exists() -> None:
-    context = _context(content_text="Already restored.")
+    context = _context()
+    context["crawl_result"] = {"content_text": "Already restored."}
     service, extract, update = _service(context=context)
 
     result = await service.backfill(user_id=7, summary_id=1402)
@@ -103,6 +110,37 @@ async def test_backfill_does_not_treat_legacy_url_as_source_content() -> None:
     assert result.reextracted is True
     extract.assert_awaited_once()
     update.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_backfill_materializes_local_raw_content_before_network() -> None:
+    context = _context()
+    context["crawl_result"] = {"content_markdown": "# Locally preserved article"}
+    service, extract, update = _service(context=context)
+
+    result = await service.backfill(user_id=7, summary_id=1402)
+
+    assert result.reextracted is False
+    assert result.content_source == "markdown"
+    extract.assert_not_awaited()
+    update.assert_awaited_once_with(
+        42,
+        "# Locally preserved article",
+        source_url="https://example.com/article",
+        correlation_id="source-cid",
+        content_source="local:markdown",
+    )
+
+
+@pytest.mark.asyncio
+async def test_backfill_honors_network_budget_after_local_sources_are_exhausted() -> None:
+    service, extract, update = _service(context=_context())
+
+    with pytest.raises(SourceContentBackfillUnavailableError, match="budget"):
+        await service.backfill(user_id=7, summary_id=1402, allow_reextract=False)
+
+    extract.assert_not_awaited()
+    update.assert_not_awaited()
 
 
 @pytest.mark.asyncio

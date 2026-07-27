@@ -54,6 +54,7 @@ The diagram intentionally shows only the request-and-summary spine. Foreign keys
 - PostgreSQL full-text search uses `TSVECTOR` columns and GIN indexes where defined by the owning model or migration.
 - Qdrant is a derived vector index, not the relational source of truth. Reconciliation behavior is documented in [Vector index synchronization](../vector-index-sync.md).
 - `crawl_results.content_text` is the normalized durable source body used by graph resume and Reader; `crawl_results.id` is the source artifact handle. Raw provider fields use `RETENTION_RAW_EXTRACTED_CONTENT_DAYS`, while this normalized body has its own `RETENTION_READER_SOURCE_CONTENT_DAYS` policy and is retained indefinitely by default (`0`).
+- `ratatoskr.source_content.reconcile` repairs completed legacy rows that lack this body. It materializes local markdown/HTML/request text first and spends at most `SOURCE_CONTENT_RECONCILE_NETWORK_LIMIT` network attempts per run. Preview the backlog without writes with `python -m app.cli.reconcile_source_content`.
 - Secrets such as GitHub tokens are encrypted before persistence; application logs must not expose their plaintext values.
 - `ai_account_backups.status` records backup outcome; `authorization_status` and `authorization_checked_at` independently record whether the encrypted ChatGPT/Claude session is missing, unverified, valid, or expired.
 

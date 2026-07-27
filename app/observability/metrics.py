@@ -292,7 +292,13 @@ from app.observability.metrics_social import (
 # ---------------------------------------------------------------------------
 from app.observability.metrics_source_content import (
     SOURCE_ARTIFACT_INVARIANT_VIOLATIONS_TOTAL,
+    SOURCE_CONTENT_MISSING,
+    SOURCE_CONTENT_RECONCILE_ROWS_TOTAL,
+    SOURCE_CONTENT_RECONCILE_RUNS_TOTAL,
     record_source_artifact_invariant_violation,
+    record_source_content_reconcile_rows,
+    record_source_content_reconcile_run,
+    set_source_content_missing,
 )
 
 # ---------------------------------------------------------------------------
@@ -469,7 +475,13 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "set_url_processor_in_flight",
     # Durable Reader source content
     "SOURCE_ARTIFACT_INVARIANT_VIOLATIONS_TOTAL",
+    "SOURCE_CONTENT_MISSING",
+    "SOURCE_CONTENT_RECONCILE_ROWS_TOTAL",
+    "SOURCE_CONTENT_RECONCILE_RUNS_TOTAL",
     "record_source_artifact_invariant_violation",
+    "record_source_content_reconcile_rows",
+    "record_source_content_reconcile_run",
+    "set_source_content_missing",
     # Backups
     "BACKUP_ITEMS",
     "BACKUP_RUNS_TOTAL",

@@ -283,6 +283,17 @@ class CrawlResultRepositoryPort(Protocol):
     ) -> int:
         """Insert or replace the crawl artifact for a request."""
 
+    async def async_materialize_source_content(
+        self,
+        request_id: int,
+        content_text: str,
+        *,
+        source_url: str | None = None,
+        correlation_id: str | None = None,
+        content_source: str | None = None,
+    ) -> int:
+        """Materialize normalized Reader content without clearing richer crawl fields."""
+
     async def async_get_all_for_user(self, user_id: int, *, since: int = 0) -> list[dict[str, Any]]:
         """Return crawl rows for sync operations (``since>0`` filters by cursor)."""
 

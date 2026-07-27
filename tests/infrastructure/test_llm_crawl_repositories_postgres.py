@@ -4,10 +4,10 @@ import os
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from app.config.database import DatabaseConfig
-from app.db.models import CrawlResult, LLMAttemptTrigger, LLMCall, Request
+from app.db.models import CrawlResult, LLMAttemptTrigger, LLMCall, Request, Summary
 from app.db.session import Database
 from app.infrastructure.persistence.repositories.crawl_result_repository import (
     CrawlResultRepositoryAdapter,
@@ -34,6 +34,7 @@ async def database() -> AsyncGenerator[Database]:
     await db.migrate()
     async with db.transaction() as session:
         await session.execute(delete(LLMCall))
+        await session.execute(delete(Summary))
         await session.execute(delete(CrawlResult))
         await session.execute(delete(Request))
     try:
@@ -41,6 +42,7 @@ async def database() -> AsyncGenerator[Database]:
     finally:
         async with db.transaction() as session:
             await session.execute(delete(LLMCall))
+            await session.execute(delete(Summary))
             await session.execute(delete(CrawlResult))
             await session.execute(delete(Request))
         await db.dispose()
@@ -209,3 +211,87 @@ async def test_crawl_result_repository_backfill_replaces_missing_body(database: 
     assert row["metadata_json"] == {"title": "Restored title"}
     assert row["winning_provider"] == "scrapling"
     assert row["attempt_log"] == [{"provider": "scrapling", "status": "success"}]
+
+
+@pytest.mark.asyncio
+async def test_materialize_source_content_preserves_raw_provider_fields(
+    database: Database,
+) -> None:
+    request = await _request(database, user_id=1004)
+    repo = CrawlResultRepositoryAdapter(database)
+    artifact_id = await repo.async_insert_crawl_result(
+        request.id,
+        success=True,
+        markdown="# Raw provider article",
+        html="<h1>Raw provider article</h1>",
+        metadata_json={"title": "Original title"},
+        source_url=request.normalized_url,
+        winning_provider="scrapling",
+    )
+
+    materialized_id = await repo.async_materialize_source_content(
+        request.id,
+        "Normalized article body.",
+        source_url=request.normalized_url,
+        correlation_id="reconcile-source",
+        content_source="local:markdown",
+    )
+
+    assert materialized_id == artifact_id
+    row = await repo.async_get_crawl_result_by_request(request.id)
+    assert row is not None
+    assert row["content_text"] == "Normalized article body."
+    assert row["content_markdown"] == "# Raw provider article"
+    assert row["content_html"] == "<h1>Raw provider article</h1>"
+    assert row["metadata_json"] == {"title": "Original title"}
+    assert row["winning_provider"] == "scrapling"
+
+
+@pytest.mark.asyncio
+async def test_source_reconcile_scan_finds_only_missing_normalized_content(
+    database: Database,
+) -> None:
+    from app.tasks.reconcile_source_content import _fetch_missing_source_rows
+
+    local_request = await _request(database, user_id=1101)
+    network_request = await _request(database, user_id=1102)
+    durable_request = await _request(database, user_id=1103)
+    async with database.transaction() as session:
+        await session.execute(
+            update(Request)
+            .where(Request.id.in_([local_request.id, network_request.id, durable_request.id]))
+            .values(status="ok")
+        )
+        for request in (local_request, network_request, durable_request):
+            session.add(
+                Summary(
+                    request_id=request.id,
+                    lang="en",
+                    json_payload={"summary_250": "summary"},
+                )
+            )
+        session.add(
+            CrawlResult(
+                request_id=local_request.id,
+                firecrawl_success=True,
+                content_markdown="# Locally recoverable",
+            )
+        )
+        session.add(
+            CrawlResult(
+                request_id=durable_request.id,
+                firecrawl_success=True,
+                content_text="Already normalized.",
+            )
+        )
+
+    rows = await _fetch_missing_source_rows(database, limit=10)
+
+    assert {row["request_id"] for row in rows} == {
+        local_request.id,
+        network_request.id,
+    }
+    by_request = {row["request_id"]: row for row in rows}
+    assert by_request[local_request.id]["has_local_source"] is True
+    assert by_request[network_request.id]["has_local_source"] is False
+    assert {row["missing_total"] for row in rows} == {2}

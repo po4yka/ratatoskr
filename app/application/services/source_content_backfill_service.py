@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.core.html_utils import html_to_text
 from app.core.logging_utils import get_logger, redact_url_for_logging
 
 logger = get_logger(__name__)
@@ -29,12 +30,16 @@ class SourceContentExtractor(Protocol):
     ) -> tuple[str, str, dict[str, Any]]: ...
 
 
-class RequestContentWriter(Protocol):
-    async def async_update_request_content_text(
+class SourceContentWriter(Protocol):
+    async def async_materialize_source_content(
         self,
         request_id: int,
         content_text: str,
-    ) -> None: ...
+        *,
+        source_url: str | None = None,
+        correlation_id: str | None = None,
+        content_source: str | None = None,
+    ) -> int: ...
 
 
 class SourceContentBackfillNotFoundError(Exception):
@@ -66,12 +71,12 @@ class SourceContentBackfillService:
         *,
         summary_reader: SummaryContextReader,
         source_extractor: SourceContentExtractor,
-        request_writer: RequestContentWriter,
+        source_writer: SourceContentWriter,
         persist_source_content: bool,
     ) -> None:
         self._summary_reader = summary_reader
         self._source_extractor = source_extractor
-        self._request_writer = request_writer
+        self._source_writer = source_writer
         self._persist_source_content = persist_source_content
 
     async def backfill(
@@ -80,6 +85,7 @@ class SourceContentBackfillService:
         user_id: int,
         summary_id: int,
         operation_correlation_id: str | None = None,
+        allow_reextract: bool = True,
     ) -> SourceContentBackfillResult:
         context = await self._summary_reader.get_summary_context_for_user(user_id, summary_id)
         if not context:
@@ -90,15 +96,14 @@ class SourceContentBackfillService:
         if request_id <= 0:
             raise SourceContentBackfillUnavailableError("Source request is missing")
 
-        existing = _existing_content(context)
-        if existing is not None:
-            content_source, content_value = existing
+        durable = _durable_content(context)
+        if durable is not None:
             return SourceContentBackfillResult(
                 summary_id=summary_id,
                 request_id=request_id,
                 reextracted=False,
-                content_source=content_source,
-                content_length=len(content_value),
+                content_source="text",
+                content_length=len(durable),
             )
 
         if not self._persist_source_content:
@@ -109,12 +114,32 @@ class SourceContentBackfillService:
         source_url = str(
             request_data.get("input_url") or request_data.get("normalized_url") or ""
         ).strip()
-        if not source_url:
-            raise SourceContentBackfillUnavailableError("Source URL is missing")
-
         source_correlation_id = (
             str(request_data.get("correlation_id") or "").strip() or operation_correlation_id
         )
+        recoverable = _recoverable_content(context)
+        if recoverable is not None:
+            content_source, content_value = recoverable
+            await self._source_writer.async_materialize_source_content(
+                request_id,
+                content_value,
+                source_url=source_url or None,
+                correlation_id=source_correlation_id,
+                content_source=f"local:{content_source}",
+            )
+            return SourceContentBackfillResult(
+                summary_id=summary_id,
+                request_id=request_id,
+                reextracted=False,
+                content_source=content_source,
+                content_length=len(content_value),
+            )
+
+        if not allow_reextract:
+            raise SourceContentBackfillUnavailableError("Network re-extraction budget exhausted")
+        if not source_url:
+            raise SourceContentBackfillUnavailableError("Source URL is missing")
+
         try:
             (
                 content_text,
@@ -144,7 +169,13 @@ class SourceContentBackfillService:
         if not content_text:
             raise SourceContentBackfillFailedError(summary_id)
 
-        await self._request_writer.async_update_request_content_text(request_id, content_text)
+        await self._source_writer.async_materialize_source_content(
+            request_id,
+            content_text,
+            source_url=source_url,
+            correlation_id=source_correlation_id,
+            content_source=f"network:{content_source}",
+        )
         logger.info(
             "source_content_backfill_completed",
             extra={
@@ -165,7 +196,13 @@ class SourceContentBackfillService:
         )
 
 
-def _existing_content(context: dict[str, Any]) -> tuple[str, str] | None:
+def _durable_content(context: dict[str, Any]) -> str | None:
+    crawl_result = context.get("crawl_result") or {}
+    value = crawl_result.get("content_text")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _recoverable_content(context: dict[str, Any]) -> tuple[str, str] | None:
     crawl_result = context.get("crawl_result") or {}
     request_data = context.get("request") or {}
     transcription_artifact = context.get("transcription_artifact") or {}
@@ -175,11 +212,10 @@ def _existing_content(context: dict[str, Any]) -> tuple[str, str] | None:
         if value
     }
     candidates = (
-        ("text", crawl_result.get("content_text")),
         ("markdown", crawl_result.get("content_markdown")),
-        ("html", crawl_result.get("content_html")),
         ("text", request_data.get("content_text")),
         ("transcript", transcription_artifact.get("plain_text")),
+        ("html", crawl_result.get("content_html")),
     )
     for content_source, value in candidates:
         if (
@@ -187,5 +223,7 @@ def _existing_content(context: dict[str, Any]) -> tuple[str, str] | None:
             and value.strip()
             and not (content_source == "text" and value.strip() in request_urls)
         ):
-            return content_source, value
+            content_value = html_to_text(value) if content_source == "html" else value.strip()
+            if content_value:
+                return content_source, content_value
     return None
