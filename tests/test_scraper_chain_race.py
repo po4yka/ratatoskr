@@ -70,6 +70,30 @@ class TestFreeTierRace:
         assert cancelled == ["defuddle"]
 
     @pytest.mark.asyncio(loop_scope="function")
+    async def test_simultaneous_successes_select_configured_winner_in_telemetry(self):
+        """A race may finish twice in one loop tick; payload and winner must agree."""
+        scrapling = _MockProvider(
+            name="scrapling",
+            result=_ok_result(markdown="# Scrapling configured first"),
+        )
+        defuddle = _MockProvider(
+            name="defuddle",
+            result=_ok_result(markdown="# Defuddle configured second"),
+        )
+
+        chain = ContentScraperChain([scrapling, defuddle], race_enabled=True)
+        result = await chain.scrape_markdown("https://example.com")
+
+        assert result.content_markdown == "# Scrapling configured first"
+        assert result.options_json["_chain_winning_provider"] == "scrapling"
+        successful = [
+            entry["provider"]
+            for entry in result.options_json["_chain_attempt_log"]
+            if entry["status"] == "success"
+        ]
+        assert successful == ["scrapling", "defuddle"]
+
+    @pytest.mark.asyncio(loop_scope="function")
     async def test_free_winner_short_circuits_browser_tier(self):
         """Free-tier winner means browser providers never run.
 

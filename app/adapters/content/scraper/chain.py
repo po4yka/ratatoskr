@@ -431,8 +431,9 @@ class ContentScraperChain:
             if error_msg is not None:
                 errors.append(error_msg)
             if result is not None:
+                recorder.select_winner(provider.provider_name)
                 chain_span.set_attribute(SCRAPER_WINNER, provider.provider_name)
-                chain_span.set_attribute(SCRAPER_ATTEMPTS, len(errors) + 1)
+                chain_span.set_attribute(SCRAPER_ATTEMPTS, len(recorder.entries))
                 if result.content_markdown:
                     chain_span.set_attribute(SCRAPER_CONTENT_LEN, len(result.content_markdown))
                 self._log_chain_success(provider.provider_name, url, result, request_id, errors)
@@ -506,6 +507,7 @@ class ContentScraperChain:
             ): provider
             for provider in providers
         }
+        task_order = {task: index for index, task in enumerate(tasks)}
         pending = set(tasks)
         # Track tasks from the last asyncio.wait `done` set that were not yet
         # consumed when the inner for-loop broke early (winner found while
@@ -520,7 +522,7 @@ class ContentScraperChain:
             while pending:
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 unprocessed_done = set()
-                for finished in done:
+                for finished in sorted(done, key=task_order.__getitem__):
                     provider = tasks[finished]
                     try:
                         result, error_msg = finished.result()
@@ -559,8 +561,9 @@ class ContentScraperChain:
                 await asyncio.gather(*losers, return_exceptions=True)
 
         if winner is not None:
+            recorder.select_winner(winner_provider or "unknown")
             chain_span.set_attribute(SCRAPER_WINNER, winner_provider or "unknown")
-            chain_span.set_attribute(SCRAPER_ATTEMPTS, len(errors) + 1)
+            chain_span.set_attribute(SCRAPER_ATTEMPTS, len(recorder.entries))
             if winner.content_markdown:
                 chain_span.set_attribute(SCRAPER_CONTENT_LEN, len(winner.content_markdown))
             self._log_chain_success(winner_provider or "unknown", url, winner, request_id, errors)

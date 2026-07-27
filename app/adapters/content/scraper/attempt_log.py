@@ -36,12 +36,23 @@ class ScraperAttemptRecorder:
 
     def __init__(self) -> None:
         self.entries: list[ScraperAttemptEntry] = []
+        self._selected_winner: str | None = None
 
     def record(self, entry: ScraperAttemptEntry) -> None:
         self.entries.append(entry)
 
+    def select_winner(self, provider: str) -> None:
+        """Record the provider whose acceptable response the chain returned."""
+        if not any(
+            entry.provider == provider and entry.status == "success" for entry in self.entries
+        ):
+            raise ValueError(f"cannot select non-successful scraper provider {provider!r}")
+        self._selected_winner = provider
+
     def winner(self) -> str | None:
         """Provider that produced the successful result, if any."""
+        if self._selected_winner is not None:
+            return self._selected_winner
         for entry in self.entries:
             if entry.status == "success":
                 return entry.provider
