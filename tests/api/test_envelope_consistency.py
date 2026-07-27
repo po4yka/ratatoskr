@@ -153,6 +153,8 @@ async def _seed_device_state(redis: fakeredis.FakeRedis) -> None:
 
 
 def test_github_pat_validation_error_uses_standard_envelope(github_auth_client: Any) -> None:
+    _override_use_case(github_auth_client, _UseCase())
+
     response = github_auth_client.post(
         "/v1/auth/github/pat",
         json={"token": "short"},
@@ -277,6 +279,7 @@ def test_github_device_poll_validation_error_uses_standard_envelope(
     fake_redis: fakeredis.FakeRedis,
 ) -> None:
     _inject_redis(github_auth_client, fake_redis)
+    _override_use_case(github_auth_client, _UseCase())
 
     response = github_auth_client.post(
         "/v1/auth/github/device/poll",
