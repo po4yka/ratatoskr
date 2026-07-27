@@ -25,6 +25,14 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _normalize_search_title(*candidates: Any) -> str:
+    """Return the first usable title without trusting persisted/provider types."""
+    return next(
+        (candidate for candidate in candidates if isinstance(candidate, str) and candidate),
+        "Untitled",
+    )
+
+
 def build_fts_hits(fts_results: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     hits: dict[int, dict[str, Any]] = {}
     for idx, row in enumerate(fts_results):
@@ -134,13 +142,18 @@ def build_ranked_search_rows(
         semantic_score = float(semantic_hit["score"]) if semantic_hit else 0.0
         freshness = freshness_score(request.get("created_at"))
         popularity = popularity_score(summary, payload)
+        title = _normalize_search_title(
+            semantic_hit["row"].title if semantic_hit else None,
+            fts_hit["row"].get("title") if fts_hit else None,
+            metadata.get("title"),
+        )
         snippet = (
             (semantic_hit["row"].snippet if semantic_hit and semantic_hit["row"].snippet else None)
             or (fts_hit["row"].get("snippet") if fts_hit else None)
             or payload.get("summary_250")
             or payload.get("tldr", "")
         )
-        lexical = lexical_overlap(q, f"{metadata.get('title', '')} {snippet or ''}")
+        lexical = lexical_overlap(q, f"{title} {snippet or ''}")
         score = score_result(
             mode=resolved_mode,
             fts_score=fts_score,
@@ -161,9 +174,7 @@ def build_ranked_search_rows(
                 "request_id": req_id,
                 "summary_id": summary.get("id"),
                 "url": request.get("input_url") or request.get("normalized_url"),
-                "title": (semantic_hit["row"].title if semantic_hit else None)
-                or (fts_hit["row"].get("title") if fts_hit else None)
-                or metadata.get("title", "Untitled"),
+                "title": title,
                 "domain": metadata.get("domain")
                 or (fts_hit["row"].get("source") if fts_hit else ""),
                 "snippet": snippet,
@@ -246,7 +257,8 @@ def build_semantic_filtered_rows(
         snippet = result.snippet or json_payload.get("summary_250") or json_payload.get("tldr")
         freshness = freshness_score(request.get("created_at"))
         popularity = popularity_score(summary, json_payload)
-        lexical = lexical_overlap(q, f"{metadata.get('title', '')} {snippet or ''}")
+        title = _normalize_search_title(result.title, metadata.get("title"))
+        lexical = lexical_overlap(q, f"{title} {snippet or ''}")
         relevance = score_result(
             mode="semantic",
             fts_score=0.0,
@@ -267,7 +279,7 @@ def build_semantic_filtered_rows(
                 "request_id": result.request_id,
                 "summary_id": summary.get("id"),
                 "url": result.url or request.get("input_url") or request.get("normalized_url"),
-                "title": result.title or metadata.get("title", "Untitled"),
+                "title": title,
                 "domain": metadata.get("domain") or metadata.get("source", ""),
                 "snippet": snippet,
                 "tldr": json_payload.get("tldr", ""),
