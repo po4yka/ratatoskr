@@ -140,6 +140,26 @@ class TestPaidTierSerial:
         assert result.content_markdown == "# Scrapling"
         assert len(firecrawl.calls) == 0
 
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_self_hosted_firecrawl_runs_before_browser_tier(self):
+        """The factory's runtime provider name must remain in the paid tier."""
+        scrapling = _MockProvider(name="scrapling", result=_error_result(error="failed"))
+        firecrawl = _MockProvider(
+            name="firecrawl_self_hosted",
+            result=_ok_result(markdown="# Firecrawl"),
+        )
+        playwright = _MockProvider(name="playwright", result=_ok_result(markdown="# Playwright"))
+
+        chain = ContentScraperChain(
+            [scrapling, firecrawl, playwright],
+            race_enabled=True,
+        )
+        result = await chain.scrape_markdown("https://example.com")
+
+        assert result.content_markdown == "# Firecrawl"
+        assert result.options_json["_chain_winning_provider"] == "firecrawl_self_hosted"
+        assert len(playwright.calls) == 0
+
 
 class TestBrowserTierRace:
     @pytest.mark.asyncio(loop_scope="function")

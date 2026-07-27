@@ -98,7 +98,7 @@ _TERMINAL_PAGE_PATTERNS = re.compile(
 _FREE_TIER_PROVIDERS = frozenset(
     {"reddit", "hn", "scrapling", "defuddle", "direct_html", "crawl4ai"}
 )
-_PAID_TIER_PROVIDERS = frozenset({"firecrawl"})
+_PAID_TIER_PROVIDERS = frozenset({"firecrawl", "firecrawl_self_hosted"})
 _BROWSER_TIER_PROVIDERS = frozenset({"playwright", "crawlee", "cloakbrowser", "scrapegraph_ai"})
 _PDF_PROVIDERS = frozenset({"direct_pdf"})
 
