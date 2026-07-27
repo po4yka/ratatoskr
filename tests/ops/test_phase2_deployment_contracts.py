@@ -56,6 +56,39 @@ def test_default_compose_stack_contains_core_services_without_profiles() -> None
     assert services["mobile-api"]["ports"] == ["127.0.0.1:18000:8000"]
 
 
+def test_application_services_default_to_production_and_dev_overlay_opts_out() -> None:
+    services = _compose()["services"]
+    dev_services = _dev_compose()["services"]
+    app_services = (
+        "migrate",
+        "ratatoskr",
+        "worker",
+        "scheduler",
+        "mobile-api",
+        "mcp",
+        "mcp-write",
+        "mcp-public",
+    )
+
+    for name in app_services:
+        env = _env_map(services[name])
+        assert env["APP_ENV"] == "${APP_ENV:-production}"
+        assert env["REDIS_REQUIRED"] == "${REDIS_REQUIRED:-true}"
+        assert env["ALLOWED_CLIENT_IDS"] == (
+            "${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,"
+            "ratatoskr-ios-v1.0,web-v1}"
+        )
+    for name in ("migrate", "ratatoskr", "worker", "scheduler", "mobile-api"):
+        env = _env_map(dev_services[name])
+        assert env["APP_ENV"] == "development"
+        assert env["REDIS_REQUIRED"] == "false"
+        assert env["ALLOWED_CLIENT_IDS"] == ""
+        assert env["AUTH_ALLOW_ANY_CLIENT_ID"] == "true"
+
+    yaml_config = yaml.safe_load((ROOT / "config/ratatoskr.yaml").read_text(encoding="utf-8"))
+    assert yaml_config.get("redis") in (None, {})
+
+
 def test_mobile_api_healthcheck_uses_real_readiness_route() -> None:
     healthcheck = _compose()["services"]["mobile-api"]["healthcheck"]
     command = " ".join(healthcheck["test"])
@@ -568,6 +601,9 @@ def test_pi_deploy_gates_reader_services_and_verifies_release_metadata() -> None
     assert "git status --porcelain --untracked-files=normal" in script
     assert '"APP_BUILD=${GIT_SHA}"' in script
     assert "verify_reader_release_metadata" in script
+    assert "WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT:-1}" in script
+    assert "verify_scraper_runtime" in script
+    assert "ratatoskr-mobile-api python -c 'import fitz" in script
     assert "http://127.0.0.1:18000/v1/meta" in script
     assert '"summaries.content-backfill.v1"' in script
     assert 'data.get("backendRevision")' in script

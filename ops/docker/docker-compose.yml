@@ -7,6 +7,9 @@ services:
     init: true
     command: ["python", "-m", "app.cli.migrate_db"]
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
@@ -48,6 +51,9 @@ services:
     tmpfs:
       - /tmp
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - TEXTACY_ENABLED=1
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
@@ -154,6 +160,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_ENABLED=1
@@ -249,6 +258,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       # DATABASE_URL intentionally absent: scheduler only enqueues to Redis; workers own DB access.
       - REDIS_ENABLED=1
       - REDIS_HOST=redis
@@ -314,6 +326,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - API_WORKERS=${API_WORKERS:-1}
@@ -418,6 +433,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - MCP_ENABLED=true
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
@@ -476,6 +494,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - MCP_ENABLED=true
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
@@ -531,6 +552,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - MCP_ENABLED=true
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0

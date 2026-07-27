@@ -29,11 +29,10 @@
 #   COMPOSE_ENV_FILE    Env file passed to compose       (default: .env)
 #   PI_HEALTH_TIMEOUT_SECONDS  Post-restart health wait   (default: 240)
 #   PI_HEALTH_POLL_SECONDS     Health polling interval    (default: 5)
-#   WITH_PLAYWRIGHT     mobile-api chromium install      (default: 0)
-#                       — the Pi overlay sets SCRAPER_PLAYWRIGHT_ENABLED=false
-#                       for mobile-api, so chromium is unused at runtime and
-#                       carrying it bloats the image by ~4 GB. Override to 1
-#                       only if you need the binaries.
+#   WITH_PLAYWRIGHT     mobile-api chromium install      (default: 1)
+#                       Keep this aligned with the Pi overlay's enabled
+#                       Playwright, Crawlee, and Scrapling browser fallbacks.
+#                       Set to 0 only together with disabling those providers.
 #
 # Compose tags built images as `<project>-<service>` (e.g. docker-ratatoskr).
 # Default project is `docker` to match the running Pi stack (postgres/redis
@@ -60,7 +59,7 @@ RASPI_REMOTE_PATH=${RASPI_REMOTE_PATH:-'~/ratatoskr'}
 COMPOSE_PROJECT=${COMPOSE_PROJECT:-docker}
 COMPOSE_ENV_FILE=${COMPOSE_ENV_FILE:-.env}
 PLATFORM=linux/arm64
-WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT:-0}
+WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT:-1}
 PI_HEALTH_TIMEOUT_SECONDS=${PI_HEALTH_TIMEOUT_SECONDS:-240}
 PI_HEALTH_POLL_SECONDS=${PI_HEALTH_POLL_SECONDS:-5}
 
@@ -579,6 +578,14 @@ print(f"    backend={expected_backend} frontend={expected_frontend} capability={
 PY
 }
 
+verify_scraper_runtime() {
+  echo "==> Verifying scraper runtime dependencies"
+  for container in ratatoskr-bot ratatoskr-mobile-api; do
+    ssh "$RASPI_HOST" "docker exec ${container} python -c 'import os; from playwright.sync_api import sync_playwright; p = sync_playwright().start(); executable = p.chromium.executable_path; assert executable.startswith(\"/ms-playwright\"), executable; assert os.path.isfile(executable) and os.access(executable, os.X_OK), executable; p.stop(); print(executable)'"
+  done
+  ssh "$RASPI_HOST" "docker exec ratatoskr-mobile-api python -c 'import fitz; print(fitz.__doc__.splitlines()[0])'"
+}
+
 if [[ $MIGRATE_ONLY -eq 1 ]]; then
   run_remote_migrations
 elif [[ $RESTART -eq 1 ]]; then
@@ -611,6 +618,7 @@ elif [[ $RESTART -eq 1 ]]; then
   done
   if [[ $release_group_requested -eq 1 ]]; then
     verify_reader_release_metadata
+    verify_scraper_runtime
   fi
 else
   echo "==> Skipping restart (--no-restart). To start manually on the Pi:"
