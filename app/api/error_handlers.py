@@ -10,7 +10,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.api.exceptions import APIException, ErrorCode, ErrorType
 from app.api.models.responses import error_response, make_error
-from app.config import load_config
 from app.core.logging_utils import get_logger, redact_for_logging
 
 logger = get_logger(__name__)
@@ -164,24 +163,17 @@ async def global_exception_handler(request: Request, exc: Exception) -> Response
     correlation_id = getattr(request.state, "correlation_id", None)
 
     logger.error(
-        f"Unhandled exception: {exc}",
-        exc_info=True,
-        extra={"correlation_id": correlation_id, "path": request.url.path},
+        "Unhandled exception",
+        extra={
+            "correlation_id": correlation_id,
+            "exception_type": type(exc).__name__,
+            "path": request.url.path,
+        },
     )
-
-    # Don't leak error details in production. This MUST key off the deployment
-    # environment, not the log level: an operator raising LOG_LEVEL=DEBUG for
-    # troubleshooting must never start returning raw exception text (DB hosts,
-    # internal URLs) to API clients (CWE-209). Fail safe to production behavior
-    # if the deployment flag is unavailable.
-    config = load_config()
-    is_production = getattr(getattr(config, "deployment", None), "is_production_mode", True)
-
-    message = str(exc) if not is_production else "An internal server error occurred"
 
     detail = make_error(
         code=ErrorCode.INTERNAL_ERROR.value,
-        message=message,
+        message="An internal server error occurred",
         error_type=ErrorType.INTERNAL,
         retryable=False,
     )
