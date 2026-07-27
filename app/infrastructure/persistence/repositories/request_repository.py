@@ -15,6 +15,9 @@ from app.domain.models.request import (
     RequestStatus,
     RequestType,
 )
+from app.observability.metrics_source_content import (
+    record_source_artifact_invariant_violation,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -447,7 +450,10 @@ class RequestRepositoryAdapter:
                     server_version=_next_server_version(),
                 )
             )
-            return bool(getattr(result, "rowcount", 0))
+            completed = bool(getattr(result, "rowcount", 0))
+            if not completed:
+                record_source_artifact_invariant_violation(stage="request_completion")
+            return completed
 
     async def async_update_request_status_with_correlation(
         self, request_id: int, status: str, correlation_id: str | None

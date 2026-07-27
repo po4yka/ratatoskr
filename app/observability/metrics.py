@@ -39,6 +39,7 @@ Sub-module layout
 - ``metrics_vector``          — vector store writes + indexing lag
 - ``metrics_digest``          — Telegram channel digest delivery + userbot health
 - ``metrics_scheduler``       — APScheduler / queue depth
+- ``metrics_source_content``  — durable Reader source-content invariant
 - ``metrics_repositories``    — GitHub repo sync (pre-existing sibling module)
 - ``metrics_web_search``      — optional web-search enrichment decisions
 """
@@ -287,6 +288,14 @@ from app.observability.metrics_social import (
 )
 
 # ---------------------------------------------------------------------------
+# Durable Reader source content
+# ---------------------------------------------------------------------------
+from app.observability.metrics_source_content import (
+    SOURCE_ARTIFACT_INVARIANT_VIOLATIONS_TOTAL,
+    record_source_artifact_invariant_violation,
+)
+
+# ---------------------------------------------------------------------------
 # Public status checks
 # ---------------------------------------------------------------------------
 from app.observability.metrics_status import (
@@ -458,6 +467,9 @@ __all__ = [  # noqa: RUF022 — grouped by domain, not alphabetical
     "record_url_enqueue",
     "set_url_processing_queue_depth",
     "set_url_processor_in_flight",
+    # Durable Reader source content
+    "SOURCE_ARTIFACT_INVARIANT_VIOLATIONS_TOTAL",
+    "record_source_artifact_invariant_violation",
     # Backups
     "BACKUP_ITEMS",
     "BACKUP_RUNS_TOTAL",

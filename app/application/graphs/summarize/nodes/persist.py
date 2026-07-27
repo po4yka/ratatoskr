@@ -11,6 +11,9 @@ from app.application.graphs.summarize.nodes._context import load_source_text
 from app.application.graphs.summarize.nodes._span import graph_node
 from app.application.services.summarization.metadata_backfill import backfill_summary_metadata
 from app.domain.models.request import RequestStatus
+from app.observability.metrics_source_content import (
+    record_source_artifact_invariant_violation,
+)
 
 if TYPE_CHECKING:
     from app.application.graphs.summarize.deps import SummarizeDeps
@@ -119,9 +122,11 @@ async def persist(state: SummarizeState, *, deps: SummarizeDeps) -> dict[str, An
     if state.get("durable_source_required"):
         artifact_id = state.get("source_artifact_id")
         if artifact_id is None:
+            record_source_artifact_invariant_violation(stage="graph_persist")
             raise RuntimeError(f"Durable source artifact is missing for request_id={request_id}")
         completed = await deps.requests.async_complete_with_source_artifact(request_id, artifact_id)
         if not completed:
+            record_source_artifact_invariant_violation(stage="graph_persist")
             raise RuntimeError(
                 f"Durable source artifact failed completion guard for request_id={request_id}"
             )

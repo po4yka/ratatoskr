@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from starlette.requests import Request
@@ -481,7 +482,15 @@ async def test_repository_completion_is_fenced_by_token_and_expiry() -> None:
 
 
 @pytest.mark.asyncio
-async def test_repository_completion_rejects_missing_durable_source() -> None:
+async def test_repository_completion_rejects_missing_durable_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    violation = MagicMock()
+    monkeypatch.setattr(
+        "app.infrastructure.persistence.request_processing_job_repository."
+        "record_source_artifact_invariant_violation",
+        violation,
+    )
     session = FakeSession(scalar_results=[False])
     repository = RequestProcessingJobRepository(FakeDatabase(session))
 
@@ -494,6 +503,7 @@ async def test_repository_completion_rejects_missing_durable_source() -> None:
 
     assert completed is False
     assert len(session.executed) == 1
+    violation.assert_called_once_with(stage="job_completion")
 
 
 @pytest.mark.asyncio

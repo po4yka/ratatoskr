@@ -24,6 +24,9 @@ from app.core.logging_utils import get_logger, log_exception
 from app.db.models import CrawlResult, Request, RequestProcessingJob, Summary, model_to_dict
 from app.db.types import _utcnow
 from app.domain.models.request import RequestStatus
+from app.observability.metrics_source_content import (
+    record_source_artifact_invariant_violation,
+)
 
 logger = get_logger(__name__)
 
@@ -257,6 +260,7 @@ class RequestProcessingJobRepository:
                     )
                 )
                 if not durable_source_exists:
+                    record_source_artifact_invariant_violation(stage="job_completion")
                     return False
             result = await session.execute(
                 update(RequestProcessingJob)
@@ -509,6 +513,7 @@ class RequestProcessingJobRepository:
                     )
                 )
                 if not durable_source_exists:
+                    record_source_artifact_invariant_violation(stage="synchronous_completion")
                     msg = (
                         "Refusing synchronous success without durable source "
                         f"for request_id={request_id}"

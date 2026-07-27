@@ -118,6 +118,15 @@ groups:
           summary: "FastAPI 5xx rate exceeds 5%"
           description: "More than 5% of FastAPI requests returned 5xx over five minutes with enough traffic to avoid a low-volume false positive."
 
+      - alert: RatatoskrSourceArtifactInvariantViolation
+        expr: increase(ratatoskr_source_artifact_invariant_violations_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A URL request tried to complete without durable source content"
+          description: "The source-artifact completion guard rejected at least one request at stage {{ $labels.stage }}. Inspect the summarization and persistence logs before retrying it."
+
   - name: ratatoskr_circuit_breakers
     rules:
       # Circuit breaker open
