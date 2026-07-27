@@ -68,7 +68,19 @@ def fake_redis():
         import fakeredis.aioredis
     except (ImportError, TypeError) as exc:
         pytest.skip(f"fakeredis unavailable on this platform: {exc}")
-    return fakeredis.aioredis.FakeRedis(decode_responses=True)
+    fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+    async def eval_script(script: str, _numkeys: int, *args: str) -> int:
+        """Implement the two lock Lua scripts without a system Lua runtime."""
+        key, token = args[0], args[1]
+        if await fake.get(key) != token:
+            return 0
+        if "PEXPIRE" in script:
+            return int(await fake.pexpire(key, int(args[2])))
+        return int(await fake.delete(key))
+
+    fake.eval = eval_script
+    return fake
 
 
 @pytest.fixture
@@ -164,6 +176,8 @@ class TestSchedulerCronWiring:
         cfg.github.sync_enabled = False
         cfg.vector_reconcile.enabled = False
         cfg.retention.enabled = False
+        cfg.retention.source_content_reconcile_enabled = False
+        cfg.retention.source_content_reconcile_cron = "20 4 * * *"
         cfg.x_bookmarks.enabled = False
         cfg.git_backup.enabled = False
         cfg.ai_backup.enabled = False
@@ -231,7 +245,7 @@ class TestDigestBodySmoke:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
 
@@ -253,7 +267,7 @@ class TestDigestBodySmoke:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
 
@@ -271,7 +285,7 @@ class TestDigestBodySmoke:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
             caplog.at_level(logging.INFO, logger="app.tasks.digest"),
         ):
             await _channel_digest_body(cfg)
@@ -301,7 +315,7 @@ class TestRedisLockContention:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _with_redis(fake_redis)),
+            patch("app.tasks.digest.get_redis", _with_redis(fake_redis)),
         ):
             await _channel_digest_body(cfg)
 
@@ -321,7 +335,7 @@ class TestRedisLockContention:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _with_redis(fake_redis)),
+            patch("app.tasks.digest.get_redis", _with_redis(fake_redis)),
         ):
             await _channel_digest_body(cfg)
 
@@ -339,7 +353,7 @@ class TestRedisLockContention:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _with_redis(fake_redis)),
+            patch("app.tasks.digest.get_redis", _with_redis(fake_redis)),
         ):
             await _channel_digest_body(cfg)
             await _channel_digest_body(cfg)
@@ -365,7 +379,7 @@ class TestUserbotSessionReuse:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
 
@@ -382,7 +396,7 @@ class TestUserbotSessionReuse:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
 
@@ -402,7 +416,7 @@ class TestUserbotSessionReuse:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             # Exception is swallowed by the outer try/except in _channel_digest_body
             await _channel_digest_body(cfg)
@@ -426,7 +440,7 @@ class TestUserbotSessionReuse:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
             await _channel_digest_body(cfg)
@@ -550,7 +564,7 @@ class TestFailureModes:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
 
@@ -570,7 +584,7 @@ class TestFailureModes:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
             caplog.at_level(logging.WARNING, logger="app.tasks.digest"),
         ):
             await _channel_digest_body(cfg)
@@ -590,7 +604,7 @@ class TestFailureModes:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
             caplog.at_level(logging.ERROR, logger="app.tasks.digest"),
         ):
             # Must not propagate the exception
@@ -611,7 +625,7 @@ class TestFailureModes:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
 
@@ -641,7 +655,7 @@ class TestFailureModes:
             patch("app.tasks.digest.create_digest_llm_client", return_value=mock_llm),
             patch("app.tasks.digest.create_digest_bot_client", return_value=mock_bot_ctx),
             patch("app.tasks.digest.create_digest_service", return_value=mock_service),
-            patch("app.infrastructure.redis.get_redis", _no_redis()),
+            patch("app.tasks.digest.get_redis", _no_redis()),
         ):
             await _channel_digest_body(cfg)
 

@@ -47,6 +47,11 @@ async def _channel_digest_body(cfg: AppConfig) -> None:
     logger.info("scheduled_digest_starting", extra={"cid": correlation_id})
 
     redis_client = await get_redis(cfg)
+    if redis_client is None:
+        logger.warning(
+            "digest_lock_redis_unavailable",
+            extra={"cid": correlation_id},
+        )
     async with RedisDistributedLock(redis_client, _LOCK_KEY, _LOCK_TTL_SECONDS) as lock_acquired:
         if not lock_acquired:
             logger.warning("digest_lock_held_skipping", extra={"cid": correlation_id})
