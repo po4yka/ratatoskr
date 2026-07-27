@@ -559,16 +559,21 @@ def test_pi_deploy_emits_deploy_version_textfile_metric() -> None:
 
 def test_pi_deploy_gates_reader_services_and_verifies_release_metadata() -> None:
     script = _pi_deploy_script()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "READER_RELEASE_SERVICES=(ratatoskr worker scheduler mobile-api)" in script
     assert 'SERVICES=("${READER_RELEASE_SERVICES[@]}")' in script
     assert "reader-compatible services must deploy together" in script
+    assert "refusing to build from a dirty worktree" in script
+    assert "git status --porcelain --untracked-files=normal" in script
     assert '"APP_BUILD=${GIT_SHA}"' in script
     assert "verify_reader_release_metadata" in script
     assert "http://127.0.0.1:18000/v1/meta" in script
     assert '"summaries.content-backfill.v1"' in script
     assert 'data.get("backendRevision")' in script
     assert 'data.get("frontendRevision")' in script
+    assert "running ${svc} revision" in script
+    assert "pi-deploy:\n\tbash tools/scripts/build-and-deploy-pi.sh $(if " in makefile
 
     for dockerfile_path in RUNTIME_DOCKERFILES:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")

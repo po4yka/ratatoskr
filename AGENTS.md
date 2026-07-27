@@ -91,9 +91,9 @@ python -m app.cli.summary --url <URL>           # CLI test runner
 # Pi deployment: build linux/arm64 image on the Mac, stream to the Pi over
 # SSH, restart via compose. The Pi never runs `docker build`. Requires
 # `ssh raspi`, expects repo at `~/ratatoskr` on the Pi (override with
-# RASPI_REMOTE_PATH). Pass SERVICE=mobile-api to ship the API image instead.
-make pi-deploy                                  # build + ship + restart
-make pi-deploy SERVICE=mobile-api
+# RASPI_REMOTE_PATH). Reader services deploy as one compatibility group.
+make pi-deploy                                  # build + ship + restart reader stack
+make pi-deploy SERVICE=pg-backup                # independent backup sidecar
 bash tools/scripts/build-and-deploy-pi.sh --help
 ```
 

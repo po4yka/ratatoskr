@@ -159,8 +159,10 @@ make pi-deploy-all
 `make pi-deploy-all` ships the bot, worker, scheduler, API, and `pg-backup`
 images, then recreates all five services. The backup sidecar runs one dump on
 startup so the backup directory and node-exporter textfile metric exist before
-the deploy reports it healthy. Use `make pi-deploy SERVICE=mobile-api` or
-`make pi-deploy SERVICE=pg-backup` for a targeted image and the project rollback
+the deploy reports it healthy. `make pi-deploy` updates the bot, worker,
+scheduler, and API as one compatibility group; deploying only one of those
+services is rejected to prevent mixed revisions. Use
+`make pi-deploy SERVICE=pg-backup` only for the independent backup sidecar.
 targets for retained previous images. The Pi does not run `docker build`.
 
 ## Troubleshooting

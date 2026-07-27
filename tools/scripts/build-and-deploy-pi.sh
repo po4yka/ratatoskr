@@ -4,16 +4,14 @@
 #
 # Usage:
 #   tools/scripts/build-and-deploy-pi.sh                                # deploy the compatible reader stack
-#   tools/scripts/build-and-deploy-pi.sh --service mobile-api
+#   tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler mobile-api"
 #   tools/scripts/build-and-deploy-pi.sh --service pg-backup
-#   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --service worker --service scheduler
-#   tools/scripts/build-and-deploy-pi.sh --services "ratatoskr worker scheduler"
 #   tools/scripts/build-and-deploy-pi.sh --all                          # all supported services
 #   tools/scripts/build-and-deploy-pi.sh --no-restart                   # just ship the image(s)
 #   tools/scripts/build-and-deploy-pi.sh --no-cache                     # full rebuild
 #   tools/scripts/build-and-deploy-pi.sh --migrate-only                 # render Alembic SQL dry-run on the Pi
 #   tools/scripts/build-and-deploy-pi.sh --migrate-only --apply         # apply Alembic migrations on the Pi
-#   tools/scripts/build-and-deploy-pi.sh --service ratatoskr --rollback # swap latest/previous and recreate
+#   tools/scripts/build-and-deploy-pi.sh --rollback                      # roll back the compatible reader stack
 #
 # Supported services: ratatoskr, worker, scheduler, mcp, mcp-write,
 # mcp-public, mobile-api, pg-backup. App services sharing ops/docker/Dockerfile
@@ -144,6 +142,12 @@ fi
 
 if [[ $APPLY_MIGRATIONS -eq 1 && $MIGRATE_ONLY -eq 0 ]]; then
   echo "--apply is only valid with --migrate-only" >&2
+  exit 2
+fi
+
+if [[ $ROLLBACK -eq 0 ]] && [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+  echo "ERROR: refusing to build from a dirty worktree because APP_BUILD would not identify its contents" >&2
+  echo "       commit or remove all staged, unstaged, and untracked changes first" >&2
   exit 2
 fi
 
@@ -533,12 +537,22 @@ EOF
 verify_reader_release_metadata() {
   local expected_backend=$GIT_SHA
   local expected_frontend=$FRONTEND_SHA
-  local payload
+  local payload running_revision
   if [[ $ROLLBACK -eq 1 ]]; then
     expected_backend=$(remote_image_label "${COMPOSE_PROJECT}-mobile-api:latest" "org.opencontainers.image.revision")
     expected_frontend=$(ssh "$RASPI_HOST" "docker exec ratatoskr-mobile-api cat /app/app/static/web/.source-commit")
   fi
   echo "==> Verifying reader release metadata"
+  for svc in "${READER_RELEASE_SERVICES[@]}"; do
+    running_revision=$(ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
+      CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null); \
+      [ -n \"\$CID\" ] && docker inspect \"\$CID\" --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}'")
+    if [[ "$running_revision" != "$expected_backend" ]]; then
+      echo "ERROR: running ${svc} revision '${running_revision:-<none>}' does not match '${expected_backend}'" >&2
+      exit 1
+    fi
+    echo "    ${svc}=${running_revision}"
+  done
   payload=$(ssh "$RASPI_HOST" "curl --fail --silent --show-error --max-time 10 http://127.0.0.1:18000/v1/meta")
   META_PAYLOAD="$payload" \
   EXPECTED_BACKEND_SHA="$expected_backend" \
